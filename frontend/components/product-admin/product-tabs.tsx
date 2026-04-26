@@ -8,7 +8,7 @@ export function ProductTabs() {
         <TabsTrigger
           key={item.key}
           value={item.key}
-          className="border border-border bg-background data-[state=active]:border-primary data-[state=active]:bg-primary data-[state=active]:text-primary-foreground"
+          className="cursor-pointer border border-border bg-background data-[state=active]:border-primary data-[state=active]:bg-primary data-[state=active]:text-primary-foreground"
         >
           {item.label}
         </TabsTrigger>
