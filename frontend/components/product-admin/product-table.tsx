@@ -103,7 +103,7 @@ export function ProductTable({
     )
   }
 
-  if (isLoading) {
+  if (isLoading && items.length === 0) {
     return (
       <div className="rounded-xl border border-border bg-card p-6 text-sm text-muted-foreground">
         正在加载商品数据...
@@ -116,6 +116,7 @@ export function ProductTable({
       <div className="flex flex-col gap-2 text-sm text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
         <p>
           共 {total} 条，当前显示 {start}-{end}
+          {isLoading && items.length > 0 ? <span className="ml-2">加载中...</span> : null}
         </p>
         <p>
           第 {page} / {totalPages} 页

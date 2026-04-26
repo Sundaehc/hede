@@ -133,6 +133,7 @@ export function ProductAdminPage() {
             </div>
 
             <ProductToolbar
+              brand={brand}
               value={searchInput}
               isLoading={isLoading}
               onValueChange={setSearchInput}

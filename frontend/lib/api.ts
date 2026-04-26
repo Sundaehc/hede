@@ -86,3 +86,33 @@ export function lookupImage(params: {
     }),
   })
 }
+
+export function exportProducts(brand: BrandKey) {
+  return fetch(`${API_PREFIX}/export?brand=${brand}`).then(async (response) => {
+    if (!response.ok) {
+      throw new ApiError(response.status, await response.text())
+    }
+    return response
+  })
+}
+
+export type ImportResult = {
+  created: number
+  updated: number
+  message: string
+}
+
+export function importProducts(brand: BrandKey, file: File) {
+  const formData = new FormData()
+  formData.append("file", file)
+
+  return fetch(`${API_PREFIX}/import?brand=${brand}`, {
+    method: "POST",
+    body: formData,
+  }).then(async (response) => {
+    if (!response.ok) {
+      throw new ApiError(response.status, await response.text())
+    }
+    return (await response.json()) as ImportResult
+  })
+}

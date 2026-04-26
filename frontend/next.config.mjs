@@ -10,6 +10,11 @@ const nextConfig = {
       },
     ]
   },
+  experimental: {
+    serverActions: {
+      bodySizeLimit: "50mb",
+    },
+  },
   images: {
     remotePatterns: [
       { protocol: "http", hostname: "192.168.10.229" },

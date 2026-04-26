@@ -4,6 +4,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from api.routes.images import router as images_router
+from api.routes.import_export import router as import_export_router
 from api.routes.products import router as products_router
 from domain.sources import IMAGE_BRAND_KEYS, TABLE_NAMES
 from fileio.image_matcher import ImageMatcher
@@ -33,4 +34,5 @@ def create_app(*, settings, repository=None, image_matchers=None) -> FastAPI:
     app.state.image_matchers = resolved_matchers
     app.include_router(products_router)
     app.include_router(images_router)
+    app.include_router(import_export_router)
     return app
