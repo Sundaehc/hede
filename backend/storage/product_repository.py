@@ -47,21 +47,21 @@ class ProductRepository:
             row = connection.execute(statement).mappings().first()
         return None if row is None else dict(row)
 
-    def find_by_original_sku(self, brand: str, original_sku: str) -> dict[str, object] | None:
+    def find_by_sku(self, brand: str, sku: object) -> dict[str, object] | None:
         table = PRODUCT_TABLES[brand]
-        statement = select(table).where(table.c.original_sku == original_sku)
+        statement = select(table).where(table.c.sku == str(sku))
         with self.engine.connect() as connection:
             row = connection.execute(statement).mappings().first()
         return None if row is None else dict(row)
 
-    def upsert_by_original_sku(self, brand: str, record: Mapping[str, object]) -> dict[str, object]:
+    def upsert_by_sku(self, brand: str, record: Mapping[str, object]) -> dict[str, object]:
         table = PRODUCT_TABLES[brand]
         payload = self._prepare_record(record)
-        original_sku = payload.get("original_sku")
+        sku = str(payload.get("sku", ""))
 
         with self.engine.begin() as connection:
             existing = connection.execute(
-                select(table).where(table.c.original_sku == original_sku)
+                select(table).where(table.c.sku == sku)
             ).mappings().first()
 
             if existing is None:

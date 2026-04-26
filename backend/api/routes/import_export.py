@@ -43,7 +43,7 @@ EXPORT_LABELS = {
 }
 
 EXPORT_COLUMNS = [c for c in CANONICAL_COLUMNS if c != "image_path"]
-IMPORT_ALIAS_TO_FIELD = {v: k for k, v in COLUMN_ALIASES.items() if v in EXPORT_COLUMNS}
+CN_TO_FIELD = {cn: en for cn, en in COLUMN_ALIASES.items() if en in EXPORT_COLUMNS}
 
 
 @router.get("/export")
@@ -114,7 +114,7 @@ async def import_products(
     headers = [normalize_header(h) for h in header_row]
 
     reverse_aliases = {}
-    for cn_label, en_field in IMPORT_ALIAS_TO_FIELD.items():
+    for cn_label, en_field in CN_TO_FIELD.items():
         reverse_aliases[cn_label] = en_field
         reverse_aliases[en_field] = en_field
 
@@ -139,10 +139,8 @@ async def import_products(
 
         if payload.get("original_sku") and not payload.get("sku"):
             payload["sku"] = payload["original_sku"]
-        elif payload.get("sku") and not payload.get("original_sku"):
-            payload["original_sku"] = payload["sku"]
 
-        existing = repository.find_by_original_sku(brand, payload["original_sku"])
+        existing = repository.find_by_sku(brand, str(payload.get("sku", "")))
         record = build_admin_record(brand, payload)
         if existing is not None:
             for meta_key in ("source_workbook", "source_sheet", "source_row_number"):
