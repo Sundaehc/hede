@@ -14,7 +14,7 @@ import { ApiError, deleteProduct, listProducts } from "@/lib/api"
 import type { ProductListItem } from "@/lib/types"
 
 const DEFAULT_BRAND = BRANDS[0].key
-const PAGE_SIZE = 10
+const PAGE_SIZES = [10, 50, 100]
 
 function getErrorMessage(error: unknown) {
   if (error instanceof ApiError) {
@@ -33,6 +33,7 @@ export function ProductAdminPage() {
   const [searchInput, setSearchInput] = useState("")
   const [submittedQuery, setSubmittedQuery] = useState("")
   const [page, setPage] = useState(1)
+  const [pageSize, setPageSize] = useState(PAGE_SIZES[0])
   const [reloadToken, setReloadToken] = useState(0)
   const [items, setItems] = useState<ProductListItem[]>([])
   const [total, setTotal] = useState(0)
@@ -61,7 +62,7 @@ export function ProductAdminPage() {
         const response = await listProducts({
           brand,
           page,
-          pageSize: PAGE_SIZE,
+          pageSize: pageSize,
           query: submittedQuery || undefined,
         })
 
@@ -91,7 +92,7 @@ export function ProductAdminPage() {
     return () => {
       cancelled = true
     }
-  }, [brand, page, reloadToken, submittedQuery])
+  }, [brand, page, pageSize, reloadToken, submittedQuery])
 
   const currentBrandLabel = useMemo(() => {
     return BRANDS.find((item) => item.key === brand)?.label ?? "商品"
@@ -181,7 +182,8 @@ export function ProductAdminPage() {
               items={items}
               total={total}
               page={page}
-              pageSize={PAGE_SIZE}
+              pageSize={pageSize}
+              pageSizes={PAGE_SIZES}
               isLoading={isLoading}
               error={error}
               onEdit={(item) => {
@@ -191,6 +193,10 @@ export function ProductAdminPage() {
               }}
               onDelete={handleDeleteRequest}
               onPageChange={setPage}
+              onPageSizeChange={(size) => {
+                setPageSize(size)
+                setPage(1)
+              }}
             />
           </TabsContent>
         </Tabs>

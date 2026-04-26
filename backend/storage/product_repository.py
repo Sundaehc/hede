@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from decimal import Decimal
 
-from sqlalchemy import create_engine, delete, desc, func, insert, select, update
+from sqlalchemy import create_engine, delete, desc, func, insert, or_, select, update
 
 from domain.schema import PRODUCT_TABLES
 
@@ -23,7 +23,12 @@ class ProductRepository:
         count_statement = select(func.count()).select_from(table)
         items_statement = select(table)
         if query:
-            criterion = table.c.original_sku.ilike(f"%{query}%") | table.c.sku.ilike(f"%{query}%")
+            terms = [t.strip() for t in query.replace("\n", ",").split(",") if t.strip()]
+            conditions = []
+            for term in terms:
+                conditions.append(table.c.original_sku.ilike(f"%{term}%"))
+                conditions.append(table.c.sku.ilike(f"%{term}%"))
+            criterion = or_(*conditions)
             count_statement = count_statement.where(criterion)
             items_statement = items_statement.where(criterion)
 

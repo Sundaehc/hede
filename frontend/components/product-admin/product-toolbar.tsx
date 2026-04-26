@@ -79,7 +79,7 @@ export function ProductToolbar({
           <Input
             id="product-search-input"
             value={value}
-            placeholder="请输入货号或原始货号"
+            placeholder="输入货号或原始货号，多个用逗号分隔"
             onChange={(event) => onValueChange(event.target.value)}
             onKeyDown={(event) => {
               if (event.key === "Enter") {

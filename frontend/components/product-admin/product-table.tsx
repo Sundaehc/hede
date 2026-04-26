@@ -2,21 +2,59 @@ import type { ProductListItem } from "@/lib/types"
 import { FIELD_GROUPS, FIELD_LABELS } from "@/lib/fields"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
+import {
+  Pagination,
+  PaginationContent,
+  PaginationEllipsis,
+  PaginationItem,
+  PaginationLink,
+  PaginationNext,
+  PaginationPrevious,
+} from "@/components/ui/pagination"
+import { Select } from "@/components/ui/select"
 
 type ProductTableProps = {
   items: ProductListItem[]
   total: number
   page: number
   pageSize: number
+  pageSizes: number[]
   isLoading: boolean
   error: string | null
   onEdit: (item: ProductListItem) => void
   onDelete: (item: ProductListItem) => void
   onPageChange: (page: number) => void
+  onPageSizeChange: (size: number) => void
 }
 
 function getTotalPages(total: number, pageSize: number) {
   return Math.max(1, Math.ceil(total / pageSize))
+}
+
+function buildPageRange(current: number, total: number): (number | "ellipsis")[] {
+  if (total <= 7) {
+    return Array.from({ length: total }, (_, i) => i + 1)
+  }
+
+  const pages: (number | "ellipsis")[] = [1]
+
+  if (current > 3) {
+    pages.push("ellipsis")
+  }
+
+  const start = Math.max(2, current - 1)
+  const end = Math.min(total - 1, current + 1)
+
+  for (let i = start; i <= end; i++) {
+    pages.push(i)
+  }
+
+  if (current < total - 2) {
+    pages.push("ellipsis")
+  }
+
+  pages.push(total)
+  return pages
 }
 
 function ProductImage({ item }: { item: ProductListItem }) {
@@ -84,11 +122,13 @@ export function ProductTable({
   total,
   page,
   pageSize,
+  pageSizes,
   isLoading,
   error,
   onEdit,
   onDelete,
   onPageChange,
+  onPageSizeChange,
 }: ProductTableProps) {
   const totalPages = getTotalPages(total, pageSize)
   const start = total === 0 ? 0 : (page - 1) * pageSize + 1
@@ -111,6 +151,8 @@ export function ProductTable({
     )
   }
 
+  const pageRange = buildPageRange(page, totalPages)
+
   return (
     <div className="space-y-4">
       <div className="flex flex-col gap-2 text-sm text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
@@ -118,9 +160,18 @@ export function ProductTable({
           共 {total} 条，当前显示 {start}-{end}
           {isLoading && items.length > 0 ? <span className="ml-2">加载中...</span> : null}
         </p>
-        <p>
-          第 {page} / {totalPages} 页
-        </p>
+        <div className="flex items-center gap-2">
+          <span>每页</span>
+          <Select
+            value={String(pageSize)}
+            onChange={(e) => onPageSizeChange(Number(e.target.value))}
+            className="w-20"
+          >
+            {pageSizes.map((size) => (
+              <option key={size} value={String(size)}>{size} 条</option>
+            ))}
+          </Select>
+        </div>
       </div>
 
       <div className="space-y-3">
@@ -135,20 +186,63 @@ export function ProductTable({
         )}
       </div>
 
-      <div className="flex items-center justify-end gap-2">
-        <Button type="button" variant="outline" onClick={() => onPageChange(page - 1)} disabled={page <= 1} className="cursor-pointer">
-          上一页
-        </Button>
-        <Button
-          type="button"
-          variant="outline"
-          onClick={() => onPageChange(page + 1)}
-          disabled={page >= totalPages || items.length === 0}
-          className="cursor-pointer"
-        >
-          下一页
-        </Button>
-      </div>
+      {totalPages > 1 && (
+        <div className="flex items-center justify-center gap-4">
+          <Pagination>
+            <PaginationContent>
+              <PaginationItem>
+                <PaginationPrevious
+                  text="上一页"
+                  onClick={() => onPageChange(page - 1)}
+                  className={page <= 1 ? "pointer-events-none opacity-50" : "cursor-pointer"}
+                />
+              </PaginationItem>
+              {pageRange.map((p, i) =>
+                p === "ellipsis" ? (
+                  <PaginationItem key={`ellipsis-${i}`}>
+                    <PaginationEllipsis />
+                  </PaginationItem>
+                ) : (
+                  <PaginationItem key={p}>
+                    <PaginationLink
+                      isActive={p === page}
+                      onClick={() => p !== page && onPageChange(p)}
+                      className={p === page ? "cursor-default" : "cursor-pointer"}
+                    >
+                      {p}
+                    </PaginationLink>
+                  </PaginationItem>
+                ),
+              )}
+              <PaginationItem>
+                <PaginationNext
+                  text="下一页"
+                  onClick={() => onPageChange(page + 1)}
+                  className={page >= totalPages ? "pointer-events-none opacity-50" : "cursor-pointer"}
+                />
+              </PaginationItem>
+            </PaginationContent>
+          </Pagination>
+          <div className="flex items-center gap-1 text-sm text-muted-foreground whitespace-nowrap">
+            <span>跳至</span>
+            <input
+              type="number"
+              min={1}
+              max={totalPages}
+              className="h-8 w-14 rounded-md border border-input bg-background px-2 text-center text-sm outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/50"
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  const target = parseInt((e.target as HTMLInputElement).value, 10)
+                  if (target >= 1 && target <= totalPages) {
+                    onPageChange(target)
+                  }
+                }
+              }}
+            />
+            <span>页</span>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

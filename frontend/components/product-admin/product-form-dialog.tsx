@@ -209,7 +209,7 @@ export function ProductFormDialog({ item, mode, onOpenChange, onSaved, open }: P
                 <img
                   src={imageSrc}
                   alt="商品图片"
-                  className="h-24 w-24 rounded-lg border border-border object-cover"
+                  className="h-24 w-24 rounded-lg object-contain"
                 />
               </div>
             ) : null}
