@@ -74,12 +74,12 @@ export function ProductToolbar({
   return (
     <div className="flex flex-col gap-4 rounded-xl border border-border bg-card p-4 md:flex-row md:items-end md:justify-between">
       <div className="flex flex-1 flex-col gap-2">
-        <Label htmlFor="product-search-input">原始货号</Label>
+        <Label htmlFor="product-search-input">货号搜索</Label>
         <div className="flex flex-col gap-2 sm:flex-row">
           <Input
             id="product-search-input"
             value={value}
-            placeholder="请输入原始货号"
+            placeholder="请输入货号或原始货号"
             onChange={(event) => onValueChange(event.target.value)}
             onKeyDown={(event) => {
               if (event.key === "Enter") {

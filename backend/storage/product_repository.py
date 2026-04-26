@@ -23,7 +23,7 @@ class ProductRepository:
         count_statement = select(func.count()).select_from(table)
         items_statement = select(table)
         if query:
-            criterion = table.c.original_sku.ilike(f"%{query}%")
+            criterion = table.c.original_sku.ilike(f"%{query}%") | table.c.sku.ilike(f"%{query}%")
             count_statement = count_statement.where(criterion)
             items_statement = items_statement.where(criterion)
 
