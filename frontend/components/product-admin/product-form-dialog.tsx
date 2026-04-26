@@ -16,7 +16,7 @@ import { Label } from "@/components/ui/label"
 import { Select } from "@/components/ui/select"
 import { ApiError, createProduct, lookupImage, updateProduct } from "@/lib/api"
 import { BRANDS, type BrandKey } from "@/lib/brands"
-import { FIELD_GROUPS, FIELD_LABELS, ALL_PRODUCT_FIELDS } from "@/lib/fields"
+import { FIELD_GROUPS, FIELD_LABELS, ALL_PRODUCT_FIELDS, SEASON_OPTIONS } from "@/lib/fields"
 import type { ImageLookupStatusState, ProductFormValues, ProductListItem, ProductMutationPayload } from "@/lib/types"
 
 type ProductFormDialogProps = {
@@ -237,12 +237,32 @@ export function ProductFormDialog({ item, mode, onOpenChange, onSaved, open }: P
                 {group.fields.map((field) => (
                   <div key={field} className="space-y-2">
                     <Label htmlFor={`product-form-${field}`}>{FIELD_LABELS[field]}</Label>
-                    <Input
-                      id={`product-form-${field}`}
-                      value={values[field as keyof ProductFormValues] as string}
-                      placeholder={`请输入${FIELD_LABELS[field]}`}
-                      onChange={(event) => handleFieldChange(field as keyof ProductFormValues, event.target.value)}
-                    />
+                    {field === "season_category" ? (
+                      <Select
+                        id={`product-form-${field}`}
+                        value={values[field as keyof ProductFormValues] as string}
+                        onChange={(event) => handleFieldChange(field as keyof ProductFormValues, event.target.value)}
+                      >
+                        <option value="">请选择</option>
+                        {SEASON_OPTIONS.map((opt) => (
+                          <option key={opt} value={opt}>{opt}</option>
+                        ))}
+                      </Select>
+                    ) : field === "first_order_time" ? (
+                      <Input
+                        id={`product-form-${field}`}
+                        type="date"
+                        value={values[field as keyof ProductFormValues] as string}
+                        onChange={(event) => handleFieldChange(field as keyof ProductFormValues, event.target.value)}
+                      />
+                    ) : (
+                      <Input
+                        id={`product-form-${field}`}
+                        value={values[field as keyof ProductFormValues] as string}
+                        placeholder={`请输入${FIELD_LABELS[field]}`}
+                        onChange={(event) => handleFieldChange(field as keyof ProductFormValues, event.target.value)}
+                      />
+                    )}
                   </div>
                 ))}
               </div>

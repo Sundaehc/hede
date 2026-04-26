@@ -1,3 +1,5 @@
+export const SEASON_OPTIONS = ["春季", "夏季", "秋季", "冬季", "春夏", "春秋", "秋冬"] as const
+
 export const FIELD_LABELS: Record<string, string> = {
   image_path: "图片路径",
   sku: "商品货号",
