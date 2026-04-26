@@ -35,11 +35,14 @@ export function ProductToolbar({
   const handleExport = async () => {
     try {
       const response = await exportProducts(brand)
+      const disposition = response.headers.get("Content-Disposition") ?? ""
+      const match = disposition.match(/filename\*=UTF-8''(.+)/)
+      const filename = match ? decodeURIComponent(match[1]) : `${brand}_products.xlsx`
       const blob = await response.blob()
       const url = URL.createObjectURL(blob)
       const a = document.createElement("a")
       a.href = url
-      a.download = `${brand}_products.xlsx`
+      a.download = filename
       a.click()
       URL.revokeObjectURL(url)
     } catch {

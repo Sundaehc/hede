@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 import io
+import urllib.parse
 
 from fastapi import APIRouter, HTTPException, Query, Request, UploadFile
 from fastapi.responses import StreamingResponse
 from openpyxl import Workbook, load_workbook
 
 from api.routes.images import image_url_for
-from domain.sources import CANONICAL_COLUMNS, COLUMN_ALIASES
+from domain.sources import CANONICAL_COLUMNS, COLUMN_ALIASES, TABLE_NAMES
 from transform.rows import build_admin_record
 
 router = APIRouter()
@@ -55,9 +56,16 @@ def export_products(
     table = repository.list_products(brand, query=None, page=1, page_size=1_000_000)
     items = table["items"]
 
+    BRAND_LABELS = {
+        "qbd_mens": "千百度男鞋",
+        "qbd_womens": "千百度女鞋",
+        "yandou": "烟斗",
+        "yiban": "伊伴",
+    }
+
     wb = Workbook()
     ws = wb.active
-    ws.title = "商品数据"
+    ws.title = BRAND_LABELS.get(brand, brand)
 
     headers = [EXPORT_LABELS.get(c, c) for c in EXPORT_COLUMNS]
     ws.append(headers)
@@ -70,11 +78,12 @@ def export_products(
     wb.save(buf)
     buf.seek(0)
 
-    brand_label = brand
+    brand_label = BRAND_LABELS.get(brand, brand)
+    filename = urllib.parse.quote(f"{brand_label}.xlsx")
     return StreamingResponse(
         buf,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        headers={"Content-Disposition": f"attachment; filename={brand_label}_products.xlsx"},
+        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{filename}"},
     )
 
 
