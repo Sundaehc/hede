@@ -1,7 +1,8 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
 
+import { ConfirmDialog, MessageDialog } from "@/components/confirm-dialog"
 import { ProductFormDialog } from "@/components/product-admin/product-form-dialog"
 import { ProductTable } from "@/components/product-admin/product-table"
 import { ProductTabs } from "@/components/product-admin/product-tabs"
@@ -40,6 +41,14 @@ export function ProductAdminPage() {
   const [isDialogOpen, setIsDialogOpen] = useState(false)
   const [dialogMode, setDialogMode] = useState<"create" | "edit">("create")
   const [selectedItem, setSelectedItem] = useState<ProductListItem | null>(null)
+
+  // ConfirmDialog state
+  const [deleteTarget, setDeleteTarget] = useState<ProductListItem | null>(null)
+  const [isDeleting, setIsDeleting] = useState(false)
+
+  // MessageDialog state
+  const [messageOpen, setMessageOpen] = useState(false)
+  const [messageContent, setMessageContent] = useState({ title: "", description: "" })
 
   useEffect(() => {
     let cancelled = false
@@ -92,18 +101,30 @@ export function ProductAdminPage() {
     setReloadToken((current) => current + 1)
   }
 
-  const handleDelete = async (item: ProductListItem) => {
-    if (!confirm(`确定删除商品 ${item.original_sku || item.sku || item.id}？`)) {
-      return
-    }
+  const handleDeleteRequest = useCallback((item: ProductListItem) => {
+    setDeleteTarget(item)
+  }, [])
 
+  const handleDeleteConfirm = async () => {
+    if (!deleteTarget) return
+
+    setIsDeleting(true)
     try {
-      await deleteProduct(item.brand, item.id)
+      await deleteProduct(deleteTarget.brand, deleteTarget.id)
       setReloadToken((current) => current + 1)
     } catch (deleteError) {
-      alert(getErrorMessage(deleteError))
+      setMessageContent({ title: "删除失败", description: getErrorMessage(deleteError) })
+      setMessageOpen(true)
+    } finally {
+      setIsDeleting(false)
+      setDeleteTarget(null)
     }
   }
+
+  const showMessage = useCallback((title: string, description: string) => {
+    setMessageContent({ title, description })
+    setMessageOpen(true)
+  }, [])
 
   return (
     <main className="min-h-svh bg-background px-6 py-10 text-foreground">
@@ -111,7 +132,6 @@ export function ProductAdminPage() {
         <div className="flex items-start justify-between gap-4">
           <div className="space-y-2">
             <h1 className="text-3xl font-semibold tracking-tight">商品信息档案</h1>
-            <p className="text-sm text-muted-foreground">按品牌查看商品列表，并支持原始货号搜索。</p>
           </div>
           <ThemeToggle />
         </div>
@@ -154,6 +174,7 @@ export function ProductAdminPage() {
                 setSelectedItem(null)
                 setIsDialogOpen(true)
               }}
+              onMessage={showMessage}
             />
 
             <ProductTable
@@ -168,7 +189,7 @@ export function ProductAdminPage() {
                 setSelectedItem(item)
                 setIsDialogOpen(true)
               }}
-              onDelete={handleDelete}
+              onDelete={handleDeleteRequest}
               onPageChange={setPage}
             />
           </TabsContent>
@@ -186,6 +207,23 @@ export function ProductAdminPage() {
             }
           }}
           onSaved={handleSaved}
+        />
+
+        <ConfirmDialog
+          open={deleteTarget !== null}
+          title="确认删除"
+          description={`确定删除商品 ${deleteTarget?.original_sku || deleteTarget?.sku || deleteTarget?.id}？此操作不可撤销。`}
+          confirmLabel={isDeleting ? "删除中..." : "删除"}
+          variant="destructive"
+          onConfirm={handleDeleteConfirm}
+          onCancel={() => setDeleteTarget(null)}
+        />
+
+        <MessageDialog
+          open={messageOpen}
+          title={messageContent.title}
+          description={messageContent.description}
+          onClose={() => setMessageOpen(false)}
         />
       </div>
     </main>

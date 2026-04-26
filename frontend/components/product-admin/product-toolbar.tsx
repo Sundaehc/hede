@@ -17,6 +17,7 @@ type ProductToolbarProps = {
   onClear: () => void
   onRefresh: () => void
   onCreate: () => void
+  onMessage: (title: string, description: string) => void
 }
 
 export function ProductToolbar({
@@ -28,6 +29,7 @@ export function ProductToolbar({
   onClear,
   onRefresh,
   onCreate,
+  onMessage,
 }: ProductToolbarProps) {
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [importing, setImporting] = useState(false)
@@ -46,7 +48,7 @@ export function ProductToolbar({
       a.click()
       URL.revokeObjectURL(url)
     } catch {
-      alert("导出失败")
+      onMessage("导出失败", "导出 Excel 时发生错误，请重试")
     }
   }
 
@@ -57,10 +59,10 @@ export function ProductToolbar({
     setImporting(true)
     try {
       const result = await importProducts(brand, file)
-      alert(result.message)
+      onMessage("导入完成", result.message)
       onRefresh()
     } catch {
-      alert("导入失败，请检查文件格式")
+      onMessage("导入失败", "请检查文件格式是否正确")
     } finally {
       setImporting(false)
       if (fileInputRef.current) {
