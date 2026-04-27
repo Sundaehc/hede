@@ -16,6 +16,8 @@ import type { ProductListItem } from "@/lib/types"
 const DEFAULT_BRAND = BRANDS[0].key
 const PAGE_SIZES = [10, 50, 100]
 
+const isAllBrand = (b: BrandKey) => b === "all"
+
 function getErrorMessage(error: unknown) {
   if (error instanceof ApiError) {
     return error.message || `请求失败（${error.status}）`
@@ -150,7 +152,7 @@ export function ProductAdminPage() {
           <TabsContent value={brand} className="space-y-4 rounded-xl border border-border bg-muted/20 p-4">
             <div className="space-y-1">
               <h2 className="text-lg font-medium">{currentBrandLabel}</h2>
-              <p className="text-sm text-muted-foreground">当前品牌商品列表</p>
+              <p className="text-sm text-muted-foreground">{isAllBrand(brand) ? "所有品牌商品汇总列表" : "当前品牌商品列表"}</p>
             </div>
 
             <ProductToolbar
@@ -170,7 +172,7 @@ export function ProductAdminPage() {
               onRefresh={() => {
                 setReloadToken((current) => current + 1)
               }}
-              onCreate={() => {
+              onCreate={isAllBrand(brand) ? undefined : () => {
                 setDialogMode("create")
                 setSelectedItem(null)
                 setIsDialogOpen(true)
@@ -186,12 +188,12 @@ export function ProductAdminPage() {
               pageSizes={PAGE_SIZES}
               isLoading={isLoading}
               error={error}
-              onEdit={(item) => {
+              onEdit={isAllBrand(brand) ? undefined : (item) => {
                 setDialogMode("edit")
                 setSelectedItem(item)
                 setIsDialogOpen(true)
               }}
-              onDelete={handleDeleteRequest}
+              onDelete={isAllBrand(brand) ? undefined : handleDeleteRequest}
               onPageChange={setPage}
               onPageSizeChange={(size) => {
                 setPageSize(size)

@@ -30,6 +30,11 @@ export type ProductListItem = {
   closure_type: string | null
   shoe_box_spec: string | null
   first_order_time: string | null
+  size_range: string | null
+  product_model: string | null
+  supplier_name: string | null
+  color_code: string | null
+  launch_date: string | null
   source_workbook: string
   source_sheet: string
   source_row_number: string
@@ -77,6 +82,11 @@ export type ProductFormValues = {
   closure_type: string
   shoe_box_spec: string
   first_order_time: string
+  size_range: string
+  product_model: string
+  supplier_name: string
+  color_code: string
+  launch_date: string
 }
 
 export type ProductMutationPayload = Record<string, unknown> & {
@@ -106,6 +116,11 @@ export type ProductMutationPayload = Record<string, unknown> & {
   closure_type?: string | null
   shoe_box_spec?: string | null
   first_order_time?: string | null
+  size_range?: string | null
+  product_model?: string | null
+  supplier_name?: string | null
+  color_code?: string | null
+  launch_date?: string | null
 }
 
 export type ImageLookupStatusState = {

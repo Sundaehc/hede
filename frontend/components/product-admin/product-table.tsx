@@ -1,5 +1,5 @@
 import type { ProductListItem } from "@/lib/types"
-import { FIELD_GROUPS, FIELD_LABELS } from "@/lib/fields"
+import { CARD_DISPLAY_FIELDS, FIELD_LABELS } from "@/lib/fields"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
 import {
@@ -21,8 +21,8 @@ type ProductTableProps = {
   pageSizes: number[]
   isLoading: boolean
   error: string | null
-  onEdit: (item: ProductListItem) => void
-  onDelete: (item: ProductListItem) => void
+  onEdit?: (item: ProductListItem) => void
+  onDelete?: (item: ProductListItem) => void
   onPageChange: (page: number) => void
   onPageSizeChange: (size: number) => void
 }
@@ -78,7 +78,7 @@ function ProductImage({ item }: { item: ProductListItem }) {
   )
 }
 
-function ProductCard({ item, onEdit, onDelete }: { item: ProductListItem; onEdit: (item: ProductListItem) => void; onDelete: (item: ProductListItem) => void }) {
+function ProductCard({ item, onEdit, onDelete }: { item: ProductListItem; onEdit?: (item: ProductListItem) => void; onDelete?: (item: ProductListItem) => void }) {
   return (
     <div className="flex gap-4 rounded-xl border border-border bg-card p-4">
       <ProductImage item={item} />
@@ -89,28 +89,32 @@ function ProductCard({ item, onEdit, onDelete }: { item: ProductListItem; onEdit
               {item.original_sku || item.sku || "-"}
             </p>
           </div>
-          <div className="flex gap-2">
-            <Button type="button" variant="outline" size="sm" onClick={() => onEdit(item)} className="cursor-pointer">
-              编辑
-            </Button>
-            <Button type="button" variant="outline" size="sm" className="text-destructive hover:text-destructive cursor-pointer" onClick={() => onDelete(item)} >
-              删除
-            </Button>
-          </div>
+          {(onEdit || onDelete) ? (
+            <div className="flex gap-2">
+              {onEdit ? (
+                <Button type="button" variant="outline" size="sm" onClick={() => onEdit(item)} className="cursor-pointer">
+                  编辑
+                </Button>
+              ) : null}
+              {onDelete ? (
+                <Button type="button" variant="outline" size="sm" className="text-destructive hover:text-destructive cursor-pointer" onClick={() => onDelete(item)} >
+                  删除
+                </Button>
+              ) : null}
+            </div>
+          ) : null}
         </div>
         <div className="grid gap-x-6 gap-y-1 text-xs sm:grid-cols-2 lg:grid-cols-3">
-          {FIELD_GROUPS.map((group) =>
-            group.fields.map((field) => {
-              const value = item[field as keyof ProductListItem]
-              if (value === null || value === undefined || value === "") return null
-              return (
-                <div key={field} className="flex gap-1">
-                  <span className="shrink-0 text-muted-foreground">{FIELD_LABELS[field]}:</span>
-                  <span className="truncate">{String(value)}</span>
-                </div>
-              )
-            }),
-          )}
+          {CARD_DISPLAY_FIELDS.map((field) => {
+            const value = item[field as keyof ProductListItem]
+            if (value === null || value === undefined || value === "") return null
+            return (
+              <div key={field} className="flex gap-1">
+                <span className="shrink-0 text-muted-foreground">{FIELD_LABELS[field]}:</span>
+                <span className="truncate">{String(value)}</span>
+              </div>
+            )
+          })}
         </div>
       </div>
     </div>

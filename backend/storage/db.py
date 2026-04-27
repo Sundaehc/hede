@@ -24,6 +24,31 @@ class Database:
     def replace_brand_rows(self, brand_group: str, rows: Iterable[dict[str, object]]) -> int:
         table = PRODUCT_TABLES[brand_group]
         payload = list(rows)
+
+        # Deduplicate by sku: keep the last occurrence (later workbook overwrites earlier)
+        seen: dict[str, int] = {}
+        for idx, row in enumerate(payload):
+            sku = row.get("sku")
+            if sku is not None and str(sku).strip():
+                seen[str(sku).strip()] = idx
+
+        if len(seen) < len(payload):
+            # Some duplicates found - keep only the last occurrence of each sku,
+            # and all rows without a sku
+            deduped: list[dict[str, object]] = []
+            kept: set[int] = set()
+            # First pass: rows without sku (keep all)
+            for idx, row in enumerate(payload):
+                sku = row.get("sku")
+                if not sku or not str(sku).strip():
+                    deduped.append(row)
+                    kept.add(idx)
+            # Second pass: rows with sku (keep only last occurrence)
+            for idx in sorted(seen.values()):
+                if idx not in kept:
+                    deduped.append(payload[idx])
+            payload = deduped
+
         with self._require_engine().begin() as connection:
             connection.execute(delete(table))
             if payload:

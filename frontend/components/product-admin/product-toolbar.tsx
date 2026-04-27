@@ -9,14 +9,14 @@ import { type BrandKey } from "@/lib/brands"
 import { exportProducts, importProducts } from "@/lib/api"
 
 type ProductToolbarProps = {
-  brand: BrandKey
+  brand: BrandKey | "all"
   value: string
   isLoading: boolean
   onValueChange: (value: string) => void
   onSearch: () => void
   onClear: () => void
   onRefresh: () => void
-  onCreate: () => void
+  onCreate?: () => void
   onMessage: (title: string, description: string) => void
 }
 
@@ -102,24 +102,26 @@ export function ProductToolbar({
         </div>
       </div>
 
-      <div className="flex flex-wrap gap-2">
-        <Button type="button" variant="outline" onClick={handleExport} disabled={isLoading} className="cursor-pointer">
-          导出 Excel
-        </Button>
-        <Button type="button" variant="outline" onClick={() => fileInputRef.current?.click()} disabled={importing} className="cursor-pointer">
-          {importing ? "导入中..." : "导入 Excel"}
-        </Button>
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept=".xlsx,.xls"
-          className="hidden"
-          onChange={(e) => void handleImport(e)}
-        />
-        <Button type="button" variant="secondary" onClick={onCreate} className="cursor-pointer">
-          新增商品
-        </Button>
-      </div>
+      {onCreate ? (
+        <div className="flex flex-wrap gap-2">
+          <Button type="button" variant="outline" onClick={handleExport} disabled={isLoading} className="cursor-pointer">
+            导出 Excel
+          </Button>
+          <Button type="button" variant="outline" onClick={() => fileInputRef.current?.click()} disabled={importing} className="cursor-pointer">
+            {importing ? "导入中..." : "导入 Excel"}
+          </Button>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".xlsx,.xls"
+            className="hidden"
+            onChange={(e) => void handleImport(e)}
+          />
+          <Button type="button" variant="secondary" onClick={onCreate} className="cursor-pointer">
+            新增商品
+          </Button>
+        </div>
+      ) : null}
     </div>
   )
 }

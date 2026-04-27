@@ -30,7 +30,7 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
 }
 
 export function listProducts(params: {
-  brand: BrandKey
+  brand: BrandKey | "all"
   query?: string
   page: number
   pageSize: number

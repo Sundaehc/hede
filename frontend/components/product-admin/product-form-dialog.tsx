@@ -248,7 +248,7 @@ export function ProductFormDialog({ item, mode, onOpenChange, onSaved, open }: P
                           <option key={opt} value={opt}>{opt}</option>
                         ))}
                       </Select>
-                    ) : field === "first_order_time" ? (
+                    ) : field === "first_order_time" || field === "launch_date" ? (
                       <Input
                         id={`product-form-${field}`}
                         type="date"

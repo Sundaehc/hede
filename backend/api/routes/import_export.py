@@ -40,6 +40,11 @@ EXPORT_LABELS = {
     "closure_type": "闭合方式",
     "shoe_box_spec": "鞋盒规格",
     "first_order_time": "首单时间",
+    "size_range": "尺码段",
+    "product_model": "产品型号",
+    "supplier_name": "供应商名",
+    "color_code": "颜色代码",
+    "launch_date": "上市时间",
 }
 
 EXPORT_COLUMNS = [c for c in CANONICAL_COLUMNS if c != "image_path"]

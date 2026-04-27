@@ -51,6 +51,11 @@ COLUMN_ALIASES = {
     "闭合方式": "closure_type",
     "鞋盒规格": "shoe_box_spec",
     "首单时间": "first_order_time",
+    "尺码段": "size_range",
+    "产品型号": "product_model",
+    "供应商名": "supplier_name",
+    "颜色代码": "color_code",
+    "上市时间": "launch_date",
 }
 
 
@@ -81,6 +86,11 @@ CANONICAL_COLUMNS = [
     "closure_type",
     "shoe_box_spec",
     "first_order_time",
+    "size_range",
+    "product_model",
+    "supplier_name",
+    "color_code",
+    "launch_date",
 ]
 
 
@@ -144,7 +154,7 @@ WORKBOOK_SPECS = (
         workbook_key="qbd_womens",
         file_prefix="千百度女鞋商品资料档案新10",
         brand_group="qbd_womens",
-        sheets=(SheetSpec("千百度"),),
+        sheets=(SheetSpec("千百度"), SheetSpec("洞洞鞋", optional=True)),
     ),
     WorkbookSpec(
         workbook_key="yandou",

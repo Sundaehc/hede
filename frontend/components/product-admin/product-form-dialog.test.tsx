@@ -50,6 +50,11 @@ const NULL_FIELDS = {
   closure_type: null,
   shoe_box_spec: null,
   first_order_time: null,
+  size_range: null,
+  product_model: null,
+  supplier_name: null,
+  color_code: null,
+  launch_date: null,
 }
 
 const sampleItem: ProductListItem = {
@@ -82,6 +87,11 @@ const sampleItem: ProductListItem = {
   closure_type: null,
   shoe_box_spec: null,
   first_order_time: null,
+  size_range: null,
+  product_model: null,
+  supplier_name: null,
+  color_code: null,
+  launch_date: null,
   source_workbook: "book.xlsx",
   source_sheet: "sheet1",
   source_row_number: "8",

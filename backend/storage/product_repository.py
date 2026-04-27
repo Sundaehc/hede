@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from decimal import Decimal
 
-from sqlalchemy import create_engine, delete, desc, func, insert, or_, select, update
+from sqlalchemy import create_engine, delete, desc, func, insert, literal, or_, select, union_all, update
 
 from domain.schema import PRODUCT_TABLES
 
@@ -33,6 +33,47 @@ class ProductRepository:
             items_statement = items_statement.where(criterion)
 
         items_statement = items_statement.order_by(desc(table.c.id)).offset((page - 1) * page_size).limit(page_size)
+
+        with self.engine.connect() as connection:
+            total = connection.execute(count_statement).scalar_one()
+            items = [dict(row) for row in connection.execute(items_statement).mappings()]
+
+        return {
+            "items": items,
+            "total": total,
+            "page": page,
+            "page_size": page_size,
+        }
+
+    def list_all_products(
+        self,
+        query: str | None,
+        page: int,
+        page_size: int,
+    ) -> dict[str, object]:
+        brand_keys = list(PRODUCT_TABLES.keys())
+
+        subqueries = []
+        for brand_key in brand_keys:
+            table = PRODUCT_TABLES[brand_key]
+            sq = select(
+                table.c.id,
+                literal(brand_key).label("brand"),
+                *([c for c in table.columns if c.key not in ("id",)]),
+            )
+            if query:
+                terms = [t.strip() for t in query.replace("\n", ",").split(",") if t.strip()]
+                conditions = []
+                for term in terms:
+                    conditions.append(table.c.original_sku.ilike(f"%{term}%"))
+                    conditions.append(table.c.sku.ilike(f"%{term}%"))
+                sq = sq.where(or_(*conditions))
+            subqueries.append(sq)
+
+        combined = union_all(*subqueries).subquery()
+
+        count_statement = select(func.count()).select_from(combined)
+        items_statement = select(combined).order_by(desc(combined.c.id)).offset((page - 1) * page_size).limit(page_size)
 
         with self.engine.connect() as connection:
             total = connection.execute(count_statement).scalar_one()

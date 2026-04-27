@@ -27,6 +27,11 @@ export const FIELD_LABELS: Record<string, string> = {
   closure_type: "闭合方式",
   shoe_box_spec: "鞋盒规格",
   first_order_time: "首单时间",
+  size_range: "尺码段",
+  product_model: "产品型号",
+  supplier_name: "供应商名",
+  color_code: "颜色代码",
+  launch_date: "上市时间",
 }
 
 export const FIELD_GROUPS = [
@@ -53,8 +58,10 @@ export const FIELD_GROUPS = [
   },
   {
     label: "其他",
-    fields: ["toe_shape", "closure_type", "shoe_box_spec", "execution_standard", "first_order_time"],
+    fields: ["toe_shape", "closure_type", "shoe_box_spec", "execution_standard", "first_order_time", "size_range", "product_model", "supplier_name", "color_code", "launch_date"],
   },
 ] as const
+
+export const CARD_DISPLAY_FIELDS = FIELD_GROUPS.flatMap((g) => g.fields).filter((f) => f !== "group_name")
 
 export const ALL_PRODUCT_FIELDS = FIELD_GROUPS.flatMap((g) => g.fields)

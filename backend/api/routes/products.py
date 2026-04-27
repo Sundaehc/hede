@@ -4,6 +4,8 @@ from fastapi import APIRouter, HTTPException, Query, Request
 
 from api.routes.images import image_url_for
 from api.schemas import BrandKey, ProductWriteRequest
+
+ALL_BRAND_KEYS = ["qbd_mens", "qbd_womens", "yandou", "yiban"]
 from transform.rows import build_admin_record
 
 
@@ -21,13 +23,26 @@ def _with_brand_and_image(item: dict, brand: str, settings) -> dict:
 @router.get("/products")
 def list_products(
     request: Request,
-    brand: BrandKey = Query(...),
+    brand: str = Query(...),
     query: str | None = None,
     page: int = 1,
     page_size: int = 20,
 ):
     settings = request.app.state.settings
-    payload = request.app.state.repository.list_products(brand, query=query, page=page, page_size=page_size)
+    repository = request.app.state.repository
+
+    if brand == "all":
+        payload = repository.list_all_products(query=query, page=page, page_size=page_size)
+        return {
+            **payload,
+            "items": [_with_brand_and_image(item, item["brand"], settings) for item in payload["items"]],
+        }
+
+    if brand not in ALL_BRAND_KEYS:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=400, detail=f"Invalid brand: {brand}")
+
+    payload = repository.list_products(brand, query=query, page=page, page_size=page_size)
     return {
         **payload,
         "items": [_with_brand_and_image(item, brand, settings) for item in payload["items"]],
