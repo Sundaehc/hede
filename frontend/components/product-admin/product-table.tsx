@@ -86,7 +86,7 @@ function ProductCard({ item, onEdit, onDelete }: { item: ProductListItem; onEdit
         <div className="flex items-start justify-between gap-2">
           <div className="min-w-0">
             <p className="truncate text-sm font-medium" data-testid={`card-title-${item.id}`}>
-              {item.original_sku || item.sku || "-"}
+              {item.sku || "-"}
             </p>
           </div>
           {(onEdit || onDelete) ? (
@@ -169,7 +169,7 @@ export function ProductTable({
           <Select
             value={String(pageSize)}
             onChange={(e) => onPageSizeChange(Number(e.target.value))}
-            className="w-20"
+            className="w-25"
           >
             {pageSizes.map((size) => (
               <option key={size} value={String(size)}>{size} 条</option>
