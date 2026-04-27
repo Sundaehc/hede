@@ -233,7 +233,7 @@ export function ProductTable({
               type="number"
               min={1}
               max={totalPages}
-              className="h-8 w-14 rounded-md border border-input bg-background px-2 text-center text-sm outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/50"
+              className="h-8 w-20 rounded-md border border-input bg-background px-2 text-center text-sm outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/50"
               onKeyDown={(e) => {
                 if (e.key === "Enter") {
                   const target = parseInt((e.target as HTMLInputElement).value, 10)
