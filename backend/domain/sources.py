@@ -52,8 +52,10 @@ COLUMN_ALIASES = {
     "鞋盒规格": "shoe_box_spec",
     "首单时间": "first_order_time",
     "尺码段": "size_range",
+    "码段": "size_range",
     "产品型号": "product_model",
     "供应商名": "supplier_name",
+    "供应商": "supplier_name",
     "颜色代码": "color_code",
     "上市时间": "launch_date",
 }

@@ -100,6 +100,13 @@ class ProductRepository:
             row = connection.execute(statement).mappings().first()
         return None if row is None else dict(row)
 
+    def find_by_original_sku(self, brand: str, original_sku: object) -> dict[str, object] | None:
+        table = PRODUCT_TABLES[brand]
+        statement = select(table).where(table.c.original_sku == str(original_sku))
+        with self.engine.connect() as connection:
+            row = connection.execute(statement).mappings().first()
+        return None if row is None else dict(row)
+
     def upsert_by_sku(self, brand: str, record: Mapping[str, object]) -> dict[str, object]:
         table = PRODUCT_TABLES[brand]
         payload = self._prepare_record(record)

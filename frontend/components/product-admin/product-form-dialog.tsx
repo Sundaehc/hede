@@ -194,7 +194,7 @@ export function ProductFormDialog({ item, mode, onOpenChange, onSaved, open }: P
                 onChange={(event) => handleFieldChange("brand", event.target.value as BrandKey | "")}
               >
                 <option value="">请选择品牌</option>
-                {BRANDS.map((brand) => (
+                {BRANDS.filter((b) => b.key !== "all").map((brand) => (
                   <option key={brand.key} value={brand.key}>
                     {brand.label}
                   </option>

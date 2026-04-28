@@ -27,6 +27,7 @@ def build_product_tables() -> dict[str, Table]:
             Column("raw_payload", JSON, nullable=False),
         ]
         columns.extend(Column(name, _column_type(name)) for name in CANONICAL_COLUMNS)
+        columns.append(Column("extra_fields", JSON, nullable=True))
         columns.append(UniqueConstraint("sku", name=f"uq_{table_name}_sku"))
         tables[brand_group] = Table(table_name, METADATA, *columns)
     return tables

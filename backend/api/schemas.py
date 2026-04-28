@@ -38,6 +38,11 @@ class ProductPayload(BaseModel):
     closure_type: str | None = None
     shoe_box_spec: str | None = None
     first_order_time: str | None = None
+    size_range: str | None = None
+    product_model: str | None = None
+    supplier_name: str | None = None
+    color_code: str | None = None
+    launch_date: str | None = None
 
     @model_validator(mode="after")
     def validate_not_completely_empty(self) -> ProductPayload:

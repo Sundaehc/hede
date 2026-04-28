@@ -168,6 +168,10 @@ def normalize_admin_payload(payload: dict[str, object]) -> dict[str, object]:
             continue
         normalized[key] = normalize_admin_field(key, payload[key])
 
+    # Pass through extra_fields if present
+    if "extra_fields" in payload:
+        normalized["extra_fields"] = payload["extra_fields"]
+
     return normalized
 
 
@@ -178,8 +182,10 @@ def build_admin_record(
     existing_metadata: dict[str, object] | None = None,
 ) -> dict[str, object]:
     normalized_payload = normalize_admin_payload(payload)
+    extra = normalized_payload.pop("extra_fields", None)
     record = {column: None for column in CANONICAL_COLUMNS}
     record.update(normalized_payload)
+    record["extra_fields"] = extra
 
     metadata = {
         "source_workbook": "manual_admin",
@@ -232,6 +238,16 @@ def build_canonical_row(
     canonical["cost"] = coerce_cost(canonical["cost"])
     canonical["first_order_time"] = normalize_first_order_time(canonical["first_order_time"])
     canonical["image_path"] = image_path
+
+    # Collect unrecognized columns into extra_fields
+    known_keys = set(COLUMN_ALIASES.values())
+    extra = {}
+    raw_normalized = {normalize_header(key): normalize_cell(value) for key, value in raw_row.items()}
+    for key, value in raw_normalized.items():
+        if key and key not in COLUMN_ALIASES and key not in known_keys:
+            if value is not None and str(value).strip():
+                extra[key] = value
+    canonical["extra_fields"] = extra if extra else None
 
     return {
         **canonical,

@@ -37,7 +37,7 @@ export const FIELD_LABELS: Record<string, string> = {
 export const FIELD_GROUPS = [
   {
     label: "基础信息",
-    fields: ["original_sku", "sku", "group_name", "factory_sku", "cost", "color", "season_category", "year"],
+    fields: ["original_sku", "sku", "factory_sku", "cost", "color", "season_category", "year"],
   },
   {
     label: "材质信息",
@@ -62,6 +62,6 @@ export const FIELD_GROUPS = [
   },
 ] as const
 
-export const CARD_DISPLAY_FIELDS = FIELD_GROUPS.flatMap((g) => g.fields).filter((f) => f !== "group_name")
+export const CARD_DISPLAY_FIELDS = FIELD_GROUPS.flatMap((g) => g.fields)
 
 export const ALL_PRODUCT_FIELDS = FIELD_GROUPS.flatMap((g) => g.fields)

@@ -9,7 +9,7 @@ from openpyxl import Workbook, load_workbook
 
 from api.routes.images import image_url_for
 from domain.sources import CANONICAL_COLUMNS, COLUMN_ALIASES, TABLE_NAMES
-from transform.rows import build_admin_record
+from transform.rows import build_admin_record, normalize_admin_field
 
 router = APIRouter()
 
@@ -134,10 +134,17 @@ async def import_products(
                 row_dict[headers[idx]] = cell_value
 
         payload = {}
+        extra_fields = {}
+        known_fields = set(CN_TO_FIELD.values()) | set(CN_TO_FIELD.keys())
         for key, value in row_dict.items():
             field = reverse_aliases.get(key)
             if field:
                 payload[field] = value
+            elif key and key not in known_fields:
+                # Unrecognized column -> store in extra_fields
+                normalized = normalize_admin_field(key, value)
+                if normalized is not None and str(normalized).strip():
+                    extra_fields[key] = normalized
 
         if not payload.get("original_sku") and not payload.get("sku"):
             continue
@@ -145,14 +152,43 @@ async def import_products(
         if payload.get("original_sku") and not payload.get("sku"):
             payload["sku"] = payload["original_sku"]
 
-        existing = repository.find_by_sku(brand, str(payload.get("sku", "")))
-        record = build_admin_record(brand, payload)
+        if extra_fields:
+            payload["extra_fields"] = extra_fields
+
+        # Match by sku first, then by original_sku
+        sku_val = str(payload.get("sku", "") or "").strip()
+        existing = repository.find_by_sku(brand, sku_val) if sku_val else None
+        if existing is None:
+            orig_val = str(payload.get("original_sku", "") or "").strip()
+            existing = repository.find_by_original_sku(brand, orig_val) if orig_val else None
+
+        # Only keep fields that have a value in the imported row
+        import_fields = {}
+        for key, value in payload.items():
+            if key in ("original_sku", "sku"):
+                continue
+            normalized = normalize_admin_field(key, value)
+            if normalized is not None and str(normalized).strip():
+                import_fields[key] = normalized
+
         if existing is not None:
-            for meta_key in ("source_workbook", "source_sheet", "source_row_number"):
-                record[meta_key] = existing[meta_key]
+            # Merge: only overwrite fields present in the imported Excel
+            merged = {k: v for k, v in existing.items() if v is not None}
+            merged.update(import_fields)
+            # Merge extra_fields: keep existing + add new
+            existing_extra = existing.get("extra_fields") or {}
+            new_extra = payload.get("extra_fields") or {}
+            if existing_extra or new_extra:
+                merged["extra_fields"] = {**existing_extra, **new_extra}
+            record = build_admin_record(brand, merged, existing_metadata={
+                "source_workbook": existing["source_workbook"],
+                "source_sheet": existing["source_sheet"],
+                "source_row_number": existing["source_row_number"],
+            })
             repository.update_product(brand, existing["id"], record)
             updated += 1
         else:
+            record = build_admin_record(brand, payload)
             repository.create_product(brand, record)
             created += 1
 
