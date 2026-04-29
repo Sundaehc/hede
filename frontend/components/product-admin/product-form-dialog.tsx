@@ -53,7 +53,12 @@ function toFormValues(item?: ProductListItem | null): ProductFormValues {
   }
 
   const base = Object.fromEntries(
-    PAYLOAD_FIELDS.map((f) => [f, (item as Record<string, unknown>)[f] ?? ""]),
+    PAYLOAD_FIELDS.map((f) => {
+      const raw = (item as Record<string, unknown>)[f]
+      if (raw == null) return [f, ""]
+      if (typeof raw === "object") return [f, raw]
+      return [f, String(raw)]
+    }),
   )
 
   return {
@@ -70,7 +75,12 @@ function toPayload(values: ProductFormValues): ProductMutationPayload {
 
   const payload: Record<string, unknown> = {}
   for (const field of PAYLOAD_FIELDS) {
-    payload[field] = normalize(values[field as keyof ProductFormValues] as string)
+    const value = values[field as keyof ProductFormValues]
+    if (typeof value === "string") {
+      payload[field] = normalize(value)
+    } else {
+      payload[field] = value ?? null
+    }
   }
 
   return payload as ProductMutationPayload

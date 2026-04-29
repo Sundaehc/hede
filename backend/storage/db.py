@@ -2,14 +2,19 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 
+import orjson
 from sqlalchemy import create_engine, delete, insert
 
 from domain.schema import METADATA, PRODUCT_TABLES
 
 
+def _json_serializer(value):
+    return orjson.dumps(value)
+
+
 class Database:
     def __init__(self, database_url: str | None):
-        self.engine = create_engine(database_url, future=True) if database_url else None
+        self.engine = create_engine(database_url, future=True, json_serializer=_json_serializer) if database_url else None
 
     def _require_engine(self):
         if self.engine is None:

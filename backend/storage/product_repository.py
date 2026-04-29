@@ -10,7 +10,16 @@ from domain.schema import PRODUCT_TABLES
 
 class ProductRepository:
     def __init__(self, database_url: str):
-        self.engine = create_engine(database_url, future=True)
+        import orjson
+
+        def _json_serializer(value):
+            return orjson.dumps(value)
+
+        self.engine = create_engine(
+            database_url,
+            future=True,
+            json_serializer=_json_serializer,
+        )
 
     def list_products(
         self,
