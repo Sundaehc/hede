@@ -124,6 +124,9 @@ async def import_products(
         reverse_aliases[en_field] = en_field
 
     repository = request.app.state.repository
+    settings = request.app.state.settings
+    from domain.sources import IMAGE_BRAND_KEYS
+    image_matcher = request.app.state.image_matchers.get(brand)
     created = 0
     updated = 0
 
@@ -165,11 +168,23 @@ async def import_products(
         # Only keep fields that have a value in the imported row
         import_fields = {}
         for key, value in payload.items():
-            if key in ("original_sku", "sku"):
+            if key in ("original_sku", "sku", "extra_fields"):
                 continue
             normalized = normalize_admin_field(key, value)
             if normalized is not None and str(normalized).strip():
                 import_fields[key] = normalized
+
+        # Look up image by original_sku or sku
+        if image_matcher and not import_fields.get("image_path"):
+            orig_val = str(payload.get("original_sku", "") or "").strip()
+            sku_val_img = str(payload.get("sku", "") or "").strip()
+            found_path = None
+            if orig_val:
+                found_path = image_matcher.find(orig_val)
+            if not found_path and sku_val_img:
+                found_path = image_matcher.find(sku_val_img)
+            if found_path:
+                import_fields["image_path"] = found_path
 
         if existing is not None:
             # Merge: only overwrite fields present in the imported Excel
