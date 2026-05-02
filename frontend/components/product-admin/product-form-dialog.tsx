@@ -187,109 +187,148 @@ export function ProductFormDialog({ item, mode, onOpenChange, onSaved, open }: P
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[90vh] overflow-y-auto max-w-4xl">
-        <DialogHeader>
+      <DialogContent className="max-h-[90vh] overflow-y-auto max-w-5xl">
+        <DialogHeader className="flex flex-row items-center justify-between space-y-0">
           <DialogTitle>{title}</DialogTitle>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="h-7 w-7 shrink-0 cursor-pointer"
+            onClick={() => onOpenChange(false)}
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+          </Button>
         </DialogHeader>
 
-        <form className="space-y-6" onSubmit={handleSubmit}>
-          {/* Brand + Image preview */}
-          <div className="flex gap-4">
-            <div className="flex-1 space-y-2">
-              <Label htmlFor="product-form-brand">品牌</Label>
-              <Select
-                id="product-form-brand"
-                value={values.brand}
-                disabled={mode === "edit"}
-                onChange={(event) => handleFieldChange("brand", event.target.value as BrandKey | "")}
-              >
-                <option value="">请选择品牌</option>
-                {BRANDS.filter((b) => b.key !== "all").map((brand) => (
-                  <option key={brand.key} value={brand.key}>
-                    {brand.label}
-                  </option>
-                ))}
-              </Select>
-              {brandError ? <p className="text-sm text-destructive">{brandError}</p> : null}
-            </div>
-
-            {mode === "edit" && imageSrc ? (
+        <form className="space-y-5" onSubmit={handleSubmit}>
+          {/* Top row: Brand + Image */}
+          <div className="flex gap-6">
+            {/* Left: brand + image */}
+            <div className="flex w-52 shrink-0 flex-col gap-3">
               <div className="space-y-2">
-                <Label>图片预览</Label>
-                <img
-                  src={imageSrc}
-                  alt="商品图片"
-                  className="h-24 w-24 rounded-lg object-contain"
-                />
+                <Label htmlFor="product-form-brand">品牌</Label>
+                <Select
+                  id="product-form-brand"
+                  value={values.brand}
+                  disabled={mode === "edit"}
+                  onChange={(event) => handleFieldChange("brand", event.target.value as BrandKey | "")}
+                >
+                  <option value="">请选择品牌</option>
+                  {BRANDS.filter((b) => b.key !== "all").map((brand) => (
+                    <option key={brand.key} value={brand.key}>
+                      {brand.label}
+                    </option>
+                  ))}
+                </Select>
+                {brandError ? <p className="text-sm text-destructive">{brandError}</p> : null}
               </div>
-            ) : null}
-          </div>
 
-          {/* Image lookup section */}
-          <div className="space-y-3 rounded-lg border border-border p-4">
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-              <div>
-                <p className="text-sm font-medium">图片匹配</p>
-                <p className="text-sm text-muted-foreground">优先使用原始货号，查不到时自动回退到商品货号。</p>
+              {imageSrc ? (
+                <div className="space-y-2">
+                  <Label>图片预览</Label>
+                  <img
+                    src={imageSrc}
+                    alt="商品图片"
+                    className="h-44 w-44 rounded-lg object-contain border border-border"
+                  />
+                </div>
+              ) : (
+                <div className="flex h-44 w-44 items-center justify-center rounded-lg border border-border bg-muted text-xs text-muted-foreground">
+                  暂无图片
+                </div>
+              )}
+
+              {/* Image lookup */}
+              <div className="space-y-2">
+                <p className="text-xs text-muted-foreground">优先原始货号，查不到回退商品货号</p>
+                <Button type="button" variant="outline" size="sm" onClick={() => void handleLookup()} disabled={lookupDisabled} className="w-full cursor-pointer">
+                  {lookupStatus.status === "loading" ? "查询中..." : "查询图片"}
+                </Button>
+                <ImageLookupStatus status={lookupStatus.status} message={lookupStatus.message} />
               </div>
-              <Button type="button" variant="outline" onClick={() => void handleLookup()} disabled={lookupDisabled}>
-                {lookupStatus.status === "loading" ? "查询中..." : "查询图片"}
-              </Button>
             </div>
-            <ImageLookupStatus status={lookupStatus.status} message={lookupStatus.message} />
-          </div>
 
-          {/* Field groups */}
-          {FIELD_GROUPS.map((group) => (
-            <div key={group.label} className="space-y-3">
-              <h3 className="text-sm font-medium text-muted-foreground">{group.label}</h3>
-              <div className="grid gap-4 md:grid-cols-2">
-                {group.fields.map((field) => (
-                  <div key={field} className="space-y-2">
-                    <Label htmlFor={`product-form-${field}`}>{FIELD_LABELS[field]}</Label>
-                    {field === "season_category" ? (
-                      <Select
-                        id={`product-form-${field}`}
-                        value={values[field as keyof ProductFormValues] as string}
-                        onChange={(event) => handleFieldChange(field as keyof ProductFormValues, event.target.value)}
-                      >
-                        <option value="">请选择</option>
-                        {SEASON_OPTIONS.map((opt) => (
-                          <option key={opt} value={opt}>{opt}</option>
-                        ))}
-                      </Select>
-                    ) : field === "first_order_time" || field === "launch_date" ? (
-                      <Input
-                        id={`product-form-${field}`}
-                        type="date"
-                        value={values[field as keyof ProductFormValues] as string}
-                        onChange={(event) => handleFieldChange(field as keyof ProductFormValues, event.target.value)}
-                      />
-                    ) : (
-                      <Input
-                        id={`product-form-${field}`}
-                        value={values[field as keyof ProductFormValues] as string}
-                        placeholder={`请输入${FIELD_LABELS[field]}`}
-                        onChange={(event) => handleFieldChange(field as keyof ProductFormValues, event.target.value)}
-                      />
-                    )}
+            {/* Right: fields */}
+            <div className="flex-1 space-y-4">
+              {/* SKU row — always visible at top */}
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div className="space-y-2">
+                  <Label htmlFor="product-form-sku">{FIELD_LABELS.sku}</Label>
+                  <Input
+                    id="product-form-sku"
+                    value={values.sku}
+                    placeholder={`请输入${FIELD_LABELS.sku}`}
+                    onChange={(event) => handleFieldChange("sku", event.target.value)}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="product-form-original_sku">{FIELD_LABELS.original_sku}</Label>
+                  <Input
+                    id="product-form-original_sku"
+                    value={values.original_sku}
+                    placeholder={`请输入${FIELD_LABELS.original_sku}`}
+                    onChange={(event) => handleFieldChange("original_sku", event.target.value)}
+                  />
+                </div>
+              </div>
+
+              {/* Field groups */}
+              {FIELD_GROUPS.map((group) => {
+                const fields = group.fields.filter((f) => f !== "sku" && f !== "original_sku")
+                return (
+                  <div key={group.label}>
+                    <p className="mb-2 text-xs font-medium text-muted-foreground">{group.label}</p>
+                    <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+                      {fields.map((field) => (
+                        <div key={field} className="space-y-1.5">
+                          <Label htmlFor={`product-form-${field}`} className="text-xs">{FIELD_LABELS[field]}</Label>
+                          {field === "season_category" ? (
+                            <Select
+                              id={`product-form-${field}`}
+                              value={values[field as keyof ProductFormValues] as string}
+                              onChange={(event) => handleFieldChange(field as keyof ProductFormValues, event.target.value)}
+                            >
+                              <option value="">请选择</option>
+                              {SEASON_OPTIONS.map((opt) => (
+                                <option key={opt} value={opt}>{opt}</option>
+                              ))}
+                            </Select>
+                          ) : field === "first_order_time" || field === "launch_date" ? (
+                            <Input
+                              id={`product-form-${field}`}
+                              type="date"
+                              value={values[field as keyof ProductFormValues] as string}
+                              onChange={(event) => handleFieldChange(field as keyof ProductFormValues, event.target.value)}
+                            />
+                          ) : (
+                            <Input
+                              id={`product-form-${field}`}
+                              value={values[field as keyof ProductFormValues] as string}
+                              placeholder={`请输入${FIELD_LABELS[field]}`}
+                              onChange={(event) => handleFieldChange(field as keyof ProductFormValues, event.target.value)}
+                            />
+                          )}
+                        </div>
+                      ))}
+                    </div>
                   </div>
-                ))}
-              </div>
-            </div>
-          ))}
+                )
+              })}
 
-          {/* Image path field */}
-          <div className="space-y-3">
-            <h3 className="text-sm font-medium text-muted-foreground">图片路径</h3>
-            <div className="space-y-2">
-              <Label htmlFor="product-form-image-path">图片路径</Label>
-              <Input
-                id="product-form-image-path"
-                value={values.image_path}
-                placeholder="查询后自动填充或手动输入"
-                onChange={(event) => handleFieldChange("image_path", event.target.value)}
-              />
+              {/* Image path */}
+              <div>
+                <p className="mb-2 text-xs font-medium text-muted-foreground">图片路径</p>
+                <div className="space-y-1.5">
+                  <Label htmlFor="product-form-image-path" className="text-xs">{FIELD_LABELS.image_path}</Label>
+                  <Input
+                    id="product-form-image-path"
+                    value={values.image_path}
+                    placeholder="查询后自动填充或手动输入"
+                    onChange={(event) => handleFieldChange("image_path", event.target.value)}
+                  />
+                </div>
+              </div>
             </div>
           </div>
 
