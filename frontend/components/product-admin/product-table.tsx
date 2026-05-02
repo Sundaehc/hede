@@ -1,5 +1,5 @@
 import type { ProductListItem } from "@/lib/types"
-import { CARD_DISPLAY_FIELDS, FIELD_LABELS } from "@/lib/fields"
+import { CARD_DISPLAY_FIELDS, FIELD_GROUPS, FIELD_LABELS } from "@/lib/fields"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
 import {
@@ -82,12 +82,16 @@ function ProductCard({ item, onEdit, onDelete }: { item: ProductListItem; onEdit
   return (
     <div className="flex gap-4 rounded-xl border border-border bg-card p-4">
       <ProductImage item={item} />
-      <div className="flex min-w-0 flex-1 flex-col gap-3">
+      <div className="flex min-w-0 flex-1 flex-col gap-2">
+        {/* Header: SKU + actions */}
         <div className="flex items-start justify-between gap-2">
           <div className="min-w-0">
-            <p className="truncate text-sm font-medium" data-testid={`card-title-${item.id}`}>
+            <p className="truncate text-sm font-semibold" data-testid={`card-title-${item.id}`}>
               {item.sku || "-"}
             </p>
+            {item.original_sku ? (
+              <p className="mt-0.5 text-xs text-muted-foreground">原始货号: {item.original_sku}</p>
+            ) : null}
           </div>
           {(onEdit || onDelete) ? (
             <div className="flex gap-2">
@@ -104,14 +108,40 @@ function ProductCard({ item, onEdit, onDelete }: { item: ProductListItem; onEdit
             </div>
           ) : null}
         </div>
-        <div className="grid gap-x-6 gap-y-1 text-xs sm:grid-cols-2 lg:grid-cols-3">
-          {CARD_DISPLAY_FIELDS.map((field) => {
-            const value = item[field as keyof ProductListItem]
-            if (value === null || value === undefined || value === "") return null
+
+        {/* Key info row */}
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs">
+          {item.season_category ? <span><span className="text-muted-foreground">季节:</span> {item.season_category}</span> : null}
+          {item.year ? <span><span className="text-muted-foreground">年份:</span> {item.year}</span> : null}
+          {item.color ? <span><span className="text-muted-foreground">颜色:</span> {item.color}</span> : null}
+          {item.cost ? <span><span className="text-muted-foreground">成本:</span> {item.cost}</span> : null}
+          {item.size_range ? <span><span className="text-muted-foreground">尺码段:</span> {item.size_range}</span> : null}
+        </div>
+
+        {/* Grouped fields */}
+        <div className="space-y-2 border-t border-border pt-2">
+          {FIELD_GROUPS.map((group) => {
+            const visibleFields = group.fields.filter((field) => {
+              if (field === "sku" || field === "original_sku") return false
+              if (field === "season_category" || field === "year" || field === "color" || field === "cost" || field === "size_range") return false
+              const value = item[field as keyof ProductListItem]
+              return value !== null && value !== undefined && value !== ""
+            })
+            if (visibleFields.length === 0) return null
             return (
-              <div key={field} className="flex gap-1">
-                <span className="shrink-0 text-muted-foreground">{FIELD_LABELS[field]}:</span>
-                <span className="truncate">{String(value)}</span>
+              <div key={group.label}>
+                <p className="mb-1 text-[11px] font-medium text-muted-foreground/70">{group.label}</p>
+                <div className="grid gap-x-6 gap-y-0.5 text-xs sm:grid-cols-2 lg:grid-cols-3">
+                  {visibleFields.map((field) => {
+                    const value = item[field as keyof ProductListItem]
+                    return (
+                      <div key={field} className="flex gap-1">
+                        <span className="shrink-0 text-muted-foreground">{FIELD_LABELS[field]}:</span>
+                        <span className="truncate">{String(value)}</span>
+                      </div>
+                    )
+                  })}
+                </div>
               </div>
             )
           })}
