@@ -80,7 +80,7 @@ function ProductImage({ item }: { item: ProductListItem }) {
 
 function ProductCard({ item, onEdit, onDelete }: { item: ProductListItem; onEdit?: (item: ProductListItem) => void; onDelete?: (item: ProductListItem) => void }) {
   return (
-    <div className="flex gap-4 rounded-xl border border-border bg-card p-4">
+    <div className="flex items-center gap-4 rounded-xl border border-border bg-card p-4">
       <ProductImage item={item} />
       <div className="flex min-w-0 flex-1 flex-col gap-2">
         {/* Header: SKU + actions */}
