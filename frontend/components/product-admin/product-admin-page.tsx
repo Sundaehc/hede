@@ -172,6 +172,12 @@ export function ProductAdminPage() {
               onRefresh={() => {
                 setReloadToken((current) => current + 1)
               }}
+              onImportComplete={() => {
+                setSearchInput("")
+                setSubmittedQuery("")
+                setPage(1)
+                setReloadToken((current) => current + 1)
+              }}
               onCreate={isAllBrand(brand) ? undefined : () => {
                 setDialogMode("create")
                 setSelectedItem(null)

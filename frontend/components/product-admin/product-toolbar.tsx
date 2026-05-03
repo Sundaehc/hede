@@ -15,6 +15,7 @@ type ProductToolbarProps = {
   onSearch: () => void
   onClear: () => void
   onRefresh: () => void
+  onImportComplete: () => void
   onCreate?: () => void
   onMessage: (title: string, description: string) => void
 }
@@ -27,6 +28,7 @@ export function ProductToolbar({
   onSearch,
   onClear,
   onRefresh,
+  onImportComplete,
   onCreate,
   onMessage,
 }: ProductToolbarProps) {
@@ -60,6 +62,7 @@ export function ProductToolbar({
       const result = await importProducts(brand, file)
       onMessage("导入完成", result.message)
       onClear()
+      onImportComplete()
     } catch {
       onMessage("导入失败", "请检查文件格式是否正确")
     } finally {

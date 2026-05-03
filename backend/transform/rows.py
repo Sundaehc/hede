@@ -136,6 +136,11 @@ ADMIN_EDITABLE_COLUMNS = (
     "closure_type",
     "shoe_box_spec",
     "first_order_time",
+    "size_range",
+    "product_model",
+    "supplier_name",
+    "color_code",
+    "launch_date",
 )
 
 def normalize_admin_first_order_time(value: object) -> str | None:
@@ -147,9 +152,14 @@ def normalize_admin_first_order_time(value: object) -> str | None:
     return None
 
 
+def normalize_admin_launch_date(value: object) -> str | None:
+    return normalize_admin_first_order_time(value)
+
+
 ADMIN_FIELD_NORMALIZERS = {
     "cost": coerce_cost,
     "first_order_time": normalize_admin_first_order_time,
+    "launch_date": normalize_admin_launch_date,
 }
 
 

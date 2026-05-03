@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -m pytest tests/ -x -q)",
+      "Bash(python -m pytest tests/ -x -q --ignore=tests/test_config.py)",
+      "Bash(python -c \"from transform.rows import ADMIN_EDITABLE_COLUMNS, ADMIN_FIELD_NORMALIZERS; print\\('EDITABLE:', ADMIN_EDITABLE_COLUMNS\\); print\\('NORMALIZERS:', list\\(ADMIN_FIELD_NORMALIZERS.keys\\(\\)\\)\\); assert 'size_range' in ADMIN_EDITABLE_COLUMNS; assert 'product_model' in ADMIN_EDITABLE_COLUMNS; assert 'supplier_name' in ADMIN_EDITABLE_COLUMNS; assert 'color_code' in ADMIN_EDITABLE_COLUMNS; assert 'launch_date' in ADMIN_EDITABLE_COLUMNS; assert 'launch_date' in ADMIN_FIELD_NORMALIZERS; print\\('All checks passed!'\\)\")"
+    ]
+  }
+}

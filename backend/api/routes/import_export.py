@@ -124,8 +124,6 @@ async def import_products(
         reverse_aliases[en_field] = en_field
 
     repository = request.app.state.repository
-    settings = request.app.state.settings
-    from domain.sources import IMAGE_BRAND_KEYS
     image_matcher = request.app.state.image_matchers.get(brand)
     created = 0
     updated = 0
@@ -149,6 +147,21 @@ async def import_products(
                 if normalized is not None and str(normalized).strip():
                     extra_fields[key] = normalized
 
+        # Normalize sku/original_sku: handle numeric values from Excel
+        raw_sku = payload.get("sku")
+        if raw_sku is not None:
+            if isinstance(raw_sku, float) and raw_sku.is_integer():
+                payload["sku"] = str(int(raw_sku))
+            else:
+                payload["sku"] = str(raw_sku).strip()
+
+        raw_orig = payload.get("original_sku")
+        if raw_orig is not None:
+            if isinstance(raw_orig, float) and raw_orig.is_integer():
+                payload["original_sku"] = str(int(raw_orig))
+            else:
+                payload["original_sku"] = str(raw_orig).strip()
+
         if not payload.get("original_sku") and not payload.get("sku"):
             continue
 
@@ -158,17 +171,14 @@ async def import_products(
         if extra_fields:
             payload["extra_fields"] = extra_fields
 
-        # Match by sku first, then by original_sku
+        # Match by sku only
         sku_val = str(payload.get("sku", "") or "").strip()
         existing = repository.find_by_sku(brand, sku_val) if sku_val else None
-        if existing is None:
-            orig_val = str(payload.get("original_sku", "") or "").strip()
-            existing = repository.find_by_original_sku(brand, orig_val) if orig_val else None
 
         # Only keep fields that have a value in the imported row
         import_fields = {}
         for key, value in payload.items():
-            if key in ("original_sku", "sku", "extra_fields"):
+            if key in ("sku", "extra_fields"):
                 continue
             normalized = normalize_admin_field(key, value)
             if normalized is not None and str(normalized).strip():
