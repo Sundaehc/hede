@@ -127,6 +127,7 @@ async def import_products(
     image_matcher = request.app.state.image_matchers.get(brand)
     created = 0
     updated = 0
+    imported_skus: list[str] = []
 
     for row in iterator:
         row_dict = {}
@@ -175,6 +176,9 @@ async def import_products(
         sku_val = str(payload.get("sku", "") or "").strip()
         existing = repository.find_by_sku(brand, sku_val) if sku_val else None
 
+        if sku_val:
+            imported_skus.append(sku_val)
+
         # Only keep fields that have a value in the imported row
         import_fields = {}
         for key, value in payload.items():
@@ -218,4 +222,4 @@ async def import_products(
             created += 1
 
     wb.close()
-    return {"created": created, "updated": updated, "message": f"导入完成：新增 {created} 条，更新 {updated} 条"}
+    return {"created": created, "updated": updated, "skus": imported_skus, "message": f"导入完成：新增 {created} 条，更新 {updated} 条"}

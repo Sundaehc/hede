@@ -172,11 +172,11 @@ export function ProductAdminPage() {
               onRefresh={() => {
                 setReloadToken((current) => current + 1)
               }}
-              onImportComplete={() => {
-                setSearchInput("")
-                setSubmittedQuery("")
+              onImportComplete={(skus: string[]) => {
+                const query = skus.join(",")
+                setSearchInput(query)
+                setSubmittedQuery(query)
                 setPage(1)
-                setReloadToken((current) => current + 1)
               }}
               onCreate={isAllBrand(brand) ? undefined : () => {
                 setDialogMode("create")

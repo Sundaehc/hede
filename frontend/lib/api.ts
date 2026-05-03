@@ -99,6 +99,7 @@ export function exportProducts(brand: BrandKey) {
 export type ImportResult = {
   created: number
   updated: number
+  skus: string[]
   message: string
 }
 
