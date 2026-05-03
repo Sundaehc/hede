@@ -72,6 +72,18 @@ export function deleteProduct(brand: BrandKey, id: number) {
   })
 }
 
+export type BatchDeleteResult = {
+  deleted: number
+  message: string
+}
+
+export function batchDeleteProducts(brand: BrandKey, ids: number[]) {
+  return request<BatchDeleteResult>("/products/batch-delete", {
+    method: "POST",
+    body: JSON.stringify({ brand, ids }),
+  })
+}
+
 export function lookupImage(params: {
   brand: BrandKey
   originalSku: string | null

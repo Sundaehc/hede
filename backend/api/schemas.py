@@ -76,3 +76,10 @@ class ImageLookupRequest(BaseModel):
         ):
             return self
         raise ValueError("Either original_sku or sku must be provided")
+
+
+class BatchDeleteRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    brand: BrandKey
+    ids: list[int]

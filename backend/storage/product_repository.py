@@ -164,6 +164,15 @@ class ProductRepository:
             result = connection.execute(statement)
         return result.rowcount > 0
 
+    def delete_products(self, brand: str, ids: list[int]) -> int:
+        if not ids:
+            return 0
+        table = PRODUCT_TABLES[brand]
+        statement = delete(table).where(table.c.id.in_(ids))
+        with self.engine.begin() as connection:
+            result = connection.execute(statement)
+        return result.rowcount
+
     @staticmethod
     def _prepare_record(record: Mapping[str, object]) -> dict[str, object]:
         payload = dict(record)

@@ -10,7 +10,7 @@ import { ProductToolbar } from "@/components/product-admin/product-toolbar"
 import { Tabs, TabsContent } from "@/components/ui/tabs"
 import { ThemeToggle } from "@/components/theme-toggle"
 import { BRANDS, type BrandKey } from "@/lib/brands"
-import { ApiError, deleteProduct, listProducts } from "@/lib/api"
+import { ApiError, batchDeleteProducts, deleteProduct, listProducts } from "@/lib/api"
 import type { ProductListItem } from "@/lib/types"
 
 const DEFAULT_BRAND = BRANDS[0].key
@@ -45,9 +45,16 @@ export function ProductAdminPage() {
   const [dialogMode, setDialogMode] = useState<"create" | "edit">("create")
   const [selectedItem, setSelectedItem] = useState<ProductListItem | null>(null)
 
+  // Selection state
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(() => new Set())
+
   // ConfirmDialog state
   const [deleteTarget, setDeleteTarget] = useState<ProductListItem | null>(null)
   const [isDeleting, setIsDeleting] = useState(false)
+
+  // Batch delete confirm state
+  const [batchDeleteOpen, setBatchDeleteOpen] = useState(false)
+  const [isBatchDeleting, setIsBatchDeleting] = useState(false)
 
   // MessageDialog state
   const [messageOpen, setMessageOpen] = useState(false)
@@ -96,6 +103,11 @@ export function ProductAdminPage() {
     }
   }, [brand, page, pageSize, reloadToken, submittedQuery])
 
+  // Clear selection on page/brand/search change
+  useEffect(() => {
+    setSelectedIds(new Set())
+  }, [brand, page, submittedQuery])
+
   const currentBrandLabel = useMemo(() => {
     return BRANDS.find((item) => item.key === brand)?.label ?? "商品"
   }, [brand])
@@ -114,6 +126,11 @@ export function ProductAdminPage() {
     setIsDeleting(true)
     try {
       await deleteProduct(deleteTarget.brand, deleteTarget.id)
+      setSelectedIds((prev) => {
+        const next = new Set(prev)
+        next.delete(deleteTarget.id)
+        return next
+      })
       setReloadToken((current) => current + 1)
     } catch (deleteError) {
       setMessageContent({ title: "删除失败", description: getErrorMessage(deleteError) })
@@ -124,10 +141,61 @@ export function ProductAdminPage() {
     }
   }
 
+  const handleToggleSelect = useCallback((id: number) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) {
+        next.delete(id)
+      } else {
+        next.add(id)
+      }
+      return next
+    })
+  }, [])
+
+  const handleToggleSelectAll = useCallback(() => {
+    setSelectedIds((prev) => {
+      const allSelected = items.every((item) => prev.has(item.id))
+      if (allSelected) {
+        const next = new Set(prev)
+        for (const item of items) {
+          next.delete(item.id)
+        }
+        return next
+      }
+      const next = new Set(prev)
+      for (const item of items) {
+        next.add(item.id)
+      }
+      return next
+    })
+  }, [items])
+
+  const handleBatchDeleteRequest = useCallback(() => {
+    setBatchDeleteOpen(true)
+  }, [])
+
+  const handleBatchDeleteConfirm = async () => {
+    setIsBatchDeleting(true)
+    try {
+      await batchDeleteProducts(brand as BrandKey, Array.from(selectedIds))
+      setSelectedIds(new Set())
+      setReloadToken((current) => current + 1)
+    } catch (deleteError) {
+      setMessageContent({ title: "批量删除失败", description: getErrorMessage(deleteError) })
+      setMessageOpen(true)
+    } finally {
+      setIsBatchDeleting(false)
+      setBatchDeleteOpen(false)
+    }
+  }
+
   const showMessage = useCallback((title: string, description: string) => {
     setMessageContent({ title, description })
     setMessageOpen(true)
   }, [])
+
+  const showBatchDelete = !isAllBrand(brand) && selectedIds.size > 0
 
   return (
     <main className="min-h-svh bg-background px-6 py-10 text-foreground">
@@ -194,6 +262,11 @@ export function ProductAdminPage() {
               pageSizes={PAGE_SIZES}
               isLoading={isLoading}
               error={error}
+              selectable={!isAllBrand(brand)}
+              selectedIds={selectedIds}
+              onToggleSelect={handleToggleSelect}
+              onToggleSelectAll={handleToggleSelectAll}
+              onBatchDelete={showBatchDelete ? handleBatchDeleteRequest : undefined}
               onEdit={isAllBrand(brand) ? undefined : (item) => {
                 setDialogMode("edit")
                 setSelectedItem(item)
@@ -231,6 +304,16 @@ export function ProductAdminPage() {
           variant="destructive"
           onConfirm={handleDeleteConfirm}
           onCancel={() => setDeleteTarget(null)}
+        />
+
+        <ConfirmDialog
+          open={batchDeleteOpen}
+          title="确认批量删除"
+          description={`确定删除选中的 ${selectedIds.size} 条商品？此操作不可撤销。`}
+          confirmLabel={isBatchDeleting ? "删除中..." : "删除"}
+          variant="destructive"
+          onConfirm={handleBatchDeleteConfirm}
+          onCancel={() => setBatchDeleteOpen(false)}
         />
 
         <MessageDialog

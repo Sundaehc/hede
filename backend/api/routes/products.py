@@ -3,7 +3,7 @@ from __future__ import annotations
 from fastapi import APIRouter, HTTPException, Query, Request
 
 from api.routes.images import image_url_for
-from api.schemas import BrandKey, ProductWriteRequest
+from api.schemas import BatchDeleteRequest, BrandKey, ProductWriteRequest
 
 ALL_BRAND_KEYS = ["qbd_mens", "qbd_womens", "yandou", "yiban"]
 from transform.rows import build_admin_record
@@ -96,3 +96,11 @@ def delete_product(request: Request, brand: BrandKey, product_id: int):
     if not deleted:
         raise HTTPException(status_code=404, detail="Product not found")
     return {"message": "Product deleted"}
+
+
+@router.post("/products/batch-delete")
+def batch_delete_products(request: Request, body: BatchDeleteRequest):
+    if not body.ids:
+        raise HTTPException(status_code=400, detail="No ids provided")
+    deleted = request.app.state.repository.delete_products(body.brand, body.ids)
+    return {"deleted": deleted, "message": f"已删除 {deleted} 条商品"}

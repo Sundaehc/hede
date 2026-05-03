@@ -21,6 +21,11 @@ type ProductTableProps = {
   pageSizes: number[]
   isLoading: boolean
   error: string | null
+  selectable?: boolean
+  selectedIds: Set<number>
+  onToggleSelect: (id: number) => void
+  onToggleSelectAll: () => void
+  onBatchDelete?: () => void
   onEdit?: (item: ProductListItem) => void
   onDelete?: (item: ProductListItem) => void
   onPageChange: (page: number) => void
@@ -78,9 +83,26 @@ function ProductImage({ item }: { item: ProductListItem }) {
   )
 }
 
-function ProductCard({ item, onEdit, onDelete }: { item: ProductListItem; onEdit?: (item: ProductListItem) => void; onDelete?: (item: ProductListItem) => void }) {
+function ProductCard({ item, selectable, selectedIds, onToggleSelect, onEdit, onDelete }: {
+  item: ProductListItem
+  selectable?: boolean
+  selectedIds: Set<number>
+  onToggleSelect: (id: number) => void
+  onEdit?: (item: ProductListItem) => void
+  onDelete?: (item: ProductListItem) => void
+}) {
+  const checked = selectedIds.has(item.id)
+
   return (
     <div className="flex items-center gap-4 rounded-xl border border-border bg-card p-4">
+      {selectable ? (
+        <input
+          type="checkbox"
+          checked={checked}
+          onChange={() => onToggleSelect(item.id)}
+          className="h-4 w-4 shrink-0 cursor-pointer rounded border border-input accent-primary"
+        />
+      ) : null}
       <ProductImage item={item} />
       <div className="flex min-w-0 flex-1 flex-col gap-2">
         {/* Header: SKU + actions */}
@@ -159,6 +181,11 @@ export function ProductTable({
   pageSizes,
   isLoading,
   error,
+  selectable,
+  selectedIds,
+  onToggleSelect,
+  onToggleSelectAll,
+  onBatchDelete,
   onEdit,
   onDelete,
   onPageChange,
@@ -167,6 +194,8 @@ export function ProductTable({
   const totalPages = getTotalPages(total, pageSize)
   const start = total === 0 ? 0 : (page - 1) * pageSize + 1
   const end = total === 0 ? 0 : Math.min(page * pageSize, total)
+  const allSelected = items.length > 0 && items.every((item) => selectedIds.has(item.id))
+  const someSelected = items.some((item) => selectedIds.has(item.id))
 
   if (error) {
     return (
@@ -190,11 +219,30 @@ export function ProductTable({
   return (
     <div className="space-y-4">
       <div className="flex flex-col gap-2 text-sm text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
-        <p>
-          共 {total} 条，当前显示 {start}-{end}
-          {isLoading && items.length > 0 ? <span className="ml-2">加载中...</span> : null}
-        </p>
+        <div className="flex items-center gap-3">
+          {selectable ? (
+            <input
+              type="checkbox"
+              checked={allSelected}
+              ref={(el) => {
+                if (el) el.indeterminate = !allSelected && someSelected
+              }}
+              onChange={onToggleSelectAll}
+              className="h-4 w-4 cursor-pointer rounded border border-input accent-primary"
+            />
+          ) : null}
+          <p>
+            共 {total} 条，当前显示 {start}-{end}
+            {isLoading && items.length > 0 ? <span className="ml-2">加载中...</span> : null}
+            {selectedIds.size > 0 ? <span className="ml-2 text-foreground">已选 {selectedIds.size} 项</span> : null}
+          </p>
+        </div>
         <div className="flex items-center gap-2">
+          {selectedIds.size > 0 && onBatchDelete ? (
+            <Button type="button" variant="outline" size="sm" className="text-destructive hover:text-destructive cursor-pointer" onClick={onBatchDelete}>
+              批量删除 ({selectedIds.size})
+            </Button>
+          ) : null}
           <span>每页</span>
           <Select
             value={String(pageSize)}
@@ -215,7 +263,15 @@ export function ProductTable({
           </div>
         ) : (
           items.map((item) => (
-            <ProductCard key={`${item.brand}-${item.id}`} item={item} onEdit={onEdit} onDelete={onDelete} />
+            <ProductCard
+              key={`${item.brand}-${item.id}`}
+              item={item}
+              selectable={selectable}
+              selectedIds={selectedIds}
+              onToggleSelect={onToggleSelect}
+              onEdit={onEdit}
+              onDelete={onDelete}
+            />
           ))
         )}
       </div>
