@@ -7,7 +7,8 @@
       "Bash(dir \"e:\\\\hede\\\\frontend\\\\components\\\\ui\\\\\")",
       "Bash(Get-ChildItem -Path \"e:\\\\hede\\\\frontend\\\\components\\\\ui\" -Name)",
       "Bash(pnpm run *)",
-      "Bash(python -c \"from api.routes.products import router; from storage.product_repository import ProductRepository; print\\('Backend imports OK'\\)\")"
+      "Bash(python -c \"from api.routes.products import router; from storage.product_repository import ProductRepository; print\\('Backend imports OK'\\)\")",
+      "Bash(python -c \"from api.routes.import_export import router; from storage.product_repository import ProductRepository; print\\('OK'\\)\")"
     ]
   }
 }

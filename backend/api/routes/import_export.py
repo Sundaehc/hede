@@ -55,11 +55,16 @@ CN_TO_FIELD = {cn: en for cn, en in COLUMN_ALIASES.items() if en in EXPORT_COLUM
 def export_products(
     request: Request,
     brand: str = Query(...),
+    ids: str | None = Query(None),
 ):
     repository = request.app.state.repository
 
-    table = repository.list_products(brand, query=None, page=1, page_size=1_000_000)
-    items = table["items"]
+    if ids:
+        id_list = [int(i.strip()) for i in ids.split(",") if i.strip()]
+        items = repository.get_products_by_ids(brand, id_list)
+    else:
+        table = repository.list_products(brand, query=None, page=1, page_size=1_000_000)
+        items = table["items"]
 
     BRAND_LABELS = {
         "qbd_mens": "千百度男鞋",

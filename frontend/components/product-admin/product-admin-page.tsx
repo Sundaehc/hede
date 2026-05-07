@@ -227,6 +227,7 @@ export function ProductAdminPage() {
               brand={brand}
               value={searchInput}
               isLoading={isLoading}
+              selectedIds={selectedIds}
               onValueChange={setSearchInput}
               onSearch={() => {
                 setPage(1)

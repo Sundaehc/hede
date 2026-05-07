@@ -102,6 +102,14 @@ class ProductRepository:
             row = connection.execute(statement).mappings().first()
         return None if row is None else dict(row)
 
+    def get_products_by_ids(self, brand: str, ids: list[int]) -> list[dict[str, object]]:
+        if not ids:
+            return []
+        table = PRODUCT_TABLES[brand]
+        statement = select(table).where(table.c.id.in_(ids)).order_by(desc(table.c.id))
+        with self.engine.connect() as connection:
+            return [dict(row) for row in connection.execute(statement).mappings()]
+
     def find_by_sku(self, brand: str, sku: object) -> dict[str, object] | None:
         table = PRODUCT_TABLES[brand]
         statement = select(table).where(table.c.sku == str(sku))

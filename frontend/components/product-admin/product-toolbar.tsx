@@ -11,6 +11,7 @@ type ProductToolbarProps = {
   brand: BrandKey | "all"
   value: string
   isLoading: boolean
+  selectedIds?: Set<number>
   onValueChange: (value: string) => void
   onSearch: () => void
   onClear: () => void
@@ -24,6 +25,7 @@ export function ProductToolbar({
   brand,
   value,
   isLoading,
+  selectedIds,
   onValueChange,
   onSearch,
   onClear,
@@ -37,7 +39,8 @@ export function ProductToolbar({
 
   const handleExport = async () => {
     try {
-      const response = await exportProducts(brand)
+      const ids = selectedIds && selectedIds.size > 0 ? Array.from(selectedIds) : undefined
+      const response = await exportProducts(brand, ids)
       const disposition = response.headers.get("Content-Disposition") ?? ""
       const match = disposition.match(/filename\*=UTF-8''(.+)/)
       const filename = match ? decodeURIComponent(match[1]) : `${brand}_products.xlsx`
@@ -74,6 +77,7 @@ export function ProductToolbar({
   }
 
   const hasMultipleLines = value.includes("\n") || value.includes(",") || value.includes("，")
+  const hasSelection = selectedIds && selectedIds.size > 0
 
   return (
     <div className="flex flex-col gap-3 rounded-xl border border-border bg-card p-4">
@@ -112,8 +116,8 @@ export function ProductToolbar({
 
       {onCreate ? (
         <div className="flex items-center gap-2 border-t border-border pt-3">
-          <Button type="button" variant="outline" size="sm" onClick={handleExport} disabled={isLoading} className="cursor-pointer">
-            导出 Excel
+          <Button type="button" variant="outline" size="sm" onClick={() => void handleExport()} disabled={isLoading} className="cursor-pointer">
+            {hasSelection ? `导出选中 (${selectedIds!.size})` : "导出 Excel"}
           </Button>
           <Button type="button" variant="outline" size="sm" onClick={() => fileInputRef.current?.click()} disabled={importing} className="cursor-pointer">
             {importing ? "导入中..." : "导入 Excel"}

@@ -99,8 +99,12 @@ export function lookupImage(params: {
   })
 }
 
-export function exportProducts(brand: BrandKey) {
-  return fetch(`${API_PREFIX}/export?brand=${brand}`).then(async (response) => {
+export function exportProducts(brand: BrandKey, ids?: number[]) {
+  const params = new URLSearchParams({ brand })
+  if (ids && ids.length > 0) {
+    params.set("ids", ids.join(","))
+  }
+  return fetch(`${API_PREFIX}/export?${params.toString()}`).then(async (response) => {
     if (!response.ok) {
       throw new ApiError(response.status, await response.text())
     }
