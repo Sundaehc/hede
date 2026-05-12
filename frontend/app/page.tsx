@@ -1,5 +1,5 @@
-import { ProductAdminPage } from "@/components/product-admin/product-admin-page"
+import { redirect } from "next/navigation"
 
-export default function Page() {
-  return <ProductAdminPage />
+export default function Home() {
+  redirect("/products")
 }

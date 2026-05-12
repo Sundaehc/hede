@@ -8,7 +8,7 @@ import { ProductTable } from "@/components/product-admin/product-table"
 import { ProductTabs } from "@/components/product-admin/product-tabs"
 import { ProductToolbar } from "@/components/product-admin/product-toolbar"
 import { Tabs, TabsContent } from "@/components/ui/tabs"
-import { ThemeToggle } from "@/components/theme-toggle"
+
 import { BRANDS, type BrandKey } from "@/lib/brands"
 import { ApiError, batchDeleteProducts, deleteProduct, listProducts } from "@/lib/api"
 import type { ProductListItem } from "@/lib/types"
@@ -198,14 +198,8 @@ export function ProductAdminPage() {
   const showBatchDelete = !isAllBrand(brand) && selectedIds.size > 0
 
   return (
-    <main className="min-h-svh bg-background px-6 py-10 text-foreground">
+    <div className="px-6 py-8">
       <div className="mx-auto flex w-full max-w-6xl flex-col gap-6">
-        <div className="flex items-start justify-between gap-4">
-          <div className="space-y-2">
-            <h1 className="text-3xl font-semibold tracking-tight">商品信息档案</h1>
-          </div>
-          <ThemeToggle />
-        </div>
 
         <Tabs
           value={brand}
@@ -324,6 +318,6 @@ export function ProductAdminPage() {
           onClose={() => setMessageOpen(false)}
         />
       </div>
-    </main>
+    </div>
   )
 }

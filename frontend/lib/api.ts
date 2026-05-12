@@ -133,3 +133,167 @@ export function importProducts(brand: BrandKey, file: File) {
     return (await response.json()) as ImportResult
   })
 }
+
+// ── Inventory ────────────────────────────────────────────────────
+
+export type InventoryRecord = {
+  id: number
+  date: string | null
+  supplier: string | null
+  product_code: string | null
+  quantity: string | null
+  unit_price: string | null
+  warehouse: string | null
+  document_type: string | null
+  summary: string | null
+  extra_fields: Record<string, string> | null
+  source_workbook: string
+  source_sheet: string
+  source_row_number: string
+  created_at: string | null
+  updated_at: string | null
+}
+
+export type InventoryListResponse = {
+  items: InventoryRecord[]
+  total: number
+  page: number
+  page_size: number
+}
+
+export type SupplierItem = {
+  id: number
+  name: string
+  contact: string | null
+  address: string | null
+  notes: string | null
+}
+
+export type WarehouseItem = {
+  id: number
+  name: string
+  address: string | null
+  notes: string | null
+}
+
+export function listInventory(params: {
+  query?: string
+  page: number
+  pageSize: number
+}) {
+  const search = new URLSearchParams({
+    page: String(params.page),
+    page_size: String(params.pageSize),
+  })
+  if (params.query) {
+    search.set("query", params.query)
+  }
+  return request<InventoryListResponse>(`/inventory?${search.toString()}`)
+}
+
+export function createInventoryRecord(payload: Record<string, unknown>) {
+  return request<{ item: InventoryRecord; message: string }>("/inventory", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  })
+}
+
+export function updateInventoryRecord(id: number, payload: Record<string, unknown>) {
+  return request<{ item: InventoryRecord; message: string }>(`/inventory/${id}`, {
+    method: "PUT",
+    body: JSON.stringify(payload),
+  })
+}
+
+export function deleteInventoryRecord(id: number) {
+  return request<{ message: string }>(`/inventory/${id}`, {
+    method: "DELETE",
+  })
+}
+
+export function batchDeleteInventory(ids: number[]) {
+  return request<{ deleted: number; message: string }>("/inventory/batch-delete", {
+    method: "POST",
+    body: JSON.stringify({ ids }),
+  })
+}
+
+export type InventoryImportResult = {
+  created: number
+  message: string
+}
+
+export function importInventory(file: File) {
+  const formData = new FormData()
+  formData.append("file", file)
+  return fetch(`${API_PREFIX}/inventory/import`, {
+    method: "POST",
+    body: formData,
+  }).then(async (response) => {
+    if (!response.ok) {
+      throw new ApiError(response.status, await response.text())
+    }
+    return (await response.json()) as InventoryImportResult
+  })
+}
+
+export function exportInventory() {
+  return fetch(`${API_PREFIX}/inventory/export`).then(async (response) => {
+    if (!response.ok) {
+      throw new ApiError(response.status, await response.text())
+    }
+    return response
+  })
+}
+
+// ── Suppliers ────────────────────────────────────────────────────
+
+export function listSuppliers() {
+  return request<{ items: SupplierItem[] }>("/suppliers")
+}
+
+export function createSupplier(payload: Record<string, unknown>) {
+  return request<{ item: SupplierItem; message: string }>("/suppliers", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  })
+}
+
+export function updateSupplier(id: number, payload: Record<string, unknown>) {
+  return request<{ item: SupplierItem; message: string }>(`/suppliers/${id}`, {
+    method: "PUT",
+    body: JSON.stringify(payload),
+  })
+}
+
+export function deleteSupplier(id: number) {
+  return request<{ message: string }>(`/suppliers/${id}`, {
+    method: "DELETE",
+  })
+}
+
+// ── Warehouses ───────────────────────────────────────────────────
+
+export function listWarehouses() {
+  return request<{ items: WarehouseItem[] }>("/warehouses")
+}
+
+export function createWarehouse(payload: Record<string, unknown>) {
+  return request<{ item: WarehouseItem; message: string }>("/warehouses", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  })
+}
+
+export function updateWarehouse(id: number, payload: Record<string, unknown>) {
+  return request<{ item: WarehouseItem; message: string }>(`/warehouses/${id}`, {
+    method: "PUT",
+    body: JSON.stringify(payload),
+  })
+}
+
+export function deleteWarehouse(id: number) {
+  return request<{ message: string }>(`/warehouses/${id}`, {
+    method: "DELETE",
+  })
+}

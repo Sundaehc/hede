@@ -8,7 +8,11 @@
       "Bash(Get-ChildItem -Path \"e:\\\\hede\\\\frontend\\\\components\\\\ui\" -Name)",
       "Bash(pnpm run *)",
       "Bash(python -c \"from api.routes.products import router; from storage.product_repository import ProductRepository; print\\('Backend imports OK'\\)\")",
-      "Bash(python -c \"from api.routes.import_export import router; from storage.product_repository import ProductRepository; print\\('OK'\\)\")"
+      "Bash(python -c \"from api.routes.import_export import router; from storage.product_repository import ProductRepository; print\\('OK'\\)\")",
+      "Bash(python -c \"from domain.inventory_schema import INVENTORY_TABLE, SUPPLIER_TABLE, WAREHOUSE_TABLE; print\\('Tables OK:', INVENTORY_TABLE.name, SUPPLIER_TABLE.name, WAREHOUSE_TABLE.name\\)\")",
+      "Bash(python -m pytest tests/ -x --timeout=30)",
+      "Bash(python -m pytest tests/ -x)",
+      "Bash(python -c ' *)"
     ]
   }
 }

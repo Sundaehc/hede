@@ -6,6 +6,7 @@ import orjson
 from sqlalchemy import create_engine, delete, insert
 
 from domain.schema import METADATA, PRODUCT_TABLES
+from domain.inventory_schema import INVENTORY_TABLE, SUPPLIER_TABLE, WAREHOUSE_TABLE  # noqa: F401 - register on METADATA
 
 
 def _json_serializer(value):
@@ -23,8 +24,7 @@ class Database:
 
     def create_tables(self) -> None:
         engine = self._require_engine()
-        METADATA.drop_all(engine)
-        METADATA.create_all(engine)
+        METADATA.create_all(engine, checkfirst=True)
 
     def replace_brand_rows(self, brand_group: str, rows: Iterable[dict[str, object]]) -> int:
         table = PRODUCT_TABLES[brand_group]
