@@ -16,7 +16,8 @@
       "Bash(netstat -ano)",
       "Bash(findstr :8137)",
       "Bash(python -m scripts.fix_inventory_dates)",
-      "Bash(npx tsc *)"
+      "Bash(npx tsc *)",
+      "Bash(python -c \"import sqlalchemy; print\\(sqlalchemy.__version__\\)\")"
     ]
   }
 }

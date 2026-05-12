@@ -221,7 +221,15 @@ async def import_inventory(request: Request, file: UploadFile = None):
 
         payload.setdefault("source_workbook", file.filename or "")
         payload.setdefault("source_sheet", ws.title or "")
-        payload["raw_payload"] = {k: str(v) if v is not None else "" for k, v in row_dict.items()}
+        raw_payload = {}
+        for k, v in row_dict.items():
+            raw_payload[k] = str(v) if v is not None else ""
+        # Normalize date in raw_payload too
+        for rp_key, rp_value in raw_payload.items():
+            if reverse_aliases.get(rp_key) == "date":
+                raw_payload[rp_key] = _normalize_date(rp_value) or rp_value
+                break
+        payload["raw_payload"] = raw_payload
 
         supplier_name = payload.get("supplier", "").strip()
         warehouse_name = payload.get("warehouse", "").strip()
