@@ -1,5 +1,6 @@
+import { RefreshCw } from "lucide-react"
 import type { ProductListItem } from "@/lib/types"
-import { CARD_DISPLAY_FIELDS, FIELD_GROUPS, FIELD_LABELS } from "@/lib/fields"
+import { FIELD_GROUPS, FIELD_LABELS } from "@/lib/fields"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
 import {
@@ -94,7 +95,7 @@ function ProductCard({ item, selectable, selectedIds, onToggleSelect, onEdit, on
   const checked = selectedIds.has(item.id)
 
   return (
-    <div className="flex items-center gap-4 rounded-xl border border-border bg-card p-4">
+    <div className="flex items-center gap-4 rounded-xl border border-border bg-card p-4 transition-shadow hover:shadow-sm">
       {selectable ? (
         <input
           type="checkbox"
@@ -199,7 +200,7 @@ export function ProductTable({
 
   if (error) {
     return (
-      <Alert className="border-destructive/30">
+      <Alert className="border-destructive/30 bg-destructive/5">
         <AlertTitle>加载失败</AlertTitle>
         <AlertDescription>{error}</AlertDescription>
       </Alert>
@@ -208,7 +209,8 @@ export function ProductTable({
 
   if (isLoading && items.length === 0) {
     return (
-      <div className="rounded-xl border border-border bg-card p-6 text-sm text-muted-foreground">
+      <div className="flex items-center justify-center rounded-xl border border-border bg-card p-12 text-sm text-muted-foreground">
+        <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
         正在加载商品数据...
       </div>
     )
@@ -258,7 +260,7 @@ export function ProductTable({
 
       <div className="space-y-3">
         {items.length === 0 ? (
-          <div className="rounded-xl border border-border bg-card p-8 text-center text-sm text-muted-foreground">
+          <div className="flex items-center justify-center rounded-xl border border-border bg-card p-12 text-center text-sm text-muted-foreground">
             暂无商品数据
           </div>
         ) : (

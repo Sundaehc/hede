@@ -80,8 +80,8 @@ export function ProductToolbar({
   const hasSelection = selectedIds && selectedIds.size > 0
 
   return (
-    <div className="flex flex-col gap-3 rounded-xl border border-border bg-card p-4">
-      <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
+    <div className="flex flex-col gap-3 rounded-xl border border-border bg-card p-4 shadow-xs">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
         <div className="flex flex-1 flex-col gap-1.5">
           <Label htmlFor="product-search-input" className="text-xs text-muted-foreground">
             {hasMultipleLines ? "批量搜索（逗号或换行分隔）" : "货号搜索"}
@@ -101,7 +101,7 @@ export function ProductToolbar({
             className="resize-none rounded-lg border border-input bg-background px-3 py-2 text-sm shadow-xs outline-none transition-colors placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50"
           />
         </div>
-        <div className="flex gap-2 pb-0.5">
+        <div className="flex gap-2">
           <Button type="button" size="sm" onClick={onSearch} disabled={isLoading} className="cursor-pointer">
             搜索
           </Button>
@@ -130,8 +130,8 @@ export function ProductToolbar({
             onChange={(e) => void handleImport(e)}
           />
           <div className="flex-1" />
-          <Button type="button" variant="secondary" size="sm" onClick={onCreate} className="cursor-pointer">
-            新增商品
+          <Button type="button" size="sm" onClick={onCreate} className="cursor-pointer">
+            <span>新增商品</span>
           </Button>
         </div>
       ) : null}

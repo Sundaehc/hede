@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useState } from "react"
 
 import { ConfirmDialog, MessageDialog } from "@/components/confirm-dialog"
 import { ProductFormDialog } from "@/components/product-admin/product-form-dialog"
@@ -127,10 +127,6 @@ export function ProductAdminPage() {
     setSelectedIds(new Set())
   }, [brand, year, page, submittedQuery])
 
-  const currentBrandLabel = useMemo(() => {
-    return BRANDS.find((item) => item.key === brand)?.label ?? "商品"
-  }, [brand])
-
   const handleSaved = async () => {
     setReloadToken((current) => current + 1)
   }
@@ -218,7 +214,10 @@ export function ProductAdminPage() {
 
   return (
     <div className="px-6 py-8">
-      <div className="mx-auto flex w-full max-w-6xl flex-col gap-6">
+      <div className="mx-auto flex w-full max-w-6xl flex-col gap-5">
+        <div className="flex items-center justify-between">
+          <h1 className="text-xl font-semibold">商品信息档案</h1>
+        </div>
 
         <Tabs
           value={brand}
@@ -229,29 +228,29 @@ export function ProductAdminPage() {
             setPage(1)
           }}
         >
-          <ProductTabs />
+          <div className="rounded-xl border border-border bg-card p-1.5">
+            <ProductTabs />
+          </div>
 
-          <TabsContent value={brand} className="space-y-4 rounded-xl border border-border bg-muted/20 p-4">
-            <div className="space-y-1">
-              <h2 className="text-lg font-medium">{currentBrandLabel}</h2>
-              <p className="text-sm text-muted-foreground">{isAllBrand(brand) ? "所有品牌商品汇总列表" : "当前品牌商品列表"}</p>
-            </div>
-
-            {!isAllBrand(brand) && availableYears.length > 0 && (
-              <div className="flex flex-wrap items-center gap-1.5">
-                {["", ...availableYears].map((y) => (
-                  <button
-                    key={y}
-                    onClick={() => { setYear(y); setPage(1) }}
-                    className={`rounded-md px-3 py-1 text-sm font-medium transition-colors ${
-                      year === y
-                        ? "bg-primary text-primary-foreground"
-                        : "bg-muted text-muted-foreground hover:bg-muted-foreground/20"
-                    }`}
-                  >
-                    {y || "全部"}
-                  </button>
-                ))}
+          <TabsContent value={brand} className="mt-4 space-y-4">
+            {!isAllBrand(brand) && (
+              <div className="flex items-center gap-1.5">
+                {availableYears.length > 0 && (
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    {["", ...availableYears].map((y) => (
+                      <button
+                        key={y}
+                        onClick={() => { setYear(y); setPage(1) }}
+                        className={`cursor-pointer rounded-lg px-3 py-1.5 text-sm font-medium transition-all duration-150 ${year === y
+                            ? "bg-primary text-primary-foreground shadow-sm"
+                            : "bg-muted text-muted-foreground hover:bg-muted-foreground/20 hover:text-foreground"
+                          }`}
+                      >
+                        {y || "全部"}
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
             )}
 
