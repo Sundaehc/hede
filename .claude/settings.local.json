@@ -12,7 +12,9 @@
       "Bash(python -c \"from domain.inventory_schema import INVENTORY_TABLE, SUPPLIER_TABLE, WAREHOUSE_TABLE; print\\('Tables OK:', INVENTORY_TABLE.name, SUPPLIER_TABLE.name, WAREHOUSE_TABLE.name\\)\")",
       "Bash(python -m pytest tests/ -x --timeout=30)",
       "Bash(python -m pytest tests/ -x)",
-      "Bash(python -c ' *)"
+      "Bash(python -c ' *)",
+      "Bash(netstat -ano)",
+      "Bash(findstr :8137)"
     ]
   }
 }

@@ -299,7 +299,7 @@ export function InventoryPage() {
               type="date"
               value={searchDateStart}
               onChange={(e) => setSearchDateStart(e.target.value)}
-              className="rounded-md border border-border bg-background px-3 py-2 text-sm w-36"
+              className="rounded-md border border-border bg-background px-3 py-2 text-sm w-36 cursor-pointer"
               title="开始日期"
             />
             <span className="text-muted-foreground text-sm">至</span>
@@ -307,13 +307,13 @@ export function InventoryPage() {
               type="date"
               value={searchDateEnd}
               onChange={(e) => setSearchDateEnd(e.target.value)}
-              className="rounded-md border border-border bg-background px-3 py-2 text-sm w-36"
+              className="rounded-md border border-border bg-background px-3 py-2 text-sm w-36 cursor-pointer"
               title="结束日期"
             />
             <select
               value={searchDocumentType}
               onChange={(e) => setSearchDocumentType(e.target.value)}
-              className="rounded-md border border-border bg-background px-3 py-2 text-sm w-32"
+              className="rounded-md border border-border bg-background px-3 py-2 text-sm w-32 cursor-pointer"
             >
               <option value="">单据类型</option>
               {DOCUMENT_TYPES.map((dt) => (
@@ -323,7 +323,7 @@ export function InventoryPage() {
             <select
               value={searchSupplier}
               onChange={(e) => setSearchSupplier(e.target.value)}
-              className="rounded-md border border-border bg-background px-3 py-2 text-sm max-w-32"
+              className="rounded-md border border-border bg-background px-3 py-2 text-sm max-w-32 cursor-pointer"
             >
               <option value="">供应商</option>
               {supplierOptions.map((s) => (
@@ -340,14 +340,14 @@ export function InventoryPage() {
             <select
               value={searchWarehouse}
               onChange={(e) => setSearchWarehouse(e.target.value)}
-              className="rounded-md border border-border bg-background px-3 py-2 text-sm max-w-32"
+              className="rounded-md border border-border bg-background px-3 py-2 text-sm max-w-32 cursor-pointer"
             >
               <option value="">仓库</option>
               {warehouseOptions.map((w) => (
                 <option key={w.id} value={w.name}>{w.name}</option>
               ))}
             </select>
-            <Button variant="outline" size="icon" onClick={search}>
+            <Button variant="outline" size="icon" onClick={search} className="cursor-pointer">
               <Search className="h-4 w-4" />
             </Button>
             {Object.keys(submittedFilters).length > 0 && (
@@ -357,19 +357,19 @@ export function InventoryPage() {
             )}
           </div>
           <div className="flex items-center gap-2">
-            <Button variant="outline" size="icon" onClick={() => setReloadToken((t) => t + 1)} disabled={isLoading}>
+            <Button variant="outline" className="cursor-pointer" size="icon" onClick={() => setReloadToken((t) => t + 1)} disabled={isLoading}>
               <RefreshCw className={`h-4 w-4 ${isLoading ? "animate-spin" : ""}`} />
             </Button>
-            <Button variant="outline" onClick={() => fileInputRef.current?.click()} disabled={isImporting}>
+            <Button variant="outline" className="cursor-pointer" onClick={() => fileInputRef.current?.click()} disabled={isImporting}>
               <Upload className="h-4 w-4" />
               <span className="ml-2 hidden sm:inline">{isImporting ? "导入中..." : "导入Excel"}</span>
             </Button>
             <input ref={fileInputRef} type="file" accept=".xlsx,.xls,.xlsm" className="hidden" onChange={handleImport} />
-            <Button variant="outline" onClick={handleExport} disabled={total === 0 || isLoading}>
+            <Button variant="outline" className="cursor-pointer" onClick={handleExport} disabled={total === 0 || isLoading}>
               <Download className="h-4 w-4" />
               <span className="ml-2 hidden sm:inline">导出Excel</span>
             </Button>
-            <Button onClick={openCreate}>
+            <Button onClick={openCreate} className="cursor-pointer">
               <Plus className="h-4 w-4" />
               <span className="ml-2 hidden sm:inline">新增记录</span>
             </Button>
@@ -379,7 +379,7 @@ export function InventoryPage() {
         {selectedIds.size > 0 && (
           <div className="flex items-center gap-2 rounded-lg border border-border bg-muted/30 px-4 py-2">
             <span className="text-sm text-muted-foreground">已选 {selectedIds.size} 条</span>
-            <Button variant="destructive" size="sm" onClick={() => setBatchDeleteOpen(true)}>
+            <Button variant="destructive" size="sm" onClick={() => setBatchDeleteOpen(true)} className="cursor-pointer">
               <Trash2 className="h-4 w-4" />
               <span className="ml-1">批量删除</span>
             </Button>

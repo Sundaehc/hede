@@ -108,7 +108,7 @@ export default function SuppliersPage() {
       <div className="mx-auto flex w-full max-w-3xl flex-col gap-6">
         <div className="flex items-center justify-between">
           <h1 className="text-xl font-semibold">供应商管理</h1>
-          <Button onClick={openCreate}>
+          <Button onClick={openCreate} className="cursor-pointer">
             <Plus className="h-4 w-4" />
             <span className="ml-2">新增供应商</span>
           </Button>
@@ -140,8 +140,8 @@ export default function SuppliersPage() {
                   <td className="px-4 py-2 max-w-40 truncate">{item.notes || "-"}</td>
                   <td className="px-4 py-2">
                     <div className="flex items-center gap-1">
-                      <Button variant="ghost" size="icon" onClick={() => openEdit(item)}><Edit className="h-4 w-4" /></Button>
-                      <Button variant="ghost" size="icon" onClick={() => setDeleteTarget(item)}><Trash2 className="h-4 w-4 text-destructive" /></Button>
+                      <Button variant="ghost" size="icon" onClick={() => openEdit(item)} className="cursor-pointer"><Edit className="h-4 w-4" /></Button>
+                      <Button variant="ghost" size="icon" onClick={() => setDeleteTarget(item)} className="cursor-pointer"><Trash2 className="h-4 w-4 text-destructive" /></Button>
                     </div>
                   </td>
                 </tr>
