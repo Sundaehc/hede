@@ -14,7 +14,9 @@
       "Bash(python -m pytest tests/ -x)",
       "Bash(python -c ' *)",
       "Bash(netstat -ano)",
-      "Bash(findstr :8137)"
+      "Bash(findstr :8137)",
+      "Bash(python -m scripts.fix_inventory_dates)",
+      "Bash(npx tsc *)"
     ]
   }
 }

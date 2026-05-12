@@ -4,6 +4,25 @@ import { useCallback, useEffect, useRef, useState } from "react"
 import { Plus, Download, Upload, Trash2, Edit, Search, X, RefreshCw } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+import { Select } from "@/components/ui/select"
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
+import {
+  Pagination,
+  PaginationContent,
+  PaginationEllipsis,
+  PaginationItem,
+  PaginationLink,
+  PaginationNext,
+  PaginationPrevious,
+} from "@/components/ui/pagination"
+import { Alert, AlertDescription } from "@/components/ui/alert"
 import { ConfirmDialog, MessageDialog } from "@/components/confirm-dialog"
 import {
   listInventory,
@@ -23,17 +42,6 @@ import {
 
 const PAGE_SIZES = [10, 50, 100]
 
-const FIELD_LABELS: Record<string, string> = {
-  date: "日期",
-  supplier: "供应商",
-  product_code: "商品编码",
-  quantity: "数量",
-  unit_price: "单价",
-  warehouse: "仓库",
-  document_type: "单据类型",
-  summary: "摘要",
-}
-
 const DOCUMENT_TYPES = ["工厂进货单", "工厂退货单"]
 
 const EMPTY_FORM: Record<string, string> = {
@@ -51,6 +59,18 @@ function getErrorMessage(error: unknown) {
   if (error instanceof ApiError) return error.message || `请求失败（${error.status}）`
   if (error instanceof Error) return error.message
   return "发生未知错误"
+}
+
+function buildPageRange(current: number, total: number): (number | "ellipsis")[] {
+  if (total <= 7) return Array.from({ length: total }, (_, i) => i + 1)
+  const pages: (number | "ellipsis")[] = [1]
+  if (current > 3) pages.push("ellipsis")
+  const start = Math.max(2, current - 1)
+  const end = Math.min(total - 1, current + 1)
+  for (let i = start; i <= end; i++) pages.push(i)
+  if (current < total - 2) pages.push("ellipsis")
+  pages.push(total)
+  return pages
 }
 
 export function InventoryPage() {
@@ -92,10 +112,7 @@ export function InventoryPage() {
   useEffect(() => {
     async function loadOptions() {
       try {
-        const [suppliersRes, warehousesRes] = await Promise.all([
-          listSuppliers(),
-          listWarehouses(),
-        ])
+        const [suppliersRes, warehousesRes] = await Promise.all([listSuppliers(), listWarehouses()])
         setSupplierOptions(suppliersRes.items)
         setWarehouseOptions(warehousesRes.items)
       } catch { /* ignore */ }
@@ -187,11 +204,7 @@ export function InventoryPage() {
     setIsDeleting(true)
     try {
       await deleteInventoryRecord(deleteTarget.id)
-      setSelectedIds((prev) => {
-        const next = new Set(prev)
-        next.delete(deleteTarget.id)
-        return next
-      })
+      setSelectedIds((prev) => { const next = new Set(prev); next.delete(deleteTarget.id); return next })
       setReloadToken((t) => t + 1)
     } catch (e) {
       showMessage("删除失败", getErrorMessage(e))
@@ -227,9 +240,7 @@ export function InventoryPage() {
     setSelectedIds((prev) => {
       const allSelected = items.every((item) => prev.has(item.id))
       const next = new Set(prev)
-      for (const item of items) {
-        allSelected ? next.delete(item.id) : next.add(item.id)
-      }
+      for (const item of items) allSelected ? next.delete(item.id) : next.add(item.id)
       return next
     })
   }
@@ -288,170 +299,203 @@ export function InventoryPage() {
     setSubmittedFilters({})
   }
 
+  const hasFilters = Object.keys(submittedFilters).length > 0
   const totalPages = Math.max(1, Math.ceil(total / pageSize))
+  const allSelected = items.length > 0 && items.every((item) => selectedIds.has(item.id))
+  const someSelected = items.some((item) => selectedIds.has(item.id))
+  const pageRange = buildPageRange(page, totalPages)
 
   return (
     <div className="px-6 py-8">
-      <div className="mx-auto flex w-full max-w-6xl flex-col gap-6">
-        <div className="flex flex-col gap-3">
-          <div className="flex flex-wrap items-center gap-2">
-            <input
-              type="date"
-              value={searchDateStart}
-              onChange={(e) => setSearchDateStart(e.target.value)}
-              className="rounded-md border border-border bg-background px-3 py-2 text-sm w-36 cursor-pointer"
-              title="开始日期"
-            />
-            <span className="text-muted-foreground text-sm">至</span>
-            <input
-              type="date"
-              value={searchDateEnd}
-              onChange={(e) => setSearchDateEnd(e.target.value)}
-              className="rounded-md border border-border bg-background px-3 py-2 text-sm w-36 cursor-pointer"
-              title="结束日期"
-            />
-            <select
-              value={searchDocumentType}
-              onChange={(e) => setSearchDocumentType(e.target.value)}
-              className="rounded-md border border-border bg-background px-3 py-2 text-sm w-32 cursor-pointer"
-            >
-              <option value="">单据类型</option>
-              {DOCUMENT_TYPES.map((dt) => (
-                <option key={dt} value={dt}>{dt}</option>
-              ))}
-            </select>
-            <select
-              value={searchSupplier}
-              onChange={(e) => setSearchSupplier(e.target.value)}
-              className="rounded-md border border-border bg-background px-3 py-2 text-sm max-w-32 cursor-pointer"
-            >
-              <option value="">供应商</option>
-              {supplierOptions.map((s) => (
-                <option key={s.id} value={s.name}>{s.name}</option>
-              ))}
-            </select>
-            <Input
-              placeholder="商品编码"
-              value={searchProductCode}
-              onChange={(e) => setSearchProductCode(e.target.value)}
-              onKeyDown={(e) => { if (e.key === "Enter") search() }}
-              className="w-28"
-            />
-            <select
-              value={searchWarehouse}
-              onChange={(e) => setSearchWarehouse(e.target.value)}
-              className="rounded-md border border-border bg-background px-3 py-2 text-sm max-w-32 cursor-pointer"
-            >
-              <option value="">仓库</option>
-              {warehouseOptions.map((w) => (
-                <option key={w.id} value={w.name}>{w.name}</option>
-              ))}
-            </select>
-            <Button variant="outline" size="icon" onClick={search} className="cursor-pointer">
-              <Search className="h-4 w-4" />
-            </Button>
-            {Object.keys(submittedFilters).length > 0 && (
-              <Button variant="ghost" size="icon" onClick={clearSearch}>
-                <X className="h-4 w-4" />
-              </Button>
-            )}
-          </div>
+      <div className="mx-auto flex w-full max-w-6xl flex-col gap-5">
+        {/* Header */}
+        <div className="flex items-center justify-between">
+          <h1 className="text-xl font-semibold">进销存管理</h1>
           <div className="flex items-center gap-2">
-            <Button variant="outline" className="cursor-pointer" size="icon" onClick={() => setReloadToken((t) => t + 1)} disabled={isLoading}>
-              <RefreshCw className={`h-4 w-4 ${isLoading ? "animate-spin" : ""}`} />
-            </Button>
-            <Button variant="outline" className="cursor-pointer" onClick={() => fileInputRef.current?.click()} disabled={isImporting}>
+            <Button variant="outline" size="sm" onClick={() => fileInputRef.current?.click()} disabled={isImporting} className="cursor-pointer">
               <Upload className="h-4 w-4" />
               <span className="ml-2 hidden sm:inline">{isImporting ? "导入中..." : "导入Excel"}</span>
             </Button>
             <input ref={fileInputRef} type="file" accept=".xlsx,.xls,.xlsm" className="hidden" onChange={handleImport} />
-            <Button variant="outline" className="cursor-pointer" onClick={handleExport} disabled={total === 0 || isLoading}>
+            <Button variant="outline" size="sm" onClick={handleExport} disabled={total === 0 || isLoading} className="cursor-pointer">
               <Download className="h-4 w-4" />
               <span className="ml-2 hidden sm:inline">导出Excel</span>
             </Button>
-            <Button onClick={openCreate} className="cursor-pointer">
+            <Button size="sm" onClick={openCreate} className="cursor-pointer">
               <Plus className="h-4 w-4" />
               <span className="ml-2 hidden sm:inline">新增记录</span>
             </Button>
           </div>
         </div>
 
-        {selectedIds.size > 0 && (
-          <div className="flex items-center gap-2 rounded-lg border border-border bg-muted/30 px-4 py-2">
-            <span className="text-sm text-muted-foreground">已选 {selectedIds.size} 条</span>
-            <Button variant="destructive" size="sm" onClick={() => setBatchDeleteOpen(true)} className="cursor-pointer">
-              <Trash2 className="h-4 w-4" />
-              <span className="ml-1">批量删除</span>
-            </Button>
+        {/* Search Card */}
+        <div className="rounded-xl border border-border bg-card p-4">
+          <div className="flex flex-col gap-3">
+            <div className="flex flex-wrap items-end gap-3">
+              <div className="flex flex-col gap-1.5">
+                <Label className="text-xs text-muted-foreground">日期范围</Label>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="date"
+                    value={searchDateStart}
+                    onChange={(e) => setSearchDateStart(e.target.value)}
+                    className="h-9 rounded-lg border border-input bg-background px-3 py-2 text-sm shadow-xs outline-none transition-colors focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
+                  />
+                  <span className="text-xs text-muted-foreground">至</span>
+                  <input
+                    type="date"
+                    value={searchDateEnd}
+                    onChange={(e) => setSearchDateEnd(e.target.value)}
+                    className="h-9 rounded-lg border border-input bg-background px-3 py-2 text-sm shadow-xs outline-none transition-colors focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
+                  />
+                </div>
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <Label className="text-xs text-muted-foreground">单据类型</Label>
+                <Select value={searchDocumentType} onChange={(e) => setSearchDocumentType(e.target.value)} className="w-36">
+                  <option value="">全部</option>
+                  {DOCUMENT_TYPES.map((dt) => (<option key={dt} value={dt}>{dt}</option>))}
+                </Select>
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <Label className="text-xs text-muted-foreground">供应商</Label>
+                <Select value={searchSupplier} onChange={(e) => setSearchSupplier(e.target.value)} className="w-36">
+                  <option value="">全部</option>
+                  {supplierOptions.map((s) => (<option key={s.id} value={s.name}>{s.name}</option>))}
+                </Select>
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <Label className="text-xs text-muted-foreground">仓库</Label>
+                <Select value={searchWarehouse} onChange={(e) => setSearchWarehouse(e.target.value)} className="w-36">
+                  <option value="">全部</option>
+                  {warehouseOptions.map((w) => (<option key={w.id} value={w.name}>{w.name}</option>))}
+                </Select>
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <Label className="text-xs text-muted-foreground">商品编码</Label>
+                <Input
+                  placeholder="模糊搜索"
+                  value={searchProductCode}
+                  onChange={(e) => setSearchProductCode(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === "Enter") search() }}
+                  className="w-36"
+                />
+              </div>
+              <div className="flex gap-2 pb-0.5">
+                <Button size="sm" onClick={search} disabled={isLoading} className="cursor-pointer">
+                  <Search className="h-4 w-4" />
+                  <span className="ml-1.5">搜索</span>
+                </Button>
+                {hasFilters && (
+                  <Button variant="outline" size="sm" onClick={clearSearch} className="cursor-pointer">
+                    <X className="h-4 w-4" />
+                    <span className="ml-1.5">清空</span>
+                  </Button>
+                )}
+                <Button variant="outline" size="sm" onClick={() => setReloadToken((t) => t + 1)} disabled={isLoading} className="cursor-pointer">
+                  <RefreshCw className={`h-4 w-4 ${isLoading ? "animate-spin" : ""}`} />
+                </Button>
+              </div>
+            </div>
           </div>
+        </div>
+
+        {/* Selection & Summary Bar */}
+        <div className="flex flex-col gap-2 text-sm text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex items-center gap-3">
+            <input
+              type="checkbox"
+              checked={allSelected}
+              ref={(el) => { if (el) el.indeterminate = !allSelected && someSelected }}
+              onChange={handleToggleSelectAll}
+              className="h-4 w-4 cursor-pointer rounded border border-input accent-primary"
+            />
+            <span>
+              共 {total} 条{hasFilters ? " (已筛选)" : ""}
+              {selectedIds.size > 0 && <span className="ml-2 font-medium text-foreground">已选 {selectedIds.size} 项</span>}
+            </span>
+          </div>
+          <div className="flex items-center gap-2">
+            {selectedIds.size > 0 && (
+              <Button variant="outline" size="sm" className="text-destructive hover:text-destructive cursor-pointer" onClick={() => setBatchDeleteOpen(true)}>
+                <Trash2 className="h-4 w-4" />
+                <span className="ml-1.5">批量删除 ({selectedIds.size})</span>
+              </Button>
+            )}
+            <span>每页</span>
+            <Select value={String(pageSize)} onChange={(e) => { setPageSize(Number(e.target.value)); setPage(1) }} className="w-20">
+              {PAGE_SIZES.map((s) => (<option key={s} value={String(s)}>{s} 条</option>))}
+            </Select>
+          </div>
+        </div>
+
+        {/* Error */}
+        {error && !isLoading && (
+          <Alert className="border-destructive/30">
+            <AlertDescription>{error}</AlertDescription>
+          </Alert>
         )}
 
         {/* Table */}
-        <div className="overflow-x-auto rounded-xl border border-border bg-muted/20">
+        <div className="overflow-x-auto rounded-xl border border-border bg-card">
           <table className="w-full text-sm">
             <thead>
-              <tr className="border-b border-border text-left text-muted-foreground">
-                <th className="px-3 py-3 w-10">
-                  <input
-                    type="checkbox"
-                    checked={items.length > 0 && items.every((item) => selectedIds.has(item.id))}
-                    onChange={handleToggleSelectAll}
-                    className="h-4 w-4"
-                  />
-                </th>
-                <th className="px-3 py-3">日期</th>
-                <th className="px-3 py-3">单据类型</th>
-                <th className="px-3 py-3">供应商</th>
-                <th className="px-3 py-3">商品编码</th>
-                <th className="px-3 py-3 text-right">数量</th>
-                <th className="px-3 py-3 text-right">单价</th>
-                <th className="px-3 py-3">仓库</th>
-                <th className="px-3 py-3">摘要</th>
-                <th className="px-3 py-3 w-24">操作</th>
+              <tr className="border-b border-border bg-muted/40 text-left text-muted-foreground">
+                <th className="px-4 py-3 w-10"></th>
+                <th className="px-4 py-3 font-medium">日期</th>
+                <th className="px-4 py-3 font-medium">单据类型</th>
+                <th className="px-4 py-3 font-medium">供应商</th>
+                <th className="px-4 py-3 font-medium">商品编码</th>
+                <th className="px-4 py-3 text-right font-medium">数量</th>
+                <th className="px-4 py-3 text-right font-medium">单价</th>
+                <th className="px-4 py-3 font-medium">仓库</th>
+                <th className="px-4 py-3 font-medium">摘要</th>
+                <th className="px-4 py-3 w-24 font-medium">操作</th>
               </tr>
             </thead>
-            <tbody>
+            <tbody className="divide-y divide-border">
               {isLoading && (
                 <tr>
-                  <td colSpan={10} className="px-3 py-8 text-center text-muted-foreground">
-                    加载中...
-                  </td>
-                </tr>
-              )}
-              {!isLoading && error && (
-                <tr>
-                  <td colSpan={10} className="px-3 py-8 text-center text-destructive">{error}</td>
+                  <td colSpan={10} className="px-4 py-12 text-center text-muted-foreground">加载中...</td>
                 </tr>
               )}
               {!isLoading && !error && items.length === 0 && (
                 <tr>
-                  <td colSpan={10} className="px-3 py-8 text-center text-muted-foreground">暂无数据</td>
+                  <td colSpan={10} className="px-4 py-12 text-center text-muted-foreground">
+                    {hasFilters ? "没有符合条件的数据" : "暂无数据"}
+                  </td>
                 </tr>
               )}
               {!isLoading && !error && items.map((item) => (
-                <tr key={item.id} className="border-b border-border hover:bg-muted/30">
-                  <td className="px-3 py-2">
+                <tr key={item.id} className="hover:bg-muted/30 transition-colors">
+                  <td className="px-4 py-2.5">
                     <input
                       type="checkbox"
                       checked={selectedIds.has(item.id)}
                       onChange={() => handleToggleSelect(item.id)}
-                      className="h-4 w-4"
+                      className="h-4 w-4 cursor-pointer rounded border border-input accent-primary"
                     />
                   </td>
-                  <td className="px-3 py-2 whitespace-nowrap">{item.date || "-"}</td>
-                  <td className="px-3 py-2 whitespace-nowrap">{item.document_type || "-"}</td>
-                  <td className="px-3 py-2">{item.supplier || "-"}</td>
-                  <td className="px-3 py-2">{item.product_code || "-"}</td>
-                  <td className="px-3 py-2 text-right">{item.quantity || "-"}</td>
-                  <td className="px-3 py-2 text-right">{item.unit_price || "-"}</td>
-                  <td className="px-3 py-2">{item.warehouse || "-"}</td>
-                  <td className="px-3 py-2 max-w-40 truncate">{item.summary || "-"}</td>
-                  <td className="px-3 py-2">
-                    <div className="flex items-center gap-1">
-                      <Button variant="ghost" size="icon" onClick={() => openEdit(item)}>
+                  <td className="px-4 py-2.5 whitespace-nowrap tabular-nums">{item.date || "-"}</td>
+                  <td className="px-4 py-2.5 whitespace-nowrap">
+                    {item.document_type ? (
+                      <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${item.document_type === "工厂退货单" ? "bg-red-100 text-red-700" : "bg-blue-100 text-blue-700"}`}>
+                        {item.document_type}
+                      </span>
+                    ) : "-"}
+                  </td>
+                  <td className="px-4 py-2.5">{item.supplier || "-"}</td>
+                  <td className="px-4 py-2.5 font-mono text-xs">{item.product_code || "-"}</td>
+                  <td className="px-4 py-2.5 text-right tabular-nums">{item.quantity || "-"}</td>
+                  <td className="px-4 py-2.5 text-right tabular-nums">{item.unit_price || "-"}</td>
+                  <td className="px-4 py-2.5">{item.warehouse || "-"}</td>
+                  <td className="px-4 py-2.5 max-w-48 truncate">{item.summary || "-"}</td>
+                  <td className="px-4 py-2.5">
+                    <div className="flex items-center gap-0.5">
+                      <Button variant="ghost" size="icon" onClick={() => openEdit(item)} className="cursor-pointer">
                         <Edit className="h-4 w-4" />
                       </Button>
-                      <Button variant="ghost" size="icon" onClick={() => setDeleteTarget(item)}>
+                      <Button variant="ghost" size="icon" onClick={() => setDeleteTarget(item)} className="cursor-pointer">
                         <Trash2 className="h-4 w-4 text-destructive" />
                       </Button>
                     </div>
@@ -463,124 +507,169 @@ export function InventoryPage() {
         </div>
 
         {/* Pagination */}
-        <div className="flex items-center justify-between text-sm text-muted-foreground">
-          <div className="flex items-center gap-2">
-            <span>每页</span>
-            <select
-              value={pageSize}
-              onChange={(e) => { setPageSize(Number(e.target.value)); setPage(1) }}
-              className="rounded border border-border bg-background px-2 py-1"
-            >
-              {PAGE_SIZES.map((s) => (
-                <option key={s} value={s}>{s}</option>
-              ))}
-            </select>
-            <span>条，共 {total} 条</span>
+        {totalPages > 1 && (
+          <div className="flex items-center justify-center gap-4">
+            <Pagination>
+              <PaginationContent>
+                <PaginationItem>
+                  <PaginationPrevious
+                    text="上一页"
+                    onClick={() => setPage((p) => Math.max(1, p - 1))}
+                    className={page <= 1 ? "pointer-events-none opacity-50" : "cursor-pointer"}
+                  />
+                </PaginationItem>
+                {pageRange.map((p, i) =>
+                  p === "ellipsis" ? (
+                    <PaginationItem key={`ellipsis-${i}`}>
+                      <PaginationEllipsis />
+                    </PaginationItem>
+                  ) : (
+                    <PaginationItem key={p}>
+                      <PaginationLink
+                        isActive={p === page}
+                        onClick={() => p !== page && setPage(p)}
+                        className={p === page ? "cursor-default" : "cursor-pointer"}
+                      >
+                        {p}
+                      </PaginationLink>
+                    </PaginationItem>
+                  )
+                )}
+                <PaginationItem>
+                  <PaginationNext
+                    text="下一页"
+                    onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                    className={page >= totalPages ? "pointer-events-none opacity-50" : "cursor-pointer"}
+                  />
+                </PaginationItem>
+              </PaginationContent>
+            </Pagination>
+            <div className="flex items-center gap-1 text-sm text-muted-foreground whitespace-nowrap">
+              <span>跳至</span>
+              <input
+                type="number"
+                min={1}
+                max={totalPages}
+                className="h-8 w-16 rounded-md border border-input bg-background px-2 text-center text-sm outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/50"
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    const target = parseInt((e.target as HTMLInputElement).value, 10)
+                    if (target >= 1 && target <= totalPages) setPage(target)
+                  }
+                }}
+              />
+              <span>页</span>
+            </div>
           </div>
-          <div className="flex items-center gap-1">
-            <Button variant="outline" size="sm" onClick={() => setPage(1)} disabled={page <= 1}>首页</Button>
-            <Button variant="outline" size="sm" onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page <= 1}>上一页</Button>
-            <span className="px-2 tabular-nums">{page} / {totalPages}</span>
-            <Button variant="outline" size="sm" onClick={() => setPage((p) => Math.min(totalPages, p + 1))} disabled={page >= totalPages}>下一页</Button>
-            <Button variant="outline" size="sm" onClick={() => setPage(totalPages)} disabled={page >= totalPages}>末页</Button>
-          </div>
+        )}
+
+        {/* Total summary footer */}
+        <div className="text-center text-xs text-muted-foreground">
+          共 {total} 条记录 · 第 {total === 0 ? 0 : (page - 1) * pageSize + 1}-{Math.min(page * pageSize, total)} 条
         </div>
       </div>
 
       {/* Form Dialog */}
-      {formOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-          <div className="bg-background rounded-xl border border-border shadow-xl w-full max-w-lg mx-4 max-h-[90vh] overflow-y-auto">
-            <div className="px-6 py-4 border-b border-border font-semibold">
-              {formMode === "create" ? "新增进销存记录" : "编辑进销存记录"}
+      <Dialog open={formOpen} onOpenChange={setFormOpen}>
+        <DialogContent className="max-w-xl">
+          <DialogHeader>
+            <DialogTitle>{formMode === "create" ? "新增进销存记录" : "编辑进销存记录"}</DialogTitle>
+          </DialogHeader>
+          <div className="grid grid-cols-2 gap-4 py-2">
+            {/* Date */}
+            <div className="space-y-1.5">
+              <Label htmlFor="form-date">日期</Label>
+              <input
+                id="form-date"
+                type="date"
+                value={formData.date || ""}
+                onChange={(e) => setFormData((prev) => ({ ...prev, date: e.target.value }))}
+                className="flex h-9 w-full rounded-lg border border-input bg-background px-3 py-2 text-sm shadow-xs outline-none transition-colors focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
+              />
             </div>
-            <div className="px-6 py-4 space-y-4">
-              {Object.entries(FIELD_LABELS).map(([key, label]) => {
-                if (key === "document_type") {
-                  return (
-                    <div key={key} className="space-y-1">
-                      <label className="text-sm font-medium">{label}</label>
-                      <select
-                        value={formData[key] || ""}
-                        onChange={(e) => setFormData((prev) => ({ ...prev, [key]: e.target.value }))}
-                        className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
-                      >
-                        <option value="">请选择</option>
-                        {DOCUMENT_TYPES.map((dt) => (
-                          <option key={dt} value={dt}>{dt}</option>
-                        ))}
-                      </select>
-                    </div>
-                  )
-                }
-                if (key === "supplier") {
-                  return (
-                    <div key={key} className="space-y-1">
-                      <label className="text-sm font-medium">{label}</label>
-                      <select
-                        value={formData[key] || ""}
-                        onChange={(e) => setFormData((prev) => ({ ...prev, [key]: e.target.value }))}
-                        className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
-                      >
-                        <option value="">请选择</option>
-                        {supplierOptions.map((s) => (
-                          <option key={s.id} value={s.name}>{s.name}</option>
-                        ))}
-                      </select>
-                    </div>
-                  )
-                }
-                if (key === "warehouse") {
-                  return (
-                    <div key={key} className="space-y-1">
-                      <label className="text-sm font-medium">{label}</label>
-                      <select
-                        value={formData[key] || ""}
-                        onChange={(e) => setFormData((prev) => ({ ...prev, [key]: e.target.value }))}
-                        className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
-                      >
-                        <option value="">请选择</option>
-                        {warehouseOptions.map((w) => (
-                          <option key={w.id} value={w.name}>{w.name}</option>
-                        ))}
-                      </select>
-                    </div>
-                  )
-                }
-                if (key === "date") {
-                  return (
-                    <div key={key} className="space-y-1">
-                      <label className="text-sm font-medium">{label}</label>
-                      <input
-                        type="date"
-                        value={formData[key] || ""}
-                        onChange={(e) => setFormData((prev) => ({ ...prev, [key]: e.target.value }))}
-                        className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
-                      />
-                    </div>
-                  )
-                }
-                return (
-                  <div key={key} className="space-y-1">
-                    <label className="text-sm font-medium">{label}</label>
-                    <Input
-                      value={formData[key] || ""}
-                      onChange={(e) => setFormData((prev) => ({ ...prev, [key]: e.target.value }))}
-                      placeholder={label}
-                    />
-                  </div>
-                )
-              })}
+            {/* Document Type */}
+            <div className="space-y-1.5">
+              <Label htmlFor="form-doc-type">单据类型</Label>
+              <Select
+                value={formData.document_type || ""}
+                onChange={(e) => setFormData((prev) => ({ ...prev, document_type: e.target.value }))}
+              >
+                <option value="">请选择</option>
+                {DOCUMENT_TYPES.map((dt) => (<option key={dt} value={dt}>{dt}</option>))}
+              </Select>
             </div>
-            <div className="px-6 py-4 border-t border-border flex justify-end gap-2">
-              <Button variant="outline" onClick={() => setFormOpen(false)} disabled={isSaving}>取消</Button>
-              <Button onClick={handleSave} disabled={isSaving}>
-                {isSaving ? "保存中..." : "保存"}
-              </Button>
+            {/* Supplier */}
+            <div className="space-y-1.5">
+              <Label htmlFor="form-supplier">供应商</Label>
+              <Select
+                value={formData.supplier || ""}
+                onChange={(e) => setFormData((prev) => ({ ...prev, supplier: e.target.value }))}
+              >
+                <option value="">请选择</option>
+                {supplierOptions.map((s) => (<option key={s.id} value={s.name}>{s.name}</option>))}
+              </Select>
+            </div>
+            {/* Warehouse */}
+            <div className="space-y-1.5">
+              <Label htmlFor="form-warehouse">仓库</Label>
+              <Select
+                value={formData.warehouse || ""}
+                onChange={(e) => setFormData((prev) => ({ ...prev, warehouse: e.target.value }))}
+              >
+                <option value="">请选择</option>
+                {warehouseOptions.map((w) => (<option key={w.id} value={w.name}>{w.name}</option>))}
+              </Select>
+            </div>
+            {/* Product Code */}
+            <div className="space-y-1.5">
+              <Label htmlFor="form-product-code">商品编码</Label>
+              <Input
+                id="form-product-code"
+                value={formData.product_code || ""}
+                onChange={(e) => setFormData((prev) => ({ ...prev, product_code: e.target.value }))}
+                placeholder="商品编码"
+              />
+            </div>
+            {/* Quantity */}
+            <div className="space-y-1.5">
+              <Label htmlFor="form-quantity">数量</Label>
+              <Input
+                id="form-quantity"
+                type="number"
+                value={formData.quantity || ""}
+                onChange={(e) => setFormData((prev) => ({ ...prev, quantity: e.target.value }))}
+                placeholder="数量"
+              />
+            </div>
+            {/* Unit Price */}
+            <div className="space-y-1.5">
+              <Label htmlFor="form-unit-price">单价</Label>
+              <Input
+                id="form-unit-price"
+                type="number"
+                step="0.01"
+                value={formData.unit_price || ""}
+                onChange={(e) => setFormData((prev) => ({ ...prev, unit_price: e.target.value }))}
+                placeholder="单价"
+              />
+            </div>
+            {/* Summary - full width */}
+            <div className="col-span-2 space-y-1.5">
+              <Label htmlFor="form-summary">摘要</Label>
+              <Input
+                id="form-summary"
+                value={formData.summary || ""}
+                onChange={(e) => setFormData((prev) => ({ ...prev, summary: e.target.value }))}
+                placeholder="摘要"
+              />
             </div>
           </div>
-        </div>
-      )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setFormOpen(false)} disabled={isSaving} className="cursor-pointer">取消</Button>
+            <Button onClick={handleSave} disabled={isSaving} className="cursor-pointer">{isSaving ? "保存中..." : "保存"}</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <ConfirmDialog
         open={deleteTarget !== null}

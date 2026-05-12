@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import io
 import urllib.parse
+from datetime import datetime, timedelta
 
 from fastapi import APIRouter, HTTPException, Query, Request, UploadFile
 from fastapi.responses import StreamingResponse
@@ -17,6 +18,22 @@ from domain.inventory_sources import (
 router = APIRouter()
 
 CN_TO_FIELD = {cn: en for cn, en in INVENTORY_COLUMN_ALIASES.items() if en in INVENTORY_CANONICAL_COLUMNS}
+
+EXCEL_EPOCH = datetime(1899, 12, 30)
+
+
+def _normalize_date(value: str | None) -> str | None:
+    """Convert Excel serial date number to YYYY-MM-DD string. Passes through non-numeric values unchanged."""
+    if not value:
+        return value
+    try:
+        serial = float(value)
+        # Only treat as Excel serial if it looks like a date number (between 1 and ~100000 days from epoch)
+        if 1 <= serial <= 100000:
+            return (EXCEL_EPOCH + timedelta(days=int(serial))).strftime("%Y-%m-%d")
+    except (ValueError, OverflowError):
+        pass
+    return value
 
 
 @router.get("/inventory")
@@ -44,6 +61,35 @@ def list_inventory(
     )
 
 
+@router.get("/inventory/export")
+def export_inventory(request: Request):
+    repository = request.app.state.inventory_repository
+    result = repository.list_records(page=1, page_size=100_000)
+    items = result["items"]
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "进销存数据"
+
+    headers = [INVENTORY_EXPORT_LABELS.get(c, c) for c in INVENTORY_CANONICAL_COLUMNS]
+    ws.append(headers)
+
+    for item in items:
+        row = [item.get(c) for c in INVENTORY_CANONICAL_COLUMNS]
+        ws.append(row)
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+
+    filename = urllib.parse.quote("进销存数据.xlsx")
+    return StreamingResponse(
+        buf,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{filename}"},
+    )
+
+
 @router.get("/inventory/{record_id}")
 def get_inventory_record(request: Request, record_id: int):
     repository = request.app.state.inventory_repository
@@ -56,6 +102,8 @@ def get_inventory_record(request: Request, record_id: int):
 @router.post("/inventory")
 def create_inventory_record(request: Request, payload: dict):
     repository = request.app.state.inventory_repository
+    if payload.get("date"):
+        payload["date"] = _normalize_date(str(payload["date"]))
     summary = (payload.get("summary") or "").strip()
     if summary:
         from domain.inventory_schema import INVENTORY_TABLE
@@ -72,6 +120,8 @@ def create_inventory_record(request: Request, payload: dict):
 @router.put("/inventory/{record_id}")
 def update_inventory_record(request: Request, record_id: int, payload: dict):
     repository = request.app.state.inventory_repository
+    if payload.get("date"):
+        payload["date"] = _normalize_date(str(payload["date"]))
     record = repository.update_record(record_id, payload)
     if record is None:
         raise HTTPException(status_code=404, detail="Record not found")
@@ -150,6 +200,8 @@ async def import_inventory(request: Request, file: UploadFile = None):
                         str_value = str(float(str_value))
                     except ValueError:
                         pass
+                if field == "date":
+                    str_value = _normalize_date(str_value)
                 payload[field] = str_value
             elif key and key not in known_fields:
                 if value is not None and str(value).strip():
@@ -206,32 +258,3 @@ async def import_inventory(request: Request, file: UploadFile = None):
     if warehouse_added > 0:
         msg += f"，新增仓库 {warehouse_added} 个"
     return {"created": created, "skipped": skipped, "message": msg}
-
-
-@router.get("/inventory/export")
-def export_inventory(request: Request):
-    repository = request.app.state.inventory_repository
-    result = repository.list_records(page=1, page_size=100_000)
-    items = result["items"]
-
-    wb = Workbook()
-    ws = wb.active
-    ws.title = "进销存数据"
-
-    headers = [INVENTORY_EXPORT_LABELS.get(c, c) for c in INVENTORY_CANONICAL_COLUMNS]
-    ws.append(headers)
-
-    for item in items:
-        row = [item.get(c) for c in INVENTORY_CANONICAL_COLUMNS]
-        ws.append(row)
-
-    buf = io.BytesIO()
-    wb.save(buf)
-    buf.seek(0)
-
-    filename = urllib.parse.quote("进销存数据.xlsx")
-    return StreamingResponse(
-        buf,
-        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{filename}"},
-    )

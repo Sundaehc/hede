@@ -176,8 +176,8 @@ export default function SuppliersPage() {
               </div>
             </div>
             <div className="px-6 py-4 border-t border-border flex justify-end gap-2">
-              <Button variant="outline" onClick={() => setFormOpen(false)} disabled={isSaving}>取消</Button>
-              <Button onClick={handleSave} disabled={isSaving}>{isSaving ? "保存中..." : "保存"}</Button>
+              <Button variant="outline" onClick={() => setFormOpen(false)} disabled={isSaving} className="cursor-pointer">取消</Button>
+              <Button onClick={handleSave} disabled={isSaving} className="cursor-pointer">{isSaving ? "保存中..." : "保存"}</Button>
             </div>
           </div>
         </div>
