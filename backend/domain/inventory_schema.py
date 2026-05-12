@@ -40,7 +40,9 @@ def build_inventory_table() -> Table:
     columns.append(Column("extra_fields", JSON, nullable=True))
     columns.append(Column("created_at", DateTime(timezone=True), server_default=func.now()))
     columns.append(Column("updated_at", DateTime(timezone=True), server_default=func.now(), onupdate=func.now()))
-    return Table(INVENTORY_TABLE_NAME, METADATA, *columns)
+    table = Table(INVENTORY_TABLE_NAME, METADATA, *columns)
+    table.append_constraint(UniqueConstraint("summary", name="uq_inventory_summary"))
+    return table
 
 
 def build_supplier_table() -> Table:

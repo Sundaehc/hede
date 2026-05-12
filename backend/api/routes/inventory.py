@@ -56,6 +56,16 @@ def get_inventory_record(request: Request, record_id: int):
 @router.post("/inventory")
 def create_inventory_record(request: Request, payload: dict):
     repository = request.app.state.inventory_repository
+    summary = (payload.get("summary") or "").strip()
+    if summary:
+        from domain.inventory_schema import INVENTORY_TABLE
+        from sqlalchemy import select as sa_select
+        with repository.engine.connect() as conn:
+            existing = conn.execute(
+                sa_select(INVENTORY_TABLE).where(INVENTORY_TABLE.c.summary == summary)
+            ).first()
+            if existing:
+                raise HTTPException(status_code=400, detail=f"摘要 '{summary}' 已存在")
     return {"item": repository.create_record(payload), "message": "创建成功"}
 
 
@@ -112,6 +122,10 @@ async def import_inventory(request: Request, file: UploadFile = None):
     known_fields = set(CN_TO_FIELD.values()) | set(CN_TO_FIELD.keys())
     repository = request.app.state.inventory_repository
     created = 0
+    skipped = 0
+
+    new_suppliers: set[str] = set()
+    new_warehouses: set[str] = set()
 
     for row in iterator:
         row_dict = {}
@@ -157,11 +171,41 @@ async def import_inventory(request: Request, file: UploadFile = None):
         payload.setdefault("source_sheet", ws.title or "")
         payload["raw_payload"] = {k: str(v) if v is not None else "" for k, v in row_dict.items()}
 
-        repository.create_record(payload)
-        created += 1
+        supplier_name = payload.get("supplier", "").strip()
+        warehouse_name = payload.get("warehouse", "").strip()
+        if supplier_name:
+            new_suppliers.add(supplier_name)
+        if warehouse_name:
+            new_warehouses.add(warehouse_name)
+
+        try:
+            repository.create_record(payload)
+            created += 1
+        except Exception:
+            skipped += 1
+
+    # Sync new suppliers and warehouses
+    supplier_added = 0
+    for name in new_suppliers:
+        if not repository.get_supplier_by_name(name):
+            repository.create_supplier({"name": name})
+            supplier_added += 1
+
+    warehouse_added = 0
+    for name in new_warehouses:
+        if not repository.get_warehouse_by_name(name):
+            repository.create_warehouse({"name": name})
+            warehouse_added += 1
 
     wb.close()
-    return {"created": created, "message": f"导入完成：新增 {created} 条记录"}
+    msg = f"导入完成：新增 {created} 条记录"
+    if skipped > 0:
+        msg += f"，跳过 {skipped} 条重复记录"
+    if supplier_added > 0:
+        msg += f"，新增供应商 {supplier_added} 个"
+    if warehouse_added > 0:
+        msg += f"，新增仓库 {warehouse_added} 个"
+    return {"created": created, "skipped": skipped, "message": msg}
 
 
 @router.get("/inventory/export")
