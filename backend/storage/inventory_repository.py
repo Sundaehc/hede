@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from decimal import Decimal
 
-from sqlalchemy import create_engine, delete, desc, func, insert, or_, select, update
+from sqlalchemy import and_, create_engine, delete, desc, func, insert, select, update
 
 from domain.inventory_schema import INVENTORY_TABLE, SUPPLIER_TABLE, WAREHOUSE_TABLE
 
@@ -25,7 +25,13 @@ class InventoryRepository:
 
     def list_records(
         self,
-        query: str | None,
+        *,
+        date_start: str | None = None,
+        date_end: str | None = None,
+        supplier: str | None = None,
+        product_code: str | None = None,
+        warehouse: str | None = None,
+        document_type: str | None = None,
         page: int,
         page_size: int,
     ) -> dict[str, object]:
@@ -33,15 +39,24 @@ class InventoryRepository:
         count_statement = select(func.count()).select_from(table)
         items_statement = select(table)
 
-        if query:
-            terms = [t.strip() for t in query.replace("\n", ",").split(",") if t.strip()]
-            conditions = []
-            for term in terms:
-                conditions.append(table.c.product_code.ilike(f"%{term}%"))
-                conditions.append(table.c.supplier.ilike(f"%{term}%"))
-                conditions.append(table.c.warehouse.ilike(f"%{term}%"))
-            items_statement = items_statement.where(or_(*conditions))
-            count_statement = count_statement.where(or_(*conditions))
+        conditions = []
+        if date_start:
+            conditions.append(table.c.date >= date_start)
+        if date_end:
+            conditions.append(table.c.date <= date_end)
+        if supplier:
+            conditions.append(table.c.supplier == supplier)
+        if product_code:
+            conditions.append(table.c.product_code.ilike(f"%{product_code}%"))
+        if warehouse:
+            conditions.append(table.c.warehouse == warehouse)
+        if document_type:
+            conditions.append(table.c.document_type == document_type)
+
+        if conditions:
+            criterion = conditions[0] if len(conditions) == 1 else and_(*conditions)
+            items_statement = items_statement.where(criterion)
+            count_statement = count_statement.where(criterion)
 
         items_statement = items_statement.order_by(desc(table.c.id)).offset((page - 1) * page_size).limit(page_size)
 

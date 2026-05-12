@@ -10,7 +10,7 @@ import { ProductToolbar } from "@/components/product-admin/product-toolbar"
 import { Tabs, TabsContent } from "@/components/ui/tabs"
 
 import { BRANDS, type BrandKey } from "@/lib/brands"
-import { ApiError, batchDeleteProducts, deleteProduct, listProducts } from "@/lib/api"
+import { ApiError, batchDeleteProducts, deleteProduct, getProductYears, listProducts } from "@/lib/api"
 import type { ProductListItem } from "@/lib/types"
 
 const DEFAULT_BRAND = BRANDS[0].key
@@ -32,6 +32,8 @@ function getErrorMessage(error: unknown) {
 
 export function ProductAdminPage() {
   const [brand, setBrand] = useState<BrandKey>(DEFAULT_BRAND)
+  const [year, setYear] = useState("")
+  const [availableYears, setAvailableYears] = useState<string[]>([])
   const [searchInput, setSearchInput] = useState("")
   const [submittedQuery, setSubmittedQuery] = useState("")
   const [page, setPage] = useState(1)
@@ -61,6 +63,22 @@ export function ProductAdminPage() {
   const [messageContent, setMessageContent] = useState({ title: "", description: "" })
 
   useEffect(() => {
+    if (isAllBrand(brand)) {
+      setAvailableYears([])
+      return
+    }
+    async function loadYears() {
+      try {
+        const res = await getProductYears(brand as BrandKey)
+        setAvailableYears(res.years)
+      } catch {
+        setAvailableYears([])
+      }
+    }
+    void loadYears()
+  }, [brand])
+
+  useEffect(() => {
     let cancelled = false
 
     async function loadProducts() {
@@ -73,6 +91,7 @@ export function ProductAdminPage() {
           page,
           pageSize: pageSize,
           query: submittedQuery || undefined,
+          year: year || undefined,
         })
 
         if (cancelled) {
@@ -101,12 +120,12 @@ export function ProductAdminPage() {
     return () => {
       cancelled = true
     }
-  }, [brand, page, pageSize, reloadToken, submittedQuery])
+  }, [brand, year, page, pageSize, reloadToken, submittedQuery])
 
   // Clear selection on page/brand/search change
   useEffect(() => {
     setSelectedIds(new Set())
-  }, [brand, page, submittedQuery])
+  }, [brand, year, page, submittedQuery])
 
   const currentBrandLabel = useMemo(() => {
     return BRANDS.find((item) => item.key === brand)?.label ?? "商品"
@@ -206,6 +225,7 @@ export function ProductAdminPage() {
           defaultValue={DEFAULT_BRAND}
           onValueChange={(value) => {
             setBrand(value as BrandKey)
+            setYear("")
             setPage(1)
           }}
         >
@@ -216,6 +236,24 @@ export function ProductAdminPage() {
               <h2 className="text-lg font-medium">{currentBrandLabel}</h2>
               <p className="text-sm text-muted-foreground">{isAllBrand(brand) ? "所有品牌商品汇总列表" : "当前品牌商品列表"}</p>
             </div>
+
+            {!isAllBrand(brand) && availableYears.length > 0 && (
+              <div className="flex flex-wrap items-center gap-1.5">
+                {["", ...availableYears].map((y) => (
+                  <button
+                    key={y}
+                    onClick={() => { setYear(y); setPage(1) }}
+                    className={`rounded-md px-3 py-1 text-sm font-medium transition-colors ${
+                      year === y
+                        ? "bg-primary text-primary-foreground"
+                        : "bg-muted text-muted-foreground hover:bg-muted-foreground/20"
+                    }`}
+                  >
+                    {y || "全部"}
+                  </button>
+                ))}
+              </div>
+            )}
 
             <ProductToolbar
               brand={brand}

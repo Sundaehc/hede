@@ -45,7 +45,7 @@ export function SidebarNav() {
   return (
     <aside className="fixed left-0 top-0 z-40 flex h-svh w-56 flex-col border-r border-border bg-sidebar">
       <div className="flex h-14 items-center gap-2 border-b border-border px-4">
-        <span className="font-semibold text-base">商品管理系统</span>
+        <span className="font-semibold text-base">赫德</span>
       </div>
 
       <nav className="flex-1 overflow-y-auto px-3 py-4">

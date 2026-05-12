@@ -13,8 +13,12 @@ import {
   batchDeleteInventory,
   importInventory,
   exportInventory,
+  listSuppliers,
+  listWarehouses,
   ApiError,
   type InventoryRecord,
+  type SupplierItem,
+  type WarehouseItem,
 } from "@/lib/api"
 
 const PAGE_SIZES = [10, 50, 100]
@@ -50,8 +54,16 @@ function getErrorMessage(error: unknown) {
 }
 
 export function InventoryPage() {
-  const [searchInput, setSearchInput] = useState("")
-  const [submittedQuery, setSubmittedQuery] = useState("")
+  const [searchDateStart, setSearchDateStart] = useState("")
+  const [searchDateEnd, setSearchDateEnd] = useState("")
+  const [searchSupplier, setSearchSupplier] = useState("")
+  const [searchProductCode, setSearchProductCode] = useState("")
+  const [searchWarehouse, setSearchWarehouse] = useState("")
+  const [searchDocumentType, setSearchDocumentType] = useState("")
+  const [submittedFilters, setSubmittedFilters] = useState<Record<string, string>>({})
+
+  const [supplierOptions, setSupplierOptions] = useState<SupplierItem[]>([])
+  const [warehouseOptions, setWarehouseOptions] = useState<WarehouseItem[]>([])
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(PAGE_SIZES[0])
   const [reloadToken, setReloadToken] = useState(0)
@@ -78,13 +90,32 @@ export function InventoryPage() {
   const [isImporting, setIsImporting] = useState(false)
 
   useEffect(() => {
+    async function loadOptions() {
+      try {
+        const [suppliersRes, warehousesRes] = await Promise.all([
+          listSuppliers(),
+          listWarehouses(),
+        ])
+        setSupplierOptions(suppliersRes.items)
+        setWarehouseOptions(warehousesRes.items)
+      } catch { /* ignore */ }
+    }
+    void loadOptions()
+  }, [])
+
+  useEffect(() => {
     let cancelled = false
     async function load() {
       setIsLoading(true)
       setError(null)
       try {
         const response = await listInventory({
-          query: submittedQuery || undefined,
+          date_start: submittedFilters.date_start || undefined,
+          date_end: submittedFilters.date_end || undefined,
+          supplier: submittedFilters.supplier || undefined,
+          product_code: submittedFilters.product_code || undefined,
+          warehouse: submittedFilters.warehouse || undefined,
+          document_type: submittedFilters.document_type || undefined,
           page,
           pageSize,
         })
@@ -102,9 +133,9 @@ export function InventoryPage() {
     }
     void load()
     return () => { cancelled = true }
-  }, [page, pageSize, reloadToken, submittedQuery])
+  }, [page, pageSize, reloadToken, submittedFilters])
 
-  useEffect(() => { setSelectedIds(new Set()) }, [page, submittedQuery])
+  useEffect(() => { setSelectedIds(new Set()) }, [page, submittedFilters])
 
   const showMessage = useCallback((title: string, description: string) => {
     setMessageContent({ title, description })
@@ -234,45 +265,93 @@ export function InventoryPage() {
     }
   }
 
+  const search = () => {
+    setPage(1)
+    setSubmittedFilters({
+      date_start: searchDateStart,
+      date_end: searchDateEnd,
+      supplier: searchSupplier,
+      product_code: searchProductCode.trim(),
+      warehouse: searchWarehouse,
+      document_type: searchDocumentType,
+    })
+  }
+
+  const clearSearch = () => {
+    setSearchDateStart("")
+    setSearchDateEnd("")
+    setSearchSupplier("")
+    setSearchProductCode("")
+    setSearchWarehouse("")
+    setSearchDocumentType("")
+    setPage(1)
+    setSubmittedFilters({})
+  }
+
   const totalPages = Math.max(1, Math.ceil(total / pageSize))
 
   return (
     <div className="px-6 py-8">
       <div className="mx-auto flex w-full max-w-6xl flex-col gap-6">
-        <div className="flex flex-wrap items-center gap-3">
-          <div className="flex flex-1 items-center gap-2">
-            <Input
-              placeholder="搜索供应商、商品编码、仓库..."
-              value={searchInput}
-              onChange={(e) => setSearchInput(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") {
-                  setPage(1)
-                  setSubmittedQuery(searchInput.trim())
-                }
-              }}
-              className="max-w-sm"
+        <div className="flex flex-col gap-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <input
+              type="date"
+              value={searchDateStart}
+              onChange={(e) => setSearchDateStart(e.target.value)}
+              className="rounded-md border border-border bg-background px-3 py-2 text-sm w-36"
+              title="开始日期"
             />
-            <Button
-              variant="outline"
-              size="icon"
-              onClick={() => {
-                setPage(1)
-                setSubmittedQuery(searchInput.trim())
-              }}
+            <span className="text-muted-foreground text-sm">至</span>
+            <input
+              type="date"
+              value={searchDateEnd}
+              onChange={(e) => setSearchDateEnd(e.target.value)}
+              className="rounded-md border border-border bg-background px-3 py-2 text-sm w-36"
+              title="结束日期"
+            />
+            <select
+              value={searchDocumentType}
+              onChange={(e) => setSearchDocumentType(e.target.value)}
+              className="rounded-md border border-border bg-background px-3 py-2 text-sm w-32"
             >
+              <option value="">单据类型</option>
+              {DOCUMENT_TYPES.map((dt) => (
+                <option key={dt} value={dt}>{dt}</option>
+              ))}
+            </select>
+            <select
+              value={searchSupplier}
+              onChange={(e) => setSearchSupplier(e.target.value)}
+              className="rounded-md border border-border bg-background px-3 py-2 text-sm max-w-32"
+            >
+              <option value="">供应商</option>
+              {supplierOptions.map((s) => (
+                <option key={s.id} value={s.name}>{s.name}</option>
+              ))}
+            </select>
+            <Input
+              placeholder="商品编码"
+              value={searchProductCode}
+              onChange={(e) => setSearchProductCode(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") search() }}
+              className="w-28"
+            />
+            <select
+              value={searchWarehouse}
+              onChange={(e) => setSearchWarehouse(e.target.value)}
+              className="rounded-md border border-border bg-background px-3 py-2 text-sm max-w-32"
+            >
+              <option value="">仓库</option>
+              {warehouseOptions.map((w) => (
+                <option key={w.id} value={w.name}>{w.name}</option>
+              ))}
+            </select>
+            <Button variant="outline" size="icon" onClick={search}>
               <Search className="h-4 w-4" />
             </Button>
-            {submittedQuery && (
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={() => {
-                  setSearchInput("")
-                  setPage(1)
-                  setSubmittedQuery("")
-                }}
-              >
+            {Object.keys(submittedFilters).length > 0 && (
+              <Button variant="ghost" size="icon" onClick={clearSearch}>
                 <X className="h-4 w-4" />
               </Button>
             )}
@@ -286,7 +365,7 @@ export function InventoryPage() {
               <span className="ml-2 hidden sm:inline">{isImporting ? "导入中..." : "导入Excel"}</span>
             </Button>
             <input ref={fileInputRef} type="file" accept=".xlsx,.xls,.xlsm" className="hidden" onChange={handleImport} />
-            <Button variant="outline" onClick={handleExport}>
+            <Button variant="outline" onClick={handleExport} disabled={total === 0 || isLoading}>
               <Download className="h-4 w-4" />
               <span className="ml-2 hidden sm:inline">导出Excel</span>
             </Button>
@@ -431,6 +510,53 @@ export function InventoryPage() {
                           <option key={dt} value={dt}>{dt}</option>
                         ))}
                       </select>
+                    </div>
+                  )
+                }
+                if (key === "supplier") {
+                  return (
+                    <div key={key} className="space-y-1">
+                      <label className="text-sm font-medium">{label}</label>
+                      <select
+                        value={formData[key] || ""}
+                        onChange={(e) => setFormData((prev) => ({ ...prev, [key]: e.target.value }))}
+                        className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
+                      >
+                        <option value="">请选择</option>
+                        {supplierOptions.map((s) => (
+                          <option key={s.id} value={s.name}>{s.name}</option>
+                        ))}
+                      </select>
+                    </div>
+                  )
+                }
+                if (key === "warehouse") {
+                  return (
+                    <div key={key} className="space-y-1">
+                      <label className="text-sm font-medium">{label}</label>
+                      <select
+                        value={formData[key] || ""}
+                        onChange={(e) => setFormData((prev) => ({ ...prev, [key]: e.target.value }))}
+                        className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
+                      >
+                        <option value="">请选择</option>
+                        {warehouseOptions.map((w) => (
+                          <option key={w.id} value={w.name}>{w.name}</option>
+                        ))}
+                      </select>
+                    </div>
+                  )
+                }
+                if (key === "date") {
+                  return (
+                    <div key={key} className="space-y-1">
+                      <label className="text-sm font-medium">{label}</label>
+                      <input
+                        type="date"
+                        value={formData[key] || ""}
+                        onChange={(e) => setFormData((prev) => ({ ...prev, [key]: e.target.value }))}
+                        className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
+                      />
                     </div>
                   )
                 }

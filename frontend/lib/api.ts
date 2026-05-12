@@ -29,9 +29,14 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   return (await response.json()) as T
 }
 
+export function getProductYears(brand: BrandKey) {
+  return request<{ years: string[] }>(`/products/${brand}/years`)
+}
+
 export function listProducts(params: {
   brand: BrandKey | "all"
   query?: string
+  year?: string
   page: number
   pageSize: number
 }) {
@@ -43,6 +48,9 @@ export function listProducts(params: {
 
   if (params.query) {
     search.set("query", params.query)
+  }
+  if (params.year) {
+    search.set("year", params.year)
   }
 
   return request<ProductListResponse>(`/products?${search.toString()}`)
@@ -177,7 +185,12 @@ export type WarehouseItem = {
 }
 
 export function listInventory(params: {
-  query?: string
+  date_start?: string
+  date_end?: string
+  supplier?: string
+  product_code?: string
+  warehouse?: string
+  document_type?: string
   page: number
   pageSize: number
 }) {
@@ -185,9 +198,12 @@ export function listInventory(params: {
     page: String(params.page),
     page_size: String(params.pageSize),
   })
-  if (params.query) {
-    search.set("query", params.query)
-  }
+  if (params.date_start) search.set("date_start", params.date_start)
+  if (params.date_end) search.set("date_end", params.date_end)
+  if (params.supplier) search.set("supplier", params.supplier)
+  if (params.product_code) search.set("product_code", params.product_code)
+  if (params.warehouse) search.set("warehouse", params.warehouse)
+  if (params.document_type) search.set("document_type", params.document_type)
   return request<InventoryListResponse>(`/inventory?${search.toString()}`)
 }
 

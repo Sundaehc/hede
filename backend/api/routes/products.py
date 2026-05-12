@@ -5,6 +5,10 @@ from fastapi import APIRouter, HTTPException, Query, Request
 from api.routes.images import image_url_for
 from api.schemas import BatchDeleteRequest, BrandKey, ProductWriteRequest
 
+from sqlalchemy import distinct as sa_distinct, select as sa_select
+
+from domain.schema import PRODUCT_TABLES
+
 ALL_BRAND_KEYS = ["qbd_mens", "qbd_womens", "yandou", "yiban"]
 from transform.rows import build_admin_record
 
@@ -25,6 +29,7 @@ def list_products(
     request: Request,
     brand: str = Query(...),
     query: str | None = None,
+    year: str | None = None,
     page: int = 1,
     page_size: int = 20,
 ):
@@ -42,11 +47,44 @@ def list_products(
         from fastapi import HTTPException
         raise HTTPException(status_code=400, detail=f"Invalid brand: {brand}")
 
-    payload = repository.list_products(brand, query=query, page=page, page_size=page_size)
+    payload = repository.list_products(brand, query=query, year=year, page=page, page_size=page_size)
     return {
         **payload,
         "items": [_with_brand_and_image(item, brand, settings) for item in payload["items"]],
     }
+
+
+@router.get("/products/{brand}/years")
+def get_product_years(request: Request, brand: str):
+    if brand == "all" or brand not in ALL_BRAND_KEYS:
+        return {"years": []}
+    repository = request.app.state.repository
+    table = PRODUCT_TABLES[brand]
+    with repository.engine.connect() as connection:
+        result = connection.execute(
+            sa_select(sa_distinct(table.c.year))
+            .where(table.c.year.isnot(None))
+            .where(table.c.year != "")
+            .order_by(table.c.year)
+        )
+        raw = [row[0] for row in result if row[0]]
+
+    # Extract year number prefix: "21年春季款" -> "21", "2025" -> "2025"
+    import re
+    seen: set[str] = set()
+    years: list[str] = []
+    for val in raw:
+        m = re.match(r"(\d+)", str(val))
+        if m:
+            y = m.group(1)
+            # Normalize 2-digit to 4-digit
+            if len(y) == 2:
+                y = "20" + y
+            if y not in seen:
+                seen.add(y)
+                years.append(y)
+    years.sort()
+    return {"years": years}
 
 
 @router.get("/products/{brand}/{product_id}")

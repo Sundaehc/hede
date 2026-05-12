@@ -22,12 +22,26 @@ CN_TO_FIELD = {cn: en for cn, en in INVENTORY_COLUMN_ALIASES.items() if en in IN
 @router.get("/inventory")
 def list_inventory(
     request: Request,
-    query: str | None = None,
+    date_start: str | None = None,
+    date_end: str | None = None,
+    supplier: str | None = None,
+    product_code: str | None = None,
+    warehouse: str | None = None,
+    document_type: str | None = None,
     page: int = 1,
     page_size: int = 20,
 ):
     repository = request.app.state.inventory_repository
-    return repository.list_records(query=query, page=page, page_size=page_size)
+    return repository.list_records(
+        date_start=date_start,
+        date_end=date_end,
+        supplier=supplier,
+        product_code=product_code,
+        warehouse=warehouse,
+        document_type=document_type,
+        page=page,
+        page_size=page_size,
+    )
 
 
 @router.get("/inventory/{record_id}")
@@ -153,7 +167,7 @@ async def import_inventory(request: Request, file: UploadFile = None):
 @router.get("/inventory/export")
 def export_inventory(request: Request):
     repository = request.app.state.inventory_repository
-    result = repository.list_records(query=None, page=1, page_size=100_000)
+    result = repository.list_records(page=1, page_size=100_000)
     items = result["items"]
 
     wb = Workbook()
