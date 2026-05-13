@@ -17,7 +17,11 @@
       "Bash(findstr :8137)",
       "Bash(python -m scripts.fix_inventory_dates)",
       "Bash(npx tsc *)",
-      "Bash(python -c \"import sqlalchemy; print\\(sqlalchemy.__version__\\)\")"
+      "Bash(python -c \"import sqlalchemy; print\\(sqlalchemy.__version__\\)\")",
+      "Bash(python -c \"from domain.inventory_schema import INVENTORY_TABLE, INVENTORY_DETAIL_TABLE, SUPPLIER_TABLE, WAREHOUSE_TABLE; from domain.inventory_sources import INVENTORY_CANONICAL_COLUMNS, INVENTORY_DETAIL_COLUMNS; print\\('schema OK'\\); print\\('Main columns:', INVENTORY_CANONICAL_COLUMNS\\); print\\('Detail columns:', INVENTORY_DETAIL_COLUMNS\\); print\\('Detail table:', INVENTORY_DETAIL_TABLE.name\\)\")",
+      "Bash(python -c \"from storage.inventory_repository import InventoryRepository; print\\('repository OK'\\); from api.routes.inventory import router; print\\('routes OK'\\); print\\('Routes:', [r.path for r in router.routes]\\)\")",
+      "Bash(python -c \"from domain.inventory_sources import INVENTORY_CANONICAL_COLUMNS; print\\('Canonical columns:', INVENTORY_CANONICAL_COLUMNS\\)\")",
+      "Bash(python -m scripts.migrate_inventory_to_docs)"
     ]
   }
 }

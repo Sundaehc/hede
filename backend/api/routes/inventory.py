@@ -42,7 +42,6 @@ def list_inventory(
     date_start: str | None = None,
     date_end: str | None = None,
     supplier: str | None = None,
-    product_code: str | None = None,
     warehouse: str | None = None,
     document_type: str | None = None,
     page: int = 1,
@@ -53,7 +52,6 @@ def list_inventory(
         date_start=date_start,
         date_end=date_end,
         supplier=supplier,
-        product_code=product_code,
         warehouse=warehouse,
         document_type=document_type,
         page=page,
@@ -144,6 +142,37 @@ def batch_delete_inventory(request: Request, payload: dict):
     return {"deleted": deleted, "message": f"已删除 {deleted} 条记录"}
 
 
+@router.get("/inventory/{record_id}/details")
+def list_inventory_details(request: Request, record_id: int):
+    repository = request.app.state.inventory_repository
+    return {"items": repository.list_details(record_id)}
+
+
+@router.post("/inventory/{record_id}/details")
+def create_inventory_detail(request: Request, record_id: int, payload: dict):
+    repository = request.app.state.inventory_repository
+    payload["document_id"] = record_id
+    return {"item": repository.create_detail(payload), "message": "明细添加成功"}
+
+
+@router.put("/inventory/{record_id}/details/{detail_id}")
+def update_inventory_detail(request: Request, record_id: int, detail_id: int, payload: dict):
+    repository = request.app.state.inventory_repository
+    payload["document_id"] = record_id
+    detail = repository.update_detail(detail_id, payload)
+    if detail is None:
+        raise HTTPException(status_code=404, detail="Detail not found")
+    return {"item": detail, "message": "明细更新成功"}
+
+
+@router.delete("/inventory/{record_id}/details/{detail_id}")
+def delete_inventory_detail(request: Request, record_id: int, detail_id: int):
+    repository = request.app.state.inventory_repository
+    if not repository.delete_detail(detail_id):
+        raise HTTPException(status_code=404, detail="Detail not found")
+    return {"message": "明细删除成功"}
+
+
 @router.post("/inventory/import")
 async def import_inventory(request: Request, file: UploadFile = None):
     if file is None:
@@ -190,12 +219,12 @@ async def import_inventory(request: Request, file: UploadFile = None):
             if field:
                 str_value = str(value).strip() if value is not None else None
                 # Normalize numeric fields
-                if field == "quantity" and str_value:
+                if field in ("total_count", "quantity") and str_value:
                     try:
                         str_value = str(int(float(str_value))) if float(str_value) == int(float(str_value)) else str(float(str_value))
                     except ValueError:
                         pass
-                if field == "unit_price" and str_value:
+                if field in ("amount", "unit_price") and str_value:
                     try:
                         str_value = str(float(str_value))
                     except ValueError:
@@ -213,7 +242,7 @@ async def import_inventory(request: Request, file: UploadFile = None):
             extra_fields["原始单据类型"] = doc_type
             payload["document_type"] = ""
 
-        if not payload.get("product_code") and not payload.get("date"):
+        if not payload.get("date"):
             continue
 
         if extra_fields:

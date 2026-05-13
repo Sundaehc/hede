@@ -4,6 +4,7 @@ from sqlalchemy import (
     BigInteger,
     Column,
     DateTime,
+    ForeignKey,
     Identity,
     JSON,
     Numeric,
@@ -15,6 +16,8 @@ from sqlalchemy import (
 
 from domain.inventory_sources import (
     INVENTORY_CANONICAL_COLUMNS,
+    INVENTORY_DETAIL_COLUMNS,
+    INVENTORY_DETAIL_TABLE_NAME,
     INVENTORY_TABLE_NAME,
     SUPPLIER_TABLE_NAME,
     WAREHOUSE_TABLE_NAME,
@@ -23,7 +26,7 @@ from domain.schema import METADATA
 
 
 def _column_type(column_name: str):
-    if column_name in ("quantity", "unit_price"):
+    if column_name in ("total_count", "amount", "quantity", "unit_price"):
         return Numeric(10, 2)
     return Text()
 
@@ -40,9 +43,18 @@ def build_inventory_table() -> Table:
     columns.append(Column("extra_fields", JSON, nullable=True))
     columns.append(Column("created_at", DateTime(timezone=True), server_default=func.now()))
     columns.append(Column("updated_at", DateTime(timezone=True), server_default=func.now(), onupdate=func.now()))
-    table = Table(INVENTORY_TABLE_NAME, METADATA, *columns)
-    table.append_constraint(UniqueConstraint("summary", name="uq_inventory_summary"))
-    return table
+    return Table(INVENTORY_TABLE_NAME, METADATA, *columns)
+
+
+def build_inventory_detail_table() -> Table:
+    columns = [
+        Column("id", BigInteger, Identity(always=False), primary_key=True),
+        Column("document_id", BigInteger, ForeignKey(f"{INVENTORY_TABLE_NAME}.id", ondelete="CASCADE"), nullable=False),
+    ]
+    columns.extend(Column(name, _column_type(name)) for name in INVENTORY_DETAIL_COLUMNS)
+    columns.append(Column("created_at", DateTime(timezone=True), server_default=func.now()))
+    columns.append(Column("updated_at", DateTime(timezone=True), server_default=func.now(), onupdate=func.now()))
+    return Table(INVENTORY_DETAIL_TABLE_NAME, METADATA, *columns)
 
 
 def build_supplier_table() -> Table:
@@ -73,5 +85,6 @@ def build_warehouse_table() -> Table:
 
 
 INVENTORY_TABLE = build_inventory_table()
+INVENTORY_DETAIL_TABLE = build_inventory_detail_table()
 SUPPLIER_TABLE = build_supplier_table()
 WAREHOUSE_TABLE = build_warehouse_table()

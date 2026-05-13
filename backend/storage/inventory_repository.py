@@ -5,7 +5,7 @@ from decimal import Decimal
 
 from sqlalchemy import and_, create_engine, delete, desc, func, insert, select, update
 
-from domain.inventory_schema import INVENTORY_TABLE, SUPPLIER_TABLE, WAREHOUSE_TABLE
+from domain.inventory_schema import INVENTORY_DETAIL_TABLE, INVENTORY_TABLE, SUPPLIER_TABLE, WAREHOUSE_TABLE
 
 
 class InventoryRepository:
@@ -13,7 +13,7 @@ class InventoryRepository:
         import orjson
 
         def _json_serializer(value):
-            return orjson.dumps(value)
+            return orjson.dumps(value).decode("utf-8")
 
         self.engine = create_engine(
             database_url,
@@ -29,7 +29,6 @@ class InventoryRepository:
         date_start: str | None = None,
         date_end: str | None = None,
         supplier: str | None = None,
-        product_code: str | None = None,
         warehouse: str | None = None,
         document_type: str | None = None,
         page: int,
@@ -46,8 +45,6 @@ class InventoryRepository:
             conditions.append(table.c.date <= date_end)
         if supplier:
             conditions.append(table.c.supplier == supplier)
-        if product_code:
-            conditions.append(table.c.product_code.ilike(f"%{product_code}%"))
         if warehouse:
             conditions.append(table.c.warehouse == warehouse)
         if document_type:
@@ -175,6 +172,67 @@ class InventoryRepository:
         with self.engine.connect() as connection:
             row = connection.execute(statement).mappings().first()
         return None if row is None else dict(row)
+
+    # ── Inventory Details ───────────────────────────────────────────
+
+    def list_details(self, document_id: int) -> list[dict[str, object]]:
+        table = INVENTORY_DETAIL_TABLE
+        statement = select(table).where(table.c.document_id == document_id).order_by(table.c.id)
+        with self.engine.connect() as connection:
+            return [dict(row) for row in connection.execute(statement).mappings()]
+
+    def create_detail(self, data: Mapping[str, object]) -> dict[str, object]:
+        table = INVENTORY_DETAIL_TABLE
+        statement = insert(table).values(**dict(data)).returning(table)
+        with self.engine.begin() as connection:
+            row = connection.execute(statement).mappings().one()
+        self.recalculate_totals(dict(data).get("document_id"))
+        return dict(row)
+
+    def update_detail(self, detail_id: int, data: Mapping[str, object]) -> dict[str, object] | None:
+        table = INVENTORY_DETAIL_TABLE
+        payload = dict(data)
+        document_id = payload.pop("document_id", None)
+        statement = update(table).where(table.c.id == detail_id).values(**payload).returning(table)
+        with self.engine.begin() as connection:
+            row = connection.execute(statement).mappings().first()
+        if row is None:
+            return None
+        if document_id is not None:
+            self.recalculate_totals(document_id)
+        else:
+            detail = dict(row)
+            self.recalculate_totals(detail.get("document_id"))
+        return dict(row)
+
+    def delete_detail(self, detail_id: int) -> bool:
+        table = INVENTORY_DETAIL_TABLE
+        # Get document_id before deleting for recalculation
+        with self.engine.connect() as connection:
+            detail = connection.execute(select(table.c.document_id).where(table.c.id == detail_id)).first()
+        document_id = detail[0] if detail else None
+        statement = delete(table).where(table.c.id == detail_id)
+        with self.engine.begin() as connection:
+            result = connection.execute(statement)
+        if result.rowcount > 0 and document_id is not None:
+            self.recalculate_totals(document_id)
+        return result.rowcount > 0
+
+    def recalculate_totals(self, document_id: object) -> None:
+        table = INVENTORY_DETAIL_TABLE
+        stmt = select(
+            func.coalesce(func.sum(table.c.quantity), 0),
+            func.coalesce(func.sum(table.c.amount), 0),
+        ).where(table.c.document_id == document_id)
+        with self.engine.connect() as connection:
+            total_count, amount = connection.execute(stmt).one()
+        update_stmt = (
+            update(INVENTORY_TABLE)
+            .where(INVENTORY_TABLE.c.id == document_id)
+            .values(total_count=total_count, amount=amount)
+        )
+        with self.engine.begin() as connection:
+            connection.execute(update_stmt)
 
     # ── Helpers ────────────────────────────────────────────────────
 

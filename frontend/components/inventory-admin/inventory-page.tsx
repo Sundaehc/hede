@@ -1,7 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useRef, useState } from "react"
-import { Plus, Download, Upload, Trash2, Edit, Search, X, RefreshCw } from "lucide-react"
+import { Plus, Download, Upload, Trash2, Edit, Search, X, RefreshCw, List } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -24,6 +24,7 @@ import {
 } from "@/components/ui/pagination"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { ConfirmDialog, MessageDialog } from "@/components/confirm-dialog"
+import { InventoryDetailPanel } from "@/components/inventory-admin/inventory-detail-panel"
 import {
   listInventory,
   createInventoryRecord,
@@ -47,9 +48,8 @@ const DOCUMENT_TYPES = ["工厂进货单", "工厂退货单"]
 const EMPTY_FORM: Record<string, string> = {
   date: "",
   supplier: "",
-  product_code: "",
-  quantity: "",
-  unit_price: "",
+  total_count: "",
+  amount: "",
   warehouse: "",
   document_type: "",
   summary: "",
@@ -77,7 +77,6 @@ export function InventoryPage() {
   const [searchDateStart, setSearchDateStart] = useState("")
   const [searchDateEnd, setSearchDateEnd] = useState("")
   const [searchSupplier, setSearchSupplier] = useState("")
-  const [searchProductCode, setSearchProductCode] = useState("")
   const [searchWarehouse, setSearchWarehouse] = useState("")
   const [searchDocumentType, setSearchDocumentType] = useState("")
   const [submittedFilters, setSubmittedFilters] = useState<Record<string, string>>({})
@@ -106,6 +105,8 @@ export function InventoryPage() {
   const [editingId, setEditingId] = useState<number | null>(null)
   const [isSaving, setIsSaving] = useState(false)
 
+  const [detailDocumentId, setDetailDocumentId] = useState<number | null>(null)
+
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [isImporting, setIsImporting] = useState(false)
 
@@ -130,7 +131,6 @@ export function InventoryPage() {
           date_start: submittedFilters.date_start || undefined,
           date_end: submittedFilters.date_end || undefined,
           supplier: submittedFilters.supplier || undefined,
-          product_code: submittedFilters.product_code || undefined,
           warehouse: submittedFilters.warehouse || undefined,
           document_type: submittedFilters.document_type || undefined,
           page,
@@ -172,9 +172,8 @@ export function InventoryPage() {
     setFormData({
       date: item.date || "",
       supplier: item.supplier || "",
-      product_code: item.product_code || "",
-      quantity: item.quantity || "",
-      unit_price: item.unit_price || "",
+      total_count: item.total_count || "",
+      amount: item.amount || "",
       warehouse: item.warehouse || "",
       document_type: item.document_type || "",
       summary: item.summary || "",
@@ -282,7 +281,6 @@ export function InventoryPage() {
       date_start: searchDateStart,
       date_end: searchDateEnd,
       supplier: searchSupplier,
-      product_code: searchProductCode.trim(),
       warehouse: searchWarehouse,
       document_type: searchDocumentType,
     })
@@ -292,7 +290,6 @@ export function InventoryPage() {
     setSearchDateStart("")
     setSearchDateEnd("")
     setSearchSupplier("")
-    setSearchProductCode("")
     setSearchWarehouse("")
     setSearchDocumentType("")
     setPage(1)
@@ -371,16 +368,6 @@ export function InventoryPage() {
                   {warehouseOptions.map((w) => (<option key={w.id} value={w.name}>{w.name}</option>))}
                 </Select>
               </div>
-              <div className="flex flex-col gap-1.5">
-                <Label className="text-xs text-muted-foreground">商品编码</Label>
-                <Input
-                  placeholder="模糊搜索"
-                  value={searchProductCode}
-                  onChange={(e) => setSearchProductCode(e.target.value)}
-                  onKeyDown={(e) => { if (e.key === "Enter") search() }}
-                  className="w-36"
-                />
-              </div>
               <div className="flex gap-2 pb-0.5">
                 <Button size="sm" onClick={search} disabled={isLoading} className="cursor-pointer">
                   <Search className="h-4 w-4" />
@@ -442,15 +429,15 @@ export function InventoryPage() {
             <thead>
               <tr className="border-b border-border bg-muted/40 text-left text-muted-foreground">
                 <th className="px-4 py-3 w-10"></th>
+                <th className="px-4 py-3 font-medium">入库单号</th>
                 <th className="px-4 py-3 font-medium">日期</th>
                 <th className="px-4 py-3 font-medium">单据类型</th>
                 <th className="px-4 py-3 font-medium">供应商</th>
-                <th className="px-4 py-3 font-medium">商品编码</th>
-                <th className="px-4 py-3 text-right font-medium">数量</th>
-                <th className="px-4 py-3 text-right font-medium">单价</th>
+                <th className="px-4 py-3 text-right font-medium">总数</th>
+                <th className="px-4 py-3 text-right font-medium">金额</th>
                 <th className="px-4 py-3 font-medium">仓库</th>
                 <th className="px-4 py-3 font-medium">摘要</th>
-                <th className="px-4 py-3 w-24 font-medium">操作</th>
+                <th className="px-4 py-3 w-28 font-medium">操作</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
@@ -476,6 +463,7 @@ export function InventoryPage() {
                       className="h-4 w-4 cursor-pointer rounded border border-input accent-primary"
                     />
                   </td>
+                  <td className="px-4 py-2.5 font-mono text-xs tabular-nums">{item.id}</td>
                   <td className="px-4 py-2.5 whitespace-nowrap tabular-nums">{item.date || "-"}</td>
                   <td className="px-4 py-2.5 whitespace-nowrap">
                     {item.document_type ? (
@@ -485,13 +473,15 @@ export function InventoryPage() {
                     ) : "-"}
                   </td>
                   <td className="px-4 py-2.5">{item.supplier || "-"}</td>
-                  <td className="px-4 py-2.5 font-mono text-xs">{item.product_code || "-"}</td>
-                  <td className="px-4 py-2.5 text-right tabular-nums">{item.quantity || "-"}</td>
-                  <td className="px-4 py-2.5 text-right tabular-nums">{item.unit_price || "-"}</td>
+                  <td className="px-4 py-2.5 text-right tabular-nums">{item.total_count || "-"}</td>
+                  <td className="px-4 py-2.5 text-right tabular-nums">{item.amount || "-"}</td>
                   <td className="px-4 py-2.5">{item.warehouse || "-"}</td>
                   <td className="px-4 py-2.5 max-w-48 truncate">{item.summary || "-"}</td>
                   <td className="px-4 py-2.5">
                     <div className="flex items-center gap-0.5">
+                      <Button variant="ghost" size="icon" onClick={() => setDetailDocumentId(item.id)} className="cursor-pointer" title="明细">
+                        <List className="h-4 w-4" />
+                      </Button>
                       <Button variant="ghost" size="icon" onClick={() => openEdit(item)} className="cursor-pointer">
                         <Edit className="h-4 w-4" />
                       </Button>
@@ -620,37 +610,27 @@ export function InventoryPage() {
                 {warehouseOptions.map((w) => (<option key={w.id} value={w.name}>{w.name}</option>))}
               </Select>
             </div>
-            {/* Product Code */}
+            {/* Total Count */}
             <div className="space-y-1.5">
-              <Label htmlFor="form-product-code">商品编码</Label>
+              <Label htmlFor="form-total-count">总数</Label>
               <Input
-                id="form-product-code"
-                value={formData.product_code || ""}
-                onChange={(e) => setFormData((prev) => ({ ...prev, product_code: e.target.value }))}
-                placeholder="商品编码"
-              />
-            </div>
-            {/* Quantity */}
-            <div className="space-y-1.5">
-              <Label htmlFor="form-quantity">数量</Label>
-              <Input
-                id="form-quantity"
+                id="form-total-count"
                 type="number"
-                value={formData.quantity || ""}
-                onChange={(e) => setFormData((prev) => ({ ...prev, quantity: e.target.value }))}
-                placeholder="数量"
+                value={formData.total_count || ""}
+                onChange={(e) => setFormData((prev) => ({ ...prev, total_count: e.target.value }))}
+                placeholder="总数"
               />
             </div>
-            {/* Unit Price */}
+            {/* Amount */}
             <div className="space-y-1.5">
-              <Label htmlFor="form-unit-price">单价</Label>
+              <Label htmlFor="form-amount">金额</Label>
               <Input
-                id="form-unit-price"
+                id="form-amount"
                 type="number"
                 step="0.01"
-                value={formData.unit_price || ""}
-                onChange={(e) => setFormData((prev) => ({ ...prev, unit_price: e.target.value }))}
-                placeholder="单价"
+                value={formData.amount || ""}
+                onChange={(e) => setFormData((prev) => ({ ...prev, amount: e.target.value }))}
+                placeholder="金额"
               />
             </div>
             {/* Summary - full width */}
@@ -674,7 +654,7 @@ export function InventoryPage() {
       <ConfirmDialog
         open={deleteTarget !== null}
         title="确认删除"
-        description={`确定删除记录 ${deleteTarget?.product_code || deleteTarget?.id}？此操作不可撤销。`}
+        description={`确定删除记录 ${deleteTarget?.summary || deleteTarget?.id}？此操作不可撤销。`}
         confirmLabel={isDeleting ? "删除中..." : "删除"}
         variant="destructive"
         onConfirm={handleDeleteConfirm}
@@ -696,6 +676,12 @@ export function InventoryPage() {
         title={messageContent.title}
         description={messageContent.description}
         onClose={() => setMessageOpen(false)}
+      />
+
+      <InventoryDetailPanel
+        documentId={detailDocumentId}
+        onClose={() => setDetailDocumentId(null)}
+        onTotalChanged={() => setReloadToken((t) => t + 1)}
       />
     </div>
   )

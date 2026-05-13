@@ -6,7 +6,7 @@ import orjson
 from sqlalchemy import create_engine, delete, insert
 
 from domain.schema import METADATA, PRODUCT_TABLES
-from domain.inventory_schema import INVENTORY_TABLE, SUPPLIER_TABLE, WAREHOUSE_TABLE  # noqa: F401 - register on METADATA
+from domain.inventory_schema import INVENTORY_TABLE, INVENTORY_DETAIL_TABLE, SUPPLIER_TABLE, WAREHOUSE_TABLE  # noqa: F401 - register on METADATA
 
 
 def _json_serializer(value):

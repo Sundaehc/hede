@@ -148,9 +148,8 @@ export type InventoryRecord = {
   id: number
   date: string | null
   supplier: string | null
-  product_code: string | null
-  quantity: string | null
-  unit_price: string | null
+  total_count: string | null
+  amount: string | null
   warehouse: string | null
   document_type: string | null
   summary: string | null
@@ -158,6 +157,17 @@ export type InventoryRecord = {
   source_workbook: string
   source_sheet: string
   source_row_number: string
+  created_at: string | null
+  updated_at: string | null
+}
+
+export type InventoryDetail = {
+  id: number
+  document_id: number
+  product_code: string | null
+  quantity: string | null
+  unit_price: string | null
+  amount: string | null
   created_at: string | null
   updated_at: string | null
 }
@@ -188,7 +198,6 @@ export function listInventory(params: {
   date_start?: string
   date_end?: string
   supplier?: string
-  product_code?: string
   warehouse?: string
   document_type?: string
   page: number
@@ -201,7 +210,6 @@ export function listInventory(params: {
   if (params.date_start) search.set("date_start", params.date_start)
   if (params.date_end) search.set("date_end", params.date_end)
   if (params.supplier) search.set("supplier", params.supplier)
-  if (params.product_code) search.set("product_code", params.product_code)
   if (params.warehouse) search.set("warehouse", params.warehouse)
   if (params.document_type) search.set("document_type", params.document_type)
   return request<InventoryListResponse>(`/inventory?${search.toString()}`)
@@ -259,6 +267,30 @@ export function exportInventory() {
       throw new ApiError(response.status, await response.text())
     }
     return response
+  })
+}
+
+export function listDetails(documentId: number) {
+  return request<{ items: InventoryDetail[] }>(`/inventory/${documentId}/details`)
+}
+
+export function createDetail(documentId: number, payload: Record<string, unknown>) {
+  return request<{ item: InventoryDetail; message: string }>(`/inventory/${documentId}/details`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  })
+}
+
+export function updateDetail(documentId: number, detailId: number, payload: Record<string, unknown>) {
+  return request<{ item: InventoryDetail; message: string }>(`/inventory/${documentId}/details/${detailId}`, {
+    method: "PUT",
+    body: JSON.stringify(payload),
+  })
+}
+
+export function deleteDetail(documentId: number, detailId: number) {
+  return request<{ message: string }>(`/inventory/${documentId}/details/${detailId}`, {
+    method: "DELETE",
   })
 }
 
