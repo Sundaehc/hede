@@ -25,7 +25,9 @@
       "Bash(python -c \"from api.routes.images import router; print\\([r.path for r in router.routes]\\)\")",
       "Bash(python -m scripts.add_product_name)",
       "Bash(python -m scripts.add_color_spec)",
-      "Bash(python -c \"from storage.inventory_repository import InventoryRepository; print\\('OK'\\)\")"
+      "Bash(python -c \"from storage.inventory_repository import InventoryRepository; print\\('OK'\\)\")",
+      "Bash(python -c \"from api.routes.inventory import router; print\\('OK'\\)\")",
+      "Bash(python -c \"from api_main import app; print\\('OK'\\)\")"
     ]
   }
 }

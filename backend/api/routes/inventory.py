@@ -12,12 +12,15 @@ from domain.inventory_sources import (
     DOCUMENT_TYPES,
     INVENTORY_CANONICAL_COLUMNS,
     INVENTORY_COLUMN_ALIASES,
+    INVENTORY_DETAIL_ALIASES,
+    INVENTORY_DETAIL_COLUMNS,
     INVENTORY_EXPORT_LABELS,
 )
 
 router = APIRouter()
 
 CN_TO_FIELD = {cn: en for cn, en in INVENTORY_COLUMN_ALIASES.items() if en in INVENTORY_CANONICAL_COLUMNS}
+DETAIL_CN_TO_FIELD = {cn: en for cn, en in INVENTORY_DETAIL_ALIASES.items() if en in INVENTORY_DETAIL_COLUMNS}
 
 EXCEL_EPOCH = datetime(1899, 12, 30)
 
@@ -193,18 +196,25 @@ async def import_inventory(request: Request, file: UploadFile = None):
 
     headers = [str(h).strip() if h else "" for h in header_row]
 
-    reverse_aliases = {}
+    # Build reverse alias maps
+    reverse_aliases: dict[str, str] = {}
     for cn_label, en_field in CN_TO_FIELD.items():
         reverse_aliases[cn_label] = en_field
         reverse_aliases[en_field] = en_field
 
-    known_fields = set(CN_TO_FIELD.values()) | set(CN_TO_FIELD.keys())
-    repository = request.app.state.inventory_repository
-    created = 0
-    skipped = 0
+    detail_reverse_aliases: dict[str, str] = {}
+    for cn_label, en_field in DETAIL_CN_TO_FIELD.items():
+        detail_reverse_aliases[cn_label] = en_field
+        detail_reverse_aliases[en_field] = en_field
 
-    new_suppliers: set[str] = set()
-    new_warehouses: set[str] = set()
+    known_fields = set(CN_TO_FIELD.values()) | set(CN_TO_FIELD.keys())
+    detail_known_fields = set(DETAIL_CN_TO_FIELD.values()) | set(DETAIL_CN_TO_FIELD.keys())
+    repository = request.app.state.inventory_repository
+
+    # Phase 1: Parse all rows and group by summary
+    # Each row_entry = {doc: dict, detail: dict}
+    groups: dict[str, list[dict]] = {}
+    group_order: list[str] = []  # preserve insertion order
 
     for row in iterator:
         row_dict = {}
@@ -212,66 +222,122 @@ async def import_inventory(request: Request, file: UploadFile = None):
             if idx < len(headers) and headers[idx]:
                 row_dict[headers[idx]] = cell_value
 
-        payload = {}
-        extra_fields = {}
+        doc_payload: dict[str, object] = {}
+        detail_payload: dict[str, object] = {}
+        extra_fields: dict[str, str] = {}
+
         for key, value in row_dict.items():
-            field = reverse_aliases.get(key)
-            if field:
-                str_value = str(value).strip() if value is not None else None
-                # Normalize numeric fields
-                if field in ("total_count", "quantity") and str_value:
-                    try:
-                        str_value = str(int(float(str_value))) if float(str_value) == int(float(str_value)) else str(float(str_value))
-                    except ValueError:
-                        pass
-                if field in ("amount", "unit_price") and str_value:
+            doc_field = reverse_aliases.get(key)
+            detail_field = detail_reverse_aliases.get(key)
+            str_value = str(value).strip() if value is not None else None
+
+            if doc_field:
+                if doc_field in ("total_count", "amount") and str_value:
                     try:
                         str_value = str(float(str_value))
                     except ValueError:
                         pass
-                if field == "date":
+                if doc_field == "date":
                     str_value = _normalize_date(str_value)
-                payload[field] = str_value
-            elif key and key not in known_fields:
+                doc_payload[doc_field] = str_value
+            elif detail_field:
+                if detail_field == "quantity" and str_value:
+                    try:
+                        str_value = str(int(float(str_value))) if float(str_value) == int(float(str_value)) else str(float(str_value))
+                    except ValueError:
+                        pass
+                if detail_field in ("amount", "unit_price") and str_value:
+                    try:
+                        str_value = str(float(str_value))
+                    except ValueError:
+                        pass
+                detail_payload[detail_field] = str_value
+            elif key and key not in known_fields and key not in detail_known_fields:
                 if value is not None and str(value).strip():
                     extra_fields[key] = str(value).strip()
 
-        # Validate document_type
-        doc_type = payload.get("document_type", "")
-        if doc_type and doc_type not in DOCUMENT_TYPES:
-            extra_fields["原始单据类型"] = doc_type
-            payload["document_type"] = ""
-
-        if not payload.get("date"):
+        if not doc_payload.get("date"):
             continue
 
-        if extra_fields:
-            payload["extra_fields"] = extra_fields
+        # Validate document_type
+        doc_type = str(doc_payload.get("document_type") or "")
+        if doc_type and doc_type not in DOCUMENT_TYPES:
+            extra_fields["原始单据类型"] = doc_type
+            doc_payload["document_type"] = ""
 
-        payload.setdefault("source_workbook", file.filename or "")
-        payload.setdefault("source_sheet", ws.title or "")
+        if extra_fields:
+            doc_payload["extra_fields"] = extra_fields
+
+        doc_payload.setdefault("source_workbook", file.filename or "")
+        doc_payload.setdefault("source_sheet", ws.title or "")
+
+        # raw_payload stores the original row data
         raw_payload = {}
         for k, v in row_dict.items():
             raw_payload[k] = str(v) if v is not None else ""
-        # Normalize date in raw_payload too
         for rp_key, rp_value in raw_payload.items():
             if reverse_aliases.get(rp_key) == "date":
                 raw_payload[rp_key] = _normalize_date(rp_value) or rp_value
                 break
-        payload["raw_payload"] = raw_payload
+        doc_payload["raw_payload"] = raw_payload
 
-        supplier_name = payload.get("supplier", "").strip()
-        warehouse_name = payload.get("warehouse", "").strip()
+        summary = str(doc_payload.get("summary") or "").strip()
+        if summary not in groups:
+            groups[summary] = []
+            group_order.append(summary)
+        groups[summary].append({"doc": doc_payload, "detail": detail_payload})
+
+    wb.close()
+
+    # Phase 2: Create documents with details grouped by summary
+    new_suppliers: set[str] = set()
+    new_warehouses: set[str] = set()
+    created_docs = 0
+    created_details = 0
+    skipped_docs = 0
+
+    from domain.inventory_schema import INVENTORY_TABLE
+    from sqlalchemy import select as sa_select
+
+    for summary in group_order:
+        group_rows = groups[summary]
+        first = group_rows[0]
+        doc_payload = first["doc"]
+
+        supplier_name = str(doc_payload.get("supplier") or "").strip()
+        warehouse_name = str(doc_payload.get("warehouse") or "").strip()
         if supplier_name:
             new_suppliers.add(supplier_name)
         if warehouse_name:
             new_warehouses.add(warehouse_name)
 
+        # Skip if summary already exists in database
+        if summary:
+            with repository.engine.connect() as conn:
+                existing = conn.execute(
+                    sa_select(INVENTORY_TABLE).where(INVENTORY_TABLE.c.summary == summary)
+                ).first()
+                if existing:
+                    skipped_docs += 1
+                    continue
+
         try:
-            repository.create_record(payload)
-            created += 1
+            doc = repository.create_record(doc_payload)
+            created_docs += 1
+            doc_id = doc["id"]
+
+            # Create detail rows that have a product_code
+            for row in group_rows:
+                detail = row["detail"]
+                if detail.get("product_code"):
+                    detail["document_id"] = doc_id
+                    try:
+                        repository.create_detail(detail)
+                        created_details += 1
+                    except Exception:
+                        pass
         except Exception:
-            skipped += 1
+            skipped_docs += 1
 
     # Sync new suppliers and warehouses
     supplier_added = 0
@@ -286,12 +352,11 @@ async def import_inventory(request: Request, file: UploadFile = None):
             repository.create_warehouse({"name": name})
             warehouse_added += 1
 
-    wb.close()
-    msg = f"导入完成：新增 {created} 条记录"
-    if skipped > 0:
-        msg += f"，跳过 {skipped} 条重复记录"
+    msg = f"导入完成：新增 {created_docs} 条单据，{created_details} 条明细"
+    if skipped_docs > 0:
+        msg += f"，跳过 {skipped_docs} 条已存在的单据"
     if supplier_added > 0:
         msg += f"，新增供应商 {supplier_added} 个"
     if warehouse_added > 0:
         msg += f"，新增仓库 {warehouse_added} 个"
-    return {"created": created, "skipped": skipped, "message": msg}
+    return {"created": created_docs, "details": created_details, "skipped": skipped_docs, "message": msg}
