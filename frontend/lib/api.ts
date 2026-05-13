@@ -161,10 +161,25 @@ export type InventoryRecord = {
   updated_at: string | null
 }
 
+export type MatchSkuResult = {
+  found: boolean
+  image_url: string | null
+  brand: string | null
+}
+
+export function matchSkuImage(sku: string) {
+  return request<MatchSkuResult>("/images/match-sku", {
+    method: "POST",
+    body: JSON.stringify({ sku }),
+  })
+}
+
 export type InventoryDetail = {
   id: number
   document_id: number
   product_code: string | null
+  product_name: string | null
+  color_spec: string | null
   quantity: string | null
   unit_price: string | null
   amount: string | null

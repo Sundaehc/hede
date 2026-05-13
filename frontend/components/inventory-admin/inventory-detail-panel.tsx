@@ -18,6 +18,7 @@ import {
   createDetail,
   updateDetail,
   deleteDetail,
+  matchSkuImage,
   ApiError,
   type InventoryDetail,
 } from "@/lib/api"
@@ -30,6 +31,8 @@ function getErrorMessage(error: unknown) {
 
 const EMPTY_DETAIL: Record<string, string> = {
   product_code: "",
+  product_name: "",
+  color_spec: "",
   quantity: "",
   unit_price: "",
   amount: "",
@@ -41,9 +44,15 @@ type Props = {
   onTotalChanged: () => void
 }
 
+function getImageKey(productCode: string | null): string | null {
+  if (!productCode || productCode.length <= 5) return null
+  return productCode.slice(0, -5)
+}
+
 export function InventoryDetailPanel({ documentId, onClose, onTotalChanged }: Props) {
   const [items, setItems] = useState<InventoryDetail[]>([])
   const [isLoading, setIsLoading] = useState(false)
+  const [imageUrls, setImageUrls] = useState<Record<number, string | null>>({})
 
   const [formOpen, setFormOpen] = useState(false)
   const [formMode, setFormMode] = useState<"create" | "edit">("create")
@@ -71,6 +80,32 @@ export function InventoryDetailPanel({ documentId, onClose, onTotalChanged }: Pr
 
   useEffect(() => { void load() }, [load])
 
+  // Load images for all detail items
+  useEffect(() => {
+    const controller = new AbortController()
+    async function loadImages() {
+      const urls: Record<number, string | null> = {}
+      for (const item of items) {
+        const key = getImageKey(item.product_code)
+        if (!key) {
+          urls[item.id] = null
+          continue
+        }
+        try {
+          const result = await matchSkuImage(key)
+          urls[item.id] = result.found ? result.image_url : null
+        } catch {
+          urls[item.id] = null
+        }
+      }
+      if (!controller.signal.aborted) {
+        setImageUrls(urls)
+      }
+    }
+    void loadImages()
+    return () => { controller.abort() }
+  }, [items])
+
   const showMessage = (title: string, description: string) => {
     setMessageContent({ title, description })
     setMessageOpen(true)
@@ -88,6 +123,8 @@ export function InventoryDetailPanel({ documentId, onClose, onTotalChanged }: Pr
     setEditingId(item.id)
     setFormData({
       product_code: item.product_code || "",
+      product_name: item.product_name || "",
+      color_spec: item.color_spec || "",
       quantity: item.quantity || "",
       unit_price: item.unit_price || "",
       amount: item.amount || "",
@@ -137,12 +174,12 @@ export function InventoryDetailPanel({ documentId, onClose, onTotalChanged }: Pr
       <div className="fixed inset-0 z-40 bg-black/30 transition-opacity" onClick={onClose} />
 
       {/* Panel */}
-      <div className="fixed inset-y-0 right-0 z-50 w-full max-w-lg border-l border-border bg-background shadow-2xl flex flex-col">
+      <div className="fixed inset-y-0 right-0 z-50 w-full max-w-3xl border-l border-border bg-background shadow-2xl flex flex-col">
         {/* Header */}
         <div className="flex items-center justify-between border-b border-border px-6 py-4 shrink-0">
           <div>
             <h2 className="text-lg font-semibold">单据明细</h2>
-            <p className="text-xs text-muted-foreground">单据 #{documentId}</p>
+            <p className="text-xs text-muted-foreground">单据 {documentId}</p>
           </div>
           <div className="flex items-center gap-2">
             <Button size="sm" onClick={openCreate} className="cursor-pointer">
@@ -159,38 +196,56 @@ export function InventoryDetailPanel({ documentId, onClose, onTotalChanged }: Pr
         <div className="flex-1 overflow-auto">
           <table className="w-full text-sm">
             <thead>
-              <tr className="sticky top-0 border-b border-border bg-muted/40 text-left text-muted-foreground">
-                <th className="px-6 py-3 font-medium">商品编码</th>
-                <th className="px-6 py-3 text-right font-medium">数量</th>
-                <th className="px-6 py-3 text-right font-medium">单价</th>
-                <th className="px-6 py-3 text-right font-medium">金额</th>
-                <th className="px-6 py-3 w-20 font-medium">操作</th>
+              <tr className="sticky top-0 z-10 border-b border-border bg-muted/40 text-left text-muted-foreground">
+                <th className="px-4 py-2.5 w-20 font-medium"></th>
+                <th className="px-3 py-2.5 font-medium">商品编码</th>
+                <th className="px-3 py-2.5 font-medium">商品名称</th>
+                <th className="px-3 py-2.5 font-medium">颜色及规格</th>
+                <th className="px-3 py-2.5 text-right font-medium">数量</th>
+                <th className="px-3 py-2.5 text-right font-medium">单价</th>
+                <th className="px-3 py-2.5 text-right font-medium">金额</th>
+                <th className="px-4 py-2.5 w-20 font-medium">操作</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
               {isLoading && (
                 <tr>
-                  <td colSpan={5} className="px-6 py-12 text-center text-muted-foreground">加载中...</td>
+                  <td colSpan={8} className="px-6 py-12 text-center text-muted-foreground">加载中...</td>
                 </tr>
               )}
               {!isLoading && items.length === 0 && (
                 <tr>
-                  <td colSpan={5} className="px-6 py-12 text-center text-muted-foreground">暂无明细数据</td>
+                  <td colSpan={8} className="px-6 py-12 text-center text-muted-foreground">暂无明细数据</td>
                 </tr>
               )}
               {items.map((item) => (
                 <tr key={item.id} className="hover:bg-muted/30 transition-colors">
-                  <td className="px-6 py-2.5 font-mono text-xs">{item.product_code || "-"}</td>
-                  <td className="px-6 py-2.5 text-right tabular-nums">{item.quantity || "-"}</td>
-                  <td className="px-6 py-2.5 text-right tabular-nums">{item.unit_price || "-"}</td>
-                  <td className="px-6 py-2.5 text-right tabular-nums">{item.amount || "-"}</td>
-                  <td className="px-6 py-2.5">
+                  <td className="px-4 py-1.5">
+                    {imageUrls[item.id] ? (
+                      <img
+                        src={`/api${imageUrls[item.id]}`}
+                        alt={item.product_code || ""}
+                        className="h-16 w-16 object-contain rounded-lg border border-border bg-muted/10"
+                      />
+                    ) : (
+                      <div className="h-16 w-16 rounded-lg border border-border bg-muted/10 flex items-center justify-center text-[10px] text-muted-foreground/50">
+                        无图
+                      </div>
+                    )}
+                  </td>
+                  <td className="px-3 py-2.5 font-mono text-xs">{item.product_code || "-"}</td>
+                  <td className="px-3 py-2.5">{item.product_name || "-"}</td>
+                  <td className="px-3 py-2.5 max-w-32 truncate">{item.color_spec || "-"}</td>
+                  <td className="px-3 py-2.5 text-right tabular-nums">{item.quantity || "-"}</td>
+                  <td className="px-3 py-2.5 text-right tabular-nums">{item.unit_price || "-"}</td>
+                  <td className="px-3 py-2.5 text-right tabular-nums">{item.amount || "-"}</td>
+                  <td className="px-4 py-2.5">
                     <div className="flex items-center gap-0.5">
-                      <Button variant="ghost" size="icon" onClick={() => openEdit(item)} className="cursor-pointer">
-                        <Edit className="h-4 w-4" />
+                      <Button variant="ghost" size="icon" onClick={() => openEdit(item)} className="h-8 w-8 cursor-pointer">
+                        <Edit className="h-3.5 w-3.5" />
                       </Button>
-                      <Button variant="ghost" size="icon" onClick={() => setDeleteTarget(item)} className="cursor-pointer">
-                        <Trash2 className="h-4 w-4 text-destructive" />
+                      <Button variant="ghost" size="icon" onClick={() => setDeleteTarget(item)} className="h-8 w-8 cursor-pointer">
+                        <Trash2 className="h-3.5 w-3.5 text-destructive" />
                       </Button>
                     </div>
                   </td>
@@ -218,25 +273,55 @@ export function InventoryDetailPanel({ documentId, onClose, onTotalChanged }: Pr
               />
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="detail-quantity">数量</Label>
+              <Label htmlFor="detail-product-name">商品名称</Label>
               <Input
-                id="detail-quantity"
-                type="number"
-                value={formData.quantity || ""}
-                onChange={(e) => setFormData((prev) => ({ ...prev, quantity: e.target.value }))}
-                placeholder="数量"
+                id="detail-product-name"
+                value={formData.product_name || ""}
+                onChange={(e) => setFormData((prev) => ({ ...prev, product_name: e.target.value }))}
+                placeholder="商品名称"
               />
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="detail-unit-price">单价</Label>
+              <Label htmlFor="detail-color-spec">颜色及规格</Label>
               <Input
-                id="detail-unit-price"
-                type="number"
-                step="0.01"
-                value={formData.unit_price || ""}
-                onChange={(e) => setFormData((prev) => ({ ...prev, unit_price: e.target.value }))}
-                placeholder="单价"
+                id="detail-color-spec"
+                value={formData.color_spec || ""}
+                onChange={(e) => setFormData((prev) => ({ ...prev, color_spec: e.target.value }))}
+                placeholder="颜色及规格"
               />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label htmlFor="detail-quantity">数量</Label>
+                <Input
+                  id="detail-quantity"
+                  type="number"
+                  value={formData.quantity || ""}
+                  onChange={(e) => {
+                    const qty = e.target.value
+                    const price = formData.unit_price || ""
+                    const amount = qty && price ? (parseFloat(qty) * parseFloat(price)).toFixed(2) : formData.amount
+                    setFormData((prev) => ({ ...prev, quantity: qty, amount }))
+                  }}
+                  placeholder="0"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="detail-unit-price">单价</Label>
+                <Input
+                  id="detail-unit-price"
+                  type="number"
+                  step="0.01"
+                  value={formData.unit_price || ""}
+                  onChange={(e) => {
+                    const price = e.target.value
+                    const qty = formData.quantity || ""
+                    const amount = qty && price ? (parseFloat(qty) * parseFloat(price)).toFixed(2) : formData.amount
+                    setFormData((prev) => ({ ...prev, unit_price: price, amount }))
+                  }}
+                  placeholder="0.00"
+                />
+              </div>
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="detail-amount">金额</Label>
@@ -246,7 +331,7 @@ export function InventoryDetailPanel({ documentId, onClose, onTotalChanged }: Pr
                 step="0.01"
                 value={formData.amount || ""}
                 onChange={(e) => setFormData((prev) => ({ ...prev, amount: e.target.value }))}
-                placeholder="金额"
+                placeholder="自动计算"
               />
             </div>
           </div>

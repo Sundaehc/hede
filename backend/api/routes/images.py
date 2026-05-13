@@ -6,7 +6,7 @@ from pathlib import Path
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import FileResponse
 
-from api.schemas import ImageLookupRequest
+from api.schemas import ImageLookupRequest, MatchSkuRequest
 
 
 router = APIRouter()
@@ -94,3 +94,20 @@ def lookup_image(request: Request, body: ImageLookupRequest):
         "matched_by": "none",
         "message": "Image not found",
     }
+
+
+@router.post("/images/match-sku")
+def match_sku_image(request: Request, body: MatchSkuRequest):
+    settings = request.app.state.settings
+    matchers = request.app.state.image_matchers
+    sku = body.sku.strip()
+    if not sku:
+        return {"found": False, "image_url": None, "brand": None}
+
+    for brand, matcher in matchers.items():
+        image_path = matcher.find(sku)
+        if image_path:
+            url = image_url_for(brand, image_path, settings)
+            return {"found": True, "image_url": url, "brand": brand}
+
+    return {"found": False, "image_url": None, "brand": None}

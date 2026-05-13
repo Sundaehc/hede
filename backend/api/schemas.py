@@ -83,3 +83,9 @@ class BatchDeleteRequest(BaseModel):
 
     brand: BrandKey
     ids: list[int]
+
+
+class MatchSkuRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    sku: str

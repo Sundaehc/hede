@@ -33,6 +33,8 @@ INVENTORY_CANONICAL_COLUMNS: list[str] = [
 # Detail table canonical fields
 INVENTORY_DETAIL_COLUMNS: list[str] = [
     "product_code",
+    "product_name",
+    "color_spec",
     "quantity",
     "unit_price",
     "amount",
@@ -41,6 +43,8 @@ INVENTORY_DETAIL_COLUMNS: list[str] = [
 # Detail column aliases for Excel import
 INVENTORY_DETAIL_ALIASES: dict[str, str] = {
     "商品编码": "product_code",
+    "商品名称": "product_name",
+    "颜色及规格": "color_spec",
     "数量": "quantity",
     "单价": "unit_price",
     "金额": "amount",
