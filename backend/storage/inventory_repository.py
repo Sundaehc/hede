@@ -183,15 +183,16 @@ class InventoryRepository:
 
     def create_detail(self, data: Mapping[str, object]) -> dict[str, object]:
         table = INVENTORY_DETAIL_TABLE
-        statement = insert(table).values(**dict(data)).returning(table)
+        payload = self._coerce_empty(data)
+        statement = insert(table).values(**payload).returning(table)
         with self.engine.begin() as connection:
             row = connection.execute(statement).mappings().one()
-        self.recalculate_totals(dict(data).get("document_id"))
+        self.recalculate_totals(payload.get("document_id"))
         return dict(row)
 
     def update_detail(self, detail_id: int, data: Mapping[str, object]) -> dict[str, object] | None:
         table = INVENTORY_DETAIL_TABLE
-        payload = dict(data)
+        payload = self._coerce_empty(data)
         document_id = payload.pop("document_id", None)
         statement = update(table).where(table.c.id == detail_id).values(**payload).returning(table)
         with self.engine.begin() as connection:
@@ -237,12 +238,21 @@ class InventoryRepository:
     # ── Helpers ────────────────────────────────────────────────────
 
     @staticmethod
+    def _coerce_empty(data: Mapping[str, object]) -> dict[str, object]:
+        return {k: (None if v == "" else v) for k, v in data.items()}
+
+    @staticmethod
     def _prepare_record(record: Mapping[str, object]) -> dict[str, object]:
-        payload = dict(record)
+        payload = {}
+        for key, value in record.items():
+            if value == "":
+                payload[key] = None
+            else:
+                payload[key] = value
         raw_payload = payload.get("raw_payload")
         if isinstance(raw_payload, Mapping):
             payload["raw_payload"] = {
-                key: str(value) if isinstance(value, Decimal) else value
-                for key, value in raw_payload.items()
+                k: str(v) if isinstance(v, Decimal) else v
+                for k, v in raw_payload.items()
             }
         return payload

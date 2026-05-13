@@ -225,7 +225,7 @@ export function InventoryDetailPanel({ documentId, onClose, onTotalChanged }: Pr
                       <img
                         src={`/api${imageUrls[item.id]}`}
                         alt={item.product_code || ""}
-                        className="h-16 w-16 object-contain rounded-lg border border-border bg-muted/10"
+                        className="h-16 w-16 object-contain"
                       />
                     ) : (
                       <div className="h-16 w-16 rounded-lg border border-border bg-muted/10 flex items-center justify-center text-[10px] text-muted-foreground/50">
