@@ -54,7 +54,7 @@ INVENTORY_DETAIL_ALIASES: dict[str, str] = {
 }
 
 # Document type choices
-DOCUMENT_TYPES: tuple[str, ...] = ("工厂进货单", "工厂退货单")
+DOCUMENT_TYPES: tuple[str, ...] = ("工厂进货单", "工厂退货单", "报溢单")
 
 SUPPLIER_COLUMNS: list[str] = [
     "name",

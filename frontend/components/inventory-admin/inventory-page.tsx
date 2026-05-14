@@ -45,7 +45,7 @@ import {
 
 const PAGE_SIZES = [10, 50, 100]
 
-const DOCUMENT_TYPES = ["工厂进货单", "工厂退货单"]
+const DOCUMENT_TYPES = ["工厂进货单", "工厂退货单", "报溢单"]
 
 const EMPTY_FORM: Record<string, string> = {
   date: "",
@@ -347,6 +347,7 @@ export function InventoryPage() {
                   <input
                     type="date"
                     value={searchDateStart}
+                    max={searchDateEnd || undefined}
                     onChange={(e) => setSearchDateStart(e.target.value)}
                     className="h-9 rounded-lg border border-input bg-background px-3 py-2 text-sm shadow-xs outline-none transition-colors focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
                   />
@@ -354,6 +355,7 @@ export function InventoryPage() {
                   <input
                     type="date"
                     value={searchDateEnd}
+                    min={searchDateStart || undefined}
                     onChange={(e) => setSearchDateEnd(e.target.value)}
                     className="h-9 rounded-lg border border-input bg-background px-3 py-2 text-sm shadow-xs outline-none transition-colors focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
                   />
@@ -479,7 +481,11 @@ export function InventoryPage() {
                   <td className="px-4 py-2.5 whitespace-nowrap tabular-nums">{item.date || "-"}</td>
                   <td className="px-4 py-2.5 whitespace-nowrap">
                     {item.document_type ? (
-                      <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${item.document_type === "工厂退货单" ? "bg-red-100 text-red-700" : "bg-blue-100 text-blue-700"}`}>
+                      <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${
+                        item.document_type === "工厂退货单" ? "bg-red-100 text-red-700"
+                        : item.document_type === "报溢单" ? "bg-green-100 text-green-700"
+                        : "bg-blue-100 text-blue-700"
+                      }`}>
                         {item.document_type}
                       </span>
                     ) : "-"}
