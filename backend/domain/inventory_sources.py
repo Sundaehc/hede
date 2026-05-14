@@ -7,6 +7,9 @@ INVENTORY_TABLE_NAME = "inventory_records"
 SUPPLIER_TABLE_NAME = "suppliers"
 WAREHOUSE_TABLE_NAME = "warehouses"
 INVENTORY_DETAIL_TABLE_NAME = "inventory_details"
+JST_STOCK_TABLE_NAME = "jst_daily_stock"
+
+JST_STOCK_COLUMNS = ["stock_date", "product_code", "available_qty"]
 
 # Column aliases for Excel import: Chinese header -> canonical field name
 INVENTORY_COLUMN_ALIASES: dict[str, str] = {

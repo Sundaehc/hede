@@ -3,9 +3,13 @@ from __future__ import annotations
 from collections.abc import Mapping
 from decimal import Decimal
 
-from sqlalchemy import and_, create_engine, delete, desc, func, insert, select, update
+from pathlib import Path
 
-from domain.inventory_schema import INVENTORY_DETAIL_TABLE, INVENTORY_TABLE, SUPPLIER_TABLE, WAREHOUSE_TABLE
+from openpyxl import load_workbook
+from sqlalchemy import and_, case, create_engine, delete, desc, func, insert, select, update
+
+from domain.inventory_schema import INVENTORY_DETAIL_TABLE, INVENTORY_TABLE, JST_STOCK_TABLE, SUPPLIER_TABLE, WAREHOUSE_TABLE
+from domain.schema import METADATA
 
 
 class InventoryRepository:
@@ -20,6 +24,7 @@ class InventoryRepository:
             future=True,
             json_serializer=_json_serializer,
         )
+        METADATA.create_all(self.engine, checkfirst=True)
 
     # ── Inventory Records ──────────────────────────────────────────
 
@@ -234,6 +239,214 @@ class InventoryRepository:
         )
         with self.engine.begin() as connection:
             connection.execute(update_stmt)
+
+    # ── Ending Inventory ─────────────────────────────────────────────
+
+    def get_ending_inventory(
+        self,
+        *,
+        jst_stock_root: Path | None,
+        stock_date: str,
+        date_start: str | None = None,
+        date_end: str | None = None,
+        product_code: str | None = None,
+        page: int,
+        page_size: int,
+    ) -> dict[str, object]:
+        # Read beginning stock from DB (or Excel fallback)
+        beginning_stock = self._read_jst_stock(jst_stock_root, stock_date) if jst_stock_root else {}
+
+        # Build the aggregated inventory changes query
+        detail = INVENTORY_DETAIL_TABLE
+        record = INVENTORY_TABLE
+
+        inbound = func.sum(case(
+            (record.c.document_type == "工厂进货单", detail.c.quantity),
+            else_=0,
+        ))
+        return_qty = func.sum(case(
+            (record.c.document_type == "工厂退货单", detail.c.quantity),
+            else_=0,
+        ))
+
+        joined = detail.join(record, detail.c.document_id == record.c.id)
+        conditions = []
+        if date_start:
+            conditions.append(record.c.date >= date_start)
+        if date_end:
+            conditions.append(record.c.date <= date_end)
+        if product_code:
+            conditions.append(detail.c.product_code.like(f"{product_code}%"))
+        criterion = and_(*conditions) if conditions else None
+
+        base = (
+            select(
+                detail.c.product_code,
+                detail.c.product_name,
+                detail.c.color_spec,
+                inbound.label("inbound_qty"),
+                return_qty.label("return_qty"),
+            )
+            .select_from(joined)
+            .group_by(detail.c.product_code, detail.c.product_name, detail.c.color_spec)
+        )
+        if criterion is not None:
+            base = base.where(criterion)
+
+        # Subquery for counting total groups
+        sub = base.subquery()
+        count_stmt = select(func.count()).select_from(sub)
+        with self.engine.connect() as connection:
+            total = connection.execute(count_stmt).scalar_one()
+
+        # Paginated query
+        data_stmt = (
+            select(sub)
+            .order_by(sub.c.product_code)
+            .offset((page - 1) * page_size)
+            .limit(page_size)
+        )
+        with self.engine.connect() as connection:
+            rows = [dict(row) for row in connection.execute(data_stmt).mappings()]
+
+        # Merge with beginning stock and calculate ending inventory
+        from decimal import Decimal
+        items = []
+        for row in rows:
+            code = row.get("product_code") or ""
+            beginning = beginning_stock.get(str(code), Decimal("0"))
+            inbound_val = row.get("inbound_qty") or Decimal("0")
+            return_val = row.get("return_qty") or Decimal("0")
+            ending = beginning + inbound_val - return_val
+
+            def _fmt(d: Decimal) -> str:
+                d = d.normalize()
+                return str(d) if d.as_tuple().exponent < 0 else str(int(d))
+
+            items.append({
+                "product_code": row.get("product_code"),
+                "product_name": row.get("product_name"),
+                "color_spec": row.get("color_spec"),
+                "beginning_qty": _fmt(beginning),
+                "inbound_qty": _fmt(inbound_val),
+                "return_qty": _fmt(return_val),
+                "ending_qty": _fmt(ending),
+            })
+
+        return {
+            "items": items,
+            "total": total,
+            "page": page,
+            "page_size": page_size,
+        }
+
+    def _read_jst_stock(self, jst_stock_root: Path | None, stock_date: str) -> dict:
+        """Read beginning stock from DB, fallback to Excel if no data."""
+        from decimal import Decimal
+
+        if jst_stock_root is None:
+            return {}
+
+        # Try DB first
+        table = JST_STOCK_TABLE
+        stmt = select(table.c.product_code, table.c.available_qty).where(table.c.stock_date == stock_date)
+        with self.engine.connect() as connection:
+            rows = connection.execute(stmt).all()
+
+        if rows:
+            return {str(row.product_code): Decimal(str(row.available_qty)) for row in rows}
+
+        # Fallback to Excel
+        return self._read_jst_stock_from_excel(jst_stock_root, stock_date)
+
+    def import_jst_stock(self, jst_stock_root: Path | None, stock_date: str) -> dict[str, object]:
+        """Import daily stock from 聚水潭 Excel into jst_daily_stock table."""
+        if jst_stock_root is None:
+            return {"imported": 0, "message": "JST_STOCK_ROOT 未配置"}
+
+        data = self._read_jst_stock_from_excel(jst_stock_root, stock_date)
+        if not data:
+            return {"imported": 0, "message": f"未找到 {stock_date} 的库存数据"}
+
+        table = JST_STOCK_TABLE
+        imported = 0
+        with self.engine.begin() as connection:
+            for product_code, qty in data.items():
+                # UPSERT: delete existing then insert
+                connection.execute(
+                    delete(table).where(
+                        and_(table.c.stock_date == stock_date, table.c.product_code == product_code)
+                    )
+                )
+                connection.execute(
+                    insert(table).values(
+                        stock_date=stock_date,
+                        product_code=product_code,
+                        available_qty=qty,
+                    )
+                )
+                imported += 1
+
+        return {"imported": imported, "message": f"已导入 {imported} 条 {stock_date} 库存数据"}
+
+    @staticmethod
+    def _read_jst_stock_from_excel(jst_stock_root: Path, stock_date: str) -> dict:
+        """Read product available stock from 聚水潭 daily stock Excel."""
+        from decimal import Decimal
+
+        stock_dir = jst_stock_root / stock_date
+        if not stock_dir.exists():
+            return {}
+
+        # Try common extensions
+        candidates = []
+        for ext in (".xlsx", ".xls", ".xlsm"):
+            p = stock_dir / f"商品库存{ext}"
+            if p.exists():
+                candidates.append(p)
+
+        stock_file = candidates[0] if candidates else None
+        if stock_file is None:
+            return {}
+
+        wb = load_workbook(stock_file, data_only=True, read_only=True)
+        ws = wb["Sheet1"] if "Sheet1" in wb.sheetnames else wb.active
+        if ws is None:
+            wb.close()
+            return {}
+        iterator = ws.iter_rows(values_only=True)
+        header_row = next(iterator, None)
+        if header_row is None:
+            wb.close()
+            return {}
+
+        headers = [str(h).strip() if h else "" for h in header_row]
+
+        # Find column indices for "商品编码" and "可用数"
+        code_idx = None
+        avail_idx = None
+        for i, h in enumerate(headers):
+            if "商品编码" in h or h == "商品编码":
+                code_idx = i
+            elif "可用数" in h or "可用库存" in h:
+                avail_idx = i
+
+        if code_idx is None or avail_idx is None:
+            wb.close()
+            return {}
+
+        result = {}
+        for row in iterator:
+            code = str(row[code_idx]).strip() if code_idx < len(row) and row[code_idx] is not None else ""
+            avail = row[avail_idx] if avail_idx < len(row) else None
+            if code and avail is not None:
+                try:
+                    result[code] = Decimal(str(avail))
+                except Exception:
+                    result[code] = Decimal("0")
+
+        wb.close()
+        return result
 
     # ── Helpers ────────────────────────────────────────────────────
 

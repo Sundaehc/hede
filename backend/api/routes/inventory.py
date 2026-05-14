@@ -91,6 +91,43 @@ def export_inventory(request: Request):
     )
 
 
+@router.get("/inventory/ending-balance")
+def get_ending_inventory(
+    request: Request,
+    stock_date: str,
+    date_start: str | None = None,
+    date_end: str | None = None,
+    product_code: str | None = None,
+    page: int = 1,
+    page_size: int = 20,
+):
+    repository = request.app.state.inventory_repository
+    settings = request.app.state.settings
+    return repository.get_ending_inventory(
+        jst_stock_root=settings.jst_stock_root,
+        stock_date=stock_date,
+        date_start=date_start,
+        date_end=date_end,
+        product_code=product_code,
+        page=page,
+        page_size=page_size,
+    )
+
+
+@router.post("/inventory/import-jst-stock")
+def import_jst_stock(request: Request, stock_date: str | None = None):
+    if stock_date is None:
+        from datetime import datetime
+        now = datetime.now()
+        stock_date = f"{now.month:02d}.{now.day:02d}"
+    repository = request.app.state.inventory_repository
+    settings = request.app.state.settings
+    return repository.import_jst_stock(
+        jst_stock_root=settings.jst_stock_root,
+        stock_date=stock_date,
+    )
+
+
 @router.get("/inventory/{record_id}")
 def get_inventory_record(request: Request, record_id: int):
     repository = request.app.state.inventory_repository

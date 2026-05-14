@@ -19,6 +19,7 @@ class Settings:
     qbd_image_root: Path
     yandou_image_root: Path
     yiban_image_root: Path
+    jst_stock_root: Path | None = None
 
     @property
     def image_roots(self) -> dict[str, Path]:
@@ -52,6 +53,9 @@ def load_settings(require_database: bool = True) -> Settings:
     if require_database and not database_url:
         raise ValueError("DATABASE_URL is required in .env")
 
+    jst_stock_root_raw = os.getenv("JST_STOCK_ROOT")
+    jst_stock_root = Path(jst_stock_root_raw) if jst_stock_root_raw else None
+
     return Settings(
         database_url=database_url,
         frontend_origin=os.getenv("FRONTEND_ORIGIN", "http://127.0.0.1:3000"),
@@ -59,4 +63,5 @@ def load_settings(require_database: bool = True) -> Settings:
         qbd_image_root=_path_from_env("QBD_IMAGE_ROOT"),
         yandou_image_root=_path_from_env("YANDOU_IMAGE_ROOT"),
         yiban_image_root=_path_from_env("YIBAN_IMAGE_ROOT"),
+        jst_stock_root=jst_stock_root,
     )

@@ -309,6 +309,51 @@ export function deleteDetail(documentId: number, detailId: number) {
   })
 }
 
+// ── Ending Inventory ──────────────────────────────────────────────
+
+export type EndingInventoryItem = {
+  product_code: string | null
+  product_name: string | null
+  color_spec: string | null
+  beginning_qty: string | null
+  inbound_qty: string | null
+  return_qty: string | null
+  ending_qty: string | null
+}
+
+export type EndingInventoryResponse = {
+  items: EndingInventoryItem[]
+  total: number
+  page: number
+  page_size: number
+}
+
+export function importJstStock(stockDate?: string) {
+  const search = stockDate ? `?stock_date=${stockDate}` : ""
+  return request<{ imported: number; message: string }>(`/inventory/import-jst-stock${search}`, {
+    method: "POST",
+  })
+}
+
+export function listEndingInventory(params: {
+  stock_date: string
+  date_start?: string
+  date_end?: string
+  product_code?: string
+  page: number
+  pageSize: number
+}) {
+  const search = new URLSearchParams({
+    stock_date: params.stock_date,
+    page: String(params.page),
+    page_size: String(params.pageSize),
+  })
+  if (params.date_start) search.set("date_start", params.date_start)
+  if (params.date_end) search.set("date_end", params.date_end)
+  if (params.product_code) search.set("product_code", params.product_code)
+  return request<EndingInventoryResponse>(`/inventory/ending-balance?${search.toString()}`)
+}
+
 // ── Suppliers ────────────────────────────────────────────────────
 
 export function listSuppliers() {

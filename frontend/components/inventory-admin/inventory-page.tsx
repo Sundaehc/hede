@@ -25,6 +25,8 @@ import {
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { ConfirmDialog, MessageDialog } from "@/components/confirm-dialog"
 import { InventoryDetailPanel } from "@/components/inventory-admin/inventory-detail-panel"
+import { EndingInventoryTab } from "@/components/inventory-admin/ending-inventory-tab"
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import {
   listInventory,
   createInventoryRecord,
@@ -106,6 +108,7 @@ export function InventoryPage() {
   const [isSaving, setIsSaving] = useState(false)
 
   const [detailDocumentId, setDetailDocumentId] = useState<number | null>(null)
+  const [activeTab, setActiveTab] = useState("records")
 
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [isImporting, setIsImporting] = useState(false)
@@ -325,8 +328,17 @@ export function InventoryPage() {
           </div>
         </div>
 
-        {/* Search Card */}
-        <div className="rounded-xl border border-border bg-card p-4">
+        {/* Tabs */}
+        <Tabs defaultValue="records" value={activeTab} onValueChange={setActiveTab}>
+          <TabsList>
+            <TabsTrigger value="records">进销存记录</TabsTrigger>
+            <TabsTrigger value="ending">期末库存</TabsTrigger>
+          </TabsList>
+
+          {activeTab === "records" && (
+            <>
+              {/* Search Card */}
+              <div className="rounded-xl border border-border bg-card p-4">
           <div className="flex flex-col gap-3">
             <div className="flex flex-wrap items-end gap-3">
               <div className="flex flex-col gap-1.5">
@@ -557,6 +569,10 @@ export function InventoryPage() {
         <div className="text-center text-xs text-muted-foreground">
           共 {total} 条记录 · 第 {total === 0 ? 0 : (page - 1) * pageSize + 1}-{Math.min(page * pageSize, total)} 条
         </div>
+            </>
+          )}
+          {activeTab === "ending" && <EndingInventoryTab />}
+        </Tabs>
       </div>
 
       {/* Form Dialog */}

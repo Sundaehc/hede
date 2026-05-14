@@ -19,6 +19,8 @@ from domain.inventory_sources import (
     INVENTORY_DETAIL_COLUMNS,
     INVENTORY_DETAIL_TABLE_NAME,
     INVENTORY_TABLE_NAME,
+    JST_STOCK_COLUMNS,
+    JST_STOCK_TABLE_NAME,
     SUPPLIER_TABLE_NAME,
     WAREHOUSE_TABLE_NAME,
 )
@@ -88,3 +90,18 @@ INVENTORY_TABLE = build_inventory_table()
 INVENTORY_DETAIL_TABLE = build_inventory_detail_table()
 SUPPLIER_TABLE = build_supplier_table()
 WAREHOUSE_TABLE = build_warehouse_table()
+
+
+def build_jst_stock_table() -> Table:
+    columns = [
+        Column("id", BigInteger, Identity(always=False), primary_key=True),
+        Column("stock_date", Text, nullable=False),
+        Column("product_code", Text, nullable=False),
+        Column("available_qty", Numeric(10, 2)),
+        Column("created_at", DateTime(timezone=True), server_default=func.now()),
+        UniqueConstraint("stock_date", "product_code", name="uq_jst_stock_date_code"),
+    ]
+    return Table(JST_STOCK_TABLE_NAME, METADATA, *columns)
+
+
+JST_STOCK_TABLE = build_jst_stock_table()
