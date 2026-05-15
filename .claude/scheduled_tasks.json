@@ -1,3 +1,14 @@
 {
-  "tasks": []
+  "tasks": [
+    {
+      "id": "37e76837",
+      "cron": "7 12 * * *",
+      "prompt": "Run the VIP daily import: cd e:\\hede\\backend && python -m scripts.import_vip_daily",
+      "createdAt": 1778828443022,
+      "recurring": true,
+      "createdBySessionId": "ddf10f19-7fec-4d5c-bb7a-bab6d54fc34b",
+      "createdByPid": 45396,
+      "createdByProcStart": "639144501296835610"
+    }
+  ]
 }

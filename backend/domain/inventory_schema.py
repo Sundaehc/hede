@@ -6,6 +6,7 @@ from sqlalchemy import (
     DateTime,
     ForeignKey,
     Identity,
+    Integer,
     JSON,
     Numeric,
     Table,
@@ -97,7 +98,7 @@ def build_jst_stock_table() -> Table:
         Column("id", BigInteger, Identity(always=False), primary_key=True),
         Column("stock_date", Text, nullable=False),
         Column("product_code", Text, nullable=False),
-        Column("available_qty", Numeric(10, 2)),
+        Column("available_qty", Integer),
         Column("created_at", DateTime(timezone=True), server_default=func.now()),
         UniqueConstraint("stock_date", "product_code", name="uq_jst_stock_date_code"),
     ]

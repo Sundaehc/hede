@@ -311,17 +311,20 @@ class InventoryRepository:
 
         # Merge with beginning stock and calculate ending inventory
         from decimal import Decimal
+
+        def _fmt(v: int | Decimal) -> str:
+            if isinstance(v, int):
+                return str(v)
+            d = v.normalize()
+            return str(d) if d.as_tuple().exponent < 0 else str(int(d))
+
         items = []
         for row in rows:
             code = row.get("product_code") or ""
-            beginning = beginning_stock.get(str(code), Decimal("0"))
+            beginning = beginning_stock.get(str(code), 0)
             inbound_val = row.get("inbound_qty") or Decimal("0")
             return_val = row.get("return_qty") or Decimal("0")
             ending = beginning + inbound_val - return_val
-
-            def _fmt(d: Decimal) -> str:
-                d = d.normalize()
-                return str(d) if d.as_tuple().exponent < 0 else str(int(d))
 
             items.append({
                 "product_code": row.get("product_code"),
@@ -342,8 +345,6 @@ class InventoryRepository:
 
     def _read_jst_stock(self, jst_stock_root: Path | None, stock_date: str) -> dict:
         """Read beginning stock from DB, fallback to Excel if no data."""
-        from decimal import Decimal
-
         if jst_stock_root is None:
             return {}
 
@@ -354,7 +355,7 @@ class InventoryRepository:
             rows = connection.execute(stmt).all()
 
         if rows:
-            return {str(row.product_code): Decimal(str(row.available_qty)) for row in rows}
+            return {str(row.product_code): int(row.available_qty) for row in rows}
 
         # Fallback to Excel
         return self._read_jst_stock_from_excel(jst_stock_root, stock_date)
@@ -392,7 +393,6 @@ class InventoryRepository:
     @staticmethod
     def _read_jst_stock_from_excel(jst_stock_root: Path, stock_date: str) -> dict:
         """Read product available stock from 聚水潭 daily stock Excel."""
-        from decimal import Decimal
 
         stock_dir = jst_stock_root / stock_date
         if not stock_dir.exists():
@@ -441,9 +441,9 @@ class InventoryRepository:
             avail = row[avail_idx] if avail_idx < len(row) else None
             if code and avail is not None:
                 try:
-                    result[code] = Decimal(str(avail))
+                    result[code] = int(float(str(avail)))
                 except Exception:
-                    result[code] = Decimal("0")
+                    result[code] = 0
 
         wb.close()
         return result

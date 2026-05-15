@@ -71,7 +71,23 @@
       "Bash(taskkill -f -pid 194924)",
       "Bash(python -m scripts.sync_jst_stock)",
       "Bash(schtasks /create /tn \"Hede_JST_Stock_Sync\" /tr \"cd /d e:\\\\hede\\\\backend && python -m scripts.sync_jst_stock\" /sc daily /st 09:00 /f)",
-      "Bash(cmd.exe /c \"schtasks /create /tn Hede_JST_Stock_Sync /tr \\\\\"cd /d e:\\\\hede\\\\backend && python -m scripts.sync_jst_stock\\\\\" /sc daily /st 09:00 /f\")"
+      "Bash(cmd.exe /c \"schtasks /create /tn Hede_JST_Stock_Sync /tr \\\\\"cd /d e:\\\\hede\\\\backend && python -m scripts.sync_jst_stock\\\\\" /sc daily /st 09:00 /f\")",
+      "Bash(curl -s --max-time 30 \"http://127.0.0.1:8137/inventory/ending-balance?stock_date=05.14&page=1&page_size=3\")",
+      "Bash(taskkill -f -pid 101792)",
+      "Bash(ls -la \"\\\\\\\\Creation\\\\超级共享\\\\影刀技术开发部共享\\\\唯品会后台\\\\千百度伊伴\\\\05.15\" 2>&1 || echo \"Access failed\")",
+      "Read(//Creation/超级共享/影刀技术开发部共享/唯品会后台/千百度伊伴/**)",
+      "Bash(cmd.exe /c \"dir \\\\\"\\\\\\\\Creation\\\\超级共享\\\\影刀技术开发部共享\\\\唯品会后台\\\\千百度伊伴\\\\05.15\\\\\" 2>&1\")",
+      "Bash(python -c \"import os; path = r'\\\\\\\\Creation\\\\超级共享\\\\影刀技术开发部共享\\\\唯品会后台\\\\千百度伊伴\\\\05.15'; print\\('exists:', os.path.exists\\(path\\)\\); [print\\(f\\) for f in sorted\\(os.listdir\\(path\\)\\)] if os.path.exists\\(path\\) else print\\('not found'\\)\")",
+      "Bash(python -c \"import os; print\\('exists:', os.path.exists\\(r'\\\\\\\\Creation'\\)\\)\")",
+      "Bash(powershell.exe -Command \"Get-ChildItem -Path '\\\\\\\\192.168.10.58\\\\超级共享\\\\影刀技术开发部共享\\\\唯品会后台\\\\千百度伊伴\\\\05.15' | Select-Object Name\")",
+      "Bash(python e:\\\\tmp\\\\read_hede_tables.py)",
+      "Bash(python \"e:/tmp/read_hede_tables.py\")",
+      "Bash(python e:/tmp/read_headers.py)",
+      "Bash(python e:/tmp/read_headers2.py)",
+      "Bash(python -c \"import re; from pathlib import Path; print\\(Path\\(r'\\\\\\\\192.168.10.58\\\\超级共享\\\\影刀技术开发部共享\\\\唯品会后台\\\\千百度伊伴'\\).exists\\(\\)\\)\")",
+      "Bash(python e:/tmp/import_vip.py)",
+      "Bash(python -m scripts.fix_source_workbook)",
+      "Bash(PYTHONPATH=e:/hede/backend python e:/hede/backend/scripts/fix_source_workbook.py)"
     ],
     "additionalDirectories": [
       "\\tmp"

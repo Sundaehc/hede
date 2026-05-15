@@ -36,6 +36,8 @@ class ImportPipeline:
         rows_by_brand: dict[str, list[dict[str, object]]] = {key: [] for key in summaries}
 
         for spec in WORKBOOK_SPECS:
+            workbook_path = spec.resolve_path(self.settings.excel_root)
+            workbook_name = workbook_path.stem
             sheet_rows_map = read_workbook_rows(spec, self.settings.excel_root)
             matcher = self.image_matchers[IMAGE_BRAND_KEYS[spec.brand_group]]
             for sheet_name, sheet_rows in sheet_rows_map.items():
@@ -46,7 +48,7 @@ class ImportPipeline:
 
                     canonical = build_canonical_row(
                         raw_row,
-                        workbook_key=spec.workbook_key,
+                        workbook_key=workbook_name,
                         sheet_name=sheet_name,
                         row_number=index,
                         image_path=image_path,
