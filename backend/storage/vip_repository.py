@@ -185,9 +185,9 @@ class VipRepository:
 
         update_cols = [
             c for c in deduped[0]
-            if c not in ("id", "goods_full_name")
+            if c not in ("id", "goods_code", "goods_full_name")
         ]
-        self._upsert(JST_PRICE_TABLE, deduped, ["goods_full_name"], update_cols)
+        self._upsert(JST_PRICE_TABLE, deduped, ["goods_code", "goods_full_name"], update_cols)
 
         return {
             "imported": len(deduped),

@@ -127,7 +127,7 @@ def build_vip_price_table() -> Table:
     return Table(
         JST_PRICE_TABLE_NAME, METADATA,
         *columns,
-        UniqueConstraint("goods_full_name", name="uq_jst_price_goods_full_name"),
+        UniqueConstraint("goods_code", "goods_full_name", name="uq_jst_price_code_name"),
     )
 
 
