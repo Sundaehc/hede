@@ -253,13 +253,10 @@ class InventoryRepository:
         page: int,
         page_size: int,
     ) -> dict[str, object]:
-        # Read beginning stock from DB (or Excel fallback)
-        beginning_stock = self._read_jst_stock(jst_stock_root, stock_date) if jst_stock_root else {}
-
-        # Build the aggregated inventory changes query
         detail = INVENTORY_DETAIL_TABLE
         record = INVENTORY_TABLE
 
+        # Build the aggregated inventory changes query
         inbound = func.sum(case(
             (record.c.document_type == "工厂进货单", detail.c.quantity),
             else_=0,
@@ -284,6 +281,7 @@ class InventoryRepository:
                 detail.c.product_code,
                 detail.c.product_name,
                 detail.c.color_spec,
+                func.min(record.c.date).label("first_doc_date"),
                 inbound.label("inbound_qty"),
                 return_qty.label("return_qty"),
             )
@@ -309,8 +307,9 @@ class InventoryRepository:
         with self.engine.connect() as connection:
             rows = [dict(row) for row in connection.execute(data_stmt).mappings()]
 
-        # Merge with beginning stock and calculate ending inventory
-        from decimal import Decimal
+        # Determine beginning stock for each product
+        # If date_start is given, all products share the same beginning date.
+        # Otherwise, each product uses its own earliest document date.
 
         def _fmt(v: int | Decimal) -> str:
             if isinstance(v, int):
@@ -318,10 +317,41 @@ class InventoryRepository:
             d = v.normalize()
             return str(d) if d.as_tuple().exponent < 0 else str(int(d))
 
+        def _to_mmdd(date_str: str) -> str:
+            """Convert YYYY-MM-DD to MM.DD."""
+            try:
+                parts = date_str.split("-")
+                return f"{parts[1]}.{parts[2]}"
+            except (IndexError, ValueError):
+                return stock_date
+
+        beginning_by_date: dict[str, dict[str, int]] = {}
+
+        def _stock_for_date(mmdd: str) -> dict[str, int]:
+            if mmdd not in beginning_by_date:
+                beginning_by_date[mmdd] = self._read_jst_stock(jst_stock_root, mmdd) if jst_stock_root else {}
+            return beginning_by_date[mmdd]
+
+        if date_start:
+            # Global beginning stock date
+            begin_date = _to_mmdd(date_start)
+            global_stock = _stock_for_date(begin_date)
+        else:
+            global_stock = None
+
         items = []
         for row in rows:
             code = row.get("product_code") or ""
-            beginning = beginning_stock.get(str(code), 0)
+            if global_stock is not None:
+                beginning = global_stock.get(str(code), 0)
+            else:
+                first_date = row.get("first_doc_date")
+                if first_date:
+                    per_stock = _stock_for_date(_to_mmdd(str(first_date)))
+                    beginning = per_stock.get(str(code), 0)
+                else:
+                    beginning = 0
+
             inbound_val = row.get("inbound_qty") or Decimal("0")
             return_val = row.get("return_qty") or Decimal("0")
             ending = beginning + inbound_val - return_val

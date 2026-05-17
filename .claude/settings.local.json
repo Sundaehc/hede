@@ -107,7 +107,13 @@
       "Bash(python e:/tmp/audit_db.py)",
       "Bash(python e:/tmp/migrate_db.py)",
       "Bash(python e:/tmp/test_upsert.py)",
-      "Bash(python e:/tmp/migrate_price_uq.py)"
+      "Bash(python e:/tmp/migrate_price_uq.py)",
+      "Bash(PYTHONPATH=e:/hede/backend python -c ' *)",
+      "Bash(python -m py_compile domain/schema.py)",
+      "Bash(python -m py_compile domain/inventory_schema.py)",
+      "Bash(python -m py_compile domain/vip_schema.py)",
+      "Bash(python -m py_compile storage/inventory_repository.py)",
+      "Bash(python -m py_compile storage/vip_repository.py)"
     ],
     "additionalDirectories": [
       "\\tmp"
