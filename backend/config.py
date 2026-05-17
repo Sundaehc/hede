@@ -20,6 +20,8 @@ class Settings:
     yandou_image_root: Path
     yiban_image_root: Path
     jst_stock_root: Path | None = None
+    vip_data_root: Path | None = None
+    jst_price_root: Path | None = None
 
     @property
     def image_roots(self) -> dict[str, Path]:
@@ -55,6 +57,10 @@ def load_settings(require_database: bool = True) -> Settings:
 
     jst_stock_root_raw = os.getenv("JST_STOCK_ROOT")
     jst_stock_root = Path(jst_stock_root_raw) if jst_stock_root_raw else None
+    vip_data_root_raw = os.getenv("VIP_DATA_ROOT")
+    vip_data_root = Path(vip_data_root_raw) if vip_data_root_raw else None
+    jst_price_root_raw = os.getenv("JST_PRICE_ROOT")
+    jst_price_root = Path(jst_price_root_raw) if jst_price_root_raw else None
 
     return Settings(
         database_url=database_url,
@@ -64,4 +70,6 @@ def load_settings(require_database: bool = True) -> Settings:
         yandou_image_root=_path_from_env("YANDOU_IMAGE_ROOT"),
         yiban_image_root=_path_from_env("YIBAN_IMAGE_ROOT"),
         jst_stock_root=jst_stock_root,
+        vip_data_root=vip_data_root,
+        jst_price_root=jst_price_root,
     )

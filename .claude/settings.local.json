@@ -87,7 +87,23 @@
       "Bash(python -c \"import re; from pathlib import Path; print\\(Path\\(r'\\\\\\\\192.168.10.58\\\\超级共享\\\\影刀技术开发部共享\\\\唯品会后台\\\\千百度伊伴'\\).exists\\(\\)\\)\")",
       "Bash(python e:/tmp/import_vip.py)",
       "Bash(python -m scripts.fix_source_workbook)",
-      "Bash(PYTHONPATH=e:/hede/backend python e:/hede/backend/scripts/fix_source_workbook.py)"
+      "Bash(PYTHONPATH=e:/hede/backend python e:/hede/backend/scripts/fix_source_workbook.py)",
+      "Bash(python e:/tmp/read_price.py)",
+      "Bash(python e:/tmp/read_price2.py)",
+      "Bash(python e:/tmp/read_price3.py)",
+      "Bash(python e:/tmp/import_price.py)",
+      "Bash(PYTHONPATH=e:/hede/backend python e:/hede/backend/scripts/import_price_daily.py)",
+      "Bash(python -c \"from config import load_settings; s=load_settings\\(\\); print\\(s.database_url[:60]\\)\")",
+      "Bash(net use *)",
+      "Bash(python)",
+      "Bash(python e:/tmp/test_network.py)",
+      "Bash(python e:/tmp/find_price.py)",
+      "Bash(python e:/tmp/list_files.py)",
+      "Bash(python e:/tmp/check_dates.py)",
+      "Bash(python e:/tmp/list_price.py)",
+      "Bash(python e:/tmp/exact_files.py)",
+      "Bash(python e:/tmp/check_bytes.py)",
+      "Bash(python e:/tmp/test_vip.py)"
     ],
     "additionalDirectories": [
       "\\tmp"

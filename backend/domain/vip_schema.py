@@ -21,6 +21,8 @@ from domain.vip_sources import (
     VIP_DAILY_TABLE_NAME,
     VIP_OPS_COLUMNS,
     VIP_OPS_TABLE_NAME,
+    JST_PRICE_COLUMNS,
+    JST_PRICE_TABLE_NAME,
     VIP_REALTIME_COLUMNS,
     VIP_REALTIME_TABLE_NAME,
 )
@@ -29,11 +31,13 @@ from domain.vip_sources import (
 def _col_type(name: str):
     integer_cols = {
         "detail_uv", "fav_count", "sales_volume", "customer_count",
-        "reject_count", "stock_on_sale",
+        "reject_count", "stock_on_sale", "stock_qty",
     }
     numeric_cols = {
         "sales_amount", "uv_value",
         "market_price", "vip_price", "final_price",
+        "latest_purchase_price", "cost_unit_price", "member_price",
+        "retail_price", "preset_price", "preset_discount", "preset_commission",
     }
     if name in integer_cols:
         return Integer
@@ -103,6 +107,23 @@ def build_vip_ops_table() -> Table:
     )
 
 
+# ── vip_product_price ──────────────────────────────────────────────
+
+def build_vip_price_table() -> Table:
+    columns = [
+        Column("id", BigInteger, Identity(always=False), primary_key=True),
+        Column("source_workbook", Text, nullable=False, default=""),
+        Column("source_sheet", Text, nullable=False, default=""),
+        Column("source_row_number", Text, nullable=False, default=""),
+        Column("raw_payload", JSON, nullable=False, default=dict),
+    ]
+    columns.extend(Column(name, _col_type(name)) for name in JST_PRICE_COLUMNS)
+    columns.append(Column("extra_fields", JSON, nullable=True))
+    columns.append(Column("created_at", DateTime(timezone=True), server_default=func.now()))
+    return Table(JST_PRICE_TABLE_NAME, METADATA, *columns)
+
+
 VIP_DAILY_TABLE = build_vip_daily_table()
 VIP_REALTIME_TABLE = build_vip_realtime_table()
 VIP_OPS_TABLE = build_vip_ops_table()
+JST_PRICE_TABLE = build_vip_price_table()

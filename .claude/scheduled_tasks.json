@@ -1,14 +1,26 @@
 {
   "tasks": [
     {
-      "id": "37e76837",
+      "id": "21db579b",
       "cron": "7 12 * * *",
-      "prompt": "Run the VIP daily import: cd e:\\hede\\backend && python -m scripts.import_vip_daily",
-      "createdAt": 1778828443022,
+      "prompt": "Run the daily VIP import: set PYTHONPATH=e:/hede/backend && python e:/hede/backend/scripts/import_vip_daily.py",
+      "createdAt": 1778835682849,
       "recurring": true,
       "createdBySessionId": "ddf10f19-7fec-4d5c-bb7a-bab6d54fc34b",
       "createdByPid": 45396,
-      "createdByProcStart": "639144501296835610"
+      "createdByProcStart": "639144501296835610",
+      "lastFiredAt": 1778979719245
+    },
+    {
+      "id": "fc62a9d5",
+      "cron": "7 14 * * *",
+      "prompt": "Run the daily price import: set PYTHONPATH=e:/hede/backend && python e:/hede/backend/scripts/import_price_daily.py",
+      "createdAt": 1778835688992,
+      "recurring": true,
+      "createdBySessionId": "ddf10f19-7fec-4d5c-bb7a-bab6d54fc34b",
+      "createdByPid": 45396,
+      "createdByProcStart": "639144501296835610",
+      "lastFiredAt": 1778979719245
     }
   ]
 }

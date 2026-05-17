@@ -132,6 +132,41 @@ VIP_OPS_COLUMN_ALIASES: dict[str, str] = {
     "商品标签": "goods_tag",
 }
 
+# ── vip_product_price: 物价信息 共 13 列（跳过行号）──────────────
+JST_PRICE_TABLE_NAME = "jst_product_price"
+
+JST_PRICE_COLUMNS: list[str] = [
+    "goods_code",              # 货号
+    "goods_full_name",         # 商品全名
+    "stock_qty",               # 库存数量
+    "latest_purchase_price",   # 最近进价
+    "cost_unit_price",         # 成本单价
+    "member_price",            # 会员价
+    "retail_price",            # 零售价
+    "preset_price_name",       # 预设售价名称
+    "preset_price",            # 预设售价
+    "preset_discount_name",    # 预设折扣率名称
+    "preset_discount",         # 预设折扣率
+    "preset_commission_name",  # 预设抽成率名称
+    "preset_commission",       # 预设抽成率
+]
+
+JST_PRICE_COLUMN_ALIASES: dict[str, str] = {
+    "货号": "goods_code",
+    "商品全名": "goods_full_name",
+    "库存数量": "stock_qty",
+    "最近进价": "latest_purchase_price",
+    "成本单价": "cost_unit_price",
+    "会员价": "member_price",
+    "零售价": "retail_price",
+    "预设售价名称": "preset_price_name",
+    "预设售价": "preset_price",
+    "预设折扣率名称": "preset_discount_name",
+    "预设折扣率": "preset_discount",
+    "预设抽成率名称": "preset_commission_name",
+    "预设抽成率": "preset_commission",
+}
+
 # ── Report type / period options ───────────────────────────────────
 REPORT_TYPES: tuple[str, ...] = ("环比", "罗盘")
 PERIODS: tuple[str, ...] = ("1d", "3d", "7d", "30d")

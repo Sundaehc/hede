@@ -8,10 +8,11 @@ from sqlalchemy import create_engine
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from domain.schema import METADATA
-from domain.vip_schema import VIP_DAILY_TABLE, VIP_OPS_TABLE, VIP_REALTIME_TABLE
+from domain.vip_schema import VIP_DAILY_TABLE, VIP_OPS_TABLE, JST_PRICE_TABLE, VIP_REALTIME_TABLE
 from domain.vip_sources import (
     VIP_DAILY_COLUMN_ALIASES,
     VIP_OPS_COLUMN_ALIASES,
+    JST_PRICE_COLUMN_ALIASES,
     VIP_REALTIME_COLUMN_ALIASES,
 )
 
@@ -121,6 +122,64 @@ class VipRepository:
             "message": f"{file_path.name}: {len(rows)} 条",
         }
 
+    # ── vip_product_price (物价信息) ──────────────────────────────
+
+    def import_price(self, file_path: Path) -> dict[str, object]:
+        """Import 物价信息 Excel. Header is on row 4 (1-indexed)."""
+        wb = load_workbook(file_path, data_only=True, read_only=True)
+        ws = wb.active
+        assert ws is not None
+        sheet_title = ws.title
+        rows_iter = ws.iter_rows(values_only=True)
+
+        # Skip first 3 rows (title, blank, blank), header on row 4
+        for _ in range(3):
+            next(rows_iter, None)
+
+        header_row = next(rows_iter, None)
+        if header_row is None:
+            wb.close()
+            return {"imported": 0, "message": "未找到表头（第4行）"}
+
+        headers = [str(h).strip() if h else "" for h in header_row]
+        column_map = {h: JST_PRICE_COLUMN_ALIASES[h] for h in headers if h in JST_PRICE_COLUMN_ALIASES}
+
+        rows_to_upsert: list[dict] = []
+        for row_num, row in enumerate(rows_iter, start=4):  # data starts at row 5
+            record: dict[str, object] = {
+                "source_workbook": file_path.stem,
+                "source_sheet": sheet_title,
+                "source_row_number": str(row_num),
+            }
+            raw: dict[str, object] = {}
+            for idx, h in enumerate(headers):
+                value = row[idx] if idx < len(row) else None
+                raw[h] = value
+                col = column_map.get(h)
+                if col:
+                    record[col] = str(value).strip() if value is not None else None
+            record["raw_payload"] = raw
+            rows_to_upsert.append(record)
+
+        wb.close()
+
+        if not rows_to_upsert:
+            return {"imported": 0, "message": "无数据行"}
+
+        from sqlalchemy import delete
+
+        codes = {str(r.get("goods_code", "")) for r in rows_to_upsert}
+        with self.engine.begin() as conn:
+            for i in range(0, len(codes), 500):
+                chunk = list(codes)[i:i + 500]
+                conn.execute(delete(JST_PRICE_TABLE).where(JST_PRICE_TABLE.c.goods_code.in_(chunk)))
+        self._batch_insert(JST_PRICE_TABLE, rows_to_upsert)
+
+        return {
+            "imported": len(rows_to_upsert),
+            "message": f"{file_path.name}: {len(rows_to_upsert)} 条",
+        }
+
     # ── import_all: 按日期目录全量导入 ─────────────────────────────
 
     def import_all(self, dir_path: Path) -> dict[str, object]:
@@ -141,6 +200,8 @@ class VipRepository:
                     results.append(self.import_realtime(file_path))
                 elif "常态商品运营" in filename:
                     results.append(self.import_ops(file_path))
+                elif "合并" in filename and "物价" in filename:
+                    results.append(self.import_price(file_path))
                 elif _report_type_from_filename(filename) and _period_from_filename(filename):
                     daily_files.append(file_path)
 
@@ -168,6 +229,13 @@ class VipRepository:
             )
             with self.engine.begin() as conn:
                 conn.execute(stmt)
+
+    def _batch_insert(self, table, rows: list[dict], chunk_size: int = 500) -> None:
+        from sqlalchemy import insert
+
+        with self.engine.begin() as conn:
+            for i in range(0, len(rows), chunk_size):
+                conn.execute(insert(table), rows[i:i + chunk_size])
 
     def _read_excel(self, file_path: Path, aliases: dict[str, str]) -> list[dict]:
         """Read an Excel file, map headers to canonical columns, return rows as dicts."""
