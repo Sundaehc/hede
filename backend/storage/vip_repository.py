@@ -4,7 +4,7 @@ import re
 from pathlib import Path
 
 from openpyxl import load_workbook
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, func as sa_func
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from domain.schema import METADATA
@@ -237,6 +237,7 @@ class VipRepository:
         for i in range(0, len(rows), chunk_size):
             chunk = rows[i:i + chunk_size]
             set_ = {col: getattr(pg_insert(table).excluded, col) for col in update_cols}
+            set_["updated_at"] = sa_func.date_trunc('minute', sa_func.now())
             stmt = pg_insert(table).values(chunk).on_conflict_do_update(
                 index_elements=key_cols,
                 set_=set_,

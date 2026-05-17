@@ -49,7 +49,7 @@ def _col_type(name: str):
 # ── vip_product_daily ──────────────────────────────────────────────
 
 def build_vip_daily_table() -> Table:
-    columns = [
+    columns: list = [
         Column("id", BigInteger, Identity(always=False), primary_key=True),
         Column("source_workbook", Text, nullable=False, default=""),
         Column("source_sheet", Text, nullable=False, default=""),
@@ -59,8 +59,8 @@ def build_vip_daily_table() -> Table:
     columns.extend(Column(name, _col_type(name)) for name in VIP_DAILY_COLUMNS)
     columns.extend(Column(name, Text()) for name in VIP_DAILY_CLASSIFY_COLUMNS)
     columns.append(Column("extra_fields", JSON, nullable=True))
-    columns.append(Column("created_at", DateTime(timezone=True), server_default=func.now()))
-    columns.append(Column("updated_at", DateTime(timezone=True), server_default=func.now(), onupdate=func.now()))
+    columns.append(Column("created_at", DateTime(timezone=True), server_default=func.date_trunc('minute', func.now())))
+    columns.append(Column("updated_at", DateTime(timezone=True), server_default=func.date_trunc('minute', func.now()), onupdate=func.date_trunc('minute', func.now())))
     return Table(
         VIP_DAILY_TABLE_NAME, METADATA,
         *columns,
@@ -71,7 +71,7 @@ def build_vip_daily_table() -> Table:
 # ── vip_product_realtime ───────────────────────────────────────────
 
 def build_vip_realtime_table() -> Table:
-    columns = [
+    columns: list = [
         Column("id", BigInteger, Identity(always=False), primary_key=True),
         Column("source_workbook", Text, nullable=False, default=""),
         Column("source_sheet", Text, nullable=False, default=""),
@@ -80,8 +80,8 @@ def build_vip_realtime_table() -> Table:
     ]
     columns.extend(Column(name, _col_type(name)) for name in VIP_REALTIME_COLUMNS)
     columns.append(Column("extra_fields", JSON, nullable=True))
-    columns.append(Column("created_at", DateTime(timezone=True), server_default=func.now()))
-    columns.append(Column("updated_at", DateTime(timezone=True), server_default=func.now(), onupdate=func.now()))
+    columns.append(Column("created_at", DateTime(timezone=True), server_default=func.date_trunc('minute', func.now())))
+    columns.append(Column("updated_at", DateTime(timezone=True), server_default=func.date_trunc('minute', func.now()), onupdate=func.date_trunc('minute', func.now())))
     return Table(
         VIP_REALTIME_TABLE_NAME, METADATA,
         *columns,
@@ -92,7 +92,7 @@ def build_vip_realtime_table() -> Table:
 # ── vip_product_ops ────────────────────────────────────────────────
 
 def build_vip_ops_table() -> Table:
-    columns = [
+    columns: list = [
         Column("id", BigInteger, Identity(always=False), primary_key=True),
         Column("source_workbook", Text, nullable=False, default=""),
         Column("source_sheet", Text, nullable=False, default=""),
@@ -101,8 +101,8 @@ def build_vip_ops_table() -> Table:
     ]
     columns.extend(Column(name, _col_type(name)) for name in VIP_OPS_COLUMNS)
     columns.append(Column("extra_fields", JSON, nullable=True))
-    columns.append(Column("created_at", DateTime(timezone=True), server_default=func.now()))
-    columns.append(Column("updated_at", DateTime(timezone=True), server_default=func.now(), onupdate=func.now()))
+    columns.append(Column("created_at", DateTime(timezone=True), server_default=func.date_trunc('minute', func.now())))
+    columns.append(Column("updated_at", DateTime(timezone=True), server_default=func.date_trunc('minute', func.now()), onupdate=func.date_trunc('minute', func.now())))
     return Table(
         VIP_OPS_TABLE_NAME, METADATA,
         *columns,
@@ -113,7 +113,7 @@ def build_vip_ops_table() -> Table:
 # ── vip_product_price ──────────────────────────────────────────────
 
 def build_vip_price_table() -> Table:
-    columns = [
+    columns: list = [
         Column("id", BigInteger, Identity(always=False), primary_key=True),
         Column("source_workbook", Text, nullable=False, default=""),
         Column("source_sheet", Text, nullable=False, default=""),
@@ -122,8 +122,8 @@ def build_vip_price_table() -> Table:
     ]
     columns.extend(Column(name, _col_type(name)) for name in JST_PRICE_COLUMNS)
     columns.append(Column("extra_fields", JSON, nullable=True))
-    columns.append(Column("created_at", DateTime(timezone=True), server_default=func.now()))
-    columns.append(Column("updated_at", DateTime(timezone=True), server_default=func.now(), onupdate=func.now()))
+    columns.append(Column("created_at", DateTime(timezone=True), server_default=func.date_trunc('minute', func.now())))
+    columns.append(Column("updated_at", DateTime(timezone=True), server_default=func.date_trunc('minute', func.now()), onupdate=func.date_trunc('minute', func.now())))
     return Table(
         JST_PRICE_TABLE_NAME, METADATA,
         *columns,

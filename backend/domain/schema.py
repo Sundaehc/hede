@@ -19,7 +19,7 @@ def _column_type(column_name: str):
 def build_product_tables() -> dict[str, Table]:
     tables: dict[str, Table] = {}
     for brand_group, table_name in TABLE_NAMES.items():
-        columns = [
+        columns: list = [
             Column("id", BigInteger, Identity(always=False), primary_key=True),
             Column("source_workbook", Text, nullable=False),
             Column("source_sheet", Text, nullable=False),
@@ -28,8 +28,8 @@ def build_product_tables() -> dict[str, Table]:
         ]
         columns.extend(Column(name, _column_type(name)) for name in CANONICAL_COLUMNS)
         columns.append(Column("extra_fields", JSON, nullable=True))
-        columns.append(Column("created_at", DateTime(timezone=True), server_default=func.now()))
-        columns.append(Column("updated_at", DateTime(timezone=True), server_default=func.now(), onupdate=func.now()))
+        columns.append(Column("created_at", DateTime(timezone=True), server_default=func.date_trunc('minute', func.now())))
+        columns.append(Column("updated_at", DateTime(timezone=True), server_default=func.date_trunc('minute', func.now()), onupdate=func.date_trunc('minute', func.now())))
         columns.append(UniqueConstraint("sku", name=f"uq_{table_name}_sku"))
         tables[brand_group] = Table(table_name, METADATA, *columns)
     return tables
