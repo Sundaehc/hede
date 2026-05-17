@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from sqlalchemy import JSON, BigInteger, Column, Identity, MetaData, Numeric, Table, Text, UniqueConstraint
+from sqlalchemy import JSON, BigInteger, Column, DateTime, Identity, MetaData, Numeric, Table, Text, UniqueConstraint, func
 
 from domain.sources import CANONICAL_COLUMNS, TABLE_NAMES
 
@@ -28,6 +28,8 @@ def build_product_tables() -> dict[str, Table]:
         ]
         columns.extend(Column(name, _column_type(name)) for name in CANONICAL_COLUMNS)
         columns.append(Column("extra_fields", JSON, nullable=True))
+        columns.append(Column("created_at", DateTime(timezone=True), server_default=func.now()))
+        columns.append(Column("updated_at", DateTime(timezone=True), server_default=func.now(), onupdate=func.now()))
         columns.append(UniqueConstraint("sku", name=f"uq_{table_name}_sku"))
         tables[brand_group] = Table(table_name, METADATA, *columns)
     return tables

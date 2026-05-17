@@ -103,7 +103,11 @@
       "Bash(python e:/tmp/list_price.py)",
       "Bash(python e:/tmp/exact_files.py)",
       "Bash(python e:/tmp/check_bytes.py)",
-      "Bash(python e:/tmp/test_vip.py)"
+      "Bash(python e:/tmp/test_vip.py)",
+      "Bash(python e:/tmp/audit_db.py)",
+      "Bash(python e:/tmp/migrate_db.py)",
+      "Bash(python e:/tmp/test_upsert.py)",
+      "Bash(python e:/tmp/migrate_price_uq.py)"
     ],
     "additionalDirectories": [
       "\\tmp"

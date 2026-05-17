@@ -166,18 +166,32 @@ class VipRepository:
         if not rows_to_upsert:
             return {"imported": 0, "message": "无数据行"}
 
-        from sqlalchemy import delete
+        # Dedup by goods_full_name: keep last occurrence (later row wins)
+        seen: dict[str, int] = {}
+        for idx, row in enumerate(rows_to_upsert):
+            name = str(row.get("goods_full_name", ""))
+            if name:
+                seen[name] = idx
 
-        codes = {str(r.get("goods_code", "")) for r in rows_to_upsert}
-        with self.engine.begin() as conn:
-            for i in range(0, len(codes), 500):
-                chunk = list(codes)[i:i + 500]
-                conn.execute(delete(JST_PRICE_TABLE).where(JST_PRICE_TABLE.c.goods_code.in_(chunk)))
-        self._batch_insert(JST_PRICE_TABLE, rows_to_upsert)
+        deduped: list[dict] = []
+        kept: set[int] = set()
+        for idx, row in enumerate(rows_to_upsert):
+            if not str(row.get("goods_full_name", "")):
+                deduped.append(row)
+                kept.add(idx)
+        for idx in sorted(seen.values()):
+            if idx not in kept:
+                deduped.append(rows_to_upsert[idx])
+
+        update_cols = [
+            c for c in deduped[0]
+            if c not in ("id", "goods_full_name")
+        ]
+        self._upsert(JST_PRICE_TABLE, deduped, ["goods_full_name"], update_cols)
 
         return {
-            "imported": len(rows_to_upsert),
-            "message": f"{file_path.name}: {len(rows_to_upsert)} 条",
+            "imported": len(deduped),
+            "message": f"{file_path.name}: {len(deduped)} 条 (原始 {len(rows_to_upsert)} 行)",
         }
 
     # ── import_all: 按日期目录全量导入 ─────────────────────────────
