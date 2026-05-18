@@ -97,13 +97,25 @@ class VipRepository:
         if not rows:
             return {"imported": 0, "message": "无数据行"}
 
-        update_cols = [c for c in rows[0] if c not in ("id", "goods_id")]
+        seen: dict[str, int] = {}
+        deduped: list[dict] = []
+        for row in rows:
+            key = row.get("goods_id")
+            if key is None:
+                deduped.append(row)
+            elif key in seen:
+                deduped[seen[key]] = row
+            else:
+                seen[key] = len(deduped)
+                deduped.append(row)
 
-        self._upsert(VIP_REALTIME_TABLE, rows, ["goods_id"], update_cols)
+        update_cols = [c for c in deduped[0] if c not in ("id", "goods_id")]
+
+        self._upsert(VIP_REALTIME_TABLE, deduped, ["goods_id"], update_cols)
 
         return {
-            "imported": len(rows),
-            "message": f"{file_path.name}: {len(rows)} 条",
+            "imported": len(deduped),
+            "message": f"{file_path.name}: {len(deduped)} 条 (原始 {len(rows)} 行)",
         }
 
     # ── vip_product_ops (常态商品运营) ──────────────────────────────
@@ -113,13 +125,25 @@ class VipRepository:
         if not rows:
             return {"imported": 0, "message": "无数据行"}
 
-        update_cols = [c for c in rows[0] if c not in ("id", "goods_id")]
+        seen: dict[str, int] = {}
+        deduped: list[dict] = []
+        for row in rows:
+            key = row.get("goods_id")
+            if key is None:
+                deduped.append(row)
+            elif key in seen:
+                deduped[seen[key]] = row
+            else:
+                seen[key] = len(deduped)
+                deduped.append(row)
 
-        self._upsert(VIP_OPS_TABLE, rows, ["goods_id"], update_cols)
+        update_cols = [c for c in deduped[0] if c not in ("id", "goods_id")]
+
+        self._upsert(VIP_OPS_TABLE, deduped, ["goods_id"], update_cols)
 
         return {
-            "imported": len(rows),
-            "message": f"{file_path.name}: {len(rows)} 条",
+            "imported": len(deduped),
+            "message": f"{file_path.name}: {len(deduped)} 条 (原始 {len(rows)} 行)",
         }
 
     # ── vip_product_price (物价信息) ──────────────────────────────
