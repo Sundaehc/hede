@@ -72,18 +72,16 @@ class VipRepository:
                 date_range = str(row["date"])
             row["date_range"] = date_range
 
-        # On conflict, update all columns except pk and key cols
-        update_cols = [
-            c for c in rows[0]
-            if c not in ("id", "report_type", "period", "date_range", "goods_id")
-        ]
+        from sqlalchemy import delete as sa_delete
 
-        self._upsert(
-            VIP_DAILY_TABLE,
-            rows,
-            ["report_type", "period", "date_range", "goods_id"],
-            update_cols,
-        )
+        with self.engine.begin() as conn:
+            conn.execute(
+                sa_delete(VIP_DAILY_TABLE).where(
+                    VIP_DAILY_TABLE.c.report_type == report_type,
+                    VIP_DAILY_TABLE.c.period == period,
+                )
+            )
+        self._batch_insert(VIP_DAILY_TABLE, rows)
 
         return {
             "imported": len(rows),
