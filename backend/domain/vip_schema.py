@@ -25,6 +25,8 @@ from domain.vip_sources import (
     JST_PRICE_TABLE_NAME,
     VIP_REALTIME_COLUMNS,
     VIP_REALTIME_TABLE_NAME,
+    JST_MONTHLY_ORDERS_COLUMNS,
+    JST_MONTHLY_ORDERS_TABLE_NAME,
 )
 
 
@@ -32,12 +34,14 @@ def _col_type(name: str):
     integer_cols = {
         "detail_uv", "fav_count", "sales_volume", "customer_count",
         "reject_count", "stock_on_sale", "stock_qty",
+        "quantity", "registered_qty", "actual_return_qty",
     }
     numeric_cols = {
         "sales_amount", "uv_value",
         "market_price", "vip_price", "final_price",
         "latest_purchase_price", "cost_unit_price", "member_price",
         "retail_price", "preset_price", "preset_discount", "preset_commission",
+        "payable_amount", "paid_amount", "cost_price", "buyer_paid", "seller_received",
     }
     if name in integer_cols:
         return Integer
@@ -135,3 +139,25 @@ VIP_DAILY_TABLE = build_vip_daily_table()
 VIP_REALTIME_TABLE = build_vip_realtime_table()
 VIP_OPS_TABLE = build_vip_ops_table()
 JST_PRICE_TABLE = build_vip_price_table()
+
+
+# ── jst_monthly_orders ────────────────────────────────────────────
+
+def build_jst_monthly_orders_table() -> Table:
+    columns: list = [
+        Column("id", BigInteger, Identity(always=False), primary_key=True),
+        Column("source_workbook", Text, nullable=False, default=""),
+        Column("source_sheet", Text, nullable=False, default=""),
+        Column("source_row_number", Text, nullable=False, default=""),
+        Column("raw_payload", JSON, nullable=False, default=dict),
+    ]
+    columns.extend(Column(name, _col_type(name)) for name in JST_MONTHLY_ORDERS_COLUMNS)
+    columns.append(Column("extra_fields", JSON, nullable=True))
+    columns.append(Column("created_at", DateTime(timezone=True), server_default=func.date_trunc('minute', func.now())))
+    columns.append(Column("updated_at", DateTime(timezone=True), server_default=func.date_trunc('minute', func.now()), onupdate=func.date_trunc('minute', func.now())))
+    return Table(
+        JST_MONTHLY_ORDERS_TABLE_NAME, METADATA,
+        *columns,
+    )
+
+JST_MONTHLY_ORDERS_TABLE = build_jst_monthly_orders_table()

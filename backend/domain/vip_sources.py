@@ -167,6 +167,65 @@ JST_PRICE_COLUMN_ALIASES: dict[str, str] = {
     "预设抽成率": "preset_commission",
 }
 
+# ── jst_monthly_orders: 月聚水潭订单 共 24 列 ──────────────────────
+JST_MONTHLY_ORDERS_TABLE_NAME = "jst_monthly_orders"
+
+JST_MONTHLY_ORDERS_COLUMNS: list[str] = [
+    "internal_order_id",     # 内部订单号
+    "online_order_id",       # 线上订单号
+    "buyer_account",         # 买家账号
+    "platform_site",         # 平台站点
+    "order_time",            # 下单时间
+    "ship_date",             # 发货日期
+    "shop_name",             # 店铺名称
+    "payable_amount",        # 应付金额
+    "paid_amount",           # 已付金额
+    "status",                # 状态
+    "address",               # 地址
+    "order_type",            # 订单类型
+    "shop_style_code",       # 店铺款式编码
+    "style_code",            # 款号
+    "product_code",          # 商品编码
+    "quantity",              # 数量
+    "category",              # 分类
+    "registered_qty",        # 登记数量
+    "actual_return_qty",     # 实退数量
+    "cost_price",            # 成本价
+    "shop_status",           # 店铺状态
+    "buyer_paid",            # 买家实付
+    "seller_received",       # 卖家实收
+    "online_sub_order_id",   # 线上子订单编号
+]
+
+JST_MONTHLY_ORDERS_COLUMN_ALIASES: dict[str, str] = {
+    "内部订单号": "internal_order_id",
+    "线上订单号": "online_order_id",
+    "买家账号": "buyer_account",
+    "买家帐号": "buyer_account",
+    "平台站点": "platform_site",
+    "下单时间": "order_time",
+    "发货日期": "ship_date",
+    "店铺名称": "shop_name",
+    "应付金额": "payable_amount",
+    "已付金额": "paid_amount",
+    "状态": "status",
+    "地址": "address",
+    "地址(包含省市区)": "address",
+    "订单类型": "order_type",
+    "店铺款式编码": "shop_style_code",
+    "款号": "style_code",
+    "商品编码": "product_code",
+    "数量": "quantity",
+    "分类": "category",
+    "登记数量": "registered_qty",
+    "实退数量": "actual_return_qty",
+    "成本价": "cost_price",
+    "店铺状态": "shop_status",
+    "买家实付": "buyer_paid",
+    "卖家实收": "seller_received",
+    "线上子订单编号": "online_sub_order_id",
+}
+
 # ── Report type / period options ───────────────────────────────────
 REPORT_TYPES: tuple[str, ...] = ("环比", "罗盘")
 PERIODS: tuple[str, ...] = ("1d", "3d", "7d", "30d")

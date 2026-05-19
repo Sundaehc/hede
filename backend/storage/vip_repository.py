@@ -8,12 +8,13 @@ from sqlalchemy import create_engine, func as sa_func
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from domain.schema import METADATA
-from domain.vip_schema import VIP_DAILY_TABLE, VIP_OPS_TABLE, JST_PRICE_TABLE, VIP_REALTIME_TABLE
+from domain.vip_schema import VIP_DAILY_TABLE, VIP_OPS_TABLE, JST_PRICE_TABLE, VIP_REALTIME_TABLE, JST_MONTHLY_ORDERS_TABLE
 from domain.vip_sources import (
     VIP_DAILY_COLUMN_ALIASES,
     VIP_OPS_COLUMN_ALIASES,
     JST_PRICE_COLUMN_ALIASES,
     VIP_REALTIME_COLUMN_ALIASES,
+    JST_MONTHLY_ORDERS_COLUMN_ALIASES,
 )
 
 
@@ -250,6 +251,56 @@ class VipRepository:
             "batch_date": batch_date,
             "total_imported": total,
             "details": results,
+        }
+
+    # ── jst_monthly_orders (月聚水潭订单) ─────────────────────────
+
+    def import_monthly_order(self, file_path: Path) -> dict[str, object]:
+        wb = load_workbook(str(file_path), data_only=True)
+        ws = wb.active
+        assert ws is not None
+        sheet_title = ws.title
+        iterator = ws.iter_rows(values_only=True)
+        header_row = next(iterator, None)
+        if header_row is None:
+            wb.close()
+            return {"imported": 0, "message": "无表头"}
+
+        aliases = JST_MONTHLY_ORDERS_COLUMN_ALIASES
+        headers = [str(h).strip() if h else "" for h in header_row]
+        column_map = {h: aliases[h] for h in headers if h in aliases}
+
+        rows: list[dict] = []
+        for row_num, row in enumerate(iterator, start=2):
+            record: dict[str, object] = {
+                "source_workbook": file_path.stem,
+                "source_sheet": sheet_title,
+                "source_row_number": str(row_num),
+            }
+            raw: dict[str, object] = {}
+            for idx, h in enumerate(headers):
+                value = row[idx] if idx < len(row) else None
+                raw[h] = value
+                col = column_map.get(h)
+                if col:
+                    record[col] = str(value).strip() if value is not None else None
+            record["raw_payload"] = raw
+            rows.append(record)
+
+        wb.close()
+
+        if not rows:
+            return {"imported": 0, "message": "无数据行"}
+
+        from sqlalchemy import delete as sa_delete
+
+        with self.engine.begin() as conn:
+            conn.execute(sa_delete(JST_MONTHLY_ORDERS_TABLE))
+        self._batch_insert(JST_MONTHLY_ORDERS_TABLE, rows)
+
+        return {
+            "imported": len(rows),
+            "message": f"{file_path.name}: {len(rows)} 条",
         }
 
     # ── Helpers ────────────────────────────────────────────────────
