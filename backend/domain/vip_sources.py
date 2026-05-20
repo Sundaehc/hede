@@ -229,3 +229,20 @@ JST_MONTHLY_ORDERS_COLUMN_ALIASES: dict[str, str] = {
 # ── Report type / period options ───────────────────────────────────
 REPORT_TYPES: tuple[str, ...] = ("环比", "罗盘")
 PERIODS: tuple[str, ...] = ("1d", "3d", "7d", "30d")
+
+# ── jst_size_stock: 尺码库存 共 3 列 ───────────────────────────────
+JST_SIZE_STOCK_TABLE_NAME = "jst_size_stock"
+
+JST_SIZE_STOCK_COLUMNS: list[str] = [
+    "product_code",     # 货号
+    "size",             # 尺码 (220, 225, ... 285)
+    "stock_qty",        # 库存数量
+]
+
+# ── jst_purchase_diff: 采购差异 共 2 列 ────────────────────────────
+JST_PURCHASE_DIFF_TABLE_NAME = "jst_purchase_diff"
+
+JST_PURCHASE_DIFF_COLUMNS: list[str] = [
+    "product_code",         # 货号
+    "difference_count",     # 差异数
+]

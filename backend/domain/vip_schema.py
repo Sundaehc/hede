@@ -27,6 +27,10 @@ from domain.vip_sources import (
     VIP_REALTIME_TABLE_NAME,
     JST_MONTHLY_ORDERS_COLUMNS,
     JST_MONTHLY_ORDERS_TABLE_NAME,
+    JST_SIZE_STOCK_COLUMNS,
+    JST_SIZE_STOCK_TABLE_NAME,
+    JST_PURCHASE_DIFF_COLUMNS,
+    JST_PURCHASE_DIFF_TABLE_NAME,
 )
 
 
@@ -35,6 +39,7 @@ def _col_type(name: str):
         "detail_uv", "fav_count", "sales_volume", "customer_count",
         "reject_count", "stock_on_sale", "stock_qty",
         "quantity", "registered_qty", "actual_return_qty",
+        "difference_count",
     }
     numeric_cols = {
         "sales_amount", "uv_value",
@@ -161,3 +166,47 @@ def build_jst_monthly_orders_table() -> Table:
     )
 
 JST_MONTHLY_ORDERS_TABLE = build_jst_monthly_orders_table()
+
+
+# ── jst_size_stock ────────────────────────────────────────────────
+
+def build_jst_size_stock_table() -> Table:
+    columns: list = [
+        Column("id", BigInteger, Identity(always=False), primary_key=True),
+        Column("source_workbook", Text, nullable=False, default=""),
+        Column("source_sheet", Text, nullable=False, default=""),
+        Column("source_row_number", Text, nullable=False, default=""),
+        Column("raw_payload", JSON, nullable=False, default=dict),
+    ]
+    columns.extend(Column(name, _col_type(name)) for name in JST_SIZE_STOCK_COLUMNS)
+    columns.append(Column("extra_fields", JSON, nullable=True))
+    columns.append(Column("created_at", DateTime(timezone=True), server_default=func.date_trunc('minute', func.now())))
+    columns.append(Column("updated_at", DateTime(timezone=True), server_default=func.date_trunc('minute', func.now()), onupdate=func.date_trunc('minute', func.now())))
+    return Table(
+        JST_SIZE_STOCK_TABLE_NAME, METADATA,
+        *columns,
+    )
+
+JST_SIZE_STOCK_TABLE = build_jst_size_stock_table()
+
+
+# ── jst_purchase_diff ─────────────────────────────────────────────
+
+def build_jst_purchase_diff_table() -> Table:
+    columns: list = [
+        Column("id", BigInteger, Identity(always=False), primary_key=True),
+        Column("source_workbook", Text, nullable=False, default=""),
+        Column("source_sheet", Text, nullable=False, default=""),
+        Column("source_row_number", Text, nullable=False, default=""),
+        Column("raw_payload", JSON, nullable=False, default=dict),
+    ]
+    columns.extend(Column(name, _col_type(name)) for name in JST_PURCHASE_DIFF_COLUMNS)
+    columns.append(Column("extra_fields", JSON, nullable=True))
+    columns.append(Column("created_at", DateTime(timezone=True), server_default=func.date_trunc('minute', func.now())))
+    columns.append(Column("updated_at", DateTime(timezone=True), server_default=func.date_trunc('minute', func.now()), onupdate=func.date_trunc('minute', func.now())))
+    return Table(
+        JST_PURCHASE_DIFF_TABLE_NAME, METADATA,
+        *columns,
+    )
+
+JST_PURCHASE_DIFF_TABLE = build_jst_purchase_diff_table()

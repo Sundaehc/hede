@@ -8,7 +8,7 @@ from sqlalchemy import create_engine, func as sa_func
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from domain.schema import METADATA
-from domain.vip_schema import VIP_DAILY_TABLE, VIP_OPS_TABLE, JST_PRICE_TABLE, VIP_REALTIME_TABLE, JST_MONTHLY_ORDERS_TABLE
+from domain.vip_schema import VIP_DAILY_TABLE, VIP_OPS_TABLE, JST_PRICE_TABLE, VIP_REALTIME_TABLE, JST_MONTHLY_ORDERS_TABLE, JST_SIZE_STOCK_TABLE, JST_PURCHASE_DIFF_TABLE
 from domain.vip_sources import (
     VIP_DAILY_COLUMN_ALIASES,
     VIP_OPS_COLUMN_ALIASES,
@@ -297,6 +297,104 @@ class VipRepository:
         with self.engine.begin() as conn:
             conn.execute(sa_delete(JST_MONTHLY_ORDERS_TABLE))
         self._batch_insert(JST_MONTHLY_ORDERS_TABLE, rows)
+
+        return {
+            "imported": len(rows),
+            "message": f"{file_path.name}: {len(rows)} 条",
+        }
+
+    # ── jst_size_stock (尺码库存) ──────────────────────────────────
+
+    def import_size_stock(self, file_path: Path) -> dict[str, object]:
+        wb = load_workbook(str(file_path), data_only=True)
+        ws = wb["尺码表"]
+        sheet_title = ws.title
+
+        # Row 2: 列标签, 0, 220, 225, ..., 285, (空白), 总计
+        header_row = list(ws.iter_rows(min_row=2, max_row=2, values_only=True))[0]
+        # Find size columns (220 to 285) and their indices
+        size_cols: list[tuple[int, str]] = []
+        for idx, val in enumerate(header_row):
+            s = str(val).strip() if val else ""
+            if s in {"220", "225", "230", "235", "240", "245", "250", "255", "260", "265", "270", "275", "280", "285"}:
+                size_cols.append((idx, s))
+
+        rows: list[dict] = []
+        for row_num, row in enumerate(ws.iter_rows(min_row=3, values_only=True), start=3):
+            if row[0] is None:
+                continue
+            product_code = str(row[0]).strip()
+            # Skip summary/blank rows
+            if product_code in ("总计", "(空白)", ""):
+                continue
+
+            for col_idx, size_val in size_cols:
+                qty = row[col_idx] if col_idx < len(row) else None
+                if qty is None or qty == 0:
+                    continue
+                record: dict[str, object] = {
+                    "source_workbook": file_path.stem,
+                    "source_sheet": sheet_title,
+                    "source_row_number": str(row_num),
+                    "raw_payload": {},
+                    "product_code": product_code,
+                    "size": size_val,
+                    "stock_qty": int(qty),
+                }
+                rows.append(record)
+
+        wb.close()
+
+        if not rows:
+            return {"imported": 0, "message": "无数据行"}
+
+        from sqlalchemy import delete as sa_delete
+
+        with self.engine.begin() as conn:
+            conn.execute(sa_delete(JST_SIZE_STOCK_TABLE))
+        self._batch_insert(JST_SIZE_STOCK_TABLE, rows)
+
+        return {
+            "imported": len(rows),
+            "message": f"{file_path.name}: {len(rows)} 条",
+        }
+
+    # ── jst_purchase_diff (采购差异) ───────────────────────────────
+
+    def import_purchase_diff(self, file_path: Path) -> dict[str, object]:
+        wb = load_workbook(str(file_path), data_only=True)
+        ws = wb["Sheet8"]
+        sheet_title = ws.title
+
+        rows: list[dict] = []
+        for row_num, row in enumerate(ws.iter_rows(min_row=2, values_only=True), start=2):
+            # Only use Col C-D (index 2-3)
+            if len(row) < 4:
+                continue
+            product_code = str(row[2]).strip() if row[2] else ""
+            if product_code in ("列标签", "", "(空白)"):
+                continue
+            diff = row[3]
+            record: dict[str, object] = {
+                "source_workbook": file_path.stem,
+                "source_sheet": sheet_title,
+                "source_row_number": str(row_num),
+                "raw_payload": {},
+                "product_code": product_code,
+                "difference_count": int(diff) if diff is not None else None,
+            }
+            rows.append(record)
+
+        wb.close()
+
+        if not rows:
+            return {"imported": 0, "message": "无数据行"}
+
+        from sqlalchemy import delete as sa_delete
+
+        with self.engine.begin() as conn:
+            conn.execute(sa_delete(JST_PURCHASE_DIFF_TABLE))
+        self._batch_insert(JST_PURCHASE_DIFF_TABLE, rows)
 
         return {
             "imported": len(rows),

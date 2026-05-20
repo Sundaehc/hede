@@ -5,7 +5,7 @@
       "cron": "7 12 * * *",
       "prompt": "Run the daily VIP import: set PYTHONPATH=e:/hede/backend && python e:/hede/backend/scripts/import_vip_daily.py",
       "createdAt": 1778835682849,
-      "lastFiredAt": 1779168728377,
+      "lastFiredAt": 1779251820524,
       "recurring": true,
       "createdBySessionId": "ddf10f19-7fec-4d5c-bb7a-bab6d54fc34b",
       "createdByPid": 45396,
@@ -27,11 +27,21 @@
       "cron": "7 8 * * *",
       "prompt": "Run the daily JST order import: set PYTHONPATH=e:/hede/backend && python e:/hede/backend/scripts/import_monthly_order.py",
       "createdAt": 1779168691244,
+      "lastFiredAt": 1779237420309,
       "recurring": true,
       "createdBySessionId": "22cafad2-2a70-4c06-b8bf-e328259422f2",
       "createdByPid": 123012,
-      "createdByProcStart": "639146241675852930",
-      "lastFiredAt": 1779237420309
+      "createdByProcStart": "639146241675852930"
+    },
+    {
+      "id": "aecef498",
+      "cron": "4 8 * * *",
+      "prompt": "Run the daily JST import: set PYTHONPATH=e:/hede/backend && python e:/hede/backend/scripts/import_jst_daily.py",
+      "createdAt": 1779256205335,
+      "recurring": true,
+      "createdBySessionId": "22cafad2-2a70-4c06-b8bf-e328259422f2",
+      "createdByPid": 123012,
+      "createdByProcStart": "639146241675852930"
     }
   ]
 }
