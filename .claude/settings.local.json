@@ -115,7 +115,8 @@
       "Bash(python -m py_compile storage/inventory_repository.py)",
       "Bash(python -m py_compile storage/vip_repository.py)",
       "Bash(PYTHONPATH=e:/hede/backend python e:/hede/backend/scripts/import_vip_daily.py)",
-      "WebSearch"
+      "WebSearch",
+      "Bash(PYTHONPATH=e:/hede/backend python e:/hede/backend/scripts/import_monthly_order.py)"
     ],
     "additionalDirectories": [
       "\\tmp"
