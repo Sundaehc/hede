@@ -7,9 +7,11 @@ from pathlib import Path
 
 from openpyxl import load_workbook
 from sqlalchemy import and_, case, create_engine, delete, desc, func, insert, select, update
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from domain.inventory_schema import INVENTORY_DETAIL_TABLE, INVENTORY_TABLE, JST_STOCK_TABLE, SUPPLIER_TABLE, WAREHOUSE_TABLE
 from domain.schema import METADATA
+from storage.date_normalization import parse_date, parse_month_day
 
 
 class InventoryRepository:
@@ -45,9 +47,11 @@ class InventoryRepository:
 
         conditions = []
         if date_start:
-            conditions.append(table.c.date >= date_start)
+            parsed = parse_date(date_start)
+            conditions.append(table.c.date_value >= parsed if parsed else table.c.date >= date_start)
         if date_end:
-            conditions.append(table.c.date <= date_end)
+            parsed = parse_date(date_end)
+            conditions.append(table.c.date_value <= parsed if parsed else table.c.date <= date_end)
         if supplier:
             conditions.append(table.c.supplier == supplier)
         if warehouse:
@@ -269,9 +273,11 @@ class InventoryRepository:
         joined = detail.join(record, detail.c.document_id == record.c.id)
         conditions = []
         if date_start:
-            conditions.append(record.c.date >= date_start)
+            parsed = parse_date(date_start)
+            conditions.append(record.c.date_value >= parsed if parsed else record.c.date >= date_start)
         if date_end:
-            conditions.append(record.c.date <= date_end)
+            parsed = parse_date(date_end)
+            conditions.append(record.c.date_value <= parsed if parsed else record.c.date <= date_end)
         if product_code:
             conditions.append(detail.c.product_code.like(f"{product_code}%"))
         criterion = and_(*conditions) if conditions else None
@@ -400,25 +406,28 @@ class InventoryRepository:
             return {"imported": 0, "message": f"未找到 {stock_date} 的库存数据"}
 
         table = JST_STOCK_TABLE
-        imported = 0
+        stock_date_value = parse_month_day(stock_date)
+        rows = [
+            {
+                "stock_date": stock_date,
+                "stock_date_value": stock_date_value,
+                "product_code": product_code,
+                "available_qty": qty,
+            }
+            for product_code, qty in data.items()
+        ]
         with self.engine.begin() as connection:
-            for product_code, qty in data.items():
-                # UPSERT: delete existing then insert
-                connection.execute(
-                    delete(table).where(
-                        and_(table.c.stock_date == stock_date, table.c.product_code == product_code)
-                    )
+            for i in range(0, len(rows), 1000):
+                stmt = pg_insert(table).values(rows[i:i + 1000]).on_conflict_do_update(
+                    index_elements=["stock_date", "product_code"],
+                    set_={
+                        "stock_date_value": pg_insert(table).excluded.stock_date_value,
+                        "available_qty": pg_insert(table).excluded.available_qty,
+                    },
                 )
-                connection.execute(
-                    insert(table).values(
-                        stock_date=stock_date,
-                        product_code=product_code,
-                        available_qty=qty,
-                    )
-                )
-                imported += 1
+                connection.execute(stmt)
 
-        return {"imported": imported, "message": f"已导入 {imported} 条 {stock_date} 库存数据"}
+        return {"imported": len(rows), "message": f"已导入 {len(rows)} 条 {stock_date} 库存数据"}
 
     @staticmethod
     def _read_jst_stock_from_excel(jst_stock_root: Path, stock_date: str) -> dict:
@@ -492,6 +501,8 @@ class InventoryRepository:
                 payload[key] = None
             else:
                 payload[key] = value
+        if "date" in payload and "date_value" not in payload:
+            payload["date_value"] = parse_date(payload.get("date"))
         raw_payload = payload.get("raw_payload")
         if isinstance(raw_payload, Mapping):
             payload["raw_payload"] = {

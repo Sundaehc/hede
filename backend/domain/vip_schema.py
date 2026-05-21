@@ -3,6 +3,7 @@ from __future__ import annotations
 from sqlalchemy import (
     BigInteger,
     Column,
+    Date,
     DateTime,
     Identity,
     Integer,
@@ -67,6 +68,8 @@ def build_vip_daily_table() -> Table:
     ]
     columns.extend(Column(name, _col_type(name)) for name in VIP_DAILY_COLUMNS)
     columns.extend(Column(name, Text()) for name in VIP_DAILY_CLASSIFY_COLUMNS)
+    columns.append(Column("report_start_date", Date, nullable=True))
+    columns.append(Column("report_end_date", Date, nullable=True))
     columns.append(Column("extra_fields", JSON, nullable=True))
     columns.append(Column("created_at", DateTime(timezone=True), server_default=func.date_trunc('minute', func.now())))
     columns.append(Column("updated_at", DateTime(timezone=True), server_default=func.date_trunc('minute', func.now()), onupdate=func.date_trunc('minute', func.now())))
@@ -157,6 +160,8 @@ def build_jst_monthly_orders_table() -> Table:
         Column("raw_payload", JSON, nullable=False, default=dict),
     ]
     columns.extend(Column(name, _col_type(name)) for name in JST_MONTHLY_ORDERS_COLUMNS)
+    columns.append(Column("order_time_at", DateTime(timezone=False), nullable=True))
+    columns.append(Column("ship_date_value", Date, nullable=True))
     columns.append(Column("extra_fields", JSON, nullable=True))
     columns.append(Column("created_at", DateTime(timezone=True), server_default=func.date_trunc('minute', func.now())))
     columns.append(Column("updated_at", DateTime(timezone=True), server_default=func.date_trunc('minute', func.now()), onupdate=func.date_trunc('minute', func.now())))

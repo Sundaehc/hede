@@ -16,6 +16,7 @@ from domain.vip_sources import (
     VIP_REALTIME_COLUMN_ALIASES,
     JST_MONTHLY_ORDERS_COLUMN_ALIASES,
 )
+from storage.date_normalization import parse_date, parse_date_range, parse_datetime
 
 
 def _period_from_filename(filename: str) -> str | None:
@@ -72,6 +73,9 @@ class VipRepository:
             if not date_range and row.get("date"):
                 date_range = str(row["date"])
             row["date_range"] = date_range
+            start_date, end_date = parse_date_range(row.get("date"))
+            row["report_start_date"] = start_date
+            row["report_end_date"] = end_date
 
         from sqlalchemy import delete as sa_delete
 
@@ -82,7 +86,7 @@ class VipRepository:
                     VIP_DAILY_TABLE.c.period == period,
                 )
             )
-        self._batch_insert(VIP_DAILY_TABLE, rows)
+            self._batch_insert(VIP_DAILY_TABLE, rows, conn=conn)
 
         return {
             "imported": len(rows),
@@ -284,6 +288,8 @@ class VipRepository:
                 col = column_map.get(h)
                 if col:
                     record[col] = str(value).strip() if value is not None else None
+            record["order_time_at"] = parse_datetime(record.get("order_time"))
+            record["ship_date_value"] = parse_date(record.get("ship_date"))
             record["raw_payload"] = raw
             rows.append(record)
 
@@ -296,7 +302,7 @@ class VipRepository:
 
         with self.engine.begin() as conn:
             conn.execute(sa_delete(JST_MONTHLY_ORDERS_TABLE))
-        self._batch_insert(JST_MONTHLY_ORDERS_TABLE, rows)
+            self._batch_insert(JST_MONTHLY_ORDERS_TABLE, rows, conn=conn)
 
         return {
             "imported": len(rows),
@@ -352,7 +358,7 @@ class VipRepository:
 
         with self.engine.begin() as conn:
             conn.execute(sa_delete(JST_SIZE_STOCK_TABLE))
-        self._batch_insert(JST_SIZE_STOCK_TABLE, rows)
+            self._batch_insert(JST_SIZE_STOCK_TABLE, rows, conn=conn)
 
         return {
             "imported": len(rows),
@@ -394,7 +400,7 @@ class VipRepository:
 
         with self.engine.begin() as conn:
             conn.execute(sa_delete(JST_PURCHASE_DIFF_TABLE))
-        self._batch_insert(JST_PURCHASE_DIFF_TABLE, rows)
+            self._batch_insert(JST_PURCHASE_DIFF_TABLE, rows, conn=conn)
 
         return {
             "imported": len(rows),
@@ -416,12 +422,17 @@ class VipRepository:
             with self.engine.begin() as conn:
                 conn.execute(stmt)
 
-    def _batch_insert(self, table, rows: list[dict], chunk_size: int = 500) -> None:
+    def _batch_insert(self, table, rows: list[dict], chunk_size: int = 500, conn=None) -> None:
         from sqlalchemy import insert
 
-        with self.engine.begin() as conn:
+        if conn is not None:
             for i in range(0, len(rows), chunk_size):
                 conn.execute(insert(table), rows[i:i + chunk_size])
+            return
+
+        with self.engine.begin() as connection:
+            for i in range(0, len(rows), chunk_size):
+                connection.execute(insert(table), rows[i:i + chunk_size])
 
     def _read_excel(self, file_path: Path, aliases: dict[str, str]) -> list[dict]:
         """Read an Excel file, map headers to canonical columns, return rows as dicts."""

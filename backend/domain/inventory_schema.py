@@ -4,6 +4,7 @@ from sqlalchemy import (
     BigInteger,
     Column,
     DateTime,
+    Date,
     ForeignKey,
     Identity,
     Index,
@@ -44,6 +45,7 @@ def build_inventory_table() -> Table:
         Column("raw_payload", JSON, nullable=False, default=dict),
     ]
     columns.extend(Column(name, _column_type(name)) for name in INVENTORY_CANONICAL_COLUMNS)
+    columns.append(Column("date_value", Date, nullable=True))
     columns.append(Column("extra_fields", JSON, nullable=True))
     columns.append(Column("created_at", DateTime(timezone=True), server_default=func.date_trunc('minute', func.now())))
     columns.append(Column("updated_at", DateTime(timezone=True), server_default=func.date_trunc('minute', func.now()), onupdate=func.date_trunc('minute', func.now())))
@@ -105,6 +107,7 @@ def build_jst_stock_table() -> Table:
     columns: list = [
         Column("id", BigInteger, Identity(always=False), primary_key=True),
         Column("stock_date", Text, nullable=False),
+        Column("stock_date_value", Date, nullable=True),
         Column("product_code", Text, nullable=False),
         Column("available_qty", Integer),
         Column("created_at", DateTime(timezone=True), server_default=func.date_trunc('minute', func.now())),
