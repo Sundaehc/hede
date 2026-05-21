@@ -10,7 +10,6 @@ from sqlalchemy import and_, case, create_engine, delete, desc, func, insert, se
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from domain.inventory_schema import INVENTORY_DETAIL_TABLE, INVENTORY_TABLE, JST_STOCK_TABLE, SUPPLIER_TABLE, WAREHOUSE_TABLE
-from domain.schema import METADATA
 from storage.date_normalization import parse_date, parse_month_day
 
 
@@ -26,7 +25,6 @@ class InventoryRepository:
             future=True,
             json_serializer=_json_serializer,
         )
-        METADATA.create_all(self.engine, checkfirst=True)
 
     # ── Inventory Records ──────────────────────────────────────────
 

@@ -15,45 +15,35 @@ from sqlalchemy import (
     func,
 )
 
+from domain.fields import (
+    FieldSpec,
+    JST_MONTHLY_ORDER_FIELDS,
+    JST_PRICE_FIELDS,
+    JST_PURCHASE_DIFF_FIELDS,
+    JST_SIZE_STOCK_FIELDS,
+    VIP_DAILY_CLASSIFY_FIELDS,
+    VIP_DAILY_FIELDS,
+    VIP_OPS_FIELDS,
+    VIP_REALTIME_FIELDS,
+)
 from domain.schema import METADATA
 from domain.vip_sources import (
-    VIP_DAILY_CLASSIFY_COLUMNS,
-    VIP_DAILY_COLUMNS,
     VIP_DAILY_TABLE_NAME,
-    VIP_OPS_COLUMNS,
     VIP_OPS_TABLE_NAME,
-    JST_PRICE_COLUMNS,
     JST_PRICE_TABLE_NAME,
-    VIP_REALTIME_COLUMNS,
     VIP_REALTIME_TABLE_NAME,
-    JST_MONTHLY_ORDERS_COLUMNS,
     JST_MONTHLY_ORDERS_TABLE_NAME,
-    JST_SIZE_STOCK_COLUMNS,
     JST_SIZE_STOCK_TABLE_NAME,
-    JST_PURCHASE_DIFF_COLUMNS,
     JST_PURCHASE_DIFF_TABLE_NAME,
 )
 
 
-def _col_type(name: str):
-    integer_cols = {
-        "detail_uv", "fav_count", "sales_volume", "customer_count",
-        "reject_count", "stock_on_sale", "stock_qty",
-        "quantity", "registered_qty", "actual_return_qty",
-        "difference_count",
-    }
-    numeric_cols = {
-        "sales_amount", "uv_value",
-        "market_price", "vip_price", "final_price",
-        "latest_purchase_price", "cost_unit_price", "member_price",
-        "retail_price", "preset_price", "preset_discount", "preset_commission",
-        "payable_amount", "paid_amount", "cost_price", "buyer_paid", "seller_received",
-    }
-    if name in integer_cols:
-        return Integer
-    if name in numeric_cols:
+def _col_type(field: FieldSpec):
+    if field.type_key == "integer":
+        return Integer()
+    if field.type_key == "numeric":
         return Numeric(10, 2)
-    return Text
+    return Text()
 
 
 # ── vip_product_daily ──────────────────────────────────────────────
@@ -66,8 +56,8 @@ def build_vip_daily_table() -> Table:
         Column("source_row_number", Text, nullable=False, default=""),
         Column("raw_payload", JSON, nullable=False, default=dict),
     ]
-    columns.extend(Column(name, _col_type(name)) for name in VIP_DAILY_COLUMNS)
-    columns.extend(Column(name, Text()) for name in VIP_DAILY_CLASSIFY_COLUMNS)
+    columns.extend(Column(field.name, _col_type(field)) for field in VIP_DAILY_FIELDS)
+    columns.extend(Column(field.name, _col_type(field)) for field in VIP_DAILY_CLASSIFY_FIELDS)
     columns.append(Column("report_start_date", Date, nullable=True))
     columns.append(Column("report_end_date", Date, nullable=True))
     columns.append(Column("extra_fields", JSON, nullable=True))
@@ -90,7 +80,7 @@ def build_vip_realtime_table() -> Table:
         Column("source_row_number", Text, nullable=False, default=""),
         Column("raw_payload", JSON, nullable=False, default=dict),
     ]
-    columns.extend(Column(name, _col_type(name)) for name in VIP_REALTIME_COLUMNS)
+    columns.extend(Column(field.name, _col_type(field)) for field in VIP_REALTIME_FIELDS)
     columns.append(Column("extra_fields", JSON, nullable=True))
     columns.append(Column("created_at", DateTime(timezone=True), server_default=func.date_trunc('minute', func.now())))
     columns.append(Column("updated_at", DateTime(timezone=True), server_default=func.date_trunc('minute', func.now()), onupdate=func.date_trunc('minute', func.now())))
@@ -111,7 +101,7 @@ def build_vip_ops_table() -> Table:
         Column("source_row_number", Text, nullable=False, default=""),
         Column("raw_payload", JSON, nullable=False, default=dict),
     ]
-    columns.extend(Column(name, _col_type(name)) for name in VIP_OPS_COLUMNS)
+    columns.extend(Column(field.name, _col_type(field)) for field in VIP_OPS_FIELDS)
     columns.append(Column("extra_fields", JSON, nullable=True))
     columns.append(Column("created_at", DateTime(timezone=True), server_default=func.date_trunc('minute', func.now())))
     columns.append(Column("updated_at", DateTime(timezone=True), server_default=func.date_trunc('minute', func.now()), onupdate=func.date_trunc('minute', func.now())))
@@ -132,7 +122,7 @@ def build_vip_price_table() -> Table:
         Column("source_row_number", Text, nullable=False, default=""),
         Column("raw_payload", JSON, nullable=False, default=dict),
     ]
-    columns.extend(Column(name, _col_type(name)) for name in JST_PRICE_COLUMNS)
+    columns.extend(Column(field.name, _col_type(field)) for field in JST_PRICE_FIELDS)
     columns.append(Column("extra_fields", JSON, nullable=True))
     columns.append(Column("created_at", DateTime(timezone=True), server_default=func.date_trunc('minute', func.now())))
     columns.append(Column("updated_at", DateTime(timezone=True), server_default=func.date_trunc('minute', func.now()), onupdate=func.date_trunc('minute', func.now())))
@@ -159,7 +149,7 @@ def build_jst_monthly_orders_table() -> Table:
         Column("source_row_number", Text, nullable=False, default=""),
         Column("raw_payload", JSON, nullable=False, default=dict),
     ]
-    columns.extend(Column(name, _col_type(name)) for name in JST_MONTHLY_ORDERS_COLUMNS)
+    columns.extend(Column(field.name, _col_type(field)) for field in JST_MONTHLY_ORDER_FIELDS)
     columns.append(Column("order_time_at", DateTime(timezone=False), nullable=True))
     columns.append(Column("ship_date_value", Date, nullable=True))
     columns.append(Column("extra_fields", JSON, nullable=True))
@@ -183,7 +173,7 @@ def build_jst_size_stock_table() -> Table:
         Column("source_row_number", Text, nullable=False, default=""),
         Column("raw_payload", JSON, nullable=False, default=dict),
     ]
-    columns.extend(Column(name, _col_type(name)) for name in JST_SIZE_STOCK_COLUMNS)
+    columns.extend(Column(field.name, _col_type(field)) for field in JST_SIZE_STOCK_FIELDS)
     columns.append(Column("extra_fields", JSON, nullable=True))
     columns.append(Column("created_at", DateTime(timezone=True), server_default=func.date_trunc('minute', func.now())))
     columns.append(Column("updated_at", DateTime(timezone=True), server_default=func.date_trunc('minute', func.now()), onupdate=func.date_trunc('minute', func.now())))
@@ -205,7 +195,7 @@ def build_jst_purchase_diff_table() -> Table:
         Column("source_row_number", Text, nullable=False, default=""),
         Column("raw_payload", JSON, nullable=False, default=dict),
     ]
-    columns.extend(Column(name, _col_type(name)) for name in JST_PURCHASE_DIFF_COLUMNS)
+    columns.extend(Column(field.name, _col_type(field)) for field in JST_PURCHASE_DIFF_FIELDS)
     columns.append(Column("extra_fields", JSON, nullable=True))
     columns.append(Column("created_at", DateTime(timezone=True), server_default=func.date_trunc('minute', func.now())))
     columns.append(Column("updated_at", DateTime(timezone=True), server_default=func.date_trunc('minute', func.now()), onupdate=func.date_trunc('minute', func.now())))

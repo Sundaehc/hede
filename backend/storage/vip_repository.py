@@ -7,7 +7,6 @@ from openpyxl import load_workbook
 from sqlalchemy import create_engine, func as sa_func
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
-from domain.schema import METADATA
 from domain.vip_schema import VIP_DAILY_TABLE, VIP_OPS_TABLE, JST_PRICE_TABLE, VIP_REALTIME_TABLE, JST_MONTHLY_ORDERS_TABLE, JST_SIZE_STOCK_TABLE, JST_PURCHASE_DIFF_TABLE
 from domain.vip_sources import (
     VIP_DAILY_COLUMN_ALIASES,
@@ -50,7 +49,6 @@ class VipRepository:
             future=True,
             json_serializer=_json_serializer,
         )
-        METADATA.create_all(self.engine, checkfirst=True)
 
     # ── vip_product_daily (环比/罗盘) ──────────────────────────────
 

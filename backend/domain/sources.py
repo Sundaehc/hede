@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
+from domain.fields import PRODUCT_FIELDS, alias_map, field_names
+
 
 TABLE_NAMES = {
     "qbd_mens": "qbd_mens_products",
@@ -20,80 +22,10 @@ IMAGE_BRAND_KEYS = {
 }
 
 
-COLUMN_ALIASES = {
-    "图片": "image_path",
-    "货号": "sku",
-    "原始货号": "original_sku",
-    "组别": "group_name",
-    "成本": "cost",
-    "工厂货号": "factory_sku",
-    "颜色": "color",
-    "新色": "color",
-    "季节分类": "season_category",
-    "年份": "year",
-    "鞋面材质": "upper_material",
-    "帮面材质": "upper_material",
-    "内里材质": "lining_material",
-    "大底材质": "outsole_material",
-    "鞋垫材质": "insole_material",
-    "执行标准": "execution_standard",
-    "执行标": "execution_standard",
-    "跟高": "heel_height",
-    "鞋宽": "shoe_width",
-    "鞋长": "shoe_length",
-    "筒围": "shaft_circumference",
-    "筒高": "shaft_height",
-    "内增高": "internal_height_increase",
-    "内增高备注": "internal_height_note",
-    "鞋帮": "upper_height",
-    "鞋头": "toe_shape",
-    "鞋头款式": "toe_shape",
-    "闭合方式": "closure_type",
-    "鞋盒规格": "shoe_box_spec",
-    "首单时间": "first_order_time",
-    "尺码段": "size_range",
-    "码段": "size_range",
-    "产品型号": "product_model",
-    "供应商名": "supplier_name",
-    "供应商": "supplier_name",
-    "颜色代码": "color_code",
-    "上市时间": "launch_date",
-}
+COLUMN_ALIASES = alias_map(PRODUCT_FIELDS)
 
 
-CANONICAL_COLUMNS = [
-    "image_path",
-    "sku",
-    "original_sku",
-    "group_name",
-    "cost",
-    "factory_sku",
-    "color",
-    "season_category",
-    "year",
-    "upper_material",
-    "lining_material",
-    "outsole_material",
-    "insole_material",
-    "execution_standard",
-    "heel_height",
-    "shoe_width",
-    "shoe_length",
-    "shaft_circumference",
-    "shaft_height",
-    "internal_height_increase",
-    "internal_height_note",
-    "upper_height",
-    "toe_shape",
-    "closure_type",
-    "shoe_box_spec",
-    "first_order_time",
-    "size_range",
-    "product_model",
-    "supplier_name",
-    "color_code",
-    "launch_date",
-]
+CANONICAL_COLUMNS = field_names(PRODUCT_FIELDS)
 
 
 @dataclass(frozen=True)
