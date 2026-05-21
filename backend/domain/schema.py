@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from sqlalchemy import JSON, BigInteger, Column, DateTime, Identity, MetaData, Numeric, Table, Text, UniqueConstraint, func
+from sqlalchemy import JSON, BigInteger, Column, DateTime, Identity, Index, MetaData, Numeric, Table, Text, UniqueConstraint, func
 
 from domain.sources import CANONICAL_COLUMNS, TABLE_NAMES
 
@@ -31,7 +31,9 @@ def build_product_tables() -> dict[str, Table]:
         columns.append(Column("created_at", DateTime(timezone=True), server_default=func.date_trunc('minute', func.now())))
         columns.append(Column("updated_at", DateTime(timezone=True), server_default=func.date_trunc('minute', func.now()), onupdate=func.date_trunc('minute', func.now())))
         columns.append(UniqueConstraint("sku", name=f"uq_{table_name}_sku"))
-        tables[brand_group] = Table(table_name, METADATA, *columns)
+        table = Table(table_name, METADATA, *columns)
+        Index(f"idx_{table_name}_year", table.c.year)
+        tables[brand_group] = table
     return tables
 
 

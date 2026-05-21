@@ -117,7 +117,8 @@
       "Bash(PYTHONPATH=e:/hede/backend python e:/hede/backend/scripts/import_vip_daily.py)",
       "WebSearch",
       "Bash(PYTHONPATH=e:/hede/backend python e:/hede/backend/scripts/import_monthly_order.py)",
-      "Bash(PYTHONPATH=e:/hede/backend python e:/hede/backend/scripts/import_jst_daily.py)"
+      "Bash(PYTHONPATH=e:/hede/backend python e:/hede/backend/scripts/import_jst_daily.py)",
+      "Bash(python -m scripts.add_performance_indexes)"
     ],
     "additionalDirectories": [
       "\\tmp"

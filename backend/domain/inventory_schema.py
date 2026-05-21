@@ -6,6 +6,7 @@ from sqlalchemy import (
     DateTime,
     ForeignKey,
     Identity,
+    Index,
     Integer,
     JSON,
     Numeric,
@@ -46,7 +47,12 @@ def build_inventory_table() -> Table:
     columns.append(Column("extra_fields", JSON, nullable=True))
     columns.append(Column("created_at", DateTime(timezone=True), server_default=func.date_trunc('minute', func.now())))
     columns.append(Column("updated_at", DateTime(timezone=True), server_default=func.date_trunc('minute', func.now()), onupdate=func.date_trunc('minute', func.now())))
-    return Table(INVENTORY_TABLE_NAME, METADATA, *columns)
+    table = Table(INVENTORY_TABLE_NAME, METADATA, *columns)
+    Index("idx_inventory_records_date", table.c.date)
+    Index("idx_inventory_records_supplier", table.c.supplier)
+    Index("idx_inventory_records_warehouse", table.c.warehouse)
+    Index("idx_inventory_records_document_type", table.c.document_type)
+    return table
 
 
 def build_inventory_detail_table() -> Table:
@@ -57,7 +63,9 @@ def build_inventory_detail_table() -> Table:
     columns.extend(Column(name, _column_type(name)) for name in INVENTORY_DETAIL_COLUMNS)
     columns.append(Column("created_at", DateTime(timezone=True), server_default=func.date_trunc('minute', func.now())))
     columns.append(Column("updated_at", DateTime(timezone=True), server_default=func.date_trunc('minute', func.now()), onupdate=func.date_trunc('minute', func.now())))
-    return Table(INVENTORY_DETAIL_TABLE_NAME, METADATA, *columns)
+    table = Table(INVENTORY_DETAIL_TABLE_NAME, METADATA, *columns)
+    Index("idx_inventory_details_document_id", table.c.document_id)
+    return table
 
 
 def build_supplier_table() -> Table:
