@@ -54,6 +54,51 @@ export type ImageLookupResult = {
   message: string
 }
 
+export type ProductImageRefreshRun = {
+  id: string
+  brands: string[]
+  overwrite: boolean
+  started_at: string
+  finished_at?: string
+  status: "running" | "completed" | "failed"
+  scanned?: number
+  updated?: number
+  results?: Record<string, {
+    scanned: number
+    matched: number
+    updated: number
+    missing: number
+  }>
+  error?: string
+  message: string
+}
+
+export type ProductImageRefreshStatus = {
+  in_progress: boolean
+  current_run?: ProductImageRefreshRun | null
+  last_run?: ProductImageRefreshRun | null
+  runs?: ProductImageRefreshRun[]
+}
+
+export type RefreshProductImagesResult = {
+  accepted: boolean
+  in_progress: boolean
+  message: string
+  status?: ProductImageRefreshStatus
+}
+
+export type CompletedRefreshProductImagesResult = {
+  updated: number
+  scanned: number
+  results: Record<string, {
+    scanned: number
+    matched: number
+    updated: number
+    missing: number
+  }>
+  message: string
+}
+
 export type ProductFormValues = {
   brand: BrandKey | ""
   image_path: string

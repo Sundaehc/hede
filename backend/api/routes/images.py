@@ -3,10 +3,11 @@ from __future__ import annotations
 import mimetypes
 from pathlib import Path
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Request
 from fastapi.responses import FileResponse
 
-from api.schemas import ImageLookupRequest, MatchSkuRequest
+from api.schemas import BrandKey, ImageLookupRequest, MatchSkuRequest
+from storage.product_image_refresh import get_image_refresh_status, run_product_image_refresh
 
 
 router = APIRouter()
@@ -69,7 +70,7 @@ def lookup_image(request: Request, body: ImageLookupRequest):
     matcher = request.app.state.image_matchers[body.brand]
 
     if body.original_sku:
-        image_path = matcher.find(body.original_sku)
+        image_path = matcher.find_with_refresh(body.original_sku)
         if image_path:
             return {
                 "found": True,
@@ -79,7 +80,7 @@ def lookup_image(request: Request, body: ImageLookupRequest):
             }
 
     if body.sku:
-        image_path = matcher.find(body.sku)
+        image_path = matcher.find_with_refresh(body.sku)
         if image_path:
             return {
                 "found": True,
@@ -105,9 +106,47 @@ def match_sku_image(request: Request, body: MatchSkuRequest):
         return {"found": False, "image_url": None, "brand": None}
 
     for brand, matcher in matchers.items():
-        image_path = matcher.find(sku)
+        image_path = matcher.find_with_refresh(sku)
         if image_path:
             url = image_url_for(brand, image_path, settings)
             return {"found": True, "image_url": url, "brand": brand}
 
     return {"found": False, "image_url": None, "brand": None}
+
+
+@router.post("/images/refresh-product-images")
+def refresh_product_images(
+    request: Request,
+    background_tasks: BackgroundTasks,
+    brand: BrandKey | None = None,
+    overwrite: bool = False,
+):
+    repository = request.app.state.repository
+    settings = request.app.state.settings
+    status = get_image_refresh_status()
+    if status.get("in_progress"):
+        return {
+            "accepted": False,
+            "in_progress": True,
+            "message": "已有图片刷新任务正在运行，请稍后查看状态",
+            "status": status,
+        }
+
+    background_tasks.add_task(
+        run_product_image_refresh,
+        settings=settings,
+        repository=repository,
+        brand=brand,
+        overwrite=overwrite,
+    )
+    return {
+        "accepted": True,
+        "in_progress": True,
+        "message": "图片刷新任务已提交，后台会自动扫描图片目录并回写缺失图片",
+        "status": status,
+    }
+
+
+@router.get("/images/refresh-product-images/status")
+def get_refresh_product_images_status():
+    return get_image_refresh_status()

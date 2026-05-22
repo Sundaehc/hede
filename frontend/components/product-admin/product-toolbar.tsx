@@ -1,11 +1,13 @@
 "use client"
 
-import { useRef, useState } from "react"
+import { useEffect, useRef, useState } from "react"
+import { ImagePlus } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
 import { type BrandKey } from "@/lib/brands"
-import { exportProducts, importProducts } from "@/lib/api"
+import { exportProducts, getProductImageRefreshStatus, importProducts, refreshProductImages } from "@/lib/api"
+import type { ProductImageRefreshStatus } from "@/lib/types"
 
 type ProductToolbarProps = {
   brand: BrandKey | "all"
@@ -35,7 +37,61 @@ export function ProductToolbar({
   onMessage,
 }: ProductToolbarProps) {
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const submittedImageRefreshAtRef = useRef<number | null>(null)
   const [importing, setImporting] = useState(false)
+  const [refreshingImages, setRefreshingImages] = useState(false)
+  const [awaitingImageRefresh, setAwaitingImageRefresh] = useState(false)
+  const [imageRefreshStatus, setImageRefreshStatus] = useState<ProductImageRefreshStatus | null>(null)
+
+  const loadImageRefreshStatus = async () => {
+    try {
+      setImageRefreshStatus(await getProductImageRefreshStatus())
+    } catch {
+      setImageRefreshStatus(null)
+    }
+  }
+
+  useEffect(() => {
+    void loadImageRefreshStatus()
+  }, [])
+
+  useEffect(() => {
+    if (!imageRefreshStatus?.in_progress) {
+      return
+    }
+
+    const timer = window.setInterval(() => {
+      void loadImageRefreshStatus()
+    }, 5000)
+
+    return () => window.clearInterval(timer)
+  }, [imageRefreshStatus?.in_progress])
+
+  useEffect(() => {
+    if (!awaitingImageRefresh || !imageRefreshStatus || imageRefreshStatus.in_progress) {
+      return
+    }
+
+    const lastRun = imageRefreshStatus.last_run
+    const submittedAt = submittedImageRefreshAtRef.current
+    const finishedAt = lastRun?.finished_at ? Date.parse(lastRun.finished_at) : 0
+    if (!lastRun || !submittedAt || finishedAt < submittedAt) {
+      return
+    }
+
+    setAwaitingImageRefresh(false)
+    submittedImageRefreshAtRef.current = null
+
+    if (lastRun.status === "completed") {
+      onMessage("图片刷新完成", lastRun.message)
+      onRefresh()
+      return
+    }
+
+    if (lastRun.status === "failed") {
+      onMessage("图片刷新失败", lastRun.error || lastRun.message)
+    }
+  }, [awaitingImageRefresh, imageRefreshStatus, onMessage, onRefresh])
 
   const handleExport = async () => {
     try {
@@ -76,8 +132,36 @@ export function ProductToolbar({
     }
   }
 
+  const handleRefreshImages = async () => {
+    setRefreshingImages(true)
+    try {
+      const result = await refreshProductImages(brand)
+      onMessage(result.accepted ? "图片刷新已启动" : "图片刷新进行中", result.message)
+      if (result.accepted || result.in_progress) {
+        submittedImageRefreshAtRef.current = Date.now()
+        setAwaitingImageRefresh(true)
+        setImageRefreshStatus((current) => ({
+          ...(result.status ?? current ?? {}),
+          in_progress: true,
+        }))
+      } else if (result.status) {
+        setImageRefreshStatus(result.status)
+      }
+    } catch {
+      onMessage("图片刷新失败", "刷新图片路径时发生错误，请确认图片共享目录可访问")
+    } finally {
+      setRefreshingImages(false)
+    }
+  }
+
   const hasMultipleLines = value.includes("\n") || value.includes(",") || value.includes("，")
   const hasSelection = selectedIds && selectedIds.size > 0
+  const lastImageRun = imageRefreshStatus?.last_run
+  const imageStatusText = imageRefreshStatus?.in_progress
+    ? "图片刷新任务正在后台运行"
+    : lastImageRun
+      ? `最近刷新：更新 ${lastImageRun.updated ?? 0} 条`
+      : "图片刷新将由后台任务执行"
 
   return (
     <div className="flex flex-col gap-3 rounded-xl border border-border bg-card p-4 shadow-xs">
@@ -111,8 +195,21 @@ export function ProductToolbar({
           <Button type="button" variant="outline" size="sm" onClick={onRefresh} disabled={isLoading} className="cursor-pointer">
             刷新
           </Button>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => void handleRefreshImages()}
+            disabled={refreshingImages || imageRefreshStatus?.in_progress}
+            className="cursor-pointer"
+            title={brand === "all" ? "提交全部品牌图片刷新任务" : "提交当前品牌图片刷新任务"}
+          >
+            <ImagePlus className="h-3.5 w-3.5" />
+            {imageRefreshStatus?.in_progress ? "后台刷新中..." : refreshingImages ? "提交中..." : "刷新图片"}
+          </Button>
         </div>
       </div>
+      <p className="text-xs text-muted-foreground">{imageStatusText}</p>
 
       {onCreate ? (
         <div className="flex items-center gap-2 border-t border-border pt-3">

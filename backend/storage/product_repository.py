@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from decimal import Decimal
+from typing import Callable
 
 from sqlalchemy import and_, create_engine, delete, desc, func, insert, literal, or_, select, union_all, update
 
@@ -193,6 +194,56 @@ class ProductRepository:
             result = connection.execute(statement)
         return result.rowcount
 
+    def refresh_image_paths(
+        self,
+        brand: str,
+        find_image: Callable[[object], str | None],
+        *,
+        overwrite: bool = False,
+    ) -> dict[str, int]:
+        table = PRODUCT_TABLES[brand]
+        statement = select(table.c.id, table.c.original_sku, table.c.sku, table.c.image_path)
+        if not overwrite:
+            statement = statement.where(or_(table.c.image_path.is_(None), table.c.image_path == ""))
+
+        with self.engine.connect() as connection:
+            rows = [dict(row) for row in connection.execute(statement).mappings()]
+
+        updated = 0
+        matched = 0
+        missing = 0
+        with self.engine.begin() as connection:
+            for row in rows:
+                image_path = None
+                original_sku = str(row.get("original_sku") or "").strip()
+                sku = str(row.get("sku") or "").strip()
+                if original_sku:
+                    image_path = find_image(original_sku)
+                if not image_path and sku:
+                    image_path = find_image(sku)
+
+                if not image_path:
+                    missing += 1
+                    continue
+
+                matched += 1
+                if image_path == row.get("image_path"):
+                    continue
+
+                connection.execute(
+                    update(table)
+                    .where(table.c.id == row["id"])
+                    .values(image_path=image_path)
+                )
+                updated += 1
+
+        return {
+            "scanned": len(rows),
+            "matched": matched,
+            "updated": updated,
+            "missing": missing,
+        }
+
     @staticmethod
     def _prepare_record(record: Mapping[str, object]) -> dict[str, object]:
         payload = dict(record)
@@ -203,4 +254,3 @@ class ProductRepository:
                 for key, value in raw_payload.items()
             }
         return payload
-

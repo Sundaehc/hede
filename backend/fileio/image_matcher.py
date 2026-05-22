@@ -27,3 +27,13 @@ class ImageMatcher:
         if original_sku is None:
             return None
         return self.index.get(str(original_sku).strip())
+
+    def refresh(self) -> None:
+        self.index = self._build_index(self.root)
+
+    def find_with_refresh(self, original_sku: object) -> str | None:
+        found = self.find(original_sku)
+        if found:
+            return found
+        self.refresh()
+        return self.find(original_sku)

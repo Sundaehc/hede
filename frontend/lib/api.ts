@@ -1,5 +1,12 @@
 import type { BrandKey } from "@/lib/brands"
-import type { ImageLookupResult, ProductListItem, ProductListResponse, ProductMutationPayload } from "@/lib/types"
+import type {
+  ImageLookupResult,
+  ProductListItem,
+  ProductListResponse,
+  ProductMutationPayload,
+  ProductImageRefreshStatus,
+  RefreshProductImagesResult,
+} from "@/lib/types"
 
 const API_PREFIX = "/api"
 
@@ -105,6 +112,21 @@ export function lookupImage(params: {
       sku: params.sku,
     }),
   })
+}
+
+export function refreshProductImages(brand: BrandKey | "all") {
+  const search = new URLSearchParams()
+  if (brand !== "all") {
+    search.set("brand", brand)
+  }
+  const suffix = search.toString() ? `?${search.toString()}` : ""
+  return request<RefreshProductImagesResult>(`/images/refresh-product-images${suffix}`, {
+    method: "POST",
+  })
+}
+
+export function getProductImageRefreshStatus() {
+  return request<ProductImageRefreshStatus>("/images/refresh-product-images/status")
 }
 
 export function exportProducts(brand: BrandKey, ids?: number[]) {
