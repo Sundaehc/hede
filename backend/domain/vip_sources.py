@@ -5,6 +5,7 @@ from domain.fields import (
     JST_PRICE_FIELDS,
     JST_PURCHASE_DIFF_FIELDS,
     JST_SIZE_STOCK_FIELDS,
+    JST_STOCK_SUMMARY_FIELDS,
     VIP_DAILY_CLASSIFY_FIELDS,
     VIP_DAILY_FIELDS,
     VIP_OPS_FIELDS,
@@ -17,6 +18,7 @@ from domain.fields import (
 VIP_DAILY_TABLE_NAME = "vip_product_daily"
 VIP_REALTIME_TABLE_NAME = "vip_product_realtime"
 VIP_OPS_TABLE_NAME = "vip_product_ops"
+VIP_OPS_SNAPSHOT_TABLE_NAME = "vip_product_ops_snapshots"
 
 # ── vip_product_daily: 环比/罗盘 (3d/7d/1d/30d) 共 21 列 ─────────
 VIP_DAILY_COLUMNS: list[str] = field_names(VIP_DAILY_FIELDS)
@@ -34,6 +36,8 @@ VIP_REALTIME_COLUMN_ALIASES: dict[str, str] = alias_map(VIP_REALTIME_FIELDS)
 VIP_OPS_COLUMNS: list[str] = field_names(VIP_OPS_FIELDS)
 
 VIP_OPS_COLUMN_ALIASES: dict[str, str] = alias_map(VIP_OPS_FIELDS)
+
+VIP_OPS_SNAPSHOT_COLUMNS: list[str] = field_names(VIP_OPS_FIELDS)
 
 # ── vip_product_price: 物价信息 共 13 列（跳过行号）──────────────
 JST_PRICE_TABLE_NAME = "jst_product_price"
@@ -58,7 +62,12 @@ JST_SIZE_STOCK_TABLE_NAME = "jst_size_stock"
 
 JST_SIZE_STOCK_COLUMNS: list[str] = field_names(JST_SIZE_STOCK_FIELDS)
 
-# ── jst_purchase_diff: 采购差异 共 2 列 ────────────────────────────
-JST_PURCHASE_DIFF_TABLE_NAME = "jst_purchase_diff"
+# ── jst_stock_summary: 商品库存 Sheet4 汇总 共 5 列 ───────────────
+JST_STOCK_SUMMARY_TABLE_NAME = "jst_stock_summary"
+
+JST_STOCK_SUMMARY_COLUMNS: list[str] = field_names(JST_STOCK_SUMMARY_FIELDS)
+
+# ── jst_purchase_defects: 采购次品 共 2 列 ─────────────────────────
+JST_PURCHASE_DIFF_TABLE_NAME = "jst_purchase_defects"
 
 JST_PURCHASE_DIFF_COLUMNS: list[str] = field_names(JST_PURCHASE_DIFF_FIELDS)

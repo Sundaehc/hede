@@ -47,6 +47,82 @@ export type ProductListResponse = {
   page_size: number
 }
 
+export type FineTableShopSale = {
+  shop_name: string
+  quantity: number
+}
+
+export type FineTableDailySale = {
+  date: string
+  quantity: number
+}
+
+export type FineTableItem = ProductListItem & {
+  goods_id: string | null
+  p_spu: string | null
+  style_code: string | null
+  category_l3: string | null
+  goods_status: string | null
+  status_key: "online" | "partial" | "offline" | "unknown"
+  sales_tag: string | null
+  goods_tag: string | null
+  latest_purchase_price: number | null
+  final_price: number | null
+  vip_price: number | null
+  market_price: number | null
+  price_band: string | null
+  activity_profit: number | null
+  margin_rate: number | null
+  discount_rate: number | null
+  vip_1d_sales: number
+  vip_3d_sales: number
+  vip_7d_sales: number
+  vip_15d_sales: number
+  vip_30d_sales: number
+  vip_3d_uv: number
+  vip_7d_uv: number
+  vip_30d_uv: number
+  vip_3d_ctr: string | null
+  vip_7d_ctr: string | null
+  vip_30d_ctr: string | null
+  vip_3d_conversion: string | null
+  vip_7d_conversion: string | null
+  vip_30d_conversion: string | null
+  vip_3d_sales_change_rate: number | null
+  vip_3d_uv_change_rate: number | null
+  vip_3d_ctr_change_rate: number | null
+  vip_3d_conversion_change_rate: number | null
+  vip_7d_sales_change_rate: number | null
+  vip_7d_uv_change_rate: number | null
+  vip_7d_ctr_change_rate: number | null
+  vip_7d_conversion_change_rate: number | null
+  vip_30d_reject_count: number
+  vip_30d_reject_rate: string | null
+  vip_daily_average_sales: number
+  other_3d_sales: number
+  other_7d_sales: number
+  other_15d_sales: number
+  other_30d_sales: number
+  shop_30d_sales: FineTableShopSale[]
+  stock_qty: number
+  size_stock: Record<string, number>
+  purchase_diff: number
+  inbound_qty: number
+  defect_stock: number
+  off_shelf_stock: number
+  order_occupy_stock: number
+  projected_15d_stock: number
+  daily_sales: FineTableDailySale[]
+}
+
+export type FineTableResponse = {
+  items: FineTableItem[]
+  total: number
+  page: number
+  page_size: number
+  latest_order_date: string | null
+}
+
 export type ImageLookupResult = {
   found: boolean
   image_path: string | null

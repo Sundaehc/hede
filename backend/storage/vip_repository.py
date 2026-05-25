@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 import re
+from datetime import date
 from pathlib import Path
 
 from openpyxl import load_workbook
 from sqlalchemy import create_engine, func as sa_func
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
-from domain.vip_schema import VIP_DAILY_TABLE, VIP_OPS_TABLE, JST_PRICE_TABLE, VIP_REALTIME_TABLE, JST_MONTHLY_ORDERS_TABLE, JST_SIZE_STOCK_TABLE, JST_PURCHASE_DIFF_TABLE
+from domain.vip_schema import VIP_DAILY_TABLE, VIP_OPS_TABLE, VIP_OPS_SNAPSHOT_TABLE, JST_PRICE_TABLE, VIP_REALTIME_TABLE, JST_MONTHLY_ORDERS_TABLE, JST_SIZE_STOCK_TABLE, JST_STOCK_SUMMARY_TABLE, JST_PURCHASE_DIFF_TABLE
 from domain.vip_sources import (
     VIP_DAILY_COLUMN_ALIASES,
     VIP_OPS_COLUMN_ALIASES,
@@ -35,6 +36,13 @@ def _report_type_from_filename(filename: str) -> str | None:
     if "罗盘" in filename:
         return "罗盘"
     return None
+
+
+def _snapshot_date_from_path(file_path: Path) -> date:
+    parsed = parse_date(file_path.parent.name)
+    if parsed is not None:
+        return parsed
+    return date.fromtimestamp(file_path.stat().st_mtime)
 
 
 class VipRepository:
@@ -121,10 +129,11 @@ class VipRepository:
 
     # ── vip_product_ops (常态商品运营) ──────────────────────────────
 
-    def import_ops(self, file_path: Path) -> dict[str, object]:
+    def import_ops(self, file_path: Path, snapshot_date: date | None = None) -> dict[str, object]:
         rows = self._read_excel(file_path, VIP_OPS_COLUMN_ALIASES)
         if not rows:
             return {"imported": 0, "message": "无数据行"}
+        snapshot_date = snapshot_date or _snapshot_date_from_path(file_path)
 
         seen: dict[str, int] = {}
         deduped: list[dict] = []
@@ -141,10 +150,17 @@ class VipRepository:
         update_cols = [c for c in deduped[0] if c not in ("id", "goods_id")]
 
         self._upsert(VIP_OPS_TABLE, deduped, ["goods_id"], update_cols)
+        snapshot_rows = [{**row, "snapshot_date": snapshot_date} for row in deduped if row.get("goods_id")]
+        if snapshot_rows:
+            snapshot_update_cols = [
+                c for c in snapshot_rows[0]
+                if c not in ("id", "snapshot_date", "goods_id")
+            ]
+            self._upsert(VIP_OPS_SNAPSHOT_TABLE, snapshot_rows, ["snapshot_date", "goods_id"], snapshot_update_cols)
 
         return {
             "imported": len(deduped),
-            "message": f"{file_path.name}: {len(deduped)} 条 (原始 {len(rows)} 行)",
+            "message": f"{file_path.name}: {len(deduped)} 条 (原始 {len(rows)} 行, 快照 {snapshot_date.isoformat()})",
         }
 
     # ── vip_product_price (物价信息) ──────────────────────────────
@@ -212,7 +228,11 @@ class VipRepository:
             c for c in deduped[0]
             if c not in ("id", "goods_code", "goods_full_name")
         ]
-        self._upsert(JST_PRICE_TABLE, deduped, ["goods_code", "goods_full_name"], update_cols)
+        from sqlalchemy import delete as sa_delete
+
+        with self.engine.begin() as conn:
+            conn.execute(sa_delete(JST_PRICE_TABLE))
+            self._batch_insert(JST_PRICE_TABLE, deduped, conn=conn)
 
         return {
             "imported": len(deduped),
@@ -238,7 +258,7 @@ class VipRepository:
                 if "实时商品" in filename:
                     results.append(self.import_realtime(file_path))
                 elif "常态商品运营" in filename:
-                    results.append(self.import_ops(file_path))
+                    results.append(self.import_ops(file_path, parse_date(batch_date)))
                 elif "合并" in filename and "物价" in filename:
                     results.append(self.import_price(file_path))
                 elif _report_type_from_filename(filename) and _period_from_filename(filename):
@@ -357,6 +377,52 @@ class VipRepository:
         with self.engine.begin() as conn:
             conn.execute(sa_delete(JST_SIZE_STOCK_TABLE))
             self._batch_insert(JST_SIZE_STOCK_TABLE, rows, conn=conn)
+
+        return {
+            "imported": len(rows),
+            "message": f"{file_path.name}: {len(rows)} 条",
+        }
+
+    # ── jst_stock_summary (商品库存 Sheet4) ───────────────────────
+
+    def import_stock_summary(self, file_path: Path) -> dict[str, object]:
+        wb = load_workbook(str(file_path), data_only=True, read_only=True)
+        ws = wb["Sheet4"]
+        sheet_title = ws.title
+
+        rows: list[dict] = []
+        for row_num, row in enumerate(ws.iter_rows(min_row=2, values_only=True), start=2):
+            if len(row) < 5:
+                continue
+            product_code = str(row[0]).strip() if row[0] else ""
+            if product_code in ("", "总计", "(空白)", "行标签", "合计"):
+                continue
+            record: dict[str, object] = {
+                "stock_date": file_path.parent.name,
+                "stock_date_value": parse_date(file_path.parent.name),
+                "source_workbook": file_path.stem,
+                "source_sheet": sheet_title,
+                "source_row_number": str(row_num),
+                "raw_payload": {},
+                "product_code": product_code,
+                "defect_stock_qty": int(row[1]) if row[1] is not None else None,
+                "purchase_in_transit_qty": int(row[2]) if row[2] is not None else None,
+                "off_shelf_qty": int(row[3]) if row[3] is not None else None,
+                "order_occupy_qty": int(row[4]) if row[4] is not None else None,
+            }
+            rows.append(record)
+
+        wb.close()
+
+        if not rows:
+            return {"imported": 0, "message": "无数据行"}
+
+        from sqlalchemy import delete as sa_delete
+
+        stock_date = file_path.parent.name
+        with self.engine.begin() as conn:
+            conn.execute(sa_delete(JST_STOCK_SUMMARY_TABLE).where(JST_STOCK_SUMMARY_TABLE.c.stock_date == stock_date))
+            self._batch_insert(JST_STOCK_SUMMARY_TABLE, rows, conn=conn)
 
         return {
             "imported": len(rows),

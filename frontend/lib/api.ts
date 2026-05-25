@@ -6,6 +6,7 @@ import type {
   ProductMutationPayload,
   ProductImageRefreshStatus,
   RefreshProductImagesResult,
+  FineTableResponse,
 } from "@/lib/types"
 
 const API_PREFIX = "/api"
@@ -61,6 +62,21 @@ export function listProducts(params: {
   }
 
   return request<ProductListResponse>(`/products?${search.toString()}`)
+}
+
+export function listFineTable(params: {
+  query?: string
+  season?: string
+  page: number
+  pageSize: number
+}) {
+  const search = new URLSearchParams({
+    page: String(params.page),
+    page_size: String(params.pageSize),
+  })
+  if (params.query) search.set("query", params.query)
+  if (params.season && params.season !== "all") search.set("season", params.season)
+  return request<FineTableResponse>(`/fine-table?${search.toString()}`)
 }
 
 export function getProduct(brand: BrandKey, id: number) {

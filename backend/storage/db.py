@@ -3,7 +3,8 @@ from __future__ import annotations
 from collections.abc import Iterable
 
 import orjson
-from sqlalchemy import create_engine, delete, insert
+from sqlalchemy import create_engine, delete, func, insert
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from domain.schema import METADATA, PRODUCT_TABLES
 from domain.inventory_schema import INVENTORY_TABLE, INVENTORY_DETAIL_TABLE, JST_STOCK_TABLE, SUPPLIER_TABLE, WAREHOUSE_TABLE  # noqa: F401 - register on METADATA
@@ -60,6 +61,55 @@ class Database:
             if payload:
                 connection.execute(insert(table), payload)
         return len(payload)
+
+    def upsert_brand_rows(self, brand_group: str, rows: Iterable[dict[str, object]]) -> int:
+        table = PRODUCT_TABLES[brand_group]
+        payload = self._dedupe_by_sku(list(rows))
+        if not payload:
+            return 0
+
+        update_columns = [
+            column.name
+            for column in table.columns
+            if column.name not in ("id", "sku", "created_at")
+        ]
+
+        with self._require_engine().begin() as connection:
+            for index in range(0, len(payload), 1000):
+                stmt = pg_insert(table).values(payload[index:index + 1000])
+                excluded = stmt.excluded
+                set_values = {column: getattr(excluded, column) for column in update_columns}
+                set_values["image_path"] = func.coalesce(getattr(excluded, "image_path"), table.c.image_path)
+                set_values["updated_at"] = func.date_trunc("minute", func.now())
+                stmt = stmt.on_conflict_do_update(
+                    index_elements=["sku"],
+                    set_=set_values,
+                )
+                connection.execute(stmt)
+        return len(payload)
+
+    @staticmethod
+    def _dedupe_by_sku(rows: list[dict[str, object]]) -> list[dict[str, object]]:
+        seen: dict[str, int] = {}
+        for idx, row in enumerate(rows):
+            sku = row.get("sku")
+            if sku is not None and str(sku).strip():
+                seen[str(sku).strip()] = idx
+
+        if len(seen) >= len(rows):
+            return rows
+
+        deduped: list[dict[str, object]] = []
+        kept: set[int] = set()
+        for idx, row in enumerate(rows):
+            sku = row.get("sku")
+            if not sku or not str(sku).strip():
+                deduped.append(row)
+                kept.add(idx)
+        for idx in sorted(seen.values()):
+            if idx not in kept:
+                deduped.append(rows[idx])
+        return deduped
 
     def ping(self) -> None:
         with self._require_engine().connect() as connection:

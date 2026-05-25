@@ -216,6 +216,14 @@ JST_SIZE_STOCK_FIELDS: tuple[FieldSpec, ...] = (
     FieldSpec("stock_qty", "库存数量", "integer"),
 )
 
+JST_STOCK_SUMMARY_FIELDS: tuple[FieldSpec, ...] = (
+    FieldSpec("product_code", "货号"),
+    FieldSpec("defect_stock_qty", "次品库存", "integer"),
+    FieldSpec("purchase_in_transit_qty", "采购在途数", "integer"),
+    FieldSpec("off_shelf_qty", "下架仓", "integer"),
+    FieldSpec("order_occupy_qty", "订单占有", "integer"),
+)
+
 JST_PURCHASE_DIFF_FIELDS: tuple[FieldSpec, ...] = (
     FieldSpec("product_code", "货号"),
     FieldSpec("difference_count", "差异数", "integer"),

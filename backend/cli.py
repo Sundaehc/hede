@@ -14,6 +14,7 @@ def _build_parser() -> argparse.ArgumentParser:
 
     subparsers.add_parser("dry-run", help="Read and summarize source data without writing to PostgreSQL")
     subparsers.add_parser("import", help="Import source data into PostgreSQL")
+    subparsers.add_parser("sync", help="Upsert source data into PostgreSQL without deleting missing rows")
     return parser
 
 
@@ -33,9 +34,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser = _build_parser()
     args = parser.parse_args(argv)
 
-    settings = load_settings(require_database=args.command == "import")
+    settings = load_settings(require_database=args.command in ("import", "sync"))
     pipeline = ImportPipeline(settings)
-    summaries = pipeline.run(dry_run=args.command == "dry-run")
+    summaries = pipeline.run(
+        dry_run=args.command == "dry-run",
+        mode="sync" if args.command == "sync" else "replace",
+    )
     _print_summary(args.command, summaries)
     return 0
 

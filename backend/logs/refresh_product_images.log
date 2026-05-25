@@ -1,0 +1,47 @@
+[2026/05/22 周五 23:00:00.25] start refresh_product_images 
+Traceback (most recent call last):
+  File "<frozen runpy>", line 198, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+  File "E:\hede\backend\scripts\refresh_product_images.py", line 14, in <module>
+    from storage.product_image_refresh import run_product_image_refresh
+  File "E:\hede\backend\storage\product_image_refresh.py", line 13, in <module>
+    from storage.product_repository import ProductRepository
+  File "E:\hede\backend\storage\product_repository.py", line 7, in <module>
+    from sqlalchemy import and_, create_engine, delete, desc, func, insert, literal, or_, select, union_all, update
+ModuleNotFoundError: No module named 'sqlalchemy'
+[2026/05/22 周五 23:00:00.56] end refresh_product_images errorlevel=1 
+[2026/05/23 周六 23:00:01.49] start refresh_product_images 
+Traceback (most recent call last):
+  File "<frozen runpy>", line 198, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+  File "E:\hede\backend\scripts\refresh_product_images.py", line 14, in <module>
+    from storage.product_image_refresh import run_product_image_refresh
+  File "E:\hede\backend\storage\product_image_refresh.py", line 13, in <module>
+    from storage.product_repository import ProductRepository
+  File "E:\hede\backend\storage\product_repository.py", line 7, in <module>
+    from sqlalchemy import and_, create_engine, delete, desc, func, insert, literal, or_, select, union_all, update
+ModuleNotFoundError: No module named 'sqlalchemy'
+[2026/05/23 周六 23:00:01.88] end refresh_product_images errorlevel=1 
+[2026/05/24 周日 23:00:01.27] start refresh_product_images 
+Traceback (most recent call last):
+  File "<frozen runpy>", line 198, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+  File "E:\hede\backend\scripts\refresh_product_images.py", line 14, in <module>
+    from storage.product_image_refresh import run_product_image_refresh
+  File "E:\hede\backend\storage\product_image_refresh.py", line 13, in <module>
+    from storage.product_repository import ProductRepository
+  File "E:\hede\backend\storage\product_repository.py", line 7, in <module>
+    from sqlalchemy import and_, create_engine, delete, desc, func, insert, literal, or_, select, union_all, update
+ModuleNotFoundError: No module named 'sqlalchemy'
+[2026/05/24 周日 23:00:01.64] end refresh_product_images errorlevel=1 
+[鍛ㄤ竴 2026/05/25 10:57:20.24] start refresh_product_images 
+using a closure in a dumps/loads function may cause a resource leak
+using a closure in a dumps/loads function may cause a resource leak
+using a closure in a dumps/loads function may cause a resource leak
+using a closure in a dumps/loads function may cause a resource leak
+[qbd_mens] scanned=65 matched=0 updated=0 missing=65
+[qbd_womens] scanned=1859 matched=0 updated=0 missing=1859
+[yandou] scanned=2319 matched=0 updated=0 missing=2319
+[yiban] scanned=198 matched=0 updated=0 missing=198
+图片刷新完成：扫描 4441 条，更新 0 条
+[鍛ㄤ竴 2026/05/25 10:58:26.03] end refresh_product_images errorlevel=0 

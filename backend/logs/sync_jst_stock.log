@@ -1,0 +1,7 @@
+[鍛ㄤ竴 2026/05/25 10:56:35.79] start sync_jst_stock 
+using a closure in a dumps/loads function may cause a resource leak
+using a closure in a dumps/loads function may cause a resource leak
+using a closure in a dumps/loads function may cause a resource leak
+using a closure in a dumps/loads function may cause a resource leak
+已导入 145940 条 05.25 库存数据
+[鍛ㄤ竴 2026/05/25 10:56:53.26] end sync_jst_stock errorlevel=0 

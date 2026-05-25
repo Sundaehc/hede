@@ -1,0 +1,9 @@
+[鍛ㄤ竴 2026/05/25 10:49:27.82] start import_monthly_order 
+using a closure in a dumps/loads function may cause a resource leak
+using a closure in a dumps/loads function may cause a resource leak
+using a closure in a dumps/loads function may cause a resource leak
+using a closure in a dumps/loads function may cause a resource leak
+D:\python\Lib\site-packages\openpyxl\styles\stylesheet.py:237: UserWarning: Workbook contains no default style, apply openpyxl's default
+  warn("Workbook contains no default style, apply openpyxl's default")
+[JST月订单] 05.25 导入完成, 共 581043 条
+[鍛ㄤ竴 2026/05/25 10:51:51.70] end import_monthly_order errorlevel=0 

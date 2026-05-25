@@ -1,0 +1,7 @@
+[鍛ㄤ竴 2026/05/25 10:53:21.38] start import_price_daily 
+using a closure in a dumps/loads function may cause a resource leak
+using a closure in a dumps/loads function may cause a resource leak
+using a closure in a dumps/loads function may cause a resource leak
+using a closure in a dumps/loads function may cause a resource leak
+[PRICE] 2026-05-25 导入完成, 共 76137 条
+[鍛ㄤ竴 2026/05/25 10:53:38.43] end import_price_daily errorlevel=0 

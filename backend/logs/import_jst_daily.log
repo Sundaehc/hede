@@ -1,0 +1,8 @@
+[鍛ㄤ竴 2026/05/25 10:43:24.46] start import_jst_daily 
+using a closure in a dumps/loads function may cause a resource leak
+using a closure in a dumps/loads function may cause a resource leak
+using a closure in a dumps/loads function may cause a resource leak
+using a closure in a dumps/loads function may cause a resource leak
+[尺码表] 导入完成, 共 69000 条
+[采购差异] 导入完成, 共 6694 条
+[鍛ㄤ竴 2026/05/25 10:47:51.41] end import_jst_daily errorlevel=0 

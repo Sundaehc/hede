@@ -1,4 +1,4 @@
-"""Daily JST size stock and purchase diff import (8:00). Run: python -m scripts.import_jst_daily"""
+"""Daily JST stock import (8:00). Run: python -m scripts.import_jst_daily"""
 
 from datetime import date
 
@@ -21,6 +21,11 @@ def main() -> None:
         print(f"[尺码表] 导入完成, 共 {result['imported']} 条")
     else:
         print(f"[SKIP] 商品库存不存在: {size_file}")
+
+    # 商品库存汇总（Sheet4）
+    if size_file.exists():
+        result = repo.import_stock_summary(size_file)
+        print(f"[库存汇总] 导入完成, 共 {result['imported']} 条")
 
     # 采购差异
     diff_file = today_dir / "采购单管理.xlsx"

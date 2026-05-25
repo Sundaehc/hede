@@ -4,6 +4,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from api.routes.images import router as images_router
+from api.routes.fine_table import router as fine_table_router
 from api.routes.import_export import router as import_export_router
 from api.routes.inventory import router as inventory_router
 from api.routes.products import router as products_router
@@ -39,6 +40,7 @@ def create_app(*, settings, repository=None, image_matchers=None, inventory_repo
     app.state.inventory_repository = resolved_inventory_repository
     app.state.image_matchers = resolved_matchers
     app.include_router(products_router)
+    app.include_router(fine_table_router)
     app.include_router(images_router)
     app.include_router(import_export_router)
     app.include_router(inventory_router)

@@ -28,7 +28,7 @@ class ImportPipeline:
             for brand_key, root in settings.image_roots.items()
         }
 
-    def run(self, *, dry_run: bool) -> dict[str, ImportSummary]:
+    def run(self, *, dry_run: bool, mode: str = "replace") -> dict[str, ImportSummary]:
         summaries = {
             brand_group: ImportSummary(brand_group=brand_group)
             for brand_group in {spec.brand_group for spec in WORKBOOK_SPECS}
@@ -63,7 +63,10 @@ class ImportPipeline:
         if not dry_run:
             self.database.create_tables()
             for brand_group, rows in rows_by_brand.items():
-                summaries[brand_group].loaded_rows = self.database.replace_brand_rows(brand_group, rows)
+                if mode == "sync":
+                    summaries[brand_group].loaded_rows = self.database.upsert_brand_rows(brand_group, rows)
+                else:
+                    summaries[brand_group].loaded_rows = self.database.replace_brand_rows(brand_group, rows)
         else:
             for brand_group, rows in rows_by_brand.items():
                 summaries[brand_group].loaded_rows = len(rows)
