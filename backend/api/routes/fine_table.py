@@ -40,6 +40,8 @@ SIZE_LABELS = {
     "285": "47/285",
 }
 
+EXCLUDED_OTHER_PLATFORM_ORDER_STATUSES = {"取消", "异常", "被拆分", "已付款待审核"}
+
 
 def _to_float(value: Any) -> float | None:
     if value is None or value == "":
@@ -132,6 +134,17 @@ def _date_window(max_day: date, days: int) -> tuple[datetime, datetime]:
     return start, end
 
 
+def _empty_order_bucket() -> dict[str, Any]:
+    return {
+        "other_3": 0,
+        "other_7": 0,
+        "other_15": 0,
+        "other_30": 0,
+        "shop_30": {},
+        "daily_sales": [],
+    }
+
+
 @router.get("/fine-table")
 def list_fine_table(
     request: Request,
@@ -179,6 +192,36 @@ def list_fine_table(
         skus = [str(row.get("sku") or "").strip() for row in product_rows if row.get("sku")]
         if not skus:
             return {"items": [], "total": total, "page": page, "page_size": page_size}
+        original_skus = {
+            str(row.get("original_sku") or "").strip()
+            for row in product_rows
+            if str(row.get("original_sku") or "").strip()
+        }
+        original_skus_by_code: dict[str, list[str]] = {original_sku: [] for original_sku in original_skus}
+        for row in product_rows:
+            sku = str(row.get("sku") or "").strip()
+            original_sku = str(row.get("original_sku") or "").strip()
+            if sku and original_sku:
+                original_skus_by_code.setdefault(original_sku, []).append(sku)
+
+        if original_skus:
+            for row in conn.execute(
+                select(product_table.c.sku, product_table.c.original_sku)
+                .where(product_table.c.original_sku.in_(original_skus))
+            ).mappings():
+                sku = str(row.get("sku") or "").strip()
+                original_sku = str(row.get("original_sku") or "").strip()
+                if sku and original_sku:
+                    original_skus_by_code.setdefault(original_sku, []).append(sku)
+
+        original_sku_by_sku: dict[str, str] = {}
+        all_original_group_skus: set[str] = set()
+        for original_sku, grouped_skus in original_skus_by_code.items():
+            deduped = sorted(set(grouped_skus))
+            original_skus_by_code[original_sku] = deduped
+            all_original_group_skus.update(deduped)
+            for grouped_sku in deduped:
+                original_sku_by_sku[grouped_sku] = original_sku
 
         ops_by_sku: dict[str, dict[str, Any]] = {}
         for row in conn.execute(
@@ -217,14 +260,6 @@ def list_fine_table(
             label = SIZE_LABELS.get(size, size)
             size_stock_by_sku.setdefault(sku, {})[label] = _to_int(row["qty"])
 
-        purchase_diff_by_sku: dict[str, int] = {}
-        for row in conn.execute(
-            select(JST_PURCHASE_DIFF_TABLE.c.product_code, func.sum(JST_PURCHASE_DIFF_TABLE.c.difference_count).label("qty"))
-            .where(JST_PURCHASE_DIFF_TABLE.c.product_code.in_(skus))
-            .group_by(JST_PURCHASE_DIFF_TABLE.c.product_code)
-        ).mappings():
-            purchase_diff_by_sku[str(row["product_code"])] = _to_int(row["qty"])
-
         stock_summary_by_sku: dict[str, dict[str, int]] = {}
         for row in conn.execute(
             select(
@@ -244,6 +279,14 @@ def list_fine_table(
                 "order_occupy_qty": _to_int(row["order_occupy_qty"]),
             }
 
+        defect_in_transit_by_sku: dict[str, int] = {}
+        for row in conn.execute(
+            select(JST_PURCHASE_DIFF_TABLE.c.product_code, func.sum(JST_PURCHASE_DIFF_TABLE.c.difference_count).label("qty"))
+            .where(JST_PURCHASE_DIFF_TABLE.c.product_code.in_(skus))
+            .group_by(JST_PURCHASE_DIFF_TABLE.c.product_code)
+        ).mappings():
+            defect_in_transit_by_sku[str(row["product_code"])] = _to_int(row["qty"])
+
         max_order_day = conn.execute(select(func.max(JST_MONTHLY_ORDERS_TABLE.c.order_time_at))).scalar()
         max_day = max_order_day.date() if isinstance(max_order_day, datetime) else date.today()
         start_3, end_window = _date_window(max_day, 3)
@@ -251,53 +294,60 @@ def list_fine_table(
         start_15, _ = _date_window(max_day, 15)
         start_30, _ = _date_window(max_day, 30)
 
-        orders_by_sku: dict[str, dict[str, Any]] = {
-            sku: {
-                "other_3": 0,
-                "other_7": 0,
-                "other_15": 0,
-                "other_30": 0,
-                "shop_30": {},
-                "daily_sales": [],
-            }
-            for sku in skus
+        orders_by_sku: dict[str, dict[str, Any]] = {sku: _empty_order_bucket() for sku in skus}
+        original_orders_by_sku: dict[str, dict[str, Any]] = {sku: _empty_order_bucket() for sku in skus}
+        original_orders_by_code: dict[str, dict[str, Any]] = {
+            original_sku: _empty_order_bucket()
+            for original_sku in original_skus_by_code
         }
+        order_codes = sorted({*skus, *all_original_group_skus})
         order_rows = conn.execute(
             select(
                 JST_MONTHLY_ORDERS_TABLE.c.style_code,
                 JST_MONTHLY_ORDERS_TABLE.c.shop_name,
+                JST_MONTHLY_ORDERS_TABLE.c.status,
                 JST_MONTHLY_ORDERS_TABLE.c.order_time_at,
                 JST_MONTHLY_ORDERS_TABLE.c.quantity,
             )
-            .where(JST_MONTHLY_ORDERS_TABLE.c.style_code.in_(skus))
+            .where(JST_MONTHLY_ORDERS_TABLE.c.style_code.in_(order_codes))
             .where(JST_MONTHLY_ORDERS_TABLE.c.order_time_at >= start_30)
             .where(JST_MONTHLY_ORDERS_TABLE.c.order_time_at < end_window)
         ).mappings()
 
         daily_totals: dict[str, dict[date, int]] = {sku: {} for sku in skus}
         for row in order_rows:
-            sku = str(row["style_code"])
+            order_code = str(row["style_code"] or "").strip()
             order_time = row["order_time_at"]
-            if not isinstance(order_time, datetime):
+            if not order_code or not isinstance(order_time, datetime):
                 continue
             qty = _to_int(row["quantity"])
             shop_name = str(row.get("shop_name") or "")
+            status = str(row.get("status") or "").strip()
             is_vip_shop = "唯品" in shop_name
-            bucket = orders_by_sku.setdefault(sku, {"other_3": 0, "other_7": 0, "other_15": 0, "other_30": 0, "shop_30": {}, "daily_sales": []})
+            bucket = orders_by_sku.get(order_code)
 
-            day = order_time.date()
-            daily_totals.setdefault(sku, {})[day] = daily_totals.setdefault(sku, {}).get(day, 0) + qty
+            if bucket is not None:
+                day = order_time.date()
+                daily_totals.setdefault(order_code, {})[day] = daily_totals.setdefault(order_code, {}).get(day, 0) + qty
 
-            if not is_vip_shop:
-                if order_time >= start_3:
-                    bucket["other_3"] += qty
-                if order_time >= start_7:
-                    bucket["other_7"] += qty
-                if order_time >= start_15:
-                    bucket["other_15"] += qty
-                bucket["other_30"] += qty
-                shop_bucket = bucket["shop_30"]
-                shop_bucket[shop_name] = shop_bucket.get(shop_name, 0) + qty
+            if not is_vip_shop and status not in EXCLUDED_OTHER_PLATFORM_ORDER_STATUSES:
+                buckets = []
+                if bucket is not None:
+                    buckets.append(bucket)
+                original_sku = original_sku_by_sku.get(order_code)
+                if original_sku and original_sku in original_orders_by_code:
+                    buckets.append(original_orders_by_code[original_sku])
+                for target_bucket in buckets:
+                    if order_time >= start_3:
+                        target_bucket["other_3"] += qty
+                    if order_time >= start_7:
+                        target_bucket["other_7"] += qty
+                    if order_time >= start_15:
+                        target_bucket["other_15"] += qty
+                    target_bucket["other_30"] += qty
+                if bucket is not None:
+                    shop_bucket = bucket["shop_30"]
+                    shop_bucket[shop_name] = shop_bucket.get(shop_name, 0) + qty
 
         for sku, totals in daily_totals.items():
             orders_by_sku[sku]["daily_sales"] = [
@@ -315,12 +365,14 @@ def list_fine_table(
         price = price_by_sku.get(sku, {})
         daily = daily_by_sku.get(sku, {})
         orders = orders_by_sku.get(sku, {})
+        original_sku = str(product.get("original_sku") or "").strip()
+        original_orders = original_orders_by_code.get(original_sku, {})
         size_stock = {label: size_stock_by_sku.get(sku, {}).get(label, 0) for label in SIZE_LABELS.values()}
 
         stock_qty = sum(size_stock.values())
-        purchase_diff = purchase_diff_by_sku.get(sku, 0)
         stock_summary = stock_summary_by_sku.get(sku, {})
         inbound_qty = stock_summary.get("purchase_in_transit_qty", 0)
+        defect_in_transit_qty = defect_in_transit_by_sku.get(sku, 0)
         cost = (
             _to_float(price.get("latest_purchase_price"))
             or _to_float(price.get("preset_price"))
@@ -426,17 +478,22 @@ def list_fine_table(
             "other_7d_sales": _to_int(orders.get("other_7")),
             "other_15d_sales": _to_int(orders.get("other_15")),
             "other_30d_sales": other_30,
+            "original_other_3d_sales": _to_int(original_orders.get("other_3")),
+            "original_other_7d_sales": _to_int(original_orders.get("other_7")),
+            "original_other_15d_sales": _to_int(original_orders.get("other_15")),
+            "original_other_30d_sales": _to_int(original_orders.get("other_30")),
             "shop_30d_sales": [
                 {"shop_name": name, "quantity": qty}
                 for name, qty in sorted((orders.get("shop_30") or {}).items(), key=lambda item: item[1], reverse=True)
             ][:12],
             "stock_qty": stock_qty,
             "size_stock": size_stock,
-            "purchase_diff": purchase_diff,
             "inbound_qty": inbound_qty,
             "defect_stock": stock_summary.get("defect_stock_qty", 0),
             "off_shelf_stock": stock_summary.get("off_shelf_qty", 0),
             "order_occupy_stock": stock_summary.get("order_occupy_qty", 0),
+            "defect_in_transit_stock": defect_in_transit_qty,
+            "purchase_diff": defect_in_transit_qty,
             "projected_15d_stock": projected_15,
             "daily_sales": orders.get("daily_sales", []),
         })

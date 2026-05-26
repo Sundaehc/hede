@@ -69,18 +69,31 @@ const SIZE_STOCK_LABELS = [
 
 const DEFAULT_COLUMN_KEYS = [
   "status",
+  "group_name",
   "season",
   "cost",
   "final_price",
   "activity_profit",
   "margin_rate",
-  "vip_7d_sales",
   "vip_daily_average_sales",
-  "other_7d_sales",
+  "vip_projected_15d_sales",
+  "other_daily_average_sales",
+  "other_projected_15d_sales",
+  "original_other_3d_sales",
+  "original_other_7d_sales",
+  "original_other_15d_sales",
+  "original_other_30d_sales",
+  "vip_3d_exposure",
+  "vip_7d_exposure",
+  "vip_30d_exposure",
   "total_30d_sales",
   "stock_qty",
+  "projected_5d_stock_no_inbound",
   "inbound_qty",
-  "projected_15d_stock",
+  "order_in_transit_stock",
+  "defect_in_transit_stock",
+  "vip_projected_15d_stock",
+  "other_projected_15d_stock",
   "risk",
 ]
 
@@ -116,6 +129,47 @@ function nullableCurrency(value: number | null | undefined) {
 
 function nullablePercent(value: number | null | undefined) {
   return value == null ? "-" : formatPercent(value)
+}
+
+function parsePercentValue(value: string | null | undefined) {
+  if (!value) return null
+  const normalized = value.trim().replace("%", "")
+  const parsed = Number(normalized)
+  return Number.isFinite(parsed) ? parsed / 100 : null
+}
+
+function exposureValue(uv: number, ctr: string | null | undefined) {
+  const ctrValue = parsePercentValue(ctr)
+  if (ctrValue == null || ctrValue === 0) return null
+  return uv / ctrValue
+}
+
+function otherDailyAverage(row: FineTableItem) {
+  return row.other_30d_sales / 30
+}
+
+function vipProjected15dSales(row: FineTableItem) {
+  return row.vip_daily_average_sales * 15
+}
+
+function otherProjected15dSales(row: FineTableItem) {
+  return otherDailyAverage(row) * 15
+}
+
+function projected5dStockNoInbound(row: FineTableItem) {
+  return row.stock_qty - (row.vip_daily_average_sales * 5 + otherDailyAverage(row) * 5)
+}
+
+function vipProjected15dStock(row: FineTableItem) {
+  return row.stock_qty + row.inbound_qty - vipProjected15dSales(row)
+}
+
+function otherProjected15dStock(row: FineTableItem) {
+  return vipProjected15dStock(row) - otherProjected15dSales(row)
+}
+
+function orderInTransitStock(row: FineTableItem) {
+  return row.inbound_qty - row.defect_in_transit_stock
 }
 
 function getPageTokens(currentPage: number, totalPages: number): PageToken[] {
@@ -266,7 +320,7 @@ function StatusBadge({ row }: { row: FineTableItem }) {
 }
 
 function RiskBadge({ row }: { row: FineTableItem }) {
-  if (row.projected_15d_stock < 0) {
+  if (Math.min(vipProjected15dStock(row), otherProjected15dStock(row)) < 0) {
     return <span className="inline-flex rounded-md bg-rose-50 px-2 py-1 text-xs font-medium text-rose-700 dark:bg-rose-950/40 dark:text-rose-300">15天后缺口</span>
   }
   if (row.stock_qty < row.vip_7d_sales + row.other_7d_sales) {
@@ -304,11 +358,12 @@ function createTableColumns(dailyLabels: string[]): TableColumn[] {
   return [
     {
       key: "status",
-      label: "状态",
+      label: "上下线状态",
       group: "基础",
       defaultVisible: true,
       render: (row) => <StatusBadge row={row} />,
     },
+    { key: "group_name", label: "组别", group: "基础", className: "min-w-28", defaultVisible: true, render: (row) => row.group_name || "-" },
     {
       key: "season",
       label: "季节",
@@ -342,7 +397,7 @@ function createTableColumns(dailyLabels: string[]): TableColumn[] {
     { key: "activity_profit", label: "活动毛利", group: "价格", align: "right", defaultVisible: true, render: (row) => nullableInteger(row.activity_profit) },
     {
       key: "margin_rate",
-      label: "毛利率",
+      label: "活动毛利率",
       group: "价格",
       align: "right",
       defaultVisible: true,
@@ -356,14 +411,19 @@ function createTableColumns(dailyLabels: string[]): TableColumn[] {
 
     { key: "vip_1d_sales", label: "唯品1天", group: "销售", align: "right", render: (row) => formatNumber(row.vip_1d_sales) },
     { key: "vip_3d_sales", label: "唯品3天", group: "销售", align: "right", render: (row) => formatNumber(row.vip_3d_sales) },
-    { key: "vip_7d_sales", label: "唯品7天", group: "销售", align: "right", defaultVisible: true, render: (row) => formatNumber(row.vip_7d_sales) },
     { key: "vip_15d_sales", label: "唯品15天", group: "销售", align: "right", render: (row) => formatNumber(row.vip_15d_sales) },
     { key: "vip_30d_sales", label: "唯品30天", group: "销售", align: "right", render: (row) => formatNumber(row.vip_30d_sales) },
-    { key: "vip_daily_average_sales", label: "唯品日均", group: "销售", align: "right", defaultVisible: true, render: (row) => formatDecimal1(row.vip_daily_average_sales) },
+    { key: "vip_daily_average_sales", label: "唯品日均", group: "销售", align: "right", defaultVisible: true, render: (row) => nullableInteger(row.vip_daily_average_sales) },
+    { key: "vip_projected_15d_sales", label: "唯品15天预计", group: "销售", align: "right", defaultVisible: true, render: (row) => nullableInteger(vipProjected15dSales(row)) },
     { key: "other_3d_sales", label: "其他3天", group: "销售", align: "right", render: (row) => formatNumber(row.other_3d_sales) },
-    { key: "other_7d_sales", label: "其他7天", group: "销售", align: "right", defaultVisible: true, render: (row) => formatNumber(row.other_7d_sales) },
     { key: "other_15d_sales", label: "其他15天", group: "销售", align: "right", render: (row) => formatNumber(row.other_15d_sales) },
     { key: "other_30d_sales", label: "其他30天", group: "销售", align: "right", render: (row) => formatNumber(row.other_30d_sales) },
+    { key: "other_daily_average_sales", label: "其他日均", group: "销售", align: "right", defaultVisible: true, render: (row) => nullableInteger(otherDailyAverage(row)) },
+    { key: "other_projected_15d_sales", label: "其他15天预计", group: "销售", align: "right", defaultVisible: true, render: (row) => nullableInteger(otherProjected15dSales(row)) },
+    { key: "original_other_3d_sales", label: "其他原始3天", group: "销售", align: "right", defaultVisible: true, render: (row) => formatNumber(row.original_other_3d_sales) },
+    { key: "original_other_7d_sales", label: "其他原始7天", group: "销售", align: "right", defaultVisible: true, render: (row) => formatNumber(row.original_other_7d_sales) },
+    { key: "original_other_15d_sales", label: "其他原始15天", group: "销售", align: "right", defaultVisible: true, render: (row) => formatNumber(row.original_other_15d_sales) },
+    { key: "original_other_30d_sales", label: "其他原始30天", group: "销售", align: "right", defaultVisible: true, render: (row) => formatNumber(row.original_other_30d_sales) },
     { key: "total_30d_sales", label: "30天总销", group: "销售", align: "right", defaultVisible: true, render: (row) => formatNumber(row.vip_30d_sales + row.other_30d_sales) },
     { key: "vip_3d_uv", label: "3天UV", group: "销售", align: "right", render: (row) => formatNumber(row.vip_3d_uv) },
     { key: "vip_7d_uv", label: "7天UV", group: "销售", align: "right", render: (row) => formatNumber(row.vip_7d_uv) },
@@ -371,6 +431,9 @@ function createTableColumns(dailyLabels: string[]): TableColumn[] {
     { key: "vip_3d_ctr", label: "3天CTR", group: "销售", align: "right", render: (row) => row.vip_3d_ctr || "-" },
     { key: "vip_7d_ctr", label: "7天CTR", group: "销售", align: "right", render: (row) => row.vip_7d_ctr || "-" },
     { key: "vip_30d_ctr", label: "30天CTR", group: "销售", align: "right", render: (row) => row.vip_30d_ctr || "-" },
+    { key: "vip_3d_exposure", label: "3天曝光", group: "销售", align: "right", render: (row) => nullableInteger(exposureValue(row.vip_3d_uv, row.vip_3d_ctr)) },
+    { key: "vip_7d_exposure", label: "7天曝光", group: "销售", align: "right", render: (row) => nullableInteger(exposureValue(row.vip_7d_uv, row.vip_7d_ctr)) },
+    { key: "vip_30d_exposure", label: "30天曝光", group: "销售", align: "right", render: (row) => nullableInteger(exposureValue(row.vip_30d_uv, row.vip_30d_ctr)) },
     { key: "vip_3d_conversion", label: "3天转化", group: "销售", align: "right", render: (row) => row.vip_3d_conversion || "-" },
     { key: "vip_7d_conversion", label: "7天转化", group: "销售", align: "right", render: (row) => row.vip_7d_conversion || "-" },
     { key: "vip_30d_conversion", label: "30天转化", group: "销售", align: "right", render: (row) => row.vip_30d_conversion || "-" },
@@ -386,22 +449,56 @@ function createTableColumns(dailyLabels: string[]): TableColumn[] {
     { key: "vip_30d_reject_rate", label: "30天拒退率", group: "销售", align: "right", render: (row) => row.vip_30d_reject_rate || "-" },
 
     { key: "stock_qty", label: "库存", group: "库存", align: "right", defaultVisible: true, render: (row) => formatNumber(row.stock_qty) },
-    { key: "inbound_qty", label: "采购在途数", group: "库存", align: "right", defaultVisible: true, render: (row) => formatNumber(row.inbound_qty) },
-    { key: "defect_stock", label: "次品库存", group: "库存", align: "right", defaultVisible: true, render: (row) => formatNumber(row.defect_stock) },
-    { key: "off_shelf_stock", label: "下架仓", group: "库存", align: "right", render: (row) => formatNumber(row.off_shelf_stock) },
-    { key: "order_occupy_stock", label: "订单占有", group: "库存", align: "right", render: (row) => formatNumber(row.order_occupy_stock) },
-    { key: "purchase_diff", label: "采购差异", group: "库存", align: "right", render: (row) => formatNumber(row.purchase_diff) },
     {
-      key: "projected_15d_stock",
-      label: "15天后",
+      key: "projected_5d_stock_no_inbound",
+      label: "5天后(不加未到)",
       group: "库存",
       align: "right",
       defaultVisible: true,
-      render: (row) => (
-        <span className={cn(row.projected_15d_stock < 0 && "text-rose-600")}>
-          {formatNumber(row.projected_15d_stock)}
-        </span>
-      ),
+      render: (row) => {
+        const value = projected5dStockNoInbound(row)
+        return (
+          <span className={cn(value < 0 && "text-rose-600")}>
+            {nullableInteger(value)}
+          </span>
+        )
+      },
+    },
+    { key: "inbound_qty", label: "采购在途数", group: "库存", align: "right", defaultVisible: true, render: (row) => formatNumber(row.inbound_qty) },
+    { key: "defect_stock", label: "次品库存", group: "库存", align: "right", defaultVisible: true, render: (row) => formatNumber(row.defect_stock) },
+    { key: "off_shelf_stock", label: "下架仓商品数量", group: "库存", align: "right", defaultVisible: true, render: (row) => formatNumber(row.off_shelf_stock) },
+    { key: "order_occupy_stock", label: "订单占有", group: "库存", align: "right", render: (row) => formatNumber(row.order_occupy_stock) },
+    { key: "order_in_transit_stock", label: "已下订单未到数量", group: "库存", align: "right", defaultVisible: true, render: (row) => formatNumber(orderInTransitStock(row)) },
+    { key: "defect_in_transit_stock", label: "打次未到数量", group: "库存", align: "right", defaultVisible: true, render: (row) => formatNumber(row.defect_in_transit_stock) },
+    {
+      key: "vip_projected_15d_stock",
+      label: "15天后库存减唯品会",
+      group: "库存",
+      align: "right",
+      defaultVisible: true,
+      render: (row) => {
+        const value = vipProjected15dStock(row)
+        return (
+          <span className={cn(value < 0 && "text-rose-600")}>
+            {nullableInteger(value)}
+          </span>
+        )
+      },
+    },
+    {
+      key: "other_projected_15d_stock",
+      label: "15天后库存减其他平台",
+      group: "库存",
+      align: "right",
+      defaultVisible: true,
+      render: (row) => {
+        const value = otherProjected15dStock(row)
+        return (
+          <span className={cn(value < 0 && "text-rose-600")}>
+            {nullableInteger(value)}
+          </span>
+        )
+      },
     },
     { key: "risk", label: "风险", group: "库存", defaultVisible: true, render: (row) => <RiskBadge row={row} /> },
     ...dailyColumns,
@@ -565,11 +662,19 @@ function DetailDrawer({ row, onClose }: { row: FineTableItem | null; onClose: ()
               </div>
               <div className="grid grid-cols-3 gap-3">
                 <StatCard icon={TrendingUp} label="唯品3天" value={formatNumber(row.vip_3d_sales)} />
-                <StatCard icon={TrendingUp} label="唯品7天" value={formatNumber(row.vip_7d_sales)} />
                 <StatCard icon={TrendingUp} label="唯品30天" value={formatNumber(row.vip_30d_sales)} />
+                <StatCard icon={TrendingUp} label="唯品15天预计" value={nullableInteger(vipProjected15dSales(row))} />
                 <StatCard icon={Boxes} label="其他3天" value={formatNumber(row.other_3d_sales)} />
-                <StatCard icon={Boxes} label="其他7天" value={formatNumber(row.other_7d_sales)} />
                 <StatCard icon={Boxes} label="其他30天" value={formatNumber(row.other_30d_sales)} />
+                <StatCard icon={Boxes} label="其他日均" value={nullableInteger(otherDailyAverage(row))} />
+                <StatCard icon={Boxes} label="其他15天预计" value={nullableInteger(otherProjected15dSales(row))} />
+                <StatCard icon={TrendingUp} label="3天曝光" value={nullableInteger(exposureValue(row.vip_3d_uv, row.vip_3d_ctr))} />
+                <StatCard icon={TrendingUp} label="7天曝光" value={nullableInteger(exposureValue(row.vip_7d_uv, row.vip_7d_ctr))} />
+                <StatCard icon={TrendingUp} label="30天曝光" value={nullableInteger(exposureValue(row.vip_30d_uv, row.vip_30d_ctr))} />
+                <StatCard icon={Boxes} label="其他原始3天" value={formatNumber(row.original_other_3d_sales)} />
+                <StatCard icon={Boxes} label="其他原始7天" value={formatNumber(row.original_other_7d_sales)} />
+                <StatCard icon={Boxes} label="其他原始15天" value={formatNumber(row.original_other_15d_sales)} />
+                <StatCard icon={Boxes} label="其他原始30天" value={formatNumber(row.original_other_30d_sales)} />
               </div>
               <div className="rounded-lg border border-border">
                 <div className="border-b border-border px-4 py-3 text-sm font-medium">其他平台30天店铺拆分</div>
@@ -587,9 +692,14 @@ function DetailDrawer({ row, onClose }: { row: FineTableItem | null; onClose: ()
             <TabsContent value="stock" className="space-y-4">
               <div className="grid grid-cols-2 gap-3">
                 <StatCard icon={Boxes} label="聚水潭库存" value={formatNumber(row.stock_qty)} tone={row.stock_qty < row.vip_7d_sales ? "warn" : "neutral"} />
-                <StatCard icon={AlertTriangle} label="15天后预计" value={formatNumber(row.projected_15d_stock)} tone={row.projected_15d_stock < 0 ? "risk" : "good"} />
+                <StatCard icon={AlertTriangle} label="5天后不加未到" value={nullableInteger(projected5dStockNoInbound(row))} tone={projected5dStockNoInbound(row) < 0 ? "risk" : "good"} />
+                <StatCard icon={AlertTriangle} label="15天后库存减唯品会" value={nullableInteger(vipProjected15dStock(row))} tone={vipProjected15dStock(row) < 0 ? "risk" : "good"} />
+                <StatCard icon={AlertTriangle} label="15天后库存减其他平台" value={nullableInteger(otherProjected15dStock(row))} tone={otherProjected15dStock(row) < 0 ? "risk" : "good"} />
                 <StatCard icon={Layers3} label="采购在途数" value={formatNumber(row.inbound_qty)} />
                 <StatCard icon={Boxes} label="次品库存" value={formatNumber(row.defect_stock)} />
+                <StatCard icon={Boxes} label="下架仓商品数量" value={formatNumber(row.off_shelf_stock)} />
+                <StatCard icon={Layers3} label="已下订单未到数量" value={formatNumber(orderInTransitStock(row))} />
+                <StatCard icon={Boxes} label="打次未到数量" value={formatNumber(row.defect_in_transit_stock)} />
               </div>
               <div className="rounded-lg border border-border p-4">
                 <p className="mb-3 text-sm font-medium">尺码库存</p>
@@ -782,7 +892,7 @@ export function FineTablePage() {
   }, [deferredView, items])
 
   const stats = useMemo(() => {
-    const risk = items.filter((row) => row.projected_15d_stock < 0).length
+    const risk = items.filter((row) => Math.min(vipProjected15dStock(row), otherProjected15dStock(row)) < 0).length
     const missing = items.filter((row) => !row.image_url).length
     const sales7 = items.reduce((sum, row) => sum + row.vip_7d_sales + row.other_7d_sales, 0)
     return { risk, missing, sales7 }

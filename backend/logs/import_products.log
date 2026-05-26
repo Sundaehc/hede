@@ -1,0 +1,7 @@
+[2026/05/26 周二  8:00:01.84] start import_products 
+Mode: sync
+qbd_womens: extracted=13005, loaded=12893, skipped=0, missing_images=2054
+qbd_mens: extracted=7479, loaded=7358, skipped=0, missing_images=72
+yiban: extracted=9699, loaded=9695, skipped=0, missing_images=201
+yandou: extracted=3122, loaded=3120, skipped=0, missing_images=2320
+[2026/05/26 周二  8:06:42.76] end import_products errorlevel=0 

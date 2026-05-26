@@ -6,3 +6,12 @@ using a closure in a dumps/loads function may cause a resource leak
 [尺码表] 导入完成, 共 69000 条
 [采购差异] 导入完成, 共 6694 条
 [鍛ㄤ竴 2026/05/25 10:47:51.41] end import_jst_daily errorlevel=0 
+[2026/05/26 周二  8:00:01.37] start import_jst_daily 
+using a closure in a dumps/loads function may cause a resource leak
+using a closure in a dumps/loads function may cause a resource leak
+using a closure in a dumps/loads function may cause a resource leak
+using a closure in a dumps/loads function may cause a resource leak
+[尺码表] 导入完成, 共 68965 条
+[库存汇总] 导入完成, 共 28267 条
+[采购差异] 导入完成, 共 6654 条
+[2026/05/26 周二  8:09:36.53] end import_jst_daily errorlevel=0 

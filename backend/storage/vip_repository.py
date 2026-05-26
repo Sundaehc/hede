@@ -419,9 +419,8 @@ class VipRepository:
 
         from sqlalchemy import delete as sa_delete
 
-        stock_date = file_path.parent.name
         with self.engine.begin() as conn:
-            conn.execute(sa_delete(JST_STOCK_SUMMARY_TABLE).where(JST_STOCK_SUMMARY_TABLE.c.stock_date == stock_date))
+            conn.execute(sa_delete(JST_STOCK_SUMMARY_TABLE))
             self._batch_insert(JST_STOCK_SUMMARY_TABLE, rows, conn=conn)
 
         return {

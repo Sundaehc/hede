@@ -103,6 +103,10 @@ export type FineTableItem = ProductListItem & {
   other_7d_sales: number
   other_15d_sales: number
   other_30d_sales: number
+  original_other_3d_sales: number
+  original_other_7d_sales: number
+  original_other_15d_sales: number
+  original_other_30d_sales: number
   shop_30d_sales: FineTableShopSale[]
   stock_qty: number
   size_stock: Record<string, number>
@@ -111,6 +115,7 @@ export type FineTableItem = ProductListItem & {
   defect_stock: number
   off_shelf_stock: number
   order_occupy_stock: number
+  defect_in_transit_stock: number
   projected_15d_stock: number
   daily_sales: FineTableDailySale[]
 }
