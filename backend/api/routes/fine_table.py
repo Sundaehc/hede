@@ -14,6 +14,7 @@ from domain.vip_schema import (
     JST_PURCHASE_DIFF_TABLE,
     JST_STOCK_SUMMARY_TABLE,
     JST_SIZE_STOCK_TABLE,
+    VIP_DAILY_SNAPSHOT_TABLE,
     VIP_DAILY_TABLE,
     VIP_OPS_TABLE,
     JST_MONTHLY_ORDERS_TABLE,
@@ -41,6 +42,7 @@ SIZE_LABELS = {
 }
 
 EXCLUDED_OTHER_PLATFORM_ORDER_STATUSES = {"取消", "异常", "被拆分", "已付款待审核"}
+DAILY_SALES_DAYS = 5
 
 
 def _to_float(value: Any) -> float | None:
@@ -287,6 +289,33 @@ def list_fine_table(
         ).mappings():
             defect_in_transit_by_sku[str(row["product_code"])] = _to_int(row["qty"])
 
+        latest_daily_snapshot_day = conn.execute(
+            select(func.max(VIP_DAILY_SNAPSHOT_TABLE.c.snapshot_date))
+            .where(VIP_DAILY_SNAPSHOT_TABLE.c.goods_code.in_(skus))
+            .where(VIP_DAILY_SNAPSHOT_TABLE.c.report_type == "罗盘")
+            .where(VIP_DAILY_SNAPSHOT_TABLE.c.period == "1d")
+        ).scalar()
+        daily_snapshot_totals: dict[str, dict[date, int]] = {sku: {} for sku in skus}
+        if isinstance(latest_daily_snapshot_day, date):
+            daily_snapshot_start = latest_daily_snapshot_day - timedelta(days=DAILY_SALES_DAYS - 1)
+            for row in conn.execute(
+                select(
+                    VIP_DAILY_SNAPSHOT_TABLE.c.goods_code,
+                    VIP_DAILY_SNAPSHOT_TABLE.c.snapshot_date,
+                    func.sum(VIP_DAILY_SNAPSHOT_TABLE.c.sales_volume).label("qty"),
+                )
+                .where(VIP_DAILY_SNAPSHOT_TABLE.c.goods_code.in_(skus))
+                .where(VIP_DAILY_SNAPSHOT_TABLE.c.report_type == "罗盘")
+                .where(VIP_DAILY_SNAPSHOT_TABLE.c.period == "1d")
+                .where(VIP_DAILY_SNAPSHOT_TABLE.c.snapshot_date >= daily_snapshot_start)
+                .where(VIP_DAILY_SNAPSHOT_TABLE.c.snapshot_date <= latest_daily_snapshot_day)
+                .group_by(VIP_DAILY_SNAPSHOT_TABLE.c.goods_code, VIP_DAILY_SNAPSHOT_TABLE.c.snapshot_date)
+            ).mappings():
+                sku = str(row["goods_code"] or "").strip()
+                snapshot_date = row["snapshot_date"]
+                if sku and isinstance(snapshot_date, date):
+                    daily_snapshot_totals.setdefault(sku, {})[snapshot_date] = _to_int(row["qty"])
+
         max_order_day = conn.execute(select(func.max(JST_MONTHLY_ORDERS_TABLE.c.order_time_at))).scalar()
         max_day = max_order_day.date() if isinstance(max_order_day, datetime) else date.today()
         start_3, end_window = _date_window(max_day, 3)
@@ -314,7 +343,6 @@ def list_fine_table(
             .where(JST_MONTHLY_ORDERS_TABLE.c.order_time_at < end_window)
         ).mappings()
 
-        daily_totals: dict[str, dict[date, int]] = {sku: {} for sku in skus}
         for row in order_rows:
             order_code = str(row["style_code"] or "").strip()
             order_time = row["order_time_at"]
@@ -325,10 +353,6 @@ def list_fine_table(
             status = str(row.get("status") or "").strip()
             is_vip_shop = "唯品" in shop_name
             bucket = orders_by_sku.get(order_code)
-
-            if bucket is not None:
-                day = order_time.date()
-                daily_totals.setdefault(order_code, {})[day] = daily_totals.setdefault(order_code, {}).get(day, 0) + qty
 
             if not is_vip_shop and status not in EXCLUDED_OTHER_PLATFORM_ORDER_STATUSES:
                 buckets = []
@@ -349,14 +373,15 @@ def list_fine_table(
                     shop_bucket = bucket["shop_30"]
                     shop_bucket[shop_name] = shop_bucket.get(shop_name, 0) + qty
 
-        for sku, totals in daily_totals.items():
-            orders_by_sku[sku]["daily_sales"] = [
-                {
-                    "date": (max_day - timedelta(days=offset)).isoformat(),
-                    "quantity": totals.get(max_day - timedelta(days=offset), 0),
-                }
-                for offset in range(14, -1, -1)
-            ]
+        if isinstance(latest_daily_snapshot_day, date):
+            for sku, totals in daily_snapshot_totals.items():
+                orders_by_sku[sku]["daily_sales"] = [
+                    {
+                        "date": (latest_daily_snapshot_day - timedelta(days=offset)).isoformat(),
+                        "quantity": totals.get(latest_daily_snapshot_day - timedelta(days=offset), 0),
+                    }
+                    for offset in range(DAILY_SALES_DAYS - 1, -1, -1)
+                ]
 
     items = []
     for product in product_rows:

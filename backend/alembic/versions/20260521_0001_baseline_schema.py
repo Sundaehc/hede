@@ -54,6 +54,8 @@ def _create_current_indexes() -> None:
         "CREATE INDEX IF NOT EXISTS idx_jst_monthly_orders_ship_date_value ON jst_monthly_orders (ship_date_value)",
         "CREATE INDEX IF NOT EXISTS idx_jst_monthly_orders_time_product ON jst_monthly_orders (order_time_at, product_code)",
         "CREATE INDEX IF NOT EXISTS idx_vip_daily_report_dates ON vip_product_daily (report_start_date, report_end_date)",
+        "CREATE INDEX IF NOT EXISTS idx_daily_snapshots_goods_code_date ON vip_product_daily_snapshots (goods_code, snapshot_date)",
+        "CREATE INDEX IF NOT EXISTS idx_daily_snapshots_snapshot_date ON vip_product_daily_snapshots (snapshot_date)",
     ]
     for statement in statements:
         op.execute(statement)

@@ -8,7 +8,7 @@ from openpyxl import load_workbook
 from sqlalchemy import create_engine, func as sa_func
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
-from domain.vip_schema import VIP_DAILY_TABLE, VIP_OPS_TABLE, VIP_OPS_SNAPSHOT_TABLE, JST_PRICE_TABLE, VIP_REALTIME_TABLE, JST_MONTHLY_ORDERS_TABLE, JST_SIZE_STOCK_TABLE, JST_STOCK_SUMMARY_TABLE, JST_PURCHASE_DIFF_TABLE
+from domain.vip_schema import VIP_DAILY_TABLE, VIP_DAILY_SNAPSHOT_TABLE, VIP_OPS_TABLE, VIP_OPS_SNAPSHOT_TABLE, JST_PRICE_TABLE, VIP_REALTIME_TABLE, JST_MONTHLY_ORDERS_TABLE, JST_SIZE_STOCK_TABLE, JST_STOCK_SUMMARY_TABLE, JST_PURCHASE_DIFF_TABLE
 from domain.vip_sources import (
     VIP_DAILY_COLUMN_ALIASES,
     VIP_OPS_COLUMN_ALIASES,
@@ -93,6 +93,33 @@ class VipRepository:
                 )
             )
             self._batch_insert(VIP_DAILY_TABLE, rows, conn=conn)
+
+        if report_type == "罗盘" and period == "1d":
+            fallback_snapshot_date = _snapshot_date_from_path(file_path)
+            snapshot_by_key: dict[tuple[date, str], dict] = {}
+            for row in rows:
+                goods_id = str(row.get("goods_id") or "").strip()
+                if not goods_id:
+                    continue
+                snapshot_date = row.get("report_end_date") or fallback_snapshot_date
+                if not isinstance(snapshot_date, date):
+                    continue
+                snapshot_by_key[(snapshot_date, goods_id)] = {
+                    **row,
+                    "snapshot_date": snapshot_date,
+                }
+            snapshot_rows = list(snapshot_by_key.values())
+            if snapshot_rows:
+                snapshot_update_cols = [
+                    c for c in snapshot_rows[0]
+                    if c not in ("id", "snapshot_date", "goods_id")
+                ]
+                self._upsert(
+                    VIP_DAILY_SNAPSHOT_TABLE,
+                    snapshot_rows,
+                    ["snapshot_date", "goods_id"],
+                    snapshot_update_cols,
+                )
 
         return {
             "imported": len(rows),

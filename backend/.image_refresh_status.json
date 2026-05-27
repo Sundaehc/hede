@@ -2,6 +2,111 @@
   "in_progress": false,
   "runs": [
     {
+      "id": "78ebf27938064965877171b0139dbd89",
+      "brands": [
+        "qbd_mens",
+        "qbd_womens",
+        "yandou",
+        "yiban"
+      ],
+      "overwrite": false,
+      "started_at": "2026-05-27T01:10:39.681634+00:00",
+      "finished_at": "2026-05-27T01:13:18.561332+00:00",
+      "status": "completed",
+      "scanned": 4643,
+      "updated": 0,
+      "results": {
+        "qbd_mens": {
+          "scanned": 65,
+          "matched": 0,
+          "updated": 0,
+          "missing": 65
+        },
+        "qbd_womens": {
+          "scanned": 2061,
+          "matched": 0,
+          "updated": 0,
+          "missing": 2061
+        },
+        "yandou": {
+          "scanned": 2319,
+          "matched": 0,
+          "updated": 0,
+          "missing": 2319
+        },
+        "yiban": {
+          "scanned": 198,
+          "matched": 0,
+          "updated": 0,
+          "missing": 198
+        }
+      },
+      "message": "图片刷新完成：扫描 4643 条，更新 0 条"
+    },
+    {
+      "id": "49ffac6219a8416f966a91a47a45c583",
+      "brands": [
+        "yandou"
+      ],
+      "overwrite": false,
+      "started_at": "2026-05-27T01:10:30.296871+00:00",
+      "finished_at": "2026-05-27T01:10:31.644560+00:00",
+      "status": "completed",
+      "scanned": 2319,
+      "updated": 0,
+      "results": {
+        "yandou": {
+          "scanned": 2319,
+          "matched": 0,
+          "updated": 0,
+          "missing": 2319
+        }
+      },
+      "message": "图片刷新完成：扫描 2319 条，更新 0 条"
+    },
+    {
+      "id": "ddd1bd12b9934d2cbd8f07bcafb99ee1",
+      "brands": [
+        "qbd_mens",
+        "qbd_womens",
+        "yandou",
+        "yiban"
+      ],
+      "overwrite": false,
+      "started_at": "2026-05-26T15:00:01.835236+00:00",
+      "finished_at": "2026-05-26T15:01:11.817169+00:00",
+      "status": "completed",
+      "scanned": 4632,
+      "updated": 2,
+      "results": {
+        "qbd_mens": {
+          "scanned": 65,
+          "matched": 0,
+          "updated": 0,
+          "missing": 65
+        },
+        "qbd_womens": {
+          "scanned": 2048,
+          "matched": 0,
+          "updated": 0,
+          "missing": 2048
+        },
+        "yandou": {
+          "scanned": 2319,
+          "matched": 0,
+          "updated": 0,
+          "missing": 2319
+        },
+        "yiban": {
+          "scanned": 200,
+          "matched": 2,
+          "updated": 2,
+          "missing": 198
+        }
+      },
+      "message": "图片刷新完成：扫描 4632 条，更新 2 条"
+    },
+    {
       "id": "fcb74434171e4918baefabba62a75488",
       "brands": [
         "qbd_womens"
@@ -172,24 +277,45 @@
   ],
   "current_run": null,
   "last_run": {
-    "id": "fcb74434171e4918baefabba62a75488",
+    "id": "78ebf27938064965877171b0139dbd89",
     "brands": [
-      "qbd_womens"
+      "qbd_mens",
+      "qbd_womens",
+      "yandou",
+      "yiban"
     ],
     "overwrite": false,
-    "started_at": "2026-05-26T02:22:18.788772+00:00",
-    "finished_at": "2026-05-26T02:22:53.283924+00:00",
+    "started_at": "2026-05-27T01:10:39.681634+00:00",
+    "finished_at": "2026-05-27T01:13:18.561332+00:00",
     "status": "completed",
-    "scanned": 2053,
-    "updated": 5,
+    "scanned": 4643,
+    "updated": 0,
     "results": {
+      "qbd_mens": {
+        "scanned": 65,
+        "matched": 0,
+        "updated": 0,
+        "missing": 65
+      },
       "qbd_womens": {
-        "scanned": 2053,
-        "matched": 5,
-        "updated": 5,
-        "missing": 2048
+        "scanned": 2061,
+        "matched": 0,
+        "updated": 0,
+        "missing": 2061
+      },
+      "yandou": {
+        "scanned": 2319,
+        "matched": 0,
+        "updated": 0,
+        "missing": 2319
+      },
+      "yiban": {
+        "scanned": 198,
+        "matched": 0,
+        "updated": 0,
+        "missing": 198
       }
     },
-    "message": "图片刷新完成：扫描 2053 条，更新 5 条"
+    "message": "图片刷新完成：扫描 4643 条，更新 0 条"
   }
 }

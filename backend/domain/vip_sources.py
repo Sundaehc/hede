@@ -16,6 +16,7 @@ from domain.fields import (
 
 # ── Table names ────────────────────────────────────────────────────
 VIP_DAILY_TABLE_NAME = "vip_product_daily"
+VIP_DAILY_SNAPSHOT_TABLE_NAME = "vip_product_daily_snapshots"
 VIP_REALTIME_TABLE_NAME = "vip_product_realtime"
 VIP_OPS_TABLE_NAME = "vip_product_ops"
 VIP_OPS_SNAPSHOT_TABLE_NAME = "vip_product_ops_snapshots"

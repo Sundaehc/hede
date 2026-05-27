@@ -5,3 +5,10 @@ qbd_mens: extracted=7479, loaded=7358, skipped=0, missing_images=72
 yiban: extracted=9699, loaded=9695, skipped=0, missing_images=201
 yandou: extracted=3122, loaded=3120, skipped=0, missing_images=2320
 [2026/05/26 周二  8:06:42.76] end import_products errorlevel=0 
+[2026/05/27 周三  8:00:01.87] start import_products 
+Mode: sync
+qbd_womens: extracted=13021, loaded=12909, skipped=0, missing_images=2062
+qbd_mens: extracted=7479, loaded=7358, skipped=0, missing_images=72
+yiban: extracted=9702, loaded=9698, skipped=0, missing_images=199
+yandou: extracted=3122, loaded=3120, skipped=0, missing_images=2320
+[2026/05/27 周三  8:06:44.50] end import_products errorlevel=0 

@@ -30,6 +30,7 @@ from domain.fields import (
 from domain.schema import METADATA
 from domain.vip_sources import (
     VIP_DAILY_TABLE_NAME,
+    VIP_DAILY_SNAPSHOT_TABLE_NAME,
     VIP_OPS_TABLE_NAME,
     VIP_OPS_SNAPSHOT_TABLE_NAME,
     JST_PRICE_TABLE_NAME,
@@ -137,6 +138,34 @@ def build_vip_price_table() -> Table:
 
 
 VIP_DAILY_TABLE = build_vip_daily_table()
+
+
+# ── vip_product_daily_snapshots ───────────────────────────────────
+
+def build_vip_daily_snapshot_table() -> Table:
+    columns: list = [
+        Column("id", BigInteger, Identity(always=False), primary_key=True),
+        Column("snapshot_date", Date, nullable=False),
+        Column("source_workbook", Text, nullable=False, default=""),
+        Column("source_sheet", Text, nullable=False, default=""),
+        Column("source_row_number", Text, nullable=False, default=""),
+        Column("raw_payload", JSON, nullable=False, default=dict),
+    ]
+    columns.extend(Column(field.name, _col_type(field)) for field in VIP_DAILY_FIELDS)
+    columns.extend(Column(field.name, _col_type(field)) for field in VIP_DAILY_CLASSIFY_FIELDS)
+    columns.append(Column("report_start_date", Date, nullable=True))
+    columns.append(Column("report_end_date", Date, nullable=True))
+    columns.append(Column("extra_fields", JSON, nullable=True))
+    columns.append(Column("created_at", DateTime(timezone=True), server_default=func.date_trunc('minute', func.now())))
+    columns.append(Column("updated_at", DateTime(timezone=True), server_default=func.date_trunc('minute', func.now()), onupdate=func.date_trunc('minute', func.now())))
+    return Table(
+        VIP_DAILY_SNAPSHOT_TABLE_NAME, METADATA,
+        *columns,
+        UniqueConstraint("snapshot_date", "goods_id", name="uq_daily_snapshot_date_goods"),
+    )
+
+
+VIP_DAILY_SNAPSHOT_TABLE = build_vip_daily_snapshot_table()
 VIP_REALTIME_TABLE = build_vip_realtime_table()
 VIP_OPS_TABLE = build_vip_ops_table()
 

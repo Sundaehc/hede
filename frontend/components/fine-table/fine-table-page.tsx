@@ -30,6 +30,7 @@ import type { FineTableItem, ProductListItem } from "@/lib/types"
 import { cn } from "@/lib/utils"
 
 const PAGE_SIZE = 80
+const DAILY_SALES_DISPLAY_DAYS = 5
 
 type ViewKey = "all" | "missingImage"
 type ColumnMode = "default" | "full" | "custom"
@@ -170,6 +171,10 @@ function otherProjected15dStock(row: FineTableItem) {
 
 function orderInTransitStock(row: FineTableItem) {
   return row.inbound_qty - row.defect_in_transit_stock
+}
+
+function visibleDailySales(row: FineTableItem) {
+  return row.daily_sales.slice(-DAILY_SALES_DISPLAY_DAYS)
 }
 
 function getPageTokens(currentPage: number, totalPages: number): PageToken[] {
@@ -344,7 +349,7 @@ function createTableColumns(dailyLabels: string[]): TableColumn[] {
     label,
     group: "每日",
     align: "right",
-    render: (row) => formatNumber(row.daily_sales[index]?.quantity ?? 0),
+    render: (row) => formatNumber(visibleDailySales(row)[index]?.quantity ?? 0),
   }))
 
   const sizeColumns: TableColumn[] = SIZE_STOCK_LABELS.map((label) => ({
@@ -571,7 +576,7 @@ function TrendBars({ values }: { values: number[] }) {
 
 function DetailDrawer({ row, onClose }: { row: FineTableItem | null; onClose: () => void }) {
   if (!row) return null
-  const dailyValues = row.daily_sales.map((item) => item.quantity)
+  const dailyValues = visibleDailySales(row).map((item) => item.quantity)
   const dailyTotal = dailyValues.reduce((sum, value) => sum + value, 0)
   const marketReference = row.latest_purchase_price == null ? null : Math.round((row.latest_purchase_price + 10) * 1.13 * 11)
 
@@ -901,7 +906,7 @@ export function FineTablePage() {
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE))
   const dailyLabels = useMemo(() => {
     const sample = items.find((row) => row.daily_sales.length > 0)
-    return sample?.daily_sales.map((item) => item.date.slice(5)) ?? []
+    return sample ? visibleDailySales(sample).map((item) => item.date.slice(5)) : []
   }, [items])
   const tableColumns = useMemo(() => createTableColumns(dailyLabels), [dailyLabels])
   const visibleColumns = useMemo(() => {
