@@ -57,12 +57,12 @@ def coerce_cost(value: object) -> Decimal | None:
     if is_empty_like(value):
         return None
     if isinstance(value, Decimal):
-        return value
+        return value.quantize(Decimal("0.1"))
     try:
         text = str(value).replace(",", "").strip()
         if not text:
             return None
-        return Decimal(text)
+        return Decimal(text).quantize(Decimal("0.1"))
     except (InvalidOperation, ValueError):
         return None
 

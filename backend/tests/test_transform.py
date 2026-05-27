@@ -38,7 +38,7 @@ def test_build_canonical_row_uses_original_sku_when_sku_missing():
     assert canonical is not None
     assert canonical["sku"] == "A1001"
     assert canonical["original_sku"] == "A1001"
-    assert canonical["cost"] == Decimal("199.50")
+    assert canonical["cost"] == Decimal("199.5")
     assert canonical["season_category"] == "spring"
     assert canonical["year"] == "2025"
     assert canonical["image_path"] == "//server/images/A1001.jpg"
@@ -235,7 +235,7 @@ def test_normalize_admin_payload_keeps_only_editable_columns_and_normalizes_valu
     assert normalized == {
         "sku": "1001",
         "original_sku": "OR-1001",
-        "cost": Decimal("1299.50"),
+        "cost": Decimal("1299.5"),
         "color": None,
         "first_order_time": "2026-04-23",
         "shoe_box_spec": "40x30x20",
@@ -254,7 +254,7 @@ def test_build_admin_record_sets_manual_metadata_and_raw_payload_from_normalized
     record = build_admin_record("cbanner_womens", payload)
 
     assert record["sku"] == "SKU-1"
-    assert record["cost"] == Decimal("88.00")
+    assert record["cost"] == Decimal("88.0")
     assert record["first_order_time"] == "2026-04-05"
     assert record["source_workbook"] == "manual_admin"
     assert record["source_sheet"] == "cbanner_womens"

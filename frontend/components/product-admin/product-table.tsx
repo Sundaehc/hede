@@ -137,7 +137,7 @@ function ProductCard({ item, selectable, selectedIds, onToggleSelect, onEdit, on
           {item.season_category ? <span><span className="text-muted-foreground">季节:</span> {item.season_category}</span> : null}
           {item.year ? <span><span className="text-muted-foreground">年份:</span> {item.year}</span> : null}
           {item.color ? <span><span className="text-muted-foreground">颜色:</span> {item.color}</span> : null}
-          {item.cost ? <span><span className="text-muted-foreground">成本:</span> {item.cost}</span> : null}
+          {item.cost ? <span><span className="text-muted-foreground">成本:</span> {Number(item.cost).toFixed(1)}</span> : null}
           {item.size_range ? <span><span className="text-muted-foreground">尺码段:</span> {item.size_range}</span> : null}
         </div>
 

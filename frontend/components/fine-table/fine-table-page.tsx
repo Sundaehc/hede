@@ -130,7 +130,11 @@ function formatPercent(value: number) {
 }
 
 function nullableCurrency(value: number | null | undefined) {
-  return value == null ? "-" : `¥${Math.round(value)}`
+  return value == null || !Number.isFinite(value) ? "-" : `¥${Math.round(value)}`
+}
+
+function nullableCost(value: number | null | undefined) {
+  return value == null || !Number.isFinite(value) ? "-" : `¥${value.toFixed(1)}`
 }
 
 function nullablePercent(value: number | null | undefined) {
@@ -401,7 +405,7 @@ function createTableColumns(dailyLabels: string[]): TableColumn[] {
     { key: "first_order_time", label: "首单日期", group: "基础", render: (row) => row.first_order_time || "-" },
     { key: "sales_tag", label: "畅销度", group: "基础", className: "min-w-36", render: (row) => row.sales_tag || "-" },
 
-    { key: "cost", label: "成本", group: "价格", align: "right", defaultVisible: true, render: (row) => nullableCurrency(row.latest_purchase_price) },
+    { key: "cost", label: "成本", group: "价格", align: "right", defaultVisible: true, render: (row) => nullableCost(row.latest_purchase_price) },
     { key: "final_price", label: "到手价", group: "价格", align: "right", defaultVisible: true, render: (row) => nullableCurrency(row.final_price) },
     { key: "vip_price", label: "唯品价", group: "价格", align: "right", render: (row) => nullableCurrency(row.vip_price) },
     { key: "market_price", label: "市场价", group: "价格", align: "right", render: (row) => nullableCurrency(row.market_price) },
@@ -656,7 +660,7 @@ function DetailDrawer({ row, onClose }: { row: FineTableItem | null; onClose: ()
               </div>
               <div className="rounded-lg border border-border">
                 {[
-                  ["成本", nullableCurrency(row.latest_purchase_price)],
+                  ["成本", nullableCost(row.latest_purchase_price)],
                   ["唯品价", nullableCurrency(row.vip_price)],
                   ["市场价", nullableCurrency(row.market_price)],
                   ["市场价参考", nullableCurrency(marketReference)],
