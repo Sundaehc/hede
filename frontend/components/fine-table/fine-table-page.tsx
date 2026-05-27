@@ -71,6 +71,8 @@ const SIZE_STOCK_LABELS = [
 const DEFAULT_COLUMN_KEYS = [
   "status",
   "group_name",
+  "product_name",
+  "main_style",
   "season",
   "cost",
   "final_price",
@@ -87,10 +89,13 @@ const DEFAULT_COLUMN_KEYS = [
   "vip_3d_exposure",
   "vip_7d_exposure",
   "vip_30d_exposure",
-  "total_30d_sales",
   "stock_qty",
   "projected_5d_stock_no_inbound",
   "inbound_qty",
+  "original_defect_stock",
+  "original_inbound_qty",
+  "original_order_in_transit_stock",
+  "original_defect_in_transit_stock",
   "order_in_transit_stock",
   "defect_in_transit_stock",
   "vip_projected_15d_stock",
@@ -369,6 +374,8 @@ function createTableColumns(dailyLabels: string[]): TableColumn[] {
       render: (row) => <StatusBadge row={row} />,
     },
     { key: "group_name", label: "组别", group: "基础", className: "min-w-28", defaultVisible: true, render: (row) => row.group_name || "-" },
+    { key: "product_name", label: "品名", group: "基础", className: "min-w-28", defaultVisible: true, render: (row) => row.product_name || "-" },
+    { key: "main_style", label: "主款式", group: "基础", className: "min-w-28", defaultVisible: true, render: (row) => row.main_style || "-" },
     {
       key: "season",
       label: "季节",
@@ -429,7 +436,6 @@ function createTableColumns(dailyLabels: string[]): TableColumn[] {
     { key: "original_other_7d_sales", label: "其他原始7天", group: "销售", align: "right", defaultVisible: true, render: (row) => formatNumber(row.original_other_7d_sales) },
     { key: "original_other_15d_sales", label: "其他原始15天", group: "销售", align: "right", defaultVisible: true, render: (row) => formatNumber(row.original_other_15d_sales) },
     { key: "original_other_30d_sales", label: "其他原始30天", group: "销售", align: "right", defaultVisible: true, render: (row) => formatNumber(row.original_other_30d_sales) },
-    { key: "total_30d_sales", label: "30天总销", group: "销售", align: "right", defaultVisible: true, render: (row) => formatNumber(row.vip_30d_sales + row.other_30d_sales) },
     { key: "vip_3d_uv", label: "3天UV", group: "销售", align: "right", render: (row) => formatNumber(row.vip_3d_uv) },
     { key: "vip_7d_uv", label: "7天UV", group: "销售", align: "right", render: (row) => formatNumber(row.vip_7d_uv) },
     { key: "vip_30d_uv", label: "30天UV", group: "销售", align: "right", render: (row) => formatNumber(row.vip_30d_uv) },
@@ -453,10 +459,10 @@ function createTableColumns(dailyLabels: string[]): TableColumn[] {
     { key: "vip_30d_reject_count", label: "30天拒退", group: "销售", align: "right", render: (row) => formatNumber(row.vip_30d_reject_count) },
     { key: "vip_30d_reject_rate", label: "30天拒退率", group: "销售", align: "right", render: (row) => row.vip_30d_reject_rate || "-" },
 
-    { key: "stock_qty", label: "库存", group: "库存", align: "right", defaultVisible: true, render: (row) => formatNumber(row.stock_qty) },
+    { key: "stock_qty", label: "聚水潭库存", group: "库存", align: "right", defaultVisible: true, render: (row) => formatNumber(row.stock_qty) },
     {
       key: "projected_5d_stock_no_inbound",
-      label: "5天后(不加未到)",
+      label: "现有5天后预计库存(不加未到)",
       group: "库存",
       align: "right",
       defaultVisible: true,
@@ -471,6 +477,10 @@ function createTableColumns(dailyLabels: string[]): TableColumn[] {
     },
     { key: "inbound_qty", label: "采购在途数", group: "库存", align: "right", defaultVisible: true, render: (row) => formatNumber(row.inbound_qty) },
     { key: "defect_stock", label: "次品库存", group: "库存", align: "right", defaultVisible: true, render: (row) => formatNumber(row.defect_stock) },
+    { key: "original_defect_stock", label: "原始货号次品仓汇总", group: "库存", align: "right", defaultVisible: true, render: (row) => formatNumber(row.original_defect_stock ?? 0) },
+    { key: "original_inbound_qty", label: "原始货号采购在途数量汇总", group: "库存", align: "right", defaultVisible: true, render: (row) => formatNumber(row.original_inbound_qty ?? 0) },
+    { key: "original_order_in_transit_stock", label: "原始货号已下订单未到数量汇总", group: "库存", align: "right", defaultVisible: true, render: (row) => formatNumber(row.original_order_in_transit_stock ?? 0) },
+    { key: "original_defect_in_transit_stock", label: "原始货号打次未到数量汇总", group: "库存", align: "right", defaultVisible: true, render: (row) => formatNumber(row.original_defect_in_transit_stock ?? 0) },
     { key: "off_shelf_stock", label: "下架仓商品数量", group: "库存", align: "right", defaultVisible: true, render: (row) => formatNumber(row.off_shelf_stock) },
     { key: "order_occupy_stock", label: "订单占有", group: "库存", align: "right", render: (row) => formatNumber(row.order_occupy_stock) },
     { key: "order_in_transit_stock", label: "已下订单未到数量", group: "库存", align: "right", defaultVisible: true, render: (row) => formatNumber(orderInTransitStock(row)) },
@@ -618,6 +628,8 @@ function DetailDrawer({ row, onClose }: { row: FineTableItem | null; onClose: ()
                   ["款号", row.style_code],
                   ["工厂货号", row.factory_sku],
                   ["组别", row.group_name],
+                  ["品名", row.product_name],
+                  ["主款式", row.main_style],
                   ["三级分类", row.category_l3 || row.product_model],
                   ["季节分类", row.season_category],
                   ["首单日期", row.first_order_time],
@@ -697,11 +709,15 @@ function DetailDrawer({ row, onClose }: { row: FineTableItem | null; onClose: ()
             <TabsContent value="stock" className="space-y-4">
               <div className="grid grid-cols-2 gap-3">
                 <StatCard icon={Boxes} label="聚水潭库存" value={formatNumber(row.stock_qty)} tone={row.stock_qty < row.vip_7d_sales ? "warn" : "neutral"} />
-                <StatCard icon={AlertTriangle} label="5天后不加未到" value={nullableInteger(projected5dStockNoInbound(row))} tone={projected5dStockNoInbound(row) < 0 ? "risk" : "good"} />
+                <StatCard icon={AlertTriangle} label="现有5天后预计库存(不加未到)" value={nullableInteger(projected5dStockNoInbound(row))} tone={projected5dStockNoInbound(row) < 0 ? "risk" : "good"} />
                 <StatCard icon={AlertTriangle} label="15天后库存减唯品会" value={nullableInteger(vipProjected15dStock(row))} tone={vipProjected15dStock(row) < 0 ? "risk" : "good"} />
                 <StatCard icon={AlertTriangle} label="15天后库存减其他平台" value={nullableInteger(otherProjected15dStock(row))} tone={otherProjected15dStock(row) < 0 ? "risk" : "good"} />
                 <StatCard icon={Layers3} label="采购在途数" value={formatNumber(row.inbound_qty)} />
                 <StatCard icon={Boxes} label="次品库存" value={formatNumber(row.defect_stock)} />
+                <StatCard icon={Boxes} label="原始货号次品仓汇总" value={formatNumber(row.original_defect_stock ?? 0)} />
+                <StatCard icon={Layers3} label="原始货号采购在途数量汇总" value={formatNumber(row.original_inbound_qty ?? 0)} />
+                <StatCard icon={Layers3} label="原始货号已下订单未到数量汇总" value={formatNumber(row.original_order_in_transit_stock ?? 0)} />
+                <StatCard icon={Boxes} label="原始货号打次未到数量汇总" value={formatNumber(row.original_defect_in_transit_stock ?? 0)} />
                 <StatCard icon={Boxes} label="下架仓商品数量" value={formatNumber(row.off_shelf_stock)} />
                 <StatCard icon={Layers3} label="已下订单未到数量" value={formatNumber(orderInTransitStock(row))} />
                 <StatCard icon={Boxes} label="打次未到数量" value={formatNumber(row.defect_in_transit_stock)} />

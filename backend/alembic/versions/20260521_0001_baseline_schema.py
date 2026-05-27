@@ -10,7 +10,7 @@ from collections.abc import Sequence
 
 from alembic import op
 
-from domain import inventory_schema, vip_schema  # noqa: F401 - register tables on METADATA
+from domain import gj_schema, inventory_schema, vip_schema  # noqa: F401 - register tables on METADATA
 from domain.schema import METADATA
 
 

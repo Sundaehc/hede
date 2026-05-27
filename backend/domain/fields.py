@@ -228,3 +228,25 @@ JST_PURCHASE_DIFF_FIELDS: tuple[FieldSpec, ...] = (
     FieldSpec("product_code", "货号"),
     FieldSpec("difference_count", "差异数", "integer"),
 )
+
+
+GJ_MERGED_PRODUCT_INFO_FIELDS: tuple[FieldSpec, ...] = (
+    FieldSpec("row_no", "行号", "integer"),
+    FieldSpec("goods_code", "货号"),
+    FieldSpec("original_goods_code", "原始货号"),
+    FieldSpec("goods_full_name", "商品全名"),
+    FieldSpec("barcode", "商品条码"),
+    FieldSpec("factory_code", "工厂货号"),
+    FieldSpec("product_name", "品名"),
+    FieldSpec("execution_standard", "执行标准"),
+    FieldSpec("barcode_format", "条码格式"),
+    FieldSpec("launch_date", "上市日期"),
+    FieldSpec("insole_material", "鞋垫材质"),
+    FieldSpec("outsole_material", "大底材质"),
+    FieldSpec("lining_material", "内里材质"),
+    FieldSpec("upper_material", "鞋面材质"),
+    FieldSpec("shoe_box_spec", "鞋盒规格"),
+    FieldSpec("brand", "品牌"),
+    FieldSpec("disabled_flag", "是否停用"),
+    FieldSpec("primary_supplier", "主供应商"),
+)

@@ -62,6 +62,8 @@ export type FineTableItem = ProductListItem & {
   p_spu: string | null
   style_code: string | null
   category_l3: string | null
+  product_name: string | null
+  main_style: string | null
   goods_status: string | null
   status_key: "online" | "partial" | "offline" | "unknown"
   sales_tag: string | null
@@ -113,6 +115,10 @@ export type FineTableItem = ProductListItem & {
   purchase_diff: number
   inbound_qty: number
   defect_stock: number
+  original_defect_stock: number
+  original_inbound_qty: number
+  original_order_in_transit_stock: number
+  original_defect_in_transit_stock: number
   off_shelf_stock: number
   order_occupy_stock: number
   defect_in_transit_stock: number

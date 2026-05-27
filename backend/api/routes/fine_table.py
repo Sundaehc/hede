@@ -8,6 +8,7 @@ from fastapi import APIRouter, Query, Request
 from sqlalchemy import and_, desc, func, or_, select
 
 from api.routes.images import image_url_for
+from domain.gj_schema import GJ_MERGED_PRODUCT_INFO_TABLE
 from domain.schema import PRODUCT_TABLES
 from domain.vip_schema import (
     JST_PRICE_TABLE,
@@ -120,6 +121,14 @@ def _daily_report_metric(daily: dict[tuple[str, str], dict[str, Any]], report_ty
     if row is None:
         return None
     return row.get(field)
+
+
+def _compass_metric(daily: dict[tuple[str, str], dict[str, Any]], field: str) -> Any:
+    for period in ("1d", "3d", "7d", "30d"):
+        value = _daily_report_metric(daily, "罗盘", period, field)
+        if value not in (None, ""):
+            return value
+    return None
 
 
 def _change_rate(current: Any, baseline: Any) -> float | None:
@@ -262,6 +271,7 @@ def list_fine_table(
             label = SIZE_LABELS.get(size, size)
             size_stock_by_sku.setdefault(sku, {})[label] = _to_int(row["qty"])
 
+        stock_codes = sorted({*skus, *all_original_group_skus})
         stock_summary_by_sku: dict[str, dict[str, int]] = {}
         for row in conn.execute(
             select(
@@ -271,7 +281,7 @@ def list_fine_table(
                 func.sum(JST_STOCK_SUMMARY_TABLE.c.off_shelf_qty).label("off_shelf_qty"),
                 func.sum(JST_STOCK_SUMMARY_TABLE.c.order_occupy_qty).label("order_occupy_qty"),
             )
-            .where(JST_STOCK_SUMMARY_TABLE.c.product_code.in_(skus))
+            .where(JST_STOCK_SUMMARY_TABLE.c.product_code.in_(stock_codes))
             .group_by(JST_STOCK_SUMMARY_TABLE.c.product_code)
         ).mappings():
             stock_summary_by_sku[str(row["product_code"])] = {
@@ -284,10 +294,48 @@ def list_fine_table(
         defect_in_transit_by_sku: dict[str, int] = {}
         for row in conn.execute(
             select(JST_PURCHASE_DIFF_TABLE.c.product_code, func.sum(JST_PURCHASE_DIFF_TABLE.c.difference_count).label("qty"))
-            .where(JST_PURCHASE_DIFF_TABLE.c.product_code.in_(skus))
+            .where(JST_PURCHASE_DIFF_TABLE.c.product_code.in_(stock_codes))
             .group_by(JST_PURCHASE_DIFF_TABLE.c.product_code)
         ).mappings():
             defect_in_transit_by_sku[str(row["product_code"])] = _to_int(row["qty"])
+
+        latest_gj_product_info_date = conn.execute(
+            select(func.max(GJ_MERGED_PRODUCT_INFO_TABLE.c.source_date_value))
+            .where(GJ_MERGED_PRODUCT_INFO_TABLE.c.goods_code.in_(skus))
+        ).scalar()
+        product_name_by_sku: dict[str, str] = {}
+        if latest_gj_product_info_date is not None:
+            for row in conn.execute(
+                select(
+                    GJ_MERGED_PRODUCT_INFO_TABLE.c.goods_code,
+                    GJ_MERGED_PRODUCT_INFO_TABLE.c.product_name,
+                )
+                .where(GJ_MERGED_PRODUCT_INFO_TABLE.c.goods_code.in_(skus))
+                .where(GJ_MERGED_PRODUCT_INFO_TABLE.c.source_date_value == latest_gj_product_info_date)
+                .order_by(desc(GJ_MERGED_PRODUCT_INFO_TABLE.c.updated_at), desc(GJ_MERGED_PRODUCT_INFO_TABLE.c.id))
+            ).mappings():
+                sku = str(row["goods_code"] or "").strip()
+                product_name = str(row["product_name"] or "").strip()
+                if sku and product_name:
+                    product_name_by_sku.setdefault(sku, product_name)
+
+        original_stock_summary_by_code: dict[str, dict[str, int]] = {}
+        original_defect_in_transit_by_code: dict[str, int] = {}
+        for original_sku, grouped_skus in original_skus_by_code.items():
+            summary = {
+                "defect_stock_qty": 0,
+                "purchase_in_transit_qty": 0,
+                "order_occupy_qty": 0,
+            }
+            defect_in_transit_total = 0
+            for grouped_sku in grouped_skus:
+                stock_summary = stock_summary_by_sku.get(grouped_sku, {})
+                summary["defect_stock_qty"] += stock_summary.get("defect_stock_qty", 0)
+                summary["purchase_in_transit_qty"] += stock_summary.get("purchase_in_transit_qty", 0)
+                summary["order_occupy_qty"] += stock_summary.get("order_occupy_qty", 0)
+                defect_in_transit_total += defect_in_transit_by_sku.get(grouped_sku, 0)
+            original_stock_summary_by_code[original_sku] = summary
+            original_defect_in_transit_by_code[original_sku] = defect_in_transit_total
 
         latest_daily_snapshot_day = conn.execute(
             select(func.max(VIP_DAILY_SNAPSHOT_TABLE.c.snapshot_date))
@@ -398,6 +446,9 @@ def list_fine_table(
         stock_summary = stock_summary_by_sku.get(sku, {})
         inbound_qty = stock_summary.get("purchase_in_transit_qty", 0)
         defect_in_transit_qty = defect_in_transit_by_sku.get(sku, 0)
+        original_stock_summary = original_stock_summary_by_code.get(original_sku, {})
+        original_inbound_qty = original_stock_summary.get("purchase_in_transit_qty", 0)
+        original_defect_in_transit_qty = original_defect_in_transit_by_code.get(original_sku, 0)
         cost = (
             _to_float(price.get("latest_purchase_price"))
             or _to_float(price.get("preset_price"))
@@ -458,6 +509,8 @@ def list_fine_table(
             **product,
             "brand": BRAND,
             "image_url": image_url_for(BRAND, product.get("image_path"), settings),
+            "product_name": product_name_by_sku.get(sku),
+            "main_style": _compass_metric(daily, "main_style"),
             "goods_id": ops.get("goods_id"),
             "p_spu": ops.get("p_spu"),
             "style_code": ops.get("style_code"),
@@ -515,6 +568,10 @@ def list_fine_table(
             "size_stock": size_stock,
             "inbound_qty": inbound_qty,
             "defect_stock": stock_summary.get("defect_stock_qty", 0),
+            "original_defect_stock": original_stock_summary.get("defect_stock_qty", 0),
+            "original_inbound_qty": original_inbound_qty,
+            "original_order_in_transit_stock": original_inbound_qty - original_defect_in_transit_qty,
+            "original_defect_in_transit_stock": original_defect_in_transit_qty,
             "off_shelf_stock": stock_summary.get("off_shelf_qty", 0),
             "order_occupy_stock": stock_summary.get("order_occupy_qty", 0),
             "defect_in_transit_stock": defect_in_transit_qty,

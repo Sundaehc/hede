@@ -6,7 +6,7 @@ from alembic import context
 from sqlalchemy import engine_from_config, pool
 
 from config import load_settings
-from domain import inventory_schema, vip_schema  # noqa: F401 - register tables on METADATA
+from domain import gj_schema, inventory_schema, vip_schema  # noqa: F401 - register tables on METADATA
 from domain.schema import METADATA
 
 
