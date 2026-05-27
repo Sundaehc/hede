@@ -5,6 +5,7 @@ Run: python -m scripts.add_performance_indexes
 from __future__ import annotations
 
 from config import load_settings
+from domain.sources import TABLE_NAMES
 from sqlalchemy import create_engine, text
 
 
@@ -23,8 +24,7 @@ def main() -> None:
         conn.execute(text("CREATE EXTENSION IF NOT EXISTS pg_trgm"))
 
         # Product tables: trigram indexes for fuzzy search + year index
-        for brand in ("qbd_mens", "qbd_womens", "yandou", "yiban"):
-            table = f"{brand}_products"
+        for table in TABLE_NAMES.values():
             conn.execute(text(f"CREATE INDEX IF NOT EXISTS idx_{table}_year ON {table} (year)"))
             conn.execute(text(f"CREATE INDEX IF NOT EXISTS idx_{table}_sku_trgm ON {table} USING GIN (sku gin_trgm_ops)"))
             conn.execute(text(f"CREATE INDEX IF NOT EXISTS idx_{table}_original_sku_trgm ON {table} USING GIN (original_sku gin_trgm_ops)"))

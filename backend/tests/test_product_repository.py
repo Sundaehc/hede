@@ -17,29 +17,29 @@ def test_list_products_returns_paginated_items_filtered_by_original_sku_in_desc_
     repository: ProductRepository,
 ):
     first = repository.create_product(
-        "qbd_womens",
+        "cbanner_womens",
         build_admin_record(
-            "qbd_womens",
+            "cbanner_womens",
             {"sku": "SKU-001", "original_sku": "Alpha-001", "color": "Black"},
         ),
     )
     second = repository.create_product(
-        "qbd_womens",
+        "cbanner_womens",
         build_admin_record(
-            "qbd_womens",
+            "cbanner_womens",
             {"sku": "SKU-002", "original_sku": "beta-002", "color": "White"},
         ),
     )
     third = repository.create_product(
-        "qbd_womens",
+        "cbanner_womens",
         build_admin_record(
-            "qbd_womens",
+            "cbanner_womens",
             {"sku": "SKU-003", "original_sku": "ALPHA-003", "color": "Red"},
         ),
     )
 
-    page_one = repository.list_products("qbd_womens", query="alpha", page=1, page_size=1)
-    page_two = repository.list_products("qbd_womens", query="alpha", page=2, page_size=1)
+    page_one = repository.list_products("cbanner_womens", query="alpha", page=1, page_size=1)
+    page_two = repository.list_products("cbanner_womens", query="alpha", page=2, page_size=1)
 
     assert page_one == {
         "items": [third],
@@ -58,16 +58,16 @@ def test_list_products_returns_paginated_items_filtered_by_original_sku_in_desc_
 
 def test_list_products_treats_none_and_empty_query_as_unfiltered(repository: ProductRepository):
     first = repository.create_product(
-        "qbd_womens",
+        "cbanner_womens",
         build_admin_record(
-            "qbd_womens",
+            "cbanner_womens",
             {"sku": "SKU-001", "original_sku": "Alpha-001"},
         ),
     )
     second = repository.create_product(
-        "qbd_womens",
+        "cbanner_womens",
         build_admin_record(
-            "qbd_womens",
+            "cbanner_womens",
             {"sku": "SKU-002", "original_sku": "Beta-002"},
         ),
     )
@@ -79,8 +79,8 @@ def test_list_products_treats_none_and_empty_query_as_unfiltered(repository: Pro
         "page_size": 10,
     }
 
-    assert repository.list_products("qbd_womens", query=None, page=1, page_size=10) == expected
-    assert repository.list_products("qbd_womens", query="", page=1, page_size=10) == expected
+    assert repository.list_products("cbanner_womens", query=None, page=1, page_size=10) == expected
+    assert repository.list_products("cbanner_womens", query="", page=1, page_size=10) == expected
 
 
 def test_get_product_returns_row_or_none(repository: ProductRepository):
@@ -98,9 +98,9 @@ def test_get_product_returns_row_or_none(repository: ProductRepository):
 
 def test_create_product_persists_and_returns_created_row(repository: ProductRepository):
     created = repository.create_product(
-        "yiban",
+        "eblan",
         build_admin_record(
-            "yiban",
+            "eblan",
             {"sku": "YB-100", "original_sku": "YB-ORIG-100", "cost": "88.00"},
         ),
     )
@@ -110,25 +110,25 @@ def test_create_product_persists_and_returns_created_row(repository: ProductRepo
     assert created["original_sku"] == "YB-ORIG-100"
     assert created["cost"] == Decimal("88.00")
     assert created["source_workbook"] == "manual_admin"
-    assert repository.get_product("yiban", created["id"]) == created
+    assert repository.get_product("eblan", created["id"]) == created
 
 
 def test_update_product_returns_updated_row_and_none_for_missing_record(
     repository: ProductRepository,
 ):
     created = repository.create_product(
-        "qbd_mens",
+        "cbanner_mens",
         build_admin_record(
-            "qbd_mens",
+            "cbanner_mens",
             {"sku": "QM-100", "original_sku": "QM-ORIG-100", "color": "Black"},
         ),
     )
 
     updated = repository.update_product(
-        "qbd_mens",
+        "cbanner_mens",
         created["id"],
         build_admin_record(
-            "qbd_mens",
+            "cbanner_mens",
             {"sku": "QM-100-NEW", "original_sku": "QM-ORIG-100", "color": "Brown"},
             existing_metadata={
                 "source_workbook": created["source_workbook"],
@@ -143,18 +143,18 @@ def test_update_product_returns_updated_row_and_none_for_missing_record(
     assert updated["sku"] == "QM-100-NEW"
     assert updated["color"] == "Brown"
     assert updated["source_workbook"] == created["source_workbook"]
-    assert repository.update_product("qbd_mens", created["id"] + 9999, {"sku": "missing"}) is None
+    assert repository.update_product("cbanner_mens", created["id"] + 9999, {"sku": "missing"}) is None
 
 
 def test_delete_product_removes_row_and_reports_success(repository: ProductRepository):
     created = repository.create_product(
-        "qbd_womens",
+        "cbanner_womens",
         build_admin_record(
-            "qbd_womens",
+            "cbanner_womens",
             {"sku": "DEL-1", "original_sku": "DEL-1"},
         ),
     )
 
-    assert repository.delete_product("qbd_womens", created["id"]) is True
-    assert repository.get_product("qbd_womens", created["id"]) is None
-    assert repository.delete_product("qbd_womens", created["id"]) is False
+    assert repository.delete_product("cbanner_womens", created["id"]) is True
+    assert repository.get_product("cbanner_womens", created["id"]) is None
+    assert repository.delete_product("cbanner_womens", created["id"]) is False

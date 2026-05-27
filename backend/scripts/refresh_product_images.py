@@ -2,7 +2,7 @@
 
 Run:
   python -m scripts.refresh_product_images
-  python -m scripts.refresh_product_images --brand qbd_mens
+  python -m scripts.refresh_product_images --brand cbanner_mens
   python -m scripts.refresh_product_images --overwrite
 """
 from __future__ import annotations

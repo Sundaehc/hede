@@ -16,9 +16,9 @@ class Settings:
     database_url: str | None
     frontend_origin: str
     excel_root: Path
-    qbd_image_root: Path
+    cbanner_image_root: Path
     yandou_image_root: Path
-    yiban_image_root: Path
+    eblan_image_root: Path
     jst_stock_root: Path | None = None
     vip_data_root: Path | None = None
     jst_price_root: Path | None = None
@@ -26,9 +26,9 @@ class Settings:
     @property
     def image_roots(self) -> dict[str, Path]:
         return {
-            "qbd": self.qbd_image_root,
+            "cbanner": self.cbanner_image_root,
             "yandou": self.yandou_image_root,
-            "yiban": self.yiban_image_root,
+            "eblan": self.eblan_image_root,
         }
 
 
@@ -66,9 +66,9 @@ def load_settings(require_database: bool = True) -> Settings:
         database_url=database_url,
         frontend_origin=os.getenv("FRONTEND_ORIGIN", "http://127.0.0.1:3000"),
         excel_root=_path_from_env("EXCEL_ROOT"),
-        qbd_image_root=_path_from_env("QBD_IMAGE_ROOT"),
+        cbanner_image_root=_path_from_env("CBANNER_IMAGE_ROOT"),
         yandou_image_root=_path_from_env("YANDOU_IMAGE_ROOT"),
-        yiban_image_root=_path_from_env("YIBAN_IMAGE_ROOT"),
+        eblan_image_root=_path_from_env("EBLAN_IMAGE_ROOT"),
         jst_stock_root=jst_stock_root,
         vip_data_root=vip_data_root,
         jst_price_root=jst_price_root,

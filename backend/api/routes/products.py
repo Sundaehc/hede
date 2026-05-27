@@ -9,7 +9,7 @@ from sqlalchemy import distinct as sa_distinct, select as sa_select
 
 from domain.schema import PRODUCT_TABLES
 
-ALL_BRAND_KEYS = ["qbd_mens", "qbd_womens", "yandou", "yiban"]
+ALL_BRAND_KEYS = ["cbanner_mens", "cbanner_womens", "yandou", "eblan"]
 from transform.rows import build_admin_record
 
 

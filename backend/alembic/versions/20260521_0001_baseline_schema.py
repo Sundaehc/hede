@@ -34,7 +34,7 @@ def downgrade() -> None:
 def _create_current_indexes() -> None:
     op.execute("CREATE EXTENSION IF NOT EXISTS pg_trgm")
 
-    for table in ("qbd_mens_products", "qbd_womens_products", "yandou_products", "yiban_products"):
+    for table in ("cbanner_mens_products", "cbanner_womens_products", "yandou_products", "eblan_products"):
         op.execute(f"CREATE INDEX IF NOT EXISTS idx_{table}_year ON {table} (year)")
         op.execute(f"CREATE INDEX IF NOT EXISTS idx_{table}_sku_trgm ON {table} USING GIN (sku gin_trgm_ops)")
         op.execute(

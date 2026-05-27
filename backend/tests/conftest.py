@@ -50,23 +50,23 @@ def test_app_client(
     backend_root.mkdir()
 
     excel_root = tmp_path / "excel"
-    qbd_image_root = tmp_path / "qbd-images"
+    cbanner_image_root = tmp_path / "qbd-images"
     yandou_image_root = tmp_path / "yandou-images"
-    yiban_image_root = tmp_path / "yiban-images"
+    eblan_image_root = tmp_path / "eblan-images"
 
-    for directory in (excel_root, qbd_image_root, yandou_image_root, yiban_image_root):
+    for directory in (excel_root, cbanner_image_root, yandou_image_root, eblan_image_root):
         directory.mkdir()
 
-    (qbd_image_root / "ABC123.jpg").write_text("x", encoding="utf-8")
-    (qbd_image_root / "FALLBACK123.jpg").write_text("x", encoding="utf-8")
+    (cbanner_image_root / "ABC123.jpg").write_text("x", encoding="utf-8")
+    (cbanner_image_root / "FALLBACK123.jpg").write_text("x", encoding="utf-8")
 
     monkeypatch.setattr(config_module, "BACKEND_ROOT", backend_root)
     monkeypatch.setenv("DATABASE_URL", test_database_url)
     monkeypatch.setenv("FRONTEND_ORIGIN", "http://localhost:3000")
     monkeypatch.setenv("EXCEL_SOURCE_ROOT", str(excel_root))
-    monkeypatch.setenv("QBD_IMAGE_ROOT", str(qbd_image_root))
+    monkeypatch.setenv("CBANNER_IMAGE_ROOT", str(cbanner_image_root))
     monkeypatch.setenv("YANDOU_IMAGE_ROOT", str(yandou_image_root))
-    monkeypatch.setenv("YIBAN_IMAGE_ROOT", str(yiban_image_root))
+    monkeypatch.setenv("EBLAN_IMAGE_ROOT", str(eblan_image_root))
 
     settings = load_settings(require_database=False)
 
@@ -76,10 +76,10 @@ def test_app_client(
         settings=settings,
         repository=repository,
         image_matchers={
-            "qbd_mens": ImageMatcher(qbd_image_root),
-            "qbd_womens": ImageMatcher(qbd_image_root),
+            "cbanner_mens": ImageMatcher(cbanner_image_root),
+            "cbanner_womens": ImageMatcher(cbanner_image_root),
             "yandou": ImageMatcher(yandou_image_root),
-            "yiban": ImageMatcher(yiban_image_root),
+            "eblan": ImageMatcher(eblan_image_root),
         },
     )
 

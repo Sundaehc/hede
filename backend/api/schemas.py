@@ -5,7 +5,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, model_validator
 
 
-BrandKey = Literal["qbd_mens", "qbd_womens", "yandou", "yiban"]
+BrandKey = Literal["cbanner_mens", "cbanner_womens", "yandou", "eblan"]
 MatchedBy = Literal["original_sku", "sku", "none"]
 
 

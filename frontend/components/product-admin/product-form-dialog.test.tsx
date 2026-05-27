@@ -59,9 +59,9 @@ const NULL_FIELDS = {
 
 const sampleItem: ProductListItem = {
   id: 7,
-  brand: "qbd_mens",
+  brand: "cbanner_mens",
   image_path: "/images/original.jpg",
-  image_url: "/images/serve/qbd_mens/original.jpg",
+  image_url: "/images/serve/cbanner_mens/original.jpg",
   sku: "SKU-007",
   original_sku: "ORIG-007",
   group_name: null,
@@ -136,7 +136,7 @@ describe("ProductFormDialog", () => {
 
     render(<ProductFormDialog open mode="create" onOpenChange={vi.fn()} onSaved={vi.fn()} />)
 
-    await user.selectOptions(screen.getByLabelText("品牌"), "qbd_mens")
+    await user.selectOptions(screen.getByLabelText("品牌"), "cbanner_mens")
     await user.type(document.getElementById("product-form-original_sku")!, "ORIG-123")
     await user.clear(document.getElementById("product-form-sku")!)
     await user.type(document.getElementById("product-form-sku")!, "SKU-123")
@@ -144,7 +144,7 @@ describe("ProductFormDialog", () => {
 
     await waitFor(() => {
       expect(mockLookupImage).toHaveBeenCalledWith({
-        brand: "qbd_mens",
+        brand: "cbanner_mens",
         originalSku: "ORIG-123",
         sku: "SKU-123",
       })
@@ -167,7 +167,7 @@ describe("ProductFormDialog", () => {
 
     render(<ProductFormDialog open mode="create" onOpenChange={vi.fn()} onSaved={onSaved} />)
 
-    await user.selectOptions(screen.getByLabelText("品牌"), "qbd_mens")
+    await user.selectOptions(screen.getByLabelText("品牌"), "cbanner_mens")
     await user.type(document.getElementById("product-form-original_sku")!, "ORIG-404")
     await user.click(screen.getByRole("button", { name: "查询图片" }))
 
@@ -177,7 +177,7 @@ describe("ProductFormDialog", () => {
     await user.click(screen.getByRole("button", { name: "保存" }))
 
     await waitFor(() => {
-      expect(mockCreateProduct).toHaveBeenCalledWith("qbd_mens", {
+      expect(mockCreateProduct).toHaveBeenCalledWith("cbanner_mens", {
         ...nullPayload,
         original_sku: "ORIG-404",
         sku: "ORIG-404",
@@ -191,7 +191,7 @@ describe("ProductFormDialog", () => {
     render(<ProductFormDialog open mode="edit" item={sampleItem} onOpenChange={vi.fn()} onSaved={vi.fn()} />)
 
     expect(screen.getByLabelText("品牌")).toBeDisabled()
-    expect(screen.getByLabelText("品牌")).toHaveValue("qbd_mens")
+    expect(screen.getByLabelText("品牌")).toHaveValue("cbanner_mens")
   })
 
   it("uses the original item brand when updating in edit mode", async () => {
@@ -205,7 +205,7 @@ describe("ProductFormDialog", () => {
     await user.click(screen.getByRole("button", { name: "保存" }))
 
     await waitFor(() => {
-      expect(mockUpdateProduct).toHaveBeenCalledWith("qbd_mens", 7, {
+      expect(mockUpdateProduct).toHaveBeenCalledWith("cbanner_mens", 7, {
         image_path: "/images/original.jpg",
         sku: "SKU-007",
         original_sku: "ORIG-007",

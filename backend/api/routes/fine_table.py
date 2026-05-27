@@ -24,7 +24,7 @@ from domain.vip_schema import (
 
 router = APIRouter()
 
-BRAND = "qbd_womens"
+BRAND = "cbanner_womens"
 SIZE_LABELS = {
     "220": "34/220",
     "225": "35/225",

@@ -24,10 +24,10 @@ def main() -> None:
     engine = create_engine(cfg.database_url, future=True)
 
     brand_tables = [
-        "qbd_mens_products",
-        "qbd_womens_products",
+        "cbanner_mens_products",
+        "cbanner_womens_products",
         "yandou_products",
-        "yiban_products",
+        "eblan_products",
     ]
 
     with engine.begin() as conn:

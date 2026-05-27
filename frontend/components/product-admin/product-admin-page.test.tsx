@@ -60,9 +60,9 @@ const sampleResponse = {
   items: [
     {
       id: 1,
-      brand: "qbd_mens" as const,
+      brand: "cbanner_mens" as const,
       image_path: "/images/1.jpg",
-      image_url: "/images/serve/qbd_mens/1.jpg",
+      image_url: "/images/serve/cbanner_mens/1.jpg",
       sku: "SKU-001",
       original_sku: "ORIG-001",
       group_name: null,
@@ -108,12 +108,12 @@ describe("ProductAdminPage", () => {
     mockUpdateProduct.mockResolvedValue({ item: sampleResponse.items[0], message: "updated" })
   })
 
-  it("fetches qbd_mens on first render", async () => {
+  it("fetches cbanner_mens on first render", async () => {
     render(<ProductAdminPage />)
 
     await waitFor(() => {
       expect(mockListProducts).toHaveBeenCalledWith({
-        brand: "qbd_mens",
+        brand: "cbanner_mens",
         page: 1,
         pageSize: 10,
         query: undefined,
@@ -142,14 +142,14 @@ describe("ProductAdminPage", () => {
     expect(screen.getByText("服务异常")).toBeInTheDocument()
   })
 
-  it("switching tabs fetches qbd_womens", async () => {
+  it("switching tabs fetches cbanner_womens", async () => {
     const user = userEvent.setup()
 
     render(<ProductAdminPage />)
 
     await waitFor(() => {
       expect(mockListProducts).toHaveBeenCalledWith({
-        brand: "qbd_mens",
+        brand: "cbanner_mens",
         page: 1,
         pageSize: 10,
         query: undefined,
@@ -160,7 +160,7 @@ describe("ProductAdminPage", () => {
 
     await waitFor(() => {
       expect(mockListProducts).toHaveBeenLastCalledWith({
-        brand: "qbd_womens",
+        brand: "cbanner_womens",
         page: 1,
         pageSize: 10,
         query: undefined,
@@ -172,7 +172,7 @@ describe("ProductAdminPage", () => {
     const user = userEvent.setup()
 
     mockListProducts.mockImplementation(({ brand, page }: { brand: string; page: number }) => {
-      if (brand === "qbd_mens" && page === 1) {
+      if (brand === "cbanner_mens" && page === 1) {
         return Promise.resolve({
           ...sampleResponse,
           total: 11,
@@ -180,7 +180,7 @@ describe("ProductAdminPage", () => {
         })
       }
 
-      if (brand === "qbd_mens" && page === 2) {
+      if (brand === "cbanner_mens" && page === 2) {
         return Promise.resolve({
           ...sampleResponse,
           total: 11,
@@ -188,10 +188,10 @@ describe("ProductAdminPage", () => {
         })
       }
 
-      if (brand === "qbd_womens") {
+      if (brand === "cbanner_womens") {
         return Promise.resolve({
           ...sampleResponse,
-          brand: "qbd_womens",
+          brand: "cbanner_womens",
           total: 1,
           page: 1,
         })
@@ -213,7 +213,7 @@ describe("ProductAdminPage", () => {
 
     await waitFor(() => {
       expect(mockListProducts).toHaveBeenLastCalledWith({
-        brand: "qbd_womens",
+        brand: "cbanner_womens",
         page: 1,
         pageSize: 10,
         query: undefined,
@@ -231,7 +231,7 @@ describe("ProductAdminPage", () => {
 
     await waitFor(() => {
       expect(mockListProducts).toHaveBeenCalledWith({
-        brand: "qbd_mens",
+        brand: "cbanner_mens",
         page: 1,
         pageSize: 10,
         query: undefined,
@@ -242,7 +242,7 @@ describe("ProductAdminPage", () => {
 
     await waitFor(() => {
       expect(mockListProducts).toHaveBeenLastCalledWith({
-        brand: "qbd_womens",
+        brand: "cbanner_womens",
         page: 1,
         pageSize: 10,
         query: undefined,
@@ -254,7 +254,7 @@ describe("ProductAdminPage", () => {
 
     await waitFor(() => {
       expect(mockListProducts).toHaveBeenLastCalledWith({
-        brand: "qbd_womens",
+        brand: "cbanner_womens",
         page: 1,
         pageSize: 10,
         query: "ABC-123",
@@ -272,7 +272,7 @@ describe("ProductAdminPage", () => {
 
     expect(await screen.findByRole("heading", { name: "新增商品" })).toBeInTheDocument()
 
-    await user.selectOptions(screen.getByLabelText("品牌"), "qbd_mens")
+    await user.selectOptions(screen.getByLabelText("品牌"), "cbanner_mens")
     await user.type(document.getElementById("product-form-image-path")!, "/images/created.jpg")
     await user.type(document.getElementById("product-form-sku")!, "SKU-NEW")
     await user.type(document.getElementById("product-form-color")!, "黑色")
@@ -282,7 +282,7 @@ describe("ProductAdminPage", () => {
     await user.click(screen.getByRole("button", { name: "保存" }))
 
     await waitFor(() => {
-      expect(mockCreateProduct).toHaveBeenCalledWith("qbd_mens", {
+      expect(mockCreateProduct).toHaveBeenCalledWith("cbanner_mens", {
         ...nullPayload,
         original_sku: "NEW-001",
         sku: "SKU-NEW",
@@ -308,14 +308,14 @@ describe("ProductAdminPage", () => {
 
     expect(await screen.findByRole("heading", { name: "编辑商品" })).toBeInTheDocument()
     expect(screen.getByLabelText("品牌")).toBeDisabled()
-    expect(screen.getByLabelText("品牌")).toHaveValue("qbd_mens")
+    expect(screen.getByLabelText("品牌")).toHaveValue("cbanner_mens")
 
     await user.clear(document.getElementById("product-form-color")!)
     await user.type(document.getElementById("product-form-color")!, "白色")
     await user.click(screen.getByRole("button", { name: "保存" }))
 
     await waitFor(() => {
-      expect(mockUpdateProduct).toHaveBeenCalledWith("qbd_mens", 1, {
+      expect(mockUpdateProduct).toHaveBeenCalledWith("cbanner_mens", 1, {
         ...nullPayload,
         image_path: "/images/1.jpg",
         original_sku: "ORIG-001",

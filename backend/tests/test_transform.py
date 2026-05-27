@@ -29,7 +29,7 @@ def test_build_canonical_row_uses_original_sku_when_sku_missing():
 
     canonical = build_canonical_row(
         row,
-        workbook_key="qbd_mens_25",
+        workbook_key="cbanner_mens_25",
         sheet_name="25年春季款",
         row_number=2,
         image_path="//server/images/A1001.jpg",
@@ -53,7 +53,7 @@ def test_build_canonical_row_normalizes_numeric_sku_values():
 
     canonical = build_canonical_row(
         row,
-        workbook_key="qbd_mens_21_24",
+        workbook_key="cbanner_mens_21_24",
         sheet_name="千百度",
         row_number=2,
         image_path=None,
@@ -74,7 +74,7 @@ def test_build_canonical_row_converts_na_values_to_null():
 
     canonical = build_canonical_row(
         row,
-        workbook_key="qbd_womens",
+        workbook_key="cbanner_womens",
         sheet_name="千百度",
         row_number=2,
         image_path=None,
@@ -96,7 +96,7 @@ def test_build_canonical_row_converts_first_order_time_to_date_only():
 
     canonical = build_canonical_row(
         row,
-        workbook_key="qbd_mens_26",
+        workbook_key="cbanner_mens_26",
         sheet_name="26年春季款",
         row_number=2,
         image_path=None,
@@ -134,7 +134,7 @@ def test_build_canonical_row_preserves_existing_importer_fallback_for_malformed_
 
     canonical = build_canonical_row(
         row,
-        workbook_key="qbd_mens_26",
+        workbook_key="cbanner_mens_26",
         sheet_name="26年春季款",
         row_number=2,
         image_path=None,
@@ -152,7 +152,7 @@ def test_build_canonical_row_uses_full_year_from_sheet_name():
 
     canonical = build_canonical_row(
         row,
-        workbook_key="yiban",
+        workbook_key="eblan",
         sheet_name="2026",
         row_number=2,
         image_path=None,
@@ -170,7 +170,7 @@ def test_build_canonical_row_skips_when_both_sku_fields_empty():
 
     canonical = build_canonical_row(
         row,
-        workbook_key="yiban",
+        workbook_key="eblan",
         sheet_name="2025",
         row_number=3,
         image_path=None,
@@ -188,7 +188,7 @@ def test_build_canonical_row_maps_toe_shape_aliases():
 
     canonical = build_canonical_row(
         row,
-        workbook_key="qbd_womens",
+        workbook_key="cbanner_womens",
         sheet_name="千百度",
         row_number=2,
         image_path=None,
@@ -207,7 +207,7 @@ def test_build_canonical_row_maps_execution_standard_alias():
 
     canonical = build_canonical_row(
         row,
-        workbook_key="qbd_mens_21_24",
+        workbook_key="cbanner_mens_21_24",
         sheet_name="千百度",
         row_number=2,
         image_path=None,
@@ -251,13 +251,13 @@ def test_build_admin_record_sets_manual_metadata_and_raw_payload_from_normalized
         "source_row_number": "ignored",
     }
 
-    record = build_admin_record("qbd_womens", payload)
+    record = build_admin_record("cbanner_womens", payload)
 
     assert record["sku"] == "SKU-1"
     assert record["cost"] == Decimal("88.00")
     assert record["first_order_time"] == "2026-04-05"
     assert record["source_workbook"] == "manual_admin"
-    assert record["source_sheet"] == "qbd_womens"
+    assert record["source_sheet"] == "cbanner_womens"
     assert record["source_row_number"] == "manual"
     assert record["raw_payload"] == {
         "sku": "SKU-1",
@@ -279,7 +279,7 @@ def test_build_admin_record_preserves_existing_source_metadata_when_supplied():
         "source_row_number": "42",
     }
 
-    record = build_admin_record("yiban", payload, existing_metadata=existing_metadata)
+    record = build_admin_record("eblan", payload, existing_metadata=existing_metadata)
 
     assert record["sku"] == "SKU-2"
     assert record["color"] == "黑色"

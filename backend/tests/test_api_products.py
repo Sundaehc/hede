@@ -7,9 +7,9 @@ from transform.rows import build_admin_record
 
 def test_get_products_returns_paginated_rows(test_app_client: TestClient, repository):
     repository.create_product(
-        "qbd_mens",
+        "cbanner_mens",
         build_admin_record(
-            "qbd_mens",
+            "cbanner_mens",
             {
                 "sku": "A1001",
                 "original_sku": "OA1001",
@@ -19,18 +19,18 @@ def test_get_products_returns_paginated_rows(test_app_client: TestClient, reposi
 
     response = test_app_client.get(
         "/products",
-        params={"brand": "qbd_mens", "page": 1, "page_size": 20},
+        params={"brand": "cbanner_mens", "page": 1, "page_size": 20},
     )
 
     assert response.status_code == 200
     body = response.json()
     assert body["total"] == 1
-    assert body["items"][0]["brand"] == "qbd_mens"
+    assert body["items"][0]["brand"] == "cbanner_mens"
     assert body["items"][0]["original_sku"] == "OA1001"
 
 
 def test_get_product_returns_404_when_missing(test_app_client: TestClient):
-    response = test_app_client.get("/products/qbd_mens/99999")
+    response = test_app_client.get("/products/cbanner_mens/99999")
 
     assert response.status_code == 404
     assert response.json()["detail"] == "Product not found"
@@ -40,7 +40,7 @@ def test_post_products_creates_product_via_build_admin_record(test_app_client: T
     response = test_app_client.post(
         "/products",
         json={
-            "brand": "qbd_mens",
+            "brand": "cbanner_mens",
             "payload": {
                 "sku": "A1001",
                 "original_sku": "OA1001",
@@ -52,16 +52,16 @@ def test_post_products_creates_product_via_build_admin_record(test_app_client: T
     assert response.status_code == 200
     body = response.json()
     assert body["message"] == "Product created"
-    assert body["item"]["brand"] == "qbd_mens"
+    assert body["item"]["brand"] == "cbanner_mens"
     assert body["item"]["source_workbook"] == "manual_admin"
     assert body["item"]["raw_payload"]["sku"] == "A1001"
 
 
 def test_put_products_preserves_existing_metadata(test_app_client: TestClient, repository):
     created = repository.create_product(
-        "qbd_mens",
+        "cbanner_mens",
         build_admin_record(
-            "qbd_mens",
+            "cbanner_mens",
             {
                 "sku": "A1001",
                 "original_sku": "OA1001",
@@ -71,9 +71,9 @@ def test_put_products_preserves_existing_metadata(test_app_client: TestClient, r
     )
 
     response = test_app_client.put(
-        f"/products/qbd_mens/{created['id']}",
+        f"/products/cbanner_mens/{created['id']}",
         json={
-            "brand": "qbd_mens",
+            "brand": "cbanner_mens",
             "payload": {
                 "sku": "A1001",
                 "original_sku": "OA1001",
@@ -93,9 +93,9 @@ def test_put_products_preserves_existing_metadata(test_app_client: TestClient, r
 
 def test_put_products_rejects_brand_mismatch(test_app_client: TestClient, repository):
     created = repository.create_product(
-        "qbd_mens",
+        "cbanner_mens",
         build_admin_record(
-            "qbd_mens",
+            "cbanner_mens",
             {
                 "sku": "A1001",
                 "original_sku": "OA1001",
@@ -104,7 +104,7 @@ def test_put_products_rejects_brand_mismatch(test_app_client: TestClient, reposi
     )
 
     response = test_app_client.put(
-        f"/products/qbd_mens/{created['id']}",
+        f"/products/cbanner_mens/{created['id']}",
         json={
             "brand": "yandou",
             "payload": {
@@ -121,9 +121,9 @@ def test_put_products_rejects_brand_mismatch(test_app_client: TestClient, reposi
 
 def test_put_products_returns_404_for_missing_row(test_app_client: TestClient):
     response = test_app_client.put(
-        "/products/qbd_mens/99999",
+        "/products/cbanner_mens/99999",
         json={
-            "brand": "qbd_mens",
+            "brand": "cbanner_mens",
             "payload": {
                 "sku": "A1001",
                 "original_sku": "OA1001",
@@ -138,9 +138,9 @@ def test_put_products_returns_404_for_missing_row(test_app_client: TestClient):
 
 def test_delete_products_returns_message_and_removes_row(test_app_client: TestClient, repository):
     created = repository.create_product(
-        "qbd_mens",
+        "cbanner_mens",
         build_admin_record(
-            "qbd_mens",
+            "cbanner_mens",
             {
                 "sku": "A1001",
                 "original_sku": "OA1001",
@@ -148,15 +148,15 @@ def test_delete_products_returns_message_and_removes_row(test_app_client: TestCl
         ),
     )
 
-    response = test_app_client.delete(f"/products/qbd_mens/{created['id']}")
+    response = test_app_client.delete(f"/products/cbanner_mens/{created['id']}")
 
     assert response.status_code == 200
     assert response.json() == {"message": "Product deleted"}
-    assert repository.get_product("qbd_mens", created["id"]) is None
+    assert repository.get_product("cbanner_mens", created["id"]) is None
 
 
 def test_delete_products_returns_404_when_missing(test_app_client: TestClient):
-    response = test_app_client.delete("/products/qbd_mens/99999")
+    response = test_app_client.delete("/products/cbanner_mens/99999")
 
     assert response.status_code == 404
     assert response.json()["detail"] == "Product not found"
@@ -166,7 +166,7 @@ def test_post_products_rejects_empty_payload(test_app_client: TestClient):
     response = test_app_client.post(
         "/products",
         json={
-            "brand": "qbd_mens",
+            "brand": "cbanner_mens",
             "payload": {
                 "sku": "   ",
                 "original_sku": None,
@@ -183,7 +183,7 @@ def test_product_write_request_forbids_extra_top_level_fields(test_app_client: T
     response = test_app_client.post(
         "/products",
         json={
-            "brand": "qbd_mens",
+            "brand": "cbanner_mens",
             "payload": {
                 "sku": "A1001",
                 "original_sku": "OA1001",
@@ -200,7 +200,7 @@ def test_product_payload_forbids_extra_fields(test_app_client: TestClient):
     response = test_app_client.post(
         "/products",
         json={
-            "brand": "qbd_mens",
+            "brand": "cbanner_mens",
             "payload": {
                 "sku": "A1001",
                 "original_sku": "OA1001",

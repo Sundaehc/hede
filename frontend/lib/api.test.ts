@@ -14,10 +14,10 @@ test("listProducts serializes brand query and pagination into the request URL", 
     }),
   )
 
-  await listProducts({ brand: "qbd_mens", query: "OA", page: 1, pageSize: 20 })
+  await listProducts({ brand: "cbanner_mens", query: "OA", page: 1, pageSize: 20 })
 
   expect(fetchMock).toHaveBeenCalledWith(
-    "http://127.0.0.1:8000/products?brand=qbd_mens&page=1&page_size=20&query=OA",
+    "http://127.0.0.1:8000/products?brand=cbanner_mens&page=1&page_size=20&query=OA",
     expect.objectContaining({
       headers: {
         "Content-Type": "application/json",
@@ -34,7 +34,7 @@ test("createProduct sends POST to /products with the expected JSON body", async 
     }),
   )
 
-  await createProduct("qbd_mens", { sku: "ABC123", title: "Oxford" })
+  await createProduct("cbanner_mens", { sku: "ABC123", title: "Oxford" })
 
   expect(fetchMock).toHaveBeenCalledWith(
     "http://127.0.0.1:8000/products",
@@ -44,7 +44,7 @@ test("createProduct sends POST to /products with the expected JSON body", async 
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        brand: "qbd_mens",
+        brand: "cbanner_mens",
         payload: { sku: "ABC123", title: "Oxford" },
       }),
     }),
@@ -59,17 +59,17 @@ test("updateProduct sends PUT to /products/{brand}/{id} with the expected JSON b
     }),
   )
 
-  await updateProduct("qbd_mens", 42, { sku: "ABC123", title: "Derby" })
+  await updateProduct("cbanner_mens", 42, { sku: "ABC123", title: "Derby" })
 
   expect(fetchMock).toHaveBeenCalledWith(
-    "http://127.0.0.1:8000/products/qbd_mens/42",
+    "http://127.0.0.1:8000/products/cbanner_mens/42",
     expect.objectContaining({
       method: "PUT",
       headers: {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        brand: "qbd_mens",
+        brand: "cbanner_mens",
         payload: { sku: "ABC123", title: "Derby" },
       }),
     }),
@@ -84,10 +84,10 @@ test("deleteProduct sends DELETE to /products/{brand}/{id}", async () => {
     }),
   )
 
-  await deleteProduct("qbd_mens", 42)
+  await deleteProduct("cbanner_mens", 42)
 
   expect(fetchMock).toHaveBeenCalledWith(
-    "http://127.0.0.1:8000/products/qbd_mens/42",
+    "http://127.0.0.1:8000/products/cbanner_mens/42",
     expect.objectContaining({
       method: "DELETE",
       headers: {
@@ -105,7 +105,7 @@ test("lookupImage sends POST to /images/lookup with original_sku and sku mapped 
     }),
   )
 
-  await lookupImage({ brand: "qbd_mens", originalSku: "ABC123", sku: "ABC-123" })
+  await lookupImage({ brand: "cbanner_mens", originalSku: "ABC123", sku: "ABC-123" })
 
   expect(fetchMock).toHaveBeenCalledWith(
     "http://127.0.0.1:8000/images/lookup",
@@ -115,7 +115,7 @@ test("lookupImage sends POST to /images/lookup with original_sku and sku mapped 
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        brand: "qbd_mens",
+        brand: "cbanner_mens",
         original_sku: "ABC123",
         sku: "ABC-123",
       }),
@@ -126,7 +126,7 @@ test("lookupImage sends POST to /images/lookup with original_sku and sku mapped 
 test("lookupImage throws ApiError on non-2xx response", async () => {
   vi.spyOn(global, "fetch").mockResolvedValue(new Response("boom", { status: 500 }))
 
-  await expect(lookupImage({ brand: "qbd_mens", originalSku: "ABC123", sku: null })).rejects.toBeInstanceOf(
+  await expect(lookupImage({ brand: "cbanner_mens", originalSku: "ABC123", sku: null })).rejects.toBeInstanceOf(
     ApiError,
   )
 })

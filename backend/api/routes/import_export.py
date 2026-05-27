@@ -67,10 +67,10 @@ def export_products(
         items = table["items"]
 
     BRAND_LABELS = {
-        "qbd_mens": "千百度男鞋",
-        "qbd_womens": "千百度女鞋",
+        "cbanner_mens": "千百度男鞋",
+        "cbanner_womens": "千百度女鞋",
         "yandou": "烟斗",
-        "yiban": "伊伴",
+        "eblan": "伊伴",
     }
 
     wb = Workbook()
