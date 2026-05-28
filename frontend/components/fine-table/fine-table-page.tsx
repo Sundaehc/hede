@@ -41,6 +41,8 @@ type TableColumn = {
   key: string
   label: string
   group: ColumnGroup
+  dailyDateLabel?: string
+  dailyMetricLabel?: "销售" | "UV"
   align?: "left" | "right" | "center"
   className?: string
   defaultVisible?: boolean
@@ -345,7 +347,9 @@ function riskLabel(row: FineTableItem) {
 function tableColumnExportValue(row: FineTableItem, column: TableColumn) {
   if (column.exportValue) return column.exportValue(row)
   if (column.key.startsWith("daily_sales_")) {
-    const index = Number(column.key.replace("daily_sales_", ""))
+    const [, , indexValue, metric] = column.key.split("_")
+    const index = Number(indexValue)
+    if (metric === "uv") return visibleDailySales(row)[index]?.uv ?? 0
     return visibleDailySales(row)[index]?.quantity ?? 0
   }
   if (column.key.startsWith("size_")) {
@@ -416,7 +420,7 @@ function tableColumnExportValue(row: FineTableItem, column: TableColumn) {
 
 function buildFineTableCsvRows(rows: FineTableItem[], visibleColumns: TableColumn[]) {
   return [
-    ["货号", "原始货号", ...visibleColumns.map((column) => column.label)],
+    ["货号", "原始货号", ...visibleColumns.map((column) => column.dailyMetricLabel ? `${column.label}${column.dailyMetricLabel}` : column.label)],
     ...rows.map((row) => [
       row.sku || "",
       row.original_sku || "",
@@ -474,13 +478,28 @@ function ChangeRateText({ value }: { value: number | null | undefined }) {
 }
 
 function createTableColumns(dailyLabels: string[]): TableColumn[] {
-  const dailyColumns: TableColumn[] = dailyLabels.map((label, index) => ({
-    key: `daily_sales_${index}`,
-    label,
-    group: "每日",
-    align: "right",
-    render: (row) => formatNumber(visibleDailySales(row)[index]?.quantity ?? 0),
-  }))
+  const dailyColumns: TableColumn[] = dailyLabels.flatMap((label, index) => [
+    {
+      key: `daily_sales_${index}_quantity`,
+      label,
+      dailyDateLabel: label,
+      dailyMetricLabel: "销售" as const,
+      group: "每日" as const,
+      align: "right" as const,
+      className: "min-w-16",
+      render: (row: FineTableItem) => formatNumber(visibleDailySales(row)[index]?.quantity ?? 0),
+    },
+    {
+      key: `daily_sales_${index}_uv`,
+      label,
+      dailyDateLabel: label,
+      dailyMetricLabel: "UV" as const,
+      group: "每日" as const,
+      align: "right" as const,
+      className: "min-w-16",
+      render: (row: FineTableItem) => formatNumber(visibleDailySales(row)[index]?.uv ?? 0),
+    },
+  ])
 
   const sizeColumns: TableColumn[] = SIZE_STOCK_LABELS.map((label) => ({
     key: `size_${label}`,
@@ -931,32 +950,78 @@ const FineTableGrid = memo(function FineTableGrid({
   totalPages: number
   visibleColumns: TableColumn[]
 }) {
+  const hasDailyColumns = visibleColumns.some((column) => column.dailyMetricLabel)
+  const tableMinWidth = Math.max(
+    1500,
+    360 + visibleColumns.reduce((sum, column) => sum + (column.dailyMetricLabel ? 68 : 120), 0),
+  )
+  const headerCells: ReactNode[] = []
+  for (let index = 0; index < visibleColumns.length; index += 1) {
+    const column = visibleColumns[index]
+    if (column.dailyMetricLabel) {
+      const dateLabel = column.dailyDateLabel ?? column.label
+      let span = 1
+      while (
+        index + span < visibleColumns.length
+        && visibleColumns[index + span].dailyMetricLabel
+        && (visibleColumns[index + span].dailyDateLabel ?? visibleColumns[index + span].label) === dateLabel
+      ) {
+        span += 1
+      }
+      headerCells.push(
+        <th key={`daily-${dateLabel}-${index}`} colSpan={span} className="border-b border-border px-3 py-2 text-center font-medium">
+          <span className="block whitespace-nowrap">{dateLabel}</span>
+        </th>,
+      )
+      index += span - 1
+      continue
+    }
+
+    headerCells.push(
+      <th
+        key={column.key}
+        rowSpan={hasDailyColumns ? 2 : 1}
+        className={cn(
+          "border-b border-border px-3 py-2.5 font-medium",
+          column.align === "right" ? "text-right" : column.align === "center" ? "text-center" : "text-left",
+          column.className,
+        )}
+      >
+        <span className="block whitespace-nowrap">{column.label}</span>
+        <span className="mt-0.5 block text-[10px] font-normal text-muted-foreground">{column.group}</span>
+      </th>,
+    )
+  }
+
   return (
     <div className="table-panel">
       <div className="max-h-[calc(100svh-320px)] min-h-[420px] overflow-auto">
         <table
           className="w-full border-separate border-spacing-0 text-[13px]"
-          style={{ minWidth: Math.max(1500, 360 + visibleColumns.length * 120) }}
+          style={{ minWidth: tableMinWidth }}
         >
           <thead className="sticky top-0 z-20 bg-card/95 backdrop-blur">
             <tr className="text-xs text-muted-foreground">
-              <th className="sticky left-0 z-30 w-20 border-b border-border bg-card/95 px-3 py-2.5 text-left font-medium">图片</th>
-              <th className="sticky left-20 z-30 w-40 border-b border-border bg-card/95 px-3 py-2.5 text-left font-medium">货号</th>
-              {visibleColumns.map((column) => (
-                <th
-                  key={column.key}
-                  className={cn(
-                    "border-b border-border px-3 py-2.5 font-medium",
-                    column.align === "right" ? "text-right" : column.align === "center" ? "text-center" : "text-left",
-                    column.className,
-                  )}
-                >
-                  <span className="block whitespace-nowrap">{column.label}</span>
-                  <span className="mt-0.5 block text-[10px] font-normal text-muted-foreground">{column.group}</span>
-                </th>
-              ))}
-              <th className="sticky right-0 z-30 w-20 border-b border-border bg-card px-3 py-3 text-right font-medium">详情</th>
+              <th rowSpan={hasDailyColumns ? 2 : 1} className="sticky left-0 z-30 w-20 border-b border-border bg-card/95 px-3 py-2.5 text-left font-medium">图片</th>
+              <th rowSpan={hasDailyColumns ? 2 : 1} className="sticky left-20 z-30 w-40 border-b border-border bg-card/95 px-3 py-2.5 text-left font-medium">货号</th>
+              {headerCells}
+              <th rowSpan={hasDailyColumns ? 2 : 1} className="sticky right-0 z-30 w-20 border-b border-border bg-card px-3 py-3 text-right font-medium">详情</th>
             </tr>
+            {hasDailyColumns && (
+              <tr className="text-xs text-muted-foreground">
+                {visibleColumns.filter((column) => column.dailyMetricLabel).map((column) => (
+                  <th
+                    key={column.key}
+                    className={cn(
+                      "border-b border-border px-3 py-2 text-center font-medium",
+                      column.className,
+                    )}
+                  >
+                    {column.dailyMetricLabel}
+                  </th>
+                ))}
+              </tr>
+            )}
           </thead>
           <tbody>
             {isLoading && (

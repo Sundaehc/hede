@@ -343,7 +343,7 @@ def list_fine_table(
             .where(VIP_DAILY_SNAPSHOT_TABLE.c.report_type == "罗盘")
             .where(VIP_DAILY_SNAPSHOT_TABLE.c.period == "1d")
         ).scalar()
-        daily_snapshot_totals: dict[str, dict[date, int]] = {sku: {} for sku in skus}
+        daily_snapshot_totals: dict[str, dict[date, dict[str, int]]] = {sku: {} for sku in skus}
         if isinstance(latest_daily_snapshot_day, date):
             daily_snapshot_start = latest_daily_snapshot_day - timedelta(days=DAILY_SALES_DAYS - 1)
             for row in conn.execute(
@@ -351,6 +351,7 @@ def list_fine_table(
                     VIP_DAILY_SNAPSHOT_TABLE.c.goods_code,
                     VIP_DAILY_SNAPSHOT_TABLE.c.snapshot_date,
                     func.sum(VIP_DAILY_SNAPSHOT_TABLE.c.sales_volume).label("qty"),
+                    func.sum(VIP_DAILY_SNAPSHOT_TABLE.c.detail_uv).label("uv"),
                 )
                 .where(VIP_DAILY_SNAPSHOT_TABLE.c.goods_code.in_(skus))
                 .where(VIP_DAILY_SNAPSHOT_TABLE.c.report_type == "罗盘")
@@ -362,7 +363,10 @@ def list_fine_table(
                 sku = str(row["goods_code"] or "").strip()
                 snapshot_date = row["snapshot_date"]
                 if sku and isinstance(snapshot_date, date):
-                    daily_snapshot_totals.setdefault(sku, {})[snapshot_date] = _to_int(row["qty"])
+                    daily_snapshot_totals.setdefault(sku, {})[snapshot_date] = {
+                        "quantity": _to_int(row["qty"]),
+                        "uv": _to_int(row["uv"]),
+                    }
 
         max_order_day = conn.execute(select(func.max(JST_MONTHLY_ORDERS_TABLE.c.order_time_at))).scalar()
         max_day = max_order_day.date() if isinstance(max_order_day, datetime) else date.today()
@@ -426,7 +430,8 @@ def list_fine_table(
                 orders_by_sku[sku]["daily_sales"] = [
                     {
                         "date": (latest_daily_snapshot_day - timedelta(days=offset)).isoformat(),
-                        "quantity": totals.get(latest_daily_snapshot_day - timedelta(days=offset), 0),
+                        "quantity": totals.get(latest_daily_snapshot_day - timedelta(days=offset), {}).get("quantity", 0),
+                        "uv": totals.get(latest_daily_snapshot_day - timedelta(days=offset), {}).get("uv", 0),
                     }
                     for offset in range(DAILY_SALES_DAYS - 1, -1, -1)
                 ]

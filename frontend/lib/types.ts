@@ -55,6 +55,7 @@ export type FineTableShopSale = {
 export type FineTableDailySale = {
   date: string
   quantity: number
+  uv: number
 }
 
 export type FineTableItem = ProductListItem & {
