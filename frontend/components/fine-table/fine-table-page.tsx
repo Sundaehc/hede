@@ -423,8 +423,6 @@ function createTableColumns(dailyLabels: string[]): TableColumn[] {
         </span>
       ),
     },
-    { key: "discount_rate", label: "折扣率", group: "价格", align: "right", render: (row) => nullablePercent(row.discount_rate) },
-
     { key: "vip_1d_sales", label: "唯品1天", group: "销售", align: "right", render: (row) => formatNumber(row.vip_1d_sales) },
     { key: "vip_3d_sales", label: "唯品3天", group: "销售", align: "right", render: (row) => formatNumber(row.vip_3d_sales) },
     { key: "vip_15d_sales", label: "唯品15天", group: "销售", align: "right", render: (row) => formatNumber(row.vip_15d_sales) },
@@ -656,7 +654,6 @@ function DetailDrawer({ row, onClose }: { row: FineTableItem | null; onClose: ()
                 <StatCard icon={Layers3} label="价格段" value={row.price_band || "-"} />
                 <StatCard icon={BarChart3} label="活动毛利" value={nullableInteger(row.activity_profit)} tone={(row.margin_rate ?? 1) < 0.12 ? "warn" : "good"} />
                 <StatCard icon={BarChart3} label="毛利率" value={nullableDecimal2(row.margin_rate)} tone={(row.margin_rate ?? 1) < 0.12 ? "warn" : "good"} />
-                <StatCard icon={TrendingUp} label="市场折扣率" value={nullablePercent(row.discount_rate)} />
               </div>
               <div className="rounded-lg border border-border">
                 {[
@@ -952,6 +949,29 @@ export function FineTablePage() {
     ))
   }
 
+  function setCustomColumnGroup(group: ColumnGroup, selected: boolean) {
+    const groupKeys = groupedColumns[group]?.map((column) => column.key) ?? []
+    const groupKeySet = new Set(groupKeys)
+    setCustomColumnKeys((current) => {
+      if (selected) {
+        return Array.from(new Set([...current, ...groupKeys]))
+      }
+      return current.filter((key) => !groupKeySet.has(key))
+    })
+  }
+
+  function selectAllCustomColumns() {
+    setCustomColumnKeys(tableColumns.map((column) => column.key))
+  }
+
+  function resetCustomColumns() {
+    setCustomColumnKeys(DEFAULT_COLUMN_KEYS)
+  }
+
+  function clearCustomColumns() {
+    setCustomColumnKeys([])
+  }
+
   return (
     <div className="min-h-svh bg-muted/30 px-5 py-6">
       <div className="mx-auto flex w-full max-w-[1600px] flex-col gap-4">
@@ -1072,25 +1092,79 @@ export function FineTablePage() {
             </div>
           </div>
           {columnMode === "custom" && customColumnPickerOpen && (
-            <div id="fine-table-column-picker" className="mt-3 grid gap-3 border-t border-border pt-3 md:grid-cols-3 xl:grid-cols-6">
-              {(Object.keys(groupedColumns) as ColumnGroup[]).map((group) => (
-                <div key={group} className="space-y-2">
-                  <div className="text-xs font-medium text-muted-foreground">{group}</div>
-                  <div className="space-y-1.5">
-                    {groupedColumns[group]?.map((column) => (
-                      <label key={column.key} className="flex cursor-pointer items-center gap-2 text-sm">
-                        <input
-                          type="checkbox"
-                          checked={customColumnKeys.includes(column.key)}
-                          onChange={() => toggleCustomColumn(column.key)}
-                          className="h-4 w-4 accent-primary"
-                        />
-                        <span className="truncate">{column.label}</span>
-                      </label>
-                    ))}
-                  </div>
+            <div id="fine-table-column-picker" className="mt-3 border-t border-border pt-3">
+              <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                <div className="text-xs text-muted-foreground">
+                  已选择 <span className="font-medium text-foreground">{customColumnKeys.length}</span> / {tableColumns.length} 列
                 </div>
-              ))}
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <Button type="button" variant="outline" size="sm" className="h-8" onClick={selectAllCustomColumns}>
+                    全部选中
+                  </Button>
+                  <Button type="button" variant="outline" size="sm" className="h-8" onClick={resetCustomColumns}>
+                    恢复默认
+                  </Button>
+                  <Button type="button" variant="outline" size="sm" className="h-8" onClick={clearCustomColumns}>
+                    清空
+                  </Button>
+                </div>
+              </div>
+              <div className="grid max-h-[42vh] gap-2 overflow-y-auto pr-1 md:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-6">
+                {(Object.keys(groupedColumns) as ColumnGroup[]).map((group) => {
+                  const columns = groupedColumns[group] ?? []
+                  const selectedCount = columns.filter((column) => customColumnKeys.includes(column.key)).length
+                  return (
+                    <section key={group} className="min-h-0 rounded-md border border-border bg-muted/20 p-2">
+                      <div className="mb-1.5 flex items-center justify-between gap-2">
+                        <div className="min-w-0">
+                          <div className="truncate text-xs font-medium text-foreground">{group}</div>
+                          <div className="text-[11px] text-muted-foreground">{selectedCount}/{columns.length} 已选</div>
+                        </div>
+                        <div className="flex shrink-0 items-center gap-1">
+                          <button
+                            type="button"
+                            className="rounded px-1.5 py-1 text-[11px] text-muted-foreground hover:bg-background hover:text-foreground"
+                            onClick={() => setCustomColumnGroup(group, true)}
+                          >
+                            全选
+                          </button>
+                          <button
+                            type="button"
+                            className="rounded px-1.5 py-1 text-[11px] text-muted-foreground hover:bg-background hover:text-foreground"
+                            onClick={() => setCustomColumnGroup(group, false)}
+                          >
+                            清空
+                          </button>
+                        </div>
+                      </div>
+                      <div className="grid max-h-44 gap-1 overflow-y-auto pr-1">
+                        {columns.map((column) => {
+                          const checked = customColumnKeys.includes(column.key)
+                          return (
+                            <label
+                              key={column.key}
+                              className={cn(
+                                "flex h-7 cursor-pointer items-center gap-2 rounded-md border px-2 text-xs transition-colors",
+                                checked
+                                  ? "border-primary/30 bg-primary/10 text-foreground"
+                                  : "border-transparent bg-background/70 text-muted-foreground hover:border-border hover:text-foreground",
+                              )}
+                            >
+                              <input
+                                type="checkbox"
+                                checked={checked}
+                                onChange={() => toggleCustomColumn(column.key)}
+                                className="h-3.5 w-3.5 shrink-0 accent-primary"
+                              />
+                              <span className="min-w-0 truncate">{column.label}</span>
+                            </label>
+                          )
+                        })}
+                      </div>
+                    </section>
+                  )
+                })}
+              </div>
             </div>
           )}
         </div>

@@ -19,3 +19,10 @@ using a closure in a dumps/loads function may cause a resource leak
 using a closure in a dumps/loads function may cause a resource leak
 已导入 146130 条 05.27 库存数据
 [2026/05/27 周三  9:00:24.66] end sync_jst_stock errorlevel=0 
+[2026/05/28 周四  9:00:02.02] start sync_jst_stock 
+using a closure in a dumps/loads function may cause a resource leak
+using a closure in a dumps/loads function may cause a resource leak
+using a closure in a dumps/loads function may cause a resource leak
+using a closure in a dumps/loads function may cause a resource leak
+已导入 146263 条 05.28 库存数据
+[2026/05/28 周四  9:00:25.11] end sync_jst_stock errorlevel=0 

@@ -67,3 +67,14 @@ using a closure in a dumps/loads function may cause a resource leak
 [yiban] scanned=200 matched=2 updated=2 missing=198
 图片刷新完成：扫描 4632 条，更新 2 条
 [2026/05/26 周二 23:01:11.88] end refresh_product_images errorlevel=0 
+[2026/05/27 周三 23:00:01.25] start refresh_product_images 
+using a closure in a dumps/loads function may cause a resource leak
+using a closure in a dumps/loads function may cause a resource leak
+using a closure in a dumps/loads function may cause a resource leak
+using a closure in a dumps/loads function may cause a resource leak
+[cbanner_mens] scanned=65 matched=0 updated=0 missing=65
+[cbanner_womens] scanned=2061 matched=4 updated=4 missing=2057
+[yandou] scanned=2319 matched=0 updated=0 missing=2319
+[eblan] scanned=198 matched=0 updated=0 missing=198
+图片刷新完成：扫描 4643 条，更新 4 条
+[2026/05/27 周三 23:01:06.94] end refresh_product_images errorlevel=0 

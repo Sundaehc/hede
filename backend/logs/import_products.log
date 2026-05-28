@@ -12,3 +12,10 @@ qbd_mens: extracted=7479, loaded=7358, skipped=0, missing_images=72
 yiban: extracted=9702, loaded=9698, skipped=0, missing_images=199
 yandou: extracted=3122, loaded=3120, skipped=0, missing_images=2320
 [2026/05/27 周三  8:06:44.50] end import_products errorlevel=0 
+[2026/05/28 周四  8:00:01.84] start import_products 
+Mode: sync
+eblan: extracted=9710, loaded=9706, skipped=0, missing_images=199
+cbanner_mens: extracted=7437, loaded=7316, skipped=0, missing_images=72
+cbanner_womens: extracted=13035, loaded=12923, skipped=0, missing_images=2067
+yandou: extracted=3122, loaded=3120, skipped=0, missing_images=2320
+[2026/05/28 周四  8:06:45.93] end import_products errorlevel=0 
