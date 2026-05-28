@@ -19,3 +19,10 @@ using a closure in a dumps/loads function may cause a resource leak
 using a closure in a dumps/loads function may cause a resource leak
 [VIP] 05.27 导入完成, 共 135677 条
 [2026/05/27 周三 12:00:54.95] end import_vip_daily errorlevel=0 
+[2026/05/28 周四 12:00:01.25] start import_vip_daily 
+using a closure in a dumps/loads function may cause a resource leak
+using a closure in a dumps/loads function may cause a resource leak
+using a closure in a dumps/loads function may cause a resource leak
+using a closure in a dumps/loads function may cause a resource leak
+[VIP] 05.28 导入完成, 共 135283 条
+[2026/05/28 周四 12:00:55.29] end import_vip_daily errorlevel=0 

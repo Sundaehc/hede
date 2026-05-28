@@ -1,4 +1,4 @@
-"""Daily price data import (14:00). Run: python -m scripts.import_price_daily"""
+"""Daily price data import (8:00). Run: python -m scripts.import_price_daily"""
 
 from datetime import date
 

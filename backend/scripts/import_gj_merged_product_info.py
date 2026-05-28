@@ -7,8 +7,7 @@ from typing import Any
 
 import orjson
 from openpyxl import load_workbook
-from sqlalchemy import create_engine, func
-from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy import create_engine, text
 
 from config import load_settings
 from domain.fields import GJ_MERGED_PRODUCT_INFO_FIELDS, alias_map
@@ -110,26 +109,13 @@ def import_gj_merged_product_info(database_url: str, source_dir: Path) -> dict[s
     payload = list(deduped_by_goods_code.values())
 
     engine = create_engine(database_url, future=True, json_serializer=_json_serializer)
-    update_columns = [
-        column.name
-        for column in GJ_MERGED_PRODUCT_INFO_TABLE.columns
-        if column.name not in ("id", "source_date", "goods_code", "created_at")
-    ]
-
     with engine.begin() as conn:
+        conn.execute(text("TRUNCATE TABLE gj_merged_product_info"))
         for index in range(0, len(payload), 1000):
             chunk = payload[index:index + 1000]
             if not chunk:
                 continue
-            stmt = pg_insert(GJ_MERGED_PRODUCT_INFO_TABLE).values(chunk)
-            excluded = stmt.excluded
-            set_values = {column: getattr(excluded, column) for column in update_columns}
-            set_values["updated_at"] = func.date_trunc("minute", func.now())
-            stmt = stmt.on_conflict_do_update(
-                index_elements=["source_date", "goods_code"],
-                set_=set_values,
-            )
-            conn.execute(stmt)
+            conn.execute(GJ_MERGED_PRODUCT_INFO_TABLE.insert(), chunk)
 
     return {
         "source_dir": str(source_dir),
