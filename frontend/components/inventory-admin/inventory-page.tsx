@@ -306,11 +306,13 @@ export function InventoryPage() {
   const pageRange = buildPageRange(page, totalPages)
 
   return (
-    <div className="px-6 py-8">
-      <div className="mx-auto flex w-full max-w-6xl flex-col gap-5">
-        {/* Header */}
-        <div className="flex items-center justify-between">
-          <h1 className="text-xl font-semibold">进销存管理</h1>
+    <div className="app-page">
+      <div className="app-content">
+        <div className="page-header">
+          <div>
+            <h1 className="page-title">进销存管理</h1>
+            <p className="page-subtitle">维护进销存单据、导入明细并查看期末库存</p>
+          </div>
           <div className="flex items-center gap-2">
             <Button variant="outline" size="sm" onClick={() => fileInputRef.current?.click()} disabled={isImporting} className="cursor-pointer">
               <Upload className="h-4 w-4" />
@@ -328,17 +330,15 @@ export function InventoryPage() {
           </div>
         </div>
 
-        {/* Tabs */}
         <Tabs defaultValue="records" value={activeTab} onValueChange={setActiveTab}>
-          <TabsList>
+          <TabsList className="rounded-xl bg-muted/60 p-1">
             <TabsTrigger value="records">进销存记录</TabsTrigger>
             <TabsTrigger value="ending">期末库存</TabsTrigger>
           </TabsList>
 
           {activeTab === "records" && (
             <>
-              {/* Search Card */}
-              <div className="rounded-xl border border-border bg-card p-4">
+              <div className="surface-panel p-4">
           <div className="flex flex-col gap-3">
             <div className="flex flex-wrap items-end gap-3">
               <div className="flex flex-col gap-1.5">
@@ -349,7 +349,7 @@ export function InventoryPage() {
                     value={searchDateStart}
                     max={searchDateEnd || undefined}
                     onChange={(e) => setSearchDateStart(e.target.value)}
-                    className="h-9 rounded-lg border border-input bg-background px-3 py-2 text-sm shadow-xs outline-none transition-colors focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
+                    className="h-9 rounded-lg border border-input bg-card px-3 py-2 text-sm shadow-xs outline-none transition-colors focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/35"
                   />
                   <span className="text-xs text-muted-foreground">至</span>
                   <input
@@ -357,7 +357,7 @@ export function InventoryPage() {
                     value={searchDateEnd}
                     min={searchDateStart || undefined}
                     onChange={(e) => setSearchDateEnd(e.target.value)}
-                    className="h-9 rounded-lg border border-input bg-background px-3 py-2 text-sm shadow-xs outline-none transition-colors focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
+                    className="h-9 rounded-lg border border-input bg-card px-3 py-2 text-sm shadow-xs outline-none transition-colors focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/35"
                   />
                 </div>
               </div>
@@ -438,10 +438,10 @@ export function InventoryPage() {
         )}
 
         {/* Table */}
-        <div className="overflow-x-auto rounded-xl border border-border bg-card">
+        <div className="table-panel overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
-              <tr className="border-b border-border bg-muted/40 text-left text-muted-foreground">
+              <tr className="table-head-row">
                 <th className="px-4 py-3 w-10"></th>
                 <th className="px-4 py-3 font-medium">入库单号</th>
                 <th className="px-4 py-3 font-medium">日期</th>
@@ -468,7 +468,7 @@ export function InventoryPage() {
                 </tr>
               )}
               {!isLoading && !error && items.map((item) => (
-                <tr key={item.id} className="hover:bg-muted/30 transition-colors">
+                <tr key={item.id} className="table-row">
                   <td className="px-4 py-2.5">
                     <input
                       type="checkbox"
@@ -558,7 +558,7 @@ export function InventoryPage() {
                 type="number"
                 min={1}
                 max={totalPages}
-                className="h-8 w-16 rounded-md border border-input bg-background px-2 text-center text-sm outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/50"
+                className="h-8 w-16 rounded-md border border-input bg-card px-2 text-center text-sm outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/35"
                 onKeyDown={(e) => {
                   if (e.key === "Enter") {
                     const target = parseInt((e.target as HTMLInputElement).value, 10)
@@ -596,7 +596,7 @@ export function InventoryPage() {
                 type="date"
                 value={formData.date || ""}
                 onChange={(e) => setFormData((prev) => ({ ...prev, date: e.target.value }))}
-                className="flex h-9 w-full rounded-lg border border-input bg-background px-3 py-2 text-sm shadow-xs outline-none transition-colors focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
+                className="flex h-9 w-full rounded-lg border border-input bg-card px-3 py-2 text-sm shadow-xs outline-none transition-colors focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/35"
               />
             </div>
             {/* Document Type */}

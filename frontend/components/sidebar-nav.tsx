@@ -48,25 +48,24 @@ export function SidebarNav() {
   const pathname = usePathname()
 
   return (
-    <aside className="fixed left-0 top-0 z-40 flex h-svh w-56 flex-col border-r border-sidebar-border bg-sidebar">
-      {/* Logo */}
-      <div className="flex h-14 items-center gap-2.5 border-b border-sidebar-border px-4">
-        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-sidebar-primary text-sidebar-primary-foreground">
+    <aside className="fixed left-0 top-0 z-40 flex h-svh w-56 flex-col border-r border-sidebar-border bg-sidebar shadow-2xl shadow-black/10">
+      <div className="flex h-16 items-center gap-3 border-b border-sidebar-border px-4">
+        <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-sidebar-primary text-sidebar-primary-foreground shadow-sm">
           <Box className="h-4 w-4" />
         </div>
         <div className="flex flex-col leading-tight">
           <span className="text-sm font-semibold text-sidebar-foreground">赫德</span>
+          <span className="mt-0.5 text-[11px] text-sidebar-foreground/55">商品运营中台</span>
         </div>
       </div>
 
-      {/* Navigation */}
-      <nav className="flex-1 overflow-y-auto px-3 py-5 space-y-5">
+      <nav className="flex-1 space-y-5 overflow-y-auto px-3 py-5">
         {NAV_ITEMS.map((group) => (
           <div key={group.section}>
-            <h3 className="mb-1.5 px-2 text-[11px] font-semibold text-muted-foreground tracking-wide">
+            <h3 className="mb-2 px-2 text-[11px] font-semibold tracking-wide text-sidebar-foreground/45">
               {group.section}
             </h3>
-            <ul className="space-y-0.5">
+            <ul className="space-y-1">
               {group.items.map((item) => {
                 const isActive = pathname === item.href || pathname.startsWith(item.href + "/")
                 return (
@@ -74,19 +73,19 @@ export function SidebarNav() {
                     <Link
                       href={item.href}
                       className={cn(
-                        "group relative flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-all duration-150",
+                        "group relative flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-all duration-150",
                         isActive
-                          ? "bg-sidebar-accent text-sidebar-accent-foreground shadow-sm"
-                          : "text-sidebar-foreground hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground",
+                          ? "bg-sidebar-accent text-sidebar-accent-foreground shadow-sm shadow-black/10"
+                          : "text-sidebar-foreground/75 hover:bg-sidebar-accent/55 hover:text-sidebar-accent-foreground",
                       )}
                     >
                       {isActive && (
-                        <span className="absolute left-0 top-1/2 -translate-y-1/2 h-5 w-0.5 rounded-r-full bg-sidebar-primary" />
+                        <span className="absolute left-0 top-1/2 h-5 w-0.5 -translate-y-1/2 rounded-r-full bg-sidebar-primary" />
                       )}
                       <item.icon
                         className={cn(
                           "h-4 w-4 shrink-0 transition-colors",
-                          isActive ? "text-sidebar-primary" : "text-muted-foreground group-hover:text-sidebar-accent-foreground",
+                          isActive ? "text-sidebar-primary" : "text-sidebar-foreground/45 group-hover:text-sidebar-accent-foreground",
                         )}
                       />
                       <span className="truncate">{item.label}</span>
@@ -99,10 +98,9 @@ export function SidebarNav() {
         ))}
       </nav>
 
-      {/* Footer */}
       <div className="border-t border-sidebar-border px-4 py-3">
-        <div className="flex items-center justify-between rounded-lg bg-sidebar-accent/50 px-2 py-1.5">
-          <span className="text-xs text-muted-foreground">主题</span>
+        <div className="flex items-center justify-between rounded-xl border border-sidebar-border bg-sidebar-accent/45 px-3 py-2">
+          <span className="text-xs text-sidebar-foreground/60">主题</span>
           <ThemeToggle />
         </div>
       </div>

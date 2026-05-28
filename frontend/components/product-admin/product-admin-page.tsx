@@ -213,10 +213,16 @@ export function ProductAdminPage() {
   const showBatchDelete = !isAllBrand(brand) && selectedIds.size > 0
 
   return (
-    <div className="px-6 py-8">
-      <div className="mx-auto flex w-full max-w-6xl flex-col gap-5">
-        <div className="flex items-center justify-between">
-          <h1 className="text-xl font-semibold">商品信息档案</h1>
+    <div className="app-page">
+      <div className="app-content">
+        <div className="page-header">
+          <div>
+            <h1 className="page-title">商品信息档案</h1>
+            <p className="page-subtitle">管理品牌商品基础资料、图片匹配和批量导入导出</p>
+          </div>
+          <div className="flex h-9 items-center rounded-full border border-border bg-muted/45 px-3 text-sm text-muted-foreground">
+            共 {total} 条
+          </div>
         </div>
 
         <Tabs
@@ -228,7 +234,7 @@ export function ProductAdminPage() {
             setPage(1)
           }}
         >
-          <div className="rounded-xl border border-border bg-card p-1.5">
+          <div className="surface-panel p-1.5">
             <ProductTabs />
           </div>
 

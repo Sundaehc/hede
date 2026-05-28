@@ -164,7 +164,7 @@ export function ProductToolbar({
       : "图片刷新将由后台任务执行"
 
   return (
-    <div className="flex flex-col gap-3 rounded-xl border border-border bg-card p-4 shadow-xs">
+    <div className="surface-panel flex flex-col gap-3 p-4">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
         <div className="flex flex-1 flex-col gap-1.5">
           <Label htmlFor="product-search-input" className="text-xs text-muted-foreground">
@@ -182,7 +182,7 @@ export function ProductToolbar({
                 onSearch()
               }
             }}
-            className="resize-none rounded-lg border border-input bg-background px-3 py-2 text-sm shadow-xs outline-none transition-colors placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50"
+            className="resize-none rounded-lg border border-input bg-card px-3 py-2 text-sm shadow-xs outline-none transition-colors placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/35 disabled:cursor-not-allowed disabled:opacity-50"
           />
         </div>
         <div className="flex gap-2">

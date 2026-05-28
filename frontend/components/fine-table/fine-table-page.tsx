@@ -30,6 +30,7 @@ import type { FineTableItem, ProductListItem } from "@/lib/types"
 import { cn } from "@/lib/utils"
 
 const PAGE_SIZE = 80
+const EXPORT_PAGE_SIZE = 200
 const DAILY_SALES_DISPLAY_DAYS = 5
 
 type ViewKey = "all" | "missingImage"
@@ -44,6 +45,7 @@ type TableColumn = {
   className?: string
   defaultVisible?: boolean
   render: (row: FineTableItem) => ReactNode
+  exportValue?: (row: FineTableItem) => string | number | null | undefined
 }
 
 const viewTabs: { value: ViewKey; label: string }[] = [
@@ -139,6 +141,24 @@ function nullableCost(value: number | null | undefined) {
 
 function nullablePercent(value: number | null | undefined) {
   return value == null ? "-" : formatPercent(value)
+}
+
+function csvCell(value: string | number | null | undefined) {
+  const text = value == null ? "" : String(value)
+  return `"${text.replace(/"/g, '""')}"`
+}
+
+function downloadCsv(filename: string, rows: (string | number | null | undefined)[][]) {
+  const csv = rows.map((row) => row.map(csvCell).join(",")).join("\r\n")
+  const blob = new Blob([`\uFEFF${csv}`], { type: "text/csv;charset=utf-8" })
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement("a")
+  link.href = url
+  link.download = filename
+  document.body.appendChild(link)
+  link.click()
+  link.remove()
+  URL.revokeObjectURL(url)
 }
 
 function parsePercentValue(value: string | null | undefined) {
@@ -315,6 +335,111 @@ function statusLabel(row: FineTableItem) {
   if (row.status_key === "partial") return "部分上线"
   if (row.status_key === "offline") return "已下线"
   return "未知"
+}
+
+function riskLabel(row: FineTableItem) {
+  if (Math.min(vipProjected15dStock(row), otherProjected15dStock(row)) < 0) return "15天后缺口"
+  if (row.stock_qty < row.vip_7d_sales + row.other_7d_sales) return "低库存"
+  return "正常"
+}
+
+function tableColumnExportValue(row: FineTableItem, column: TableColumn) {
+  if (column.exportValue) return column.exportValue(row)
+  if (column.key.startsWith("daily_sales_")) {
+    const index = Number(column.key.replace("daily_sales_", ""))
+    return visibleDailySales(row)[index]?.quantity ?? 0
+  }
+  if (column.key.startsWith("size_")) {
+    const size = column.key.replace("size_", "")
+    return row.size_stock[size] ?? 0
+  }
+
+  switch (column.key) {
+    case "status":
+      return statusLabel(row)
+    case "season":
+      return [row.season_category, row.year].filter(Boolean).join(" ")
+    case "category_l3":
+      return row.category_l3 || row.product_model || ""
+    case "cost":
+      return row.latest_purchase_price
+    case "activity_profit":
+      return row.activity_profit == null ? "" : Math.round(row.activity_profit)
+    case "margin_rate":
+      return nullableDecimal2(row.margin_rate)
+    case "vip_daily_average_sales":
+      return nullableInteger(row.vip_daily_average_sales)
+    case "vip_projected_15d_sales":
+      return nullableInteger(vipProjected15dSales(row))
+    case "other_daily_average_sales":
+      return nullableInteger(otherDailyAverage(row))
+    case "other_projected_15d_sales":
+      return nullableInteger(otherProjected15dSales(row))
+    case "vip_3d_exposure":
+      return nullableInteger(exposureValue(row.vip_3d_uv, row.vip_3d_ctr))
+    case "vip_7d_exposure":
+      return nullableInteger(exposureValue(row.vip_7d_uv, row.vip_7d_ctr))
+    case "vip_30d_exposure":
+      return nullableInteger(exposureValue(row.vip_30d_uv, row.vip_30d_ctr))
+    case "vip_3d_sales_change_rate":
+      return nullablePercent(row.vip_3d_sales_change_rate)
+    case "vip_3d_uv_change_rate":
+      return nullablePercent(row.vip_3d_uv_change_rate)
+    case "vip_3d_ctr_change_rate":
+      return nullablePercent(row.vip_3d_ctr_change_rate)
+    case "vip_3d_conversion_change_rate":
+      return nullablePercent(row.vip_3d_conversion_change_rate)
+    case "vip_7d_sales_change_rate":
+      return nullablePercent(row.vip_7d_sales_change_rate)
+    case "vip_7d_uv_change_rate":
+      return nullablePercent(row.vip_7d_uv_change_rate)
+    case "vip_7d_ctr_change_rate":
+      return nullablePercent(row.vip_7d_ctr_change_rate)
+    case "vip_7d_conversion_change_rate":
+      return nullablePercent(row.vip_7d_conversion_change_rate)
+    case "projected_5d_stock_no_inbound":
+      return nullableInteger(projected5dStockNoInbound(row))
+    case "vip_projected_15d_stock":
+      return nullableInteger(vipProjected15dStock(row))
+    case "other_projected_15d_stock":
+      return nullableInteger(otherProjected15dStock(row))
+    case "order_in_transit_stock":
+      return orderInTransitStock(row)
+    case "risk":
+      return riskLabel(row)
+    default: {
+      const value = (row as Record<string, unknown>)[column.key]
+      if (value == null) return ""
+      if (typeof value === "string" || typeof value === "number") return value
+      if (typeof value === "boolean") return value ? "是" : "否"
+      return ""
+    }
+  }
+}
+
+function buildFineTableCsvRows(rows: FineTableItem[], visibleColumns: TableColumn[]) {
+  return [
+    ["货号", "原始货号", "图片地址", ...visibleColumns.map((column) => column.label)],
+    ...rows.map((row) => [
+      row.sku || "",
+      row.original_sku || "",
+      row.image_url || "",
+      ...visibleColumns.map((column) => tableColumnExportValue(row, column)),
+    ]),
+  ]
+}
+
+function timestampForFilename(date: Date) {
+  const pad = (value: number) => String(value).padStart(2, "0")
+  return [
+    date.getFullYear(),
+    pad(date.getMonth() + 1),
+    pad(date.getDate()),
+    "_",
+    pad(date.getHours()),
+    pad(date.getMinutes()),
+    pad(date.getSeconds()),
+  ].join("")
 }
 
 function StatusBadge({ row }: { row: FineTableItem }) {
@@ -526,7 +651,7 @@ function createTableColumns(dailyLabels: string[]): TableColumn[] {
 function ProductThumb({ item }: { item: ProductListItem }) {
   const src = item.image_url ? `/api${item.image_url}` : null
   return (
-    <div className="flex h-13 w-13 shrink-0 items-center justify-center overflow-hidden rounded-md ">
+    <div className="flex h-13 w-13 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-border bg-muted/40">
       {src ? (
         // eslint-disable-next-line @next/next/no-img-element
         <img src={src} alt={item.sku || item.original_sku || "商品图片"} className="h-full w-full object-contain" />
@@ -549,15 +674,24 @@ function StatCard({
   tone?: "neutral" | "risk" | "good" | "warn"
 }) {
   return (
-    <div className="rounded-lg border border-border bg-card px-4 py-3 shadow-sm">
-      <div className="flex items-center justify-between gap-3">
-        <div>
+    <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
+      <div
+        className={cn(
+          "h-1 w-full",
+          tone === "neutral" && "bg-slate-200 dark:bg-slate-700",
+          tone === "risk" && "bg-rose-400",
+          tone === "good" && "bg-emerald-400",
+          tone === "warn" && "bg-amber-400",
+        )}
+      />
+      <div className="flex items-start justify-between gap-3 px-4 py-3">
+        <div className="min-w-0">
           <p className="text-xs text-muted-foreground">{label}</p>
-          <p className="mt-1 text-xl font-semibold tracking-normal">{value}</p>
+          <p className="mt-1 truncate text-[1.6rem] font-semibold leading-none tracking-normal">{value}</p>
         </div>
         <div
           className={cn(
-            "flex h-9 w-9 items-center justify-center rounded-md",
+            "flex h-9 w-9 shrink-0 items-center justify-center rounded-lg",
             tone === "neutral" && "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-200",
             tone === "risk" && "bg-rose-50 text-rose-700 dark:bg-rose-950/40 dark:text-rose-300",
             tone === "good" && "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300",
@@ -593,9 +727,9 @@ function DetailDrawer({ row, onClose }: { row: FineTableItem | null; onClose: ()
   const marketReference = row.latest_purchase_price == null ? null : Math.round((row.latest_purchase_price + 10) * 1.13 * 11)
 
   return (
-    <div className="fixed inset-y-0 right-0 z-50 w-full max-w-xl border-l border-border bg-background shadow-2xl">
+    <div className="fixed inset-y-0 right-0 z-50 w-full max-w-xl border-l border-border bg-background/95 shadow-2xl backdrop-blur">
       <div className="flex h-full flex-col">
-        <div className="flex items-start justify-between border-b border-border px-5 py-4">
+        <div className="flex items-start justify-between border-b border-border bg-muted/15 px-5 py-4">
           <div className="flex min-w-0 gap-3">
             <ProductThumb item={row} />
             <div className="min-w-0">
@@ -613,17 +747,17 @@ function DetailDrawer({ row, onClose }: { row: FineTableItem | null; onClose: ()
 
         <Tabs defaultValue="base" className="min-h-0 flex-1">
           <div className="border-b border-border px-5 py-3">
-            <TabsList className="h-9 rounded-lg">
-              <TabsTrigger value="base">基础</TabsTrigger>
-              <TabsTrigger value="price">价格</TabsTrigger>
-              <TabsTrigger value="sales">销售</TabsTrigger>
-              <TabsTrigger value="stock">库存</TabsTrigger>
+            <TabsList className="grid h-10 w-full grid-cols-4 rounded-xl bg-muted/50 p-1">
+              <TabsTrigger className="rounded-lg text-xs" value="base">基础</TabsTrigger>
+              <TabsTrigger className="rounded-lg text-xs" value="price">价格</TabsTrigger>
+              <TabsTrigger className="rounded-lg text-xs" value="sales">销售</TabsTrigger>
+              <TabsTrigger className="rounded-lg text-xs" value="stock">库存</TabsTrigger>
             </TabsList>
           </div>
 
           <div className="min-h-0 flex-1 overflow-y-auto px-5 py-5">
             <TabsContent value="base" className="space-y-4">
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid gap-3 sm:grid-cols-2">
                 {[
                   ["商品ID", row.goods_id],
                   ["P-SPU", row.p_spu],
@@ -640,22 +774,22 @@ function DetailDrawer({ row, onClose }: { row: FineTableItem | null; onClose: ()
                   ["大底材质", row.outsole_material],
                   ["鞋垫材质", row.insole_material],
                 ].map(([label, value]) => (
-                  <div key={label} className="rounded-lg border border-border bg-card p-3">
+                  <div key={label} className="rounded-xl border border-border bg-card px-3 py-3 shadow-sm">
                     <p className="text-xs text-muted-foreground">{label}</p>
-                    <p className="mt-1 break-words text-sm font-medium">{value || "-"}</p>
+                    <p className="mt-1 break-words text-sm font-medium leading-5">{value || "-"}</p>
                   </div>
                 ))}
               </div>
             </TabsContent>
 
             <TabsContent value="price" className="space-y-4">
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid gap-3 sm:grid-cols-2">
                 <StatCard icon={SlidersHorizontal} label="今日到手价" value={nullableCurrency(row.final_price)} tone="good" />
                 <StatCard icon={Layers3} label="价格段" value={row.price_band || "-"} />
                 <StatCard icon={BarChart3} label="活动毛利" value={nullableInteger(row.activity_profit)} tone={(row.margin_rate ?? 1) < 0.12 ? "warn" : "good"} />
                 <StatCard icon={BarChart3} label="毛利率" value={nullableDecimal2(row.margin_rate)} tone={(row.margin_rate ?? 1) < 0.12 ? "warn" : "good"} />
               </div>
-              <div className="rounded-lg border border-border">
+              <div className="overflow-hidden rounded-xl border border-border">
                 {[
                   ["成本", nullableCost(row.latest_purchase_price)],
                   ["唯品价", nullableCurrency(row.vip_price)],
@@ -671,14 +805,14 @@ function DetailDrawer({ row, onClose }: { row: FineTableItem | null; onClose: ()
             </TabsContent>
 
             <TabsContent value="sales" className="space-y-4">
-              <div className="rounded-lg border border-border p-4">
+              <div className="rounded-xl border border-border bg-card p-4 shadow-sm">
                 <div className="mb-3 flex items-center justify-between">
                   <p className="text-sm font-medium">近15天销售</p>
                   <span className="text-xs text-muted-foreground">合计 {formatNumber(dailyTotal)}</span>
                 </div>
                 <TrendBars values={dailyValues} />
               </div>
-              <div className="grid grid-cols-3 gap-3">
+              <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
                 <StatCard icon={TrendingUp} label="唯品3天" value={formatNumber(row.vip_3d_sales)} />
                 <StatCard icon={TrendingUp} label="唯品30天" value={formatNumber(row.vip_30d_sales)} />
                 <StatCard icon={TrendingUp} label="唯品15天预计" value={nullableInteger(vipProjected15dSales(row))} />
@@ -694,7 +828,7 @@ function DetailDrawer({ row, onClose }: { row: FineTableItem | null; onClose: ()
                 <StatCard icon={Boxes} label="其他原始15天" value={formatNumber(row.original_other_15d_sales)} />
                 <StatCard icon={Boxes} label="其他原始30天" value={formatNumber(row.original_other_30d_sales)} />
               </div>
-              <div className="rounded-lg border border-border">
+              <div className="overflow-hidden rounded-xl border border-border">
                 <div className="border-b border-border px-4 py-3 text-sm font-medium">其他平台30天店铺拆分</div>
                 {row.shop_30d_sales.length > 0 ? row.shop_30d_sales.map((item) => (
                   <div key={item.shop_name} className="flex items-center justify-between border-b border-border px-4 py-2.5 last:border-b-0">
@@ -708,7 +842,7 @@ function DetailDrawer({ row, onClose }: { row: FineTableItem | null; onClose: ()
             </TabsContent>
 
             <TabsContent value="stock" className="space-y-4">
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid gap-3 sm:grid-cols-2">
                 <StatCard icon={Boxes} label="聚水潭库存" value={formatNumber(row.stock_qty)} tone={row.stock_qty < row.vip_7d_sales ? "warn" : "neutral"} />
                 <StatCard icon={AlertTriangle} label="现有5天后预计库存(不加未到)" value={nullableInteger(projected5dStockNoInbound(row))} tone={projected5dStockNoInbound(row) < 0 ? "risk" : "good"} />
                 <StatCard icon={AlertTriangle} label="15天后库存减唯品会" value={nullableInteger(vipProjected15dStock(row))} tone={vipProjected15dStock(row) < 0 ? "risk" : "good"} />
@@ -723,7 +857,7 @@ function DetailDrawer({ row, onClose }: { row: FineTableItem | null; onClose: ()
                 <StatCard icon={Layers3} label="已下订单未到数量" value={formatNumber(orderInTransitStock(row))} />
                 <StatCard icon={Boxes} label="打次未到数量" value={formatNumber(row.defect_in_transit_stock)} />
               </div>
-              <div className="rounded-lg border border-border p-4">
+              <div className="rounded-xl border border-border bg-card p-4 shadow-sm">
                 <p className="mb-3 text-sm font-medium">尺码库存</p>
                 <div className="grid grid-cols-4 gap-2">
                   {Object.entries(row.size_stock).map(([size, qty]) => (
@@ -764,21 +898,21 @@ const FineTableGrid = memo(function FineTableGrid({
   visibleColumns: TableColumn[]
 }) {
   return (
-    <div className="overflow-hidden rounded-lg border border-border bg-card shadow-sm">
+    <div className="table-panel">
       <div className="max-h-[calc(100svh-320px)] min-h-[420px] overflow-auto">
         <table
-          className="w-full border-separate border-spacing-0 text-sm"
+          className="w-full border-separate border-spacing-0 text-[13px]"
           style={{ minWidth: Math.max(1500, 360 + visibleColumns.length * 120) }}
         >
-          <thead className="sticky top-0 z-20 bg-card">
+          <thead className="sticky top-0 z-20 bg-card/95 backdrop-blur">
             <tr className="text-xs text-muted-foreground">
-              <th className="sticky left-0 z-30 w-20 border-b border-border bg-card px-3 py-3 text-left font-medium">图片</th>
-              <th className="sticky left-20 z-30 w-40 border-b border-border bg-card px-3 py-3 text-left font-medium">货号</th>
+              <th className="sticky left-0 z-30 w-20 border-b border-border bg-card/95 px-3 py-2.5 text-left font-medium">图片</th>
+              <th className="sticky left-20 z-30 w-40 border-b border-border bg-card/95 px-3 py-2.5 text-left font-medium">货号</th>
               {visibleColumns.map((column) => (
                 <th
                   key={column.key}
                   className={cn(
-                    "border-b border-border px-3 py-3 font-medium",
+                    "border-b border-border px-3 py-2.5 font-medium",
                     column.align === "right" ? "text-right" : column.align === "center" ? "text-center" : "text-left",
                     column.className,
                   )}
@@ -807,11 +941,11 @@ const FineTableGrid = memo(function FineTableGrid({
               </tr>
             )}
             {!isLoading && !error && filteredRows.map((row) => (
-              <tr key={`${row.brand}-${row.id}`} className="group hover:bg-muted/40">
-                <td className="sticky left-0 z-10 border-b border-border bg-card px-3 py-2 group-hover:bg-muted">
+              <tr key={`${row.brand}-${row.id}`} className="group transition-colors hover:bg-muted/50">
+                <td className="sticky left-0 z-10 border-b border-border bg-card px-3 py-2 group-hover:bg-muted/40">
                   <ProductThumb item={row} />
                 </td>
-                <td className="sticky left-20 z-10 border-b border-border bg-card px-3 py-2 group-hover:bg-muted">
+                <td className="sticky left-20 z-10 border-b border-border bg-card px-3 py-2 group-hover:bg-muted/40">
                   <div className="min-w-0">
                     <p className="font-medium">{row.sku || "-"}</p>
                     <p className="mt-0.5 text-xs text-muted-foreground">{row.original_sku || row.factory_sku || "-"}</p>
@@ -829,7 +963,7 @@ const FineTableGrid = memo(function FineTableGrid({
                     {column.render(row)}
                   </td>
                 ))}
-                <td className="sticky right-0 z-10 border-b border-border bg-card px-3 py-2 text-right group-hover:bg-muted">
+                <td className="sticky right-0 z-10 border-b border-border bg-card px-3 py-2 text-right group-hover:bg-muted/40">
                   <Button variant="ghost" size="icon" onClick={() => onSelectRow(row)} aria-label="查看详情">
                     <ChevronRight className="h-4 w-4" />
                   </Button>
@@ -867,6 +1001,7 @@ export function FineTablePage() {
   const [columnMode, setColumnMode] = useState<ColumnMode>("default")
   const [customColumnPickerOpen, setCustomColumnPickerOpen] = useState(true)
   const [customColumnKeys, setCustomColumnKeys] = useState<string[]>(DEFAULT_COLUMN_KEYS)
+  const [isExporting, setIsExporting] = useState(false)
 
   useEffect(() => {
     let cancelled = false
@@ -934,6 +1069,9 @@ export function FineTablePage() {
     }
     return tableColumns.filter((column) => column.defaultVisible)
   }, [columnMode, customColumnKeys, tableColumns])
+  const deferredVisibleColumns = useDeferredValue(visibleColumns)
+  const isColumnViewSettling = deferredVisibleColumns !== visibleColumns
+  const customColumnKeySet = useMemo(() => new Set(customColumnKeys), [customColumnKeys])
   const groupedColumns = useMemo(() => {
     return tableColumns.reduce<Record<ColumnGroup, TableColumn[]>>((acc, column) => {
       acc[column.group] = [...(acc[column.group] ?? []), column]
@@ -972,25 +1110,63 @@ export function FineTablePage() {
     setCustomColumnKeys([])
   }
 
+  async function handleExport() {
+    setIsExporting(true)
+    try {
+      const allRows: FineTableItem[] = []
+      let nextPage = 1
+      let expectedTotal = 0
+
+      do {
+        const response = await listFineTable({
+          page: nextPage,
+          pageSize: EXPORT_PAGE_SIZE,
+          query: query || undefined,
+          season,
+        })
+        allRows.push(...response.items)
+        expectedTotal = response.total
+        nextPage += 1
+      } while (allRows.length < expectedTotal)
+
+      const rowsForExport = view === "missingImage"
+        ? allRows.filter((row) => !row.image_url)
+        : allRows
+      const csvRows = buildFineTableCsvRows(rowsForExport, visibleColumns)
+      downloadCsv(`商品精细表_${timestampForFilename(new Date())}.csv`, csvRows)
+    } catch (exportError) {
+      window.alert(getErrorMessage(exportError))
+    } finally {
+      setIsExporting(false)
+    }
+  }
+
   return (
-    <div className="min-h-svh bg-muted/30 px-5 py-6">
-      <div className="mx-auto flex w-full max-w-[1600px] flex-col gap-4">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <h1 className="text-2xl font-semibold tracking-normal">商品精细表</h1>
-            <p className="mt-1 text-sm text-muted-foreground">
-              千百度女鞋{latestOrderDate ? ` · 订单截止 ${latestOrderDate}` : ""}
-            </p>
-          </div>
-          <div className="flex items-center gap-2">
-            <Button variant="outline" size="sm" onClick={() => setReloadToken((current) => current + 1)}>
-              <RefreshCw className="h-4 w-4" />
-              刷新
-            </Button>
-            <Button variant="outline" size="sm">
-              <Download className="h-4 w-4" />
-              导出
-            </Button>
+    <div className="app-page">
+      <div className="app-content-wide">
+        <div className="page-header">
+          <div className="flex w-full flex-wrap items-start justify-between gap-3">
+            <div>
+              <h1 className="page-title">商品精细表</h1>
+              <p className="page-subtitle">
+                千百度女鞋{latestOrderDate ? ` · 订单截止 ${latestOrderDate}` : ""}
+              </p>
+              <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                <span className="inline-flex h-7 items-center rounded-full border border-border bg-muted/40 px-3">当前 {formatNumber(total)} 条</span>
+                <span className="inline-flex h-7 items-center rounded-full border border-border bg-muted/40 px-3">显示 {formatNumber(visibleColumns.length)} 列</span>
+                <span className="inline-flex h-7 items-center rounded-full border border-border bg-muted/40 px-3">视图 {columnMode === "default" ? "运营" : columnMode === "full" ? "完整" : "自定义"}</span>
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <Button variant="outline" size="sm" onClick={() => setReloadToken((current) => current + 1)}>
+                <RefreshCw className="h-4 w-4" />
+                刷新
+              </Button>
+              <Button variant="outline" size="sm" onClick={handleExport} disabled={isExporting || isLoading}>
+                <Download className="h-4 w-4" />
+                {isExporting ? "导出中" : "导出"}
+              </Button>
+            </div>
           </div>
         </div>
 
@@ -1001,53 +1177,38 @@ export function FineTablePage() {
           <StatCard icon={ImageIcon} label="暂无图片" value={formatNumber(stats.missing)} tone={stats.missing > 0 ? "warn" : "neutral"} />
         </div>
 
-        <div className="rounded-lg border border-border bg-card p-3 shadow-sm">
-          <div className="flex flex-wrap items-center gap-2">
-            <div className="relative min-w-72 flex-1">
-              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                value={queryInput}
-                onChange={(event) => setQueryInput(event.target.value)}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter") {
-                    setPage(1)
-                    setQuery(queryInput.trim())
-                  }
-                }}
-                placeholder="搜索货号、原始货号、工厂货号"
-                className="pl-9"
-              />
-            </div>
-            <Button
-              onClick={() => {
-                setPage(1)
-                setQuery(queryInput.trim())
-              }}
-            >
-              查询
-            </Button>
-            <div className="flex flex-wrap gap-1.5">
-              {seasons.map((value) => (
-                <button
-                  key={value}
-                  type="button"
-                  onClick={() => {
-                    setSeason(value)
-                    setPage(1)
+        <div className="surface-panel p-4">
+          <div className="flex flex-col gap-3">
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="relative min-w-72 flex-1">
+                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  value={queryInput}
+                  onChange={(event) => setQueryInput(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") {
+                      setPage(1)
+                      setQuery(queryInput.trim())
+                    }
                   }}
-                  className={cn(
-                    "h-9 cursor-pointer rounded-md px-3 text-sm font-medium transition-colors",
-                    season === value ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground hover:bg-muted/70 hover:text-foreground",
-                  )}
-                >
-                  {value === "all" ? "全部季节" : value}
-                </button>
-              ))}
+                  placeholder="搜索货号、原始货号、工厂货号"
+                  className="pl-9"
+                />
+              </div>
+              <Button
+                onClick={() => {
+                  setPage(1)
+                  setQuery(queryInput.trim())
+                }}
+              >
+                查询
+              </Button>
             </div>
+
           </div>
         </div>
 
-        <div className="rounded-lg border border-border bg-card p-3 shadow-sm">
+        <div className="surface-panel p-4">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="flex items-center gap-2">
               <span className="text-sm font-medium">列视图</span>
@@ -1066,7 +1227,7 @@ export function FineTablePage() {
                     }
                   }}
                   className={cn(
-                    "h-9 cursor-pointer rounded-md px-3 text-sm font-medium transition-colors",
+                    "h-9 cursor-pointer rounded-full px-4 text-sm font-medium transition-colors",
                     columnMode === value ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground hover:bg-muted/70 hover:text-foreground",
                   )}
                 >
@@ -1075,7 +1236,9 @@ export function FineTablePage() {
               ))}
             </div>
             <div className="flex items-center gap-2">
-              <p className="text-sm text-muted-foreground">显示 {visibleColumns.length} 列</p>
+              <p className="text-sm text-muted-foreground">
+                显示 {visibleColumns.length} 列{isColumnViewSettling ? " · 更新中" : ""}
+              </p>
               {columnMode === "custom" && (
                 <Button
                   type="button"
@@ -1112,9 +1275,9 @@ export function FineTablePage() {
               <div className="grid max-h-[42vh] gap-2 overflow-y-auto pr-1 md:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-6">
                 {(Object.keys(groupedColumns) as ColumnGroup[]).map((group) => {
                   const columns = groupedColumns[group] ?? []
-                  const selectedCount = columns.filter((column) => customColumnKeys.includes(column.key)).length
+                  const selectedCount = columns.filter((column) => customColumnKeySet.has(column.key)).length
                   return (
-                    <section key={group} className="min-h-0 rounded-md border border-border bg-muted/20 p-2">
+                    <section key={group} className="min-h-0 rounded-xl border border-border bg-muted/20 p-3">
                       <div className="mb-1.5 flex items-center justify-between gap-2">
                         <div className="min-w-0">
                           <div className="truncate text-xs font-medium text-foreground">{group}</div>
@@ -1139,12 +1302,12 @@ export function FineTablePage() {
                       </div>
                       <div className="grid max-h-44 gap-1 overflow-y-auto pr-1">
                         {columns.map((column) => {
-                          const checked = customColumnKeys.includes(column.key)
+                          const checked = customColumnKeySet.has(column.key)
                           return (
                             <label
                               key={column.key}
                               className={cn(
-                                "flex h-7 cursor-pointer items-center gap-2 rounded-md border px-2 text-xs transition-colors",
+                                "flex h-8 cursor-pointer items-center gap-2 rounded-md border px-2 text-xs transition-colors",
                                 checked
                                   ? "border-primary/30 bg-primary/10 text-foreground"
                                   : "border-transparent bg-background/70 text-muted-foreground hover:border-border hover:text-foreground",
@@ -1171,9 +1334,9 @@ export function FineTablePage() {
 
         <Tabs value={view} defaultValue="all" onValueChange={(value) => setView(value as ViewKey)}>
           <div className="flex items-center justify-between gap-3">
-            <TabsList className="rounded-lg">
+            <TabsList className="rounded-xl bg-muted/50 p-1">
               {viewTabs.map((tab) => (
-                <TabsTrigger key={tab.value} value={tab.value}>{tab.label}</TabsTrigger>
+                <TabsTrigger key={tab.value} className="rounded-lg px-4 text-sm" value={tab.value}>{tab.label}</TabsTrigger>
               ))}
             </TabsList>
             <p className="text-sm text-muted-foreground">
@@ -1191,7 +1354,7 @@ export function FineTablePage() {
               page={page}
               total={total}
               totalPages={totalPages}
-              visibleColumns={visibleColumns}
+              visibleColumns={deferredVisibleColumns}
             />
           </TabsContent>
         </Tabs>

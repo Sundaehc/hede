@@ -32,7 +32,7 @@ export default function RootLayout({
         <ThemeProvider>
           <div className="flex min-h-svh">
             <SidebarNav />
-            <main className="flex-1 pl-56">{children}</main>
+            <main className="min-w-0 flex-1 pl-56">{children}</main>
           </div>
         </ThemeProvider>
       </body>

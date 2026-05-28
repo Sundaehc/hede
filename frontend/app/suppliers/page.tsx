@@ -112,12 +112,15 @@ export default function SuppliersPage() {
   }
 
   return (
-    <div className="px-6 py-8">
-      <div className="mx-auto flex w-full max-w-4xl flex-col gap-5">
-        <div className="flex items-center justify-between">
+    <div className="app-page">
+      <div className="app-content-narrow">
+        <div className="page-header">
           <div className="flex items-center gap-3">
-            <h1 className="text-xl font-semibold">供应商管理</h1>
-            <span className="text-sm text-muted-foreground tabular-nums">{items.length} 个</span>
+            <div>
+              <h1 className="page-title">供应商管理</h1>
+              <p className="page-subtitle">维护进销存单据中的供应商基础资料</p>
+            </div>
+            <span className="rounded-full border border-border bg-muted/45 px-3 py-1 text-sm text-muted-foreground tabular-nums">{items.length} 个</span>
           </div>
           <Button size="sm" onClick={openCreate} className="cursor-pointer">
             <Plus className="h-4 w-4" />
@@ -125,10 +128,10 @@ export default function SuppliersPage() {
           </Button>
         </div>
 
-        <div className="overflow-x-auto rounded-xl border border-border bg-card">
+        <div className="table-panel overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
-              <tr className="border-b border-border bg-muted/40 text-left text-muted-foreground">
+              <tr className="table-head-row">
                 <th className="px-4 py-3 font-medium">名称</th>
                 <th className="px-4 py-3 font-medium">联系方式</th>
                 <th className="px-4 py-3 font-medium">地址</th>
@@ -148,7 +151,7 @@ export default function SuppliersPage() {
                 </tr>
               )}
               {items.map((item) => (
-                <tr key={item.id} className="hover:bg-muted/30 transition-colors">
+                <tr key={item.id} className="table-row">
                   <td className="px-4 py-2.5 font-medium">{item.name}</td>
                   <td className="px-4 py-2.5">{item.contact || "-"}</td>
                   <td className="px-4 py-2.5">{item.address || "-"}</td>
