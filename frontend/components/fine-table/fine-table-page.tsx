@@ -485,7 +485,7 @@ function createTableColumns(dailyLabels: string[]): TableColumn[] {
       dailyDateLabel: label,
       dailyMetricLabel: "销售" as const,
       group: "每日" as const,
-      align: "right" as const,
+      align: "center" as const,
       className: "min-w-16",
       render: (row: FineTableItem) => formatNumber(visibleDailySales(row)[index]?.quantity ?? 0),
     },
@@ -495,7 +495,7 @@ function createTableColumns(dailyLabels: string[]): TableColumn[] {
       dailyDateLabel: label,
       dailyMetricLabel: "UV" as const,
       group: "每日" as const,
-      align: "right" as const,
+      align: "center" as const,
       className: "min-w-16",
       render: (row: FineTableItem) => formatNumber(visibleDailySales(row)[index]?.uv ?? 0),
     },
@@ -982,8 +982,7 @@ const FineTableGrid = memo(function FineTableGrid({
         key={column.key}
         rowSpan={hasDailyColumns ? 2 : 1}
         className={cn(
-          "border-b border-border px-3 py-2.5 font-medium",
-          column.align === "right" ? "text-right" : column.align === "center" ? "text-center" : "text-left",
+          "border-b border-border px-3 py-2.5 text-center font-medium",
           column.className,
         )}
       >
@@ -1002,10 +1001,10 @@ const FineTableGrid = memo(function FineTableGrid({
         >
           <thead className="sticky top-0 z-20 bg-card/95 backdrop-blur">
             <tr className="text-xs text-muted-foreground">
-              <th rowSpan={hasDailyColumns ? 2 : 1} className="sticky left-0 z-30 w-20 border-b border-border bg-card/95 px-3 py-2.5 text-left font-medium">图片</th>
-              <th rowSpan={hasDailyColumns ? 2 : 1} className="sticky left-20 z-30 w-40 border-b border-border bg-card/95 px-3 py-2.5 text-left font-medium">货号</th>
+              <th rowSpan={hasDailyColumns ? 2 : 1} className="sticky left-0 z-30 w-20 border-b border-border bg-card/95 px-3 py-2.5 text-center font-medium">图片</th>
+              <th rowSpan={hasDailyColumns ? 2 : 1} className="sticky left-20 z-30 w-40 border-b border-border bg-card/95 px-3 py-2.5 text-center font-medium">货号</th>
               {headerCells}
-              <th rowSpan={hasDailyColumns ? 2 : 1} className="sticky right-0 z-30 w-20 border-b border-border bg-card px-3 py-3 text-right font-medium">详情</th>
+              <th rowSpan={hasDailyColumns ? 2 : 1} className="sticky right-0 z-30 w-20 border-b border-border bg-card px-3 py-3 text-center font-medium">详情</th>
             </tr>
             {hasDailyColumns && (
               <tr className="text-xs text-muted-foreground">
@@ -1041,10 +1040,10 @@ const FineTableGrid = memo(function FineTableGrid({
             )}
             {!isLoading && !error && filteredRows.map((row) => (
               <tr key={`${row.brand}-${row.id}`} className="group transition-colors hover:bg-muted/50">
-                <td className="sticky left-0 z-10 border-b border-border bg-card px-3 py-2 group-hover:bg-muted/40">
+                <td className="sticky left-0 z-10 border-b border-border bg-card px-3 py-2 text-center group-hover:bg-muted/40">
                   <ProductThumb item={row} />
                 </td>
-                <td className="sticky left-20 z-10 border-b border-border bg-card px-3 py-2 group-hover:bg-muted/40">
+                <td className="sticky left-20 z-10 border-b border-border bg-card px-3 py-2 text-center group-hover:bg-muted/40">
                   <div className="min-w-0">
                     <p className="font-medium">{row.sku || "-"}</p>
                     <p className="mt-0.5 text-xs text-muted-foreground">{row.original_sku || row.factory_sku || "-"}</p>
@@ -1054,15 +1053,14 @@ const FineTableGrid = memo(function FineTableGrid({
                   <td
                     key={column.key}
                     className={cn(
-                      "border-b border-border px-3 py-2",
-                      column.align === "right" ? "text-right" : column.align === "center" ? "text-center" : "text-left",
+                      "border-b border-border px-3 py-2 text-center",
                       column.className,
                     )}
                   >
                     {column.render(row)}
                   </td>
                 ))}
-                <td className="sticky right-0 z-10 border-b border-border bg-card px-3 py-2 text-right group-hover:bg-muted/40">
+                <td className="sticky right-0 z-10 border-b border-border bg-card px-3 py-2 text-center group-hover:bg-muted/40">
                   <Button variant="ghost" size="icon" onClick={() => onSelectRow(row)} aria-label="查看详情">
                     <ChevronRight className="h-4 w-4" />
                   </Button>
