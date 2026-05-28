@@ -303,21 +303,33 @@ def list_fine_table(
             select(func.max(GJ_MERGED_PRODUCT_INFO_TABLE.c.source_date_value))
             .where(GJ_MERGED_PRODUCT_INFO_TABLE.c.goods_code.in_(skus))
         ).scalar()
-        product_name_by_sku: dict[str, str] = {}
+        gj_info_by_sku: dict[str, dict[str, Any]] = {}
         if latest_gj_product_info_date is not None:
             for row in conn.execute(
                 select(
                     GJ_MERGED_PRODUCT_INFO_TABLE.c.goods_code,
                     GJ_MERGED_PRODUCT_INFO_TABLE.c.product_name,
+                    GJ_MERGED_PRODUCT_INFO_TABLE.c.upper_material,
+                    GJ_MERGED_PRODUCT_INFO_TABLE.c.lining_material,
+                    GJ_MERGED_PRODUCT_INFO_TABLE.c.outsole_material,
+                    GJ_MERGED_PRODUCT_INFO_TABLE.c.insole_material,
                 )
                 .where(GJ_MERGED_PRODUCT_INFO_TABLE.c.goods_code.in_(skus))
                 .where(GJ_MERGED_PRODUCT_INFO_TABLE.c.source_date_value == latest_gj_product_info_date)
                 .order_by(desc(GJ_MERGED_PRODUCT_INFO_TABLE.c.updated_at), desc(GJ_MERGED_PRODUCT_INFO_TABLE.c.id))
             ).mappings():
                 sku = str(row["goods_code"] or "").strip()
-                product_name = str(row["product_name"] or "").strip()
-                if sku and product_name:
-                    product_name_by_sku.setdefault(sku, product_name)
+                if sku:
+                    gj_info_by_sku.setdefault(
+                        sku,
+                        {
+                            "product_name": str(row["product_name"] or "").strip() or None,
+                            "upper_material": str(row["upper_material"] or "").strip() or None,
+                            "lining_material": str(row["lining_material"] or "").strip() or None,
+                            "outsole_material": str(row["outsole_material"] or "").strip() or None,
+                            "insole_material": str(row["insole_material"] or "").strip() or None,
+                        },
+                    )
 
         original_stock_summary_by_code: dict[str, dict[str, int]] = {}
         original_defect_in_transit_by_code: dict[str, int] = {}
@@ -442,6 +454,7 @@ def list_fine_table(
         ops = ops_by_sku.get(sku, {})
         price = price_by_sku.get(sku, {})
         daily = daily_by_sku.get(sku, {})
+        gj_info = gj_info_by_sku.get(sku, {})
         orders = orders_by_sku.get(sku, {})
         original_sku = str(product.get("original_sku") or "").strip()
         original_orders = original_orders_by_code.get(original_sku, {})
@@ -514,7 +527,11 @@ def list_fine_table(
             **product,
             "brand": BRAND,
             "image_url": image_url_for(BRAND, product.get("image_path"), settings),
-            "product_name": product_name_by_sku.get(sku),
+            "product_name": gj_info.get("product_name"),
+            "upper_material": gj_info.get("upper_material") or product.get("upper_material"),
+            "lining_material": gj_info.get("lining_material") or product.get("lining_material"),
+            "outsole_material": gj_info.get("outsole_material") or product.get("outsole_material"),
+            "insole_material": gj_info.get("insole_material") or product.get("insole_material"),
             "main_style": _compass_metric(daily, "main_style"),
             "goods_id": ops.get("goods_id"),
             "p_spu": ops.get("p_spu"),
