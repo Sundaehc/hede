@@ -75,7 +75,6 @@ const DEFAULT_COLUMN_KEYS = [
   "group_name",
   "product_name",
   "main_style",
-  "season",
   "cost",
   "final_price",
   "activity_profit",
@@ -357,8 +356,6 @@ function tableColumnExportValue(row: FineTableItem, column: TableColumn) {
   switch (column.key) {
     case "status":
       return statusLabel(row)
-    case "season":
-      return [row.season_category, row.year].filter(Boolean).join(" ")
     case "category_l3":
       return row.category_l3 || row.product_model || ""
     case "cost":
@@ -419,11 +416,10 @@ function tableColumnExportValue(row: FineTableItem, column: TableColumn) {
 
 function buildFineTableCsvRows(rows: FineTableItem[], visibleColumns: TableColumn[]) {
   return [
-    ["货号", "原始货号", "图片地址", ...visibleColumns.map((column) => column.label)],
+    ["货号", "原始货号", ...visibleColumns.map((column) => column.label)],
     ...rows.map((row) => [
       row.sku || "",
       row.original_sku || "",
-      row.image_url || "",
       ...visibleColumns.map((column) => tableColumnExportValue(row, column)),
     ]),
   ]
@@ -505,18 +501,6 @@ function createTableColumns(dailyLabels: string[]): TableColumn[] {
     { key: "group_name", label: "组别", group: "基础", className: "min-w-28", defaultVisible: true, render: (row) => row.group_name || "-" },
     { key: "product_name", label: "品名", group: "基础", className: "min-w-28", defaultVisible: true, render: (row) => row.product_name || "-" },
     { key: "main_style", label: "主款式", group: "基础", className: "min-w-28", defaultVisible: true, render: (row) => row.main_style || "-" },
-    {
-      key: "season",
-      label: "季节",
-      group: "基础",
-      defaultVisible: true,
-      render: (row) => (
-        <div>
-          <div className="text-sm">{row.season_category || "-"}</div>
-          <div className="text-xs text-muted-foreground">{row.year || "-"}</div>
-        </div>
-      ),
-    },
     { key: "style_code", label: "款号", group: "基础", render: (row) => row.style_code || "-" },
     { key: "goods_id", label: "商品ID", group: "基础", className: "min-w-40", render: (row) => row.goods_id || "-" },
     { key: "p_spu", label: "P-SPU", group: "基础", className: "min-w-44", render: (row) => row.p_spu || "-" },
@@ -648,16 +632,46 @@ function createTableColumns(dailyLabels: string[]): TableColumn[] {
   ]
 }
 
-function ProductThumb({ item }: { item: ProductListItem }) {
+function ProductThumb({ item, className }: { item: ProductListItem; className?: string }) {
   const src = item.image_url ? `/api${item.image_url}` : null
   return (
-    <div className="flex h-13 w-13 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-border bg-muted/40">
+    <div className={cn("flex h-13 w-13 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-border bg-muted/40", className)}>
       {src ? (
         // eslint-disable-next-line @next/next/no-img-element
         <img src={src} alt={item.sku || item.original_sku || "商品图片"} className="h-full w-full object-contain" />
       ) : (
         <ImageIcon className="h-6 w-6 text-muted-foreground" />
       )}
+    </div>
+  )
+}
+
+function DetailFieldCard({ label, value, wide = false }: { label: string; value: ReactNode; wide?: boolean }) {
+  return (
+    <div className={cn("rounded-lg border border-border bg-card px-3 py-2.5", wide && "sm:col-span-2")}>
+      <p className="text-[11px] text-muted-foreground">{label}</p>
+      <div className="mt-1 break-words text-sm font-medium leading-5">{value || "-"}</div>
+    </div>
+  )
+}
+
+function DetailSection({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <section className="space-y-3">
+      <div className="flex items-center gap-2">
+        <span className="h-4 w-1 rounded-full bg-foreground/80" />
+        <h3 className="text-sm font-semibold">{title}</h3>
+      </div>
+      {children}
+    </section>
+  )
+}
+
+function HeaderMetric({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-lg border border-border bg-background/65 px-3 py-2">
+      <p className="text-[11px] text-muted-foreground">{label}</p>
+      <p className="mt-0.5 text-sm font-semibold tabular-nums">{value}</p>
     </div>
   )
 }
@@ -725,28 +739,42 @@ function DetailDrawer({ row, onClose }: { row: FineTableItem | null; onClose: ()
   const dailyValues = visibleDailySales(row).map((item) => item.quantity)
   const dailyTotal = dailyValues.reduce((sum, value) => sum + value, 0)
   const marketReference = row.latest_purchase_price == null ? null : Math.round((row.latest_purchase_price + 10) * 1.13 * 11)
+  const maxShopQuantity = Math.max(...row.shop_30d_sales.map((item) => item.quantity), 1)
 
   return (
-    <div className="fixed inset-y-0 right-0 z-50 w-full max-w-xl border-l border-border bg-background/95 shadow-2xl backdrop-blur">
+    <div className="fixed inset-y-0 right-0 z-50 w-full max-w-2xl border-l border-border bg-background/95 shadow-2xl backdrop-blur">
       <div className="flex h-full flex-col">
-        <div className="flex items-start justify-between border-b border-border bg-muted/15 px-5 py-4">
-          <div className="flex min-w-0 gap-3">
-            <ProductThumb item={row} />
-            <div className="min-w-0">
-              <div className="flex flex-wrap items-center gap-2">
-                <h2 className="truncate text-lg font-semibold">{row.sku || row.original_sku || "未命名商品"}</h2>
-                <StatusBadge row={row} />
+        <div className="border-b border-border bg-card/90 px-5 py-5">
+          <div className="flex items-start justify-between gap-4">
+            <div className="flex min-w-0 gap-4">
+              <ProductThumb item={row} className="h-20 w-20 rounded-xl bg-background" />
+              <div className="min-w-0">
+                <div className="flex flex-wrap items-center gap-2">
+                  <h2 className="truncate text-xl font-semibold">{row.sku || row.original_sku || "未命名商品"}</h2>
+                  <StatusBadge row={row} />
+                </div>
+                <p className="mt-1 text-sm text-muted-foreground">{row.product_name || row.original_sku || row.sku || "-"}</p>
+                <div className="mt-3 flex flex-wrap gap-1.5 text-xs text-muted-foreground">
+                  <span className="rounded-full border border-border bg-muted/40 px-2.5 py-1">{row.original_sku || "无原始货号"}</span>
+                  <span className="rounded-full border border-border bg-muted/40 px-2.5 py-1">{row.group_name || "未分组"}</span>
+                  {row.main_style ? <span className="rounded-full border border-border bg-muted/40 px-2.5 py-1">{row.main_style}</span> : null}
+                </div>
               </div>
-              <p className="mt-1 text-sm text-muted-foreground">{row.original_sku || row.sku} · {row.year || "未分季节"}</p>
             </div>
+            <Button variant="ghost" size="icon" onClick={onClose} aria-label="关闭详情">
+              <X className="h-4 w-4" />
+            </Button>
           </div>
-          <Button variant="ghost" size="icon" onClick={onClose} aria-label="关闭详情">
-            <X className="h-4 w-4" />
-          </Button>
+          <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
+            <HeaderMetric label="聚水潭库存" value={formatNumber(row.stock_qty)} />
+            <HeaderMetric label="唯品3天" value={formatNumber(row.vip_3d_sales)} />
+            <HeaderMetric label="其他3天" value={formatNumber(row.other_3d_sales)} />
+            <HeaderMetric label="风险" value={riskLabel(row)} />
+          </div>
         </div>
 
         <Tabs defaultValue="base" className="min-h-0 flex-1">
-          <div className="border-b border-border px-5 py-3">
+          <div className="sticky top-0 z-10 border-b border-border bg-background/95 px-5 py-3 backdrop-blur">
             <TabsList className="grid h-10 w-full grid-cols-4 rounded-xl bg-muted/50 p-1">
               <TabsTrigger className="rounded-lg text-xs" value="base">基础</TabsTrigger>
               <TabsTrigger className="rounded-lg text-xs" value="price">价格</TabsTrigger>
@@ -757,29 +785,28 @@ function DetailDrawer({ row, onClose }: { row: FineTableItem | null; onClose: ()
 
           <div className="min-h-0 flex-1 overflow-y-auto px-5 py-5">
             <TabsContent value="base" className="space-y-4">
-              <div className="grid gap-3 sm:grid-cols-2">
-                {[
-                  ["商品ID", row.goods_id],
-                  ["P-SPU", row.p_spu],
-                  ["款号", row.style_code],
-                  ["工厂货号", row.factory_sku],
-                  ["组别", row.group_name],
-                  ["品名", row.product_name],
-                  ["主款式", row.main_style],
-                  ["三级分类", row.category_l3 || row.product_model],
-                  ["季节分类", row.season_category],
-                  ["首单日期", row.first_order_time],
-                  ["鞋面材质", row.upper_material],
-                  ["内里材质", row.lining_material],
-                  ["大底材质", row.outsole_material],
-                  ["鞋垫材质", row.insole_material],
-                ].map(([label, value]) => (
-                  <div key={label} className="rounded-xl border border-border bg-card px-3 py-3 shadow-sm">
-                    <p className="text-xs text-muted-foreground">{label}</p>
-                    <p className="mt-1 break-words text-sm font-medium leading-5">{value || "-"}</p>
-                  </div>
-                ))}
-              </div>
+              <DetailSection title="商品识别">
+                <div className="grid gap-2 sm:grid-cols-2">
+                  <DetailFieldCard label="品名" value={row.product_name} wide />
+                  <DetailFieldCard label="商品ID" value={row.goods_id} />
+                  <DetailFieldCard label="P-SPU" value={row.p_spu} />
+                  <DetailFieldCard label="款号" value={row.style_code} />
+                  <DetailFieldCard label="工厂货号" value={row.factory_sku} />
+                  <DetailFieldCard label="组别" value={row.group_name} />
+                  <DetailFieldCard label="主款式" value={row.main_style} />
+                </div>
+              </DetailSection>
+              <DetailSection title="分类与材质">
+                <div className="grid gap-2 sm:grid-cols-2">
+                  <DetailFieldCard label="三级分类" value={row.category_l3 || row.product_model} />
+                  <DetailFieldCard label="首单日期" value={row.first_order_time} />
+                  <DetailFieldCard label="执行标准" value={row.execution_standard} />
+                  <DetailFieldCard label="鞋面材质" value={row.upper_material} />
+                  <DetailFieldCard label="内里材质" value={row.lining_material} />
+                  <DetailFieldCard label="大底材质" value={row.outsole_material} />
+                  <DetailFieldCard label="鞋垫材质" value={row.insole_material} />
+                </div>
+              </DetailSection>
             </TabsContent>
 
             <TabsContent value="price" className="space-y-4">
@@ -789,7 +816,8 @@ function DetailDrawer({ row, onClose }: { row: FineTableItem | null; onClose: ()
                 <StatCard icon={BarChart3} label="活动毛利" value={nullableInteger(row.activity_profit)} tone={(row.margin_rate ?? 1) < 0.12 ? "warn" : "good"} />
                 <StatCard icon={BarChart3} label="毛利率" value={nullableDecimal2(row.margin_rate)} tone={(row.margin_rate ?? 1) < 0.12 ? "warn" : "good"} />
               </div>
-              <div className="overflow-hidden rounded-xl border border-border">
+              <DetailSection title="价格结构">
+              <div className="overflow-hidden rounded-xl border border-border bg-card">
                 {[
                   ["成本", nullableCost(row.latest_purchase_price)],
                   ["唯品价", nullableCurrency(row.vip_price)],
@@ -802,6 +830,7 @@ function DetailDrawer({ row, onClose }: { row: FineTableItem | null; onClose: ()
                   </div>
                 ))}
               </div>
+              </DetailSection>
             </TabsContent>
 
             <TabsContent value="sales" className="space-y-4">
@@ -828,12 +857,17 @@ function DetailDrawer({ row, onClose }: { row: FineTableItem | null; onClose: ()
                 <StatCard icon={Boxes} label="其他原始15天" value={formatNumber(row.original_other_15d_sales)} />
                 <StatCard icon={Boxes} label="其他原始30天" value={formatNumber(row.original_other_30d_sales)} />
               </div>
-              <div className="overflow-hidden rounded-xl border border-border">
+              <div className="overflow-hidden rounded-xl border border-border bg-card">
                 <div className="border-b border-border px-4 py-3 text-sm font-medium">其他平台30天店铺拆分</div>
                 {row.shop_30d_sales.length > 0 ? row.shop_30d_sales.map((item) => (
-                  <div key={item.shop_name} className="flex items-center justify-between border-b border-border px-4 py-2.5 last:border-b-0">
-                    <span className="min-w-0 truncate text-sm text-muted-foreground">{item.shop_name || "未命名店铺"}</span>
-                    <span className="ml-4 text-sm font-medium">{formatNumber(item.quantity)}</span>
+                  <div key={item.shop_name} className="border-b border-border px-4 py-2.5 last:border-b-0">
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="min-w-0 truncate text-sm text-muted-foreground">{item.shop_name || "未命名店铺"}</span>
+                      <span className="text-sm font-medium tabular-nums">{formatNumber(item.quantity)}</span>
+                    </div>
+                    <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-muted">
+                      <div className="h-full rounded-full bg-foreground/75" style={{ width: `${Math.max(4, (item.quantity / maxShopQuantity) * 100)}%` }} />
+                    </div>
                   </div>
                 )) : (
                   <div className="px-4 py-6 text-center text-sm text-muted-foreground">暂无店铺销售</div>
@@ -859,11 +893,11 @@ function DetailDrawer({ row, onClose }: { row: FineTableItem | null; onClose: ()
               </div>
               <div className="rounded-xl border border-border bg-card p-4 shadow-sm">
                 <p className="mb-3 text-sm font-medium">尺码库存</p>
-                <div className="grid grid-cols-4 gap-2">
+                <div className="grid grid-cols-4 gap-2 sm:grid-cols-5">
                   {Object.entries(row.size_stock).map(([size, qty]) => (
-                    <div key={size} className="rounded-md bg-muted px-3 py-2">
+                    <div key={size} className="rounded-lg border border-border bg-muted/45 px-3 py-2">
                       <p className="text-xs text-muted-foreground">{size}</p>
-                      <p className="text-sm font-semibold">{qty}</p>
+                      <p className="text-sm font-semibold tabular-nums">{formatNumber(qty)}</p>
                     </div>
                   ))}
                 </div>
