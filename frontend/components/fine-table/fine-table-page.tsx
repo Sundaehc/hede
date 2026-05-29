@@ -23,6 +23,12 @@ import {
 } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { ApiError, listFineTable } from "@/lib/api"
@@ -934,6 +940,7 @@ const FineTableGrid = memo(function FineTableGrid({
   filteredRows,
   isLoading,
   onPageChange,
+  onPreviewImage,
   onSelectRow,
   page,
   total,
@@ -944,6 +951,7 @@ const FineTableGrid = memo(function FineTableGrid({
   filteredRows: FineTableItem[]
   isLoading: boolean
   onPageChange: (page: number) => void
+  onPreviewImage: (row: FineTableItem) => void
   onSelectRow: (row: FineTableItem) => void
   page: number
   total: number
@@ -953,7 +961,7 @@ const FineTableGrid = memo(function FineTableGrid({
   const hasDailyColumns = visibleColumns.some((column) => column.dailyMetricLabel)
   const tableMinWidth = Math.max(
     1500,
-    360 + visibleColumns.reduce((sum, column) => sum + (column.dailyMetricLabel ? 68 : 120), 0),
+    500 + visibleColumns.reduce((sum, column) => sum + (column.dailyMetricLabel ? 68 : 120), 0),
   )
   const headerCells: ReactNode[] = []
   for (let index = 0; index < visibleColumns.length; index += 1) {
@@ -1003,6 +1011,7 @@ const FineTableGrid = memo(function FineTableGrid({
             <tr className="text-xs text-muted-foreground">
               <th rowSpan={hasDailyColumns ? 2 : 1} className="sticky left-0 z-30 w-20 border-b border-border bg-card/95 px-3 py-2.5 text-center font-medium">图片</th>
               <th rowSpan={hasDailyColumns ? 2 : 1} className="sticky left-20 z-30 w-40 border-b border-border bg-card/95 px-3 py-2.5 text-center font-medium">货号</th>
+              <th rowSpan={hasDailyColumns ? 2 : 1} className="sticky left-60 z-30 w-40 border-b border-border bg-card/95 px-3 py-2.5 text-center font-medium">原始货号</th>
               {headerCells}
               <th rowSpan={hasDailyColumns ? 2 : 1} className="sticky right-0 z-30 w-20 border-b border-border bg-card px-3 py-3 text-center font-medium">详情</th>
             </tr>
@@ -1025,29 +1034,43 @@ const FineTableGrid = memo(function FineTableGrid({
           <tbody>
             {isLoading && (
               <tr>
-                <td colSpan={visibleColumns.length + 3} className="px-4 py-16 text-center text-muted-foreground">正在加载精细表数据...</td>
+                <td colSpan={visibleColumns.length + 4} className="px-4 py-16 text-center text-muted-foreground">正在加载精细表数据...</td>
               </tr>
             )}
             {!isLoading && error && (
               <tr>
-                <td colSpan={visibleColumns.length + 3} className="px-4 py-16 text-center text-destructive">{error}</td>
+                <td colSpan={visibleColumns.length + 4} className="px-4 py-16 text-center text-destructive">{error}</td>
               </tr>
             )}
             {!isLoading && !error && filteredRows.length === 0 && (
               <tr>
-                <td colSpan={visibleColumns.length + 3} className="px-4 py-16 text-center text-muted-foreground">暂无匹配商品</td>
+                <td colSpan={visibleColumns.length + 4} className="px-4 py-16 text-center text-muted-foreground">暂无匹配商品</td>
               </tr>
             )}
             {!isLoading && !error && filteredRows.map((row) => (
               <tr key={`${row.brand}-${row.id}`} className="group transition-colors hover:bg-muted/50">
                 <td className="sticky left-0 z-10 border-b border-border bg-card px-3 py-2 text-center group-hover:bg-muted/40">
-                  <ProductThumb item={row} />
+                  <button
+                    type="button"
+                    className={cn(
+                      "inline-flex rounded-lg focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
+                      row.image_url && "cursor-zoom-in",
+                    )}
+                    onClick={() => {
+                      if (!row.image_url) return
+                      onPreviewImage(row)
+                    }}
+                    disabled={!row.image_url}
+                    aria-label={row.image_url ? "查看原图" : "暂无图片"}
+                  >
+                    <ProductThumb item={row} />
+                  </button>
                 </td>
                 <td className="sticky left-20 z-10 border-b border-border bg-card px-3 py-2 text-center group-hover:bg-muted/40">
-                  <div className="min-w-0">
-                    <p className="font-medium">{row.sku || "-"}</p>
-                    <p className="mt-0.5 text-xs text-muted-foreground">{row.original_sku || row.factory_sku || "-"}</p>
-                  </div>
+                  <p className="truncate font-medium">{row.sku || "-"}</p>
+                </td>
+                <td className="sticky left-60 z-10 border-b border-border bg-card px-3 py-2 text-center group-hover:bg-muted/40">
+                  <p className="truncate text-sm">{row.original_sku || "-"}</p>
                 </td>
                 {visibleColumns.map((column) => (
                   <td
@@ -1099,6 +1122,7 @@ export function FineTablePage() {
   const [customColumnPickerOpen, setCustomColumnPickerOpen] = useState(true)
   const [customColumnKeys, setCustomColumnKeys] = useState<string[]>(DEFAULT_COLUMN_KEYS)
   const [isExporting, setIsExporting] = useState(false)
+  const [previewImage, setPreviewImage] = useState<{ src: string; alt: string } | null>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -1447,6 +1471,13 @@ export function FineTablePage() {
               filteredRows={filteredRows}
               isLoading={isLoading}
               onPageChange={setPage}
+              onPreviewImage={(row) => {
+                if (!row.image_url) return
+                setPreviewImage({
+                  src: `/api${row.image_url}`,
+                  alt: row.sku || row.original_sku || "商品图片",
+                })
+              }}
               onSelectRow={setSelectedRow}
               page={page}
               total={total}
@@ -1458,6 +1489,33 @@ export function FineTablePage() {
       </div>
       {selectedRow && <div className="fixed inset-0 z-40 bg-black/20" onClick={() => setSelectedRow(null)} />}
       <DetailDrawer row={selectedRow} onClose={() => setSelectedRow(null)} />
+      <Dialog open={previewImage !== null} onOpenChange={(open) => !open && setPreviewImage(null)}>
+        <DialogContent className="max-h-[92svh] max-w-[min(94vw,1120px)] overflow-hidden bg-background p-0 shadow-2xl">
+          <DialogHeader className="flex flex-row items-center justify-between gap-4 border-b border-border px-4 py-3 sm:px-5">
+            <DialogTitle className="text-base font-semibold">原图预览</DialogTitle>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8 shrink-0"
+              onClick={() => setPreviewImage(null)}
+              aria-label="关闭原图预览"
+            >
+              <X className="h-4 w-4" />
+            </Button>
+          </DialogHeader>
+          {previewImage ? (
+            <div className="flex h-[min(78svh,760px)] items-center justify-center bg-muted/20 p-4 sm:p-6">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={previewImage.src}
+                alt={previewImage.alt}
+                className="max-h-full w-auto max-w-full rounded-md object-contain shadow-sm"
+              />
+            </div>
+          ) : null}
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
