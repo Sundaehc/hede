@@ -2,6 +2,48 @@
   "in_progress": false,
   "runs": [
     {
+      "id": "8545b9eeee784b688480cabd566d4c52",
+      "brands": [
+        "cbanner_mens",
+        "cbanner_womens",
+        "yandou",
+        "eblan"
+      ],
+      "overwrite": false,
+      "started_at": "2026-05-28T15:00:01.829558+00:00",
+      "finished_at": "2026-05-28T15:01:06.898234+00:00",
+      "status": "completed",
+      "scanned": 4648,
+      "updated": 0,
+      "results": {
+        "cbanner_mens": {
+          "scanned": 65,
+          "matched": 0,
+          "updated": 0,
+          "missing": 65
+        },
+        "cbanner_womens": {
+          "scanned": 2066,
+          "matched": 0,
+          "updated": 0,
+          "missing": 2066
+        },
+        "yandou": {
+          "scanned": 2319,
+          "matched": 0,
+          "updated": 0,
+          "missing": 2319
+        },
+        "eblan": {
+          "scanned": 198,
+          "matched": 0,
+          "updated": 0,
+          "missing": 198
+        }
+      },
+      "message": "图片刷新完成：扫描 4648 条，更新 0 条"
+    },
+    {
       "id": "4e098b3591b4424a9f5d7048bff3162b",
       "brands": [
         "cbanner_mens",
@@ -319,7 +361,7 @@
   ],
   "current_run": null,
   "last_run": {
-    "id": "4e098b3591b4424a9f5d7048bff3162b",
+    "id": "8545b9eeee784b688480cabd566d4c52",
     "brands": [
       "cbanner_mens",
       "cbanner_womens",
@@ -327,11 +369,11 @@
       "eblan"
     ],
     "overwrite": false,
-    "started_at": "2026-05-27T15:00:01.767720+00:00",
-    "finished_at": "2026-05-27T15:01:06.900144+00:00",
+    "started_at": "2026-05-28T15:00:01.829558+00:00",
+    "finished_at": "2026-05-28T15:01:06.898234+00:00",
     "status": "completed",
-    "scanned": 4643,
-    "updated": 4,
+    "scanned": 4648,
+    "updated": 0,
     "results": {
       "cbanner_mens": {
         "scanned": 65,
@@ -340,10 +382,10 @@
         "missing": 65
       },
       "cbanner_womens": {
-        "scanned": 2061,
-        "matched": 4,
-        "updated": 4,
-        "missing": 2057
+        "scanned": 2066,
+        "matched": 0,
+        "updated": 0,
+        "missing": 2066
       },
       "yandou": {
         "scanned": 2319,
@@ -358,6 +400,6 @@
         "missing": 198
       }
     },
-    "message": "图片刷新完成：扫描 4643 条，更新 4 条"
+    "message": "图片刷新完成：扫描 4648 条，更新 0 条"
   }
 }

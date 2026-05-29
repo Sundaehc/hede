@@ -13,13 +13,19 @@ class ImageMatcher:
 
     def _build_index(self, root: Path) -> dict[str, str]:
         index: dict[str, str] = {}
-        if not root.exists():
-            return index
+        try:
+            if not root.exists():
+                return index
 
-        for path in root.rglob("*"):
-            if not path.is_file() or path.suffix.lower() not in IMAGE_EXTENSIONS:
-                continue
-            index.setdefault(path.stem.strip(), str(path))
+            for path in root.rglob("*"):
+                try:
+                    if not path.is_file() or path.suffix.lower() not in IMAGE_EXTENSIONS:
+                        continue
+                except OSError:
+                    continue
+                index.setdefault(path.stem.strip(), str(path))
+        except OSError:
+            return index
 
         return index
 

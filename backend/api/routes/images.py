@@ -67,10 +67,12 @@ def serve_image(brand: str, image_path: str, request: Request):
 
 @router.post("/images/lookup")
 def lookup_image(request: Request, body: ImageLookupRequest):
-    matcher = request.app.state.image_matchers[body.brand]
+    matcher = request.app.state.image_matchers.get(body.brand)
+    if matcher is None:
+        raise HTTPException(status_code=400, detail=f"Unknown image brand: {body.brand}")
 
     if body.original_sku:
-        image_path = matcher.find_with_refresh(body.original_sku)
+        image_path = matcher.find(body.original_sku)
         if image_path:
             return {
                 "found": True,
@@ -80,7 +82,7 @@ def lookup_image(request: Request, body: ImageLookupRequest):
             }
 
     if body.sku:
-        image_path = matcher.find_with_refresh(body.sku)
+        image_path = matcher.find(body.sku)
         if image_path:
             return {
                 "found": True,
@@ -106,7 +108,7 @@ def match_sku_image(request: Request, body: MatchSkuRequest):
         return {"found": False, "image_url": None, "brand": None}
 
     for brand, matcher in matchers.items():
-        image_path = matcher.find_with_refresh(sku)
+        image_path = matcher.find(sku)
         if image_path:
             url = image_url_for(brand, image_path, settings)
             return {"found": True, "image_url": url, "brand": brand}
