@@ -50,6 +50,11 @@ const NULL_FIELDS = {
   closure_type: null,
   shoe_box_spec: null,
   first_order_time: null,
+  size_range: null,
+  product_model: null,
+  supplier_name: null,
+  color_code: null,
+  launch_date: null,
 }
 
 const nullPayload = Object.fromEntries(
@@ -88,6 +93,11 @@ const sampleResponse = {
       closure_type: null,
       shoe_box_spec: null,
       first_order_time: null,
+      size_range: null,
+      product_model: null,
+      supplier_name: null,
+      color_code: null,
+      launch_date: null,
       source_workbook: "book.xlsx",
       source_sheet: "sheet1",
       source_row_number: "2",
@@ -117,6 +127,7 @@ describe("ProductAdminPage", () => {
         page: 1,
         pageSize: 10,
         query: undefined,
+        year: undefined,
       })
     })
 
@@ -153,6 +164,7 @@ describe("ProductAdminPage", () => {
         page: 1,
         pageSize: 10,
         query: undefined,
+        year: undefined,
       })
     })
 
@@ -164,6 +176,7 @@ describe("ProductAdminPage", () => {
         page: 1,
         pageSize: 10,
         query: undefined,
+        year: undefined,
       })
     })
   })
@@ -202,11 +215,8 @@ describe("ProductAdminPage", () => {
 
     render(<ProductAdminPage />)
 
-    expect(await screen.findByText("第 1 / 2 页")).toBeInTheDocument()
-
-    await user.click(screen.getByRole("button", { name: "下一页" }))
-
-    expect(await screen.findByText("第 2 / 2 页")).toBeInTheDocument()
+    await screen.findByTestId("card-title-1")
+    await user.click(screen.getByText("2"))
 
     screen.getByRole("tab", { name: "千百度男鞋", selected: true }).focus()
     await user.keyboard("{ArrowRight}")
@@ -217,11 +227,11 @@ describe("ProductAdminPage", () => {
         page: 1,
         pageSize: 10,
         query: undefined,
+        year: undefined,
       })
     })
 
     expect(screen.getByRole("tab", { name: "千百度女鞋", selected: true })).toBeInTheDocument()
-    expect(await screen.findByText("第 1 / 1 页")).toBeInTheDocument()
   })
 
   it("searching submits the current tab and query", async () => {
@@ -235,6 +245,7 @@ describe("ProductAdminPage", () => {
         page: 1,
         pageSize: 10,
         query: undefined,
+        year: undefined,
       })
     })
 
@@ -246,10 +257,11 @@ describe("ProductAdminPage", () => {
         page: 1,
         pageSize: 10,
         query: undefined,
+        year: undefined,
       })
     })
 
-    await user.type(screen.getByLabelText("原始货号"), "ABC-123")
+    await user.type(screen.getByLabelText("货号搜索"), "ABC-123")
     await user.click(screen.getByRole("button", { name: "搜索" }))
 
     await waitFor(() => {
@@ -258,6 +270,7 @@ describe("ProductAdminPage", () => {
         page: 1,
         pageSize: 10,
         query: "ABC-123",
+        year: undefined,
       })
     })
   })
@@ -277,7 +290,7 @@ describe("ProductAdminPage", () => {
     await user.type(document.getElementById("product-form-sku")!, "SKU-NEW")
     await user.type(document.getElementById("product-form-color")!, "黑色")
     await user.type(document.getElementById("product-form-year")!, "2026")
-    await user.type(document.getElementById("product-form-season_category")!, "春季")
+    await user.selectOptions(document.getElementById("product-form-season_category")!, "春季")
     await user.type(document.getElementById("product-form-original_sku")!, "NEW-001")
     await user.click(screen.getByRole("button", { name: "保存" }))
 

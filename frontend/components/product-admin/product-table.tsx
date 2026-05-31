@@ -1,4 +1,4 @@
-import { RefreshCw } from "lucide-react"
+import { Edit, RefreshCw, Trash2 } from "lucide-react"
 import type { ProductListItem } from "@/lib/types"
 import { FIELD_GROUPS, FIELD_LABELS } from "@/lib/fields"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
@@ -31,6 +31,7 @@ type ProductTableProps = {
   onDelete?: (item: ProductListItem) => void
   onPageChange: (page: number) => void
   onPageSizeChange: (size: number) => void
+  onClearSelection?: () => void
 }
 
 function getTotalPages(total: number, pageSize: number) {
@@ -121,11 +122,13 @@ function ProductCard({ item, selectable, selectedIds, onToggleSelect, onEdit, on
             <div className="flex gap-2">
               {onEdit ? (
                 <Button type="button" variant="outline" size="sm" onClick={() => onEdit(item)} className="cursor-pointer">
+                  <Edit className="h-3.5 w-3.5" />
                   编辑
                 </Button>
               ) : null}
               {onDelete ? (
                 <Button type="button" variant="outline" size="sm" className="text-destructive hover:text-destructive cursor-pointer" onClick={() => onDelete(item)} >
+                  <Trash2 className="h-3.5 w-3.5" />
                   删除
                 </Button>
               ) : null}
@@ -192,6 +195,7 @@ export function ProductTable({
   onDelete,
   onPageChange,
   onPageSizeChange,
+  onClearSelection,
 }: ProductTableProps) {
   const totalPages = getTotalPages(total, pageSize)
   const start = total === 0 ? 0 : (page - 1) * pageSize + 1
@@ -241,12 +245,7 @@ export function ProductTable({
             {selectedIds.size > 0 ? <span className="ml-2 text-foreground">已选 {selectedIds.size} 项</span> : null}
           </p>
         </div>
-        <div className="flex items-center gap-2">
-          {selectedIds.size > 0 && onBatchDelete ? (
-            <Button type="button" variant="outline" size="sm" className="text-destructive hover:text-destructive cursor-pointer" onClick={onBatchDelete}>
-              批量删除 ({selectedIds.size})
-            </Button>
-          ) : null}
+        <div className="flex flex-wrap items-center gap-2">
           <span>每页</span>
           <Select
             value={String(pageSize)}
@@ -260,6 +259,28 @@ export function ProductTable({
           </Select>
         </div>
       </div>
+
+      {selectedIds.size > 0 ? (
+        <div className="sticky top-2 z-20 flex flex-col gap-3 rounded-lg border border-border bg-background/95 p-3 shadow-sm backdrop-blur sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <p className="text-sm font-medium text-foreground">已选 {selectedIds.size} 个商品</p>
+            <p className="text-xs text-muted-foreground">可导出选中商品，或执行批量删除。</p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {onClearSelection ? (
+              <Button type="button" variant="outline" size="sm" onClick={onClearSelection} className="cursor-pointer">
+                清空选择
+              </Button>
+            ) : null}
+            {onBatchDelete ? (
+              <Button type="button" variant="destructive" size="sm" className="cursor-pointer" onClick={onBatchDelete}>
+                <Trash2 className="h-3.5 w-3.5" />
+                批量删除
+              </Button>
+            ) : null}
+          </div>
+        </div>
+      ) : null}
 
       <div className="space-y-3">
         {items.length === 0 ? (

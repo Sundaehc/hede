@@ -13,7 +13,7 @@ import { BRANDS, type BrandKey } from "@/lib/brands"
 import { ApiError, batchDeleteProducts, deleteProduct, getProductYears, listProducts } from "@/lib/api"
 import type { ProductListItem } from "@/lib/types"
 
-const DEFAULT_BRAND = BRANDS[0].key
+const DEFAULT_BRAND = BRANDS.find((item) => item.key !== "all")?.key ?? BRANDS[0].key
 const PAGE_SIZES = [10, 50, 100]
 
 const isAllBrand = (b: BrandKey) => b === "all"
@@ -316,6 +316,7 @@ export function ProductAdminPage() {
                 setPageSize(size)
                 setPage(1)
               }}
+              onClearSelection={() => setSelectedIds(new Set())}
             />
           </TabsContent>
         </Tabs>
