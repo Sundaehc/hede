@@ -1,6 +1,7 @@
 "use client"
 
 import { useMemo, useState } from "react"
+import { X } from "lucide-react"
 
 import { ImageLookupStatus } from "@/components/product-admin/image-lookup-status"
 import { Button } from "@/components/ui/button"
@@ -16,7 +17,7 @@ import { Label } from "@/components/ui/label"
 import { Select } from "@/components/ui/select"
 import { ApiError, createProduct, lookupImage, updateProduct } from "@/lib/api"
 import { BRANDS, type BrandKey } from "@/lib/brands"
-import { FIELD_GROUPS, FIELD_LABELS, ALL_PRODUCT_FIELDS, SEASON_OPTIONS } from "@/lib/fields"
+import { ALL_PRODUCT_FIELDS, FIELD_GROUPS, FIELD_LABELS, SEASON_OPTIONS } from "@/lib/fields"
 import type { ImageLookupStatusState, ProductFormValues, ProductListItem, ProductMutationPayload } from "@/lib/types"
 
 type ProductFormDialogProps = {
@@ -187,162 +188,169 @@ export function ProductFormDialog({ item, mode, onOpenChange, onSaved, open }: P
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[90vh] overflow-y-auto max-w-5xl">
-        <DialogHeader className="flex flex-row items-center justify-between space-y-0">
-          <DialogTitle>{title}</DialogTitle>
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            className="h-7 w-7 shrink-0 cursor-pointer"
-            onClick={() => onOpenChange(false)}
-          >
-            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
-          </Button>
-        </DialogHeader>
+      <DialogContent className="max-h-[90vh] max-w-5xl overflow-hidden p-0">
+        <div className="flex max-h-[90vh] flex-col">
+          <DialogHeader className="flex flex-row items-center justify-between gap-4 border-b border-border px-6 py-4 space-y-0">
+            <DialogTitle className="min-w-0 truncate">{title}</DialogTitle>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8 shrink-0 cursor-pointer"
+              onClick={() => onOpenChange(false)}
+              aria-label="关闭编辑弹窗"
+            >
+              <X className="h-4 w-4" />
+            </Button>
+          </DialogHeader>
 
-        <form className="space-y-5" onSubmit={handleSubmit}>
-          {/* Top row: Brand + Image */}
-          <div className="flex gap-6">
-            {/* Left: brand + image */}
-            <div className="flex w-52 shrink-0 flex-col gap-3">
-              <div className="space-y-2">
-                <Label htmlFor="product-form-brand">品牌</Label>
-                <Select
-                  id="product-form-brand"
-                  value={values.brand}
-                  disabled={mode === "edit"}
-                  onChange={(event) => handleFieldChange("brand", event.target.value as BrandKey | "")}
-                >
-                  <option value="">请选择品牌</option>
-                  {BRANDS.filter((b) => b.key !== "all").map((brand) => (
-                    <option key={brand.key} value={brand.key}>
-                      {brand.label}
-                    </option>
-                  ))}
-                </Select>
-                {brandError ? <p className="text-sm text-destructive">{brandError}</p> : null}
-              </div>
-
-              {imageSrc ? (
+          <form id="product-form" className="min-h-0 flex-1 overflow-y-auto px-6 py-5" onSubmit={handleSubmit}>
+            <div className="grid gap-6 lg:grid-cols-[232px_minmax(0,1fr)]">
+              <div className="flex flex-col gap-3 lg:sticky lg:top-0 lg:self-start">
                 <div className="space-y-2">
-                  <Label>图片预览</Label>
-                  <img
-                    src={imageSrc}
-                    alt="商品图片"
-                    className="h-44 w-44 rounded-lg object-contain border border-border"
-                  />
+                  <Label htmlFor="product-form-brand">品牌</Label>
+                  <Select
+                    id="product-form-brand"
+                    value={values.brand}
+                    disabled={mode === "edit"}
+                    onChange={(event) => handleFieldChange("brand", event.target.value as BrandKey | "")}
+                    autoComplete="off"
+                  >
+                    <option value="">请选择品牌</option>
+                    {BRANDS.filter((b) => b.key !== "all").map((brand) => (
+                      <option key={brand.key} value={brand.key}>
+                        {brand.label}
+                      </option>
+                    ))}
+                  </Select>
+                  {brandError ? <p className="text-sm text-destructive">{brandError}</p> : null}
                 </div>
-              ) : (
-                <div className="flex h-44 w-44 items-center justify-center rounded-lg border border-border bg-muted text-xs text-muted-foreground">
-                  暂无图片
-                </div>
-              )}
 
-              {/* Image lookup */}
-              <div className="space-y-2">
-                <p className="text-xs text-muted-foreground">优先原始货号，查不到回退商品货号</p>
-                <Button type="button" variant="outline" size="sm" onClick={() => void handleLookup()} disabled={lookupDisabled} className="w-full cursor-pointer">
-                  {lookupStatus.status === "loading" ? "查询中..." : "查询图片"}
-                </Button>
-                <ImageLookupStatus status={lookupStatus.status} message={lookupStatus.message} />
-              </div>
-            </div>
-
-            {/* Right: fields */}
-            <div className="flex-1 space-y-4">
-              {/* SKU row — always visible at top */}
-              <div className="grid gap-4 sm:grid-cols-2">
-                <div className="space-y-2">
-                  <Label htmlFor="product-form-sku">{FIELD_LABELS.sku}</Label>
-                  <Input
-                    id="product-form-sku"
-                    value={values.sku}
-                    placeholder={`请输入${FIELD_LABELS.sku}`}
-                    onChange={(event) => handleFieldChange("sku", event.target.value)}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="product-form-original_sku">{FIELD_LABELS.original_sku}</Label>
-                  <Input
-                    id="product-form-original_sku"
-                    value={values.original_sku}
-                    placeholder={`请输入${FIELD_LABELS.original_sku}`}
-                    onChange={(event) => handleFieldChange("original_sku", event.target.value)}
-                  />
-                </div>
-              </div>
-
-              {/* Field groups */}
-              {FIELD_GROUPS.map((group) => {
-                const fields = group.fields.filter((f) => f !== "sku" && f !== "original_sku")
-                return (
-                  <div key={group.label}>
-                    <p className="mb-2 text-xs font-medium text-muted-foreground">{group.label}</p>
-                    <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-                      {fields.map((field) => (
-                        <div key={field} className="space-y-1.5">
-                          <Label htmlFor={`product-form-${field}`} className="text-xs">{FIELD_LABELS[field]}</Label>
-                          {field === "season_category" ? (
-                            <Select
-                              id={`product-form-${field}`}
-                              value={values[field as keyof ProductFormValues] as string}
-                              onChange={(event) => handleFieldChange(field as keyof ProductFormValues, event.target.value)}
-                            >
-                              <option value="">请选择</option>
-                              {SEASON_OPTIONS.map((opt) => (
-                                <option key={opt} value={opt}>{opt}</option>
-                              ))}
-                            </Select>
-                          ) : field === "first_order_time" || field === "launch_date" ? (
-                            <Input
-                              id={`product-form-${field}`}
-                              type="date"
-                              value={values[field as keyof ProductFormValues] as string}
-                              onChange={(event) => handleFieldChange(field as keyof ProductFormValues, event.target.value)}
-                            />
-                          ) : (
-                            <Input
-                              id={`product-form-${field}`}
-                              value={values[field as keyof ProductFormValues] as string}
-                              placeholder={`请输入${FIELD_LABELS[field]}`}
-                              onChange={(event) => handleFieldChange(field as keyof ProductFormValues, event.target.value)}
-                            />
-                          )}
-                        </div>
-                      ))}
-                    </div>
+                {imageSrc ? (
+                  <div className="space-y-2">
+                    <Label>图片预览</Label>
+                    <img
+                      src={imageSrc}
+                      alt="商品图片"
+                      className="aspect-square w-full max-w-[11rem] rounded-lg border border-border object-contain"
+                    />
                   </div>
-                )
-              })}
+                ) : (
+                  <div className="flex aspect-square w-full max-w-[11rem] items-center justify-center rounded-lg border border-border bg-muted text-xs text-muted-foreground">
+                    暂无图片
+                  </div>
+                )}
 
-              {/* Image path */}
-              <div>
-                <p className="mb-2 text-xs font-medium text-muted-foreground">图片路径</p>
-                <div className="space-y-1.5">
-                  <Label htmlFor="product-form-image-path" className="text-xs">{FIELD_LABELS.image_path}</Label>
-                  <Input
-                    id="product-form-image-path"
-                    value={values.image_path}
-                    placeholder="查询后自动填充或手动输入"
-                    onChange={(event) => handleFieldChange("image_path", event.target.value)}
-                  />
+                <div className="space-y-2">
+                  <p className="text-xs text-muted-foreground">优先原始货号，查不到回退商品货号</p>
+                  <Button type="button" variant="outline" size="sm" onClick={() => void handleLookup()} disabled={lookupDisabled} className="w-full cursor-pointer">
+                    {lookupStatus.status === "loading" ? "查询中..." : "查询图片"}
+                  </Button>
+                  <ImageLookupStatus status={lookupStatus.status} message={lookupStatus.message} />
                 </div>
               </div>
+
+              <div className="min-w-0 space-y-4">
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <div className="space-y-2">
+                    <Label htmlFor="product-form-sku">{FIELD_LABELS.sku}</Label>
+                    <Input
+                      id="product-form-sku"
+                      value={values.sku}
+                      placeholder={`请输入${FIELD_LABELS.sku}`}
+                      onChange={(event) => handleFieldChange("sku", event.target.value)}
+                      autoComplete="off"
+                      spellCheck={false}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="product-form-original_sku">{FIELD_LABELS.original_sku}</Label>
+                    <Input
+                      id="product-form-original_sku"
+                      value={values.original_sku}
+                      placeholder={`请输入${FIELD_LABELS.original_sku}`}
+                      onChange={(event) => handleFieldChange("original_sku", event.target.value)}
+                      autoComplete="off"
+                      spellCheck={false}
+                    />
+                  </div>
+                </div>
+
+                {FIELD_GROUPS.map((group) => {
+                  const fields = group.fields.filter((f) => f !== "sku" && f !== "original_sku")
+                  return (
+                    <div key={group.label}>
+                      <p className="mb-2 text-xs font-medium text-muted-foreground">{group.label}</p>
+                      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+                        {fields.map((field) => (
+                          <div key={field} className="space-y-1.5">
+                            <Label htmlFor={`product-form-${field}`} className="text-xs">{FIELD_LABELS[field]}</Label>
+                            {field === "season_category" ? (
+                              <Select
+                                id={`product-form-${field}`}
+                                value={values[field as keyof ProductFormValues] as string}
+                                onChange={(event) => handleFieldChange(field as keyof ProductFormValues, event.target.value)}
+                                autoComplete="off"
+                              >
+                                <option value="">请选择</option>
+                                {SEASON_OPTIONS.map((opt) => (
+                                  <option key={opt} value={opt}>{opt}</option>
+                                ))}
+                              </Select>
+                            ) : field === "first_order_time" || field === "launch_date" ? (
+                              <Input
+                                id={`product-form-${field}`}
+                                type="date"
+                                value={values[field as keyof ProductFormValues] as string}
+                                onChange={(event) => handleFieldChange(field as keyof ProductFormValues, event.target.value)}
+                                autoComplete="off"
+                              />
+                            ) : (
+                              <Input
+                                id={`product-form-${field}`}
+                                value={values[field as keyof ProductFormValues] as string}
+                                placeholder={`请输入${FIELD_LABELS[field]}`}
+                                onChange={(event) => handleFieldChange(field as keyof ProductFormValues, event.target.value)}
+                                autoComplete="off"
+                                spellCheck={false}
+                              />
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )
+                })}
+
+                <div>
+                  <p className="mb-2 text-xs font-medium text-muted-foreground">图片路径</p>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="product-form-image-path" className="text-xs">{FIELD_LABELS.image_path}</Label>
+                    <Input
+                      id="product-form-image-path"
+                      value={values.image_path}
+                      placeholder="查询后自动填充或手动输入"
+                      onChange={(event) => handleFieldChange("image_path", event.target.value)}
+                      autoComplete="off"
+                      spellCheck={false}
+                    />
+                  </div>
+                </div>
+
+                {submitError ? <p className="text-sm text-destructive">{submitError}</p> : null}
+              </div>
             </div>
-          </div>
+          </form>
 
-          {submitError ? <p className="text-sm text-destructive">{submitError}</p> : null}
-
-          <DialogFooter>
+          <DialogFooter className="border-t border-border bg-background/95 px-6 py-4 backdrop-blur">
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={isSaving} className="cursor-pointer">
               取消
             </Button>
-            <Button type="submit" disabled={isSaving} className="cursor-pointer">
+            <Button type="submit" form="product-form" disabled={isSaving} className="cursor-pointer">
               {isSaving ? "保存中..." : "保存"}
             </Button>
           </DialogFooter>
-        </form>
+        </div>
       </DialogContent>
     </Dialog>
   )

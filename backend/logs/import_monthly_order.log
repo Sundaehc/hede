@@ -43,3 +43,21 @@ D:\python\Lib\site-packages\openpyxl\styles\stylesheet.py:237: UserWarning: Work
   warn("Workbook contains no default style, apply openpyxl's default")
 [JST月订单] 05.29 导入完成, 共 586149 条
 [2026/05/29 周五  8:23:25.85] end import_monthly_order errorlevel=0 
+[2026/05/30 周六  8:20:01.98] start import_monthly_order 
+using a closure in a dumps/loads function may cause a resource leak
+using a closure in a dumps/loads function may cause a resource leak
+using a closure in a dumps/loads function may cause a resource leak
+using a closure in a dumps/loads function may cause a resource leak
+D:\python\Lib\site-packages\openpyxl\styles\stylesheet.py:237: UserWarning: Workbook contains no default style, apply openpyxl's default
+  warn("Workbook contains no default style, apply openpyxl's default")
+[JST月订单] 05.30 导入完成, 共 589243 条
+[2026/05/30 周六  8:23:28.06] end import_monthly_order errorlevel=0 
+[2026/05/31 周日  8:20:01.98] start import_monthly_order 
+using a closure in a dumps/loads function may cause a resource leak
+using a closure in a dumps/loads function may cause a resource leak
+using a closure in a dumps/loads function may cause a resource leak
+using a closure in a dumps/loads function may cause a resource leak
+D:\python\Lib\site-packages\openpyxl\styles\stylesheet.py:237: UserWarning: Workbook contains no default style, apply openpyxl's default
+  warn("Workbook contains no default style, apply openpyxl's default")
+[JST月订单] 05.31 导入完成, 共 593761 条
+[2026/05/31 周日  8:23:31.91] end import_monthly_order errorlevel=0 

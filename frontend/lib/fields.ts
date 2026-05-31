@@ -37,7 +37,7 @@ export const FIELD_LABELS: Record<string, string> = {
 export const FIELD_GROUPS = [
   {
     label: "基础信息",
-    fields: ["original_sku", "sku", "factory_sku", "cost", "color", "season_category", "year"],
+    fields: ["original_sku", "sku", "group_name", "factory_sku", "cost", "color", "season_category", "year"],
   },
   {
     label: "材质信息",

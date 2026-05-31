@@ -206,32 +206,13 @@ describe("ProductFormDialog", () => {
 
     await waitFor(() => {
       expect(mockUpdateProduct).toHaveBeenCalledWith("cbanner_mens", 7, {
+        ...nullPayload,
         image_path: "/images/original.jpg",
         sku: "SKU-007",
         original_sku: "ORIG-007",
-        group_name: null,
-        cost: null,
-        factory_sku: null,
         color: "白色",
         season_category: "春季",
         year: "2026",
-        upper_material: null,
-        lining_material: null,
-        outsole_material: null,
-        insole_material: null,
-        execution_standard: null,
-        heel_height: null,
-        shoe_width: null,
-        shoe_length: null,
-        shaft_circumference: null,
-        shaft_height: null,
-        internal_height_increase: null,
-        internal_height_note: null,
-        upper_height: null,
-        toe_shape: null,
-        closure_type: null,
-        shoe_box_spec: null,
-        first_order_time: null,
       })
     })
 

@@ -101,6 +101,7 @@ function ProductCard({ item, selectable, selectedIds, onToggleSelect, onEdit, on
           type="checkbox"
           checked={checked}
           onChange={() => onToggleSelect(item.id)}
+          aria-label={`选择商品 ${item.sku || item.original_sku || item.id}`}
           className="h-4 w-4 shrink-0 cursor-pointer rounded border border-input accent-primary"
         />
       ) : null}
@@ -230,6 +231,7 @@ export function ProductTable({
                 if (el) el.indeterminate = !allSelected && someSelected
               }}
               onChange={onToggleSelectAll}
+              aria-label="选择当前页全部商品"
               className="h-4 w-4 cursor-pointer rounded border border-input accent-primary"
             />
           ) : null}
@@ -250,6 +252,7 @@ export function ProductTable({
             value={String(pageSize)}
             onChange={(e) => onPageSizeChange(Number(e.target.value))}
             className="w-25"
+            aria-label="每页条数"
           >
             {pageSizes.map((size) => (
               <option key={size} value={String(size)}>{size} 条</option>
@@ -322,6 +325,7 @@ export function ProductTable({
               min={1}
               max={totalPages}
               className="h-8 w-20 rounded-md border border-input bg-background px-2 text-center text-sm outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/50"
+              aria-label="跳转页码"
               onKeyDown={(e) => {
                 if (e.key === "Enter") {
                   const target = parseInt((e.target as HTMLInputElement).value, 10)
