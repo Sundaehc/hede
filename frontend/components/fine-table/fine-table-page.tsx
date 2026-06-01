@@ -1,6 +1,6 @@
 "use client"
 
-import { memo, useDeferredValue, useEffect, useMemo, useState, type ReactNode } from "react"
+import { memo, useDeferredValue, useEffect, useMemo, useRef, useState, type ReactNode } from "react"
 import {
   AlertTriangle,
   BarChart3,
@@ -122,10 +122,6 @@ function formatNumber(value: number) {
   return new Intl.NumberFormat("zh-CN").format(value)
 }
 
-function formatDecimal1(value: number) {
-  return Number.isFinite(value) ? value.toFixed(1) : "-"
-}
-
 function nullableDecimal2(value: number | null | undefined) {
   return value == null || !Number.isFinite(value) ? "-" : value.toFixed(2)
 }
@@ -148,6 +144,12 @@ function nullableCost(value: number | null | undefined) {
 
 function nullablePercent(value: number | null | undefined) {
   return value == null ? "-" : formatPercent(value)
+}
+
+function tableAlignClass(align: TableColumn["align"] = "left") {
+  if (align === "right") return "text-right tabular-nums"
+  if (align === "center") return "text-center tabular-nums"
+  return "text-left"
 }
 
 function csvCell(value: string | number | null | undefined) {
@@ -663,7 +665,15 @@ function ProductThumb({ item, className }: { item: ProductListItem; className?: 
     <div className={cn("flex h-13 w-13 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-border bg-muted/40", className)}>
       {src ? (
         // eslint-disable-next-line @next/next/no-img-element
-        <img src={src} alt={item.sku || item.original_sku || "商品图片"} className="h-full w-full object-contain" />
+        <img
+          src={src}
+          alt={item.sku || item.original_sku || "商品图片"}
+          width={52}
+          height={52}
+          loading="lazy"
+          decoding="async"
+          className="h-full w-full object-contain"
+        />
       ) : (
         <ImageIcon className="h-6 w-6 text-muted-foreground" />
       )}
@@ -760,6 +770,20 @@ function TrendBars({ values }: { values: number[] }) {
 }
 
 function DetailDrawer({ row, onClose }: { row: FineTableItem | null; onClose: () => void }) {
+  const drawerRef = useRef<HTMLDivElement | null>(null)
+  const previouslyFocusedRef = useRef<HTMLElement | null>(null)
+
+  useEffect(() => {
+    if (!row) return
+
+    previouslyFocusedRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null
+    drawerRef.current?.focus()
+
+    return () => {
+      previouslyFocusedRef.current?.focus()
+    }
+  }, [row])
+
   if (!row) return null
   const dailyValues = visibleDailySales(row).map((item) => item.quantity)
   const dailyTotal = dailyValues.reduce((sum, value) => sum + value, 0)
@@ -767,7 +791,40 @@ function DetailDrawer({ row, onClose }: { row: FineTableItem | null; onClose: ()
   const maxShopQuantity = Math.max(...row.shop_30d_sales.map((item) => item.quantity), 1)
 
   return (
-    <div className="fixed inset-y-0 right-0 z-50 w-full max-w-2xl border-l border-border bg-background/95 shadow-2xl backdrop-blur">
+    <div
+      ref={drawerRef}
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="fine-table-detail-title"
+      tabIndex={-1}
+      className="fixed inset-y-0 right-0 z-50 w-full max-w-2xl border-l border-border bg-background/95 shadow-2xl outline-none backdrop-blur"
+      onKeyDown={(event) => {
+        if (event.key === "Escape") {
+          event.preventDefault()
+          onClose()
+          return
+        }
+
+        if (event.key !== "Tab") return
+
+        const focusable = Array.from(
+          drawerRef.current?.querySelectorAll<HTMLElement>(
+            "button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex='-1'])",
+          ) ?? [],
+        )
+        if (focusable.length === 0) return
+
+        const first = focusable[0]
+        const last = focusable[focusable.length - 1]
+        if (event.shiftKey && document.activeElement === first) {
+          event.preventDefault()
+          last.focus()
+        } else if (!event.shiftKey && document.activeElement === last) {
+          event.preventDefault()
+          first.focus()
+        }
+      }}
+    >
       <div className="flex h-full flex-col">
         <div className="border-b border-border bg-card/90 px-5 py-5">
           <div className="flex items-start justify-between gap-4">
@@ -775,7 +832,7 @@ function DetailDrawer({ row, onClose }: { row: FineTableItem | null; onClose: ()
               <ProductThumb item={row} className="h-20 w-20 rounded-xl bg-background" />
               <div className="min-w-0">
                 <div className="flex flex-wrap items-center gap-2">
-                  <h2 className="truncate text-xl font-semibold">{row.sku || row.original_sku || "未命名商品"}</h2>
+                  <h2 id="fine-table-detail-title" className="truncate text-xl font-semibold">{row.sku || row.original_sku || "未命名商品"}</h2>
                   <StatusBadge row={row} />
                 </div>
                 <p className="mt-1 text-sm text-muted-foreground">{row.product_name || row.original_sku || row.sku || "-"}</p>
@@ -990,7 +1047,8 @@ const FineTableGrid = memo(function FineTableGrid({
         key={column.key}
         rowSpan={hasDailyColumns ? 2 : 1}
         className={cn(
-          "border-b border-border px-3 py-2.5 text-center font-medium",
+          "border-b border-border px-3 py-2.5 font-medium",
+          tableAlignClass(column.align),
           column.className,
         )}
       >
@@ -1002,7 +1060,7 @@ const FineTableGrid = memo(function FineTableGrid({
 
   return (
     <div className="table-panel">
-      <div className="max-h-[calc(100svh-320px)] min-h-[420px] overflow-auto">
+      <div className="max-h-[72svh] min-h-[360px] overflow-auto">
         <table
           className="w-full border-separate border-spacing-0 text-[13px]"
           style={{ minWidth: tableMinWidth }}
@@ -1010,8 +1068,8 @@ const FineTableGrid = memo(function FineTableGrid({
           <thead className="sticky top-0 z-20 bg-card/95 backdrop-blur">
             <tr className="text-xs text-muted-foreground">
               <th rowSpan={hasDailyColumns ? 2 : 1} className="sticky left-0 z-30 w-20 border-b border-border bg-card/95 px-3 py-2.5 text-center font-medium">图片</th>
-              <th rowSpan={hasDailyColumns ? 2 : 1} className="sticky left-20 z-30 w-40 border-b border-border bg-card/95 px-3 py-2.5 text-center font-medium">货号</th>
-              <th rowSpan={hasDailyColumns ? 2 : 1} className="sticky left-60 z-30 w-40 border-b border-border bg-card/95 px-3 py-2.5 text-center font-medium">原始货号</th>
+              <th rowSpan={hasDailyColumns ? 2 : 1} className="sticky left-20 z-30 w-40 border-b border-border bg-card/95 px-3 py-2.5 text-left font-medium">货号</th>
+              <th rowSpan={hasDailyColumns ? 2 : 1} className="sticky left-60 z-30 w-40 border-b border-border bg-card/95 px-3 py-2.5 text-left font-medium">原始货号</th>
               {headerCells}
               <th rowSpan={hasDailyColumns ? 2 : 1} className="sticky right-0 z-30 w-20 border-b border-border bg-card px-3 py-3 text-center font-medium">详情</th>
             </tr>
@@ -1066,17 +1124,18 @@ const FineTableGrid = memo(function FineTableGrid({
                     <ProductThumb item={row} />
                   </button>
                 </td>
-                <td className="sticky left-20 z-10 border-b border-border bg-card px-3 py-2 text-center group-hover:bg-muted/40">
+                <td className="sticky left-20 z-10 border-b border-border bg-card px-3 py-2 text-left group-hover:bg-muted/40">
                   <p className="truncate font-medium">{row.sku || "-"}</p>
                 </td>
-                <td className="sticky left-60 z-10 border-b border-border bg-card px-3 py-2 text-center group-hover:bg-muted/40">
+                <td className="sticky left-60 z-10 border-b border-border bg-card px-3 py-2 text-left group-hover:bg-muted/40">
                   <p className="truncate text-sm">{row.original_sku || "-"}</p>
                 </td>
                 {visibleColumns.map((column) => (
                   <td
                     key={column.key}
                     className={cn(
-                      "border-b border-border px-3 py-2 text-center",
+                      "border-b border-border px-3 py-2 align-middle",
+                      tableAlignClass(column.align),
                       column.className,
                     )}
                   >
@@ -1111,7 +1170,6 @@ export function FineTablePage() {
   const [total, setTotal] = useState(0)
   const [queryInput, setQueryInput] = useState("")
   const [query, setQuery] = useState("")
-  const [season, setSeason] = useState("all")
   const [view, setView] = useState<ViewKey>("all")
   const [selectedRow, setSelectedRow] = useState<FineTableItem | null>(null)
   const [isLoading, setIsLoading] = useState(true)
@@ -1134,7 +1192,6 @@ export function FineTablePage() {
           page,
           pageSize: PAGE_SIZE,
           query: query || undefined,
-          season,
         })
         if (cancelled) return
         setItems(response.items)
@@ -1154,12 +1211,7 @@ export function FineTablePage() {
     return () => {
       cancelled = true
     }
-  }, [page, query, reloadToken, season])
-
-  const seasons = useMemo(() => {
-    const values = new Set(items.map((row) => row.season_category).filter(Boolean) as string[])
-    return ["all", ...Array.from(values).slice(0, 8)]
-  }, [items])
+  }, [page, query, reloadToken])
 
   const deferredView = useDeferredValue(view)
   const filteredRows = useMemo(() => {
@@ -1243,7 +1295,6 @@ export function FineTablePage() {
           page: nextPage,
           pageSize: EXPORT_PAGE_SIZE,
           query: query || undefined,
-          season,
         })
         allRows.push(...response.items)
         expectedTotal = response.total
@@ -1293,45 +1344,42 @@ export function FineTablePage() {
 
         <div className="grid gap-3 md:grid-cols-4">
           <StatCard icon={Boxes} label="当前页商品" value={formatNumber(items.length)} />
-          <StatCard icon={AlertTriangle} label="缺货风险" value={formatNumber(stats.risk)} tone="risk" />
-          <StatCard icon={TrendingUp} label="7天销量" value={formatNumber(stats.sales7)} tone="good" />
-          <StatCard icon={ImageIcon} label="暂无图片" value={formatNumber(stats.missing)} tone={stats.missing > 0 ? "warn" : "neutral"} />
+          <StatCard icon={AlertTriangle} label="当前页缺货风险" value={formatNumber(stats.risk)} tone="risk" />
+          <StatCard icon={TrendingUp} label="当前页7天销量" value={formatNumber(stats.sales7)} tone="good" />
+          <StatCard icon={ImageIcon} label="当前页暂无图片" value={formatNumber(stats.missing)} tone={stats.missing > 0 ? "warn" : "neutral"} />
         </div>
 
         <div className="surface-panel p-4">
           <div className="flex flex-col gap-3">
-            <div className="flex flex-wrap items-center gap-2">
+            <form
+              className="flex flex-wrap items-center gap-2"
+              onSubmit={(event) => {
+                event.preventDefault()
+                setPage(1)
+                setQuery(queryInput.trim())
+              }}
+            >
               <div className="relative min-w-72 flex-1">
                 <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                 <Input
                   value={queryInput}
                   onChange={(event) => setQueryInput(event.target.value)}
-                  onKeyDown={(event) => {
-                    if (event.key === "Enter") {
-                      setPage(1)
-                      setQuery(queryInput.trim())
-                    }
-                  }}
+                  aria-label="搜索货号、原始货号"
                   placeholder="搜索货号、原始货号"
                   className="pl-9"
                 />
               </div>
-              <Button
-                onClick={() => {
-                  setPage(1)
-                  setQuery(queryInput.trim())
-                }}
-              >
+              <Button type="submit">
                 查询
               </Button>
-            </div>
+            </form>
 
           </div>
         </div>
 
         <div className="surface-panel p-4">
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2" role="group" aria-label="列视图">
               <span className="text-sm font-medium">列视图</span>
               {[
                 ["default", "运营视图"],
@@ -1341,6 +1389,7 @@ export function FineTablePage() {
                 <button
                   key={value}
                   type="button"
+                  aria-pressed={columnMode === value}
                   onClick={() => {
                     setColumnMode(value as ColumnMode)
                     if (value === "custom") {
@@ -1393,7 +1442,7 @@ export function FineTablePage() {
                   </Button>
                 </div>
               </div>
-              <div className="grid max-h-[42vh] gap-2 overflow-y-auto pr-1 md:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-6">
+              <div className="grid max-h-[34vh] gap-2 overflow-y-auto pr-1 md:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-6">
                 {(Object.keys(groupedColumns) as ColumnGroup[]).map((group) => {
                   const columns = groupedColumns[group] ?? []
                   const selectedCount = columns.filter((column) => customColumnKeySet.has(column.key)).length
@@ -1487,7 +1536,7 @@ export function FineTablePage() {
           </TabsContent>
         </Tabs>
       </div>
-      {selectedRow && <div className="fixed inset-0 z-40 bg-black/20" onClick={() => setSelectedRow(null)} />}
+      {selectedRow && <div aria-hidden="true" className="fixed inset-0 z-40 bg-black/20" onClick={() => setSelectedRow(null)} />}
       <DetailDrawer row={selectedRow} onClose={() => setSelectedRow(null)} />
       <Dialog open={previewImage !== null} onOpenChange={(open) => !open && setPreviewImage(null)}>
         <DialogContent className="max-h-[92svh] max-w-[min(94vw,1120px)] overflow-hidden bg-background p-0 shadow-2xl">
