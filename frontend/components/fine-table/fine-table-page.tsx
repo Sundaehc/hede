@@ -1312,7 +1312,7 @@ export function FineTablePage() {
                       setQuery(queryInput.trim())
                     }
                   }}
-                  placeholder="搜索货号、原始货号、工厂货号"
+                  placeholder="搜索货号、原始货号"
                   className="pl-9"
                 />
               </div>

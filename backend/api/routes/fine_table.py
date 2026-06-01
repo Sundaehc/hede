@@ -189,7 +189,6 @@ def list_fine_table(
                 search_conditions.extend([
                     product_table.c.sku.ilike(like),
                     product_table.c.original_sku.ilike(like),
-                    product_table.c.factory_sku.ilike(like),
                 ])
             conditions.append(or_(*search_conditions))
     if normalized_season != "all":
