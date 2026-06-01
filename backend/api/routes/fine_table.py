@@ -9,6 +9,7 @@ from sqlalchemy import and_, desc, func, or_, select
 
 from api.fine_table_cache import get_fine_table_cache, set_fine_table_cache
 from api.routes.images import image_url_for
+from api.schemas import BrandKey
 from domain.gj_schema import GJ_MERGED_PRODUCT_INFO_TABLE
 from domain.schema import PRODUCT_TABLES
 from domain.vip_schema import (
@@ -25,7 +26,7 @@ from domain.vip_schema import (
 
 router = APIRouter()
 
-BRAND = "cbanner_womens"
+DEFAULT_BRAND: BrandKey = "cbanner_womens"
 SIZE_LABELS = {
     "220": "34/220",
     "225": "35/225",
@@ -160,6 +161,7 @@ def _empty_order_bucket() -> dict[str, Any]:
 @router.get("/fine-table")
 def list_fine_table(
     request: Request,
+    brand: BrandKey = Query(DEFAULT_BRAND),
     query: str | None = None,
     season: str | None = None,
     page: int = Query(1, ge=1),
@@ -167,14 +169,14 @@ def list_fine_table(
 ):
     settings = request.app.state.settings
     repository = request.app.state.repository
-    product_table = PRODUCT_TABLES[BRAND]
+    product_table = PRODUCT_TABLES[brand]
     normalized_query = ",".join(
         term.strip()
         for term in (query or "").replace("\n", ",").split(",")
         if term.strip()
     )
     normalized_season = season if season and season != "all" else "all"
-    cache_key = (normalized_query, normalized_season, page, page_size)
+    cache_key = (brand, normalized_query, normalized_season, page, page_size)
     cached = get_fine_table_cache(cache_key)
     if cached is not None:
         return cached
@@ -537,8 +539,8 @@ def list_fine_table(
 
         items.append({
             **product,
-            "brand": BRAND,
-            "image_url": image_url_for(BRAND, product.get("image_path"), settings),
+            "brand": brand,
+            "image_url": image_url_for(brand, product.get("image_path"), settings),
             "product_name": gj_info.get("product_name"),
             "upper_material": gj_info.get("upper_material") or product.get("upper_material"),
             "lining_material": gj_info.get("lining_material") or product.get("lining_material"),

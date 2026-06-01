@@ -6,7 +6,7 @@ from time import monotonic
 from typing import Any
 
 
-FineTableCacheKey = tuple[str, str, int, int]
+FineTableCacheKey = tuple[str, str, str, int, int]
 
 _MAX_ENTRIES = 64
 _TTL_SECONDS = 30

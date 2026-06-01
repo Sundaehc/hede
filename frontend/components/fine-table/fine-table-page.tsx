@@ -31,18 +31,20 @@ import {
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { BRANDS, type BrandKey } from "@/lib/brands"
 import { ApiError, listFineTable } from "@/lib/api"
 import type { FineTableItem, ProductListItem } from "@/lib/types"
 import { cn } from "@/lib/utils"
 
-const PAGE_SIZE = 80
+const PAGE_SIZE = 50
 const EXPORT_PAGE_SIZE = 200
 const DAILY_SALES_DISPLAY_DAYS = 5
 
-type ViewKey = "all" | "missingImage"
+type ViewKey = "all" | "missingImage" | "stockRisk"
 type ColumnMode = "default" | "full" | "custom"
 type ColumnGroup = "基础" | "价格" | "销售" | "库存" | "每日" | "尺码"
 type PageToken = number | "start-ellipsis" | "end-ellipsis"
+type FineTableBrandKey = Exclude<BrandKey, "all">
 type TableColumn = {
   key: string
   label: string
@@ -59,7 +61,11 @@ type TableColumn = {
 const viewTabs: { value: ViewKey; label: string }[] = [
   { value: "all", label: "全部" },
   { value: "missingImage", label: "暂无图片" },
+  { value: "stockRisk", label: "缺货风险" },
 ]
+
+const FINE_TABLE_BRANDS = BRANDS.filter((item) => item.key !== "all") as Array<{ key: FineTableBrandKey; label: string }>
+const DEFAULT_FINE_TABLE_BRAND: FineTableBrandKey = "cbanner_womens"
 
 const SIZE_STOCK_LABELS = [
   "34/220",
@@ -350,6 +356,10 @@ function riskLabel(row: FineTableItem) {
   if (Math.min(vipProjected15dStock(row), otherProjected15dStock(row)) < 0) return "15天后缺口"
   if (row.stock_qty < row.vip_7d_sales + row.other_7d_sales) return "低库存"
   return "正常"
+}
+
+function hasStockRisk(row: FineTableItem) {
+  return riskLabel(row) !== "正常"
 }
 
 function tableColumnExportValue(row: FineTableItem, column: TableColumn) {
@@ -1165,6 +1175,7 @@ const FineTableGrid = memo(function FineTableGrid({
 })
 
 export function FineTablePage() {
+  const [brand, setBrand] = useState<FineTableBrandKey>(DEFAULT_FINE_TABLE_BRAND)
   const [items, setItems] = useState<FineTableItem[]>([])
   const [page, setPage] = useState(1)
   const [total, setTotal] = useState(0)
@@ -1181,48 +1192,55 @@ export function FineTablePage() {
   const [customColumnKeys, setCustomColumnKeys] = useState<string[]>(DEFAULT_COLUMN_KEYS)
   const [isExporting, setIsExporting] = useState(false)
   const [previewImage, setPreviewImage] = useState<{ src: string; alt: string } | null>(null)
+  const loadRequestIdRef = useRef(0)
 
   useEffect(() => {
     let cancelled = false
+    const requestId = loadRequestIdRef.current + 1
+    loadRequestIdRef.current = requestId
+    const isCurrentRequest = () => !cancelled && loadRequestIdRef.current === requestId
+
     async function loadData() {
       setIsLoading(true)
       setError(null)
       try {
         const response = await listFineTable({
+          brand,
           page,
           pageSize: PAGE_SIZE,
           query: query || undefined,
         })
-        if (cancelled) return
+        if (!isCurrentRequest()) return
         setItems(response.items)
         setTotal(response.total)
         setLatestOrderDate(response.latest_order_date)
       } catch (loadError) {
-        if (cancelled) return
+        if (!isCurrentRequest()) return
         setItems([])
         setTotal(0)
         setLatestOrderDate(null)
         setError(getErrorMessage(loadError))
       } finally {
-        if (!cancelled) setIsLoading(false)
+        if (isCurrentRequest()) setIsLoading(false)
       }
     }
     void loadData()
     return () => {
       cancelled = true
     }
-  }, [page, query, reloadToken])
+  }, [brand, page, query, reloadToken])
 
   const deferredView = useDeferredValue(view)
   const filteredRows = useMemo(() => {
     return items.filter((row) => {
       if (deferredView === "missingImage") return !row.image_url
+      if (deferredView === "stockRisk") return hasStockRisk(row)
       return true
     })
   }, [deferredView, items])
 
   const stats = useMemo(() => {
-    const risk = items.filter((row) => Math.min(vipProjected15dStock(row), otherProjected15dStock(row)) < 0).length
+    const risk = items.filter(hasStockRisk).length
     const missing = items.filter((row) => !row.image_url).length
     const sales7 = items.reduce((sum, row) => sum + row.vip_7d_sales + row.other_7d_sales, 0)
     return { risk, missing, sales7 }
@@ -1251,6 +1269,9 @@ export function FineTablePage() {
       return acc
     }, {} as Record<ColumnGroup, TableColumn[]>)
   }, [tableColumns])
+  const currentBrandLabel = useMemo(() => {
+    return FINE_TABLE_BRANDS.find((item) => item.key === brand)?.label ?? "商品"
+  }, [brand])
 
   function toggleCustomColumn(key: string) {
     setCustomColumnKeys((current) => (
@@ -1283,6 +1304,20 @@ export function FineTablePage() {
     setCustomColumnKeys([])
   }
 
+  function handleBrandChange(nextBrand: FineTableBrandKey) {
+    if (nextBrand === brand) return
+    loadRequestIdRef.current += 1
+    setBrand(nextBrand)
+    setPage(1)
+    setItems([])
+    setTotal(0)
+    setLatestOrderDate(null)
+    setError(null)
+    setIsLoading(true)
+    setSelectedRow(null)
+    setPreviewImage(null)
+  }
+
   async function handleExport() {
     setIsExporting(true)
     try {
@@ -1292,6 +1327,7 @@ export function FineTablePage() {
 
       do {
         const response = await listFineTable({
+          brand,
           page: nextPage,
           pageSize: EXPORT_PAGE_SIZE,
           query: query || undefined,
@@ -1301,11 +1337,14 @@ export function FineTablePage() {
         nextPage += 1
       } while (allRows.length < expectedTotal)
 
-      const rowsForExport = view === "missingImage"
-        ? allRows.filter((row) => !row.image_url)
-        : allRows
+      const rowsForExport = allRows.filter((row) => {
+        if (view === "missingImage") return !row.image_url
+        if (view === "stockRisk") return hasStockRisk(row)
+        return true
+      })
       const csvRows = buildFineTableCsvRows(rowsForExport, visibleColumns)
-      downloadCsv(`商品精细表_${timestampForFilename(new Date())}.csv`, csvRows)
+      const brandLabel = FINE_TABLE_BRANDS.find((item) => item.key === brand)?.label ?? "商品"
+      downloadCsv(`${brandLabel}_商品精细表_${timestampForFilename(new Date())}.csv`, csvRows)
     } catch (exportError) {
       window.alert(getErrorMessage(exportError))
     } finally {
@@ -1321,8 +1360,28 @@ export function FineTablePage() {
             <div>
               <h1 className="page-title">商品精细表</h1>
               <p className="page-subtitle">
-                千百度女鞋{latestOrderDate ? ` · 订单截止 ${latestOrderDate}` : ""}
+                {currentBrandLabel}{latestOrderDate ? ` · 订单截止 ${latestOrderDate}` : ""}
               </p>
+              <Tabs
+                value={brand}
+                defaultValue={DEFAULT_FINE_TABLE_BRAND}
+                onValueChange={(value) => {
+                  handleBrandChange(value as FineTableBrandKey)
+                }}
+                className="mt-3"
+              >
+                <TabsList className="h-auto w-full flex-wrap justify-start gap-1 bg-transparent p-0">
+                  {FINE_TABLE_BRANDS.map((item) => (
+                    <TabsTrigger
+                      key={item.key}
+                      value={item.key}
+                      className="cursor-pointer rounded-lg border border-transparent bg-muted/45 px-3 py-1.5 text-xs font-medium text-muted-foreground transition-all duration-150 hover:bg-muted hover:text-foreground data-[state=active]:border-border data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-sm"
+                    >
+                      {item.label}
+                    </TabsTrigger>
+                  ))}
+                </TabsList>
+              </Tabs>
               <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
                 <span className="inline-flex h-7 items-center rounded-full border border-border bg-muted/40 px-3">当前 {formatNumber(total)} 条</span>
                 <span className="inline-flex h-7 items-center rounded-full border border-border bg-muted/40 px-3">显示 {formatNumber(visibleColumns.length)} 列</span>

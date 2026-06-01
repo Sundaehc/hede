@@ -65,17 +65,17 @@ export function listProducts(params: {
 }
 
 export function listFineTable(params: {
+  brand: Exclude<BrandKey, "all">
   query?: string
-  season?: string
   page: number
   pageSize: number
 }) {
   const search = new URLSearchParams({
+    brand: params.brand,
     page: String(params.page),
     page_size: String(params.pageSize),
   })
   if (params.query) search.set("query", params.query)
-  if (params.season && params.season !== "all") search.set("season", params.season)
   return request<FineTableResponse>(`/fine-table?${search.toString()}`)
 }
 
