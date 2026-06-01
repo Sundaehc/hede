@@ -28,6 +28,7 @@ def main() -> None:
             conn.execute(text(f"CREATE INDEX IF NOT EXISTS idx_{table}_year ON {table} (year)"))
             conn.execute(text(f"CREATE INDEX IF NOT EXISTS idx_{table}_sku_trgm ON {table} USING GIN (sku gin_trgm_ops)"))
             conn.execute(text(f"CREATE INDEX IF NOT EXISTS idx_{table}_original_sku_trgm ON {table} USING GIN (original_sku gin_trgm_ops)"))
+            conn.execute(text(f"CREATE INDEX IF NOT EXISTS idx_{table}_factory_sku_trgm ON {table} USING GIN (factory_sku gin_trgm_ops)"))
 
         # Inventory records: filter columns
         conn.execute(text("CREATE INDEX IF NOT EXISTS idx_inventory_records_date ON inventory_records (date)"))

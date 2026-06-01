@@ -40,3 +40,10 @@ cbanner_womens: extracted=13049, loaded=12937, skipped=0, missing_images=2065
 eblan: extracted=9719, loaded=9715, skipped=0, missing_images=199
 cbanner_mens: extracted=7438, loaded=7317, skipped=0, missing_images=72
 [2026/05/31 周日  8:06:46.38] end import_products errorlevel=0 
+[2026/06/01 周一  8:00:01.83] start import_products 
+Mode: sync
+cbanner_mens: extracted=7438, loaded=7317, skipped=0, missing_images=72
+yandou: extracted=3122, loaded=3120, skipped=0, missing_images=2320
+cbanner_womens: extracted=13061, loaded=12949, skipped=0, missing_images=2070
+eblan: extracted=9719, loaded=9715, skipped=0, missing_images=199
+[2026/06/01 周一  8:06:42.90] end import_products errorlevel=0 

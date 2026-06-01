@@ -47,3 +47,10 @@ using a closure in a dumps/loads function may cause a resource leak
 using a closure in a dumps/loads function may cause a resource leak
 [PRICE] 2026-05-31 导入完成, 共 76230 条
 [2026/05/31 周日  8:00:09.93] end import_price_daily errorlevel=0 
+[2026/06/01 周一  8:00:01.54] start import_price_daily 
+using a closure in a dumps/loads function may cause a resource leak
+using a closure in a dumps/loads function may cause a resource leak
+using a closure in a dumps/loads function may cause a resource leak
+using a closure in a dumps/loads function may cause a resource leak
+[PRICE] 2026-06-01 导入完成, 共 76234 条
+[2026/06/01 周一  8:00:09.37] end import_price_daily errorlevel=0 

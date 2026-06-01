@@ -7,6 +7,7 @@ from typing import Any
 from fastapi import APIRouter, Query, Request
 from sqlalchemy import and_, desc, func, or_, select
 
+from api.fine_table_cache import get_fine_table_cache, set_fine_table_cache
 from api.routes.images import image_url_for
 from domain.gj_schema import GJ_MERGED_PRODUCT_INFO_TABLE
 from domain.schema import PRODUCT_TABLES
@@ -167,10 +168,20 @@ def list_fine_table(
     settings = request.app.state.settings
     repository = request.app.state.repository
     product_table = PRODUCT_TABLES[BRAND]
+    normalized_query = ",".join(
+        term.strip()
+        for term in (query or "").replace("\n", ",").split(",")
+        if term.strip()
+    )
+    normalized_season = season if season and season != "all" else "all"
+    cache_key = (normalized_query, normalized_season, page, page_size)
+    cached = get_fine_table_cache(cache_key)
+    if cached is not None:
+        return cached
 
     conditions = []
-    if query:
-        terms = [term.strip() for term in query.replace("\n", ",").split(",") if term.strip()]
+    if normalized_query:
+        terms = normalized_query.split(",")
         if terms:
             search_conditions = []
             for term in terms:
@@ -181,8 +192,8 @@ def list_fine_table(
                     product_table.c.factory_sku.ilike(like),
                 ])
             conditions.append(or_(*search_conditions))
-    if season and season != "all":
-        conditions.append(product_table.c.season_category == season)
+    if normalized_season != "all":
+        conditions.append(product_table.c.season_category == normalized_season)
 
     count_stmt = select(func.count()).select_from(product_table)
     items_stmt = (
@@ -202,7 +213,9 @@ def list_fine_table(
 
         skus = [str(row.get("sku") or "").strip() for row in product_rows if row.get("sku")]
         if not skus:
-            return {"items": [], "total": total, "page": page, "page_size": page_size}
+            payload = {"items": [], "total": total, "page": page, "page_size": page_size}
+            set_fine_table_cache(cache_key, payload)
+            return payload
         original_skus = {
             str(row.get("original_sku") or "").strip()
             for row in product_rows
@@ -602,10 +615,12 @@ def list_fine_table(
             "daily_sales": orders.get("daily_sales", []),
         })
 
-    return {
+    payload = {
         "items": items,
         "total": total,
         "page": page,
         "page_size": page_size,
         "latest_order_date": max_day.isoformat() if "max_day" in locals() else None,
     }
+    set_fine_table_cache(cache_key, payload)
+    return payload

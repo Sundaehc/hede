@@ -41,6 +41,10 @@ def _create_current_indexes() -> None:
             f"CREATE INDEX IF NOT EXISTS idx_{table}_original_sku_trgm "
             f"ON {table} USING GIN (original_sku gin_trgm_ops)"
         )
+        op.execute(
+            f"CREATE INDEX IF NOT EXISTS idx_{table}_factory_sku_trgm "
+            f"ON {table} USING GIN (factory_sku gin_trgm_ops)"
+        )
 
     statements = [
         "CREATE INDEX IF NOT EXISTS idx_inventory_records_date_value ON inventory_records (date_value)",

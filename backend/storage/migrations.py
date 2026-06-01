@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from sqlalchemy import Engine, text
 
+from domain.sources import TABLE_NAMES
+
 
 def apply_core_database_optimizations(engine: Engine) -> None:
     """Apply idempotent schema/index optimizations for existing databases."""
@@ -77,7 +79,19 @@ def apply_core_database_optimizations(engine: Engine) -> None:
         )
 
     with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
+        product_index_statements = []
+        for table in TABLE_NAMES.values():
+            product_index_statements.extend(
+                [
+                    f"CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_{table}_year ON {table} (year)",
+                    f"CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_{table}_sku_trgm ON {table} USING GIN (sku gin_trgm_ops)",
+                    f"CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_{table}_original_sku_trgm ON {table} USING GIN (original_sku gin_trgm_ops)",
+                    f"CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_{table}_factory_sku_trgm ON {table} USING GIN (factory_sku gin_trgm_ops)",
+                ]
+            )
+
         statements = [
+            *product_index_statements,
             "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_inventory_records_date_value ON inventory_records (date_value)",
             "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_jst_stock_date_value_code ON jst_daily_stock (stock_date_value, product_code)",
             "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_jst_monthly_orders_order_time_at ON jst_monthly_orders (order_time_at)",

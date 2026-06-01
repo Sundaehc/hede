@@ -7,6 +7,7 @@ from fastapi import APIRouter, HTTPException, Query, Request, UploadFile
 from fastapi.responses import StreamingResponse
 from openpyxl import Workbook, load_workbook
 
+from api.fine_table_cache import clear_fine_table_cache
 from api.routes.images import image_url_for
 from domain.sources import CANONICAL_COLUMNS, COLUMN_ALIASES, TABLE_NAMES
 from transform.rows import build_admin_record, normalize_admin_field
@@ -227,4 +228,5 @@ async def import_products(
             created += 1
 
     wb.close()
+    clear_fine_table_cache()
     return {"created": created, "updated": updated, "skus": imported_skus, "message": f"导入完成：新增 {created} 条，更新 {updated} 条"}

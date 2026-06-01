@@ -45,6 +45,7 @@ def _rename_tables(renames: tuple[tuple[str, str], ...]) -> None:
         _rename_index(f"idx_{old_name}_year", f"idx_{new_name}_year")
         _rename_index(f"idx_{old_name}_sku_trgm", f"idx_{new_name}_sku_trgm")
         _rename_index(f"idx_{old_name}_original_sku_trgm", f"idx_{new_name}_original_sku_trgm")
+        _rename_index(f"idx_{old_name}_factory_sku_trgm", f"idx_{new_name}_factory_sku_trgm")
 
 
 def _rename_constraint(old_name: str, new_name: str) -> None:

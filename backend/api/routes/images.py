@@ -6,6 +6,7 @@ from pathlib import Path
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Request
 from fastapi.responses import FileResponse
 
+from api.fine_table_cache import clear_fine_table_cache
 from api.schemas import BrandKey, ImageLookupRequest, MatchSkuRequest
 from storage.product_image_refresh import get_image_refresh_status, run_product_image_refresh
 
@@ -141,6 +142,7 @@ def refresh_product_images(
         brand=brand,
         overwrite=overwrite,
     )
+    clear_fine_table_cache()
     return {
         "accepted": True,
         "in_progress": True,

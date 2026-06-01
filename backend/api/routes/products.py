@@ -3,6 +3,7 @@ from __future__ import annotations
 from fastapi import APIRouter, HTTPException, Query, Request
 
 from api.routes.images import image_url_for
+from api.fine_table_cache import clear_fine_table_cache
 from api.schemas import BatchDeleteRequest, BrandKey, ProductWriteRequest
 
 from sqlalchemy import distinct as sa_distinct, select as sa_select
@@ -100,6 +101,7 @@ def get_product(request: Request, brand: BrandKey, product_id: int):
 def create_product(request: Request, body: ProductWriteRequest):
     record = build_admin_record(body.brand, body.payload.model_dump(exclude_none=False))
     item = request.app.state.repository.create_product(body.brand, record)
+    clear_fine_table_cache()
     return {"item": {**item, "brand": body.brand}, "message": "Product created"}
 
 
@@ -125,6 +127,7 @@ def update_product(request: Request, brand: BrandKey, product_id: int, body: Pro
     if item is None:
         # Re-check after the pre-read in case the row was deleted concurrently.
         raise HTTPException(status_code=404, detail="Product not found")
+    clear_fine_table_cache()
     return {"item": {**item, "brand": brand}, "message": "Product updated"}
 
 
@@ -133,6 +136,7 @@ def delete_product(request: Request, brand: BrandKey, product_id: int):
     deleted = request.app.state.repository.delete_product(brand, product_id)
     if not deleted:
         raise HTTPException(status_code=404, detail="Product not found")
+    clear_fine_table_cache()
     return {"message": "Product deleted"}
 
 
@@ -141,4 +145,5 @@ def batch_delete_products(request: Request, body: BatchDeleteRequest):
     if not body.ids:
         raise HTTPException(status_code=400, detail="No ids provided")
     deleted = request.app.state.repository.delete_products(body.brand, body.ids)
+    clear_fine_table_cache()
     return {"deleted": deleted, "message": f"已删除 {deleted} 条商品"}

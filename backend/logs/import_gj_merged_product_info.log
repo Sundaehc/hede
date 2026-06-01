@@ -10,3 +10,6 @@
 [2026/05/31 周日  8:00:01.60] start import_gj_merged_product_info_daily 
 {'source_dir': '\\\\192.168.10.58\\超级共享\\影刀技术开发部共享\\管家婆数据导出\\2026-05-31', 'source_file': '男女鞋合并商品信息.xlsx', 'source_date': '2026-05-31', 'read_rows': 76835, 'imported': 76269}
 [2026/05/31 周日  8:00:13.48] end import_gj_merged_product_info_daily errorlevel=0 
+[2026/06/01 周一  8:00:01.60] start import_gj_merged_product_info_daily 
+{'source_dir': '\\\\192.168.10.58\\超级共享\\影刀技术开发部共享\\管家婆数据导出\\2026-06-01', 'source_file': '男女鞋合并商品信息.xlsx', 'source_date': '2026-06-01', 'read_rows': 76839, 'imported': 76273}
+[2026/06/01 周一  8:00:13.05] end import_gj_merged_product_info_daily errorlevel=0 
