@@ -91,6 +91,7 @@ const DEFAULT_COLUMN_KEYS = [
   "group_name",
   "product_name",
   "main_style",
+  "goods_tag",
   "cost",
   "final_price",
   "activity_profit",
@@ -552,6 +553,18 @@ function createTableColumns(dailyLabels: string[]): TableColumn[] {
     { key: "insole_material", label: "鞋垫材质", group: "基础", render: (row) => row.insole_material || "-" },
     { key: "first_order_time", label: "首单日期", group: "基础", render: (row) => row.first_order_time || "-" },
     { key: "sales_tag", label: "畅销度", group: "基础", className: "min-w-36", render: (row) => row.sales_tag || "-" },
+    {
+      key: "goods_tag",
+      label: "小灯塔",
+      group: "基础",
+      className: "min-w-24",
+      defaultVisible: true,
+      render: (row) => row.goods_tag ? (
+        <span className="inline-flex h-6 items-center rounded-md bg-amber-50 px-2 text-xs font-medium text-amber-700 dark:bg-amber-950/40 dark:text-amber-300">
+          {row.goods_tag}
+        </span>
+      ) : "-",
+    },
 
     { key: "cost", label: "成本", group: "价格", align: "right", defaultVisible: true, render: (row) => nullableCost(row.latest_purchase_price) },
     { key: "final_price", label: "到手价", group: "价格", align: "right", defaultVisible: true, render: (row) => nullableCurrency(row.final_price) },
@@ -1476,7 +1489,7 @@ export function FineTablePage() {
         <div className="surface-panel p-4">
           <div className="flex flex-col gap-3">
             <form
-              className="flex flex-wrap items-center gap-2"
+              className="flex flex-wrap items-start gap-2"
               onSubmit={(event) => {
                 event.preventDefault()
                 setPage(1)
@@ -1484,18 +1497,34 @@ export function FineTablePage() {
               }}
             >
               <div className="relative min-w-72 flex-1">
-                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                <Input
+                <Search className="pointer-events-none absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
+                <textarea
                   value={queryInput}
                   onChange={(event) => setQueryInput(event.target.value)}
                   aria-label="搜索货号、原始货号"
-                  placeholder="搜索货号、原始货号"
-                  className="pl-9"
+                  placeholder="搜索货号、原始货号；每行一个，也可用逗号分隔"
+                  rows={3}
+                  className="flex min-h-20 w-full resize-y rounded-md border border-input bg-transparent px-3 py-2 pl-9 text-sm shadow-sm transition-colors placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
                 />
               </div>
-              <Button type="submit">
-                查询
-              </Button>
+              <div className="flex items-center gap-2">
+                <Button type="submit">
+                  查询
+                </Button>
+                {queryInput && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => {
+                      setQueryInput("")
+                      setQuery("")
+                      setPage(1)
+                    }}
+                  >
+                    清空
+                  </Button>
+                )}
+              </div>
             </form>
 
           </div>

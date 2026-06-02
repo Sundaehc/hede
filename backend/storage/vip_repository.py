@@ -157,7 +157,7 @@ class VipRepository:
     # ── vip_product_ops (常态商品运营) ──────────────────────────────
 
     def import_ops(self, file_path: Path, snapshot_date: date | None = None) -> dict[str, object]:
-        rows = self._read_excel(file_path, VIP_OPS_COLUMN_ALIASES)
+        rows = self._read_excel(file_path, VIP_OPS_COLUMN_ALIASES, duplicate_policy="first")
         if not rows:
             return {"imported": 0, "message": "无数据行"}
         snapshot_date = snapshot_date or _snapshot_date_from_path(file_path)
@@ -174,9 +174,12 @@ class VipRepository:
                 seen[key] = len(deduped)
                 deduped.append(row)
 
-        update_cols = [c for c in deduped[0] if c not in ("id", "goods_id")]
+        from sqlalchemy import delete as sa_delete
 
-        self._upsert(VIP_OPS_TABLE, deduped, ["goods_id"], update_cols)
+        with self.engine.begin() as conn:
+            conn.execute(sa_delete(VIP_OPS_TABLE))
+            self._batch_insert(VIP_OPS_TABLE, deduped, conn=conn)
+
         snapshot_rows = [{**row, "snapshot_date": snapshot_date} for row in deduped if row.get("goods_id")]
         if snapshot_rows:
             snapshot_update_cols = [
@@ -524,7 +527,7 @@ class VipRepository:
             for i in range(0, len(rows), chunk_size):
                 connection.execute(insert(table), rows[i:i + chunk_size])
 
-    def _read_excel(self, file_path: Path, aliases: dict[str, str]) -> list[dict]:
+    def _read_excel(self, file_path: Path, aliases: dict[str, str], duplicate_policy: str = "last") -> list[dict]:
         """Read an Excel file, map headers to canonical columns, return rows as dicts."""
         wb = load_workbook(file_path, data_only=True, read_only=True)
         ws = wb.active
@@ -552,6 +555,8 @@ class VipRepository:
                 raw[h] = value
                 col = column_map.get(h)
                 if col:
+                    if duplicate_policy == "first" and col in record:
+                        continue
                     record[col] = str(value).strip() if value is not None else None
             record["raw_payload"] = raw
             rows.append(record)

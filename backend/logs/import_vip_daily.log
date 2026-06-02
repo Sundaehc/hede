@@ -54,3 +54,10 @@ using a closure in a dumps/loads function may cause a resource leak
 using a closure in a dumps/loads function may cause a resource leak
 [VIP] 06.01 导入完成, 共 134637 条
 [2026/06/01 周一 11:00:55.75] end import_vip_daily errorlevel=0 
+[2026/06/02 周二 11:00:01.87] start import_vip_daily 
+using a closure in a dumps/loads function may cause a resource leak
+using a closure in a dumps/loads function may cause a resource leak
+using a closure in a dumps/loads function may cause a resource leak
+using a closure in a dumps/loads function may cause a resource leak
+[SKIP] VIP 目录不存在: \\192.168.10.58\超级共享\影刀技术开发部共享\唯品会后台\千百度伊伴\06.02
+[2026/06/02 周二 11:00:02.76] end import_vip_daily errorlevel=0 
