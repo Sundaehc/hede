@@ -5,6 +5,7 @@ import {
   AlertTriangle,
   BarChart3,
   Boxes,
+  Check,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
@@ -38,6 +39,7 @@ import { cn } from "@/lib/utils"
 
 const PAGE_SIZE = 50
 const EXPORT_PAGE_SIZE = 200
+const EXPORT_CONCURRENCY = 3
 const DAILY_SALES_DISPLAY_DAYS = 5
 
 type ViewKey = "all" | "missingImage" | "stockRisk"
@@ -1188,9 +1190,14 @@ export function FineTablePage() {
   const [reloadToken, setReloadToken] = useState(0)
   const [latestOrderDate, setLatestOrderDate] = useState<string | null>(null)
   const [columnMode, setColumnMode] = useState<ColumnMode>("default")
-  const [customColumnPickerOpen, setCustomColumnPickerOpen] = useState(true)
+  const [customColumnPickerOpen, setCustomColumnPickerOpen] = useState(false)
   const [customColumnKeys, setCustomColumnKeys] = useState<string[]>(DEFAULT_COLUMN_KEYS)
+  const [draftCustomColumnKeys, setDraftCustomColumnKeys] = useState<string[]>(DEFAULT_COLUMN_KEYS)
+  const [columnSearch, setColumnSearch] = useState("")
+  const [showSelectedColumnsOnly, setShowSelectedColumnsOnly] = useState(false)
+  const [collapsedColumnGroups, setCollapsedColumnGroups] = useState<ColumnGroup[]>([])
   const [isExporting, setIsExporting] = useState(false)
+  const [exportProgress, setExportProgress] = useState<{ loaded: number; total: number } | null>(null)
   const [previewImage, setPreviewImage] = useState<{ src: string; alt: string } | null>(null)
   const loadRequestIdRef = useRef(0)
 
@@ -1262,29 +1269,49 @@ export function FineTablePage() {
   }, [columnMode, customColumnKeys, tableColumns])
   const deferredVisibleColumns = useDeferredValue(visibleColumns)
   const isColumnViewSettling = deferredVisibleColumns !== visibleColumns
-  const customColumnKeySet = useMemo(() => new Set(customColumnKeys), [customColumnKeys])
+  const draftCustomColumnKeySet = useMemo(() => new Set(draftCustomColumnKeys), [draftCustomColumnKeys])
+  const collapsedColumnGroupSet = useMemo(() => new Set(collapsedColumnGroups), [collapsedColumnGroups])
   const groupedColumns = useMemo(() => {
     return tableColumns.reduce<Record<ColumnGroup, TableColumn[]>>((acc, column) => {
       acc[column.group] = [...(acc[column.group] ?? []), column]
       return acc
     }, {} as Record<ColumnGroup, TableColumn[]>)
   }, [tableColumns])
+  const columnSearchTerm = columnSearch.trim().toLowerCase()
+  const visibleGroupedColumns = useMemo(() => {
+    return (Object.keys(groupedColumns) as ColumnGroup[]).reduce<Record<ColumnGroup, TableColumn[]>>((acc, group) => {
+      const columns = groupedColumns[group] ?? []
+      acc[group] = columns.filter((column) => {
+        if (showSelectedColumnsOnly && !draftCustomColumnKeySet.has(column.key)) return false
+        if (!columnSearchTerm) return true
+        return column.label.toLowerCase().includes(columnSearchTerm) || column.key.toLowerCase().includes(columnSearchTerm)
+      })
+      return acc
+    }, {} as Record<ColumnGroup, TableColumn[]>)
+  }, [columnSearchTerm, draftCustomColumnKeySet, groupedColumns, showSelectedColumnsOnly])
   const currentBrandLabel = useMemo(() => {
     return FINE_TABLE_BRANDS.find((item) => item.key === brand)?.label ?? "商品"
   }, [brand])
 
-  function toggleCustomColumn(key: string) {
-    setCustomColumnKeys((current) => (
+  function openCustomColumnPicker() {
+    setDraftCustomColumnKeys(customColumnKeys)
+    setColumnSearch("")
+    setShowSelectedColumnsOnly(false)
+    setCustomColumnPickerOpen(true)
+  }
+
+  function toggleDraftCustomColumn(key: string) {
+    setDraftCustomColumnKeys((current) => (
       current.includes(key)
         ? current.filter((item) => item !== key)
         : [...current, key]
     ))
   }
 
-  function setCustomColumnGroup(group: ColumnGroup, selected: boolean) {
+  function setDraftCustomColumnGroup(group: ColumnGroup, selected: boolean) {
     const groupKeys = groupedColumns[group]?.map((column) => column.key) ?? []
     const groupKeySet = new Set(groupKeys)
-    setCustomColumnKeys((current) => {
+    setDraftCustomColumnKeys((current) => {
       if (selected) {
         return Array.from(new Set([...current, ...groupKeys]))
       }
@@ -1292,16 +1319,29 @@ export function FineTablePage() {
     })
   }
 
-  function selectAllCustomColumns() {
-    setCustomColumnKeys(tableColumns.map((column) => column.key))
+  function selectAllDraftCustomColumns() {
+    setDraftCustomColumnKeys(tableColumns.map((column) => column.key))
   }
 
-  function resetCustomColumns() {
-    setCustomColumnKeys(DEFAULT_COLUMN_KEYS)
+  function resetDraftCustomColumns() {
+    setDraftCustomColumnKeys(DEFAULT_COLUMN_KEYS)
   }
 
-  function clearCustomColumns() {
-    setCustomColumnKeys([])
+  function clearDraftCustomColumns() {
+    setDraftCustomColumnKeys([])
+  }
+
+  function applyCustomColumns() {
+    setCustomColumnKeys(draftCustomColumnKeys)
+    setCustomColumnPickerOpen(false)
+  }
+
+  function toggleColumnGroupCollapsed(group: ColumnGroup) {
+    setCollapsedColumnGroups((current) => (
+      current.includes(group)
+        ? current.filter((item) => item !== group)
+        : [...current, group]
+    ))
   }
 
   function handleBrandChange(nextBrand: FineTableBrandKey) {
@@ -1320,22 +1360,44 @@ export function FineTablePage() {
 
   async function handleExport() {
     setIsExporting(true)
+    setExportProgress({ loaded: 0, total })
     try {
-      const allRows: FineTableItem[] = []
-      let nextPage = 1
-      let expectedTotal = 0
+      const firstResponse = await listFineTable({
+        brand,
+        page: 1,
+        pageSize: EXPORT_PAGE_SIZE,
+        query: query || undefined,
+      })
+      const expectedTotal = firstResponse.total
+      const pageCount = Math.max(1, Math.ceil(expectedTotal / EXPORT_PAGE_SIZE))
+      const rowsByPage = new Map<number, FineTableItem[]>([[1, firstResponse.items]])
+      setExportProgress({ loaded: firstResponse.items.length, total: expectedTotal })
 
-      do {
-        const response = await listFineTable({
-          brand,
-          page: nextPage,
-          pageSize: EXPORT_PAGE_SIZE,
-          query: query || undefined,
-        })
-        allRows.push(...response.items)
-        expectedTotal = response.total
-        nextPage += 1
-      } while (allRows.length < expectedTotal)
+      const remainingPages = Array.from({ length: pageCount - 1 }, (_, index) => index + 2)
+      let nextPageIndex = 0
+      let loadedCount = firstResponse.items.length
+
+      async function exportWorker() {
+        while (nextPageIndex < remainingPages.length) {
+          const pageToLoad = remainingPages[nextPageIndex]
+          nextPageIndex += 1
+          const response = await listFineTable({
+            brand,
+            page: pageToLoad,
+            pageSize: EXPORT_PAGE_SIZE,
+            query: query || undefined,
+          })
+          rowsByPage.set(pageToLoad, response.items)
+          loadedCount += response.items.length
+          setExportProgress({ loaded: loadedCount, total: expectedTotal })
+        }
+      }
+
+      await Promise.all(
+        Array.from({ length: Math.min(EXPORT_CONCURRENCY, remainingPages.length) }, () => exportWorker()),
+      )
+
+      const allRows = Array.from({ length: pageCount }, (_, index) => rowsByPage.get(index + 1) ?? []).flat()
 
       const rowsForExport = allRows.filter((row) => {
         if (view === "missingImage") return !row.image_url
@@ -1349,6 +1411,7 @@ export function FineTablePage() {
       window.alert(getErrorMessage(exportError))
     } finally {
       setIsExporting(false)
+      setExportProgress(null)
     }
   }
 
@@ -1395,7 +1458,9 @@ export function FineTablePage() {
               </Button>
               <Button variant="outline" size="sm" onClick={handleExport} disabled={isExporting || isLoading}>
                 <Download className="h-4 w-4" />
-                {isExporting ? "导出中" : "导出"}
+                {isExporting && exportProgress
+                  ? `导出 ${formatNumber(Math.min(exportProgress.loaded, exportProgress.total))}/${formatNumber(exportProgress.total)}`
+                  : "导出"}
               </Button>
             </div>
           </div>
@@ -1452,7 +1517,9 @@ export function FineTablePage() {
                   onClick={() => {
                     setColumnMode(value as ColumnMode)
                     if (value === "custom") {
-                      setCustomColumnPickerOpen(true)
+                      openCustomColumnPicker()
+                    } else {
+                      setCustomColumnPickerOpen(false)
                     }
                   }}
                   className={cn(
@@ -1473,92 +1540,14 @@ export function FineTablePage() {
                   type="button"
                   variant="outline"
                   size="sm"
-                  onClick={() => setCustomColumnPickerOpen((current) => !current)}
-                  aria-expanded={customColumnPickerOpen}
-                  aria-controls="fine-table-column-picker"
+                  onClick={openCustomColumnPicker}
                 >
-                  <ChevronDown className={cn("h-4 w-4 transition-transform", customColumnPickerOpen && "rotate-180")} />
-                  {customColumnPickerOpen ? "收起" : "展开"}
+                  <SlidersHorizontal className="h-4 w-4" />
+                  配置列
                 </Button>
               )}
             </div>
           </div>
-          {columnMode === "custom" && customColumnPickerOpen && (
-            <div id="fine-table-column-picker" className="mt-3 border-t border-border pt-3">
-              <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-                <div className="text-xs text-muted-foreground">
-                  已选择 <span className="font-medium text-foreground">{customColumnKeys.length}</span> / {tableColumns.length} 列
-                </div>
-                <div className="flex flex-wrap items-center gap-1.5">
-                  <Button type="button" variant="outline" size="sm" className="h-8" onClick={selectAllCustomColumns}>
-                    全部选中
-                  </Button>
-                  <Button type="button" variant="outline" size="sm" className="h-8" onClick={resetCustomColumns}>
-                    恢复默认
-                  </Button>
-                  <Button type="button" variant="outline" size="sm" className="h-8" onClick={clearCustomColumns}>
-                    清空
-                  </Button>
-                </div>
-              </div>
-              <div className="grid max-h-[34vh] gap-2 overflow-y-auto pr-1 md:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-6">
-                {(Object.keys(groupedColumns) as ColumnGroup[]).map((group) => {
-                  const columns = groupedColumns[group] ?? []
-                  const selectedCount = columns.filter((column) => customColumnKeySet.has(column.key)).length
-                  return (
-                    <section key={group} className="min-h-0 rounded-xl border border-border bg-muted/20 p-3">
-                      <div className="mb-1.5 flex items-center justify-between gap-2">
-                        <div className="min-w-0">
-                          <div className="truncate text-xs font-medium text-foreground">{group}</div>
-                          <div className="text-[11px] text-muted-foreground">{selectedCount}/{columns.length} 已选</div>
-                        </div>
-                        <div className="flex shrink-0 items-center gap-1">
-                          <button
-                            type="button"
-                            className="rounded px-1.5 py-1 text-[11px] text-muted-foreground hover:bg-background hover:text-foreground"
-                            onClick={() => setCustomColumnGroup(group, true)}
-                          >
-                            全选
-                          </button>
-                          <button
-                            type="button"
-                            className="rounded px-1.5 py-1 text-[11px] text-muted-foreground hover:bg-background hover:text-foreground"
-                            onClick={() => setCustomColumnGroup(group, false)}
-                          >
-                            清空
-                          </button>
-                        </div>
-                      </div>
-                      <div className="grid max-h-44 gap-1 overflow-y-auto pr-1">
-                        {columns.map((column) => {
-                          const checked = customColumnKeySet.has(column.key)
-                          return (
-                            <label
-                              key={column.key}
-                              className={cn(
-                                "flex h-8 cursor-pointer items-center gap-2 rounded-md border px-2 text-xs transition-colors",
-                                checked
-                                  ? "border-primary/30 bg-primary/10 text-foreground"
-                                  : "border-transparent bg-background/70 text-muted-foreground hover:border-border hover:text-foreground",
-                              )}
-                            >
-                              <input
-                                type="checkbox"
-                                checked={checked}
-                                onChange={() => toggleCustomColumn(column.key)}
-                                className="h-3.5 w-3.5 shrink-0 accent-primary"
-                              />
-                              <span className="min-w-0 truncate">{column.label}</span>
-                            </label>
-                          )
-                        })}
-                      </div>
-                    </section>
-                  )
-                })}
-              </div>
-            </div>
-          )}
         </div>
 
         <Tabs value={view} defaultValue="all" onValueChange={(value) => setView(value as ViewKey)}>
@@ -1595,6 +1584,195 @@ export function FineTablePage() {
           </TabsContent>
         </Tabs>
       </div>
+      <Dialog open={customColumnPickerOpen} onOpenChange={(open) => !open && setCustomColumnPickerOpen(false)}>
+        <DialogContent className="flex max-h-[88svh] max-w-[min(96vw,1120px)] flex-col overflow-hidden p-0">
+          <DialogHeader className="border-b border-border px-4 py-3 sm:px-5">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <DialogTitle className="text-base font-semibold">自定义列</DialogTitle>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  已选择 <span className="font-semibold text-foreground">{draftCustomColumnKeys.length}</span> / {tableColumns.length} 列
+                </p>
+              </div>
+              <div className="flex flex-wrap items-center gap-1.5">
+                <Button type="button" variant="outline" size="sm" className="h-8" onClick={selectAllDraftCustomColumns}>
+                  全选
+                </Button>
+                <Button type="button" variant="outline" size="sm" className="h-8" onClick={resetDraftCustomColumns}>
+                  默认
+                </Button>
+                <Button type="button" variant="outline" size="sm" className="h-8" onClick={clearDraftCustomColumns}>
+                  清空
+                </Button>
+              </div>
+            </div>
+            <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-muted">
+              <div
+                className="h-full rounded-full bg-primary transition-all"
+                style={{ width: `${tableColumns.length === 0 ? 0 : (draftCustomColumnKeys.length / tableColumns.length) * 100}%` }}
+              />
+            </div>
+          </DialogHeader>
+
+          <div className="border-b border-border bg-muted/20 px-4 py-3 sm:px-5">
+            <div className="flex flex-col gap-2 md:flex-row md:items-center">
+              <div className="relative min-w-0 flex-1">
+                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  value={columnSearch}
+                  onChange={(event) => setColumnSearch(event.target.value)}
+                  placeholder="搜索列名"
+                  aria-label="搜索列名"
+                  className="h-9 pl-9"
+                />
+              </div>
+              <button
+                type="button"
+                aria-pressed={showSelectedColumnsOnly}
+                onClick={() => setShowSelectedColumnsOnly((current) => !current)}
+                className={cn(
+                  "inline-flex h-9 shrink-0 cursor-pointer items-center justify-center rounded-md border px-3 text-sm font-medium transition-colors",
+                  showSelectedColumnsOnly
+                    ? "border-primary/30 bg-primary/10 text-primary"
+                    : "border-border bg-background text-muted-foreground hover:text-foreground",
+                )}
+              >
+                只看已选
+              </button>
+            </div>
+          </div>
+
+          <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3 sm:px-5">
+            <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+              {(Object.keys(groupedColumns) as ColumnGroup[]).map((group) => {
+                const columns = groupedColumns[group] ?? []
+                const visibleGroupColumns = visibleGroupedColumns[group] ?? []
+                const selectedCount = columns.filter((column) => draftCustomColumnKeySet.has(column.key)).length
+                const allSelected = selectedCount === columns.length
+                const partiallySelected = selectedCount > 0 && !allSelected
+                const selectedPercent = columns.length === 0 ? 0 : (selectedCount / columns.length) * 100
+                const isCollapsed = collapsedColumnGroupSet.has(group) && !columnSearchTerm
+                if (visibleGroupColumns.length === 0) return null
+
+                return (
+                  <section
+                    key={group}
+                    className={cn(
+                      "min-h-0 rounded-lg border bg-background transition-colors",
+                      selectedCount > 0 ? "border-primary/25" : "border-border",
+                    )}
+                  >
+                    <div className="border-b border-border/70 p-3">
+                      <div className="flex items-start justify-between gap-2">
+                        <button
+                          type="button"
+                          className="min-w-0 flex-1 text-left"
+                          onClick={() => toggleColumnGroupCollapsed(group)}
+                          aria-expanded={!isCollapsed}
+                        >
+                          <div className="flex min-w-0 items-center gap-2">
+                            <ChevronDown className={cn("h-4 w-4 shrink-0 text-muted-foreground transition-transform", isCollapsed && "-rotate-90")} />
+                            <span className="truncate text-sm font-medium text-foreground">{group}</span>
+                            <span
+                              className={cn(
+                                "shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium",
+                                allSelected
+                                  ? "bg-primary text-primary-foreground"
+                                  : partiallySelected
+                                    ? "bg-primary/10 text-primary"
+                                    : "bg-muted text-muted-foreground",
+                              )}
+                            >
+                              {selectedCount}/{columns.length}
+                            </span>
+                          </div>
+                          <div className="mt-2 h-1 overflow-hidden rounded-full bg-muted">
+                            <div className="h-full rounded-full bg-primary/70 transition-all" style={{ width: `${selectedPercent}%` }} />
+                          </div>
+                        </button>
+                        <div className="flex shrink-0 items-center gap-1">
+                          <button
+                            type="button"
+                            className="h-7 rounded-md px-2.5 text-[11px] font-medium text-muted-foreground hover:bg-muted hover:text-foreground"
+                            onClick={() => setDraftCustomColumnGroup(group, true)}
+                            aria-label={`${group} 全选`}
+                          >
+                            全选
+                          </button>
+                          <button
+                            type="button"
+                            className="h-7 rounded-md px-2.5 text-[11px] font-medium text-muted-foreground hover:bg-muted hover:text-foreground"
+                            onClick={() => setDraftCustomColumnGroup(group, false)}
+                            aria-label={`${group} 清空`}
+                          >
+                            清空
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                    {!isCollapsed && (
+                      <div className="grid max-h-64 gap-1 overflow-y-auto p-2 sm:grid-cols-2">
+                        {visibleGroupColumns.map((column) => {
+                          const checked = draftCustomColumnKeySet.has(column.key)
+                          return (
+                            <label
+                              key={column.key}
+                              className={cn(
+                                "group flex h-8 cursor-pointer items-center gap-2 rounded-md border px-2 text-xs transition-colors",
+                                checked
+                                  ? "border-primary/30 bg-primary/10 text-foreground"
+                                  : "border-transparent bg-background text-muted-foreground hover:border-border hover:bg-muted/40 hover:text-foreground",
+                              )}
+                            >
+                              <input
+                                type="checkbox"
+                                checked={checked}
+                                onChange={() => toggleDraftCustomColumn(column.key)}
+                                className="peer sr-only"
+                              />
+                              <span
+                                aria-hidden="true"
+                                className={cn(
+                                  "flex h-4 w-4 shrink-0 items-center justify-center rounded border transition-colors",
+                                  checked
+                                    ? "border-primary bg-primary text-primary-foreground"
+                                    : "border-border bg-background group-hover:border-primary/50",
+                                )}
+                              >
+                                {checked && <Check className="h-3 w-3" />}
+                              </span>
+                              <span className="min-w-0 truncate">{column.label}</span>
+                            </label>
+                          )
+                        })}
+                      </div>
+                    )}
+                  </section>
+                )
+              })}
+            </div>
+            {Object.values(visibleGroupedColumns).every((columns) => columns.length === 0) && (
+              <div className="flex h-32 items-center justify-center rounded-lg border border-dashed border-border text-sm text-muted-foreground">
+                没有匹配的列
+              </div>
+            )}
+          </div>
+
+          <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border bg-background px-4 py-3 sm:px-5">
+            <p className="text-xs text-muted-foreground">
+              当前表格仍显示 {formatNumber(customColumnKeys.length)} 列，完成后更新为 {formatNumber(draftCustomColumnKeys.length)} 列
+            </p>
+            <div className="flex items-center gap-2">
+              <Button type="button" variant="outline" size="sm" onClick={() => setCustomColumnPickerOpen(false)}>
+                取消
+              </Button>
+              <Button type="button" size="sm" onClick={applyCustomColumns}>
+                完成
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
       {selectedRow && <div aria-hidden="true" className="fixed inset-0 z-40 bg-black/20" onClick={() => setSelectedRow(null)} />}
       <DetailDrawer row={selectedRow} onClose={() => setSelectedRow(null)} />
       <Dialog open={previewImage !== null} onOpenChange={(open) => !open && setPreviewImage(null)}>
