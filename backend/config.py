@@ -9,6 +9,9 @@ from dotenv import load_dotenv
 
 ENV_FILE_NAME = ".env"
 BACKEND_ROOT = Path(__file__).resolve().parent
+DEFAULT_CBANNER_MENS_GROUP_SOURCE = Path(
+    r"\\192.168.10.229\运营组资料\9商品组（卢嘉诚）\商品分析\商品运营货品表\千百度男鞋"
+)
 
 
 @dataclass(frozen=True)
@@ -22,6 +25,7 @@ class Settings:
     jst_stock_root: Path | None = None
     vip_data_root: Path | None = None
     jst_price_root: Path | None = None
+    cbanner_mens_group_source: Path | None = DEFAULT_CBANNER_MENS_GROUP_SOURCE
 
     @property
     def image_roots(self) -> dict[str, Path]:
@@ -61,6 +65,12 @@ def load_settings(require_database: bool = True) -> Settings:
     vip_data_root = Path(vip_data_root_raw) if vip_data_root_raw else None
     jst_price_root_raw = os.getenv("JST_PRICE_ROOT")
     jst_price_root = Path(jst_price_root_raw) if jst_price_root_raw else None
+    cbanner_mens_group_source_raw = os.getenv("CBANNER_MENS_GROUP_SOURCE")
+    cbanner_mens_group_source = (
+        Path(cbanner_mens_group_source_raw)
+        if cbanner_mens_group_source_raw
+        else DEFAULT_CBANNER_MENS_GROUP_SOURCE
+    )
 
     return Settings(
         database_url=database_url,
@@ -72,4 +82,5 @@ def load_settings(require_database: bool = True) -> Settings:
         jst_stock_root=jst_stock_root,
         vip_data_root=vip_data_root,
         jst_price_root=jst_price_root,
+        cbanner_mens_group_source=cbanner_mens_group_source,
     )
