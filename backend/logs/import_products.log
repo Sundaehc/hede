@@ -54,3 +54,17 @@ yandou: extracted=3122, loaded=3120, skipped=0, missing_images=2320
 cbanner_womens: extracted=13061, loaded=12949, skipped=0, missing_images=2070
 cbanner_mens: extracted=7438, loaded=7317, skipped=0, missing_images=72
 [2026/06/02 周二  8:06:45.42] end import_products errorlevel=0 
+[2026/06/03 周三  8:00:01.96] start import_products 
+Mode: sync
+cbanner_womens: extracted=13071, loaded=12959, skipped=0, missing_images=2078
+eblan: extracted=9726, loaded=9722, skipped=0, missing_images=199
+yandou: extracted=3122, loaded=3120, skipped=0, missing_images=2320
+cbanner_mens: extracted=7439, loaded=7318, skipped=0, missing_images=72
+[2026/06/03 周三  8:06:49.12] end import_products errorlevel=0 
+[2026/06/04 周四  8:00:01.88] start import_products 
+Mode: sync
+cbanner_womens: extracted=13071, loaded=13793, skipped=0, missing_images=2091
+yandou: extracted=3122, loaded=29619, skipped=0, missing_images=25750
+eblan: extracted=9726, loaded=9744, skipped=0, missing_images=182
+cbanner_mens: extracted=8846, loaded=20437, skipped=0, missing_images=301
+[2026/06/04 周四  8:06:44.83] end import_products errorlevel=0 

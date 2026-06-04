@@ -63,6 +63,12 @@ WORKBOOK_SPECS = (
         sheets=(SheetSpec("千百度"),),
     ),
     WorkbookSpec(
+        workbook_key="cbanner_mens_24",
+        file_prefix="24千百度男鞋商品资料档案",
+        brand_group="cbanner_mens",
+        sheets=(SheetSpec("Sheet1"),),
+    ),
+    WorkbookSpec(
         workbook_key="cbanner_mens_25",
         file_prefix="25千百度男鞋商品资料档案新",
         brand_group="cbanner_mens",

@@ -8,6 +8,7 @@ from api.schemas import BatchDeleteRequest, BrandKey, ProductWriteRequest
 
 from sqlalchemy import distinct as sa_distinct, select as sa_select
 
+from domain.excluded_skus import is_excluded_sku
 from domain.schema import PRODUCT_TABLES
 
 ALL_BRAND_KEYS = ["cbanner_mens", "cbanner_womens", "yandou", "eblan"]
@@ -100,6 +101,8 @@ def get_product(request: Request, brand: BrandKey, product_id: int):
 @router.post("/products")
 def create_product(request: Request, body: ProductWriteRequest):
     record = build_admin_record(body.brand, body.payload.model_dump(exclude_none=False))
+    if is_excluded_sku(record.get("sku"), record.get("original_sku")):
+        raise HTTPException(status_code=400, detail="该货号已在永久排除清单中")
     item = request.app.state.repository.create_product(body.brand, record)
     clear_fine_table_cache()
     return {"item": {**item, "brand": body.brand}, "message": "Product created"}
@@ -123,6 +126,8 @@ def update_product(request: Request, brand: BrandKey, product_id: int, body: Pro
             "source_row_number": existing["source_row_number"],
         },
     )
+    if is_excluded_sku(record.get("sku"), record.get("original_sku")):
+        raise HTTPException(status_code=400, detail="该货号已在永久排除清单中")
     item = request.app.state.repository.update_product(brand, product_id, record)
     if item is None:
         # Re-check after the pre-read in case the row was deleted concurrently.

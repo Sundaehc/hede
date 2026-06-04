@@ -133,3 +133,25 @@ using a closure in a dumps/loads function may cause a resource leak
 [eblan] scanned=198 matched=0 updated=0 missing=198
 图片刷新完成：扫描 4651 条，更新 0 条
 [2026/06/01 周一 23:01:06.92] end refresh_product_images errorlevel=0 
+[2026/06/02 周二 23:00:01.29] start refresh_product_images 
+using a closure in a dumps/loads function may cause a resource leak
+using a closure in a dumps/loads function may cause a resource leak
+using a closure in a dumps/loads function may cause a resource leak
+using a closure in a dumps/loads function may cause a resource leak
+[cbanner_mens] scanned=65 matched=0 updated=0 missing=65
+[cbanner_womens] scanned=2069 matched=0 updated=0 missing=2069
+[yandou] scanned=2319 matched=0 updated=0 missing=2319
+[eblan] scanned=198 matched=0 updated=0 missing=198
+图片刷新完成：扫描 4651 条，更新 0 条
+[2026/06/02 周二 23:01:08.56] end refresh_product_images errorlevel=0 
+[2026/06/03 周三 23:00:01.30] start refresh_product_images 
+using a closure in a dumps/loads function may cause a resource leak
+using a closure in a dumps/loads function may cause a resource leak
+using a closure in a dumps/loads function may cause a resource leak
+using a closure in a dumps/loads function may cause a resource leak
+[cbanner_mens] scanned=301 matched=0 updated=0 missing=301
+[cbanner_womens] scanned=2091 matched=0 updated=0 missing=2091
+[yandou] scanned=25750 matched=0 updated=0 missing=25750
+[eblan] scanned=182 matched=0 updated=0 missing=182
+图片刷新完成：扫描 28324 条，更新 0 条
+[2026/06/03 周三 23:01:07.08] end refresh_product_images errorlevel=0 

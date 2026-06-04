@@ -7,6 +7,7 @@ from sqlalchemy import create_engine, delete, func, insert
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from domain.schema import METADATA, PRODUCT_TABLES
+from domain import fine_table_snapshot_schema  # noqa: F401 - register fine table snapshot tables on METADATA
 from domain.inventory_schema import INVENTORY_TABLE, INVENTORY_DETAIL_TABLE, JST_STOCK_TABLE, SUPPLIER_TABLE, WAREHOUSE_TABLE  # noqa: F401 - register on METADATA
 from domain import vip_schema  # noqa: F401 - register VIP/JST analytics tables on METADATA
 from domain import gj_schema  # noqa: F401 - register GJ export tables on METADATA

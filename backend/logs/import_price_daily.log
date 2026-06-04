@@ -61,3 +61,17 @@ using a closure in a dumps/loads function may cause a resource leak
 using a closure in a dumps/loads function may cause a resource leak
 [SKIP] 物价目录不存在: \\192.168.10.58\超级共享\影刀技术开发部共享\管家婆数据导出\2026-06-02
 [2026/06/02 周二  8:00:02.73] end import_price_daily errorlevel=0 
+[2026/06/03 周三  8:00:01.53] start import_price_daily 
+using a closure in a dumps/loads function may cause a resource leak
+using a closure in a dumps/loads function may cause a resource leak
+using a closure in a dumps/loads function may cause a resource leak
+using a closure in a dumps/loads function may cause a resource leak
+[PRICE] 2026-06-03 导入完成, 共 76292 条
+[2026/06/03 周三  8:00:09.83] end import_price_daily errorlevel=0 
+[2026/06/04 周四  8:00:01.58] start import_price_daily 
+using a closure in a dumps/loads function may cause a resource leak
+using a closure in a dumps/loads function may cause a resource leak
+using a closure in a dumps/loads function may cause a resource leak
+using a closure in a dumps/loads function may cause a resource leak
+[SKIP] 物价目录不存在: \\192.168.10.58\超级共享\影刀技术开发部共享\管家婆数据导出\2026-06-04
+[2026/06/04 周四  8:00:02.62] end import_price_daily errorlevel=0 

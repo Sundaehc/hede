@@ -9,6 +9,7 @@ from openpyxl import Workbook, load_workbook
 
 from api.fine_table_cache import clear_fine_table_cache
 from api.routes.images import image_url_for
+from domain.excluded_skus import is_excluded_sku
 from domain.sources import CANONICAL_COLUMNS, COLUMN_ALIASES, TABLE_NAMES
 from transform.rows import build_admin_record, normalize_admin_field
 
@@ -174,6 +175,9 @@ async def import_products(
 
         if payload.get("original_sku") and not payload.get("sku"):
             payload["sku"] = payload["original_sku"]
+
+        if is_excluded_sku(payload.get("sku"), payload.get("original_sku")):
+            continue
 
         if extra_fields:
             payload["extra_fields"] = extra_fields

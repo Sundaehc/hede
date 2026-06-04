@@ -6,6 +6,7 @@ from typing import Callable
 
 from sqlalchemy import and_, create_engine, delete, desc, func, insert, literal, or_, select, union_all, update
 
+from domain.excluded_skus import not_excluded_sku_condition
 from domain.schema import PRODUCT_TABLES
 
 
@@ -34,7 +35,7 @@ class ProductRepository:
         count_statement = select(func.count()).select_from(table)
         items_statement = select(table)
 
-        conditions = []
+        conditions = [not_excluded_sku_condition(table.c.sku, table.c.original_sku)]
         if query:
             terms = [t.strip() for t in query.replace("\n", ",").split(",") if t.strip()]
             query_conditions = []
@@ -83,6 +84,7 @@ class ProductRepository:
                 literal(brand_key).label("brand"),
                 *([c for c in table.columns if c.key not in ("id",)]),
             )
+            sq = sq.where(not_excluded_sku_condition(table.c.sku, table.c.original_sku))
             if query:
                 terms = [t.strip() for t in query.replace("\n", ",").split(",") if t.strip()]
                 conditions = []
@@ -110,7 +112,11 @@ class ProductRepository:
 
     def get_product(self, brand: str, product_id: int) -> dict[str, object] | None:
         table = PRODUCT_TABLES[brand]
-        statement = select(table).where(table.c.id == product_id)
+        statement = (
+            select(table)
+            .where(table.c.id == product_id)
+            .where(not_excluded_sku_condition(table.c.sku, table.c.original_sku))
+        )
         with self.engine.connect() as connection:
             row = connection.execute(statement).mappings().first()
         return None if row is None else dict(row)
@@ -119,20 +125,33 @@ class ProductRepository:
         if not ids:
             return []
         table = PRODUCT_TABLES[brand]
-        statement = select(table).where(table.c.id.in_(ids)).order_by(desc(table.c.id))
+        statement = (
+            select(table)
+            .where(table.c.id.in_(ids))
+            .where(not_excluded_sku_condition(table.c.sku, table.c.original_sku))
+            .order_by(desc(table.c.id))
+        )
         with self.engine.connect() as connection:
             return [dict(row) for row in connection.execute(statement).mappings()]
 
     def find_by_sku(self, brand: str, sku: object) -> dict[str, object] | None:
         table = PRODUCT_TABLES[brand]
-        statement = select(table).where(table.c.sku == str(sku))
+        statement = (
+            select(table)
+            .where(table.c.sku == str(sku))
+            .where(not_excluded_sku_condition(table.c.sku, table.c.original_sku))
+        )
         with self.engine.connect() as connection:
             row = connection.execute(statement).mappings().first()
         return None if row is None else dict(row)
 
     def find_by_original_sku(self, brand: str, original_sku: object) -> dict[str, object] | None:
         table = PRODUCT_TABLES[brand]
-        statement = select(table).where(table.c.original_sku == str(original_sku))
+        statement = (
+            select(table)
+            .where(table.c.original_sku == str(original_sku))
+            .where(not_excluded_sku_condition(table.c.sku, table.c.original_sku))
+        )
         with self.engine.connect() as connection:
             row = connection.execute(statement).mappings().first()
         return None if row is None else dict(row)

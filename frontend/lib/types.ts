@@ -135,6 +135,38 @@ export type FineTableResponse = {
   latest_order_date: string | null
 }
 
+export type FineTableSnapshotBatch = {
+  id: number
+  brand: Exclude<BrandKey, "all">
+  snapshot_date: string
+  total_rows: number
+  latest_order_date: string | null
+  created_at: string | null
+  updated_at: string | null
+}
+
+export type FineTableSnapshotListResponse = {
+  items: FineTableSnapshotBatch[]
+  total: number
+  page: number
+  page_size: number
+}
+
+export type FineTableSnapshotResponse = {
+  items: FineTableItem[]
+  total: number
+  page: number
+  page_size: number
+  snapshot: FineTableSnapshotBatch
+}
+
+export type FineTableSnapshotCreateResult = {
+  item: FineTableSnapshotBatch
+  rows: number
+  replaced: boolean
+  message: string
+}
+
 export type ImageLookupResult = {
   found: boolean
   image_path: string | null

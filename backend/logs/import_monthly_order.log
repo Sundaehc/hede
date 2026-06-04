@@ -79,3 +79,19 @@ D:\python\Lib\site-packages\openpyxl\styles\stylesheet.py:237: UserWarning: Work
   warn("Workbook contains no default style, apply openpyxl's default")
 [JST月订单] 06.02 导入完成, 共 618495 条
 [2026/06/02 周二  8:23:42.12] end import_monthly_order errorlevel=0 
+[2026/06/03 周三  8:20:02.01] start import_monthly_order 
+using a closure in a dumps/loads function may cause a resource leak
+using a closure in a dumps/loads function may cause a resource leak
+using a closure in a dumps/loads function may cause a resource leak
+using a closure in a dumps/loads function may cause a resource leak
+[SKIP] 月聚水潭文件不存在: \\192.168.10.58\超级共享\影刀技术开发部共享\聚水潭\其他平台\06.03\月聚水潭.xlsx
+[2026/06/03 周三  8:20:02.85] end import_monthly_order errorlevel=0 
+[2026/06/04 周四  8:20:02.06] start import_monthly_order 
+using a closure in a dumps/loads function may cause a resource leak
+using a closure in a dumps/loads function may cause a resource leak
+using a closure in a dumps/loads function may cause a resource leak
+using a closure in a dumps/loads function may cause a resource leak
+D:\python\Lib\site-packages\openpyxl\styles\stylesheet.py:237: UserWarning: Workbook contains no default style, apply openpyxl's default
+  warn("Workbook contains no default style, apply openpyxl's default")
+[JST月订单] 06.04 导入完成, 共 637945 条
+[2026/06/04 周四  8:23:48.45] end import_monthly_order errorlevel=0 

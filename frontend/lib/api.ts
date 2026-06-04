@@ -7,6 +7,8 @@ import type {
   ProductImageRefreshStatus,
   RefreshProductImagesResult,
   FineTableResponse,
+  FineTableSnapshotListResponse,
+  FineTableSnapshotResponse,
 } from "@/lib/types"
 
 const API_PREFIX = "/api"
@@ -77,6 +79,50 @@ export function listFineTable(params: {
   })
   if (params.query) search.set("query", params.query)
   return request<FineTableResponse>(`/fine-table?${search.toString()}`)
+}
+
+export function listFineTableSnapshots(params: {
+  brand: Exclude<BrandKey, "all">
+  page: number
+  pageSize: number
+}) {
+  const search = new URLSearchParams({
+    brand: params.brand,
+    page: String(params.page),
+    page_size: String(params.pageSize),
+  })
+  return request<FineTableSnapshotListResponse>(`/fine-table/snapshots?${search.toString()}`)
+}
+
+export function getFineTableSnapshot(params: {
+  id: number
+  query?: string
+  page: number
+  pageSize: number
+}) {
+  const search = new URLSearchParams({
+    page: String(params.page),
+    page_size: String(params.pageSize),
+  })
+  if (params.query) search.set("query", params.query)
+  return request<FineTableSnapshotResponse>(`/fine-table/snapshots/${params.id}?${search.toString()}`)
+}
+
+export function getFineTableSnapshotByDate(params: {
+  brand: Exclude<BrandKey, "all">
+  snapshotDate: string
+  query?: string
+  page: number
+  pageSize: number
+}) {
+  const search = new URLSearchParams({
+    brand: params.brand,
+    snapshot_date: params.snapshotDate,
+    page: String(params.page),
+    page_size: String(params.pageSize),
+  })
+  if (params.query) search.set("query", params.query)
+  return request<FineTableSnapshotResponse>(`/fine-table/snapshots/by-date?${search.toString()}`)
 }
 
 export function getProduct(brand: BrandKey, id: number) {

@@ -10,6 +10,7 @@ from openpyxl import load_workbook
 from sqlalchemy import create_engine, text
 
 from config import load_settings
+from domain.excluded_skus import is_excluded_sku
 from domain.fields import GJ_MERGED_PRODUCT_INFO_FIELDS, alias_map
 from domain.gj_schema import GJ_MERGED_PRODUCT_INFO_TABLE
 from storage.date_normalization import parse_date
@@ -32,6 +33,14 @@ def _to_int(value: object) -> int | None:
         return int(float(str(normalized).replace(",", "")))
     except (TypeError, ValueError):
         return None
+
+
+def _to_date_text(value: object) -> str | None:
+    parsed = parse_date(value)
+    if parsed is not None:
+        return parsed.isoformat()
+    normalized = normalize_cell(value)
+    return str(normalized).strip() if normalized is not None else None
 
 
 def _source_file(source_dir: Path) -> Path:
@@ -85,12 +94,19 @@ def _read_rows(file_path: Path, source_date: str) -> list[dict[str, Any]]:
                 if value is not None:
                     extra_fields[header] = value
                 continue
-            record[target] = _to_int(value) if target == "row_no" else normalize_cell(value)
+            if target == "row_no":
+                record[target] = _to_int(value)
+            elif target == "launch_date":
+                record[target] = _to_date_text(value)
+            else:
+                record[target] = normalize_cell(value)
 
         goods_code = str(record.get("goods_code") or "").strip()
         if not goods_code:
             continue
         record["goods_code"] = goods_code
+        if is_excluded_sku(goods_code, record.get("original_goods_code")):
+            continue
         record["extra_fields"] = extra_fields or None
         rows.append(record)
 

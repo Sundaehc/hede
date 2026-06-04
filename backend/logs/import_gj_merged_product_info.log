@@ -28,3 +28,21 @@ Traceback (most recent call last):
     raise FileNotFoundError(f"未找到 {SOURCE_FILE_KEYWORD}: {source_dir}")
 FileNotFoundError: 未找到 男女鞋合并商品信息: \\192.168.10.58\超级共享\影刀技术开发部共享\管家婆数据导出\2026-06-02
 [2026/06/02 周二  8:00:02.60] end import_gj_merged_product_info_daily errorlevel=1 
+[2026/06/03 周三  8:00:01.63] start import_gj_merged_product_info_daily 
+{'source_dir': '\\\\192.168.10.58\\超级共享\\影刀技术开发部共享\\管家婆数据导出\\2026-06-03', 'source_file': '男女鞋合并商品信息.xlsx', 'source_date': '2026-06-03', 'read_rows': 76897, 'imported': 76331}
+[2026/06/03 周三  8:00:13.39] end import_gj_merged_product_info_daily errorlevel=0 
+[2026/06/04 周四  8:00:01.66] start import_gj_merged_product_info_daily 
+Traceback (most recent call last):
+  File "<frozen runpy>", line 198, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+  File "E:\hede\backend\scripts\import_gj_merged_product_info.py", line 143, in <module>
+    main()
+    ~~~~^^
+  File "E:\hede\backend\scripts\import_gj_merged_product_info.py", line 138, in main
+    result = import_gj_merged_product_info(settings.database_url, source_dir)
+  File "E:\hede\backend\scripts\import_gj_merged_product_info.py", line 102, in import_gj_merged_product_info
+    file_path = _source_file(source_dir)
+  File "E:\hede\backend\scripts\import_gj_merged_product_info.py", line 46, in _source_file
+    raise FileNotFoundError(f"未找到 {SOURCE_FILE_KEYWORD}: {source_dir}")
+FileNotFoundError: 未找到 男女鞋合并商品信息: \\192.168.10.58\超级共享\影刀技术开发部共享\管家婆数据导出\2026-06-04
+[2026/06/04 周四  8:00:02.42] end import_gj_merged_product_info_daily errorlevel=1 

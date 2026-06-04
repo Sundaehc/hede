@@ -12,6 +12,7 @@ import {
   ChevronsLeft,
   ChevronsRight,
   Download,
+  History,
   ImageIcon,
   Layers3,
   MoreHorizontal,
@@ -33,7 +34,7 @@ import {
 import { Input } from "@/components/ui/input"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { BRANDS, type BrandKey } from "@/lib/brands"
-import { ApiError, listFineTable } from "@/lib/api"
+import { ApiError, getFineTableSnapshotByDate, listFineTable } from "@/lib/api"
 import type { FineTableItem, ProductListItem } from "@/lib/types"
 import { cn } from "@/lib/utils"
 
@@ -67,7 +68,7 @@ const viewTabs: { value: ViewKey; label: string }[] = [
 ]
 
 const FINE_TABLE_BRANDS = BRANDS.filter((item) => item.key !== "all") as Array<{ key: FineTableBrandKey; label: string }>
-const DEFAULT_FINE_TABLE_BRAND: FineTableBrandKey = "cbanner_womens"
+const DEFAULT_FINE_TABLE_BRAND: FineTableBrandKey = "cbanner_mens"
 
 const SIZE_STOCK_LABELS = [
   "34/220",
@@ -1189,6 +1190,19 @@ const FineTableGrid = memo(function FineTableGrid({
   )
 })
 
+function formatDateInputValue(date: Date) {
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, "0")
+  const day = String(date.getDate()).padStart(2, "0")
+  return `${year}-${month}-${day}`
+}
+
+function getMaxHistoryDate() {
+  const date = new Date()
+  date.setDate(date.getDate() - 1)
+  return formatDateInputValue(date)
+}
+
 export function FineTablePage() {
   const [brand, setBrand] = useState<FineTableBrandKey>(DEFAULT_FINE_TABLE_BRAND)
   const [items, setItems] = useState<FineTableItem[]>([])
@@ -1212,7 +1226,10 @@ export function FineTablePage() {
   const [isExporting, setIsExporting] = useState(false)
   const [exportProgress, setExportProgress] = useState<{ loaded: number; total: number } | null>(null)
   const [previewImage, setPreviewImage] = useState<{ src: string; alt: string } | null>(null)
+  const [historyDate, setHistoryDate] = useState("")
+  const [snapshotLabel, setSnapshotLabel] = useState<string | null>(null)
   const loadRequestIdRef = useRef(0)
+  const maxHistoryDate = getMaxHistoryDate()
 
   useEffect(() => {
     let cancelled = false
@@ -1224,21 +1241,36 @@ export function FineTablePage() {
       setIsLoading(true)
       setError(null)
       try {
-        const response = await listFineTable({
-          brand,
-          page,
-          pageSize: PAGE_SIZE,
-          query: query || undefined,
-        })
+        const response = historyDate
+          ? await getFineTableSnapshotByDate({
+            brand,
+            snapshotDate: historyDate,
+            page,
+            pageSize: PAGE_SIZE,
+            query: query || undefined,
+          })
+          : await listFineTable({
+            brand,
+            page,
+            pageSize: PAGE_SIZE,
+            query: query || undefined,
+          })
         if (!isCurrentRequest()) return
         setItems(response.items)
         setTotal(response.total)
-        setLatestOrderDate(response.latest_order_date)
+        if ("snapshot" in response) {
+          setLatestOrderDate(response.snapshot.latest_order_date)
+          setSnapshotLabel(response.snapshot.snapshot_date)
+        } else {
+          setLatestOrderDate(response.latest_order_date)
+          setSnapshotLabel(null)
+        }
       } catch (loadError) {
         if (!isCurrentRequest()) return
         setItems([])
         setTotal(0)
         setLatestOrderDate(null)
+        setSnapshotLabel(historyDate || null)
         setError(getErrorMessage(loadError))
       } finally {
         if (isCurrentRequest()) setIsLoading(false)
@@ -1248,7 +1280,7 @@ export function FineTablePage() {
     return () => {
       cancelled = true
     }
-  }, [brand, page, query, reloadToken])
+  }, [brand, historyDate, page, query, reloadToken])
 
   const deferredView = useDeferredValue(view)
   const filteredRows = useMemo(() => {
@@ -1369,18 +1401,31 @@ export function FineTablePage() {
     setIsLoading(true)
     setSelectedRow(null)
     setPreviewImage(null)
+    setHistoryDate("")
+    setSnapshotLabel(null)
   }
 
   async function handleExport() {
     setIsExporting(true)
     setExportProgress({ loaded: 0, total })
     try {
-      const firstResponse = await listFineTable({
-        brand,
-        page: 1,
-        pageSize: EXPORT_PAGE_SIZE,
-        query: query || undefined,
-      })
+      const loadExportPage = (pageToLoad: number) => (
+        historyDate
+          ? getFineTableSnapshotByDate({
+            brand,
+            snapshotDate: historyDate,
+            page: pageToLoad,
+            pageSize: EXPORT_PAGE_SIZE,
+            query: query || undefined,
+          })
+          : listFineTable({
+            brand,
+            page: pageToLoad,
+            pageSize: EXPORT_PAGE_SIZE,
+            query: query || undefined,
+          })
+      )
+      const firstResponse = await loadExportPage(1)
       const expectedTotal = firstResponse.total
       const pageCount = Math.max(1, Math.ceil(expectedTotal / EXPORT_PAGE_SIZE))
       const rowsByPage = new Map<number, FineTableItem[]>([[1, firstResponse.items]])
@@ -1394,12 +1439,7 @@ export function FineTablePage() {
         while (nextPageIndex < remainingPages.length) {
           const pageToLoad = remainingPages[nextPageIndex]
           nextPageIndex += 1
-          const response = await listFineTable({
-            brand,
-            page: pageToLoad,
-            pageSize: EXPORT_PAGE_SIZE,
-            query: query || undefined,
-          })
+          const response = await loadExportPage(pageToLoad)
           rowsByPage.set(pageToLoad, response.items)
           loadedCount += response.items.length
           setExportProgress({ loaded: loadedCount, total: expectedTotal })
@@ -1438,6 +1478,9 @@ export function FineTablePage() {
               <p className="page-subtitle">
                 {currentBrandLabel}{latestOrderDate ? ` · 订单截止 ${latestOrderDate}` : ""}
               </p>
+              {snapshotLabel && (
+                <p className="mt-1 text-xs text-muted-foreground">历史快照 {snapshotLabel}</p>
+              )}
               <Tabs
                 value={brand}
                 defaultValue={DEFAULT_FINE_TABLE_BRAND}
@@ -1464,7 +1507,52 @@ export function FineTablePage() {
                 <span className="inline-flex h-7 items-center rounded-full border border-border bg-muted/40 px-3">视图 {columnMode === "default" ? "运营" : columnMode === "full" ? "完整" : "自定义"}</span>
               </div>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
+              <label className="inline-flex h-9 items-center gap-2 rounded-md border border-border bg-background px-3 text-sm">
+                <History className="h-4 w-4 text-muted-foreground" />
+                <span className="text-muted-foreground">历史日期</span>
+                <input
+                  type="date"
+                  value={historyDate}
+                  max={maxHistoryDate}
+                  onChange={(event) => {
+                    const nextDate = event.target.value
+                    if (nextDate && nextDate > maxHistoryDate) {
+                      setHistoryDate("")
+                      setSnapshotLabel(null)
+                      setPage(1)
+                      setItems([])
+                      setTotal(0)
+                      setError("历史日期只能选择今天以前")
+                      return
+                    }
+                    setHistoryDate(nextDate)
+                    setPage(1)
+                    setItems([])
+                    setTotal(0)
+                    setError(null)
+                  }}
+                  className="h-7 bg-transparent text-sm outline-none"
+                  aria-label="选择历史快照日期"
+                />
+              </label>
+              {historyDate && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    setHistoryDate("")
+                    setSnapshotLabel(null)
+                    setPage(1)
+                    setItems([])
+                    setTotal(0)
+                    setError(null)
+                  }}
+                >
+                  返回当前
+                </Button>
+              )}
               <Button variant="outline" size="sm" onClick={() => setReloadToken((current) => current + 1)}>
                 <RefreshCw className="h-4 w-4" />
                 刷新

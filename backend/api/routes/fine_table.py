@@ -2,14 +2,19 @@ from __future__ import annotations
 
 from datetime import date, datetime, time, timedelta
 from decimal import Decimal
+from math import ceil
 from typing import Any
 
-from fastapi import APIRouter, Query, Request
-from sqlalchemy import and_, desc, func, or_, select
+from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi.encoders import jsonable_encoder
+from sqlalchemy import and_, delete, desc, func, insert, or_, select, update
 
 from api.fine_table_cache import get_fine_table_cache, set_fine_table_cache
 from api.routes.images import image_url_for
 from api.schemas import BrandKey
+from domain.excluded_skus import is_excluded_sku, not_excluded_sku_condition
+from domain.fields import PRODUCT_FIELDS
+from domain.fine_table_snapshot_schema import FINE_TABLE_SNAPSHOT_BATCH_TABLE, FINE_TABLE_SNAPSHOT_ROW_TABLE
 from domain.gj_schema import GJ_MERGED_PRODUCT_INFO_TABLE
 from domain.schema import PRODUCT_TABLES
 from domain.vip_schema import (
@@ -26,7 +31,7 @@ from domain.vip_schema import (
 
 router = APIRouter()
 
-DEFAULT_BRAND: BrandKey = "cbanner_womens"
+DEFAULT_BRAND: BrandKey = "cbanner_mens"
 SIZE_LABELS = {
     "220": "34/220",
     "225": "35/225",
@@ -46,6 +51,48 @@ SIZE_LABELS = {
 
 EXCLUDED_OTHER_PLATFORM_ORDER_STATUSES = {"取消", "异常", "被拆分", "已付款待审核"}
 DAILY_SALES_DAYS = 5
+SNAPSHOT_PAGE_SIZE = 200
+
+
+def _ensure_snapshot_tables(engine) -> None:
+    FINE_TABLE_SNAPSHOT_BATCH_TABLE.create(engine, checkfirst=True)
+    FINE_TABLE_SNAPSHOT_ROW_TABLE.create(engine, checkfirst=True)
+
+
+def _snapshot_batch_payload(row: dict[str, Any]) -> dict[str, Any]:
+    snapshot_date = row.get("snapshot_date")
+    latest_order_date = row.get("latest_order_date")
+    created_at = row.get("created_at")
+    updated_at = row.get("updated_at")
+    return {
+        "id": row.get("id"),
+        "brand": row.get("brand"),
+        "snapshot_date": snapshot_date.isoformat() if isinstance(snapshot_date, date) else snapshot_date,
+        "total_rows": row.get("total_rows") or 0,
+        "latest_order_date": latest_order_date.isoformat() if isinstance(latest_order_date, date) else latest_order_date,
+        "created_at": created_at.isoformat() if isinstance(created_at, datetime) else created_at,
+        "updated_at": updated_at.isoformat() if isinstance(updated_at, datetime) else updated_at,
+    }
+
+
+def _json_payload(value: Any) -> Any:
+    encoded = jsonable_encoder(value)
+    if isinstance(encoded, dict):
+        return {str(key): _json_payload(item) for key, item in encoded.items()}
+    if isinstance(encoded, list):
+        return [_json_payload(item) for item in encoded]
+    return encoded
+
+
+def _parse_iso_date(value: Any) -> date | None:
+    if isinstance(value, date):
+        return value
+    if not value:
+        return None
+    try:
+        return date.fromisoformat(str(value))
+    except ValueError:
+        return None
 
 
 def _to_float(value: Any) -> float | None:
@@ -158,6 +205,300 @@ def _empty_order_bucket() -> dict[str, Any]:
     }
 
 
+def _normalized_terms(query: str | None) -> list[str]:
+    return [
+        term.strip()
+        for term in (query or "").replace("\n", ",").split(",")
+        if term.strip()
+    ]
+
+
+def _gj_product_row(row: dict[str, Any], brand: BrandKey) -> dict[str, Any]:
+    raw_payload = row.get("raw_payload")
+    goods_code = str(row.get("goods_code") or "").strip()
+    original_goods_code = str(row.get("original_goods_code") or "").strip() or goods_code
+    product = {
+        "id": -int(row["id"]),
+        "source_workbook": row.get("source_workbook") or "",
+        "source_sheet": row.get("source_sheet") or "",
+        "source_row_number": row.get("source_row_number") or "",
+        "raw_payload": raw_payload if isinstance(raw_payload, dict) else {},
+        "image_path": None,
+        "sku": goods_code,
+        "original_sku": original_goods_code,
+        "group_name": None,
+        "cost": None,
+        "factory_sku": row.get("factory_code"),
+        "color": None,
+        "season_category": None,
+        "year": None,
+        "upper_material": row.get("upper_material"),
+        "lining_material": row.get("lining_material"),
+        "outsole_material": row.get("outsole_material"),
+        "insole_material": row.get("insole_material"),
+        "execution_standard": row.get("execution_standard"),
+        "heel_height": None,
+        "shoe_width": None,
+        "shoe_length": None,
+        "shaft_circumference": None,
+        "shaft_height": None,
+        "internal_height_increase": None,
+        "internal_height_note": None,
+        "upper_height": None,
+        "toe_shape": None,
+        "closure_type": None,
+        "shoe_box_spec": row.get("shoe_box_spec"),
+        "first_order_time": None,
+        "size_range": None,
+        "product_model": row.get("product_name"),
+        "supplier_name": row.get("primary_supplier"),
+        "color_code": None,
+        "launch_date": row.get("launch_date"),
+        "extra_fields": row.get("extra_fields"),
+        "brand": brand,
+    }
+    for field in PRODUCT_FIELDS:
+        product.setdefault(field.name, None)
+    return product
+
+
+def _merge_gj_product_row(gj_row: dict[str, Any], archive_row: dict[str, Any] | None, brand: BrandKey) -> dict[str, Any]:
+    product = _gj_product_row(gj_row, brand)
+    if archive_row is None:
+        return product
+
+    for field in PRODUCT_FIELDS:
+        if field.name in {"sku", "original_sku"}:
+            continue
+        if product.get(field.name) in (None, ""):
+            product[field.name] = archive_row.get(field.name)
+    return product
+
+
+def _gj_cbanner_brand_condition(brand: BrandKey):
+    supplier = func.coalesce(GJ_MERGED_PRODUCT_INFO_TABLE.c.primary_supplier, "")
+    is_cbanner_womens = or_(
+        supplier.ilike("%（%千百度女鞋%）%"),
+        supplier.ilike("%(%千百度女鞋%)%"),
+    )
+    is_cbanner_brand_owner = supplier.ilike("%千百度品牌方%")
+    if brand == "cbanner_womens":
+        return and_(is_cbanner_womens, ~is_cbanner_brand_owner)
+    if brand == "cbanner_mens":
+        return and_(supplier.ilike("%千百度%"), ~is_cbanner_womens, ~is_cbanner_brand_owner)
+    return None
+
+
+@router.post("/fine-table/snapshots")
+def create_fine_table_snapshot(
+    request: Request,
+    brand: BrandKey = Query(DEFAULT_BRAND),
+    snapshot_date: date | None = None,
+):
+    repository = request.app.state.repository
+    _ensure_snapshot_tables(repository.engine)
+    resolved_snapshot_date = snapshot_date or date.today()
+
+    first_payload = list_fine_table(
+        request,
+        brand=brand,
+        query=None,
+        season=None,
+        page=1,
+        page_size=SNAPSHOT_PAGE_SIZE,
+    )
+    total = int(first_payload.get("total") or 0)
+    latest_order_date = _parse_iso_date(first_payload.get("latest_order_date"))
+    items = list(first_payload.get("items") or [])
+    total_pages = ceil(total / SNAPSHOT_PAGE_SIZE) if total else 1
+
+    for page_number in range(2, total_pages + 1):
+        page_payload = list_fine_table(
+            request,
+            brand=brand,
+            query=None,
+            season=None,
+            page=page_number,
+            page_size=SNAPSHOT_PAGE_SIZE,
+        )
+        items.extend(page_payload.get("items") or [])
+
+    row_payloads = [
+        {
+            "sku": str(item.get("sku") or "").strip() or None,
+            "original_sku": str(item.get("original_sku") or "").strip() or None,
+            "row_index": index,
+            "payload": _json_payload(item),
+        }
+        for index, item in enumerate(items, start=1)
+    ]
+
+    with repository.engine.begin() as connection:
+        existing = connection.execute(
+            select(FINE_TABLE_SNAPSHOT_BATCH_TABLE)
+            .where(FINE_TABLE_SNAPSHOT_BATCH_TABLE.c.brand == brand)
+            .where(FINE_TABLE_SNAPSHOT_BATCH_TABLE.c.snapshot_date == resolved_snapshot_date)
+        ).mappings().first()
+
+        replaced = existing is not None
+        if existing is None:
+            batch = connection.execute(
+                insert(FINE_TABLE_SNAPSHOT_BATCH_TABLE)
+                .values(
+                    brand=brand,
+                    snapshot_date=resolved_snapshot_date,
+                    total_rows=len(row_payloads),
+                    latest_order_date=latest_order_date,
+                )
+                .returning(FINE_TABLE_SNAPSHOT_BATCH_TABLE)
+            ).mappings().one()
+            batch_id = batch["id"]
+        else:
+            batch_id = existing["id"]
+            connection.execute(
+                delete(FINE_TABLE_SNAPSHOT_ROW_TABLE)
+                .where(FINE_TABLE_SNAPSHOT_ROW_TABLE.c.batch_id == batch_id)
+            )
+            batch = connection.execute(
+                update(FINE_TABLE_SNAPSHOT_BATCH_TABLE)
+                .where(FINE_TABLE_SNAPSHOT_BATCH_TABLE.c.id == batch_id)
+                .values(
+                    total_rows=len(row_payloads),
+                    latest_order_date=latest_order_date,
+                    updated_at=func.date_trunc("minute", func.now()),
+                )
+                .returning(FINE_TABLE_SNAPSHOT_BATCH_TABLE)
+            ).mappings().one()
+
+        for start in range(0, len(row_payloads), 1000):
+            chunk = [{**row, "batch_id": batch_id} for row in row_payloads[start:start + 1000]]
+            if chunk:
+                connection.execute(insert(FINE_TABLE_SNAPSHOT_ROW_TABLE), chunk)
+
+    return {
+        "item": _snapshot_batch_payload(dict(batch)),
+        "rows": len(row_payloads),
+        "replaced": replaced,
+        "message": "快照已更新" if replaced else "快照已生成",
+    }
+
+
+@router.get("/fine-table/snapshots")
+def list_fine_table_snapshots(
+    request: Request,
+    brand: BrandKey = Query(DEFAULT_BRAND),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+):
+    repository = request.app.state.repository
+    _ensure_snapshot_tables(repository.engine)
+    conditions = [FINE_TABLE_SNAPSHOT_BATCH_TABLE.c.brand == brand]
+    count_stmt = select(func.count()).select_from(FINE_TABLE_SNAPSHOT_BATCH_TABLE).where(and_(*conditions))
+    items_stmt = (
+        select(FINE_TABLE_SNAPSHOT_BATCH_TABLE)
+        .where(and_(*conditions))
+        .order_by(desc(FINE_TABLE_SNAPSHOT_BATCH_TABLE.c.snapshot_date), desc(FINE_TABLE_SNAPSHOT_BATCH_TABLE.c.id))
+        .offset((page - 1) * page_size)
+        .limit(page_size)
+    )
+
+    with repository.engine.connect() as connection:
+        total = connection.execute(count_stmt).scalar_one()
+        items = [_snapshot_batch_payload(dict(row)) for row in connection.execute(items_stmt).mappings()]
+
+    return {"items": items, "total": total, "page": page, "page_size": page_size}
+
+
+@router.get("/fine-table/snapshots/by-date")
+def get_fine_table_snapshot_by_date(
+    request: Request,
+    brand: BrandKey = Query(DEFAULT_BRAND),
+    snapshot_date: date = Query(...),
+    query: str | None = None,
+    page: int = Query(1, ge=1),
+    page_size: int = Query(80, ge=1, le=200),
+):
+    repository = request.app.state.repository
+    _ensure_snapshot_tables(repository.engine)
+    with repository.engine.connect() as connection:
+        batch = connection.execute(
+            select(FINE_TABLE_SNAPSHOT_BATCH_TABLE)
+            .where(FINE_TABLE_SNAPSHOT_BATCH_TABLE.c.brand == brand)
+            .where(FINE_TABLE_SNAPSHOT_BATCH_TABLE.c.snapshot_date == snapshot_date)
+        ).mappings().first()
+    if batch is None:
+        raise HTTPException(status_code=404, detail="Snapshot not found")
+
+    return get_fine_table_snapshot(
+        request,
+        batch_id=int(batch["id"]),
+        query=query,
+        page=page,
+        page_size=page_size,
+    )
+
+
+@router.get("/fine-table/snapshots/{batch_id}")
+def get_fine_table_snapshot(
+    request: Request,
+    batch_id: int,
+    query: str | None = None,
+    page: int = Query(1, ge=1),
+    page_size: int = Query(80, ge=1, le=200),
+):
+    repository = request.app.state.repository
+    _ensure_snapshot_tables(repository.engine)
+    conditions = [FINE_TABLE_SNAPSHOT_ROW_TABLE.c.batch_id == batch_id]
+    normalized_query = ",".join(
+        term.strip()
+        for term in (query or "").replace("\n", ",").split(",")
+        if term.strip()
+    )
+    if normalized_query:
+        search_conditions = []
+        for term in normalized_query.split(","):
+            like = f"%{term}%"
+            search_conditions.extend([
+                FINE_TABLE_SNAPSHOT_ROW_TABLE.c.sku.ilike(like),
+                FINE_TABLE_SNAPSHOT_ROW_TABLE.c.original_sku.ilike(like),
+            ])
+        conditions.append(or_(*search_conditions))
+    conditions.append(
+        not_excluded_sku_condition(
+            FINE_TABLE_SNAPSHOT_ROW_TABLE.c.sku,
+            FINE_TABLE_SNAPSHOT_ROW_TABLE.c.original_sku,
+        )
+    )
+    criterion = and_(*conditions)
+    with repository.engine.connect() as connection:
+        batch = connection.execute(
+            select(FINE_TABLE_SNAPSHOT_BATCH_TABLE)
+            .where(FINE_TABLE_SNAPSHOT_BATCH_TABLE.c.id == batch_id)
+        ).mappings().first()
+        if batch is None:
+            raise HTTPException(status_code=404, detail="Snapshot not found")
+
+        total = connection.execute(
+            select(func.count()).select_from(FINE_TABLE_SNAPSHOT_ROW_TABLE).where(criterion)
+        ).scalar_one()
+        rows = connection.execute(
+            select(FINE_TABLE_SNAPSHOT_ROW_TABLE.c.payload)
+            .where(criterion)
+            .order_by(FINE_TABLE_SNAPSHOT_ROW_TABLE.c.row_index)
+            .offset((page - 1) * page_size)
+            .limit(page_size)
+        ).mappings()
+        items = [dict(row["payload"]) for row in rows]
+
+    return {
+        "items": items,
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+        "snapshot": _snapshot_batch_payload(dict(batch)),
+    }
+
+
 @router.get("/fine-table")
 def list_fine_table(
     request: Request,
@@ -170,47 +511,132 @@ def list_fine_table(
     settings = request.app.state.settings
     repository = request.app.state.repository
     product_table = PRODUCT_TABLES[brand]
-    normalized_query = ",".join(
-        term.strip()
-        for term in (query or "").replace("\n", ",").split(",")
-        if term.strip()
-    )
+    terms = _normalized_terms(query)
+    normalized_query = ",".join(terms)
     normalized_season = season if season and season != "all" else "all"
     cache_key = (brand, normalized_query, normalized_season, page, page_size)
     cached = get_fine_table_cache(cache_key)
     if cached is not None:
         return cached
 
-    conditions = []
-    if normalized_query:
-        terms = normalized_query.split(",")
-        if terms:
-            search_conditions = []
-            for term in terms:
-                like = f"%{term}%"
-                search_conditions.extend([
-                    product_table.c.sku.ilike(like),
-                    product_table.c.original_sku.ilike(like),
-                ])
-            conditions.append(or_(*search_conditions))
-    if normalized_season != "all":
-        conditions.append(product_table.c.season_category == normalized_season)
-
-    count_stmt = select(func.count()).select_from(product_table)
-    items_stmt = (
-        select(product_table)
-        .order_by(desc(product_table.c.id))
-        .offset((page - 1) * page_size)
-        .limit(page_size)
-    )
-    if conditions:
-        criterion = and_(*conditions)
-        count_stmt = count_stmt.where(criterion)
-        items_stmt = items_stmt.where(criterion)
-
     with repository.engine.connect() as conn:
-        total = conn.execute(count_stmt).scalar_one()
-        product_rows = [dict(row) for row in conn.execute(items_stmt).mappings()]
+        gj_brand_condition = _gj_cbanner_brand_condition(brand)
+        if gj_brand_condition is not None:
+            latest_gj_product_info_date = conn.execute(
+                select(func.max(GJ_MERGED_PRODUCT_INFO_TABLE.c.source_date_value))
+            ).scalar()
+            product_rows = []
+            total = 0
+            if latest_gj_product_info_date is not None:
+                gj_conditions = [
+                    GJ_MERGED_PRODUCT_INFO_TABLE.c.source_date_value == latest_gj_product_info_date,
+                    gj_brand_condition,
+                    not_excluded_sku_condition(
+                        GJ_MERGED_PRODUCT_INFO_TABLE.c.goods_code,
+                        GJ_MERGED_PRODUCT_INFO_TABLE.c.original_goods_code,
+                    ),
+                ]
+                if terms:
+                    gj_search_conditions = []
+                    for term in terms:
+                        like = f"%{term}%"
+                        gj_search_conditions.extend([
+                            GJ_MERGED_PRODUCT_INFO_TABLE.c.goods_code.ilike(like),
+                            GJ_MERGED_PRODUCT_INFO_TABLE.c.original_goods_code.ilike(like),
+                        ])
+                    gj_conditions.append(or_(*gj_search_conditions))
+                if normalized_season != "all":
+                    gj_conditions.append(
+                        select(product_table.c.id)
+                        .where(or_(
+                            product_table.c.sku == GJ_MERGED_PRODUCT_INFO_TABLE.c.goods_code,
+                            product_table.c.sku == GJ_MERGED_PRODUCT_INFO_TABLE.c.original_goods_code,
+                            product_table.c.original_sku == GJ_MERGED_PRODUCT_INFO_TABLE.c.goods_code,
+                            product_table.c.original_sku == GJ_MERGED_PRODUCT_INFO_TABLE.c.original_goods_code,
+                        ))
+                        .where(product_table.c.season_category == normalized_season)
+                        .exists()
+                    )
+                gj_criterion = and_(*gj_conditions)
+                total = conn.execute(
+                    select(func.count()).select_from(GJ_MERGED_PRODUCT_INFO_TABLE).where(gj_criterion)
+                ).scalar_one()
+                gj_rows = [
+                    dict(row)
+                    for row in conn.execute(
+                        select(GJ_MERGED_PRODUCT_INFO_TABLE)
+                        .where(gj_criterion)
+                        .order_by(desc(GJ_MERGED_PRODUCT_INFO_TABLE.c.id))
+                        .offset((page - 1) * page_size)
+                        .limit(page_size)
+                    ).mappings()
+                ]
+                gj_match_codes = {
+                    code
+                    for row in gj_rows
+                    for code in (
+                        str(row.get("goods_code") or "").strip(),
+                        str(row.get("original_goods_code") or "").strip(),
+                    )
+                    if code
+                }
+                products_by_sku: dict[str, dict[str, Any]] = {}
+                products_by_original_sku: dict[str, dict[str, Any]] = {}
+                if gj_match_codes:
+                    for row in conn.execute(
+                        select(product_table)
+                        .where(or_(
+                            product_table.c.sku.in_(gj_match_codes),
+                            product_table.c.original_sku.in_(gj_match_codes),
+                        ))
+                        .order_by(desc(product_table.c.id))
+                    ).mappings():
+                        sku = str(row.get("sku") or "").strip()
+                        original_sku = str(row.get("original_sku") or "").strip()
+                        if sku:
+                            products_by_sku.setdefault(sku, dict(row))
+                        if original_sku:
+                            products_by_original_sku.setdefault(original_sku, dict(row))
+                for gj_row in gj_rows:
+                    sku = str(gj_row.get("goods_code") or "").strip()
+                    original_sku = str(gj_row.get("original_goods_code") or "").strip()
+                    if is_excluded_sku(sku, original_sku):
+                        continue
+                    archive_row = (
+                        products_by_sku.get(sku)
+                        or products_by_original_sku.get(sku)
+                        or products_by_sku.get(original_sku)
+                        or products_by_original_sku.get(original_sku)
+                    )
+                    product_rows.append(_merge_gj_product_row(gj_row, archive_row, brand))
+        else:
+            conditions = [not_excluded_sku_condition(product_table.c.sku, product_table.c.original_sku)]
+            if terms:
+                search_conditions = []
+                for term in terms:
+                    like = f"%{term}%"
+                    search_conditions.extend([
+                        product_table.c.sku.ilike(like),
+                        product_table.c.original_sku.ilike(like),
+                    ])
+                conditions.append(or_(*search_conditions))
+            if normalized_season != "all":
+                conditions.append(product_table.c.season_category == normalized_season)
+
+            count_stmt = select(func.count()).select_from(product_table)
+            items_base_stmt = select(product_table).order_by(desc(product_table.c.id))
+            if conditions:
+                criterion = and_(*conditions)
+                count_stmt = count_stmt.where(criterion)
+                items_base_stmt = items_base_stmt.where(criterion)
+
+            total = conn.execute(count_stmt).scalar_one()
+            product_rows = [
+                dict(row)
+                for row in conn.execute(
+                    items_base_stmt.offset((page - 1) * page_size).limit(page_size)
+                ).mappings()
+            ]
 
         skus = [str(row.get("sku") or "").strip() for row in product_rows if row.get("sku")]
         if not skus:
@@ -233,6 +659,7 @@ def list_fine_table(
             for row in conn.execute(
                 select(product_table.c.sku, product_table.c.original_sku)
                 .where(product_table.c.original_sku.in_(original_skus))
+                .where(not_excluded_sku_condition(product_table.c.sku, product_table.c.original_sku))
             ).mappings():
                 sku = str(row.get("sku") or "").strip()
                 original_sku = str(row.get("original_sku") or "").strip()
