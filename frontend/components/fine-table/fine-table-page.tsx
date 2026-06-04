@@ -44,7 +44,7 @@ const EXPORT_CONCURRENCY = 3
 const DAILY_SALES_DISPLAY_DAYS = 5
 
 type ViewKey = "all" | "missingImage" | "stockRisk"
-type ColumnMode = "default" | "full" | "custom"
+type ColumnMode = "full" | "custom"
 type ColumnGroup = "基础" | "价格" | "销售" | "库存" | "每日" | "尺码"
 type PageToken = number | "start-ellipsis" | "end-ellipsis"
 type FineTableBrandKey = Exclude<BrandKey, "all">
@@ -1216,7 +1216,7 @@ export function FineTablePage() {
   const [error, setError] = useState<string | null>(null)
   const [reloadToken, setReloadToken] = useState(0)
   const [latestOrderDate, setLatestOrderDate] = useState<string | null>(null)
-  const [columnMode, setColumnMode] = useState<ColumnMode>("default")
+  const [columnMode, setColumnMode] = useState<ColumnMode>("full")
   const [customColumnPickerOpen, setCustomColumnPickerOpen] = useState(false)
   const [customColumnKeys, setCustomColumnKeys] = useState<string[]>(DEFAULT_COLUMN_KEYS)
   const [draftCustomColumnKeys, setDraftCustomColumnKeys] = useState<string[]>(DEFAULT_COLUMN_KEYS)
@@ -1305,12 +1305,11 @@ export function FineTablePage() {
   }, [items])
   const tableColumns = useMemo(() => createTableColumns(dailyLabels), [dailyLabels])
   const visibleColumns = useMemo(() => {
-    if (columnMode === "full") return tableColumns
     if (columnMode === "custom") {
       const selected = new Set(customColumnKeys)
       return tableColumns.filter((column) => selected.has(column.key))
     }
-    return tableColumns.filter((column) => column.defaultVisible)
+    return tableColumns
   }, [columnMode, customColumnKeys, tableColumns])
   const deferredVisibleColumns = useDeferredValue(visibleColumns)
   const isColumnViewSettling = deferredVisibleColumns !== visibleColumns
@@ -1504,7 +1503,7 @@ export function FineTablePage() {
               <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
                 <span className="inline-flex h-7 items-center rounded-full border border-border bg-muted/40 px-3">当前 {formatNumber(total)} 条</span>
                 <span className="inline-flex h-7 items-center rounded-full border border-border bg-muted/40 px-3">显示 {formatNumber(visibleColumns.length)} 列</span>
-                <span className="inline-flex h-7 items-center rounded-full border border-border bg-muted/40 px-3">视图 {columnMode === "default" ? "运营" : columnMode === "full" ? "完整" : "自定义"}</span>
+                <span className="inline-flex h-7 items-center rounded-full border border-border bg-muted/40 px-3">视图 {columnMode === "full" ? "完整" : "自定义"}</span>
               </div>
             </div>
             <div className="flex flex-wrap items-center gap-2">
@@ -1623,7 +1622,6 @@ export function FineTablePage() {
             <div className="flex items-center gap-2" role="group" aria-label="列视图">
               <span className="text-sm font-medium">列视图</span>
               {[
-                ["default", "运营视图"],
                 ["full", "完整视图"],
                 ["custom", "自定义"],
               ].map(([value, label]) => (
