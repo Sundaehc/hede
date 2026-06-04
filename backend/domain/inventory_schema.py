@@ -88,7 +88,9 @@ def build_supplier_table() -> Table:
         Column("updated_at", DateTime(timezone=True), server_default=func.date_trunc('minute', func.now()), onupdate=func.date_trunc('minute', func.now())),
         UniqueConstraint("name", name="uq_supplier_name"),
     ]
-    return Table(SUPPLIER_TABLE_NAME, METADATA, *columns)
+    table = Table(SUPPLIER_TABLE_NAME, METADATA, *columns)
+    Index("idx_suppliers_factory_code", table.c.factory_code)
+    return table
 
 
 def build_warehouse_table() -> Table:

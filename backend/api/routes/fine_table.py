@@ -16,6 +16,7 @@ from domain.excluded_skus import is_excluded_sku, not_excluded_sku_condition
 from domain.fields import PRODUCT_FIELDS
 from domain.fine_table_snapshot_schema import FINE_TABLE_SNAPSHOT_BATCH_TABLE, FINE_TABLE_SNAPSHOT_ROW_TABLE
 from domain.gj_schema import GJ_MERGED_PRODUCT_INFO_TABLE
+from domain.inventory_schema import SUPPLIER_TABLE
 from domain.schema import PRODUCT_TABLES
 from domain.vip_schema import (
     JST_PRICE_TABLE,
@@ -655,6 +656,22 @@ def list_fine_table(
             if sku and original_sku:
                 original_skus_by_code.setdefault(original_sku, []).append(sku)
 
+        supplier_names = sorted({
+            str(row.get("supplier_name") or "").strip()
+            for row in product_rows
+            if str(row.get("supplier_name") or "").strip()
+        })
+        supplier_factory_code_by_name: dict[str, str | None] = {}
+        if supplier_names:
+            supplier_factory_code_by_name = {
+                str(row["name"]): row["factory_code"]
+                for row in conn.execute(
+                    select(SUPPLIER_TABLE.c.name, SUPPLIER_TABLE.c.factory_code)
+                    .where(SUPPLIER_TABLE.c.name.in_(supplier_names))
+                ).mappings()
+                if row["name"]
+            }
+
         if original_skus:
             for row in conn.execute(
                 select(product_table.c.sku, product_table.c.original_sku)
@@ -898,6 +915,7 @@ def list_fine_table(
         gj_info = gj_info_by_sku.get(sku, {})
         orders = orders_by_sku.get(sku, {})
         original_sku = str(product.get("original_sku") or "").strip()
+        supplier_name = str(product.get("supplier_name") or "").strip()
         original_orders = original_orders_by_code.get(original_sku, {})
         size_stock = {label: size_stock_by_sku.get(sku, {}).get(label, 0) for label in SIZE_LABELS.values()}
 
@@ -968,6 +986,7 @@ def list_fine_table(
             **product,
             "brand": brand,
             "image_url": image_url_for(brand, product.get("image_path"), settings),
+            "factory_code": supplier_factory_code_by_name.get(supplier_name),
             "product_name": gj_info.get("product_name"),
             "upper_material": gj_info.get("upper_material") or product.get("upper_material"),
             "lining_material": gj_info.get("lining_material") or product.get("lining_material"),

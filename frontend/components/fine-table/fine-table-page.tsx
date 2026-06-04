@@ -90,6 +90,7 @@ const SIZE_STOCK_LABELS = [
 const DEFAULT_COLUMN_KEYS = [
   "status",
   "group_name",
+  "factory_code",
   "product_name",
   "main_style",
   "goods_tag",
@@ -540,6 +541,7 @@ function createTableColumns(dailyLabels: string[]): TableColumn[] {
       render: (row) => <StatusBadge row={row} />,
     },
     { key: "group_name", label: "组别", group: "基础", className: "min-w-28", defaultVisible: true, render: (row) => row.group_name || "-" },
+    { key: "factory_code", label: "工厂代码", group: "基础", className: "min-w-28", defaultVisible: true, render: (row) => row.factory_code || "-" },
     { key: "product_name", label: "品名", group: "基础", className: "min-w-28", defaultVisible: true, render: (row) => row.product_name || "-" },
     { key: "main_style", label: "主款式", group: "基础", className: "min-w-28", defaultVisible: true, render: (row) => row.main_style || "-" },
     { key: "style_code", label: "款号", group: "基础", render: (row) => row.style_code || "-" },
@@ -899,6 +901,7 @@ function DetailDrawer({ row, onClose }: { row: FineTableItem | null; onClose: ()
                   <DetailFieldCard label="商品ID" value={row.goods_id} />
                   <DetailFieldCard label="P-SPU" value={row.p_spu} />
                   <DetailFieldCard label="款号" value={row.style_code} />
+                  <DetailFieldCard label="工厂代码" value={row.factory_code} />
                   <DetailFieldCard label="工厂货号" value={row.factory_sku} />
                   <DetailFieldCard label="组别" value={row.group_name} />
                   <DetailFieldCard label="主款式" value={row.main_style} />

@@ -281,9 +281,17 @@ export type InventoryListResponse = {
 export type SupplierItem = {
   id: number
   name: string
+  factory_code: string | null
   contact: string | null
   address: string | null
   notes: string | null
+}
+
+export type SupplierListResponse = {
+  items: SupplierItem[]
+  total: number
+  page: number
+  page_size: number
 }
 
 export type WarehouseItem = {
@@ -440,8 +448,16 @@ export function listEndingInventory(params: {
 
 // ── Suppliers ────────────────────────────────────────────────────
 
-export function listSuppliers() {
-  return request<{ items: SupplierItem[] }>("/suppliers")
+export function listSuppliers(params?: { page?: number; pageSize?: number; query?: string }) {
+  if (!params) {
+    return request<SupplierListResponse>("/suppliers")
+  }
+  const search = new URLSearchParams({
+    page: String(params.page ?? 1),
+    page_size: String(params.pageSize ?? 50),
+  })
+  if (params.query) search.set("query", params.query)
+  return request<SupplierListResponse>(`/suppliers?${search.toString()}`)
 }
 
 export function createSupplier(payload: Record<string, unknown>) {

@@ -1,14 +1,27 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Query, Request
 
 router = APIRouter()
 
 
 @router.get("/suppliers")
-def list_suppliers(request: Request):
+def list_suppliers(
+    request: Request,
+    page: int | None = Query(None, ge=1),
+    page_size: int | None = Query(None, ge=1, le=200),
+    query: str | None = None,
+):
     repository = request.app.state.inventory_repository
-    return {"items": repository.list_suppliers()}
+    if page is None and page_size is None and not query:
+        items = repository.list_suppliers()
+        return {
+            "items": items,
+            "total": len(items),
+            "page": 1,
+            "page_size": len(items),
+        }
+    return repository.list_suppliers_page(page=page or 1, page_size=page_size or 50, query=query)
 
 
 @router.post("/suppliers")

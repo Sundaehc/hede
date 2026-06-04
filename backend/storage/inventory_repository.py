@@ -6,7 +6,7 @@ from decimal import Decimal
 from pathlib import Path
 
 from openpyxl import load_workbook
-from sqlalchemy import and_, case, create_engine, delete, desc, func, insert, select, update
+from sqlalchemy import and_, case, create_engine, delete, desc, func, insert, or_, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from domain.inventory_schema import INVENTORY_DETAIL_TABLE, INVENTORY_TABLE, JST_STOCK_TABLE, SUPPLIER_TABLE, WAREHOUSE_TABLE
@@ -120,6 +120,33 @@ class InventoryRepository:
         statement = select(SUPPLIER_TABLE).order_by(SUPPLIER_TABLE.c.id)
         with self.engine.connect() as connection:
             return [dict(row) for row in connection.execute(statement).mappings()]
+
+    def list_suppliers_page(self, *, page: int, page_size: int, query: str | None = None) -> dict[str, object]:
+        count_statement = select(func.count()).select_from(SUPPLIER_TABLE)
+        items_statement = (
+            select(SUPPLIER_TABLE)
+            .order_by(SUPPLIER_TABLE.c.id)
+            .offset((page - 1) * page_size)
+            .limit(page_size)
+        )
+        normalized_query = (query or "").strip()
+        if normalized_query:
+            like = f"%{normalized_query}%"
+            criterion = or_(
+                SUPPLIER_TABLE.c.name.ilike(like),
+                SUPPLIER_TABLE.c.factory_code.ilike(like),
+            )
+            count_statement = count_statement.where(criterion)
+            items_statement = items_statement.where(criterion)
+        with self.engine.connect() as connection:
+            total = connection.execute(count_statement).scalar_one()
+            items = [dict(row) for row in connection.execute(items_statement).mappings()]
+        return {
+            "items": items,
+            "total": total,
+            "page": page,
+            "page_size": page_size,
+        }
 
     def create_supplier(self, data: Mapping[str, object]) -> dict[str, object]:
         statement = insert(SUPPLIER_TABLE).values(**dict(data)).returning(SUPPLIER_TABLE)

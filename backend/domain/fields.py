@@ -84,6 +84,7 @@ INVENTORY_DETAIL_FIELDS: tuple[FieldSpec, ...] = (
 
 SUPPLIER_FIELDS: tuple[FieldSpec, ...] = (
     FieldSpec("name", "名称"),
+    FieldSpec("factory_code", "工厂代码"),
     FieldSpec("contact", "联系人"),
     FieldSpec("address", "地址"),
     FieldSpec("notes", "备注"),
