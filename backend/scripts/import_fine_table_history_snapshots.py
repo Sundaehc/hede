@@ -15,7 +15,6 @@ from sqlalchemy import delete, insert, select, update
 from config import load_settings
 from domain.fine_table_snapshot_schema import (
     FINE_TABLE_SNAPSHOT_BATCH_TABLE,
-    FINE_TABLE_SNAPSHOT_ROW_TABLE,
     ensure_fine_table_snapshot_row_table,
 )
 from storage.inventory_repository import InventoryRepository
@@ -576,10 +575,6 @@ def write_snapshot(
             connection.execute(
                 delete(snapshot_row_table)
                 .where(snapshot_row_table.c.batch_id.in_(existing_ids))
-            )
-            connection.execute(
-                delete(FINE_TABLE_SNAPSHOT_ROW_TABLE)
-                .where(FINE_TABLE_SNAPSHOT_ROW_TABLE.c.batch_id.in_(existing_ids))
             )
             connection.execute(
                 delete(FINE_TABLE_SNAPSHOT_BATCH_TABLE)
