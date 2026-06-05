@@ -21,7 +21,7 @@ def list_suppliers(
             "page": 1,
             "page_size": len(items),
         }
-    return repository.list_suppliers_page(page=page or 1, page_size=page_size or 50, query=query)
+    return repository.list_suppliers_page(page=page or 1, page_size=page_size or 30, query=query)
 
 
 @router.post("/suppliers")

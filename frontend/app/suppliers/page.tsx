@@ -22,7 +22,7 @@ import {
   type SupplierItem,
 } from "@/lib/api"
 
-const PAGE_SIZE = 50
+const PAGE_SIZE = 30
 type PageToken = number | "start-ellipsis" | "end-ellipsis"
 
 function getErrorMessage(error: unknown) {

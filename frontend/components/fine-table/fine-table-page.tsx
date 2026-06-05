@@ -1406,6 +1406,33 @@ export function FineTablePage() {
     setSnapshotLabel(historyDate || null)
   }
 
+  function clearHistoryDate() {
+    if (!historyDate) return
+    setHistoryDate("")
+    setSnapshotLabel(null)
+    setPage(1)
+    setItems([])
+    setTotal(0)
+    setError(null)
+  }
+
+  function handleHistoryDateChange(nextDate: string) {
+    if (nextDate && nextDate > maxHistoryDate) {
+      setHistoryDate("")
+      setSnapshotLabel(null)
+      setPage(1)
+      setItems([])
+      setTotal(0)
+      setError("历史日期只能选择今天以前")
+      return
+    }
+    setHistoryDate(nextDate)
+    setPage(1)
+    setItems([])
+    setTotal(0)
+    setError(null)
+  }
+
   async function handleExport() {
     setIsExporting(true)
     setExportProgress({ loaded: 0, total })
@@ -1509,51 +1536,48 @@ export function FineTablePage() {
               </div>
             </div>
             <div className="flex flex-wrap items-center gap-2">
-              <label className="inline-flex h-9 items-center gap-2 rounded-md border border-border bg-background px-3 text-sm">
-                <History className="h-4 w-4 text-muted-foreground" />
-                <span className="text-muted-foreground">历史日期</span>
-                <input
-                  type="date"
-                  value={historyDate}
-                  max={maxHistoryDate}
-                  onChange={(event) => {
-                    const nextDate = event.target.value
-                    if (nextDate && nextDate > maxHistoryDate) {
-                      setHistoryDate("")
-                      setSnapshotLabel(null)
-                      setPage(1)
-                      setItems([])
-                      setTotal(0)
-                      setError("历史日期只能选择今天以前")
-                      return
-                    }
-                    setHistoryDate(nextDate)
-                    setPage(1)
-                    setItems([])
-                    setTotal(0)
-                    setError(null)
-                  }}
-                  className="h-7 bg-transparent text-sm outline-none"
-                  aria-label="选择历史快照日期"
-                />
-              </label>
-              {historyDate && (
-                <Button
+              <div
+                className={cn(
+                  "inline-flex min-h-10 flex-wrap items-center gap-1 rounded-lg border p-1 shadow-sm transition-colors",
+                  historyDate ? "border-primary/30 bg-primary/5" : "border-border bg-background",
+                )}
+                role="group"
+                aria-label="数据日期"
+              >
+                <button
                   type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={() => {
-                    setHistoryDate("")
-                    setSnapshotLabel(null)
-                    setPage(1)
-                    setItems([])
-                    setTotal(0)
-                    setError(null)
-                  }}
+                  aria-pressed={!historyDate}
+                  onClick={clearHistoryDate}
+                  className={cn(
+                    "inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-md px-2.5 text-sm font-medium transition-colors",
+                    !historyDate
+                      ? "bg-primary text-primary-foreground shadow-sm"
+                      : "text-muted-foreground hover:bg-background hover:text-foreground",
+                  )}
                 >
-                  返回当前
-                </Button>
-              )}
+                  <Check className="h-3.5 w-3.5" />
+                  当前
+                </button>
+                <label
+                  className={cn(
+                    "inline-flex h-8 items-center gap-2 rounded-md border px-2.5 text-sm transition-colors",
+                    historyDate
+                      ? "border-primary/35 bg-background text-foreground shadow-sm"
+                      : "border-transparent text-muted-foreground hover:bg-muted/50 hover:text-foreground",
+                  )}
+                >
+                  <History className={cn("h-3.5 w-3.5", historyDate && "text-primary")} />
+                  <span className="font-medium">历史</span>
+                  <input
+                    type="date"
+                    value={historyDate}
+                    max={maxHistoryDate}
+                    onChange={(event) => handleHistoryDateChange(event.target.value)}
+                    className="h-7 w-[8.75rem] cursor-pointer bg-transparent text-sm font-medium tabular-nums outline-none"
+                    aria-label="选择历史快照日期"
+                  />
+                </label>
+              </div>
               <Button variant="outline" size="sm" onClick={() => setReloadToken((current) => current + 1)}>
                 <RefreshCw className="h-4 w-4" />
                 刷新

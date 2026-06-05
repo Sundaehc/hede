@@ -75,3 +75,10 @@ using a closure in a dumps/loads function may cause a resource leak
 using a closure in a dumps/loads function may cause a resource leak
 [SKIP] VIP 目录不存在: \\192.168.10.58\超级共享\影刀技术开发部共享\唯品会后台\千百度伊伴\06.04
 [2026/06/04 周四 11:00:02.79] end import_vip_daily errorlevel=0 
+[2026/06/05 周五 11:00:01.95] start import_vip_daily 
+using a closure in a dumps/loads function may cause a resource leak
+using a closure in a dumps/loads function may cause a resource leak
+using a closure in a dumps/loads function may cause a resource leak
+using a closure in a dumps/loads function may cause a resource leak
+[SKIP] VIP 目录不存在: \\192.168.10.58\超级共享\影刀技术开发部共享\唯品会后台\千百度伊伴\06.05
+[2026/06/05 周五 11:00:02.77] end import_vip_daily errorlevel=0 
