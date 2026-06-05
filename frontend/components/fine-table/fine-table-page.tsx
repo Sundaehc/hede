@@ -5,6 +5,7 @@ import {
   AlertTriangle,
   BarChart3,
   Boxes,
+  CalendarDays,
   Check,
   ChevronDown,
   ChevronLeft,
@@ -1538,8 +1539,8 @@ export function FineTablePage() {
             <div className="flex flex-wrap items-center gap-2">
               <div
                 className={cn(
-                  "inline-flex min-h-10 flex-wrap items-center gap-1 rounded-lg border p-1 shadow-sm transition-colors",
-                  historyDate ? "border-primary/30 bg-primary/5" : "border-border bg-background",
+                  "inline-flex h-8 items-center gap-0.5 rounded-lg border p-0.5 shadow-sm transition-colors",
+                  historyDate ? "border-primary/30 bg-primary/5" : "border-border bg-card",
                 )}
                 role="group"
                 aria-label="数据日期"
@@ -1549,7 +1550,7 @@ export function FineTablePage() {
                   aria-pressed={!historyDate}
                   onClick={clearHistoryDate}
                   className={cn(
-                    "inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-md px-2.5 text-sm font-medium transition-colors",
+                    "inline-flex h-7 cursor-pointer items-center gap-1.5 rounded-md px-2.5 text-xs font-semibold transition-colors",
                     !historyDate
                       ? "bg-primary text-primary-foreground shadow-sm"
                       : "text-muted-foreground hover:bg-background hover:text-foreground",
@@ -1560,29 +1561,33 @@ export function FineTablePage() {
                 </button>
                 <label
                   className={cn(
-                    "inline-flex h-8 items-center gap-2 rounded-md border px-2.5 text-sm transition-colors",
+                    "relative inline-flex h-7 min-w-[9.5rem] cursor-pointer items-center gap-1.5 rounded-md border px-2.5 text-xs font-semibold transition-colors",
                     historyDate
                       ? "border-primary/35 bg-background text-foreground shadow-sm"
                       : "border-transparent text-muted-foreground hover:bg-muted/50 hover:text-foreground",
                   )}
                 >
                   <History className={cn("h-3.5 w-3.5", historyDate && "text-primary")} />
-                  <span className="font-medium">历史</span>
+                  <span>历史</span>
+                  <span className={cn("tabular-nums", historyDate ? "text-foreground" : "text-muted-foreground")}>
+                    {historyDate || "选择日期"}
+                  </span>
+                  <CalendarDays className="ml-auto h-3.5 w-3.5 text-muted-foreground" />
                   <input
                     type="date"
                     value={historyDate}
                     max={maxHistoryDate}
                     onChange={(event) => handleHistoryDateChange(event.target.value)}
-                    className="h-7 w-[8.75rem] cursor-pointer bg-transparent text-sm font-medium tabular-nums outline-none"
+                    className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
                     aria-label="选择历史快照日期"
                   />
                 </label>
               </div>
-              <Button variant="outline" size="sm" onClick={() => setReloadToken((current) => current + 1)}>
+              <Button variant="outline" className="h-8 px-3 text-xs font-semibold" onClick={() => setReloadToken((current) => current + 1)}>
                 <RefreshCw className="h-4 w-4" />
                 刷新
               </Button>
-              <Button variant="outline" size="sm" onClick={handleExport} disabled={isExporting || isLoading}>
+              <Button variant="outline" className="h-8 px-3 text-xs font-semibold" onClick={handleExport} disabled={isExporting || isLoading}>
                 <Download className="h-4 w-4" />
                 {isExporting && exportProgress
                   ? `导出 ${formatNumber(Math.min(exportProgress.loaded, exportProgress.total))}/${formatNumber(exportProgress.total)}`
