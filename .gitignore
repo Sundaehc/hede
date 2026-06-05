@@ -14,3 +14,6 @@ wheels/
 .env
 backend/.env
 frontend/.env.local
+
+# Runtime logs
+backend/logs/

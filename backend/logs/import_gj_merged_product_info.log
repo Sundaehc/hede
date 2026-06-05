@@ -46,3 +46,6 @@ Traceback (most recent call last):
     raise FileNotFoundError(f"未找到 {SOURCE_FILE_KEYWORD}: {source_dir}")
 FileNotFoundError: 未找到 男女鞋合并商品信息: \\192.168.10.58\超级共享\影刀技术开发部共享\管家婆数据导出\2026-06-04
 [2026/06/04 周四  8:00:02.42] end import_gj_merged_product_info_daily errorlevel=1 
+[2026/06/05 周五  8:00:01.68] start import_gj_merged_product_info_daily 
+{'source_dir': '\\\\192.168.10.58\\超级共享\\影刀技术开发部共享\\管家婆数据导出\\2026-06-05', 'source_file': '男女鞋合并商品信息.xlsx', 'source_date': '2026-06-05', 'read_rows': 59343, 'imported': 58796}
+[2026/06/05 周五  8:00:13.17] end import_gj_merged_product_info_daily errorlevel=0 

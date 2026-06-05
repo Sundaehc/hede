@@ -1403,8 +1403,7 @@ export function FineTablePage() {
     setIsLoading(true)
     setSelectedRow(null)
     setPreviewImage(null)
-    setHistoryDate("")
-    setSnapshotLabel(null)
+    setSnapshotLabel(historyDate || null)
   }
 
   async function handleExport() {

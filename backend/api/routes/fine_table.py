@@ -14,7 +14,12 @@ from api.routes.images import image_url_for
 from api.schemas import BrandKey
 from domain.excluded_skus import is_excluded_sku, not_excluded_sku_condition
 from domain.fields import PRODUCT_FIELDS
-from domain.fine_table_snapshot_schema import FINE_TABLE_SNAPSHOT_BATCH_TABLE, FINE_TABLE_SNAPSHOT_ROW_TABLE
+from domain.fine_table_snapshot_schema import (
+    FINE_TABLE_SNAPSHOT_BATCH_TABLE,
+    ensure_fine_table_snapshot_row_table,
+    fine_table_snapshot_row_table_for_date,
+    fine_table_snapshot_year_table_exists,
+)
 from domain.gj_schema import GJ_MERGED_PRODUCT_INFO_TABLE
 from domain.inventory_schema import SUPPLIER_TABLE
 from domain.schema import PRODUCT_TABLES
@@ -57,7 +62,6 @@ SNAPSHOT_PAGE_SIZE = 200
 
 def _ensure_snapshot_tables(engine) -> None:
     FINE_TABLE_SNAPSHOT_BATCH_TABLE.create(engine, checkfirst=True)
-    FINE_TABLE_SNAPSHOT_ROW_TABLE.create(engine, checkfirst=True)
 
 
 def _snapshot_batch_payload(row: dict[str, Any]) -> dict[str, Any]:
@@ -276,6 +280,68 @@ def _merge_gj_product_row(gj_row: dict[str, Any], archive_row: dict[str, Any] | 
     return product
 
 
+def _hydrate_snapshot_image_urls(
+    *,
+    connection,
+    items: list[dict[str, Any]],
+    brand: BrandKey,
+    settings,
+) -> None:
+    product_table = PRODUCT_TABLES.get(brand)
+    if product_table is None:
+        return
+
+    missing_items = [item for item in items if not item.get("image_url")]
+    if not missing_items:
+        return
+
+    codes = {
+        code
+        for item in missing_items
+        for code in (
+            str(item.get("sku") or "").strip(),
+            str(item.get("original_sku") or "").strip(),
+        )
+        if code
+    }
+    if not codes:
+        return
+
+    image_by_sku: dict[str, str] = {}
+    image_by_original_sku: dict[str, str] = {}
+    for row in connection.execute(
+        select(product_table.c.sku, product_table.c.original_sku, product_table.c.image_path)
+        .where(or_(
+            product_table.c.sku.in_(codes),
+            product_table.c.original_sku.in_(codes),
+        ))
+        .where(product_table.c.image_path.isnot(None))
+        .where(product_table.c.image_path != "")
+        .order_by(desc(product_table.c.id))
+    ).mappings():
+        image_path = str(row.get("image_path") or "").strip()
+        if not image_path:
+            continue
+        sku = str(row.get("sku") or "").strip()
+        original_sku = str(row.get("original_sku") or "").strip()
+        if sku:
+            image_by_sku.setdefault(sku, image_path)
+        if original_sku:
+            image_by_original_sku.setdefault(original_sku, image_path)
+
+    for item in missing_items:
+        image_path = (
+            str(item.get("image_path") or "").strip()
+            or image_by_sku.get(str(item.get("sku") or "").strip())
+            or image_by_original_sku.get(str(item.get("sku") or "").strip())
+            or image_by_sku.get(str(item.get("original_sku") or "").strip())
+            or image_by_original_sku.get(str(item.get("original_sku") or "").strip())
+        )
+        if image_path:
+            item["image_path"] = image_path
+            item["image_url"] = image_url_for(brand, image_path, settings)
+
+
 def _gj_cbanner_brand_condition(brand: BrandKey):
     supplier = func.coalesce(GJ_MERGED_PRODUCT_INFO_TABLE.c.primary_supplier, "")
     is_cbanner_womens = or_(
@@ -299,6 +365,7 @@ def create_fine_table_snapshot(
     repository = request.app.state.repository
     _ensure_snapshot_tables(repository.engine)
     resolved_snapshot_date = snapshot_date or date.today()
+    snapshot_row_table = ensure_fine_table_snapshot_row_table(repository.engine, resolved_snapshot_date)
 
     first_payload = list_fine_table(
         request,
@@ -357,8 +424,8 @@ def create_fine_table_snapshot(
         else:
             batch_id = existing["id"]
             connection.execute(
-                delete(FINE_TABLE_SNAPSHOT_ROW_TABLE)
-                .where(FINE_TABLE_SNAPSHOT_ROW_TABLE.c.batch_id == batch_id)
+                delete(snapshot_row_table)
+                .where(snapshot_row_table.c.batch_id == batch_id)
             )
             batch = connection.execute(
                 update(FINE_TABLE_SNAPSHOT_BATCH_TABLE)
@@ -374,7 +441,7 @@ def create_fine_table_snapshot(
         for start in range(0, len(row_payloads), 1000):
             chunk = [{**row, "batch_id": batch_id} for row in row_payloads[start:start + 1000]]
             if chunk:
-                connection.execute(insert(FINE_TABLE_SNAPSHOT_ROW_TABLE), chunk)
+                connection.execute(insert(snapshot_row_table), chunk)
 
     return {
         "item": _snapshot_batch_payload(dict(batch)),
@@ -447,30 +514,9 @@ def get_fine_table_snapshot(
     page: int = Query(1, ge=1),
     page_size: int = Query(80, ge=1, le=200),
 ):
+    settings = request.app.state.settings
     repository = request.app.state.repository
     _ensure_snapshot_tables(repository.engine)
-    conditions = [FINE_TABLE_SNAPSHOT_ROW_TABLE.c.batch_id == batch_id]
-    normalized_query = ",".join(
-        term.strip()
-        for term in (query or "").replace("\n", ",").split(",")
-        if term.strip()
-    )
-    if normalized_query:
-        search_conditions = []
-        for term in normalized_query.split(","):
-            like = f"%{term}%"
-            search_conditions.extend([
-                FINE_TABLE_SNAPSHOT_ROW_TABLE.c.sku.ilike(like),
-                FINE_TABLE_SNAPSHOT_ROW_TABLE.c.original_sku.ilike(like),
-            ])
-        conditions.append(or_(*search_conditions))
-    conditions.append(
-        not_excluded_sku_condition(
-            FINE_TABLE_SNAPSHOT_ROW_TABLE.c.sku,
-            FINE_TABLE_SNAPSHOT_ROW_TABLE.c.original_sku,
-        )
-    )
-    criterion = and_(*conditions)
     with repository.engine.connect() as connection:
         batch = connection.execute(
             select(FINE_TABLE_SNAPSHOT_BATCH_TABLE)
@@ -479,17 +525,51 @@ def get_fine_table_snapshot(
         if batch is None:
             raise HTTPException(status_code=404, detail="Snapshot not found")
 
+        snapshot_date = batch["snapshot_date"]
+        if not isinstance(snapshot_date, date):
+            raise HTTPException(status_code=500, detail="Invalid snapshot date")
+        if not fine_table_snapshot_year_table_exists(repository.engine, snapshot_date):
+            raise HTTPException(status_code=500, detail="Snapshot row table not found")
+        snapshot_row_table = fine_table_snapshot_row_table_for_date(snapshot_date)
+        conditions = [snapshot_row_table.c.batch_id == batch_id]
+        normalized_query = ",".join(
+            term.strip()
+            for term in (query or "").replace("\n", ",").split(",")
+            if term.strip()
+        )
+        if normalized_query:
+            search_conditions = []
+            for term in normalized_query.split(","):
+                like = f"%{term}%"
+                search_conditions.extend([
+                    snapshot_row_table.c.sku.ilike(like),
+                    snapshot_row_table.c.original_sku.ilike(like),
+                ])
+            conditions.append(or_(*search_conditions))
+        conditions.append(
+            not_excluded_sku_condition(
+                snapshot_row_table.c.sku,
+                snapshot_row_table.c.original_sku,
+            )
+        )
+        criterion = and_(*conditions)
         total = connection.execute(
-            select(func.count()).select_from(FINE_TABLE_SNAPSHOT_ROW_TABLE).where(criterion)
+            select(func.count()).select_from(snapshot_row_table).where(criterion)
         ).scalar_one()
         rows = connection.execute(
-            select(FINE_TABLE_SNAPSHOT_ROW_TABLE.c.payload)
+            select(snapshot_row_table.c.payload)
             .where(criterion)
-            .order_by(FINE_TABLE_SNAPSHOT_ROW_TABLE.c.row_index)
+            .order_by(snapshot_row_table.c.row_index)
             .offset((page - 1) * page_size)
             .limit(page_size)
         ).mappings()
         items = [dict(row["payload"]) for row in rows]
+        _hydrate_snapshot_image_urls(
+            connection=connection,
+            items=items,
+            brand=batch["brand"],
+            settings=settings,
+        )
 
     return {
         "items": items,

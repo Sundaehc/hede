@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from sqlalchemy import BigInteger, Column, Date, DateTime, ForeignKey, Identity, Index, Integer, JSON, Table, Text, UniqueConstraint, func
+from datetime import date
+
+from sqlalchemy import BigInteger, Column, Date, DateTime, ForeignKey, Identity, Index, Integer, JSON, Table, Text, UniqueConstraint, func, inspect
 
 from domain.schema import METADATA
 
@@ -24,26 +26,42 @@ FINE_TABLE_SNAPSHOT_BATCH_TABLE = Table(
 )
 
 
-FINE_TABLE_SNAPSHOT_ROW_TABLE = Table(
-    "fine_table_snapshot_rows",
-    METADATA,
-    Column("id", BigInteger, Identity(always=False), primary_key=True),
-    Column(
-        "batch_id",
-        BigInteger,
-        ForeignKey("fine_table_snapshot_batches.id", ondelete="CASCADE"),
-        nullable=False,
-    ),
-    Column("sku", Text, nullable=True),
-    Column("original_sku", Text, nullable=True),
-    Column("row_index", Integer, nullable=False),
-    Column("payload", JSON, nullable=False),
-    Column("created_at", DateTime(timezone=True), server_default=func.date_trunc("minute", func.now())),
-    UniqueConstraint("batch_id", "row_index", name="uq_fine_table_snapshot_rows_batch_row_index"),
-)
+def fine_table_snapshot_row_table_name(snapshot_date: date) -> str:
+    return f"fine_table_snapshot_rows_{snapshot_date.year:04d}"
 
-Index("idx_fine_table_snapshot_batches_brand_date", FINE_TABLE_SNAPSHOT_BATCH_TABLE.c.brand, FINE_TABLE_SNAPSHOT_BATCH_TABLE.c.snapshot_date)
-Index("idx_fine_table_snapshot_rows_batch", FINE_TABLE_SNAPSHOT_ROW_TABLE.c.batch_id)
-Index("idx_fine_table_snapshot_rows_batch_row_index", FINE_TABLE_SNAPSHOT_ROW_TABLE.c.batch_id, FINE_TABLE_SNAPSHOT_ROW_TABLE.c.row_index)
-Index("idx_fine_table_snapshot_rows_batch_sku", FINE_TABLE_SNAPSHOT_ROW_TABLE.c.batch_id, FINE_TABLE_SNAPSHOT_ROW_TABLE.c.sku)
-Index("idx_fine_table_snapshot_rows_batch_original_sku", FINE_TABLE_SNAPSHOT_ROW_TABLE.c.batch_id, FINE_TABLE_SNAPSHOT_ROW_TABLE.c.original_sku)
+
+def fine_table_snapshot_row_table_for_date(snapshot_date: date) -> Table:
+    table_name = fine_table_snapshot_row_table_name(snapshot_date)
+    if table_name in METADATA.tables:
+        return METADATA.tables[table_name]
+
+    table = Table(
+        table_name,
+        METADATA,
+        Column("id", BigInteger, Identity(always=False), primary_key=True),
+        Column(
+            "batch_id",
+            BigInteger,
+            ForeignKey("fine_table_snapshot_batches.id", ondelete="CASCADE"),
+            nullable=False,
+        ),
+        Column("sku", Text, nullable=True),
+        Column("original_sku", Text, nullable=True),
+        Column("row_index", Integer, nullable=False),
+        Column("payload", JSON, nullable=False),
+        Column("created_at", DateTime(timezone=True), server_default=func.date_trunc("minute", func.now())),
+        UniqueConstraint("batch_id", "row_index", name=f"uq_{table_name}_batch_row_index"),
+    )
+    Index(f"idx_{table_name}_batch_sku", table.c.batch_id, table.c.sku)
+    Index(f"idx_{table_name}_batch_original_sku", table.c.batch_id, table.c.original_sku)
+    return table
+
+
+def fine_table_snapshot_year_table_exists(engine, snapshot_date: date) -> bool:
+    return inspect(engine).has_table(fine_table_snapshot_row_table_name(snapshot_date))
+
+
+def ensure_fine_table_snapshot_row_table(engine, snapshot_date: date) -> Table:
+    table = fine_table_snapshot_row_table_for_date(snapshot_date)
+    table.create(engine, checkfirst=True)
+    return table

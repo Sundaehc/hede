@@ -2,11 +2,17 @@
 
 from __future__ import annotations
 
+from datetime import date
+
 from sqlalchemy import delete, func, or_, select, update
 
 from config import load_settings
 from domain.excluded_skus import EXCLUDED_SKUS
-from domain.fine_table_snapshot_schema import FINE_TABLE_SNAPSHOT_BATCH_TABLE, FINE_TABLE_SNAPSHOT_ROW_TABLE
+from domain.fine_table_snapshot_schema import (
+    FINE_TABLE_SNAPSHOT_BATCH_TABLE,
+    fine_table_snapshot_row_table_for_date,
+    fine_table_snapshot_year_table_exists,
+)
 from domain.gj_schema import GJ_MERGED_PRODUCT_INFO_TABLE
 from domain.schema import PRODUCT_TABLES
 from storage.db import Database
@@ -30,11 +36,22 @@ def apply_excluded_skus() -> dict[str, int]:
     result: dict[str, int] = {
         "excluded_skus": len(excluded),
         "gj_merged_product_info": 0,
-        "fine_table_snapshot_rows": 0,
     }
     result.update({table_name: 0 for table_name in PRODUCT_TABLES})
 
     with engine.begin() as connection:
+        snapshot_year_tables = []
+        snapshot_dates = connection.execute(
+            select(FINE_TABLE_SNAPSHOT_BATCH_TABLE.c.snapshot_date).distinct()
+        ).scalars()
+        for snapshot_date in sorted({value for value in snapshot_dates if isinstance(value, date)}):
+            if not fine_table_snapshot_year_table_exists(engine, snapshot_date):
+                continue
+            table = fine_table_snapshot_row_table_for_date(snapshot_date)
+            if table.name not in result:
+                result[table.name] = 0
+                snapshot_year_tables.append(table)
+
         for chunk in _chunks(excluded, CHUNK_SIZE):
             gj_delete = delete(GJ_MERGED_PRODUCT_INFO_TABLE).where(
                 or_(
@@ -44,13 +61,14 @@ def apply_excluded_skus() -> dict[str, int]:
             )
             result["gj_merged_product_info"] += connection.execute(gj_delete).rowcount or 0
 
-            snapshot_delete = delete(FINE_TABLE_SNAPSHOT_ROW_TABLE).where(
-                or_(
-                    FINE_TABLE_SNAPSHOT_ROW_TABLE.c.sku.in_(chunk),
-                    FINE_TABLE_SNAPSHOT_ROW_TABLE.c.original_sku.in_(chunk),
+            for snapshot_table in snapshot_year_tables:
+                snapshot_delete = delete(snapshot_table).where(
+                    or_(
+                        snapshot_table.c.sku.in_(chunk),
+                        snapshot_table.c.original_sku.in_(chunk),
+                    )
                 )
-            )
-            result["fine_table_snapshot_rows"] += connection.execute(snapshot_delete).rowcount or 0
+                result[snapshot_table.name] += connection.execute(snapshot_delete).rowcount or 0
 
             for brand, table in PRODUCT_TABLES.items():
                 product_delete = delete(table).where(
@@ -61,13 +79,27 @@ def apply_excluded_skus() -> dict[str, int]:
                 )
                 result[brand] += connection.execute(product_delete).rowcount or 0
 
-        row_count = (
-            select(func.count())
-            .select_from(FINE_TABLE_SNAPSHOT_ROW_TABLE)
-            .where(FINE_TABLE_SNAPSHOT_ROW_TABLE.c.batch_id == FINE_TABLE_SNAPSHOT_BATCH_TABLE.c.id)
-            .scalar_subquery()
-        )
-        connection.execute(update(FINE_TABLE_SNAPSHOT_BATCH_TABLE).values(total_rows=row_count))
+        for snapshot_table in snapshot_year_tables:
+            row_count = (
+                select(func.count())
+                .select_from(snapshot_table)
+                .where(snapshot_table.c.batch_id == FINE_TABLE_SNAPSHOT_BATCH_TABLE.c.id)
+                .scalar_subquery()
+            )
+            connection.execute(
+                update(FINE_TABLE_SNAPSHOT_BATCH_TABLE)
+                .where(
+                    FINE_TABLE_SNAPSHOT_BATCH_TABLE.c.snapshot_date >= date(
+                        int(snapshot_table.name.rsplit("_", 1)[1]), 1, 1
+                    )
+                )
+                .where(
+                    FINE_TABLE_SNAPSHOT_BATCH_TABLE.c.snapshot_date < date(
+                        int(snapshot_table.name.rsplit("_", 1)[1]) + 1, 1, 1
+                    )
+                )
+                .values(total_rows=row_count)
+            )
 
     return result
 

@@ -68,3 +68,14 @@ yandou: extracted=3122, loaded=29619, skipped=0, missing_images=25750
 eblan: extracted=9726, loaded=9744, skipped=0, missing_images=182
 cbanner_mens: extracted=8846, loaded=20437, skipped=0, missing_images=301
 [2026/06/04 周四  8:06:44.83] end import_products errorlevel=0 
+[2026/06/05 周五  8:00:01.95] start import_products 
+D:\python\Lib\site-packages\openpyxl\worksheet\_reader.py:329: UserWarning: Conditional Formatting extension is not supported and will be removed
+  warn(msg)
+D:\python\Lib\site-packages\openpyxl\worksheet\_reader.py:329: UserWarning: Sparkline Group extension is not supported and will be removed
+  warn(msg)
+Mode: sync
+eblan: extracted=9726, loaded=9698, skipped=39, missing_images=177
+cbanner_womens: extracted=13092, loaded=13743, skipped=66, missing_images=2067
+cbanner_mens: extracted=8846, loaded=18614, skipped=77, missing_images=249
+yandou: extracted=3122, loaded=16416, skipped=113, missing_images=13230
+[2026/06/05 周五  8:06:56.27] end import_products errorlevel=0 
