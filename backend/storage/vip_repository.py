@@ -60,7 +60,7 @@ class VipRepository:
 
     # ── vip_product_daily (环比/罗盘) ──────────────────────────────
 
-    def import_daily(self, file_path: Path) -> dict[str, object]:
+    def import_daily(self, file_path: Path, *, replace_existing: bool = True) -> dict[str, object]:
         filename = file_path.stem
         report_type = _report_type_from_filename(filename)
         period = _period_from_filename(filename)
@@ -83,16 +83,28 @@ class VipRepository:
             row["report_start_date"] = start_date
             row["report_end_date"] = end_date
 
-        from sqlalchemy import delete as sa_delete
+        if replace_existing:
+            from sqlalchemy import delete as sa_delete
 
-        with self.engine.begin() as conn:
-            conn.execute(
-                sa_delete(VIP_DAILY_TABLE).where(
-                    VIP_DAILY_TABLE.c.report_type == report_type,
-                    VIP_DAILY_TABLE.c.period == period,
+            with self.engine.begin() as conn:
+                conn.execute(
+                    sa_delete(VIP_DAILY_TABLE).where(
+                        VIP_DAILY_TABLE.c.report_type == report_type,
+                        VIP_DAILY_TABLE.c.period == period,
+                    )
                 )
+                self._batch_insert(VIP_DAILY_TABLE, rows, conn=conn)
+        else:
+            update_cols = [
+                c for c in rows[0]
+                if c not in ("id", "report_type", "period", "goods_id")
+            ]
+            self._upsert(
+                VIP_DAILY_TABLE,
+                rows,
+                ["report_type", "period", "goods_id"],
+                update_cols,
             )
-            self._batch_insert(VIP_DAILY_TABLE, rows, conn=conn)
 
         if report_type == "罗盘" and period == "1d":
             fallback_snapshot_date = _snapshot_date_from_path(file_path)
@@ -156,7 +168,13 @@ class VipRepository:
 
     # ── vip_product_ops (常态商品运营) ──────────────────────────────
 
-    def import_ops(self, file_path: Path, snapshot_date: date | None = None) -> dict[str, object]:
+    def import_ops(
+        self,
+        file_path: Path,
+        snapshot_date: date | None = None,
+        *,
+        replace_existing: bool = True,
+    ) -> dict[str, object]:
         rows = self._read_excel(file_path, VIP_OPS_COLUMN_ALIASES, duplicate_policy="first")
         if not rows:
             return {"imported": 0, "message": "无数据行"}
@@ -174,11 +192,18 @@ class VipRepository:
                 seen[key] = len(deduped)
                 deduped.append(row)
 
-        from sqlalchemy import delete as sa_delete
+        if replace_existing:
+            from sqlalchemy import delete as sa_delete
 
-        with self.engine.begin() as conn:
-            conn.execute(sa_delete(VIP_OPS_TABLE))
-            self._batch_insert(VIP_OPS_TABLE, deduped, conn=conn)
+            with self.engine.begin() as conn:
+                conn.execute(sa_delete(VIP_OPS_TABLE))
+                self._batch_insert(VIP_OPS_TABLE, deduped, conn=conn)
+        else:
+            update_cols = [
+                c for c in deduped[0]
+                if c not in ("id", "goods_id")
+            ]
+            self._upsert(VIP_OPS_TABLE, deduped, ["goods_id"], update_cols)
 
         snapshot_rows = [{**row, "snapshot_date": snapshot_date} for row in deduped if row.get("goods_id")]
         if snapshot_rows:
@@ -271,7 +296,7 @@ class VipRepository:
 
     # ── import_all: 按日期目录全量导入 ─────────────────────────────
 
-    def import_all(self, dir_path: Path) -> dict[str, object]:
+    def import_all(self, dir_path: Path, *, replace_existing: bool = True) -> dict[str, object]:
         if not dir_path.exists():
             return {"success": False, "message": f"目录不存在: {dir_path}"}
 
@@ -288,14 +313,20 @@ class VipRepository:
                 if "实时商品" in filename:
                     results.append(self.import_realtime(file_path))
                 elif "常态商品运营" in filename:
-                    results.append(self.import_ops(file_path, parse_date(batch_date)))
+                    results.append(
+                        self.import_ops(
+                            file_path,
+                            parse_date(batch_date),
+                            replace_existing=replace_existing,
+                        )
+                    )
                 elif "合并" in filename and "物价" in filename:
                     results.append(self.import_price(file_path))
                 elif _report_type_from_filename(filename) and _period_from_filename(filename):
                     daily_files.append(file_path)
 
         for file_path in daily_files:
-            results.append(self.import_daily(file_path))
+            results.append(self.import_daily(file_path, replace_existing=replace_existing))
 
         total = sum(r.get("imported", 0) for r in results)
         return {

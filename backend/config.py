@@ -24,6 +24,7 @@ class Settings:
     eblan_image_root: Path
     jst_stock_root: Path | None = None
     vip_data_root: Path | None = None
+    yandou_vip_data_root: Path | None = None
     jst_price_root: Path | None = None
     cbanner_mens_group_source: Path | None = DEFAULT_CBANNER_MENS_GROUP_SOURCE
 
@@ -34,6 +35,20 @@ class Settings:
             "yandou": self.yandou_image_root,
             "eblan": self.eblan_image_root,
         }
+
+    @property
+    def vip_data_roots(self) -> list[Path]:
+        roots: list[Path] = []
+        seen: set[str] = set()
+        for root in (self.vip_data_root, self.yandou_vip_data_root):
+            if root is None:
+                continue
+            key = str(root).rstrip("\\/")
+            if key in seen:
+                continue
+            seen.add(key)
+            roots.append(root)
+        return roots
 
 
 def _path_from_env(name: str) -> Path:
@@ -63,6 +78,8 @@ def load_settings(require_database: bool = True) -> Settings:
     jst_stock_root = Path(jst_stock_root_raw) if jst_stock_root_raw else None
     vip_data_root_raw = os.getenv("VIP_DATA_ROOT")
     vip_data_root = Path(vip_data_root_raw) if vip_data_root_raw else None
+    yandou_vip_data_root_raw = os.getenv("YANDOU_VIP_DATA_ROOT")
+    yandou_vip_data_root = Path(yandou_vip_data_root_raw) if yandou_vip_data_root_raw else None
     jst_price_root_raw = os.getenv("JST_PRICE_ROOT")
     jst_price_root = Path(jst_price_root_raw) if jst_price_root_raw else None
     cbanner_mens_group_source_raw = os.getenv("CBANNER_MENS_GROUP_SOURCE")
@@ -81,6 +98,7 @@ def load_settings(require_database: bool = True) -> Settings:
         eblan_image_root=_path_from_env("EBLAN_IMAGE_ROOT"),
         jst_stock_root=jst_stock_root,
         vip_data_root=vip_data_root,
+        yandou_vip_data_root=yandou_vip_data_root,
         jst_price_root=jst_price_root,
         cbanner_mens_group_source=cbanner_mens_group_source,
     )
