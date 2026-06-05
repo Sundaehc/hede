@@ -1,10 +1,15 @@
 from __future__ import annotations
 
 import argparse
+import subprocess
+import tempfile
+import uuid
 from pathlib import Path
+from zipfile import BadZipFile
 
 import xlrd
 from openpyxl import load_workbook
+from openpyxl.utils.exceptions import InvalidFileException
 from sqlalchemy import insert, select, update
 
 from config import load_settings
@@ -14,6 +19,7 @@ from transform.rows import normalize_cell, normalize_header
 
 
 DEFAULT_FILE_PREFIX = "往来单位信息数据-2026_06_04-13_55_08"
+DEFAULT_SHARED_ROOT = Path(r"\\192.168.10.229\运营组资料\往来单位信息")
 SUPPORTED_SUFFIXES = (".xlsx", ".xlsm", ".xls")
 CODE_HEADERS = ("单位编号", "编号", "单位代码")
 NAME_HEADERS = ("单位全名", "单位名称", "全名")
@@ -26,16 +32,40 @@ def _desktop_candidates() -> list[Path]:
     return candidates
 
 
+def _latest_excel_file(root: Path) -> Path | None:
+    if not root.exists() or not root.is_dir():
+        return None
+    matches = [
+        item
+        for item in root.iterdir()
+        if item.is_file()
+        and item.suffix.lower() in SUPPORTED_SUFFIXES
+        and not item.name.startswith("~$")
+    ]
+    if not matches:
+        return None
+    return max(matches, key=lambda item: item.stat().st_mtime)
+
+
 def resolve_source(path: str | None) -> Path:
     if path:
         source = Path(path)
         if source.is_file():
             return source
+        if source.is_dir():
+            latest = _latest_excel_file(source)
+            if latest is not None:
+                return latest
+            raise FileNotFoundError(f"目录下未找到 Excel 文件: {path}")
         for suffix in SUPPORTED_SUFFIXES:
             candidate = Path(f"{source}{suffix}")
             if candidate.is_file():
                 return candidate
         raise FileNotFoundError(f"未找到文件: {path}")
+
+    latest_shared = _latest_excel_file(DEFAULT_SHARED_ROOT)
+    if latest_shared is not None:
+        return latest_shared
 
     for desktop in _desktop_candidates():
         if not desktop.exists():
@@ -53,7 +83,7 @@ def resolve_source(path: str | None) -> Path:
         ]
         if matches:
             return max(matches, key=lambda item: item.stat().st_mtime)
-    raise FileNotFoundError(f"桌面未找到 {DEFAULT_FILE_PREFIX}")
+    raise FileNotFoundError(f"共享目录和桌面都未找到往来单位信息 Excel: {DEFAULT_SHARED_ROOT}")
 
 
 def _find_header_indexes(headers: list[str]) -> tuple[int, int] | None:
@@ -76,7 +106,36 @@ def _normalize_record(code: object, name: object) -> dict[str, str] | None:
     return {"factory_code": str(factory_code), "name": str(supplier_name)}
 
 
-def _read_xlsx(path: Path) -> list[dict[str, str]]:
+def _convert_with_wps(path: Path) -> Path | None:
+    script_path = Path(__file__).with_name("convert_units_with_wps.ps1")
+    if not script_path.exists():
+        return None
+    output_path = Path(tempfile.gettempdir()) / f"suppliers-{uuid.uuid4().hex}.xlsx"
+    try:
+        subprocess.run(
+            [
+                "powershell.exe",
+                "-NoProfile",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-File",
+                str(script_path),
+                "-InputPath",
+                str(path),
+                "-OutputPath",
+                str(output_path),
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=180,
+        )
+    except (subprocess.SubprocessError, OSError):
+        return None
+    return output_path if output_path.exists() else None
+
+
+def _read_openpyxl(path: Path) -> list[dict[str, str]]:
     workbook = load_workbook(path, data_only=True, read_only=True)
     try:
         worksheet = workbook[workbook.sheetnames[0]]
@@ -101,6 +160,22 @@ def _read_xlsx(path: Path) -> list[dict[str, str]]:
         return records
     finally:
         workbook.close()
+
+
+def _read_xlsx(path: Path) -> list[dict[str, str]]:
+    try:
+        return _read_openpyxl(path)
+    except (BadZipFile, InvalidFileException):
+        converted = _convert_with_wps(path)
+        if converted is not None:
+            try:
+                return _read_openpyxl(converted)
+            finally:
+                try:
+                    converted.unlink()
+                except OSError:
+                    pass
+        return _read_xls(path)
 
 
 def _read_xls(path: Path) -> list[dict[str, str]]:
@@ -188,7 +263,30 @@ def main() -> None:
     args = parser.parse_args()
     source = resolve_source(args.path)
     if args.inspect:
-        if source.suffix.lower() == ".xls":
+        inspect_as_xls = source.suffix.lower() == ".xls"
+        if not inspect_as_xls:
+            try:
+                workbook = load_workbook(source, data_only=True, read_only=True)
+            except (BadZipFile, InvalidFileException):
+                inspect_as_xls = True
+            else:
+                try:
+                    print(f"source={source}")
+                    print(f"sheets={workbook.sheetnames}")
+                    worksheet = workbook[workbook.sheetnames[0]]
+                    for row_index, row in enumerate(worksheet.iter_rows(values_only=True), start=1):
+                        values = [
+                            str(value).encode("unicode_escape").decode("ascii")
+                            for value in row[:20]
+                        ]
+                        print(row_index, values)
+                        if row_index >= 15:
+                            break
+                finally:
+                    workbook.close()
+                return
+
+        if inspect_as_xls:
             workbook = xlrd.open_workbook(source)
             print(f"source={source}")
             print(f"sheets={workbook.sheet_names()}")
@@ -202,22 +300,6 @@ def main() -> None:
                     for value in worksheet.row_values(row_index)[:20]
                 ]
                 print(row_index, values)
-        else:
-            workbook = load_workbook(source, data_only=True, read_only=True)
-            try:
-                print(f"source={source}")
-                print(f"sheets={workbook.sheetnames}")
-                worksheet = workbook[workbook.sheetnames[0]]
-                for row_index, row in enumerate(worksheet.iter_rows(values_only=True), start=1):
-                    values = [
-                        str(value).encode("unicode_escape").decode("ascii")
-                        for value in row[:20]
-                    ]
-                    print(row_index, values)
-                    if row_index >= 15:
-                        break
-            finally:
-                workbook.close()
         return
     result = import_suppliers(source)
     print(f"source={source}")
