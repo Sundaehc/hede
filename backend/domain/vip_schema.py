@@ -6,6 +6,7 @@ from sqlalchemy import (
     Date,
     DateTime,
     Identity,
+    Index,
     Integer,
     JSON,
     Numeric,
@@ -140,6 +141,13 @@ def build_vip_price_table() -> Table:
 
 
 VIP_DAILY_TABLE = build_vip_daily_table()
+Index(
+    "idx_vip_daily_goods_code_report_updated",
+    VIP_DAILY_TABLE.c.goods_code,
+    VIP_DAILY_TABLE.c.report_end_date.desc(),
+    VIP_DAILY_TABLE.c.updated_at.desc(),
+    VIP_DAILY_TABLE.c.id.desc(),
+)
 
 
 # ── vip_product_daily_snapshots ───────────────────────────────────
@@ -168,8 +176,21 @@ def build_vip_daily_snapshot_table() -> Table:
 
 
 VIP_DAILY_SNAPSHOT_TABLE = build_vip_daily_snapshot_table()
+Index(
+    "idx_daily_snapshots_code_type_period_date",
+    VIP_DAILY_SNAPSHOT_TABLE.c.goods_code,
+    VIP_DAILY_SNAPSHOT_TABLE.c.report_type,
+    VIP_DAILY_SNAPSHOT_TABLE.c.period,
+    VIP_DAILY_SNAPSHOT_TABLE.c.snapshot_date,
+)
 VIP_REALTIME_TABLE = build_vip_realtime_table()
 VIP_OPS_TABLE = build_vip_ops_table()
+Index(
+    "idx_vip_ops_goods_code_updated",
+    VIP_OPS_TABLE.c.goods_code,
+    VIP_OPS_TABLE.c.updated_at.desc(),
+    VIP_OPS_TABLE.c.id.desc(),
+)
 
 
 # ── vip_product_ops_snapshots ─────────────────────────────────────
@@ -196,6 +217,13 @@ def build_vip_ops_snapshot_table() -> Table:
 
 VIP_OPS_SNAPSHOT_TABLE = build_vip_ops_snapshot_table()
 JST_PRICE_TABLE = build_vip_price_table()
+Index(
+    "idx_jst_price_code_date_updated",
+    JST_PRICE_TABLE.c.goods_code,
+    JST_PRICE_TABLE.c.source_date_value.desc(),
+    JST_PRICE_TABLE.c.updated_at.desc(),
+    JST_PRICE_TABLE.c.id.desc(),
+)
 
 
 # ── jst_monthly_orders ────────────────────────────────────────────
@@ -220,6 +248,11 @@ def build_jst_monthly_orders_table() -> Table:
     )
 
 JST_MONTHLY_ORDERS_TABLE = build_jst_monthly_orders_table()
+Index(
+    "idx_jst_monthly_orders_style_time",
+    JST_MONTHLY_ORDERS_TABLE.c.style_code,
+    JST_MONTHLY_ORDERS_TABLE.c.order_time_at,
+)
 
 
 # ── jst_size_stock ────────────────────────────────────────────────
@@ -242,6 +275,11 @@ def build_jst_size_stock_table() -> Table:
     )
 
 JST_SIZE_STOCK_TABLE = build_jst_size_stock_table()
+Index(
+    "idx_jst_size_stock_product_size",
+    JST_SIZE_STOCK_TABLE.c.product_code,
+    JST_SIZE_STOCK_TABLE.c.size,
+)
 
 
 # ── jst_stock_summary ────────────────────────────────────────────
@@ -267,6 +305,7 @@ def build_jst_stock_summary_table() -> Table:
     )
 
 JST_STOCK_SUMMARY_TABLE = build_jst_stock_summary_table()
+Index("idx_jst_stock_summary_product_code", JST_STOCK_SUMMARY_TABLE.c.product_code)
 
 
 # ── jst_purchase_defects ──────────────────────────────────────────
@@ -289,3 +328,4 @@ def build_jst_purchase_diff_table() -> Table:
     )
 
 JST_PURCHASE_DIFF_TABLE = build_jst_purchase_diff_table()
+Index("idx_jst_purchase_defects_product_code", JST_PURCHASE_DIFF_TABLE.c.product_code)

@@ -54,6 +54,18 @@ def fine_table_snapshot_row_table_for_date(snapshot_date: date) -> Table:
     )
     Index(f"idx_{table_name}_batch_sku", table.c.batch_id, table.c.sku)
     Index(f"idx_{table_name}_batch_original_sku", table.c.batch_id, table.c.original_sku)
+    Index(
+        f"idx_{table_name}_sku_trgm",
+        table.c.sku,
+        postgresql_using="gin",
+        postgresql_ops={"sku": "gin_trgm_ops"},
+    )
+    Index(
+        f"idx_{table_name}_original_sku_trgm",
+        table.c.original_sku,
+        postgresql_using="gin",
+        postgresql_ops={"original_sku": "gin_trgm_ops"},
+    )
     return table
 
 

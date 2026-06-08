@@ -4,6 +4,7 @@ import re
 from datetime import date
 from pathlib import Path
 
+import orjson
 from openpyxl import load_workbook
 from sqlalchemy import create_engine, func as sa_func, text
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -45,13 +46,12 @@ def _snapshot_date_from_path(file_path: Path) -> date:
     return date.fromtimestamp(file_path.stat().st_mtime)
 
 
+def _json_serializer(value: object) -> str:
+    return orjson.dumps(value).decode("utf-8")
+
+
 class VipRepository:
     def __init__(self, database_url: str):
-        import orjson
-
-        def _json_serializer(value):
-            return orjson.dumps(value).decode("utf-8")
-
         self.engine = create_engine(
             database_url,
             future=True,

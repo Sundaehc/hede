@@ -554,9 +554,12 @@ def get_fine_table_snapshot(
             )
         )
         criterion = and_(*conditions)
-        total = connection.execute(
-            select(func.count()).select_from(snapshot_row_table).where(criterion)
-        ).scalar_one()
+        if normalized_query:
+            total = connection.execute(
+                select(func.count()).select_from(snapshot_row_table).where(criterion)
+            ).scalar_one()
+        else:
+            total = int(batch["total_rows"] or 0)
         rows = connection.execute(
             select(snapshot_row_table.c.payload)
             .where(criterion)
@@ -597,9 +600,16 @@ def list_fine_table(
     normalized_query = ",".join(terms)
     normalized_season = season if season and season != "all" else "all"
     cache_key = (brand, normalized_query, normalized_season, page, page_size)
+    total_cache_key = (brand, normalized_query, normalized_season, 0, 0)
     cached = get_fine_table_cache(cache_key)
     if cached is not None:
         return cached
+    cached_total_payload = get_fine_table_cache(total_cache_key)
+    cached_total = (
+        int(cached_total_payload["total"])
+        if cached_total_payload is not None and "total" in cached_total_payload
+        else None
+    )
 
     with repository.engine.connect() as conn:
         gj_brand_condition = _gj_cbanner_brand_condition(brand)
@@ -640,9 +650,13 @@ def list_fine_table(
                         .exists()
                     )
                 gj_criterion = and_(*gj_conditions)
-                total = conn.execute(
-                    select(func.count()).select_from(GJ_MERGED_PRODUCT_INFO_TABLE).where(gj_criterion)
-                ).scalar_one()
+                if cached_total is None:
+                    total = conn.execute(
+                        select(func.count()).select_from(GJ_MERGED_PRODUCT_INFO_TABLE).where(gj_criterion)
+                    ).scalar_one()
+                    set_fine_table_cache(total_cache_key, {"total": total})
+                else:
+                    total = cached_total
                 gj_rows = [
                     dict(row)
                     for row in conn.execute(
@@ -712,7 +726,11 @@ def list_fine_table(
                 count_stmt = count_stmt.where(criterion)
                 items_base_stmt = items_base_stmt.where(criterion)
 
-            total = conn.execute(count_stmt).scalar_one()
+            if cached_total is None:
+                total = conn.execute(count_stmt).scalar_one()
+                set_fine_table_cache(total_cache_key, {"total": total})
+            else:
+                total = cached_total
             product_rows = [
                 dict(row)
                 for row in conn.execute(

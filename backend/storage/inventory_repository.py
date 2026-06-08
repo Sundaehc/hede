@@ -5,6 +5,7 @@ from decimal import Decimal
 
 from pathlib import Path
 
+import orjson
 from openpyxl import load_workbook
 from sqlalchemy import and_, case, create_engine, delete, desc, func, insert, or_, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -13,13 +14,12 @@ from domain.inventory_schema import INVENTORY_DETAIL_TABLE, INVENTORY_TABLE, JST
 from storage.date_normalization import parse_date, parse_month_day
 
 
+def _json_serializer(value: object) -> str:
+    return orjson.dumps(value).decode("utf-8")
+
+
 class InventoryRepository:
     def __init__(self, database_url: str):
-        import orjson
-
-        def _json_serializer(value):
-            return orjson.dumps(value).decode("utf-8")
-
         self.engine = create_engine(
             database_url,
             future=True,

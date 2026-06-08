@@ -1,6 +1,6 @@
 "use client"
 
-import { memo, useDeferredValue, useEffect, useMemo, useRef, useState, type ReactNode } from "react"
+import { memo, useDeferredValue, useEffect, useMemo, useRef, useState, useTransition, type ReactNode } from "react"
 import {
   AlertTriangle,
   BarChart3,
@@ -36,12 +36,13 @@ import { Input } from "@/components/ui/input"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { BRANDS, type BrandKey } from "@/lib/brands"
 import { ApiError, getFineTableSnapshotByDate, listFineTable } from "@/lib/api"
-import type { FineTableItem, ProductListItem } from "@/lib/types"
+import type { FineTableItem, FineTableResponse, FineTableSnapshotResponse, ProductListItem } from "@/lib/types"
 import { cn } from "@/lib/utils"
 
 const PAGE_SIZE = 50
 const EXPORT_PAGE_SIZE = 200
 const EXPORT_CONCURRENCY = 3
+const FINE_TABLE_PAGE_CACHE_LIMIT = 80
 const DAILY_SALES_DISPLAY_DAYS = 5
 
 type ViewKey = "all" | "missingImage" | "stockRisk"
@@ -60,6 +61,18 @@ type TableColumn = {
   defaultVisible?: boolean
   render: (row: FineTableItem) => ReactNode
   exportValue?: (row: FineTableItem) => string | number | null | undefined
+}
+type FineTablePageCacheEntry = {
+  items: FineTableItem[]
+  total: number
+  latestOrderDate: string | null
+  snapshotLabel: string | null
+}
+type FineTablePageContext = {
+  brand: FineTableBrandKey
+  historyDate: string
+  query: string
+  reloadToken: number
 }
 
 const viewTabs: { value: ViewKey; label: string }[] = [
@@ -846,7 +859,7 @@ function DetailDrawer({ row, onClose }: { row: FineTableItem | null; onClose: ()
       aria-modal="true"
       aria-labelledby="fine-table-detail-title"
       tabIndex={-1}
-      className="fixed inset-y-0 right-0 z-50 w-full max-w-2xl border-l border-border bg-background/95 shadow-2xl outline-none backdrop-blur"
+      className="fixed inset-y-0 right-0 z-[90] w-full max-w-2xl border-l border-border bg-background/95 shadow-2xl outline-none backdrop-blur"
       onKeyDown={(event) => {
         if (event.key === "Escape") {
           event.preventDefault()
@@ -1115,13 +1128,13 @@ const FineTableGrid = memo(function FineTableGrid({
           className="w-full border-separate border-spacing-0 text-[13px]"
           style={{ minWidth: tableMinWidth }}
         >
-          <thead className="sticky top-0 z-20 bg-card/95 backdrop-blur">
+          <thead className="sticky top-0 z-[60] bg-card">
             <tr className="text-xs text-muted-foreground">
-              <th rowSpan={hasDailyColumns ? 2 : 1} className="sticky left-0 z-30 w-20 min-w-[5rem] max-w-[5rem] border-b border-border bg-card px-3 py-2.5 text-center font-medium">图片</th>
-              <th rowSpan={hasDailyColumns ? 2 : 1} className="sticky left-20 z-30 w-40 min-w-[10rem] max-w-[10rem] border-b border-border bg-card px-3 py-2.5 text-left font-medium">货号</th>
-              <th rowSpan={hasDailyColumns ? 2 : 1} className="sticky left-60 z-30 w-40 min-w-[10rem] max-w-[10rem] border-b border-border bg-card px-3 py-2.5 text-left font-medium">原始货号</th>
+              <th rowSpan={hasDailyColumns ? 2 : 1} className="sticky left-0 z-[70] w-20 min-w-[5rem] max-w-[5rem] border-b border-border bg-card px-3 py-2.5 text-center font-medium">图片</th>
+              <th rowSpan={hasDailyColumns ? 2 : 1} className="sticky left-20 z-[70] w-40 min-w-[10rem] max-w-[10rem] border-b border-border bg-card px-3 py-2.5 text-left font-medium">货号</th>
+              <th rowSpan={hasDailyColumns ? 2 : 1} className="sticky left-60 z-[70] w-40 min-w-[10rem] max-w-[10rem] border-b border-border bg-card px-3 py-2.5 text-left font-medium">原始货号</th>
               {headerCells}
-              <th rowSpan={hasDailyColumns ? 2 : 1} className="sticky right-0 z-30 w-20 border-b border-border bg-card px-3 py-3 text-center font-medium">详情</th>
+              <th rowSpan={hasDailyColumns ? 2 : 1} className="sticky right-0 z-[70] w-20 border-b border-border bg-card px-3 py-3 text-center font-medium">详情</th>
             </tr>
             {hasDailyColumns && (
               <tr className="text-xs text-muted-foreground">
@@ -1227,6 +1240,62 @@ function getMaxHistoryDate() {
   return formatDateInputValue(date)
 }
 
+function fineTablePageCacheKey(context: FineTablePageContext, page: number) {
+  return JSON.stringify([context.brand, context.historyDate, context.query, context.reloadToken, page])
+}
+
+function fineTableResponseToCacheEntry(response: FineTableResponse | FineTableSnapshotResponse): FineTablePageCacheEntry {
+  if ("snapshot" in response) {
+    return {
+      items: response.items,
+      total: response.total,
+      latestOrderDate: response.snapshot.latest_order_date,
+      snapshotLabel: response.snapshot.snapshot_date,
+    }
+  }
+
+  return {
+    items: response.items,
+    total: response.total,
+    latestOrderDate: response.latest_order_date,
+    snapshotLabel: null,
+  }
+}
+
+async function loadFineTablePage(context: FineTablePageContext, page: number) {
+  const response = context.historyDate
+    ? await getFineTableSnapshotByDate({
+      brand: context.brand,
+      snapshotDate: context.historyDate,
+      page,
+      pageSize: PAGE_SIZE,
+      query: context.query || undefined,
+    })
+    : await listFineTable({
+      brand: context.brand,
+      page,
+      pageSize: PAGE_SIZE,
+      query: context.query || undefined,
+    })
+
+  return fineTableResponseToCacheEntry(response)
+}
+
+function rememberFineTablePage(
+  cache: Map<string, FineTablePageCacheEntry>,
+  key: string,
+  entry: FineTablePageCacheEntry,
+) {
+  if (cache.has(key)) cache.delete(key)
+  cache.set(key, entry)
+
+  while (cache.size > FINE_TABLE_PAGE_CACHE_LIMIT) {
+    const oldestKey = cache.keys().next().value
+    if (!oldestKey) break
+    cache.delete(oldestKey)
+  }
+}
+
 export function FineTablePage() {
   const [brand, setBrand] = useState<FineTableBrandKey>(DEFAULT_FINE_TABLE_BRAND)
   const [items, setItems] = useState<FineTableItem[]>([])
@@ -1252,7 +1321,10 @@ export function FineTablePage() {
   const [previewImage, setPreviewImage] = useState<{ src: string; alt: string } | null>(null)
   const [historyDate, setHistoryDate] = useState("")
   const [snapshotLabel, setSnapshotLabel] = useState<string | null>(null)
+  const [, startPageTransition] = useTransition()
   const loadRequestIdRef = useRef(0)
+  const pageCacheRef = useRef(new Map<string, FineTablePageCacheEntry>())
+  const prefetchingPagesRef = useRef(new Set<string>())
   const historyDateInputRef = useRef<HTMLInputElement>(null)
   const maxHistoryDate = getMaxHistoryDate()
 
@@ -1261,35 +1333,59 @@ export function FineTablePage() {
     const requestId = loadRequestIdRef.current + 1
     loadRequestIdRef.current = requestId
     const isCurrentRequest = () => !cancelled && loadRequestIdRef.current === requestId
+    const context: FineTablePageContext = { brand, historyDate, query, reloadToken }
+    const cacheKey = fineTablePageCacheKey(context, page)
+
+    function applyPageEntry(entry: FineTablePageCacheEntry) {
+      setItems(entry.items)
+      setTotal(entry.total)
+      setLatestOrderDate(entry.latestOrderDate)
+      setSnapshotLabel(entry.snapshotLabel)
+    }
+
+    function prefetchPage(pageToPrefetch: number, totalPageCount: number) {
+      if (pageToPrefetch < 1 || pageToPrefetch > totalPageCount) return
+
+      const prefetchKey = fineTablePageCacheKey(context, pageToPrefetch)
+      if (pageCacheRef.current.has(prefetchKey) || prefetchingPagesRef.current.has(prefetchKey)) return
+
+      prefetchingPagesRef.current.add(prefetchKey)
+      void loadFineTablePage(context, pageToPrefetch)
+        .then((entry) => {
+          rememberFineTablePage(pageCacheRef.current, prefetchKey, entry)
+        })
+        .catch(() => {
+          // Prefetch is only a speed-up; the active page request will surface real errors.
+        })
+        .finally(() => {
+          prefetchingPagesRef.current.delete(prefetchKey)
+        })
+    }
+
+    const cachedEntry = pageCacheRef.current.get(cacheKey)
+    if (cachedEntry) {
+      applyPageEntry(cachedEntry)
+      setError(null)
+      setIsLoading(false)
+      const cachedTotalPages = Math.max(1, Math.ceil(cachedEntry.total / PAGE_SIZE))
+      prefetchPage(page - 1, cachedTotalPages)
+      prefetchPage(page + 1, cachedTotalPages)
+      return () => {
+        cancelled = true
+      }
+    }
 
     async function loadData() {
       setIsLoading(true)
       setError(null)
       try {
-        const response = historyDate
-          ? await getFineTableSnapshotByDate({
-            brand,
-            snapshotDate: historyDate,
-            page,
-            pageSize: PAGE_SIZE,
-            query: query || undefined,
-          })
-          : await listFineTable({
-            brand,
-            page,
-            pageSize: PAGE_SIZE,
-            query: query || undefined,
-          })
+        const entry = await loadFineTablePage(context, page)
         if (!isCurrentRequest()) return
-        setItems(response.items)
-        setTotal(response.total)
-        if ("snapshot" in response) {
-          setLatestOrderDate(response.snapshot.latest_order_date)
-          setSnapshotLabel(response.snapshot.snapshot_date)
-        } else {
-          setLatestOrderDate(response.latest_order_date)
-          setSnapshotLabel(null)
-        }
+        rememberFineTablePage(pageCacheRef.current, cacheKey, entry)
+        applyPageEntry(entry)
+        const loadedTotalPages = Math.max(1, Math.ceil(entry.total / PAGE_SIZE))
+        prefetchPage(page - 1, loadedTotalPages)
+        prefetchPage(page + 1, loadedTotalPages)
       } catch (loadError) {
         if (!isCurrentRequest()) return
         setItems([])
@@ -1469,6 +1565,10 @@ export function FineTablePage() {
     setItems([])
     setTotal(0)
     setError(null)
+  }
+
+  function handlePageChange(nextPage: number) {
+    startPageTransition(() => setPage(nextPage))
   }
 
   async function handleExport() {
@@ -1757,7 +1857,7 @@ export function FineTablePage() {
               error={error}
               filteredRows={filteredRows}
               isLoading={isLoading}
-              onPageChange={setPage}
+              onPageChange={handlePageChange}
               onPreviewImage={(row) => {
                 if (!row.image_url) return
                 setPreviewImage({
@@ -1963,7 +2063,7 @@ export function FineTablePage() {
           </div>
         </DialogContent>
       </Dialog>
-      {selectedRow && <div aria-hidden="true" className="fixed inset-0 z-40 bg-black/20" onClick={() => setSelectedRow(null)} />}
+      {selectedRow && <div aria-hidden="true" className="fixed inset-0 z-[80] bg-black/20" onClick={() => setSelectedRow(null)} />}
       <DetailDrawer row={selectedRow} onClose={() => setSelectedRow(null)} />
       <Dialog open={previewImage !== null} onOpenChange={(open) => !open && setPreviewImage(null)}>
         <DialogContent className="max-h-[92svh] max-w-[min(94vw,1120px)] overflow-hidden bg-background p-0 shadow-2xl">

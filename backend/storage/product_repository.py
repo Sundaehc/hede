@@ -4,6 +4,7 @@ from collections.abc import Mapping
 from decimal import Decimal
 from typing import Callable
 
+import orjson
 from sqlalchemy import and_, create_engine, delete, desc, func, insert, literal, or_, select, union_all, update
 
 from domain.excluded_skus import not_excluded_sku_condition
@@ -11,13 +12,12 @@ from domain.product_defaults import apply_product_defaults
 from domain.schema import PRODUCT_TABLES
 
 
+def _json_serializer(value: object) -> bytes:
+    return orjson.dumps(value)
+
+
 class ProductRepository:
     def __init__(self, database_url: str):
-        import orjson
-
-        def _json_serializer(value):
-            return orjson.dumps(value)
-
         self.engine = create_engine(
             database_url,
             future=True,

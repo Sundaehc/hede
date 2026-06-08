@@ -38,6 +38,32 @@ def build_gj_merged_product_info_table() -> Table:
     Index("idx_gj_merged_product_info_goods_code", table.c.goods_code)
     Index("idx_gj_merged_product_info_original_code", table.c.original_goods_code)
     Index("idx_gj_merged_product_info_source_date", table.c.source_date_value)
+    Index("idx_gj_merged_product_info_source_date_id_desc", table.c.source_date_value, table.c.id.desc())
+    Index(
+        "idx_gj_merged_product_info_source_date_goods_updated",
+        table.c.source_date_value,
+        table.c.goods_code,
+        table.c.updated_at.desc(),
+        table.c.id.desc(),
+    )
+    Index(
+        "idx_gj_merged_product_info_goods_code_trgm",
+        table.c.goods_code,
+        postgresql_using="gin",
+        postgresql_ops={"goods_code": "gin_trgm_ops"},
+    )
+    Index(
+        "idx_gj_merged_product_info_original_goods_code_trgm",
+        table.c.original_goods_code,
+        postgresql_using="gin",
+        postgresql_ops={"original_goods_code": "gin_trgm_ops"},
+    )
+    Index(
+        "idx_gj_merged_product_info_primary_supplier_trgm",
+        table.c.primary_supplier,
+        postgresql_using="gin",
+        postgresql_ops={"primary_supplier": "gin_trgm_ops"},
+    )
     return table
 
 

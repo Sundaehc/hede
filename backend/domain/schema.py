@@ -34,6 +34,7 @@ def build_product_tables() -> dict[str, Table]:
         columns.append(UniqueConstraint("sku", name=f"uq_{table_name}_sku"))
         table = Table(table_name, METADATA, *columns)
         Index(f"idx_{table_name}_year", table.c.year)
+        Index(f"idx_{table_name}_original_sku", table.c.original_sku)
         tables[brand_group] = table
     return tables
 
