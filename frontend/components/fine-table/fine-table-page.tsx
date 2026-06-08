@@ -1117,9 +1117,9 @@ const FineTableGrid = memo(function FineTableGrid({
         >
           <thead className="sticky top-0 z-20 bg-card/95 backdrop-blur">
             <tr className="text-xs text-muted-foreground">
-              <th rowSpan={hasDailyColumns ? 2 : 1} className="sticky left-0 z-30 w-20 border-b border-border bg-card/95 px-3 py-2.5 text-center font-medium">图片</th>
-              <th rowSpan={hasDailyColumns ? 2 : 1} className="sticky left-20 z-30 w-40 border-b border-border bg-card/95 px-3 py-2.5 text-left font-medium">货号</th>
-              <th rowSpan={hasDailyColumns ? 2 : 1} className="sticky left-60 z-30 w-40 border-b border-border bg-card/95 px-3 py-2.5 text-left font-medium">原始货号</th>
+              <th rowSpan={hasDailyColumns ? 2 : 1} className="sticky left-0 z-30 w-20 min-w-[5rem] max-w-[5rem] border-b border-border bg-card px-3 py-2.5 text-center font-medium">图片</th>
+              <th rowSpan={hasDailyColumns ? 2 : 1} className="sticky left-20 z-30 w-40 min-w-[10rem] max-w-[10rem] border-b border-border bg-card px-3 py-2.5 text-left font-medium">货号</th>
+              <th rowSpan={hasDailyColumns ? 2 : 1} className="sticky left-60 z-30 w-40 min-w-[10rem] max-w-[10rem] border-b border-border bg-card px-3 py-2.5 text-left font-medium">原始货号</th>
               {headerCells}
               <th rowSpan={hasDailyColumns ? 2 : 1} className="sticky right-0 z-30 w-20 border-b border-border bg-card px-3 py-3 text-center font-medium">详情</th>
             </tr>
@@ -1157,7 +1157,7 @@ const FineTableGrid = memo(function FineTableGrid({
             )}
             {!isLoading && !error && filteredRows.map((row) => (
               <tr key={`${row.brand}-${row.id}`} className="group transition-colors hover:bg-muted/50">
-                <td className="sticky left-0 z-10 border-b border-border bg-card px-3 py-2 text-center group-hover:bg-muted/40">
+                <td className="sticky left-0 z-20 w-20 min-w-[5rem] max-w-[5rem] border-b border-border bg-card px-3 py-2 text-center group-hover:bg-muted">
                   <button
                     type="button"
                     className={cn(
@@ -1174,10 +1174,10 @@ const FineTableGrid = memo(function FineTableGrid({
                     <ProductThumb item={row} />
                   </button>
                 </td>
-                <td className="sticky left-20 z-10 border-b border-border bg-card px-3 py-2 text-left group-hover:bg-muted/40">
+                <td className="sticky left-20 z-20 w-40 min-w-[10rem] max-w-[10rem] border-b border-border bg-card px-3 py-2 text-left group-hover:bg-muted">
                   <p className="truncate font-medium">{row.sku || "-"}</p>
                 </td>
-                <td className="sticky left-60 z-10 border-b border-border bg-card px-3 py-2 text-left group-hover:bg-muted/40">
+                <td className="sticky left-60 z-20 w-40 min-w-[10rem] max-w-[10rem] border-b border-border bg-card px-3 py-2 text-left group-hover:bg-muted">
                   <p className="truncate text-sm">{row.original_sku || "-"}</p>
                 </td>
                 {visibleColumns.map((column) => (
@@ -1192,7 +1192,7 @@ const FineTableGrid = memo(function FineTableGrid({
                     {column.render(row)}
                   </td>
                 ))}
-                <td className="sticky right-0 z-10 border-b border-border bg-card px-3 py-2 text-center group-hover:bg-muted/40">
+                <td className="sticky right-0 z-20 w-20 min-w-[5rem] max-w-[5rem] border-b border-border bg-card px-3 py-2 text-center group-hover:bg-muted">
                   <Button variant="ghost" size="icon" onClick={() => onSelectRow(row)} aria-label="查看详情">
                     <ChevronRight className="h-4 w-4" />
                   </Button>
