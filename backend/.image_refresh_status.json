@@ -2,6 +2,132 @@
   "in_progress": false,
   "runs": [
     {
+      "id": "66a1096373484ab8bfae0ba7500b33b2",
+      "brands": [
+        "cbanner_mens",
+        "cbanner_womens",
+        "yandou",
+        "eblan"
+      ],
+      "overwrite": false,
+      "started_at": "2026-06-07T15:00:01.935653+00:00",
+      "finished_at": "2026-06-07T15:01:06.835216+00:00",
+      "status": "completed",
+      "scanned": 15739,
+      "updated": 2,
+      "results": {
+        "cbanner_mens": {
+          "scanned": 249,
+          "matched": 0,
+          "updated": 0,
+          "missing": 249
+        },
+        "cbanner_womens": {
+          "scanned": 2083,
+          "matched": 2,
+          "updated": 2,
+          "missing": 2081
+        },
+        "yandou": {
+          "scanned": 13230,
+          "matched": 0,
+          "updated": 0,
+          "missing": 13230
+        },
+        "eblan": {
+          "scanned": 177,
+          "matched": 0,
+          "updated": 0,
+          "missing": 177
+        }
+      },
+      "message": "图片刷新完成：扫描 15739 条，更新 2 条"
+    },
+    {
+      "id": "a7e67bc61e624c12876a636e4116ea95",
+      "brands": [
+        "cbanner_mens",
+        "cbanner_womens",
+        "yandou",
+        "eblan"
+      ],
+      "overwrite": false,
+      "started_at": "2026-06-06T15:00:02.202161+00:00",
+      "finished_at": "2026-06-06T15:01:02.742769+00:00",
+      "status": "completed",
+      "scanned": 15735,
+      "updated": 7,
+      "results": {
+        "cbanner_mens": {
+          "scanned": 249,
+          "matched": 0,
+          "updated": 0,
+          "missing": 249
+        },
+        "cbanner_womens": {
+          "scanned": 2079,
+          "matched": 7,
+          "updated": 7,
+          "missing": 2072
+        },
+        "yandou": {
+          "scanned": 13230,
+          "matched": 0,
+          "updated": 0,
+          "missing": 13230
+        },
+        "eblan": {
+          "scanned": 177,
+          "matched": 0,
+          "updated": 0,
+          "missing": 177
+        }
+      },
+      "message": "图片刷新完成：扫描 15735 条，更新 7 条"
+    },
+    {
+      "id": "c043281e41f5438f8abed49dbe6ed9a0",
+      "brands": [
+        "cbanner_mens",
+        "cbanner_womens",
+        "yandou",
+        "eblan"
+      ],
+      "overwrite": false,
+      "started_at": "2026-06-05T15:00:01.814861+00:00",
+      "finished_at": "2026-06-05T15:01:03.403377+00:00",
+      "status": "completed",
+      "scanned": 15723,
+      "updated": 1,
+      "results": {
+        "cbanner_mens": {
+          "scanned": 249,
+          "matched": 0,
+          "updated": 0,
+          "missing": 249
+        },
+        "cbanner_womens": {
+          "scanned": 2067,
+          "matched": 1,
+          "updated": 1,
+          "missing": 2066
+        },
+        "yandou": {
+          "scanned": 13230,
+          "matched": 0,
+          "updated": 0,
+          "missing": 13230
+        },
+        "eblan": {
+          "scanned": 177,
+          "matched": 0,
+          "updated": 0,
+          "missing": 177
+        }
+      },
+      "message": "图片刷新完成：扫描 15723 条，更新 1 条"
+    },
+    {
       "id": "545bf11906804724a41133bbe73de3ca",
       "brands": [
         "cbanner_mens",
@@ -630,74 +756,11 @@
         }
       },
       "message": "图片刷新完成：扫描 4441 条，更新 0 条"
-    },
-    {
-      "id": "b48d7d4ffcd64104941b25b7b3a7891e",
-      "brands": [
-        "cbanner_mens",
-        "cbanner_womens",
-        "yandou",
-        "eblan"
-      ],
-      "overwrite": false,
-      "started_at": "2026-05-25T01:04:58.029607+00:00",
-      "finished_at": "2026-05-25T01:06:35.972747+00:00",
-      "status": "completed",
-      "scanned": 4441,
-      "updated": 0,
-      "results": {
-        "cbanner_mens": {
-          "scanned": 65,
-          "matched": 0,
-          "updated": 0,
-          "missing": 65
-        },
-        "cbanner_womens": {
-          "scanned": 1859,
-          "matched": 0,
-          "updated": 0,
-          "missing": 1859
-        },
-        "yandou": {
-          "scanned": 2319,
-          "matched": 0,
-          "updated": 0,
-          "missing": 2319
-        },
-        "eblan": {
-          "scanned": 198,
-          "matched": 0,
-          "updated": 0,
-          "missing": 198
-        }
-      },
-      "message": "图片刷新完成：扫描 4441 条，更新 0 条"
-    },
-    {
-      "id": "de7be0ec159b4d22888952df56016607",
-      "brands": [
-        "cbanner_womens"
-      ],
-      "overwrite": false,
-      "started_at": "2026-05-22T06:40:29.466558+00:00",
-      "finished_at": "2026-05-22T06:41:16.350138+00:00",
-      "status": "completed",
-      "scanned": 1860,
-      "updated": 1,
-      "results": {
-        "cbanner_womens": {
-          "scanned": 1860,
-          "matched": 1,
-          "updated": 1,
-          "missing": 1859
-        }
-      },
-      "message": "图片刷新完成：扫描 1860 条，更新 1 条"
     }
   ],
   "current_run": null,
   "last_run": {
-    "id": "545bf11906804724a41133bbe73de3ca",
+    "id": "66a1096373484ab8bfae0ba7500b33b2",
     "brands": [
       "cbanner_mens",
       "cbanner_womens",
@@ -705,11 +768,11 @@
       "eblan"
     ],
     "overwrite": false,
-    "started_at": "2026-06-04T15:00:01.786243+00:00",
-    "finished_at": "2026-06-04T15:01:42.780223+00:00",
+    "started_at": "2026-06-07T15:00:01.935653+00:00",
+    "finished_at": "2026-06-07T15:01:06.835216+00:00",
     "status": "completed",
-    "scanned": 15714,
-    "updated": 6,
+    "scanned": 15739,
+    "updated": 2,
     "results": {
       "cbanner_mens": {
         "scanned": 249,
@@ -718,10 +781,10 @@
         "missing": 249
       },
       "cbanner_womens": {
-        "scanned": 2058,
-        "matched": 6,
-        "updated": 6,
-        "missing": 2052
+        "scanned": 2083,
+        "matched": 2,
+        "updated": 2,
+        "missing": 2081
       },
       "yandou": {
         "scanned": 13230,
@@ -736,6 +799,6 @@
         "missing": 177
       }
     },
-    "message": "图片刷新完成：扫描 15714 条，更新 6 条"
+    "message": "图片刷新完成：扫描 15739 条，更新 2 条"
   }
 }

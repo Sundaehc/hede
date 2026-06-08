@@ -49,3 +49,27 @@ FileNotFoundError: Î´ÕÒµ½ ÄĞÅ®Ğ¬ºÏ²¢ÉÌÆ·ĞÅÏ¢: \\192.168.10.58\³¬¼¶¹²Ïí\Ó°µ¶¼¼Êõ¿
 [2026/06/05 ÖÜÎå  8:00:01.68] start import_gj_merged_product_info_daily 
 {'source_dir': '\\\\192.168.10.58\\³¬¼¶¹²Ïí\\Ó°µ¶¼¼Êõ¿ª·¢²¿¹²Ïí\\¹Ü¼ÒÆÅÊı¾İµ¼³ö\\2026-06-05', 'source_file': 'ÄĞÅ®Ğ¬ºÏ²¢ÉÌÆ·ĞÅÏ¢.xlsx', 'source_date': '2026-06-05', 'read_rows': 59343, 'imported': 58796}
 [2026/06/05 ÖÜÎå  8:00:13.17] end import_gj_merged_product_info_daily errorlevel=0 
+[2026/06/06 ÖÜÁù  8:00:01.60] start import_gj_merged_product_info_daily 
+{'source_dir': '\\\\192.168.10.58\\³¬¼¶¹²Ïí\\Ó°µ¶¼¼Êõ¿ª·¢²¿¹²Ïí\\¹Ü¼ÒÆÅÊı¾İµ¼³ö\\2026-06-06', 'source_file': 'ÄĞÅ®Ğ¬ºÏ²¢ÉÌÆ·ĞÅÏ¢.xlsx', 'source_date': '2026-06-06', 'read_rows': 59361, 'imported': 58814}
+[2026/06/06 ÖÜÁù  8:00:12.91] end import_gj_merged_product_info_daily errorlevel=0 
+[2026/06/07 ÖÜÈÕ  8:00:01.71] start import_gj_merged_product_info_daily 
+{'source_dir': '\\\\192.168.10.58\\³¬¼¶¹²Ïí\\Ó°µ¶¼¼Êõ¿ª·¢²¿¹²Ïí\\¹Ü¼ÒÆÅÊı¾İµ¼³ö\\2026-06-07', 'source_file': 'ÄĞÅ®Ğ¬ºÏ²¢ÉÌÆ·ĞÅÏ¢.xlsx', 'source_date': '2026-06-07', 'read_rows': 59382, 'imported': 58835}
+[2026/06/07 ÖÜÈÕ  8:00:13.42] end import_gj_merged_product_info_daily errorlevel=0 
+[2026/06/08 ÖÜÒ»  8:00:01.68] start import_gj_merged_product_info_daily 
+Traceback (most recent call last):
+  File "<frozen runpy>", line 198, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+  File "E:\hede\backend\scripts\import_gj_merged_product_info.py", line 159, in <module>
+    main()
+    ~~~~^^
+  File "E:\hede\backend\scripts\import_gj_merged_product_info.py", line 154, in main
+    result = import_gj_merged_product_info(settings.database_url, source_dir)
+  File "E:\hede\backend\scripts\import_gj_merged_product_info.py", line 118, in import_gj_merged_product_info
+    file_path = _source_file(source_dir)
+  File "E:\hede\backend\scripts\import_gj_merged_product_info.py", line 55, in _source_file
+    raise FileNotFoundError(f"Î´ÕÒµ½ {SOURCE_FILE_KEYWORD}: {source_dir}")
+FileNotFoundError: Î´ÕÒµ½ ÄĞÅ®Ğ¬ºÏ²¢ÉÌÆ·ĞÅÏ¢: \\192.168.10.58\³¬¼¶¹²Ïí\Ó°µ¶¼¼Êõ¿ª·¢²¿¹²Ïí\¹Ü¼ÒÆÅÊı¾İµ¼³ö\2026-06-08
+[2026/06/08 ÖÜÒ»  8:00:02.86] end import_gj_merged_product_info_daily errorlevel=1 
+[å‘¨ä¸€ 2026/06/08 13:50:17.40] start import_gj_merged_product_info_daily 
+{'source_dir': '\\\\192.168.10.58\\³¬¼¶¹²Ïí\\Ó°µ¶¼¼Êõ¿ª·¢²¿¹²Ïí\\¹Ü¼ÒÆÅÊı¾İµ¼³ö\\2026-06-08', 'source_file': 'ÄĞÅ®Ğ¬ºÏ²¢ÉÌÆ·ĞÅÏ¢.xlsx', 'source_date': '2026-06-08', 'read_rows': 59414, 'imported': 58867}
+[å‘¨ä¸€ 2026/06/08 13:50:25.42] end import_gj_merged_product_info_daily errorlevel=0 

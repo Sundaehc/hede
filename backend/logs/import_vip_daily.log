@@ -82,3 +82,34 @@ using a closure in a dumps/loads function may cause a resource leak
 using a closure in a dumps/loads function may cause a resource leak
 [SKIP] VIP 目录不存在: \\192.168.10.58\超级共享\影刀技术开发部共享\唯品会后台\千百度伊伴\06.05
 [2026/06/05 周五 11:00:02.77] end import_vip_daily errorlevel=0 
+[2026/06/06 周六 11:00:01.87] start import_vip_daily 
+using a closure in a dumps/loads function may cause a resource leak
+using a closure in a dumps/loads function may cause a resource leak
+using a closure in a dumps/loads function may cause a resource leak
+using a closure in a dumps/loads function may cause a resource leak
+D:\python\Lib\site-packages\openpyxl\styles\stylesheet.py:237: UserWarning: Workbook contains no default style, apply openpyxl's default
+  warn("Workbook contains no default style, apply openpyxl's default")
+[VIP] \\192.168.10.58\超级共享\影刀技术开发部共享\唯品会后台\千百度伊伴\06.06 导入完成, 共 133525 条
+[VIP] \\Creation\超级共享\影刀技术开发部共享\唯品会后台\烟斗\06.06 导入完成, 共 8174 条
+[VIP] 06.06 全部导入完成, 共 141699 条
+[2026/06/06 周六 11:00:54.14] end import_vip_daily errorlevel=0 
+[2026/06/07 周日 11:00:01.95] start import_vip_daily 
+using a closure in a dumps/loads function may cause a resource leak
+using a closure in a dumps/loads function may cause a resource leak
+using a closure in a dumps/loads function may cause a resource leak
+using a closure in a dumps/loads function may cause a resource leak
+D:\python\Lib\site-packages\openpyxl\styles\stylesheet.py:237: UserWarning: Workbook contains no default style, apply openpyxl's default
+  warn("Workbook contains no default style, apply openpyxl's default")
+[VIP] \\192.168.10.58\超级共享\影刀技术开发部共享\唯品会后台\千百度伊伴\06.07 导入完成, 共 133740 条
+[VIP] \\Creation\超级共享\影刀技术开发部共享\唯品会后台\烟斗\06.07 导入完成, 共 8663 条
+[VIP] 06.07 全部导入完成, 共 142403 条
+[2026/06/07 周日 11:01:03.59] end import_vip_daily errorlevel=0 
+[2026/06/08 周一 11:00:01.90] start import_vip_daily 
+using a closure in a dumps/loads function may cause a resource leak
+using a closure in a dumps/loads function may cause a resource leak
+using a closure in a dumps/loads function may cause a resource leak
+using a closure in a dumps/loads function may cause a resource leak
+[VIP] \\192.168.10.58\超级共享\影刀技术开发部共享\唯品会后台\千百度伊伴\06.08 导入完成, 共 0 条
+[VIP] \\Creation\超级共享\影刀技术开发部共享\唯品会后台\烟斗\06.08 导入完成, 共 38135 条
+[VIP] 06.08 全部导入完成, 共 38135 条
+[2026/06/08 周一 11:00:46.09] end import_vip_daily errorlevel=0 

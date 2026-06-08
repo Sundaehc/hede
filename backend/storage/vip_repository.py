@@ -5,7 +5,7 @@ from datetime import date
 from pathlib import Path
 
 from openpyxl import load_workbook
-from sqlalchemy import create_engine, func as sa_func
+from sqlalchemy import create_engine, func as sa_func, text
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from domain.vip_schema import VIP_DAILY_TABLE, VIP_DAILY_SNAPSHOT_TABLE, VIP_OPS_TABLE, VIP_OPS_SNAPSHOT_TABLE, JST_PRICE_TABLE, VIP_REALTIME_TABLE, JST_MONTHLY_ORDERS_TABLE, JST_SIZE_STOCK_TABLE, JST_STOCK_SUMMARY_TABLE, JST_PURCHASE_DIFF_TABLE
@@ -222,6 +222,9 @@ class VipRepository:
 
     def import_price(self, file_path: Path) -> dict[str, object]:
         """Import 物价信息 Excel. Header is on row 4 (1-indexed)."""
+        self._ensure_price_history_schema()
+        batch_date = file_path.parent.name
+        source_date_value = parse_date(batch_date)
         wb = load_workbook(file_path, data_only=True, read_only=True)
         ws = wb.active
         assert ws is not None
@@ -243,6 +246,8 @@ class VipRepository:
         rows_to_upsert: list[dict] = []
         for row_num, row in enumerate(rows_iter, start=4):  # data starts at row 5
             record: dict[str, object] = {
+                "source_date": batch_date,
+                "source_date_value": source_date_value,
                 "source_workbook": file_path.stem,
                 "source_sheet": sheet_title,
                 "source_row_number": str(row_num),
@@ -279,18 +284,18 @@ class VipRepository:
             if idx not in kept:
                 deduped.append(rows_to_upsert[idx])
 
-        update_cols = [
-            c for c in deduped[0]
-            if c not in ("id", "goods_code", "goods_full_name")
-        ]
         from sqlalchemy import delete as sa_delete
 
         with self.engine.begin() as conn:
-            conn.execute(sa_delete(JST_PRICE_TABLE))
+            conn.execute(
+                sa_delete(JST_PRICE_TABLE)
+                .where(JST_PRICE_TABLE.c.source_date == batch_date)
+            )
             self._batch_insert(JST_PRICE_TABLE, deduped, conn=conn)
 
         return {
             "imported": len(deduped),
+            "source_date": batch_date,
             "message": f"{file_path.name}: {len(deduped)} 条 (原始 {len(rows_to_upsert)} 行)",
         }
 
@@ -532,6 +537,58 @@ class VipRepository:
         }
 
     # ── Helpers ────────────────────────────────────────────────────
+
+    def _ensure_price_history_schema(self) -> None:
+        JST_PRICE_TABLE.create(self.engine, checkfirst=True)
+        with self.engine.begin() as conn:
+            conn.execute(text("ALTER TABLE jst_product_price ADD COLUMN IF NOT EXISTS source_date TEXT"))
+            conn.execute(text("ALTER TABLE jst_product_price ADD COLUMN IF NOT EXISTS source_date_value DATE"))
+            conn.execute(
+                text(
+                    """
+                    update jst_product_price
+                    set
+                        source_date = coalesce(source_date, to_char(current_date, 'YYYY-MM-DD')),
+                        source_date_value = coalesce(source_date_value, current_date)
+                    where source_date is null
+                       or source_date = ''
+                       or source_date_value is null
+                    """
+                )
+            )
+            conn.execute(text("ALTER TABLE jst_product_price ALTER COLUMN source_date SET NOT NULL"))
+            conn.execute(
+                text(
+                    """
+                    do $$
+                    begin
+                        if exists (
+                            select 1
+                            from pg_constraint
+                            where conname = 'uq_jst_price_code_name'
+                        ) then
+                            alter table jst_product_price drop constraint uq_jst_price_code_name;
+                        end if;
+                    end $$;
+                    """
+                )
+            )
+            conn.execute(
+                text(
+                    """
+                    create unique index if not exists uq_jst_price_date_code_name
+                    on jst_product_price (source_date, goods_code, goods_full_name)
+                    """
+                )
+            )
+            conn.execute(
+                text(
+                    """
+                    create index if not exists idx_jst_price_source_date_value
+                    on jst_product_price (source_date_value)
+                    """
+                )
+            )
 
     def _upsert(self, table, rows: list[dict], key_cols: list[str], update_cols: list[str], chunk_size: int = 500) -> None:
         """Upsert rows using ON CONFLICT DO UPDATE."""

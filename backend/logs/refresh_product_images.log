@@ -166,3 +166,36 @@ using a closure in a dumps/loads function may cause a resource leak
 [eblan] scanned=177 matched=0 updated=0 missing=177
 图片刷新完成：扫描 15714 条，更新 6 条
 [2026/06/04 周四 23:01:42.84] end refresh_product_images errorlevel=0 
+[2026/06/05 周五 23:00:01.28] start refresh_product_images 
+using a closure in a dumps/loads function may cause a resource leak
+using a closure in a dumps/loads function may cause a resource leak
+using a closure in a dumps/loads function may cause a resource leak
+using a closure in a dumps/loads function may cause a resource leak
+[cbanner_mens] scanned=249 matched=0 updated=0 missing=249
+[cbanner_womens] scanned=2067 matched=1 updated=1 missing=2066
+[yandou] scanned=13230 matched=0 updated=0 missing=13230
+[eblan] scanned=177 matched=0 updated=0 missing=177
+图片刷新完成：扫描 15723 条，更新 1 条
+[2026/06/05 周五 23:01:03.45] end refresh_product_images errorlevel=0 
+[2026/06/06 周六 23:00:01.55] start refresh_product_images 
+using a closure in a dumps/loads function may cause a resource leak
+using a closure in a dumps/loads function may cause a resource leak
+using a closure in a dumps/loads function may cause a resource leak
+using a closure in a dumps/loads function may cause a resource leak
+[cbanner_mens] scanned=249 matched=0 updated=0 missing=249
+[cbanner_womens] scanned=2079 matched=7 updated=7 missing=2072
+[yandou] scanned=13230 matched=0 updated=0 missing=13230
+[eblan] scanned=177 matched=0 updated=0 missing=177
+图片刷新完成：扫描 15735 条，更新 7 条
+[2026/06/06 周六 23:01:02.79] end refresh_product_images errorlevel=0 
+[2026/06/07 周日 23:00:01.30] start refresh_product_images 
+using a closure in a dumps/loads function may cause a resource leak
+using a closure in a dumps/loads function may cause a resource leak
+using a closure in a dumps/loads function may cause a resource leak
+using a closure in a dumps/loads function may cause a resource leak
+[cbanner_mens] scanned=249 matched=0 updated=0 missing=249
+[cbanner_womens] scanned=2083 matched=2 updated=2 missing=2081
+[yandou] scanned=13230 matched=0 updated=0 missing=13230
+[eblan] scanned=177 matched=0 updated=0 missing=177
+图片刷新完成：扫描 15739 条，更新 2 条
+[2026/06/07 周日 23:01:06.89] end refresh_product_images errorlevel=0 

@@ -102,3 +102,30 @@ using a closure in a dumps/loads function may cause a resource leak
 using a closure in a dumps/loads function may cause a resource leak
 [SKIP] 月聚水潭文件不存在: \\192.168.10.58\超级共享\影刀技术开发部共享\聚水潭\其他平台\06.05\月聚水潭.xlsx
 [2026/06/05 周五  8:20:02.91] end import_monthly_order errorlevel=0 
+[2026/06/06 周六  8:20:02.04] start import_monthly_order 
+using a closure in a dumps/loads function may cause a resource leak
+using a closure in a dumps/loads function may cause a resource leak
+using a closure in a dumps/loads function may cause a resource leak
+using a closure in a dumps/loads function may cause a resource leak
+D:\python\Lib\site-packages\openpyxl\styles\stylesheet.py:237: UserWarning: Workbook contains no default style, apply openpyxl's default
+  warn("Workbook contains no default style, apply openpyxl's default")
+[JST月订单] 06.06 导入完成, 共 641019 条
+[2026/06/06 周六  8:23:50.79] end import_monthly_order errorlevel=0 
+[2026/06/07 周日  8:20:02.05] start import_monthly_order 
+using a closure in a dumps/loads function may cause a resource leak
+using a closure in a dumps/loads function may cause a resource leak
+using a closure in a dumps/loads function may cause a resource leak
+using a closure in a dumps/loads function may cause a resource leak
+D:\python\Lib\site-packages\openpyxl\styles\stylesheet.py:237: UserWarning: Workbook contains no default style, apply openpyxl's default
+  warn("Workbook contains no default style, apply openpyxl's default")
+[JST月订单] 06.07 导入完成, 共 644067 条
+[2026/06/07 周日  8:23:50.12] end import_monthly_order errorlevel=0 
+[2026/06/08 周一  8:20:02.09] start import_monthly_order 
+using a closure in a dumps/loads function may cause a resource leak
+using a closure in a dumps/loads function may cause a resource leak
+using a closure in a dumps/loads function may cause a resource leak
+using a closure in a dumps/loads function may cause a resource leak
+D:\python\Lib\site-packages\openpyxl\styles\stylesheet.py:237: UserWarning: Workbook contains no default style, apply openpyxl's default
+  warn("Workbook contains no default style, apply openpyxl's default")
+[JST月订单] 06.08 导入完成, 共 644017 条
+[2026/06/08 周一  8:23:51.40] end import_monthly_order errorlevel=0 

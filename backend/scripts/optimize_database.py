@@ -9,6 +9,7 @@ from sqlalchemy import create_engine
 
 from config import load_settings
 from domain.schema import METADATA
+from domain import task_status_schema  # noqa: F401 - register task status tables
 from domain import vip_schema  # noqa: F401 - register VIP/JST analytics tables
 from domain import inventory_schema  # noqa: F401 - register inventory tables
 from storage.migrations import apply_core_database_optimizations

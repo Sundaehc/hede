@@ -22,6 +22,7 @@ from domain.fine_table_snapshot_schema import (
 )
 from domain.gj_schema import GJ_MERGED_PRODUCT_INFO_TABLE
 from domain.inventory_schema import SUPPLIER_TABLE
+from domain.product_defaults import apply_product_defaults
 from domain.schema import PRODUCT_TABLES
 from domain.vip_schema import (
     JST_PRICE_TABLE,
@@ -264,7 +265,7 @@ def _gj_product_row(row: dict[str, Any], brand: BrandKey) -> dict[str, Any]:
     }
     for field in PRODUCT_FIELDS:
         product.setdefault(field.name, None)
-    return product
+    return dict(apply_product_defaults(brand, product))
 
 
 def _merge_gj_product_row(gj_row: dict[str, Any], archive_row: dict[str, Any] | None, brand: BrandKey) -> dict[str, Any]:
@@ -781,11 +782,18 @@ def list_fine_table(
             ops_by_sku.setdefault(str(row["goods_code"]), dict(row))
 
         price_by_sku: dict[str, dict[str, Any]] = {}
-        for row in conn.execute(
+        latest_price_date = conn.execute(
+            select(func.max(JST_PRICE_TABLE.c.source_date_value))
+            .where(JST_PRICE_TABLE.c.goods_code.in_(skus))
+        ).scalar()
+        price_statement = (
             select(JST_PRICE_TABLE)
             .where(JST_PRICE_TABLE.c.goods_code.in_(skus))
             .order_by(desc(JST_PRICE_TABLE.c.updated_at), desc(JST_PRICE_TABLE.c.id))
-        ).mappings():
+        )
+        if latest_price_date is not None:
+            price_statement = price_statement.where(JST_PRICE_TABLE.c.source_date_value == latest_price_date)
+        for row in conn.execute(price_statement).mappings():
             price_by_sku.setdefault(str(row["goods_code"]), dict(row))
 
         daily_by_sku: dict[str, dict[tuple[str, str], dict[str, Any]]] = {sku: {} for sku in skus}

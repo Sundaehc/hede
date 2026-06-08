@@ -15,8 +15,40 @@ def apply_core_database_optimizations(engine: Engine) -> None:
         conn.execute(text("ALTER TABLE jst_daily_stock ADD COLUMN IF NOT EXISTS stock_date_value DATE"))
         conn.execute(text("ALTER TABLE vip_product_daily ADD COLUMN IF NOT EXISTS report_start_date DATE"))
         conn.execute(text("ALTER TABLE vip_product_daily ADD COLUMN IF NOT EXISTS report_end_date DATE"))
+        conn.execute(text("ALTER TABLE jst_product_price ADD COLUMN IF NOT EXISTS source_date TEXT"))
+        conn.execute(text("ALTER TABLE jst_product_price ADD COLUMN IF NOT EXISTS source_date_value DATE"))
         conn.execute(text("ALTER TABLE jst_monthly_orders ADD COLUMN IF NOT EXISTS order_time_at TIMESTAMP"))
         conn.execute(text("ALTER TABLE jst_monthly_orders ADD COLUMN IF NOT EXISTS ship_date_value DATE"))
+        conn.execute(
+            text(
+                """
+                update jst_product_price
+                set
+                    source_date = coalesce(source_date, to_char(current_date, 'YYYY-MM-DD')),
+                    source_date_value = coalesce(source_date_value, current_date)
+                where source_date is null
+                   or source_date = ''
+                   or source_date_value is null
+                """
+            )
+        )
+        conn.execute(text("ALTER TABLE jst_product_price ALTER COLUMN source_date SET NOT NULL"))
+        conn.execute(
+            text(
+                """
+                do $$
+                begin
+                    if exists (
+                        select 1
+                        from pg_constraint
+                        where conname = 'uq_jst_price_code_name'
+                    ) then
+                        alter table jst_product_price drop constraint uq_jst_price_code_name;
+                    end if;
+                end $$;
+                """
+            )
+        )
 
         conn.execute(
             text(
@@ -102,6 +134,8 @@ def apply_core_database_optimizations(engine: Engine) -> None:
             "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_jst_monthly_orders_ship_date_value ON jst_monthly_orders (ship_date_value)",
             "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_jst_monthly_orders_time_product ON jst_monthly_orders (order_time_at, product_code)",
             "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_vip_daily_report_dates ON vip_product_daily (report_start_date, report_end_date)",
+            "CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS uq_jst_price_date_code_name ON jst_product_price (source_date, goods_code, goods_full_name)",
+            "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_jst_price_source_date_value ON jst_product_price (source_date_value)",
         ]
         for statement in statements:
             conn.execute(text(statement))

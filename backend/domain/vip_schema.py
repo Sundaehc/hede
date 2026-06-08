@@ -121,6 +121,8 @@ def build_vip_ops_table() -> Table:
 def build_vip_price_table() -> Table:
     columns: list = [
         Column("id", BigInteger, Identity(always=False), primary_key=True),
+        Column("source_date", Text, nullable=False, default=""),
+        Column("source_date_value", Date, nullable=True),
         Column("source_workbook", Text, nullable=False, default=""),
         Column("source_sheet", Text, nullable=False, default=""),
         Column("source_row_number", Text, nullable=False, default=""),
@@ -133,7 +135,7 @@ def build_vip_price_table() -> Table:
     return Table(
         JST_PRICE_TABLE_NAME, METADATA,
         *columns,
-        UniqueConstraint("goods_code", "goods_full_name", name="uq_jst_price_code_name"),
+        UniqueConstraint("source_date", "goods_code", "goods_full_name", name="uq_jst_price_date_code_name"),
     )
 
 

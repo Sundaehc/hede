@@ -227,6 +227,27 @@ function visibleDailySales(row: FineTableItem) {
   return row.daily_sales.slice(-DAILY_SALES_DISPLAY_DAYS)
 }
 
+function dailySalesForLabel(row: FineTableItem, label: string) {
+  return visibleDailySales(row).find((item) => item.date.slice(5) === label)
+}
+
+function dateFromInputValue(value: string | null | undefined) {
+  if (!value) return null
+  const [year, month, day] = value.split("-").map(Number)
+  if (!year || !month || !day) return null
+  const date = new Date(year, month - 1, day)
+  return Number.isNaN(date.getTime()) ? null : date
+}
+
+function recentDailyLabels(baseDateValue: string | null | undefined) {
+  const baseDate = dateFromInputValue(baseDateValue) ?? new Date()
+  return Array.from({ length: DAILY_SALES_DISPLAY_DAYS }, (_, index) => {
+    const date = new Date(baseDate)
+    date.setDate(baseDate.getDate() - (DAILY_SALES_DISPLAY_DAYS - 1 - index))
+    return formatDateInputValue(date).slice(5)
+  })
+}
+
 function getPageTokens(currentPage: number, totalPages: number): PageToken[] {
   if (totalPages <= 7) {
     return Array.from({ length: totalPages }, (_, index) => index + 1)
@@ -371,10 +392,9 @@ function hasStockRisk(row: FineTableItem) {
 function tableColumnExportValue(row: FineTableItem, column: TableColumn) {
   if (column.exportValue) return column.exportValue(row)
   if (column.key.startsWith("daily_sales_")) {
-    const [, , indexValue, metric] = column.key.split("_")
-    const index = Number(indexValue)
-    if (metric === "uv") return visibleDailySales(row)[index]?.uv ?? 0
-    return visibleDailySales(row)[index]?.quantity ?? 0
+    const dailySales = column.dailyDateLabel ? dailySalesForLabel(row, column.dailyDateLabel) : undefined
+    if (column.dailyMetricLabel === "UV") return dailySales?.uv ?? 0
+    return dailySales?.quantity ?? 0
   }
   if (column.key.startsWith("size_")) {
     const size = column.key.replace("size_", "")
@@ -511,7 +531,7 @@ function createTableColumns(dailyLabels: string[]): TableColumn[] {
       group: "每日" as const,
       align: "center" as const,
       className: "min-w-16",
-      render: (row: FineTableItem) => formatNumber(visibleDailySales(row)[index]?.quantity ?? 0),
+      render: (row: FineTableItem) => formatNumber(dailySalesForLabel(row, label)?.quantity ?? 0),
     },
     {
       key: `daily_sales_${index}_uv`,
@@ -521,7 +541,7 @@ function createTableColumns(dailyLabels: string[]): TableColumn[] {
       group: "每日" as const,
       align: "center" as const,
       className: "min-w-16",
-      render: (row: FineTableItem) => formatNumber(visibleDailySales(row)[index]?.uv ?? 0),
+      render: (row: FineTableItem) => formatNumber(dailySalesForLabel(row, label)?.uv ?? 0),
     },
   ])
 
@@ -1305,9 +1325,8 @@ export function FineTablePage() {
 
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE))
   const dailyLabels = useMemo(() => {
-    const sample = items.find((row) => row.daily_sales.length > 0)
-    return sample ? visibleDailySales(sample).map((item) => item.date.slice(5)) : []
-  }, [items])
+    return recentDailyLabels(historyDate || snapshotLabel || latestOrderDate)
+  }, [historyDate, latestOrderDate, snapshotLabel])
   const tableColumns = useMemo(() => createTableColumns(dailyLabels), [dailyLabels])
   const visibleColumns = useMemo(() => {
     if (columnMode === "custom") {

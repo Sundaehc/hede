@@ -6,9 +6,11 @@ import orjson
 from sqlalchemy import create_engine, delete, func, insert
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
+from domain.product_defaults import apply_product_defaults
 from domain.schema import METADATA, PRODUCT_TABLES
 from domain import fine_table_snapshot_schema  # noqa: F401 - register fine table snapshot tables on METADATA
 from domain.inventory_schema import INVENTORY_TABLE, INVENTORY_DETAIL_TABLE, JST_STOCK_TABLE, SUPPLIER_TABLE, WAREHOUSE_TABLE  # noqa: F401 - register on METADATA
+from domain import task_status_schema  # noqa: F401 - register scheduled task status tables on METADATA
 from domain import vip_schema  # noqa: F401 - register VIP/JST analytics tables on METADATA
 from domain import gj_schema  # noqa: F401 - register GJ export tables on METADATA
 
@@ -32,7 +34,7 @@ class Database:
 
     def replace_brand_rows(self, brand_group: str, rows: Iterable[dict[str, object]]) -> int:
         table = PRODUCT_TABLES[brand_group]
-        payload = list(rows)
+        payload = [dict(apply_product_defaults(brand_group, dict(row))) for row in rows]
 
         # Deduplicate by sku: keep the last occurrence (later workbook overwrites earlier)
         seen: dict[str, int] = {}
@@ -66,7 +68,9 @@ class Database:
 
     def upsert_brand_rows(self, brand_group: str, rows: Iterable[dict[str, object]]) -> int:
         table = PRODUCT_TABLES[brand_group]
-        payload = self._dedupe_by_sku(list(rows))
+        payload = self._dedupe_by_sku(
+            [dict(apply_product_defaults(brand_group, dict(row))) for row in rows]
+        )
         if not payload:
             return 0
 

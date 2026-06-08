@@ -7,6 +7,7 @@ from typing import Callable
 from sqlalchemy import and_, create_engine, delete, desc, func, insert, literal, or_, select, union_all, update
 
 from domain.excluded_skus import not_excluded_sku_condition
+from domain.product_defaults import apply_product_defaults
 from domain.schema import PRODUCT_TABLES
 
 
@@ -158,7 +159,7 @@ class ProductRepository:
 
     def upsert_by_sku(self, brand: str, record: Mapping[str, object]) -> dict[str, object]:
         table = PRODUCT_TABLES[brand]
-        payload = self._prepare_record(record)
+        payload = self._prepare_record(record, brand=brand)
         sku = str(payload.get("sku", ""))
 
         with self.engine.begin() as connection:
@@ -178,7 +179,7 @@ class ProductRepository:
 
     def create_product(self, brand: str, record: Mapping[str, object]) -> dict[str, object]:
         table = PRODUCT_TABLES[brand]
-        statement = insert(table).values(**self._prepare_record(record)).returning(table)
+        statement = insert(table).values(**self._prepare_record(record, brand=brand)).returning(table)
         with self.engine.begin() as connection:
             row = connection.execute(statement).mappings().one()
         return dict(row)
@@ -190,7 +191,7 @@ class ProductRepository:
         record: Mapping[str, object],
     ) -> dict[str, object] | None:
         table = PRODUCT_TABLES[brand]
-        payload = self._prepare_record(record)
+        payload = self._prepare_record(record, brand=brand)
         payload.pop("id", None)
         statement = update(table).where(table.c.id == product_id).values(**payload).returning(table)
         with self.engine.begin() as connection:
@@ -264,8 +265,10 @@ class ProductRepository:
         }
 
     @staticmethod
-    def _prepare_record(record: Mapping[str, object]) -> dict[str, object]:
+    def _prepare_record(record: Mapping[str, object], *, brand: str | None = None) -> dict[str, object]:
         payload = dict(record)
+        if brand is not None:
+            payload = dict(apply_product_defaults(brand, payload))
         raw_payload = payload.get("raw_payload")
         if isinstance(raw_payload, Mapping):
             payload["raw_payload"] = {

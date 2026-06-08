@@ -7,7 +7,7 @@ from typing import Any
 
 import orjson
 from openpyxl import load_workbook
-from sqlalchemy import create_engine, text
+from sqlalchemy import create_engine, delete
 
 from config import load_settings
 from domain.excluded_skus import is_excluded_sku
@@ -126,7 +126,10 @@ def import_gj_merged_product_info(database_url: str, source_dir: Path) -> dict[s
 
     engine = create_engine(database_url, future=True, json_serializer=_json_serializer)
     with engine.begin() as conn:
-        conn.execute(text("TRUNCATE TABLE gj_merged_product_info"))
+        conn.execute(
+            delete(GJ_MERGED_PRODUCT_INFO_TABLE)
+            .where(GJ_MERGED_PRODUCT_INFO_TABLE.c.source_date == source_date)
+        )
         for index in range(0, len(payload), 1000):
             chunk = payload[index:index + 1000]
             if not chunk:
