@@ -204,7 +204,7 @@ const DialogContent = React.forwardRef<HTMLDivElement, React.ComponentProps<"div
 
   return (
     <DialogPortal>
-      <div data-slot="dialog-portal" className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6">
+      <div data-slot="dialog-portal" className="fixed inset-0 z-[120] flex items-center justify-center p-4 sm:p-6">
         <button
           aria-hidden="true"
           tabIndex={-1}

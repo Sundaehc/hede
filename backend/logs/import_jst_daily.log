@@ -130,3 +130,8 @@ using a closure in a dumps/loads function may cause a resource leak
 [库存汇总] 导入完成, 共 28383 条
 [采购差异] 导入完成, 共 7401 条
 [2026/06/08 周一  8:09:57.08] end import_jst_daily errorlevel=0 
+[2026/06/09 周二  8:00:01.58] start import_jst_daily 
+[尺码表] 导入完成, 共 68843 条
+[库存汇总] 导入完成, 共 28415 条
+[采购差异] 导入完成, 共 6607 条
+[2026/06/09 周二  8:09:38.61] end import_jst_daily errorlevel=0 

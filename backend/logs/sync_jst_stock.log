@@ -103,3 +103,6 @@ using a closure in a dumps/loads function may cause a resource leak
 using a closure in a dumps/loads function may cause a resource leak
 已导入 146367 条 06.08 库存数据
 [2026/06/08 周一  8:40:24.10] end sync_jst_stock errorlevel=0 
+[2026/06/09 周二  8:40:01.25] start sync_jst_stock 
+已导入 146546 条 06.09 库存数据
+[2026/06/09 周二  8:40:23.38] end sync_jst_stock errorlevel=0 
