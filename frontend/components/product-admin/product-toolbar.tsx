@@ -173,7 +173,7 @@ export function ProductToolbar({
           <textarea
             id="product-search-input"
             value={value}
-            placeholder="输入货号或原始货号，多个可用逗号或换行分隔"
+            placeholder="输入货号或原始货号，多个可用逗号分隔，Shift+Enter 换行"
             rows={hasMultipleLines ? 3 : 1}
             onChange={(event: React.ChangeEvent<HTMLTextAreaElement>) => onValueChange(event.target.value)}
             onKeyDown={(event: React.KeyboardEvent<HTMLTextAreaElement>) => {

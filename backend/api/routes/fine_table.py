@@ -20,6 +20,7 @@ from domain.fine_table_snapshot_schema import (
     fine_table_snapshot_row_table_for_date,
     fine_table_snapshot_year_table_exists,
 )
+from domain.gj_brand import CBANNER_MENS_BRAND, CBANNER_WOMENS_BRAND
 from domain.gj_schema import GJ_MERGED_PRODUCT_INFO_TABLE
 from domain.inventory_schema import SUPPLIER_TABLE
 from domain.product_defaults import apply_product_defaults
@@ -343,18 +344,8 @@ def _hydrate_snapshot_image_urls(
             item["image_url"] = image_url_for(brand, image_path, settings)
 
 
-def _gj_cbanner_brand_condition(brand: BrandKey):
-    supplier = func.coalesce(GJ_MERGED_PRODUCT_INFO_TABLE.c.primary_supplier, "")
-    is_cbanner_womens = or_(
-        supplier.ilike("%（%千百度女鞋%）%"),
-        supplier.ilike("%(%千百度女鞋%)%"),
-    )
-    is_cbanner_brand_owner = supplier.ilike("%千百度品牌方%")
-    if brand == "cbanner_womens":
-        return and_(is_cbanner_womens, ~is_cbanner_brand_owner)
-    if brand == "cbanner_mens":
-        return and_(supplier.ilike("%千百度%"), ~is_cbanner_womens, ~is_cbanner_brand_owner)
-    return None
+def _gj_fine_table_brand(brand: BrandKey) -> str | None:
+    return brand if brand in {CBANNER_MENS_BRAND, CBANNER_WOMENS_BRAND} else None
 
 
 @router.post("/fine-table/snapshots")
@@ -612,8 +603,8 @@ def list_fine_table(
     )
 
     with repository.engine.connect() as conn:
-        gj_brand_condition = _gj_cbanner_brand_condition(brand)
-        if gj_brand_condition is not None:
+        gj_fine_table_brand = _gj_fine_table_brand(brand)
+        if gj_fine_table_brand is not None:
             latest_gj_product_info_date = conn.execute(
                 select(func.max(GJ_MERGED_PRODUCT_INFO_TABLE.c.source_date_value))
             ).scalar()
@@ -622,7 +613,7 @@ def list_fine_table(
             if latest_gj_product_info_date is not None:
                 gj_conditions = [
                     GJ_MERGED_PRODUCT_INFO_TABLE.c.source_date_value == latest_gj_product_info_date,
-                    gj_brand_condition,
+                    GJ_MERGED_PRODUCT_INFO_TABLE.c.fine_table_brand == gj_fine_table_brand,
                     not_excluded_sku_condition(
                         GJ_MERGED_PRODUCT_INFO_TABLE.c.goods_code,
                         GJ_MERGED_PRODUCT_INFO_TABLE.c.original_goods_code,

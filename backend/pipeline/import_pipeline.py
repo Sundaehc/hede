@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-import re
 
 from config import Settings
 from domain.excluded_skus import is_excluded_sku
+from domain.gj_brand import infer_gj_fine_table_brand, normalize_gj_fine_table_brand
 from domain.gj_schema import GJ_MERGED_PRODUCT_INFO_TABLE
 from domain.sources import IMAGE_BRAND_KEYS, WORKBOOK_SPECS
 from domain.sources import CANONICAL_COLUMNS
@@ -74,32 +74,8 @@ def _codes_for_archive_match(row: dict[str, object]) -> set[str]:
     }
 
 
-def _is_cbanner_womens_supplier(value: object) -> bool:
-    supplier = _clean_code(value)
-    return re.search(r"[（(][^）)]*千百度女鞋", supplier) is not None
-
-
-def _is_cbanner_brand_owner_supplier(value: object) -> bool:
-    supplier = _clean_code(value)
-    return "千百度品牌方" in supplier
-
-
-def _cbanner_brand_from_gj_row(row: dict[str, object]) -> str | None:
-    supplier = _clean_code(row.get("primary_supplier"))
-    if "千百度" not in supplier:
-        return None
-    if _is_cbanner_brand_owner_supplier(supplier):
-        return None
-    return "cbanner_womens" if _is_cbanner_womens_supplier(supplier) else "cbanner_mens"
-
-
 def _brand_from_gj_row(row: dict[str, object]) -> str | None:
-    brand = _clean_code(row.get("brand"))
-    if "TRUMPPIPE" in brand:
-        return "yandou"
-    if "EBLAN" in brand or "伊伴" in brand:
-        return "eblan"
-    return _cbanner_brand_from_gj_row(row)
+    return normalize_gj_fine_table_brand(row.get("fine_table_brand")) or infer_gj_fine_table_brand(row)
 
 
 def _archive_group_key(brand_group: str) -> str:

@@ -83,3 +83,50 @@ FileNotFoundError: Î´ÕÒµ½ ÄĞÅ®Ğ¬ºÏ²¢ÉÌÆ·ĞÅÏ¢: \\192.168.10.58\³¬¼¶¹²Ïí\Ó°µ¶¼¼Êõ¿
 [OK] 2026-06-09 {'source_dir': '\\\\192.168.10.58\\³¬¼¶¹²Ïí\\Ó°µ¶¼¼Êõ¿ª·¢²¿¹²Ïí\\¹Ü¼ÒÆÅÊı¾İµ¼³ö\\2026-06-09', 'source_file': 'ÄĞÅ®Ğ¬ºÏ²¢ÉÌÆ·ĞÅÏ¢.xlsx', 'source_date': '2026-06-09', 'read_rows': 59440, 'imported': 58893}
 [SUMMARY] imported=1 skipped_success=1 missing_source=5 failed=0 retry_target_unresolved=False
 [2026/06/09 ÖÜ¶ş  8:00:12.79] end import_gj_merged_product_info_daily errorlevel=0 
+[2026/06/10 ÖÜÈı  8:00:01.69] start import_gj_merged_product_info_daily 
+[SKIP] 2026-06-04 Ô´Ä¿Â¼²»´æÔÚ: \\192.168.10.58\³¬¼¶¹²Ïí\Ó°µ¶¼¼Êõ¿ª·¢²¿¹²Ïí\¹Ü¼ÒÆÅÊı¾İµ¼³ö\2026-06-04
+[SKIP] 2026-06-05 Ô´Ä¿Â¼²»´æÔÚ: \\192.168.10.58\³¬¼¶¹²Ïí\Ó°µ¶¼¼Êõ¿ª·¢²¿¹²Ïí\¹Ü¼ÒÆÅÊı¾İµ¼³ö\2026-06-05
+[SKIP] 2026-06-06 Ô´Ä¿Â¼²»´æÔÚ: \\192.168.10.58\³¬¼¶¹²Ïí\Ó°µ¶¼¼Êõ¿ª·¢²¿¹²Ïí\¹Ü¼ÒÆÅÊı¾İµ¼³ö\2026-06-06
+[SKIP] 2026-06-07 Ô´Ä¿Â¼²»´æÔÚ: \\192.168.10.58\³¬¼¶¹²Ïí\Ó°µ¶¼¼Êõ¿ª·¢²¿¹²Ïí\¹Ü¼ÒÆÅÊı¾İµ¼³ö\2026-06-07
+[SKIP] 2026-06-08 already succeeded
+[SKIP] 2026-06-09 already succeeded
+[OK] 2026-06-10 {'source_dir': '\\\\192.168.10.58\\³¬¼¶¹²Ïí\\Ó°µ¶¼¼Êõ¿ª·¢²¿¹²Ïí\\¹Ü¼ÒÆÅÊı¾İµ¼³ö\\2026-06-10', 'source_file': 'ÄĞÅ®Ğ¬ºÏ²¢ÉÌÆ·ĞÅÏ¢.xlsx', 'source_date': '2026-06-10', 'read_rows': 59479, 'imported': 58932}
+[SUMMARY] imported=1 skipped_success=2 missing_source=4 failed=0 retry_target_unresolved=False
+[2026/06/10 ÖÜÈı  8:00:13.67] end import_gj_merged_product_info_daily errorlevel=0 
+[2026/06/11 ÖÜËÄ  8:00:01.73] start import_gj_merged_product_info_daily 
+[SKIP] 2026-06-05 Ô´Ä¿Â¼²»´æÔÚ: \\192.168.10.58\³¬¼¶¹²Ïí\Ó°µ¶¼¼Êõ¿ª·¢²¿¹²Ïí\¹Ü¼ÒÆÅÊı¾İµ¼³ö\2026-06-05
+[SKIP] 2026-06-06 Ô´Ä¿Â¼²»´æÔÚ: \\192.168.10.58\³¬¼¶¹²Ïí\Ó°µ¶¼¼Êõ¿ª·¢²¿¹²Ïí\¹Ü¼ÒÆÅÊı¾İµ¼³ö\2026-06-06
+[SKIP] 2026-06-07 Ô´Ä¿Â¼²»´æÔÚ: \\192.168.10.58\³¬¼¶¹²Ïí\Ó°µ¶¼¼Êõ¿ª·¢²¿¹²Ïí\¹Ü¼ÒÆÅÊı¾İµ¼³ö\2026-06-07
+[SKIP] 2026-06-08 already succeeded
+[SKIP] 2026-06-09 already succeeded
+[SKIP] 2026-06-10 already succeeded
+[SKIP] 2026-06-11 Ô´Ä¿Â¼²»´æÔÚ: \\192.168.10.58\³¬¼¶¹²Ïí\Ó°µ¶¼¼Êõ¿ª·¢²¿¹²Ïí\¹Ü¼ÒÆÅÊı¾İµ¼³ö\2026-06-11
+[SUMMARY] imported=0 skipped_success=3 missing_source=4 failed=0 retry_target_unresolved=True
+[RETRY] target date not ready, sleep 1800s
+[SKIP] 2026-06-05 Ô´Ä¿Â¼²»´æÔÚ: \\192.168.10.58\³¬¼¶¹²Ïí\Ó°µ¶¼¼Êõ¿ª·¢²¿¹²Ïí\¹Ü¼ÒÆÅÊı¾İµ¼³ö\2026-06-05
+[SKIP] 2026-06-06 Ô´Ä¿Â¼²»´æÔÚ: \\192.168.10.58\³¬¼¶¹²Ïí\Ó°µ¶¼¼Êõ¿ª·¢²¿¹²Ïí\¹Ü¼ÒÆÅÊı¾İµ¼³ö\2026-06-06
+[SKIP] 2026-06-07 Ô´Ä¿Â¼²»´æÔÚ: \\192.168.10.58\³¬¼¶¹²Ïí\Ó°µ¶¼¼Êõ¿ª·¢²¿¹²Ïí\¹Ü¼ÒÆÅÊı¾İµ¼³ö\2026-06-07
+[SKIP] 2026-06-08 already succeeded
+[SKIP] 2026-06-09 already succeeded
+[SKIP] 2026-06-10 already succeeded
+[SKIP] 2026-06-11 Ô´Ä¿Â¼²»´æÔÚ: \\192.168.10.58\³¬¼¶¹²Ïí\Ó°µ¶¼¼Êõ¿ª·¢²¿¹²Ïí\¹Ü¼ÒÆÅÊı¾İµ¼³ö\2026-06-11
+[SUMMARY] imported=0 skipped_success=3 missing_source=4 failed=0 retry_target_unresolved=True
+[RETRY] target date not ready, sleep 1800s
+[SKIP] 2026-06-05 Ô´Ä¿Â¼²»´æÔÚ: \\192.168.10.58\³¬¼¶¹²Ïí\Ó°µ¶¼¼Êõ¿ª·¢²¿¹²Ïí\¹Ü¼ÒÆÅÊı¾İµ¼³ö\2026-06-05
+[SKIP] 2026-06-06 Ô´Ä¿Â¼²»´æÔÚ: \\192.168.10.58\³¬¼¶¹²Ïí\Ó°µ¶¼¼Êõ¿ª·¢²¿¹²Ïí\¹Ü¼ÒÆÅÊı¾İµ¼³ö\2026-06-06
+[SKIP] 2026-06-07 Ô´Ä¿Â¼²»´æÔÚ: \\192.168.10.58\³¬¼¶¹²Ïí\Ó°µ¶¼¼Êõ¿ª·¢²¿¹²Ïí\¹Ü¼ÒÆÅÊı¾İµ¼³ö\2026-06-07
+[SKIP] 2026-06-08 already succeeded
+[SKIP] 2026-06-09 already succeeded
+[SKIP] 2026-06-10 already succeeded
+[SKIP] 2026-06-11 Ô´Ä¿Â¼²»´æÔÚ: \\192.168.10.58\³¬¼¶¹²Ïí\Ó°µ¶¼¼Êõ¿ª·¢²¿¹²Ïí\¹Ü¼ÒÆÅÊı¾İµ¼³ö\2026-06-11
+[SUMMARY] imported=0 skipped_success=3 missing_source=4 failed=0 retry_target_unresolved=True
+[RETRY] target date not ready, sleep 1800s
+[SKIP] 2026-06-05 Ô´Ä¿Â¼²»´æÔÚ: \\192.168.10.58\³¬¼¶¹²Ïí\Ó°µ¶¼¼Êõ¿ª·¢²¿¹²Ïí\¹Ü¼ÒÆÅÊı¾İµ¼³ö\2026-06-05
+[SKIP] 2026-06-06 Ô´Ä¿Â¼²»´æÔÚ: \\192.168.10.58\³¬¼¶¹²Ïí\Ó°µ¶¼¼Êõ¿ª·¢²¿¹²Ïí\¹Ü¼ÒÆÅÊı¾İµ¼³ö\2026-06-06
+[SKIP] 2026-06-07 Ô´Ä¿Â¼²»´æÔÚ: \\192.168.10.58\³¬¼¶¹²Ïí\Ó°µ¶¼¼Êõ¿ª·¢²¿¹²Ïí\¹Ü¼ÒÆÅÊı¾İµ¼³ö\2026-06-07
+[SKIP] 2026-06-08 already succeeded
+[SKIP] 2026-06-09 already succeeded
+[SKIP] 2026-06-10 already succeeded
+[OK] 2026-06-11 {'source_dir': '\\\\192.168.10.58\\³¬¼¶¹²Ïí\\Ó°µ¶¼¼Êõ¿ª·¢²¿¹²Ïí\\¹Ü¼ÒÆÅÊı¾İµ¼³ö\\2026-06-11', 'source_file': 'ÄĞÅ®Ğ¬ºÏ²¢ÉÌÆ·ĞÅÏ¢.xlsx', 'source_date': '2026-06-11', 'read_rows': 59507, 'imported': 58960}
+[SUMMARY] imported=1 skipped_success=3 missing_source=3 failed=0 retry_target_unresolved=False
+[2026/06/11 ÖÜËÄ  9:30:13.81] end import_gj_merged_product_info_daily errorlevel=0 

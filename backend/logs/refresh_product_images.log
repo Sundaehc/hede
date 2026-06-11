@@ -206,3 +206,17 @@ using a closure in a dumps/loads function may cause a resource leak
 [eblan] scanned=177 matched=0 updated=0 missing=177
 图片刷新完成：扫描 15737 条，更新 0 条
 [2026/06/08 周一 23:01:01.91] end refresh_product_images errorlevel=0 
+[2026/06/09 周二 23:00:01.32] start refresh_product_images 
+[cbanner_mens] scanned=249 matched=0 updated=0 missing=249
+[cbanner_womens] scanned=2095 matched=2 updated=2 missing=2093
+[yandou] scanned=13230 matched=0 updated=0 missing=13230
+[eblan] scanned=177 matched=0 updated=0 missing=177
+图片刷新完成：扫描 15751 条，更新 2 条
+[2026/06/09 周二 23:01:07.00] end refresh_product_images errorlevel=0 
+[2026/06/10 周三 23:00:01.38] start refresh_product_images 
+[cbanner_mens] scanned=268 matched=19 updated=19 missing=249
+[cbanner_womens] scanned=2097 matched=0 updated=0 missing=2097
+[yandou] scanned=13230 matched=0 updated=0 missing=13230
+[eblan] scanned=177 matched=0 updated=0 missing=177
+图片刷新完成：扫描 15772 条，更新 19 条
+[2026/06/10 周三 23:01:07.44] end refresh_product_images errorlevel=0 

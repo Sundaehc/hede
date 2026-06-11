@@ -134,3 +134,13 @@ D:\python\Lib\site-packages\openpyxl\styles\stylesheet.py:237: UserWarning: Work
   warn("Workbook contains no default style, apply openpyxl's default")
 [JST月订单] 06.09 导入完成, 共 646935 条
 [2026/06/09 周二  8:23:52.12] end import_monthly_order errorlevel=0 
+[2026/06/10 周三  8:20:02.11] start import_monthly_order 
+D:\python\Lib\site-packages\openpyxl\styles\stylesheet.py:237: UserWarning: Workbook contains no default style, apply openpyxl's default
+  warn("Workbook contains no default style, apply openpyxl's default")
+[JST月订单] 06.10 导入完成, 共 643982 条
+[2026/06/10 周三  8:23:55.78] end import_monthly_order errorlevel=0 
+[2026/06/11 周四  8:20:02.09] start import_monthly_order 
+D:\python\Lib\site-packages\openpyxl\styles\stylesheet.py:237: UserWarning: Workbook contains no default style, apply openpyxl's default
+  warn("Workbook contains no default style, apply openpyxl's default")
+[JST月订单] 06.11 导入完成, 共 632341 条
+[2026/06/11 周四  8:23:47.96] end import_monthly_order errorlevel=0 

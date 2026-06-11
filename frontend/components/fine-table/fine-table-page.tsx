@@ -1751,32 +1751,43 @@ export function FineTablePage() {
         <div className="surface-panel p-4">
           <div className="flex flex-col gap-3">
             <form
-              className="flex flex-wrap items-start gap-2"
+              className="flex flex-col gap-2 lg:flex-row lg:items-stretch"
               onSubmit={(event) => {
                 event.preventDefault()
                 setPage(1)
                 setQuery(queryInput.trim())
               }}
             >
-              <div className="relative min-w-72 flex-1">
-                <Search className="pointer-events-none absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
+              <div className="group relative min-w-0 flex-1">
+                <div className="pointer-events-none absolute left-3 top-3 flex h-7 w-7 items-center justify-center rounded-md bg-muted text-muted-foreground transition-colors group-focus-within:bg-primary/10 group-focus-within:text-primary">
+                  <Search className="h-4 w-4" />
+                </div>
                 <textarea
                   value={queryInput}
                   onChange={(event) => setQueryInput(event.target.value)}
                   aria-label="搜索货号、原始货号"
-                  placeholder="搜索货号、原始货号；每行一个，也可用逗号分隔"
-                  rows={3}
-                  className="flex min-h-20 w-full resize-y rounded-md border border-input bg-transparent px-3 py-2 pl-9 text-sm shadow-sm transition-colors placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+                  placeholder="搜索货号、原始货号；多个可用逗号分隔，Shift+Enter 换行"
+                  rows={2}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" && !event.shiftKey) {
+                      event.preventDefault()
+                      setPage(1)
+                      setQuery(queryInput.trim())
+                    }
+                  }}
+                  className="flex min-h-14 w-full resize-none rounded-lg border border-border bg-card/80 px-3 py-3 pl-12 text-sm leading-5 shadow-xs outline-none transition-colors placeholder:text-muted-foreground hover:border-ring/35 focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/25 disabled:cursor-not-allowed disabled:opacity-50"
                 />
               </div>
-              <div className="flex items-center gap-2">
-                <Button type="submit">
+              <div className="flex shrink-0 items-start gap-2">
+                <Button type="submit" size="sm" className="h-9 px-4">
                   查询
                 </Button>
                 {queryInput && (
                   <Button
                     type="button"
                     variant="outline"
+                    size="sm"
+                    className="h-9 px-3"
                     onClick={() => {
                       setQueryInput("")
                       setQuery("")

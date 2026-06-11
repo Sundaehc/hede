@@ -19,6 +19,25 @@ def apply_core_database_optimizations(engine: Engine) -> None:
         conn.execute(text("ALTER TABLE jst_product_price ADD COLUMN IF NOT EXISTS source_date_value DATE"))
         conn.execute(text("ALTER TABLE jst_monthly_orders ADD COLUMN IF NOT EXISTS order_time_at TIMESTAMP"))
         conn.execute(text("ALTER TABLE jst_monthly_orders ADD COLUMN IF NOT EXISTS ship_date_value DATE"))
+        conn.execute(text("ALTER TABLE gj_merged_product_info ADD COLUMN IF NOT EXISTS fine_table_brand TEXT"))
+        conn.execute(
+            text(
+                """
+                update gj_merged_product_info
+                set fine_table_brand = case
+                    when upper(coalesce(brand, '')) like '%TRUMPPIPE%'
+                      or coalesce(brand, '') like '%烟斗%' then 'yandou'
+                    when upper(coalesce(brand, '')) like '%EBLAN%'
+                      or coalesce(brand, '') like '%伊伴%' then 'eblan'
+                    when coalesce(primary_supplier, '') like '%千百度品牌方%' then null
+                    when coalesce(primary_supplier, '') like '%千百度女鞋%' then 'cbanner_womens'
+                    when coalesce(primary_supplier, '') like '%千百度%' then 'cbanner_mens'
+                    else null
+                end
+                where fine_table_brand is null
+                """
+            )
+        )
         conn.execute(
             text(
                 """
@@ -129,13 +148,13 @@ def apply_core_database_optimizations(engine: Engine) -> None:
             "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_jst_monthly_orders_order_time_at ON jst_monthly_orders (order_time_at)",
             "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_jst_monthly_orders_product_code ON jst_monthly_orders (product_code)",
             "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_jst_monthly_orders_style_code ON jst_monthly_orders (style_code)",
-            "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_jst_monthly_orders_shop_name ON jst_monthly_orders (shop_name)",
-            "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_jst_monthly_orders_status ON jst_monthly_orders (status)",
             "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_jst_monthly_orders_ship_date_value ON jst_monthly_orders (ship_date_value)",
             "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_jst_monthly_orders_time_product ON jst_monthly_orders (order_time_at, product_code)",
             "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_vip_daily_report_dates ON vip_product_daily (report_start_date, report_end_date)",
             "CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS uq_jst_price_date_code_name ON jst_product_price (source_date, goods_code, goods_full_name)",
             "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_jst_price_source_date_value ON jst_product_price (source_date_value)",
+            "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_gj_merged_product_info_source_brand_id_desc ON gj_merged_product_info (source_date_value, fine_table_brand, id DESC)",
+            "DROP INDEX CONCURRENTLY IF EXISTS idx_jst_stock_summary_date_code",
         ]
         for statement in statements:
             conn.execute(text(statement))

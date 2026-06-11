@@ -20,6 +20,7 @@ def build_gj_merged_product_info_table() -> Table:
         Column("id", BigInteger, Identity(always=False), primary_key=True),
         Column("source_date", Text, nullable=False),
         Column("source_date_value", Date, nullable=True),
+        Column("fine_table_brand", Text, nullable=True),
         Column("source_workbook", Text, nullable=False, default=""),
         Column("source_sheet", Text, nullable=False, default=""),
         Column("source_row_number", Text, nullable=False, default=""),
@@ -40,6 +41,12 @@ def build_gj_merged_product_info_table() -> Table:
     Index("idx_gj_merged_product_info_source_date", table.c.source_date_value)
     Index("idx_gj_merged_product_info_source_date_id_desc", table.c.source_date_value, table.c.id.desc())
     Index(
+        "idx_gj_merged_product_info_source_brand_id_desc",
+        table.c.source_date_value,
+        table.c.fine_table_brand,
+        table.c.id.desc(),
+    )
+    Index(
         "idx_gj_merged_product_info_source_date_goods_updated",
         table.c.source_date_value,
         table.c.goods_code,
@@ -57,12 +64,6 @@ def build_gj_merged_product_info_table() -> Table:
         table.c.original_goods_code,
         postgresql_using="gin",
         postgresql_ops={"original_goods_code": "gin_trgm_ops"},
-    )
-    Index(
-        "idx_gj_merged_product_info_primary_supplier_trgm",
-        table.c.primary_supplier,
-        postgresql_using="gin",
-        postgresql_ops={"primary_supplier": "gin_trgm_ops"},
     )
     return table
 

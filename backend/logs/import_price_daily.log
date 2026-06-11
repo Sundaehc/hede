@@ -120,3 +120,50 @@ using a closure in a dumps/loads function may cause a resource leak
 [PRICE] 2026-06-09 导入完成, 共 76421 条
 [SUMMARY] imported=1 skipped_success=1 missing_source=5 failed=0 retry_target_unresolved=False
 [2026/06/09 周二  8:00:09.08] end import_price_daily errorlevel=0 
+[2026/06/10 周三  8:00:01.67] start import_price_daily 
+[SKIP] 2026-06-04 物价目录不存在: \\192.168.10.58\超级共享\影刀技术开发部共享\管家婆数据导出\2026-06-04
+[SKIP] 2026-06-05 物价目录不存在: \\192.168.10.58\超级共享\影刀技术开发部共享\管家婆数据导出\2026-06-05
+[SKIP] 2026-06-06 物价目录不存在: \\192.168.10.58\超级共享\影刀技术开发部共享\管家婆数据导出\2026-06-06
+[SKIP] 2026-06-07 物价目录不存在: \\192.168.10.58\超级共享\影刀技术开发部共享\管家婆数据导出\2026-06-07
+[SKIP] 2026-06-08 already succeeded
+[SKIP] 2026-06-09 already succeeded
+[PRICE] 2026-06-10 导入完成, 共 76460 条
+[SUMMARY] imported=1 skipped_success=2 missing_source=4 failed=0 retry_target_unresolved=False
+[2026/06/10 周三  8:00:10.09] end import_price_daily errorlevel=0 
+[2026/06/11 周四  8:00:01.73] start import_price_daily 
+[SKIP] 2026-06-05 物价目录不存在: \\192.168.10.58\超级共享\影刀技术开发部共享\管家婆数据导出\2026-06-05
+[SKIP] 2026-06-06 物价目录不存在: \\192.168.10.58\超级共享\影刀技术开发部共享\管家婆数据导出\2026-06-06
+[SKIP] 2026-06-07 物价目录不存在: \\192.168.10.58\超级共享\影刀技术开发部共享\管家婆数据导出\2026-06-07
+[SKIP] 2026-06-08 already succeeded
+[SKIP] 2026-06-09 already succeeded
+[SKIP] 2026-06-10 already succeeded
+[SKIP] 2026-06-11 物价目录不存在: \\192.168.10.58\超级共享\影刀技术开发部共享\管家婆数据导出\2026-06-11
+[SUMMARY] imported=0 skipped_success=3 missing_source=4 failed=0 retry_target_unresolved=True
+[RETRY] target date not ready, sleep 1800s
+[SKIP] 2026-06-05 物价目录不存在: \\192.168.10.58\超级共享\影刀技术开发部共享\管家婆数据导出\2026-06-05
+[SKIP] 2026-06-06 物价目录不存在: \\192.168.10.58\超级共享\影刀技术开发部共享\管家婆数据导出\2026-06-06
+[SKIP] 2026-06-07 物价目录不存在: \\192.168.10.58\超级共享\影刀技术开发部共享\管家婆数据导出\2026-06-07
+[SKIP] 2026-06-08 already succeeded
+[SKIP] 2026-06-09 already succeeded
+[SKIP] 2026-06-10 already succeeded
+[SKIP] 2026-06-11 物价目录不存在: \\192.168.10.58\超级共享\影刀技术开发部共享\管家婆数据导出\2026-06-11
+[SUMMARY] imported=0 skipped_success=3 missing_source=4 failed=0 retry_target_unresolved=True
+[RETRY] target date not ready, sleep 1800s
+[SKIP] 2026-06-05 物价目录不存在: \\192.168.10.58\超级共享\影刀技术开发部共享\管家婆数据导出\2026-06-05
+[SKIP] 2026-06-06 物价目录不存在: \\192.168.10.58\超级共享\影刀技术开发部共享\管家婆数据导出\2026-06-06
+[SKIP] 2026-06-07 物价目录不存在: \\192.168.10.58\超级共享\影刀技术开发部共享\管家婆数据导出\2026-06-07
+[SKIP] 2026-06-08 already succeeded
+[SKIP] 2026-06-09 already succeeded
+[SKIP] 2026-06-10 already succeeded
+[SKIP] 2026-06-11 物价目录不存在: \\192.168.10.58\超级共享\影刀技术开发部共享\管家婆数据导出\2026-06-11
+[SUMMARY] imported=0 skipped_success=3 missing_source=4 failed=0 retry_target_unresolved=True
+[RETRY] target date not ready, sleep 1800s
+[SKIP] 2026-06-05 物价目录不存在: \\192.168.10.58\超级共享\影刀技术开发部共享\管家婆数据导出\2026-06-05
+[SKIP] 2026-06-06 物价目录不存在: \\192.168.10.58\超级共享\影刀技术开发部共享\管家婆数据导出\2026-06-06
+[SKIP] 2026-06-07 物价目录不存在: \\192.168.10.58\超级共享\影刀技术开发部共享\管家婆数据导出\2026-06-07
+[SKIP] 2026-06-08 already succeeded
+[SKIP] 2026-06-09 already succeeded
+[SKIP] 2026-06-10 already succeeded
+[PRICE] 2026-06-11 导入完成, 共 76488 条
+[SUMMARY] imported=1 skipped_success=3 missing_source=3 failed=0 retry_target_unresolved=False
+[2026/06/11 周四  9:30:09.68] end import_price_daily errorlevel=0 

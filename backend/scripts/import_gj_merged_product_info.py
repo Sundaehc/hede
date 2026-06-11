@@ -12,6 +12,7 @@ from sqlalchemy import create_engine, delete
 from config import load_settings
 from domain.excluded_skus import is_excluded_sku
 from domain.fields import GJ_MERGED_PRODUCT_INFO_FIELDS, alias_map
+from domain.gj_brand import infer_gj_fine_table_brand
 from domain.gj_schema import GJ_MERGED_PRODUCT_INFO_TABLE
 from storage.date_normalization import parse_date
 from transform.rows import normalize_cell, normalize_header
@@ -107,6 +108,7 @@ def _read_rows(file_path: Path, source_date: str) -> list[dict[str, Any]]:
         record["goods_code"] = goods_code
         if is_excluded_sku(goods_code, record.get("original_goods_code")):
             continue
+        record["fine_table_brand"] = infer_gj_fine_table_brand(record)
         record["extra_fields"] = extra_fields or None
         rows.append(record)
 
