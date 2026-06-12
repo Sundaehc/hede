@@ -30,10 +30,10 @@ hede = "cli:main"
 hede-backend = "cli:main"
 
 [tool.setuptools]
-py-modules = ["cli", "config", "main"]
+py-modules = ["api_main", "cli", "config", "main"]
 
 [tool.setuptools.packages.find]
-include = ["domain", "domain.*", "fileio", "fileio.*", "pipeline", "pipeline.*", "storage", "storage.*", "transform", "transform.*"]
+include = ["api", "api.*", "domain", "domain.*", "fileio", "fileio.*", "pipeline", "pipeline.*", "scripts", "scripts.*", "storage", "storage.*", "transform", "transform.*"]
 
 [tool.pyright]
 extraPaths = ["."]

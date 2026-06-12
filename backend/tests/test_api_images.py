@@ -82,6 +82,7 @@ def test_create_app_is_import_safe_without_database_url():
     app = create_app(
         settings=settings,
         repository=object(),
+        inventory_repository=object(),
         image_matchers={
             "cbanner_mens": object(),
             "cbanner_womens": object(),
@@ -92,4 +93,5 @@ def test_create_app_is_import_safe_without_database_url():
 
     assert app.state.settings is settings
     assert app.state.repository is not None
+    assert app.state.inventory_repository is not None
     assert app.state.image_matchers["cbanner_mens"] is not None

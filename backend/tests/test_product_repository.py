@@ -9,7 +9,7 @@ from transform.rows import build_admin_record
 
 
 @pytest.fixture
-def repository(test_database_url: str) -> ProductRepository:
+def repository(test_database_url: str, recreate_tables) -> ProductRepository:
     return ProductRepository(test_database_url)
 
 

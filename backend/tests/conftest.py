@@ -18,11 +18,11 @@ from storage.product_repository import ProductRepository
 def test_database_url() -> str:
     database_url = os.getenv("TEST_DATABASE_URL")
     if not database_url:
-        pytest.fail("TEST_DATABASE_URL must be set for backend database tests")
+        pytest.skip("TEST_DATABASE_URL must be set for backend database tests")
     return database_url
 
 
-@pytest.fixture(autouse=True)
+@pytest.fixture
 def recreate_tables(test_database_url: str):
     engine = create_engine(test_database_url, future=True)
     METADATA.drop_all(engine)
@@ -35,7 +35,7 @@ def recreate_tables(test_database_url: str):
 
 
 @pytest.fixture
-def repository(test_database_url: str) -> ProductRepository:
+def repository(test_database_url: str, recreate_tables) -> ProductRepository:
     return ProductRepository(test_database_url)
 
 
@@ -63,7 +63,7 @@ def test_app_client(
     monkeypatch.setattr(config_module, "BACKEND_ROOT", backend_root)
     monkeypatch.setenv("DATABASE_URL", test_database_url)
     monkeypatch.setenv("FRONTEND_ORIGIN", "http://localhost:3000")
-    monkeypatch.setenv("EXCEL_SOURCE_ROOT", str(excel_root))
+    monkeypatch.setenv("EXCEL_ROOT", str(excel_root))
     monkeypatch.setenv("CBANNER_IMAGE_ROOT", str(cbanner_image_root))
     monkeypatch.setenv("YANDOU_IMAGE_ROOT", str(yandou_image_root))
     monkeypatch.setenv("EBLAN_IMAGE_ROOT", str(eblan_image_root))

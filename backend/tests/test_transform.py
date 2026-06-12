@@ -14,9 +14,9 @@ from transform.rows import (
 
 
 def test_admin_normalization_helpers_cover_only_special_admin_fields():
-    assert set(ADMIN_FIELD_NORMALIZERS) == {"cost", "first_order_time"}
+    assert set(ADMIN_FIELD_NORMALIZERS) == {"cost", "first_order_time", "launch_date"}
     assert set(ADMIN_FIELD_NORMALIZERS).issubset(ADMIN_EDITABLE_COLUMNS)
-    assert {"image_path", "first_order_time"}.issubset(ADMIN_EDITABLE_COLUMNS)
+    assert {"image_path", "first_order_time", "launch_date"}.issubset(ADMIN_EDITABLE_COLUMNS)
 
 
 
@@ -225,6 +225,7 @@ def test_normalize_admin_payload_keeps_only_editable_columns_and_normalizes_valu
         "cost": "1,299.50",
         "color": " #N/A ",
         "first_order_time": datetime(2026, 4, 23, 15, 16, 17),
+        "launch_date": "2026/5/1 12:00:00",
         "shoe_box_spec": "  40x30x20  ",
         "source_workbook": "spreadsheet",
         "unknown_field": "ignored",
@@ -238,6 +239,7 @@ def test_normalize_admin_payload_keeps_only_editable_columns_and_normalizes_valu
         "cost": Decimal("1299.5"),
         "color": None,
         "first_order_time": "2026-04-23",
+        "launch_date": "2026-05-01",
         "shoe_box_spec": "40x30x20",
     }
 
@@ -298,6 +300,7 @@ def test_normalize_admin_payload_drops_malformed_special_fields():
         "sku": "SKU-3",
         "cost": "not-a-number",
         "first_order_time": "bad-date-value",
+        "launch_date": "bad-date-value",
     }
 
     normalized = normalize_admin_payload(payload)
@@ -306,4 +309,5 @@ def test_normalize_admin_payload_drops_malformed_special_fields():
         "sku": "SKU-3",
         "cost": None,
         "first_order_time": None,
+        "launch_date": None,
     }

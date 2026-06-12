@@ -17,3 +17,4 @@ frontend/.env.local
 
 # Runtime logs
 backend/logs/
+backend/.image_refresh_status.json
