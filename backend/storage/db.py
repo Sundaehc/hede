@@ -13,6 +13,7 @@ from domain.inventory_schema import INVENTORY_TABLE, INVENTORY_DETAIL_TABLE, JST
 from domain import task_status_schema  # noqa: F401 - register scheduled task status tables on METADATA
 from domain import vip_schema  # noqa: F401 - register VIP/JST analytics tables on METADATA
 from domain import gj_schema  # noqa: F401 - register GJ export tables on METADATA
+from domain import smiley_schema  # noqa: F401 - register Smiley fine table on METADATA
 
 
 def _json_serializer(value):
