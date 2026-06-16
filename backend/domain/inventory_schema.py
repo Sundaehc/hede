@@ -18,19 +18,23 @@ from sqlalchemy import (
 )
 
 from domain.inventory_sources import (
+    GENERAL_CUSTOMER_BRAND_TABLE_NAME,
     INVENTORY_DETAIL_TABLE_NAME,
     INVENTORY_TABLE_NAME,
     JST_STOCK_TABLE_NAME,
     SUPPLIER_TABLE_NAME,
     WAREHOUSE_TABLE_NAME,
+    GENERAL_CUSTOMER_SHOP_TABLE_NAME,
 )
 from domain.fields import (
     FieldSpec,
+    GENERAL_CUSTOMER_BRAND_FIELDS,
     INVENTORY_DETAIL_FIELDS,
     INVENTORY_FIELDS,
     JST_STOCK_FIELDS,
     SUPPLIER_FIELDS,
     WAREHOUSE_FIELDS,
+    GENERAL_CUSTOMER_SHOP_FIELDS,
 )
 from domain.schema import METADATA
 
@@ -81,14 +85,15 @@ def build_supplier_table() -> Table:
     columns: list = [
         Column("id", BigInteger, Identity(always=False), primary_key=True),
         *[
-            Column(field.name, _column_type(field), nullable=field.name != "name")
+            Column(field.name, _column_type(field), nullable=field.name not in {"brand", "name"})
             for field in SUPPLIER_FIELDS
         ],
         Column("created_at", DateTime(timezone=True), server_default=func.date_trunc('minute', func.now())),
         Column("updated_at", DateTime(timezone=True), server_default=func.date_trunc('minute', func.now()), onupdate=func.date_trunc('minute', func.now())),
-        UniqueConstraint("name", name="uq_supplier_name"),
+        UniqueConstraint("brand", "name", name="uq_supplier_brand_name"),
     ]
     table = Table(SUPPLIER_TABLE_NAME, METADATA, *columns)
+    Index("idx_suppliers_brand", table.c.brand)
     Index("idx_suppliers_factory_code", table.c.factory_code)
     return table
 
@@ -107,10 +112,43 @@ def build_warehouse_table() -> Table:
     return Table(WAREHOUSE_TABLE_NAME, METADATA, *columns)
 
 
+def build_general_customer_brand_table() -> Table:
+    columns: list = [
+        Column("id", BigInteger, Identity(always=False), primary_key=True),
+        *[
+            Column(field.name, _column_type(field), nullable=field.name != "name")
+            for field in GENERAL_CUSTOMER_BRAND_FIELDS
+        ],
+        Column("created_at", DateTime(timezone=True), server_default=func.date_trunc('minute', func.now())),
+        Column("updated_at", DateTime(timezone=True), server_default=func.date_trunc('minute', func.now()), onupdate=func.date_trunc('minute', func.now())),
+        UniqueConstraint("name", name="uq_general_customer_brands_name"),
+    ]
+    return Table(GENERAL_CUSTOMER_BRAND_TABLE_NAME, METADATA, *columns)
+
+
+def build_general_customer_shop_table() -> Table:
+    columns: list = [
+        Column("id", BigInteger, Identity(always=False), primary_key=True),
+        *[
+            Column(field.name, _column_type(field), nullable=field.name != "customer_name")
+            for field in GENERAL_CUSTOMER_SHOP_FIELDS
+        ],
+        Column("created_at", DateTime(timezone=True), server_default=func.date_trunc('minute', func.now())),
+        Column("updated_at", DateTime(timezone=True), server_default=func.date_trunc('minute', func.now()), onupdate=func.date_trunc('minute', func.now())),
+        UniqueConstraint("customer_name", "shop_name", name="uq_general_customer_shops_customer_shop"),
+    ]
+    table = Table(GENERAL_CUSTOMER_SHOP_TABLE_NAME, METADATA, *columns)
+    Index("idx_general_customer_shops_customer_name", table.c.customer_name)
+    Index("idx_general_customer_shops_shop_name", table.c.shop_name)
+    return table
+
+
 INVENTORY_TABLE = build_inventory_table()
 INVENTORY_DETAIL_TABLE = build_inventory_detail_table()
 SUPPLIER_TABLE = build_supplier_table()
 WAREHOUSE_TABLE = build_warehouse_table()
+GENERAL_CUSTOMER_BRAND_TABLE = build_general_customer_brand_table()
+GENERAL_CUSTOMER_SHOP_TABLE = build_general_customer_shop_table()
 
 
 def build_jst_stock_table() -> Table:

@@ -8,6 +8,7 @@ export type ProductListItem = {
   sku: string | null
   original_sku: string | null
   group_name: string | null
+  product_level: string | null
   cost: string | null
   factory_sku: string | null
   color: string | null
@@ -113,6 +114,7 @@ export type FineTableItem = ProductListItem & {
   original_other_30d_sales: number
   shop_30d_sales: FineTableShopSale[]
   stock_qty: number
+  original_stock_qty: number
   size_stock: Record<string, number>
   purchase_diff: number
   inbound_qty: number
@@ -226,6 +228,7 @@ export type ProductFormValues = {
   sku: string
   original_sku: string
   group_name: string
+  product_level: string
   cost: string
   factory_sku: string
   color: string
@@ -260,6 +263,7 @@ export type ProductMutationPayload = Record<string, unknown> & {
   sku?: string | null
   original_sku?: string | null
   group_name?: string | null
+  product_level?: string | null
   cost?: string | null
   factory_sku?: string | null
   color?: string | null
@@ -292,4 +296,29 @@ export type ProductMutationPayload = Record<string, unknown> & {
 export type ImageLookupStatusState = {
   status: "idle" | "loading" | "success" | "warning" | "error"
   message: string | null
+}
+
+
+export type GeneralCustomerShopItem = {
+  id: number
+  customer_name: string
+  shop_name: string
+  created_at: string | null
+  updated_at: string | null
+}
+
+export type GeneralCustomerShopListResponse = {
+  items: GeneralCustomerShopItem[]
+}
+
+export type GeneralCustomerBrandItem = {
+  id: number
+  name: string
+  shop_count: number
+  created_at: string | null
+  updated_at: string | null
+}
+
+export type GeneralCustomerBrandListResponse = {
+  items: GeneralCustomerBrandItem[]
 }

@@ -13,6 +13,7 @@ from openpyxl.utils.exceptions import InvalidFileException
 from sqlalchemy import insert, select, update
 
 from config import load_settings
+from domain.gj_brand import CBANNER_MENS_BRAND, infer_supplier_brand_from_name
 from domain.inventory_schema import SUPPLIER_TABLE
 from storage.inventory_repository import InventoryRepository
 from transform.rows import normalize_cell, normalize_header
@@ -103,7 +104,12 @@ def _normalize_record(code: object, name: object) -> dict[str, str] | None:
     supplier_name = normalize_cell(name)
     if not factory_code or not supplier_name:
         return None
-    return {"factory_code": str(factory_code), "name": str(supplier_name)}
+    supplier_name = str(supplier_name)
+    return {
+        "brand": infer_supplier_brand_from_name(supplier_name) or CBANNER_MENS_BRAND,
+        "factory_code": str(factory_code),
+        "name": supplier_name,
+    }
 
 
 def _convert_with_wps(path: Path) -> Path | None:
@@ -208,9 +214,9 @@ def read_unit_supplier_records(path: Path) -> list[dict[str, str]]:
     else:
         records = _read_xlsx(path)
 
-    deduped: dict[str, dict[str, str]] = {}
+    deduped: dict[tuple[str, str], dict[str, str]] = {}
     for record in records:
-        deduped[record["factory_code"]] = record
+        deduped[(record["brand"], record["factory_code"])] = record
     return list(deduped.values())
 
 
@@ -225,14 +231,18 @@ def import_suppliers(path: Path) -> dict[str, int]:
     with repository.engine.begin() as connection:
         existing_rows = [dict(row) for row in connection.execute(select(SUPPLIER_TABLE)).mappings()]
         by_code = {
-            str(row["factory_code"]): row
+            (str(row["brand"]), str(row["factory_code"])): row
             for row in existing_rows
-            if row.get("factory_code")
+            if row.get("brand") and row.get("factory_code")
         }
-        by_name = {str(row["name"]): row for row in existing_rows if row.get("name")}
+        by_name = {
+            (str(row["brand"]), str(row["name"])): row
+            for row in existing_rows
+            if row.get("brand") and row.get("name")
+        }
 
         for record in records:
-            existing = by_code.get(record["factory_code"]) or by_name.get(record["name"])
+            existing = by_code.get((record["brand"], record["factory_code"])) or by_name.get((record["brand"], record["name"]))
             if existing is None:
                 connection.execute(insert(SUPPLIER_TABLE).values(**record))
                 inserted += 1
@@ -252,8 +262,9 @@ def import_suppliers(path: Path) -> dict[str, int]:
                 updated += 1
             else:
                 skipped += 1
+        synced = repository._sync_suppliers_from_gj(connection)
 
-    return {"read": len(records), "inserted": inserted, "updated": updated, "skipped": skipped}
+    return {"read": len(records), "inserted": inserted, "updated": updated, "skipped": skipped, "synced": synced}
 
 
 def main() -> None:
@@ -305,7 +316,7 @@ def main() -> None:
     print(f"source={source}")
     print(
         f"read={result['read']}, inserted={result['inserted']}, "
-        f"updated={result['updated']}, skipped={result['skipped']}"
+        f"updated={result['updated']}, skipped={result['skipped']}, synced={result['synced']}"
     )
 
 

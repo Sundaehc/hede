@@ -5,6 +5,7 @@ export const FIELD_LABELS: Record<string, string> = {
   sku: "商品货号",
   original_sku: "原始货号",
   group_name: "组别",
+  product_level: "商品等级",
   cost: "成本",
   factory_sku: "工厂货号",
   color: "颜色",
@@ -37,7 +38,7 @@ export const FIELD_LABELS: Record<string, string> = {
 export const FIELD_GROUPS = [
   {
     label: "基础信息",
-    fields: ["original_sku", "sku", "group_name", "factory_sku", "cost", "color", "season_category", "year"],
+    fields: ["original_sku", "sku", "group_name", "product_level", "factory_sku", "cost", "color", "season_category", "year"],
   },
   {
     label: "材质信息",

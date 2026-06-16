@@ -7,10 +7,12 @@ from pathlib import Path
 
 import orjson
 from openpyxl import load_workbook
-from sqlalchemy import and_, case, create_engine, delete, desc, func, insert, or_, select, update
+from sqlalchemy import and_, case, create_engine, delete, desc, func, insert, inspect, or_, select, text, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
-from domain.inventory_schema import INVENTORY_DETAIL_TABLE, INVENTORY_TABLE, JST_STOCK_TABLE, SUPPLIER_TABLE, WAREHOUSE_TABLE
+from domain.gj_schema import GJ_MERGED_PRODUCT_INFO_TABLE
+from domain.inventory_schema import GENERAL_CUSTOMER_BRAND_TABLE, GENERAL_CUSTOMER_SHOP_TABLE, INVENTORY_DETAIL_TABLE, INVENTORY_TABLE, JST_STOCK_TABLE, SUPPLIER_TABLE, WAREHOUSE_TABLE
+from domain.gj_brand import CBANNER_MENS_BRAND, GJ_FINE_TABLE_BRANDS, infer_supplier_brand_from_name
 from storage.date_normalization import parse_date, parse_month_day
 
 
@@ -25,6 +27,7 @@ class InventoryRepository:
             future=True,
             json_serializer=_json_serializer,
         )
+        self.create_tables()
 
     # ── Inventory Records ──────────────────────────────────────────
 
@@ -116,12 +119,14 @@ class InventoryRepository:
 
     # ── Suppliers ──────────────────────────────────────────────────
 
-    def list_suppliers(self) -> list[dict[str, object]]:
-        statement = select(SUPPLIER_TABLE).order_by(SUPPLIER_TABLE.c.id)
+    def list_suppliers(self, *, brand: str | None = None) -> list[dict[str, object]]:
+        statement = select(SUPPLIER_TABLE).order_by(SUPPLIER_TABLE.c.brand, SUPPLIER_TABLE.c.id)
+        if brand:
+            statement = statement.where(SUPPLIER_TABLE.c.brand == brand)
         with self.engine.connect() as connection:
             return [dict(row) for row in connection.execute(statement).mappings()]
 
-    def list_suppliers_page(self, *, page: int, page_size: int, query: str | None = None) -> dict[str, object]:
+    def list_suppliers_page(self, *, page: int, page_size: int, query: str | None = None, brand: str | None = None) -> dict[str, object]:
         count_statement = select(func.count()).select_from(SUPPLIER_TABLE)
         items_statement = (
             select(SUPPLIER_TABLE)
@@ -129,13 +134,18 @@ class InventoryRepository:
             .offset((page - 1) * page_size)
             .limit(page_size)
         )
+        conditions = []
+        if brand:
+            conditions.append(SUPPLIER_TABLE.c.brand == brand)
         normalized_query = (query or "").strip()
         if normalized_query:
             like = f"%{normalized_query}%"
-            criterion = or_(
+            conditions.append(or_(
                 SUPPLIER_TABLE.c.name.ilike(like),
                 SUPPLIER_TABLE.c.factory_code.ilike(like),
-            )
+            ))
+        if conditions:
+            criterion = conditions[0] if len(conditions) == 1 else and_(*conditions)
             count_statement = count_statement.where(criterion)
             items_statement = items_statement.where(criterion)
         with self.engine.connect() as connection:
@@ -149,13 +159,13 @@ class InventoryRepository:
         }
 
     def create_supplier(self, data: Mapping[str, object]) -> dict[str, object]:
-        statement = insert(SUPPLIER_TABLE).values(**dict(data)).returning(SUPPLIER_TABLE)
+        statement = insert(SUPPLIER_TABLE).values(**self._prepare_supplier(data)).returning(SUPPLIER_TABLE)
         with self.engine.begin() as connection:
             row = connection.execute(statement).mappings().one()
         return dict(row)
 
     def update_supplier(self, supplier_id: int, data: Mapping[str, object]) -> dict[str, object] | None:
-        payload = dict(data)
+        payload = self._prepare_supplier(data)
         payload.pop("id", None)
         statement = update(SUPPLIER_TABLE).where(SUPPLIER_TABLE.c.id == supplier_id).values(**payload).returning(SUPPLIER_TABLE)
         with self.engine.begin() as connection:
@@ -168,8 +178,196 @@ class InventoryRepository:
             result = connection.execute(statement)
         return result.rowcount > 0
 
-    def get_supplier_by_name(self, name: str) -> dict[str, object] | None:
+    def get_supplier_by_name(self, name: str, brand: str | None = None) -> dict[str, object] | None:
         statement = select(SUPPLIER_TABLE).where(SUPPLIER_TABLE.c.name == name)
+        if brand:
+            statement = statement.where(SUPPLIER_TABLE.c.brand == brand)
+        with self.engine.connect() as connection:
+            row = connection.execute(statement).mappings().first()
+        return None if row is None else dict(row)
+
+    # ── General Customer Brands & Shops ────────────────────────────
+
+    def list_general_customer_brands(self) -> list[dict[str, object]]:
+        shop_count = (
+            select(
+                GENERAL_CUSTOMER_SHOP_TABLE.c.customer_name.label("brand_name"),
+                func.count(GENERAL_CUSTOMER_SHOP_TABLE.c.id).label("shop_count"),
+            )
+            .group_by(GENERAL_CUSTOMER_SHOP_TABLE.c.customer_name)
+            .subquery()
+        )
+        statement = (
+            select(
+                GENERAL_CUSTOMER_BRAND_TABLE.c.id,
+                GENERAL_CUSTOMER_BRAND_TABLE.c.name,
+                GENERAL_CUSTOMER_BRAND_TABLE.c.created_at,
+                GENERAL_CUSTOMER_BRAND_TABLE.c.updated_at,
+                func.coalesce(shop_count.c.shop_count, 0).label("shop_count"),
+            )
+            .outerjoin(shop_count, shop_count.c.brand_name == GENERAL_CUSTOMER_BRAND_TABLE.c.name)
+            .order_by(GENERAL_CUSTOMER_BRAND_TABLE.c.name)
+        )
+        with self.engine.connect() as connection:
+            return [dict(row) for row in connection.execute(statement).mappings()]
+
+    def create_general_customer_brand(self, data: Mapping[str, object]) -> dict[str, object]:
+        payload = {"name": str(data.get("name") or "").strip()}
+        statement = (
+            insert(GENERAL_CUSTOMER_BRAND_TABLE)
+            .values(**payload)
+            .returning(
+                GENERAL_CUSTOMER_BRAND_TABLE.c.id,
+                GENERAL_CUSTOMER_BRAND_TABLE.c.name,
+                GENERAL_CUSTOMER_BRAND_TABLE.c.created_at,
+                GENERAL_CUSTOMER_BRAND_TABLE.c.updated_at,
+            )
+        )
+        with self.engine.begin() as connection:
+            row = connection.execute(statement).mappings().one()
+        item = dict(row)
+        item["shop_count"] = 0
+        return item
+
+    def update_general_customer_brand(self, brand_id: int, data: Mapping[str, object]) -> dict[str, object] | None:
+        payload = {"name": str(data.get("name") or "").strip()}
+        with self.engine.begin() as connection:
+            existing = connection.execute(
+                select(GENERAL_CUSTOMER_BRAND_TABLE.c.name).where(GENERAL_CUSTOMER_BRAND_TABLE.c.id == brand_id)
+            ).mappings().first()
+            if existing is None:
+                return None
+            old_name = existing["name"]
+            row = connection.execute(
+                update(GENERAL_CUSTOMER_BRAND_TABLE)
+                .where(GENERAL_CUSTOMER_BRAND_TABLE.c.id == brand_id)
+                .values(**payload)
+                .returning(
+                    GENERAL_CUSTOMER_BRAND_TABLE.c.id,
+                    GENERAL_CUSTOMER_BRAND_TABLE.c.name,
+                    GENERAL_CUSTOMER_BRAND_TABLE.c.created_at,
+                    GENERAL_CUSTOMER_BRAND_TABLE.c.updated_at,
+                )
+            ).mappings().first()
+            if row is None:
+                return None
+            new_name = row["name"]
+            if old_name != new_name:
+                connection.execute(
+                    update(GENERAL_CUSTOMER_SHOP_TABLE)
+                    .where(GENERAL_CUSTOMER_SHOP_TABLE.c.customer_name == old_name)
+                    .values(customer_name=new_name)
+                )
+            shop_count = connection.execute(
+                select(func.count()).select_from(GENERAL_CUSTOMER_SHOP_TABLE).where(
+                    GENERAL_CUSTOMER_SHOP_TABLE.c.customer_name == new_name
+                )
+            ).scalar_one()
+        item = dict(row)
+        item["shop_count"] = shop_count
+        return item
+
+    def delete_general_customer_brand(self, brand_id: int) -> str | None:
+        with self.engine.begin() as connection:
+            row = connection.execute(
+                select(GENERAL_CUSTOMER_BRAND_TABLE.c.name).where(GENERAL_CUSTOMER_BRAND_TABLE.c.id == brand_id)
+            ).first()
+            if row is None:
+                return "not_found"
+            brand_name = row[0]
+            connection.execute(delete(GENERAL_CUSTOMER_SHOP_TABLE).where(GENERAL_CUSTOMER_SHOP_TABLE.c.customer_name == brand_name))
+            result = connection.execute(delete(GENERAL_CUSTOMER_BRAND_TABLE).where(GENERAL_CUSTOMER_BRAND_TABLE.c.id == brand_id))
+        return None if result.rowcount > 0 else "not_found"
+
+    def get_general_customer_brand_by_name(self, name: str) -> dict[str, object] | None:
+        statement = select(
+            GENERAL_CUSTOMER_BRAND_TABLE.c.id,
+            GENERAL_CUSTOMER_BRAND_TABLE.c.name,
+            GENERAL_CUSTOMER_BRAND_TABLE.c.created_at,
+            GENERAL_CUSTOMER_BRAND_TABLE.c.updated_at,
+        ).where(GENERAL_CUSTOMER_BRAND_TABLE.c.name == name)
+        with self.engine.connect() as connection:
+            row = connection.execute(statement).mappings().first()
+        return None if row is None else dict(row)
+
+    def list_general_customer_shops(self) -> list[dict[str, object]]:
+        statement = (
+            select(
+                GENERAL_CUSTOMER_SHOP_TABLE.c.id,
+                GENERAL_CUSTOMER_SHOP_TABLE.c.customer_name,
+                GENERAL_CUSTOMER_SHOP_TABLE.c.shop_name,
+                GENERAL_CUSTOMER_SHOP_TABLE.c.created_at,
+                GENERAL_CUSTOMER_SHOP_TABLE.c.updated_at,
+            )
+            .order_by(
+                GENERAL_CUSTOMER_SHOP_TABLE.c.customer_name,
+                GENERAL_CUSTOMER_SHOP_TABLE.c.shop_name,
+                GENERAL_CUSTOMER_SHOP_TABLE.c.id,
+            )
+        )
+        with self.engine.connect() as connection:
+            return [dict(row) for row in connection.execute(statement).mappings()]
+
+    def create_general_customer_shop(self, data: Mapping[str, object]) -> dict[str, object]:
+        payload = {
+            "customer_name": str(data.get("customer_name") or "").strip(),
+            "shop_name": str(data.get("shop_name") or "").strip(),
+        }
+        statement = (
+            insert(GENERAL_CUSTOMER_SHOP_TABLE)
+            .values(**payload)
+            .returning(
+                GENERAL_CUSTOMER_SHOP_TABLE.c.id,
+                GENERAL_CUSTOMER_SHOP_TABLE.c.customer_name,
+                GENERAL_CUSTOMER_SHOP_TABLE.c.shop_name,
+                GENERAL_CUSTOMER_SHOP_TABLE.c.created_at,
+                GENERAL_CUSTOMER_SHOP_TABLE.c.updated_at,
+            )
+        )
+        with self.engine.begin() as connection:
+            self._ensure_general_customer_brand(connection, payload["customer_name"])
+            row = connection.execute(statement).mappings().one()
+        return dict(row)
+
+    def update_general_customer_shop(self, shop_id: int, data: Mapping[str, object]) -> dict[str, object] | None:
+        payload = {
+            "customer_name": str(data.get("customer_name") or "").strip(),
+            "shop_name": str(data.get("shop_name") or "").strip(),
+        }
+        statement = (
+            update(GENERAL_CUSTOMER_SHOP_TABLE)
+            .where(GENERAL_CUSTOMER_SHOP_TABLE.c.id == shop_id)
+            .values(**payload)
+            .returning(
+                GENERAL_CUSTOMER_SHOP_TABLE.c.id,
+                GENERAL_CUSTOMER_SHOP_TABLE.c.customer_name,
+                GENERAL_CUSTOMER_SHOP_TABLE.c.shop_name,
+                GENERAL_CUSTOMER_SHOP_TABLE.c.created_at,
+                GENERAL_CUSTOMER_SHOP_TABLE.c.updated_at,
+            )
+        )
+        with self.engine.begin() as connection:
+            self._ensure_general_customer_brand(connection, payload["customer_name"])
+            row = connection.execute(statement).mappings().first()
+        return None if row is None else dict(row)
+
+    def delete_general_customer_shop(self, shop_id: int) -> bool:
+        statement = delete(GENERAL_CUSTOMER_SHOP_TABLE).where(GENERAL_CUSTOMER_SHOP_TABLE.c.id == shop_id)
+        with self.engine.begin() as connection:
+            result = connection.execute(statement)
+        return result.rowcount > 0
+
+    def get_general_customer_shop_by_name(self, customer_name: str, shop_name: str) -> dict[str, object] | None:
+        statement = select(
+            GENERAL_CUSTOMER_SHOP_TABLE.c.id,
+            GENERAL_CUSTOMER_SHOP_TABLE.c.customer_name,
+            GENERAL_CUSTOMER_SHOP_TABLE.c.shop_name,
+            GENERAL_CUSTOMER_SHOP_TABLE.c.created_at,
+            GENERAL_CUSTOMER_SHOP_TABLE.c.updated_at,
+        ).where(
+            GENERAL_CUSTOMER_SHOP_TABLE.c.customer_name == customer_name,
+            GENERAL_CUSTOMER_SHOP_TABLE.c.shop_name == shop_name,
+        )
         with self.engine.connect() as connection:
             row = connection.execute(statement).mappings().first()
         return None if row is None else dict(row)
@@ -286,12 +484,14 @@ class InventoryRepository:
         record = INVENTORY_TABLE
 
         # Build the aggregated inventory changes query
+        inbound_types = ("进货单", "报溢单", "批发销售退货单")
+        outbound_types = ("进货退货单", "报损单", "批发销售单")
         inbound = func.sum(case(
-            (record.c.document_type == "工厂进货单", detail.c.quantity),
+            (record.c.document_type.in_(inbound_types), detail.c.quantity),
             else_=0,
         ))
         return_qty = func.sum(case(
-            (record.c.document_type == "工厂退货单", detail.c.quantity),
+            (record.c.document_type.in_(outbound_types), detail.c.quantity),
             else_=0,
         ))
 
@@ -512,6 +712,182 @@ class InventoryRepository:
         wb.close()
         return result
 
+    def create_tables(self) -> None:
+        with self.engine.begin() as connection:
+            INVENTORY_TABLE.create(connection, checkfirst=True)
+            INVENTORY_DETAIL_TABLE.create(connection, checkfirst=True)
+            SUPPLIER_TABLE.create(connection, checkfirst=True)
+            WAREHOUSE_TABLE.create(connection, checkfirst=True)
+            self._ensure_supplier_schema(connection)
+            self._sync_suppliers_from_gj(connection)
+            GENERAL_CUSTOMER_BRAND_TABLE.create(connection, checkfirst=True)
+            GENERAL_CUSTOMER_SHOP_TABLE.create(connection, checkfirst=True)
+            self._seed_general_customer_shops(connection)
+
+    @staticmethod
+    def _ensure_supplier_schema(connection) -> None:
+        connection.execute(text("ALTER TABLE IF EXISTS suppliers ADD COLUMN IF NOT EXISTS brand TEXT"))
+        connection.execute(
+            text(
+                """
+                DELETE FROM suppliers AS bad
+                USING suppliers AS good
+                WHERE bad.id <> good.id
+                  AND bad.name = good.name
+                  AND good.brand = CASE
+                      WHEN upper(coalesce(bad.name, '')) LIKE '%TRUMPPIPE%'
+                        OR coalesce(bad.name, '') LIKE '%烟斗%' THEN 'yandou'
+                      WHEN upper(coalesce(bad.name, '')) LIKE '%EBLAN%'
+                        OR coalesce(bad.name, '') LIKE '%伊伴%' THEN 'eblan'
+                      WHEN upper(coalesce(bad.name, '')) LIKE '%SMILEY%'
+                        OR coalesce(bad.name, '') LIKE '%笑脸%'
+                        OR coalesce(bad.name, '') LIKE '%小莲%' THEN 'smiley'
+                      WHEN coalesce(bad.name, '') LIKE '%千百度女鞋%' THEN 'cbanner_womens'
+                      ELSE bad.brand
+                  END
+                  AND bad.brand IS DISTINCT FROM good.brand
+                  AND (
+                      upper(coalesce(bad.name, '')) LIKE '%TRUMPPIPE%'
+                      OR coalesce(bad.name, '') LIKE '%烟斗%'
+                      OR upper(coalesce(bad.name, '')) LIKE '%EBLAN%'
+                      OR coalesce(bad.name, '') LIKE '%伊伴%'
+                      OR upper(coalesce(bad.name, '')) LIKE '%SMILEY%'
+                      OR coalesce(bad.name, '') LIKE '%笑脸%'
+                      OR coalesce(bad.name, '') LIKE '%小莲%'
+                      OR coalesce(bad.name, '') LIKE '%千百度女鞋%'
+                  )
+                """
+            )
+        )
+        connection.execute(
+            text(
+                """
+                UPDATE suppliers
+                SET brand = CASE
+                    WHEN upper(coalesce(name, '')) LIKE '%TRUMPPIPE%'
+                      OR coalesce(name, '') LIKE '%烟斗%' THEN 'yandou'
+                    WHEN upper(coalesce(name, '')) LIKE '%EBLAN%'
+                      OR coalesce(name, '') LIKE '%伊伴%' THEN 'eblan'
+                    WHEN upper(coalesce(name, '')) LIKE '%SMILEY%'
+                      OR coalesce(name, '') LIKE '%笑脸%'
+                      OR coalesce(name, '') LIKE '%小莲%' THEN 'smiley'
+                    WHEN coalesce(name, '') LIKE '%千百度品牌方%' THEN :default_brand
+                    WHEN coalesce(name, '') LIKE '%千百度女鞋%' THEN 'cbanner_womens'
+                    WHEN coalesce(name, '') LIKE '%千百度%' THEN 'cbanner_mens'
+                    ELSE :default_brand
+                END
+                WHERE brand IS NULL
+                   OR brand = ''
+                   OR (
+                        upper(coalesce(name, '')) LIKE '%TRUMPPIPE%'
+                        OR coalesce(name, '') LIKE '%烟斗%'
+                        OR upper(coalesce(name, '')) LIKE '%EBLAN%'
+                        OR coalesce(name, '') LIKE '%伊伴%'
+                        OR upper(coalesce(name, '')) LIKE '%SMILEY%'
+                        OR coalesce(name, '') LIKE '%笑脸%'
+                        OR coalesce(name, '') LIKE '%小莲%'
+                        OR coalesce(name, '') LIKE '%千百度女鞋%'
+                   )
+                """
+            ),
+            {"default_brand": CBANNER_MENS_BRAND},
+        )
+        connection.execute(text("ALTER TABLE IF EXISTS suppliers ALTER COLUMN brand SET NOT NULL"))
+        connection.execute(text("DROP INDEX IF EXISTS idx_suppliers_brand"))
+        connection.execute(text("CREATE INDEX IF NOT EXISTS idx_suppliers_brand ON suppliers (brand)"))
+        connection.execute(
+            text(
+                """
+                do $$
+                begin
+                    if exists (
+                        select 1
+                        from pg_constraint
+                        where conname = 'uq_supplier_name'
+                    ) then
+                        alter table suppliers drop constraint uq_supplier_name;
+                    end if;
+                end $$;
+                """
+            )
+        )
+        connection.execute(
+            text(
+                """
+                do $$
+                begin
+                    if not exists (
+                        select 1
+                        from pg_constraint
+                        where conname = 'uq_supplier_brand_name'
+                    ) then
+                        alter table suppliers add constraint uq_supplier_brand_name unique (brand, name);
+                    end if;
+                end $$;
+                """
+            )
+        )
+
+    @staticmethod
+    def _sync_suppliers_from_gj(connection) -> int:
+        if not inspect(connection).has_table(GJ_MERGED_PRODUCT_INFO_TABLE.name):
+            return 0
+        synced = 0
+        rows = connection.execute(
+            select(
+                GJ_MERGED_PRODUCT_INFO_TABLE.c.fine_table_brand,
+                GJ_MERGED_PRODUCT_INFO_TABLE.c.primary_supplier,
+            )
+            .where(GJ_MERGED_PRODUCT_INFO_TABLE.c.fine_table_brand.in_(GJ_FINE_TABLE_BRANDS))
+            .where(GJ_MERGED_PRODUCT_INFO_TABLE.c.primary_supplier.isnot(None))
+            .where(GJ_MERGED_PRODUCT_INFO_TABLE.c.primary_supplier != "")
+            .distinct()
+        ).mappings()
+        for row in rows:
+            name = str(row["primary_supplier"] or "").strip()
+            brand = infer_supplier_brand_from_name(name) or str(row["fine_table_brand"] or "").strip()
+            if not brand or not name:
+                continue
+            exists = connection.execute(
+                select(SUPPLIER_TABLE.c.id).where(
+                    SUPPLIER_TABLE.c.brand == brand,
+                    SUPPLIER_TABLE.c.name == name,
+                )
+            ).first()
+            if exists is None:
+                connection.execute(insert(SUPPLIER_TABLE).values(brand=brand, name=name))
+                synced += 1
+        return synced
+
+    def _seed_general_customer_shops(self, connection) -> None:
+        defaults = [
+            {"customer_name": "烟斗", "shop_name": "烟斗唯品会店铺"},
+        ]
+        for row in defaults:
+            self._ensure_general_customer_brand(connection, row["customer_name"])
+            exists = connection.execute(
+                select(GENERAL_CUSTOMER_SHOP_TABLE.c.id).where(
+                    GENERAL_CUSTOMER_SHOP_TABLE.c.customer_name == row["customer_name"],
+                    GENERAL_CUSTOMER_SHOP_TABLE.c.shop_name == row["shop_name"],
+                )
+            ).first()
+            if exists is None:
+                connection.execute(insert(GENERAL_CUSTOMER_SHOP_TABLE).values(**row))
+
+        existing_brands = connection.execute(select(GENERAL_CUSTOMER_SHOP_TABLE.c.customer_name).distinct()).all()
+        for row in existing_brands:
+            self._ensure_general_customer_brand(connection, row[0])
+
+    @staticmethod
+    def _ensure_general_customer_brand(connection, name: str) -> None:
+        if not name:
+            return
+        exists = connection.execute(
+            select(GENERAL_CUSTOMER_BRAND_TABLE.c.id).where(GENERAL_CUSTOMER_BRAND_TABLE.c.name == name)
+        ).first()
+        if exists is None:
+            connection.execute(insert(GENERAL_CUSTOMER_BRAND_TABLE).values(name=name))
+
     # ── Helpers ────────────────────────────────────────────────────
 
     @staticmethod
@@ -534,4 +910,20 @@ class InventoryRepository:
                 k: str(v) if isinstance(v, Decimal) else v
                 for k, v in raw_payload.items()
             }
+        return payload
+
+    @staticmethod
+    def _prepare_supplier(data: Mapping[str, object]) -> dict[str, object]:
+        name = str(data.get("name") or "").strip()
+        brand = infer_supplier_brand_from_name(name) or str(data.get("brand") or "").strip() or CBANNER_MENS_BRAND
+        payload = {
+            "brand": brand,
+            "name": name,
+            "factory_code": str(data.get("factory_code") or "").strip() or None,
+            "contact": str(data.get("contact") or "").strip() or None,
+            "address": str(data.get("address") or "").strip() or None,
+            "notes": str(data.get("notes") or "").strip() or None,
+        }
+        if payload["brand"] not in GJ_FINE_TABLE_BRANDS:
+            payload["brand"] = CBANNER_MENS_BRAND
         return payload

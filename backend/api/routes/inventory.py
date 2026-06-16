@@ -10,6 +10,7 @@ from openpyxl import Workbook, load_workbook
 
 from domain.inventory_sources import (
     DOCUMENT_TYPES,
+    normalize_document_type,
     INVENTORY_CANONICAL_COLUMNS,
     INVENTORY_COLUMN_ALIASES,
     INVENTORY_DETAIL_ALIASES,
@@ -51,6 +52,7 @@ def list_inventory(
     page_size: int = 20,
 ):
     repository = request.app.state.inventory_repository
+    document_type = normalize_document_type(document_type) if document_type else None
     return repository.list_records(
         date_start=date_start,
         date_end=date_end,
@@ -128,6 +130,96 @@ def import_jst_stock(request: Request, stock_date: str | None = None):
     )
 
 
+@router.get("/inventory/general-customer-shops")
+def list_general_customer_shops(request: Request):
+    repository = request.app.state.inventory_repository
+    return {"items": repository.list_general_customer_shops()}
+
+
+@router.get("/inventory/general-customer-brands")
+def list_general_customer_brands(request: Request):
+    repository = request.app.state.inventory_repository
+    return {"items": repository.list_general_customer_brands()}
+
+
+@router.post("/inventory/general-customer-brands")
+def create_general_customer_brand(request: Request, payload: dict):
+    repository = request.app.state.inventory_repository
+    name = str(payload.get("name") or "").strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="品牌名称不能为空")
+    if repository.get_general_customer_brand_by_name(name):
+        raise HTTPException(status_code=400, detail=f"品牌 '{name}' 已存在")
+    return {
+        "item": repository.create_general_customer_brand({
+            "name": name,
+        }),
+        "message": "创建成功",
+    }
+
+
+@router.put("/inventory/general-customer-brands/{brand_id}")
+def update_general_customer_brand(request: Request, brand_id: int, payload: dict):
+    repository = request.app.state.inventory_repository
+    name = str(payload.get("name") or "").strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="品牌名称不能为空")
+    existing = repository.get_general_customer_brand_by_name(name)
+    if existing and existing.get("id") != brand_id:
+        raise HTTPException(status_code=400, detail=f"品牌 '{name}' 已存在")
+    record = repository.update_general_customer_brand(brand_id, {
+        "name": name,
+    })
+    if record is None:
+        raise HTTPException(status_code=404, detail="Brand not found")
+    return {"item": record, "message": "更新成功"}
+
+
+@router.delete("/inventory/general-customer-brands/{brand_id}")
+def delete_general_customer_brand(request: Request, brand_id: int):
+    repository = request.app.state.inventory_repository
+    result = repository.delete_general_customer_brand(brand_id)
+    if result == "not_found":
+        raise HTTPException(status_code=404, detail="Brand not found")
+    return {"message": "删除成功"}
+
+
+@router.post("/inventory/general-customer-shops")
+def create_general_customer_shop(request: Request, payload: dict):
+    repository = request.app.state.inventory_repository
+    customer_name = str(payload.get("customer_name") or "").strip()
+    shop_name = str(payload.get("shop_name") or "").strip()
+    if not customer_name:
+        raise HTTPException(status_code=400, detail="品牌名称不能为空")
+    if not shop_name:
+        raise HTTPException(status_code=400, detail="店铺名称不能为空")
+    existing = repository.get_general_customer_shop_by_name(customer_name, shop_name)
+    if existing:
+        raise HTTPException(status_code=400, detail=f"店铺 '{customer_name} / {shop_name}' 已存在")
+    payload["customer_name"] = customer_name
+    payload["shop_name"] = shop_name
+    return {"item": repository.create_general_customer_shop(payload), "message": "创建成功"}
+
+
+@router.put("/inventory/general-customer-shops/{shop_id}")
+def update_general_customer_shop(request: Request, shop_id: int, payload: dict):
+    repository = request.app.state.inventory_repository
+    payload["customer_name"] = str(payload.get("customer_name") or "").strip()
+    payload["shop_name"] = str(payload.get("shop_name") or "").strip()
+    record = repository.update_general_customer_shop(shop_id, payload)
+    if record is None:
+        raise HTTPException(status_code=404, detail="Shop not found")
+    return {"item": record, "message": "更新成功"}
+
+
+@router.delete("/inventory/general-customer-shops/{shop_id}")
+def delete_general_customer_shop(request: Request, shop_id: int):
+    repository = request.app.state.inventory_repository
+    if not repository.delete_general_customer_shop(shop_id):
+        raise HTTPException(status_code=404, detail="Shop not found")
+    return {"message": "删除成功"}
+
+
 @router.get("/inventory/{record_id}")
 def get_inventory_record(request: Request, record_id: int):
     repository = request.app.state.inventory_repository
@@ -142,6 +234,8 @@ def create_inventory_record(request: Request, payload: dict):
     repository = request.app.state.inventory_repository
     if payload.get("date"):
         payload["date"] = _normalize_date(str(payload["date"]))
+    if "document_type" in payload:
+        payload["document_type"] = normalize_document_type(payload.get("document_type"))
     summary = (payload.get("summary") or "").strip()
     if summary:
         from domain.inventory_schema import INVENTORY_TABLE
@@ -160,6 +254,8 @@ def update_inventory_record(request: Request, record_id: int, payload: dict):
     repository = request.app.state.inventory_repository
     if payload.get("date"):
         payload["date"] = _normalize_date(str(payload["date"]))
+    if "document_type" in payload:
+        payload["document_type"] = normalize_document_type(payload.get("document_type"))
     record = repository.update_record(record_id, payload)
     if record is None:
         raise HTTPException(status_code=404, detail="Record not found")
@@ -297,7 +393,8 @@ async def import_inventory(request: Request, file: UploadFile = None):
             continue
 
         # Validate document_type
-        doc_type = str(doc_payload.get("document_type") or "")
+        doc_type = normalize_document_type(doc_payload.get("document_type"))
+        doc_payload["document_type"] = doc_type
         if doc_type and doc_type not in DOCUMENT_TYPES:
             extra_fields["原始单据类型"] = doc_type
             doc_payload["document_type"] = ""

@@ -13,6 +13,12 @@ DEFAULT_FRONTEND_ORIGIN = "http://127.0.0.1:3000"
 DEFAULT_CBANNER_MENS_GROUP_SOURCE = Path(
     r"\\192.168.10.229\运营组资料\9商品组（卢嘉诚）\商品分析\商品运营货品表\千百度男鞋"
 )
+DEFAULT_CBANNER_WOMENS_PRODUCT_DETAIL_SOURCE = Path(
+    r"\\Hede\运营组资料\9商品组（卢嘉诚）\商品分析\商品运营货品表\千百度女鞋"
+)
+DEFAULT_EBLAN_PRODUCT_DETAIL_SOURCE = Path(
+    r"\\Hede\运营组资料\9商品组（卢嘉诚）\商品分析\商品运营货品表\伊伴\2026\2026-06"
+)
 
 
 @dataclass(frozen=True)
@@ -28,6 +34,8 @@ class Settings:
     yandou_vip_data_root: Path | None = None
     jst_price_root: Path | None = None
     cbanner_mens_group_source: Path | None = DEFAULT_CBANNER_MENS_GROUP_SOURCE
+    cbanner_womens_product_detail_source: Path | None = DEFAULT_CBANNER_WOMENS_PRODUCT_DETAIL_SOURCE
+    eblan_product_detail_source: Path | None = DEFAULT_EBLAN_PRODUCT_DETAIL_SOURCE
 
     @property
     def image_roots(self) -> dict[str, Path]:
@@ -89,6 +97,18 @@ def load_settings(require_database: bool = True) -> Settings:
         if cbanner_mens_group_source_raw
         else DEFAULT_CBANNER_MENS_GROUP_SOURCE
     )
+    cbanner_womens_product_detail_source_raw = os.getenv("CBANNER_WOMENS_PRODUCT_DETAIL_SOURCE")
+    cbanner_womens_product_detail_source = (
+        Path(cbanner_womens_product_detail_source_raw)
+        if cbanner_womens_product_detail_source_raw
+        else DEFAULT_CBANNER_WOMENS_PRODUCT_DETAIL_SOURCE
+    )
+    eblan_product_detail_source_raw = os.getenv("EBLAN_PRODUCT_DETAIL_SOURCE")
+    eblan_product_detail_source = (
+        Path(eblan_product_detail_source_raw)
+        if eblan_product_detail_source_raw
+        else DEFAULT_EBLAN_PRODUCT_DETAIL_SOURCE
+    )
 
     return Settings(
         database_url=database_url,
@@ -102,4 +122,6 @@ def load_settings(require_database: bool = True) -> Settings:
         yandou_vip_data_root=yandou_vip_data_root,
         jst_price_root=jst_price_root,
         cbanner_mens_group_source=cbanner_mens_group_source,
+        cbanner_womens_product_detail_source=cbanner_womens_product_detail_source,
+        eblan_product_detail_source=eblan_product_detail_source,
     )

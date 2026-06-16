@@ -5,6 +5,7 @@ import { ChevronLeft, ChevronRight, Edit, Plus, Search, Trash2, X } from "lucide
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import {
   Dialog,
   DialogContent,
@@ -21,9 +22,24 @@ import {
   ApiError,
   type SupplierItem,
 } from "@/lib/api"
+import { BRANDS, type BrandKey } from "@/lib/brands"
 
 const PAGE_SIZE = 30
 type PageToken = number | "start-ellipsis" | "end-ellipsis"
+type SupplierBrand = Exclude<BrandKey, "all"> | "smiley"
+
+const SUPPLIER_BRANDS: ReadonlyArray<{ key: SupplierBrand; label: string }> = [
+  { key: "cbanner_mens", label: "千百度男鞋" },
+  { key: "cbanner_womens", label: "千百度女鞋" },
+  { key: "yandou", label: "烟斗" },
+  { key: "eblan", label: "伊伴" },
+  { key: "smiley", label: "笑脸" },
+]
+const SUPPLIER_BRAND_OPTIONS: ReadonlyArray<{ key: SupplierBrand | "all"; label: string }> = [
+  { key: "all", label: "总览" },
+  ...SUPPLIER_BRANDS,
+]
+const DEFAULT_SUPPLIER_BRAND: SupplierBrand = "cbanner_mens"
 
 function getErrorMessage(error: unknown) {
   if (error instanceof ApiError) return error.message || `请求失败（${error.status}）`
@@ -33,6 +49,10 @@ function getErrorMessage(error: unknown) {
 
 function formatNumber(value: number) {
   return new Intl.NumberFormat("zh-CN").format(value)
+}
+
+function brandLabel(value: BrandKey | string | null | undefined) {
+  return SUPPLIER_BRAND_OPTIONS.find((brand) => brand.key === value)?.label ?? "-"
 }
 
 function getPageTokens(currentPage: number, totalPages: number): PageToken[] {
@@ -68,13 +88,21 @@ export default function SuppliersPage() {
   const [items, setItems] = useState<SupplierItem[]>([])
   const [total, setTotal] = useState(0)
   const [page, setPage] = useState(1)
+  const [brand, setBrand] = useState<SupplierBrand | "all">(DEFAULT_SUPPLIER_BRAND)
   const [queryInput, setQueryInput] = useState("")
   const [query, setQuery] = useState("")
   const [isLoading, setIsLoading] = useState(true)
 
   const [formOpen, setFormOpen] = useState(false)
   const [formMode, setFormMode] = useState<"create" | "edit">("create")
-  const [formData, setFormData] = useState({ name: "", factory_code: "", contact: "", address: "", notes: "" })
+  const [formData, setFormData] = useState<{ brand: SupplierBrand; name: string; factory_code: string; contact: string; address: string; notes: string }>({
+    brand: DEFAULT_SUPPLIER_BRAND,
+    name: "",
+    factory_code: "",
+    contact: "",
+    address: "",
+    notes: "",
+  })
   const [editingId, setEditingId] = useState<number | null>(null)
   const [isSaving, setIsSaving] = useState(false)
 
@@ -86,7 +114,7 @@ export default function SuppliersPage() {
   const load = useCallback(async () => {
     setIsLoading(true)
     try {
-      const res = await listSuppliers({ page, pageSize: PAGE_SIZE, query })
+      const res = await listSuppliers({ page, pageSize: PAGE_SIZE, query, brand })
       const nextTotalPages = Math.max(1, Math.ceil(res.total / PAGE_SIZE))
       if (page > nextTotalPages) {
         setPage(nextTotalPages)
@@ -100,7 +128,7 @@ export default function SuppliersPage() {
     } finally {
       setIsLoading(false)
     }
-  }, [page, query])
+  }, [brand, page, query])
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -116,7 +144,14 @@ export default function SuppliersPage() {
 
   const openCreate = () => {
     setFormMode("create")
-    setFormData({ name: "", factory_code: "", contact: "", address: "", notes: "" })
+    setFormData({
+      brand: brand === "all" ? DEFAULT_SUPPLIER_BRAND : brand,
+      name: "",
+      factory_code: "",
+      contact: "",
+      address: "",
+      notes: "",
+    })
     setEditingId(null)
     setFormOpen(true)
   }
@@ -125,6 +160,7 @@ export default function SuppliersPage() {
     setFormMode("edit")
     setEditingId(item.id)
     setFormData({
+      brand: item.brand,
       name: item.name,
       factory_code: item.factory_code || "",
       contact: item.contact || "",
@@ -195,6 +231,18 @@ export default function SuppliersPage() {
           </Button>
         </div>
 
+        <div className="surface-panel mb-3 p-1.5">
+          <Tabs defaultValue={DEFAULT_SUPPLIER_BRAND} value={brand} onValueChange={(value) => { setBrand(value as SupplierBrand | "all"); setPage(1) }}>
+            <TabsList className="flex flex-wrap justify-start gap-1 bg-transparent p-0">
+              {SUPPLIER_BRAND_OPTIONS.map((item) => (
+                <TabsTrigger key={item.key} value={item.key} className="cursor-pointer">
+                  {item.label}
+                </TabsTrigger>
+              ))}
+            </TabsList>
+          </Tabs>
+        </div>
+
         <form
           className="surface-panel mb-3 flex flex-col gap-2 p-3 sm:flex-row sm:items-center"
           onSubmit={(event) => {
@@ -241,6 +289,7 @@ export default function SuppliersPage() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="table-head-row">
+                  <th className="px-4 py-3 font-medium">品牌</th>
                   <th className="px-4 py-3 font-medium">名称</th>
                   <th className="px-4 py-3 font-medium">工厂代码</th>
                   <th className="px-4 py-3 font-medium">联系方式</th>
@@ -252,18 +301,23 @@ export default function SuppliersPage() {
               <tbody className="divide-y divide-border">
                 {isLoading && (
                   <tr>
-                    <td colSpan={6} className="px-4 py-12 text-center text-muted-foreground">加载中...</td>
+                    <td colSpan={7} className="px-4 py-12 text-center text-muted-foreground">加载中...</td>
                   </tr>
                 )}
                 {!isLoading && items.length === 0 && (
                   <tr>
-                    <td colSpan={6} className="px-4 py-12 text-center text-muted-foreground">
+                    <td colSpan={7} className="px-4 py-12 text-center text-muted-foreground">
                       {query ? "暂无匹配供应商" : "暂无供应商数据"}
                     </td>
                   </tr>
                 )}
                 {!isLoading && items.map((item) => (
                   <tr key={item.id} className="table-row">
+                    <td className="px-4 py-2.5">
+                      <span className="rounded-full border border-border bg-muted/45 px-2.5 py-1 text-xs text-muted-foreground">
+                        {brandLabel(item.brand)}
+                      </span>
+                    </td>
                     <td className="px-4 py-2.5 font-medium">{item.name}</td>
                     <td className="px-4 py-2.5 tabular-nums">{item.factory_code || "-"}</td>
                     <td className="px-4 py-2.5">{item.contact || "-"}</td>
@@ -337,6 +391,19 @@ export default function SuppliersPage() {
             <DialogTitle>{formMode === "create" ? "新增供应商" : "编辑供应商"}</DialogTitle>
           </DialogHeader>
           <div className="space-y-4 py-2">
+            <div className="space-y-1.5">
+              <Label htmlFor="supplier-brand">品牌 *</Label>
+              <select
+                id="supplier-brand"
+                value={formData.brand}
+                onChange={(e) => setFormData((prev) => ({ ...prev, brand: e.target.value as SupplierBrand }))}
+                className="flex h-9 w-full rounded-lg border border-input bg-card px-3 py-2 text-sm shadow-xs outline-none transition-colors focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/35"
+              >
+                {SUPPLIER_BRANDS.map((item) => (
+                  <option key={item.key} value={item.key}>{item.label}</option>
+                ))}
+              </select>
+            </div>
             <div className="space-y-1.5">
               <Label htmlFor="supplier-name">名称 *</Label>
               <Input id="supplier-name" value={formData.name} onChange={(e) => setFormData((prev) => ({ ...prev, name: e.target.value }))} placeholder="供应商名称" />

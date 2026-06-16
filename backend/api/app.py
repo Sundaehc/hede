@@ -36,6 +36,8 @@ def create_app(*, settings, repository=None, image_matchers=None, inventory_repo
         allow_headers=["*"],
     )
     app.state.settings = settings
+    if hasattr(resolved_inventory_repository, "create_tables"):
+        resolved_inventory_repository.create_tables()
     app.state.repository = resolved_repository
     app.state.inventory_repository = resolved_inventory_repository
     app.state.image_matchers = resolved_matchers

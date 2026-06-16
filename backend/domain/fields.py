@@ -33,6 +33,7 @@ PRODUCT_FIELDS: tuple[FieldSpec, ...] = (
     FieldSpec("sku", "货号"),
     FieldSpec("original_sku", "原始货号"),
     FieldSpec("group_name", "组别"),
+    FieldSpec("product_level", "商品等级", aliases=("等级", "货品等级")),
     FieldSpec("cost", "成本", "numeric"),
     FieldSpec("factory_sku", "工厂货号"),
     FieldSpec("color", "颜色", aliases=("新色",)),
@@ -83,6 +84,7 @@ INVENTORY_DETAIL_FIELDS: tuple[FieldSpec, ...] = (
 )
 
 SUPPLIER_FIELDS: tuple[FieldSpec, ...] = (
+    FieldSpec("brand", "品牌"),
     FieldSpec("name", "名称"),
     FieldSpec("factory_code", "工厂代码"),
     FieldSpec("contact", "联系人"),
@@ -94,6 +96,15 @@ WAREHOUSE_FIELDS: tuple[FieldSpec, ...] = (
     FieldSpec("name", "名称"),
     FieldSpec("address", "地址"),
     FieldSpec("notes", "备注"),
+)
+
+GENERAL_CUSTOMER_BRAND_FIELDS: tuple[FieldSpec, ...] = (
+    FieldSpec("name", "品牌"),
+)
+
+GENERAL_CUSTOMER_SHOP_FIELDS: tuple[FieldSpec, ...] = (
+    FieldSpec("customer_name", "品牌"),
+    FieldSpec("shop_name", "店铺名称"),
 )
 
 JST_STOCK_FIELDS: tuple[FieldSpec, ...] = (
@@ -251,3 +262,4 @@ GJ_MERGED_PRODUCT_INFO_FIELDS: tuple[FieldSpec, ...] = (
     FieldSpec("disabled_flag", "是否停用"),
     FieldSpec("primary_supplier", "主供应商"),
 )
+

@@ -9,6 +9,10 @@ import type {
   FineTableResponse,
   FineTableSnapshotListResponse,
   FineTableSnapshotResponse,
+  GeneralCustomerBrandItem,
+  GeneralCustomerBrandListResponse,
+  GeneralCustomerShopItem,
+  GeneralCustomerShopListResponse,
 } from "@/lib/types"
 
 const API_PREFIX = "/api"
@@ -69,6 +73,7 @@ export function listProducts(params: {
 export function listFineTable(params: {
   brand: Exclude<BrandKey, "all">
   query?: string
+  skuPrefix?: string
   page: number
   pageSize: number
 }) {
@@ -78,6 +83,7 @@ export function listFineTable(params: {
     page_size: String(params.pageSize),
   })
   if (params.query) search.set("query", params.query)
+  if (params.skuPrefix) search.set("sku_prefix", params.skuPrefix)
   return request<FineTableResponse>(`/fine-table?${search.toString()}`)
 }
 
@@ -97,6 +103,7 @@ export function listFineTableSnapshots(params: {
 export function getFineTableSnapshot(params: {
   id: number
   query?: string
+  skuPrefix?: string
   page: number
   pageSize: number
 }) {
@@ -105,6 +112,7 @@ export function getFineTableSnapshot(params: {
     page_size: String(params.pageSize),
   })
   if (params.query) search.set("query", params.query)
+  if (params.skuPrefix) search.set("sku_prefix", params.skuPrefix)
   return request<FineTableSnapshotResponse>(`/fine-table/snapshots/${params.id}?${search.toString()}`)
 }
 
@@ -112,6 +120,7 @@ export function getFineTableSnapshotByDate(params: {
   brand: Exclude<BrandKey, "all">
   snapshotDate: string
   query?: string
+  skuPrefix?: string
   page: number
   pageSize: number
 }) {
@@ -122,6 +131,7 @@ export function getFineTableSnapshotByDate(params: {
     page_size: String(params.pageSize),
   })
   if (params.query) search.set("query", params.query)
+  if (params.skuPrefix) search.set("sku_prefix", params.skuPrefix)
   return request<FineTableSnapshotResponse>(`/fine-table/snapshots/by-date?${search.toString()}`)
 }
 
@@ -280,6 +290,7 @@ export type InventoryListResponse = {
 
 export type SupplierItem = {
   id: number
+  brand: Exclude<BrandKey, "all"> | "smiley"
   name: string
   factory_code: string | null
   contact: string | null
@@ -377,6 +388,53 @@ export function exportInventory() {
   })
 }
 
+export function listGeneralCustomerShops() {
+  return request<GeneralCustomerShopListResponse>("/inventory/general-customer-shops")
+}
+
+export function listGeneralCustomerBrands() {
+  return request<GeneralCustomerBrandListResponse>("/inventory/general-customer-brands")
+}
+
+export function createGeneralCustomerBrand(payload: Record<string, unknown>) {
+  return request<{ item: GeneralCustomerBrandItem; message: string }>("/inventory/general-customer-brands", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  })
+}
+
+export function updateGeneralCustomerBrand(id: number, payload: Record<string, unknown>) {
+  return request<{ item: GeneralCustomerBrandItem; message: string }>(`/inventory/general-customer-brands/${id}`, {
+    method: "PUT",
+    body: JSON.stringify(payload),
+  })
+}
+
+export function deleteGeneralCustomerBrand(id: number) {
+  return request<{ message: string }>(`/inventory/general-customer-brands/${id}`, {
+    method: "DELETE",
+  })
+}
+
+export function createGeneralCustomerShop(payload: Record<string, unknown>) {
+  return request<{ item: GeneralCustomerShopItem; message: string }>("/inventory/general-customer-shops", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  })
+}
+
+export function updateGeneralCustomerShop(id: number, payload: Record<string, unknown>) {
+  return request<{ item: GeneralCustomerShopItem; message: string }>(`/inventory/general-customer-shops/${id}`, {
+    method: "PUT",
+    body: JSON.stringify(payload),
+  })
+}
+
+export function deleteGeneralCustomerShop(id: number) {
+  return request<{ message: string }>(`/inventory/general-customer-shops/${id}`, {
+    method: "DELETE" })
+}
+
 export function listDetails(documentId: number) {
   return request<{ items: InventoryDetail[] }>(`/inventory/${documentId}/details`)
 }
@@ -448,7 +506,7 @@ export function listEndingInventory(params: {
 
 // ── Suppliers ────────────────────────────────────────────────────
 
-export function listSuppliers(params?: { page?: number; pageSize?: number; query?: string }) {
+export function listSuppliers(params?: { page?: number; pageSize?: number; query?: string; brand?: BrandKey | "smiley" }) {
   if (!params) {
     return request<SupplierListResponse>("/suppliers")
   }
@@ -457,6 +515,7 @@ export function listSuppliers(params?: { page?: number; pageSize?: number; query
     page_size: String(params.pageSize ?? 50),
   })
   if (params.query) search.set("query", params.query)
+  if (params.brand) search.set("brand", params.brand)
   return request<SupplierListResponse>(`/suppliers?${search.toString()}`)
 }
 

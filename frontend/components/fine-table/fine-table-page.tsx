@@ -72,6 +72,7 @@ type FineTablePageContext = {
   brand: FineTableBrandKey
   historyDate: string
   query: string
+  skuPrefix: string
   reloadToken: number
 }
 
@@ -104,6 +105,7 @@ const SIZE_STOCK_LABELS = [
 const DEFAULT_COLUMN_KEYS = [
   "status",
   "group_name",
+  "product_level",
   "factory_code",
   "product_name",
   "main_style",
@@ -124,6 +126,7 @@ const DEFAULT_COLUMN_KEYS = [
   "vip_7d_exposure",
   "vip_30d_exposure",
   "stock_qty",
+  "original_stock_qty",
   "projected_5d_stock_no_inbound",
   "inbound_qty",
   "original_defect_stock",
@@ -575,6 +578,7 @@ function createTableColumns(dailyLabels: string[]): TableColumn[] {
       render: (row) => <StatusBadge row={row} />,
     },
     { key: "group_name", label: "组别", group: "基础", className: "min-w-28", defaultVisible: true, render: (row) => row.group_name || "-" },
+    { key: "product_level", label: "商品等级", group: "基础", className: "min-w-28", defaultVisible: true, render: (row) => row.product_level || "-" },
     { key: "factory_code", label: "工厂代码", group: "基础", className: "min-w-28", defaultVisible: true, render: (row) => row.factory_code || "-" },
     { key: "product_name", label: "品名", group: "基础", className: "min-w-28", defaultVisible: true, render: (row) => row.product_name || "-" },
     { key: "main_style", label: "主款式", group: "基础", className: "min-w-28", defaultVisible: true, render: (row) => row.main_style || "-" },
@@ -660,6 +664,7 @@ function createTableColumns(dailyLabels: string[]): TableColumn[] {
     { key: "vip_30d_reject_rate", label: "30天拒退率", group: "销售", align: "right", render: (row) => row.vip_30d_reject_rate || "-" },
 
     { key: "stock_qty", label: "聚水潭库存", group: "库存", align: "right", defaultVisible: true, render: (row) => formatNumber(row.stock_qty) },
+    { key: "original_stock_qty", label: "原始货号库存", group: "库存", align: "right", defaultVisible: true, render: (row) => formatNumber(row.original_stock_qty ?? 0) },
     {
       key: "projected_5d_stock_no_inbound",
       label: "现有5天后预计库存(不加未到)",
@@ -938,6 +943,7 @@ function DetailDrawer({ row, onClose }: { row: FineTableItem | null; onClose: ()
                   <DetailFieldCard label="工厂代码" value={row.factory_code} />
                   <DetailFieldCard label="工厂货号" value={row.factory_sku} />
                   <DetailFieldCard label="组别" value={row.group_name} />
+                  <DetailFieldCard label="商品等级" value={row.product_level} />
                   <DetailFieldCard label="主款式" value={row.main_style} />
                 </div>
               </DetailSection>
@@ -1023,6 +1029,7 @@ function DetailDrawer({ row, onClose }: { row: FineTableItem | null; onClose: ()
             <TabsContent value="stock" className="space-y-4">
               <div className="grid gap-3 sm:grid-cols-2">
                 <StatCard icon={Boxes} label="聚水潭库存" value={formatNumber(row.stock_qty)} tone={row.stock_qty < row.vip_7d_sales ? "warn" : "neutral"} />
+                <StatCard icon={Boxes} label="原始货号库存" value={formatNumber(row.original_stock_qty ?? 0)} />
                 <StatCard icon={AlertTriangle} label="现有5天后预计库存(不加未到)" value={nullableInteger(projected5dStockNoInbound(row))} tone={projected5dStockNoInbound(row) < 0 ? "risk" : "good"} />
                 <StatCard icon={AlertTriangle} label="15天后库存减唯品会" value={nullableInteger(vipProjected15dStock(row))} tone={vipProjected15dStock(row) < 0 ? "risk" : "good"} />
                 <StatCard icon={AlertTriangle} label="15天后库存减其他平台" value={nullableInteger(otherProjected15dStock(row))} tone={otherProjected15dStock(row) < 0 ? "risk" : "good"} />
@@ -1241,7 +1248,7 @@ function getMaxHistoryDate() {
 }
 
 function fineTablePageCacheKey(context: FineTablePageContext, page: number) {
-  return JSON.stringify([context.brand, context.historyDate, context.query, context.reloadToken, page])
+  return JSON.stringify([context.brand, context.historyDate, context.query, context.skuPrefix, context.reloadToken, page])
 }
 
 function fineTableResponseToCacheEntry(response: FineTableResponse | FineTableSnapshotResponse): FineTablePageCacheEntry {
@@ -1270,12 +1277,14 @@ async function loadFineTablePage(context: FineTablePageContext, page: number) {
       page,
       pageSize: PAGE_SIZE,
       query: context.query || undefined,
+      skuPrefix: context.skuPrefix || undefined,
     })
     : await listFineTable({
       brand: context.brand,
       page,
       pageSize: PAGE_SIZE,
       query: context.query || undefined,
+      skuPrefix: context.skuPrefix || undefined,
     })
 
   return fineTableResponseToCacheEntry(response)
@@ -1303,6 +1312,8 @@ export function FineTablePage() {
   const [total, setTotal] = useState(0)
   const [queryInput, setQueryInput] = useState("")
   const [query, setQuery] = useState("")
+  const [skuPrefixInput, setSkuPrefixInput] = useState("")
+  const [skuPrefix, setSkuPrefix] = useState("")
   const [view, setView] = useState<ViewKey>("all")
   const [selectedRow, setSelectedRow] = useState<FineTableItem | null>(null)
   const [isLoading, setIsLoading] = useState(true)
@@ -1333,7 +1344,7 @@ export function FineTablePage() {
     const requestId = loadRequestIdRef.current + 1
     loadRequestIdRef.current = requestId
     const isCurrentRequest = () => !cancelled && loadRequestIdRef.current === requestId
-    const context: FineTablePageContext = { brand, historyDate, query, reloadToken }
+    const context: FineTablePageContext = { brand, historyDate, query, skuPrefix, reloadToken }
     const cacheKey = fineTablePageCacheKey(context, page)
 
     function applyPageEntry(entry: FineTablePageCacheEntry) {
@@ -1401,7 +1412,7 @@ export function FineTablePage() {
     return () => {
       cancelled = true
     }
-  }, [brand, historyDate, page, query, reloadToken])
+  }, [brand, historyDate, page, query, skuPrefix, reloadToken])
 
   const deferredView = useDeferredValue(view)
   const filteredRows = useMemo(() => {
@@ -1583,12 +1594,14 @@ export function FineTablePage() {
             page: pageToLoad,
             pageSize: EXPORT_PAGE_SIZE,
             query: query || undefined,
+            skuPrefix: skuPrefix || undefined,
           })
           : listFineTable({
             brand,
             page: pageToLoad,
             pageSize: EXPORT_PAGE_SIZE,
             query: query || undefined,
+            skuPrefix: skuPrefix || undefined,
           })
       )
       const firstResponse = await loadExportPage(1)
@@ -1748,21 +1761,26 @@ export function FineTablePage() {
           <StatCard icon={ImageIcon} label="当前页暂无图片" value={formatNumber(stats.missing)} tone={stats.missing > 0 ? "warn" : "neutral"} />
         </div>
 
-        <div className="surface-panel p-4">
+        <div className="surface-panel p-3">
           <div className="flex flex-col gap-3">
             <form
-              className="flex flex-col gap-2 lg:flex-row lg:items-stretch"
+              className="grid gap-3 xl:grid-cols-[minmax(24rem,1fr)_minmax(18rem,0.42fr)_auto]"
               onSubmit={(event) => {
                 event.preventDefault()
                 setPage(1)
                 setQuery(queryInput.trim())
+                setSkuPrefix(skuPrefixInput.trim())
               }}
             >
-              <div className="group relative min-w-0 flex-1">
-                <div className="pointer-events-none absolute left-3 top-3 flex h-7 w-7 items-center justify-center rounded-md bg-muted text-muted-foreground transition-colors group-focus-within:bg-primary/10 group-focus-within:text-primary">
-                  <Search className="h-4 w-4" />
+              <div className="group min-w-0 rounded-lg border border-border bg-card/70 p-2.5 shadow-xs transition-colors focus-within:border-ring focus-within:ring-3 focus-within:ring-ring/20">
+                <div className="mb-2 flex items-center gap-2">
+                  <label htmlFor="fine-table-query" className="flex items-center gap-2 text-xs font-semibold text-foreground">
+                    <Search className="h-3.5 w-3.5 text-muted-foreground" />
+                    包含搜索
+                  </label>
                 </div>
                 <textarea
+                  id="fine-table-query"
                   value={queryInput}
                   onChange={(event) => setQueryInput(event.target.value)}
                   aria-label="搜索货号、原始货号"
@@ -1773,24 +1791,43 @@ export function FineTablePage() {
                       event.preventDefault()
                       setPage(1)
                       setQuery(queryInput.trim())
+                      setSkuPrefix(skuPrefixInput.trim())
                     }
                   }}
-                  className="flex min-h-14 w-full resize-none rounded-lg border border-border bg-card/80 px-3 py-3 pl-12 text-sm leading-5 shadow-xs outline-none transition-colors placeholder:text-muted-foreground hover:border-ring/35 focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/25 disabled:cursor-not-allowed disabled:opacity-50"
+                  className="flex min-h-16 w-full resize-none rounded-md border-0 bg-transparent px-0 py-0 text-sm leading-5 outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-50"
                 />
               </div>
-              <div className="flex shrink-0 items-start gap-2">
-                <Button type="submit" size="sm" className="h-9 px-4">
+              <div className="group min-w-0 rounded-lg border border-border bg-card/70 p-2.5 shadow-xs transition-colors focus-within:border-ring focus-within:ring-3 focus-within:ring-ring/20">
+                <div className="mb-2 flex items-center gap-2">
+                  <label htmlFor="fine-table-sku-prefix" className="flex items-center gap-2 text-xs font-semibold text-foreground">
+                    <Search className="h-3.5 w-3.5 text-muted-foreground" />
+                    货号前缀
+                  </label>
+                </div>
+                <input
+                  id="fine-table-sku-prefix"
+                  value={skuPrefixInput}
+                  onChange={(event) => setSkuPrefixInput(event.target.value)}
+                  aria-label="货号前缀筛选"
+                  placeholder="货号/原始货号开头"
+                  className="h-8 w-full rounded-md border-0 bg-transparent px-0 text-sm outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-50"
+                />
+              </div>
+              <div className="flex items-start gap-2 xl:items-end">
+                <Button type="submit" size="sm" className="h-10 px-5">
                   查询
                 </Button>
-                {queryInput && (
+                {(queryInput || skuPrefixInput) && (
                   <Button
                     type="button"
                     variant="outline"
                     size="sm"
-                    className="h-9 px-3"
+                    className="h-10 px-3"
                     onClick={() => {
                       setQueryInput("")
                       setQuery("")
+                      setSkuPrefixInput("")
+                      setSkuPrefix("")
                       setPage(1)
                     }}
                   >

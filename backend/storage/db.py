@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections.abc import Iterable
 
 import orjson
-from sqlalchemy import create_engine, delete, func, insert
+from sqlalchemy import create_engine, delete, func, insert, text
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from domain.product_defaults import apply_product_defaults
@@ -32,6 +32,9 @@ class Database:
     def create_tables(self) -> None:
         engine = self._require_engine()
         METADATA.create_all(engine, checkfirst=True)
+        with engine.begin() as connection:
+            for table in PRODUCT_TABLES.values():
+                connection.execute(text(f"ALTER TABLE {table.name} ADD COLUMN IF NOT EXISTS product_level TEXT"))
 
     def replace_brand_rows(self, brand_group: str, rows: Iterable[dict[str, object]]) -> int:
         table = PRODUCT_TABLES[brand_group]

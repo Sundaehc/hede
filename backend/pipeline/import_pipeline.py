@@ -8,7 +8,12 @@ from domain.gj_brand import infer_gj_fine_table_brand, normalize_gj_fine_table_b
 from domain.gj_schema import GJ_MERGED_PRODUCT_INFO_TABLE
 from domain.sources import IMAGE_BRAND_KEYS, WORKBOOK_SPECS
 from domain.sources import CANONICAL_COLUMNS
-from fileio.cbanner_mens_group_reader import read_cbanner_mens_group_map
+from fileio.cbanner_mens_group_reader import (
+    read_cbanner_mens_group_map,
+    read_cbanner_mens_product_level_map,
+    read_cbanner_womens_product_level_map,
+    read_eblan_product_level_map,
+)
 from fileio.excel_reader import read_workbook_rows
 from fileio.image_matcher import ImageMatcher
 from storage.date_normalization import parse_date
@@ -31,6 +36,7 @@ GJ_PRODUCT_BRANDS = {*CBANNER_BRANDS, "yandou", "eblan"}
 GJ_ARCHIVE_SUPPLEMENT_FIELDS = {
     "image_path",
     "group_name",
+    "product_level",
     "cost",
     "color",
     "season_category",
@@ -194,9 +200,17 @@ class ImportPipeline:
                         rows_by_brand[spec.brand_group].append(canonical)
 
         cbanner_mens_group_by_code = read_cbanner_mens_group_map(self.settings.cbanner_mens_group_source)
+        product_level_by_brand_and_code = {
+            "cbanner_mens": read_cbanner_mens_product_level_map(self.settings.cbanner_mens_group_source),
+            "cbanner_womens": read_cbanner_womens_product_level_map(
+                self.settings.cbanner_womens_product_detail_source
+            ),
+            "eblan": read_eblan_product_level_map(self.settings.eblan_product_detail_source),
+        }
         gj_rows_by_brand = self._build_product_rows_from_gj(
             archive_by_group_and_code,
             cbanner_mens_group_by_code=cbanner_mens_group_by_code,
+            product_level_by_brand_and_code=product_level_by_brand_and_code,
         )
         for brand_group in GJ_PRODUCT_BRANDS:
             rows_by_brand[brand_group] = gj_rows_by_brand.get(brand_group, [])
@@ -225,6 +239,7 @@ class ImportPipeline:
         archive_by_group_and_code: dict[str, dict[str, dict[str, object]]],
         *,
         cbanner_mens_group_by_code: dict[str, str] | None = None,
+        product_level_by_brand_and_code: dict[str, dict[str, str]] | None = None,
     ) -> dict[str, list[dict[str, object]]]:
         if self.database.engine is None:
             raise ValueError("DATABASE_URL is required to import products from gj_merged_product_info")
@@ -272,6 +287,21 @@ class ImportPipeline:
                         ),
                         None,
                     )
+                product_level = None
+                product_level_by_code = (
+                    product_level_by_brand_and_code.get(brand_group, {})
+                    if product_level_by_brand_and_code
+                    else {}
+                )
+                if product_level_by_code:
+                    product_level = next(
+                        (
+                            product_level_by_code[code]
+                            for code in match_codes
+                            if code and code in product_level_by_code
+                        ),
+                        None,
+                    )
                 image_path = archive_row.get("image_path") if archive_row else None
                 image_matcher = self.image_matchers.get(IMAGE_BRAND_KEYS[brand_group])
                 if image_path is None and image_matcher is not None:
@@ -295,6 +325,8 @@ class ImportPipeline:
                 if canonical is not None:
                     if cbanner_mens_group_name:
                         canonical["group_name"] = cbanner_mens_group_name
+                    if product_level:
+                        canonical["product_level"] = product_level
                     rows_by_brand[brand_group].append(canonical)
 
         return rows_by_brand

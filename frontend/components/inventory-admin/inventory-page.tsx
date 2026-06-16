@@ -45,7 +45,9 @@ import {
 
 const PAGE_SIZES = [10, 50, 100]
 
-const DOCUMENT_TYPES = ["工厂进货单", "工厂退货单", "报溢单"]
+const DOCUMENT_TYPES = ["进货单", "进货退货单", "报溢单", "报损单", "批发销售单", "批发销售退货单", "同价调拨单"]
+const OUTBOUND_DOCUMENT_TYPES = new Set(["进货退货单", "报损单", "批发销售单"])
+const INBOUND_DOCUMENT_TYPES = new Set(["进货单", "报溢单", "批发销售退货单"])
 
 const EMPTY_FORM: Record<string, string> = {
   date: "",
@@ -482,8 +484,8 @@ export function InventoryPage() {
                   <td className="px-4 py-2.5 whitespace-nowrap">
                     {item.document_type ? (
                       <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${
-                        item.document_type === "工厂退货单" ? "bg-red-100 text-red-700"
-                        : item.document_type === "报溢单" ? "bg-green-100 text-green-700"
+                        OUTBOUND_DOCUMENT_TYPES.has(item.document_type) ? "bg-red-100 text-red-700"
+                        : INBOUND_DOCUMENT_TYPES.has(item.document_type) ? "bg-green-100 text-green-700"
                         : "bg-blue-100 text-blue-700"
                       }`}>
                         {item.document_type}

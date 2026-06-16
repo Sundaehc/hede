@@ -19,7 +19,22 @@ def apply_core_database_optimizations(engine: Engine) -> None:
         conn.execute(text("ALTER TABLE jst_product_price ADD COLUMN IF NOT EXISTS source_date_value DATE"))
         conn.execute(text("ALTER TABLE jst_monthly_orders ADD COLUMN IF NOT EXISTS order_time_at TIMESTAMP"))
         conn.execute(text("ALTER TABLE jst_monthly_orders ADD COLUMN IF NOT EXISTS ship_date_value DATE"))
+        conn.execute(
+            text(
+                """
+                update inventory_records
+                set document_type = case document_type
+                    when '工厂进货单' then '进货单'
+                    when '工厂退货单' then '进货退货单'
+                    else document_type
+                end
+                where document_type in ('工厂进货单', '工厂退货单')
+                """
+            )
+        )
         conn.execute(text("ALTER TABLE gj_merged_product_info ADD COLUMN IF NOT EXISTS fine_table_brand TEXT"))
+        for table in TABLE_NAMES.values():
+            conn.execute(text(f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS product_level TEXT"))
         conn.execute(
             text(
                 """

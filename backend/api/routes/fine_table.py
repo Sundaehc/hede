@@ -220,6 +220,17 @@ def _normalized_terms(query: str | None) -> list[str]:
     ]
 
 
+def _prefix_search_condition(table, prefixes: list[str]):
+    search_conditions = []
+    for prefix in prefixes:
+        like = f"{prefix}%"
+        search_conditions.extend([
+            table.c.sku.ilike(like),
+            table.c.original_sku.ilike(like),
+        ])
+    return or_(*search_conditions)
+
+
 def _gj_product_row(row: dict[str, Any], brand: BrandKey) -> dict[str, Any]:
     raw_payload = row.get("raw_payload")
     goods_code = str(row.get("goods_code") or "").strip()
@@ -475,6 +486,7 @@ def get_fine_table_snapshot_by_date(
     brand: BrandKey = Query(DEFAULT_BRAND),
     snapshot_date: date = Query(...),
     query: str | None = None,
+    sku_prefix: str | None = None,
     page: int = Query(1, ge=1),
     page_size: int = Query(80, ge=1, le=200),
 ):
@@ -493,6 +505,7 @@ def get_fine_table_snapshot_by_date(
         request,
         batch_id=int(batch["id"]),
         query=query,
+        sku_prefix=sku_prefix,
         page=page,
         page_size=page_size,
     )
@@ -503,6 +516,7 @@ def get_fine_table_snapshot(
     request: Request,
     batch_id: int,
     query: str | None = None,
+    sku_prefix: str | None = None,
     page: int = Query(1, ge=1),
     page_size: int = Query(80, ge=1, le=200),
 ):
@@ -529,6 +543,8 @@ def get_fine_table_snapshot(
             for term in (query or "").replace("\n", ",").split(",")
             if term.strip()
         )
+        prefix_terms = _normalized_terms(sku_prefix)
+        normalized_sku_prefix = ",".join(prefix_terms)
         if normalized_query:
             search_conditions = []
             for term in normalized_query.split(","):
@@ -538,6 +554,8 @@ def get_fine_table_snapshot(
                     snapshot_row_table.c.original_sku.ilike(like),
                 ])
             conditions.append(or_(*search_conditions))
+        if prefix_terms:
+            conditions.append(_prefix_search_condition(snapshot_row_table, prefix_terms))
         conditions.append(
             not_excluded_sku_condition(
                 snapshot_row_table.c.sku,
@@ -545,7 +563,7 @@ def get_fine_table_snapshot(
             )
         )
         criterion = and_(*conditions)
-        if normalized_query:
+        if normalized_query or normalized_sku_prefix:
             total = connection.execute(
                 select(func.count()).select_from(snapshot_row_table).where(criterion)
             ).scalar_one()
@@ -580,6 +598,7 @@ def list_fine_table(
     request: Request,
     brand: BrandKey = Query(DEFAULT_BRAND),
     query: str | None = None,
+    sku_prefix: str | None = None,
     season: str | None = None,
     page: int = Query(1, ge=1),
     page_size: int = Query(80, ge=1, le=200),
@@ -588,10 +607,12 @@ def list_fine_table(
     repository = request.app.state.repository
     product_table = PRODUCT_TABLES[brand]
     terms = _normalized_terms(query)
+    prefix_terms = _normalized_terms(sku_prefix)
     normalized_query = ",".join(terms)
+    normalized_sku_prefix = ",".join(prefix_terms)
     normalized_season = season if season and season != "all" else "all"
-    cache_key = (brand, normalized_query, normalized_season, page, page_size)
-    total_cache_key = (brand, normalized_query, normalized_season, 0, 0)
+    cache_key = (brand, normalized_query, normalized_sku_prefix, normalized_season, page, page_size)
+    total_cache_key = (brand, normalized_query, normalized_sku_prefix, normalized_season, 0, 0)
     cached = get_fine_table_cache(cache_key)
     if cached is not None:
         return cached
@@ -628,6 +649,15 @@ def list_fine_table(
                             GJ_MERGED_PRODUCT_INFO_TABLE.c.original_goods_code.ilike(like),
                         ])
                     gj_conditions.append(or_(*gj_search_conditions))
+                if prefix_terms:
+                    gj_prefix_conditions = []
+                    for prefix in prefix_terms:
+                        like = f"{prefix}%"
+                        gj_prefix_conditions.extend([
+                            GJ_MERGED_PRODUCT_INFO_TABLE.c.goods_code.ilike(like),
+                            GJ_MERGED_PRODUCT_INFO_TABLE.c.original_goods_code.ilike(like),
+                        ])
+                    gj_conditions.append(or_(*gj_prefix_conditions))
                 if normalized_season != "all":
                     gj_conditions.append(
                         select(product_table.c.id)
@@ -707,6 +737,8 @@ def list_fine_table(
                         product_table.c.original_sku.ilike(like),
                     ])
                 conditions.append(or_(*search_conditions))
+            if prefix_terms:
+                conditions.append(_prefix_search_condition(product_table, prefix_terms))
             if normalized_season != "all":
                 conditions.append(product_table.c.season_category == normalized_season)
 
@@ -758,6 +790,7 @@ def list_fine_table(
                 for row in conn.execute(
                     select(SUPPLIER_TABLE.c.name, SUPPLIER_TABLE.c.factory_code)
                     .where(SUPPLIER_TABLE.c.name.in_(supplier_names))
+                    .where(SUPPLIER_TABLE.c.brand == brand)
                 ).mappings()
                 if row["name"]
             }
@@ -815,10 +848,11 @@ def list_fine_table(
             key = _period_key(row.get("report_type"), row.get("period"))
             daily_by_sku.setdefault(sku, {}).setdefault(key, dict(row))
 
-        size_stock_by_sku: dict[str, dict[str, int]] = {sku: {} for sku in skus}
+        stock_codes = sorted({*skus, *all_original_group_skus})
+        size_stock_by_sku: dict[str, dict[str, int]] = {sku: {} for sku in stock_codes}
         for row in conn.execute(
             select(JST_SIZE_STOCK_TABLE.c.product_code, JST_SIZE_STOCK_TABLE.c.size, func.sum(JST_SIZE_STOCK_TABLE.c.stock_qty).label("qty"))
-            .where(JST_SIZE_STOCK_TABLE.c.product_code.in_(skus))
+            .where(JST_SIZE_STOCK_TABLE.c.product_code.in_(stock_codes))
             .group_by(JST_SIZE_STOCK_TABLE.c.product_code, JST_SIZE_STOCK_TABLE.c.size)
         ).mappings():
             sku = str(row["product_code"])
@@ -826,7 +860,6 @@ def list_fine_table(
             label = SIZE_LABELS.get(size, size)
             size_stock_by_sku.setdefault(sku, {})[label] = _to_int(row["qty"])
 
-        stock_codes = sorted({*skus, *all_original_group_skus})
         stock_summary_by_sku: dict[str, dict[str, int]] = {}
         for row in conn.execute(
             select(
@@ -887,6 +920,7 @@ def list_fine_table(
                     )
 
         original_stock_summary_by_code: dict[str, dict[str, int]] = {}
+        original_stock_qty_by_code: dict[str, int] = {}
         original_defect_in_transit_by_code: dict[str, int] = {}
         for original_sku, grouped_skus in original_skus_by_code.items():
             summary = {
@@ -894,14 +928,17 @@ def list_fine_table(
                 "purchase_in_transit_qty": 0,
                 "order_occupy_qty": 0,
             }
+            stock_total = 0
             defect_in_transit_total = 0
             for grouped_sku in grouped_skus:
+                stock_total += sum(size_stock_by_sku.get(grouped_sku, {}).values())
                 stock_summary = stock_summary_by_sku.get(grouped_sku, {})
                 summary["defect_stock_qty"] += stock_summary.get("defect_stock_qty", 0)
                 summary["purchase_in_transit_qty"] += stock_summary.get("purchase_in_transit_qty", 0)
                 summary["order_occupy_qty"] += stock_summary.get("order_occupy_qty", 0)
                 defect_in_transit_total += defect_in_transit_by_sku.get(grouped_sku, 0)
             original_stock_summary_by_code[original_sku] = summary
+            original_stock_qty_by_code[original_sku] = stock_total
             original_defect_in_transit_by_code[original_sku] = defect_in_transit_total
 
         latest_daily_snapshot_day = conn.execute(
@@ -1144,6 +1181,7 @@ def list_fine_table(
                 for name, qty in sorted((orders.get("shop_30") or {}).items(), key=lambda item: item[1], reverse=True)
             ][:12],
             "stock_qty": stock_qty,
+            "original_stock_qty": original_stock_qty_by_code.get(original_sku, stock_qty),
             "size_stock": size_stock,
             "inbound_qty": inbound_qty,
             "defect_stock": stock_summary.get("defect_stock_qty", 0),
