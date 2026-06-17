@@ -246,6 +246,7 @@ export type InventoryRecord = {
   amount: string | null
   warehouse: string | null
   document_type: string | null
+  handler: string | null
   summary: string | null
   extra_fields: Record<string, string> | null
   source_workbook: string
@@ -274,6 +275,9 @@ export type InventoryDetail = {
   product_code: string | null
   product_name: string | null
   color_spec: string | null
+  color_barcode: string | null
+  color_name: string | null
+  size_quantities: Record<string, string> | null
   quantity: string | null
   unit_price: string | null
   amount: string | null
@@ -390,6 +394,36 @@ export function exportInventory() {
 
 export function listGeneralCustomerShops() {
   return request<GeneralCustomerShopListResponse>("/inventory/general-customer-shops")
+}
+
+export function importPurchaseInventory(payload: {
+  file: File
+  date?: string
+  supplier: string
+  warehouse: string
+  document_type: string
+  handler: string
+  summary: string
+  brand?: string
+}) {
+  const formData = new FormData()
+  formData.append("file", payload.file)
+  formData.append("date", payload.date ?? "")
+  formData.append("supplier", payload.supplier)
+  formData.append("warehouse", payload.warehouse)
+  formData.append("document_type", payload.document_type)
+  formData.append("handler", payload.handler)
+  formData.append("summary", payload.summary)
+  formData.append("brand", payload.brand ?? "")
+  return fetch(`${API_PREFIX}/inventory/import-purchase`, {
+    method: "POST",
+    body: formData,
+  }).then(async (response) => {
+    if (!response.ok) {
+      throw new ApiError(response.status, await response.text())
+    }
+    return (await response.json()) as InventoryImportResult
+  })
 }
 
 export function listGeneralCustomerBrands() {

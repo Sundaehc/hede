@@ -71,6 +71,7 @@ INVENTORY_FIELDS: tuple[FieldSpec, ...] = (
     FieldSpec("amount", "金额", "numeric"),
     FieldSpec("warehouse", "仓库"),
     FieldSpec("document_type", "单据类型"),
+    FieldSpec("handler", "经手人"),
     FieldSpec("summary", "摘要"),
 )
 
@@ -78,6 +79,8 @@ INVENTORY_DETAIL_FIELDS: tuple[FieldSpec, ...] = (
     FieldSpec("product_code", "商品编码"),
     FieldSpec("product_name", "商品名称"),
     FieldSpec("color_spec", "颜色及规格"),
+    FieldSpec("color_barcode", "颜色条码"),
+    FieldSpec("color_name", "颜色名称"),
     FieldSpec("quantity", "数量", "numeric"),
     FieldSpec("unit_price", "单价", "numeric"),
     FieldSpec("amount", "金额", "numeric"),

@@ -51,10 +51,6 @@ function formatNumber(value: number) {
   return new Intl.NumberFormat("zh-CN").format(value)
 }
 
-function brandLabel(value: BrandKey | string | null | undefined) {
-  return SUPPLIER_BRAND_OPTIONS.find((brand) => brand.key === value)?.label ?? "-"
-}
-
 function getPageTokens(currentPage: number, totalPages: number): PageToken[] {
   if (totalPages <= 7) {
     return Array.from({ length: totalPages }, (_, index) => index + 1)
@@ -289,7 +285,6 @@ export default function SuppliersPage() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="table-head-row">
-                  <th className="px-4 py-3 font-medium">品牌</th>
                   <th className="px-4 py-3 font-medium">名称</th>
                   <th className="px-4 py-3 font-medium">工厂代码</th>
                   <th className="px-4 py-3 font-medium">联系方式</th>
@@ -301,23 +296,18 @@ export default function SuppliersPage() {
               <tbody className="divide-y divide-border">
                 {isLoading && (
                   <tr>
-                    <td colSpan={7} className="px-4 py-12 text-center text-muted-foreground">加载中...</td>
+                    <td colSpan={6} className="px-4 py-12 text-center text-muted-foreground">加载中...</td>
                   </tr>
                 )}
                 {!isLoading && items.length === 0 && (
                   <tr>
-                    <td colSpan={7} className="px-4 py-12 text-center text-muted-foreground">
+                    <td colSpan={6} className="px-4 py-12 text-center text-muted-foreground">
                       {query ? "暂无匹配供应商" : "暂无供应商数据"}
                     </td>
                   </tr>
                 )}
                 {!isLoading && items.map((item) => (
                   <tr key={item.id} className="table-row">
-                    <td className="px-4 py-2.5">
-                      <span className="rounded-full border border-border bg-muted/45 px-2.5 py-1 text-xs text-muted-foreground">
-                        {brandLabel(item.brand)}
-                      </span>
-                    </td>
                     <td className="px-4 py-2.5 font-medium">{item.name}</td>
                     <td className="px-4 py-2.5 tabular-nums">{item.factory_code || "-"}</td>
                     <td className="px-4 py-2.5">{item.contact || "-"}</td>

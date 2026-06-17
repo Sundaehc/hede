@@ -33,7 +33,7 @@ import {
   updateInventoryRecord,
   deleteInventoryRecord,
   batchDeleteInventory,
-  importInventory,
+  importPurchaseInventory,
   exportInventory,
   listSuppliers,
   listWarehouses,
@@ -57,6 +57,16 @@ const EMPTY_FORM: Record<string, string> = {
   warehouse: "",
   document_type: "",
   summary: "",
+}
+
+const EMPTY_IMPORT_FORM: Record<string, string> = {
+  date: "",
+  supplier: "",
+  warehouse: "",
+  document_type: "进货单",
+  handler: "",
+  summary: "",
+  brand: "cbanner_mens",
 }
 
 function getErrorMessage(error: unknown) {
@@ -114,6 +124,9 @@ export function InventoryPage() {
 
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [isImporting, setIsImporting] = useState(false)
+  const [importDialogOpen, setImportDialogOpen] = useState(false)
+  const [importFormData, setImportFormData] = useState<Record<string, string>>({ ...EMPTY_IMPORT_FORM })
+  const [importFile, setImportFile] = useState<File | null>(null)
 
   useEffect(() => {
     async function loadOptions() {
@@ -181,6 +194,7 @@ export function InventoryPage() {
       amount: item.amount || "",
       warehouse: item.warehouse || "",
       document_type: item.document_type || "",
+      handler: item.handler || "",
       summary: item.summary || "",
     })
     setFormOpen(true)
@@ -249,13 +263,30 @@ export function InventoryPage() {
     })
   }
 
-  const handleImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    if (!file) return
+  const handleImport = async () => {
+    if (!importFile) {
+      showMessage("导入失败", "请选择 Excel 文件")
+      return
+    }
+    if (!importFormData.supplier || !importFormData.warehouse || !importFormData.handler || !importFormData.summary) {
+      showMessage("导入失败", "请填写供货单位、收货仓库、经手人和摘要")
+      return
+    }
     setIsImporting(true)
     try {
-      const result = await importInventory(file)
+      const result = await importPurchaseInventory({
+        file: importFile,
+        date: importFormData.date,
+        supplier: importFormData.supplier,
+        warehouse: importFormData.warehouse,
+        document_type: importFormData.document_type,
+        handler: importFormData.handler,
+        summary: importFormData.summary,
+        brand: importFormData.brand,
+      })
       showMessage("导入完成", result.message)
+      setImportDialogOpen(false)
+      setImportFile(null)
       setReloadToken((t) => t + 1)
     } catch (err) {
       showMessage("导入失败", getErrorMessage(err))
@@ -316,11 +347,10 @@ export function InventoryPage() {
             <p className="page-subtitle">维护进销存单据、导入明细并查看期末库存</p>
           </div>
           <div className="flex items-center gap-2">
-            <Button variant="outline" size="sm" onClick={() => fileInputRef.current?.click()} disabled={isImporting} className="cursor-pointer">
+            <Button variant="outline" size="sm" onClick={() => setImportDialogOpen(true)} disabled={isImporting} className="cursor-pointer">
               <Upload className="h-4 w-4" />
               <span className="ml-2 hidden sm:inline">{isImporting ? "导入中..." : "导入Excel"}</span>
             </Button>
-            <input ref={fileInputRef} type="file" accept=".xlsx,.xls,.xlsm" className="hidden" onChange={handleImport} />
             <Button variant="outline" size="sm" onClick={handleExport} disabled={total === 0 || isLoading} className="cursor-pointer">
               <Download className="h-4 w-4" />
               <span className="ml-2 hidden sm:inline">导出Excel</span>
@@ -452,6 +482,7 @@ export function InventoryPage() {
                 <th className="px-4 py-3 text-right font-medium">总数</th>
                 <th className="px-4 py-3 text-right font-medium">金额</th>
                 <th className="px-4 py-3 font-medium">仓库</th>
+                <th className="px-4 py-3 font-medium">经手人</th>
                 <th className="px-4 py-3 font-medium">摘要</th>
                 <th className="px-4 py-3 w-28 font-medium">操作</th>
               </tr>
@@ -459,12 +490,12 @@ export function InventoryPage() {
             <tbody className="divide-y divide-border">
               {isLoading && (
                 <tr>
-                  <td colSpan={10} className="px-4 py-12 text-center text-muted-foreground">加载中...</td>
+                  <td colSpan={11} className="px-4 py-12 text-center text-muted-foreground">加载中...</td>
                 </tr>
               )}
               {!isLoading && !error && items.length === 0 && (
                 <tr>
-                  <td colSpan={10} className="px-4 py-12 text-center text-muted-foreground">
+                  <td colSpan={11} className="px-4 py-12 text-center text-muted-foreground">
                     {hasFilters ? "没有符合条件的数据" : "暂无数据"}
                   </td>
                 </tr>
@@ -496,6 +527,7 @@ export function InventoryPage() {
                   <td className="px-4 py-2.5 text-right tabular-nums">{item.total_count || "-"}</td>
                   <td className="px-4 py-2.5 text-right tabular-nums">{item.amount || "-"}</td>
                   <td className="px-4 py-2.5">{item.warehouse || "-"}</td>
+                  <td className="px-4 py-2.5">{item.handler || "-"}</td>
                   <td className="px-4 py-2.5 max-w-48 truncate">{item.summary || "-"}</td>
                   <td className="px-4 py-2.5">
                     <div className="flex items-center gap-0.5">
@@ -612,6 +644,10 @@ export function InventoryPage() {
                 {DOCUMENT_TYPES.map((dt) => (<option key={dt} value={dt}>{dt}</option>))}
               </Select>
             </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="form-handler">经手人</Label>
+              <Input id="form-handler" value={formData.handler || ""} onChange={(e) => setFormData((prev) => ({ ...prev, handler: e.target.value }))} placeholder="经手人" />
+            </div>
             {/* Supplier */}
             <div className="space-y-1.5">
               <Label htmlFor="form-supplier">供应商</Label>
@@ -671,6 +707,75 @@ export function InventoryPage() {
           <DialogFooter>
             <Button variant="outline" onClick={() => setFormOpen(false)} disabled={isSaving} className="cursor-pointer">取消</Button>
             <Button onClick={handleSave} disabled={isSaving} className="cursor-pointer">{isSaving ? "保存中..." : "保存"}</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={importDialogOpen} onOpenChange={setImportDialogOpen}>
+        <DialogContent className="max-w-xl">
+          <DialogHeader>
+            <DialogTitle>导入进货/退货明细</DialogTitle>
+          </DialogHeader>
+          <div className="grid grid-cols-2 gap-4 py-2">
+            <div className="space-y-1.5">
+              <Label>单据日期</Label>
+              <input
+                type="date"
+                value={importFormData.date}
+                onChange={(e) => setImportFormData((prev) => ({ ...prev, date: e.target.value }))}
+                className="flex h-9 w-full rounded-lg border border-input bg-card px-3 py-2 text-sm shadow-xs outline-none transition-colors focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/35"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label>单据类型</Label>
+              <Select value={importFormData.document_type} onChange={(e) => setImportFormData((prev) => ({ ...prev, document_type: e.target.value }))}>
+                <option value="进货单">进货单</option>
+                <option value="进货退货单">进货退货单</option>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label>供货单位</Label>
+              <Select value={importFormData.supplier} onChange={(e) => setImportFormData((prev) => ({ ...prev, supplier: e.target.value }))}>
+                <option value="">请选择</option>
+                {supplierOptions.map((s) => (<option key={s.id} value={s.name}>{s.name}</option>))}
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label>收货仓库</Label>
+              <Select value={importFormData.warehouse} onChange={(e) => setImportFormData((prev) => ({ ...prev, warehouse: e.target.value }))}>
+                <option value="">请选择</option>
+                {warehouseOptions.map((w) => (<option key={w.id} value={w.name}>{w.name}</option>))}
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label>经手人</Label>
+              <Input value={importFormData.handler} onChange={(e) => setImportFormData((prev) => ({ ...prev, handler: e.target.value }))} placeholder="经手人" />
+            </div>
+            <div className="space-y-1.5">
+              <Label>品牌</Label>
+              <Select value={importFormData.brand} onChange={(e) => setImportFormData((prev) => ({ ...prev, brand: e.target.value }))}>
+                <option value="cbanner_mens">千百度男鞋</option>
+                <option value="cbanner_womens">千百度女鞋</option>
+              </Select>
+            </div>
+            <div className="col-span-2 space-y-1.5">
+              <Label>摘要</Label>
+              <Input value={importFormData.summary} onChange={(e) => setImportFormData((prev) => ({ ...prev, summary: e.target.value }))} placeholder="摘要" />
+            </div>
+            <div className="col-span-2 space-y-1.5">
+              <Label>Excel 文件</Label>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".xlsx,.xls,.xlsm"
+                onChange={(e) => setImportFile(e.target.files?.[0] ?? null)}
+                className="flex h-9 w-full rounded-lg border border-input bg-card px-3 py-1.5 text-sm shadow-xs outline-none transition-colors file:mr-3 file:rounded-md file:border-0 file:bg-muted file:px-2 file:py-1 file:text-xs"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setImportDialogOpen(false)} disabled={isImporting} className="cursor-pointer">取消</Button>
+            <Button onClick={handleImport} disabled={isImporting} className="cursor-pointer">{isImporting ? "导入中..." : "导入"}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

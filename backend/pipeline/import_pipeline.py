@@ -303,7 +303,10 @@ class ImportPipeline:
                         None,
                     )
                 image_path = archive_row.get("image_path") if archive_row else None
-                image_matcher = self.image_matchers.get(IMAGE_BRAND_KEYS[brand_group])
+                image_brand_key = IMAGE_BRAND_KEYS.get(brand_group)
+                if image_brand_key is None:
+                    continue
+                image_matcher = self.image_matchers.get(image_brand_key)
                 if image_path is None and image_matcher is not None:
                     image_path = next(
                         (

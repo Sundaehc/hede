@@ -716,6 +716,10 @@ class InventoryRepository:
         with self.engine.begin() as connection:
             INVENTORY_TABLE.create(connection, checkfirst=True)
             INVENTORY_DETAIL_TABLE.create(connection, checkfirst=True)
+            connection.execute(text("ALTER TABLE IF EXISTS inventory_records ADD COLUMN IF NOT EXISTS handler TEXT"))
+            connection.execute(text("ALTER TABLE IF EXISTS inventory_details ADD COLUMN IF NOT EXISTS color_barcode TEXT"))
+            connection.execute(text("ALTER TABLE IF EXISTS inventory_details ADD COLUMN IF NOT EXISTS color_name TEXT"))
+            connection.execute(text("ALTER TABLE IF EXISTS inventory_details ADD COLUMN IF NOT EXISTS size_quantities JSON"))
             SUPPLIER_TABLE.create(connection, checkfirst=True)
             WAREHOUSE_TABLE.create(connection, checkfirst=True)
             self._ensure_supplier_schema(connection)

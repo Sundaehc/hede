@@ -14,6 +14,7 @@ from domain import task_status_schema  # noqa: F401 - register scheduled task st
 from domain import vip_schema  # noqa: F401 - register VIP/JST analytics tables on METADATA
 from domain import gj_schema  # noqa: F401 - register GJ export tables on METADATA
 from domain import smiley_schema  # noqa: F401 - register Smiley fine table on METADATA
+from domain import color_barcode_schema  # noqa: F401 - register color barcode table on METADATA
 
 
 def _json_serializer(value):

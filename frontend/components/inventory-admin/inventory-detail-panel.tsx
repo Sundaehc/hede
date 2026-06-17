@@ -33,10 +33,14 @@ const EMPTY_DETAIL: Record<string, string> = {
   product_code: "",
   product_name: "",
   color_spec: "",
+  color_barcode: "",
+  color_name: "",
   quantity: "",
   unit_price: "",
   amount: "",
 }
+
+const SIZE_COLUMNS = ["35", "36", "37", "38", "39", "40", "41", "42", "43", "44"]
 
 type Props = {
   documentId: number | null
@@ -125,6 +129,8 @@ export function InventoryDetailPanel({ documentId, onClose, onTotalChanged }: Pr
       product_code: item.product_code || "",
       product_name: item.product_name || "",
       color_spec: item.color_spec || "",
+      color_barcode: item.color_barcode || "",
+      color_name: item.color_name || "",
       quantity: item.quantity || "",
       unit_price: item.unit_price || "",
       amount: item.amount || "",
@@ -174,7 +180,7 @@ export function InventoryDetailPanel({ documentId, onClose, onTotalChanged }: Pr
       <div className="fixed inset-0 z-40 bg-black/30 transition-opacity" onClick={onClose} />
 
       {/* Panel */}
-      <div className="fixed inset-y-0 right-0 z-50 w-full max-w-3xl border-l border-border bg-background shadow-2xl flex flex-col">
+      <div className="fixed inset-y-0 right-0 z-50 w-full max-w-6xl border-l border-border bg-background shadow-2xl flex flex-col">
         {/* Header */}
         <div className="flex items-center justify-between border-b border-border px-6 py-4 shrink-0">
           <div>
@@ -198,9 +204,13 @@ export function InventoryDetailPanel({ documentId, onClose, onTotalChanged }: Pr
             <thead>
               <tr className="sticky top-0 z-10 border-b border-border bg-muted/40 text-left text-muted-foreground">
                 <th className="px-4 py-2.5 w-20 font-medium"></th>
-                <th className="px-3 py-2.5 font-medium">商品编码</th>
-                <th className="px-3 py-2.5 font-medium">商品名称</th>
-                <th className="px-3 py-2.5 font-medium">颜色及规格</th>
+                <th className="px-3 py-2.5 font-medium">货号</th>
+                <th className="px-3 py-2.5 font-medium">商品全名</th>
+                <th className="px-3 py-2.5 font-medium">颜色条码</th>
+                <th className="px-3 py-2.5 font-medium">颜色名称</th>
+                {SIZE_COLUMNS.map((size) => (
+                  <th key={size} className="px-2 py-2.5 text-right font-medium">{size}</th>
+                ))}
                 <th className="px-3 py-2.5 text-right font-medium">数量</th>
                 <th className="px-3 py-2.5 text-right font-medium">单价</th>
                 <th className="px-3 py-2.5 text-right font-medium">金额</th>
@@ -210,12 +220,12 @@ export function InventoryDetailPanel({ documentId, onClose, onTotalChanged }: Pr
             <tbody className="divide-y divide-border">
               {isLoading && (
                 <tr>
-                  <td colSpan={8} className="px-6 py-12 text-center text-muted-foreground">加载中...</td>
+                  <td colSpan={19} className="px-6 py-12 text-center text-muted-foreground">加载中...</td>
                 </tr>
               )}
               {!isLoading && items.length === 0 && (
                 <tr>
-                  <td colSpan={8} className="px-6 py-12 text-center text-muted-foreground">暂无明细数据</td>
+                  <td colSpan={19} className="px-6 py-12 text-center text-muted-foreground">暂无明细数据</td>
                 </tr>
               )}
               {items.map((item) => (
@@ -235,7 +245,11 @@ export function InventoryDetailPanel({ documentId, onClose, onTotalChanged }: Pr
                   </td>
                   <td className="px-3 py-2.5 font-mono text-xs">{item.product_code || "-"}</td>
                   <td className="px-3 py-2.5">{item.product_name || "-"}</td>
-                  <td className="px-3 py-2.5 max-w-32 truncate">{item.color_spec || "-"}</td>
+                  <td className="px-3 py-2.5 font-mono text-xs">{item.color_barcode || "-"}</td>
+                  <td className="px-3 py-2.5">{item.color_name || item.color_spec || "-"}</td>
+                  {SIZE_COLUMNS.map((size) => (
+                    <td key={size} className="px-2 py-2.5 text-right tabular-nums">{item.size_quantities?.[size] || "-"}</td>
+                  ))}
                   <td className="px-3 py-2.5 text-right tabular-nums">{item.quantity || "-"}</td>
                   <td className="px-3 py-2.5 text-right tabular-nums">{item.unit_price || "-"}</td>
                   <td className="px-3 py-2.5 text-right tabular-nums">{item.amount || "-"}</td>
@@ -264,30 +278,39 @@ export function InventoryDetailPanel({ documentId, onClose, onTotalChanged }: Pr
           </DialogHeader>
           <div className="space-y-4 py-2">
             <div className="space-y-1.5">
-              <Label htmlFor="detail-product-code">商品编码</Label>
+              <Label htmlFor="detail-product-code">货号</Label>
               <Input
                 id="detail-product-code"
                 value={formData.product_code || ""}
                 onChange={(e) => setFormData((prev) => ({ ...prev, product_code: e.target.value }))}
-                placeholder="商品编码"
+                placeholder="货号"
               />
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="detail-product-name">商品名称</Label>
+              <Label htmlFor="detail-product-name">商品全名</Label>
               <Input
                 id="detail-product-name"
                 value={formData.product_name || ""}
                 onChange={(e) => setFormData((prev) => ({ ...prev, product_name: e.target.value }))}
-                placeholder="商品名称"
+                placeholder="商品全名"
               />
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="detail-color-spec">颜色及规格</Label>
+              <Label htmlFor="detail-color-barcode">颜色条码</Label>
               <Input
-                id="detail-color-spec"
-                value={formData.color_spec || ""}
-                onChange={(e) => setFormData((prev) => ({ ...prev, color_spec: e.target.value }))}
-                placeholder="颜色及规格"
+                id="detail-color-barcode"
+                value={formData.color_barcode || ""}
+                onChange={(e) => setFormData((prev) => ({ ...prev, color_barcode: e.target.value }))}
+                placeholder="颜色条码"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="detail-color-name">颜色名称</Label>
+              <Input
+                id="detail-color-name"
+                value={formData.color_name || ""}
+                onChange={(e) => setFormData((prev) => ({ ...prev, color_name: e.target.value, color_spec: e.target.value }))}
+                placeholder="颜色名称"
               />
             </div>
             <div className="grid grid-cols-2 gap-3">
