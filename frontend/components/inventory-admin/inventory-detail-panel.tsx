@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import { Plus, Trash2, Edit, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -15,6 +15,7 @@ import {
 import { ConfirmDialog, MessageDialog } from "@/components/confirm-dialog"
 import {
   listDetails,
+  lookupInventoryDetail,
   createDetail,
   updateDetail,
   deleteDetail,
@@ -48,9 +49,34 @@ type Props = {
   onTotalChanged: () => void
 }
 
-function getImageKey(productCode: string | null): string | null {
-  if (!productCode || productCode.length <= 5) return null
-  return productCode.slice(0, -5)
+function getImageKeys(productCode: string | null): string[] {
+  const code = (productCode || "").trim()
+  if (!code) return []
+
+  const keys = [code]
+  if (code.length > 2) keys.push(code.slice(0, -2))
+  if (code.length > 5) keys.push(code.slice(0, -5))
+  return Array.from(new Set(keys.filter(Boolean)))
+}
+
+function formatComputedNumber(value: number): string {
+  if (!Number.isFinite(value)) return ""
+  return Number.isInteger(value) ? String(value) : value.toFixed(2).replace(/\.?0+$/, "")
+}
+
+function sumSizeQuantities(values: Record<string, string>): string {
+  const total = SIZE_COLUMNS.reduce((sum, size) => {
+    const value = Number.parseFloat(values[size] || "0")
+    return Number.isFinite(value) ? sum + value : sum
+  }, 0)
+  return total > 0 ? formatComputedNumber(total) : ""
+}
+
+function computeAmount(quantity: string, unitPrice: string): string {
+  const qty = Number.parseFloat(quantity || "0")
+  const price = Number.parseFloat(unitPrice || "0")
+  if (!Number.isFinite(qty) || !Number.isFinite(price) || !quantity || !unitPrice) return ""
+  return (qty * price).toFixed(2)
 }
 
 export function InventoryDetailPanel({ documentId, onClose, onTotalChanged }: Props) {
@@ -61,6 +87,11 @@ export function InventoryDetailPanel({ documentId, onClose, onTotalChanged }: Pr
   const [formOpen, setFormOpen] = useState(false)
   const [formMode, setFormMode] = useState<"create" | "edit">("create")
   const [formData, setFormData] = useState<Record<string, string>>({ ...EMPTY_DETAIL })
+  const [sizeQuantities, setSizeQuantities] = useState<Record<string, string>>({})
+  const [isLookupLoading, setIsLookupLoading] = useState(false)
+  const [lookupToken, setLookupToken] = useState(0)
+  const lookupSourceCodeRef = useRef("")
+  const lookupReasonRef = useRef<"code" | "quantity">("code")
   const [editingId, setEditingId] = useState<number | null>(null)
   const [isSaving, setIsSaving] = useState(false)
 
@@ -90,14 +121,21 @@ export function InventoryDetailPanel({ documentId, onClose, onTotalChanged }: Pr
     async function loadImages() {
       const urls: Record<number, string | null> = {}
       for (const item of items) {
-        const key = getImageKey(item.product_code)
-        if (!key) {
+        const keys = getImageKeys(item.product_code)
+        if (keys.length === 0) {
           urls[item.id] = null
           continue
         }
         try {
-          const result = await matchSkuImage(key)
-          urls[item.id] = result.found ? result.image_url : null
+          let imageUrl: string | null = null
+          for (const key of keys) {
+            const result = await matchSkuImage(key)
+            if (result.found && result.image_url) {
+              imageUrl = result.image_url
+              break
+            }
+          }
+          urls[item.id] = imageUrl
         } catch {
           urls[item.id] = null
         }
@@ -118,6 +156,9 @@ export function InventoryDetailPanel({ documentId, onClose, onTotalChanged }: Pr
   const openCreate = () => {
     setFormMode("create")
     setFormData({ ...EMPTY_DETAIL })
+    setSizeQuantities({})
+    setLookupToken(0)
+    lookupSourceCodeRef.current = ""
     setEditingId(null)
     setFormOpen(true)
   }
@@ -135,6 +176,9 @@ export function InventoryDetailPanel({ documentId, onClose, onTotalChanged }: Pr
       unit_price: item.unit_price || "",
       amount: item.amount || "",
     })
+    setSizeQuantities(item.size_quantities || {})
+    setLookupToken(0)
+    lookupSourceCodeRef.current = item.product_code || ""
     setFormOpen(true)
   }
 
@@ -142,10 +186,11 @@ export function InventoryDetailPanel({ documentId, onClose, onTotalChanged }: Pr
     if (!documentId) return
     setIsSaving(true)
     try {
+      const payload = { ...formData, size_quantities: sizeQuantities }
       if (formMode === "create") {
-        await createDetail(documentId, formData)
+        await createDetail(documentId, payload)
       } else if (editingId !== null) {
-        await updateDetail(documentId, editingId, formData)
+        await updateDetail(documentId, editingId, payload)
       }
       setFormOpen(false)
       await load()
@@ -156,6 +201,55 @@ export function InventoryDetailPanel({ documentId, onClose, onTotalChanged }: Pr
       setIsSaving(false)
     }
   }
+
+  useEffect(() => {
+    if (!formOpen || lookupToken === 0) return
+    const productCode = (lookupSourceCodeRef.current || formData.product_code || "").trim()
+    if (!productCode) {
+      setSizeQuantities({})
+      return
+    }
+    const controller = new AbortController()
+    const timer = window.setTimeout(async () => {
+      setIsLookupLoading(true)
+      try {
+        const res = await lookupInventoryDetail({
+          productCode,
+          quantity: formData.quantity || undefined,
+        })
+        if (controller.signal.aborted) return
+        const item = res.item
+        setFormData((prev) => ({
+          ...prev,
+          product_code: item.product_code || prev.product_code,
+          product_name: item.product_name || prev.product_name,
+          color_spec: item.color_spec || prev.color_spec,
+          color_barcode: item.color_barcode || prev.color_barcode,
+          color_name: item.color_name || prev.color_name,
+          unit_price: item.unit_price || prev.unit_price,
+          amount: item.amount || prev.amount,
+        }))
+        setSizeQuantities((prev) => {
+          const next = item.size_quantities || {}
+          if (Object.keys(next).length > 0) return next
+          if (lookupReasonRef.current !== "quantity") return {}
+          const filledSizes = Object.keys(prev).filter((size) => prev[size])
+          if (filledSizes.length === 1 && formData.quantity) {
+            return { [filledSizes[0]]: formData.quantity }
+          }
+          return prev
+        })
+      } catch {
+        // Keep manually entered data if matching fails.
+      } finally {
+        if (!controller.signal.aborted) setIsLookupLoading(false)
+      }
+    }, 350)
+    return () => {
+      controller.abort()
+      window.clearTimeout(timer)
+    }
+  }, [formOpen, lookupToken, formData.product_code, formData.quantity])
 
   const handleDelete = async () => {
     if (!deleteTarget || !documentId) return
@@ -272,7 +366,7 @@ export function InventoryDetailPanel({ documentId, onClose, onTotalChanged }: Pr
 
       {/* Detail Form Dialog */}
       <Dialog open={formOpen} onOpenChange={setFormOpen}>
-        <DialogContent className="max-w-md">
+        <DialogContent className="max-w-2xl">
           <DialogHeader>
             <DialogTitle>{formMode === "create" ? "新增明细" : "编辑明细"}</DialogTitle>
           </DialogHeader>
@@ -282,7 +376,12 @@ export function InventoryDetailPanel({ documentId, onClose, onTotalChanged }: Pr
               <Input
                 id="detail-product-code"
                 value={formData.product_code || ""}
-                onChange={(e) => setFormData((prev) => ({ ...prev, product_code: e.target.value }))}
+                onChange={(e) => {
+                  lookupSourceCodeRef.current = e.target.value
+                  lookupReasonRef.current = "code"
+                  setLookupToken((token) => token + 1)
+                  setFormData((prev) => ({ ...prev, product_code: e.target.value }))
+                }}
                 placeholder="货号"
               />
             </div>
@@ -323,7 +422,9 @@ export function InventoryDetailPanel({ documentId, onClose, onTotalChanged }: Pr
                   onChange={(e) => {
                     const qty = e.target.value
                     const price = formData.unit_price || ""
-                    const amount = qty && price ? (parseFloat(qty) * parseFloat(price)).toFixed(2) : formData.amount
+                    const amount = computeAmount(qty, price)
+                    lookupReasonRef.current = "quantity"
+                    setLookupToken((token) => token + 1)
                     setFormData((prev) => ({ ...prev, quantity: qty, amount }))
                   }}
                   placeholder="0"
@@ -339,11 +440,43 @@ export function InventoryDetailPanel({ documentId, onClose, onTotalChanged }: Pr
                   onChange={(e) => {
                     const price = e.target.value
                     const qty = formData.quantity || ""
-                    const amount = qty && price ? (parseFloat(qty) * parseFloat(price)).toFixed(2) : formData.amount
+                    const amount = computeAmount(qty, price)
                     setFormData((prev) => ({ ...prev, unit_price: price, amount }))
                   }}
                   placeholder="0.00"
                 />
+              </div>
+            </div>
+            <div className="space-y-1.5">
+              <Label>尺码</Label>
+              <div className="grid grid-cols-5 gap-1.5 rounded-lg border border-border bg-muted/20 p-2">
+                {SIZE_COLUMNS.map((size) => (
+                  <label key={size} className="flex flex-col gap-1 rounded-md border border-border bg-background p-1.5 text-xs">
+                    <span className="text-center text-muted-foreground">{size}</span>
+                    <Input
+                      value={sizeQuantities[size] || ""}
+                      onChange={(e) => {
+                        const value = e.target.value
+                        setSizeQuantities((prev) => {
+                          const next = { ...prev }
+                          if (value) next[size] = value
+                          else delete next[size]
+                          const quantity = sumSizeQuantities(next)
+                          const amount = computeAmount(quantity, formData.unit_price || "")
+                          setFormData((current) => ({
+                            ...current,
+                            quantity,
+                            amount,
+                          }))
+                          return next
+                        })
+                      }}
+                      inputMode="numeric"
+                      className="h-7 px-1 text-center text-xs tabular-nums"
+                      placeholder="-"
+                    />
+                  </label>
+                ))}
               </div>
             </div>
             <div className="space-y-1.5">
@@ -360,7 +493,9 @@ export function InventoryDetailPanel({ documentId, onClose, onTotalChanged }: Pr
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setFormOpen(false)} disabled={isSaving} className="cursor-pointer">取消</Button>
-            <Button onClick={handleSave} disabled={isSaving} className="cursor-pointer">{isSaving ? "保存中..." : "保存"}</Button>
+            <Button onClick={handleSave} disabled={isSaving || isLookupLoading} className="cursor-pointer">
+              {isSaving ? "保存中..." : isLookupLoading ? "匹配中..." : "保存"}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

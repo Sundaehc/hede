@@ -79,6 +79,7 @@ def build_inventory_detail_table() -> Table:
     columns.append(Column("updated_at", DateTime(timezone=True), server_default=func.date_trunc('minute', func.now()), onupdate=func.date_trunc('minute', func.now())))
     table = Table(INVENTORY_DETAIL_TABLE_NAME, METADATA, *columns)
     Index("idx_inventory_details_document_id", table.c.document_id)
+    Index("idx_inventory_details_product_code", table.c.product_code)
     return table
 
 
@@ -162,7 +163,9 @@ def build_jst_stock_table() -> Table:
         Column("created_at", DateTime(timezone=True), server_default=func.date_trunc('minute', func.now())),
         UniqueConstraint("stock_date", "product_code", name="uq_jst_stock_date_code"),
     ]
-    return Table(JST_STOCK_TABLE_NAME, METADATA, *columns)
+    table = Table(JST_STOCK_TABLE_NAME, METADATA, *columns)
+    Index("idx_jst_stock_product_code", table.c.product_code)
+    return table
 
 
 JST_STOCK_TABLE = build_jst_stock_table()

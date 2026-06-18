@@ -240,6 +240,7 @@ export function importProducts(brand: BrandKey, file: File) {
 
 export type InventoryRecord = {
   id: number
+  document_number: string | null
   date: string | null
   supplier: string | null
   total_count: string | null
@@ -285,6 +286,18 @@ export type InventoryDetail = {
   updated_at: string | null
 }
 
+export type InventoryDetailLookupResult = {
+  product_code: string | null
+  product_name: string | null
+  color_spec: string | null
+  color_barcode: string | null
+  color_name: string | null
+  quantity: string | null
+  unit_price: string | null
+  amount: string | null
+  size_quantities: Record<string, string> | null
+}
+
 export type InventoryListResponse = {
   items: InventoryRecord[]
   total: number
@@ -322,6 +335,10 @@ export function listInventory(params: {
   supplier?: string
   warehouse?: string
   document_type?: string
+  summary?: string
+  original_sku?: string
+  product_code?: string
+  handler?: string
   page: number
   pageSize: number
 }) {
@@ -334,6 +351,10 @@ export function listInventory(params: {
   if (params.supplier) search.set("supplier", params.supplier)
   if (params.warehouse) search.set("warehouse", params.warehouse)
   if (params.document_type) search.set("document_type", params.document_type)
+  if (params.summary) search.set("summary", params.summary)
+  if (params.original_sku) search.set("original_sku", params.original_sku)
+  if (params.product_code) search.set("product_code", params.product_code)
+  if (params.handler) search.set("handler", params.handler)
   return request<InventoryListResponse>(`/inventory?${search.toString()}`)
 }
 
@@ -354,6 +375,24 @@ export function updateInventoryRecord(id: number, payload: Record<string, unknow
 export function deleteInventoryRecord(id: number) {
   return request<{ message: string }>(`/inventory/${id}`, {
     method: "DELETE",
+  })
+}
+
+export type BatchUpdateInventoryCostsResult = {
+  updated_details: number
+  updated_documents: number
+  message: string
+  items: Array<Record<string, unknown>>
+}
+
+export function batchUpdateInventoryCosts(payload: {
+  date_start?: string
+  date_end?: string
+  updates: Record<string, string>
+}) {
+  return request<BatchUpdateInventoryCostsResult>("/inventory/batch-update-costs", {
+    method: "POST",
+    body: JSON.stringify(payload),
   })
 }
 
@@ -383,8 +422,43 @@ export function importInventory(file: File) {
   })
 }
 
-export function exportInventory() {
-  return fetch(`${API_PREFIX}/inventory/export`).then(async (response) => {
+export function buildInventoryExportUrl(params: {
+  date_start?: string
+  date_end?: string
+  supplier?: string
+  warehouse?: string
+  document_type?: string
+  summary?: string
+  original_sku?: string
+  product_code?: string
+  handler?: string
+} = {}) {
+  const search = new URLSearchParams()
+  if (params.date_start) search.set("date_start", params.date_start)
+  if (params.date_end) search.set("date_end", params.date_end)
+  if (params.supplier) search.set("supplier", params.supplier)
+  if (params.warehouse) search.set("warehouse", params.warehouse)
+  if (params.document_type) search.set("document_type", params.document_type)
+  if (params.summary) search.set("summary", params.summary)
+  if (params.original_sku) search.set("original_sku", params.original_sku)
+  if (params.product_code) search.set("product_code", params.product_code)
+  if (params.handler) search.set("handler", params.handler)
+  const suffix = search.toString() ? `?${search.toString()}` : ""
+  return `${API_PREFIX}/inventory/export${suffix}`
+}
+
+export function exportInventory(params: {
+  date_start?: string
+  date_end?: string
+  supplier?: string
+  warehouse?: string
+  document_type?: string
+  summary?: string
+  original_sku?: string
+  product_code?: string
+  handler?: string
+} = {}) {
+  return fetch(buildInventoryExportUrl(params)).then(async (response) => {
     if (!response.ok) {
       throw new ApiError(response.status, await response.text())
     }
@@ -415,15 +489,26 @@ export function importPurchaseInventory(payload: {
   formData.append("handler", payload.handler)
   formData.append("summary", payload.summary)
   formData.append("brand", payload.brand ?? "")
+  const controller = new AbortController()
+  const timeout = window.setTimeout(() => controller.abort(), 120_000)
   return fetch(`${API_PREFIX}/inventory/import-purchase`, {
     method: "POST",
     body: formData,
-  }).then(async (response) => {
-    if (!response.ok) {
-      throw new ApiError(response.status, await response.text())
-    }
-    return (await response.json()) as InventoryImportResult
+    signal: controller.signal,
   })
+    .then(async (response) => {
+      if (!response.ok) {
+        throw new ApiError(response.status, await response.text())
+      }
+      return (await response.json()) as InventoryImportResult
+    })
+    .catch((error) => {
+      if (error instanceof DOMException && error.name === "AbortError") {
+        throw new ApiError(408, "导入超过 2 分钟未返回，请检查 Excel 行数或稍后刷新确认是否已导入")
+      }
+      throw error
+    })
+    .finally(() => window.clearTimeout(timeout))
 }
 
 export function listGeneralCustomerBrands() {
@@ -471,6 +556,13 @@ export function deleteGeneralCustomerShop(id: number) {
 
 export function listDetails(documentId: number) {
   return request<{ items: InventoryDetail[] }>(`/inventory/${documentId}/details`)
+}
+
+export function lookupInventoryDetail(params: { productCode: string; quantity?: string; brand?: string }) {
+  const search = new URLSearchParams({ product_code: params.productCode })
+  if (params.quantity) search.set("quantity", params.quantity)
+  if (params.brand) search.set("brand", params.brand)
+  return request<{ item: InventoryDetailLookupResult }>(`/inventory/detail-lookup?${search.toString()}`)
 }
 
 export function createDetail(documentId: number, payload: Record<string, unknown>) {

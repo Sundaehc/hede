@@ -140,13 +140,13 @@ export function EndingInventoryTab() {
         <div className="flex flex-wrap items-end gap-3">
           <div className="flex flex-col gap-1.5">
             <Label className="text-xs text-muted-foreground">单据日期范围</Label>
-            <div className="flex items-center gap-2">
+            <div className="grid grid-cols-[minmax(9rem,1fr)_auto_minmax(9rem,1fr)] items-center gap-2">
               <input
                 type="date"
                 value={dateStart}
                 max={dateEnd || undefined}
                 onChange={(e) => setDateStart(e.target.value)}
-                className="h-9 rounded-lg border border-input bg-background px-3 py-2 text-sm shadow-xs outline-none transition-colors focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
+                className="h-9 min-w-0 rounded-lg border border-input bg-background px-3 py-2 text-sm shadow-xs outline-none transition-colors focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
               />
               <span className="text-xs text-muted-foreground">至</span>
               <input
@@ -154,7 +154,7 @@ export function EndingInventoryTab() {
                 value={dateEnd}
                 min={dateStart || undefined}
                 onChange={(e) => setDateEnd(e.target.value)}
-                className="h-9 rounded-lg border border-input bg-background px-3 py-2 text-sm shadow-xs outline-none transition-colors focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
+                className="h-9 min-w-0 rounded-lg border border-input bg-background px-3 py-2 text-sm shadow-xs outline-none transition-colors focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
               />
             </div>
           </div>

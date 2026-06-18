@@ -1,7 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useRef, useState } from "react"
-import { Plus, Download, Upload, Trash2, Edit, Search, X, RefreshCw, List } from "lucide-react"
+import { Plus, Download, Upload, Trash2, Edit, Search, X, RefreshCw, List, BadgeDollarSign } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -32,9 +32,11 @@ import {
   createInventoryRecord,
   updateInventoryRecord,
   deleteInventoryRecord,
+  batchUpdateInventoryCosts,
   batchDeleteInventory,
   importPurchaseInventory,
-  exportInventory,
+  buildInventoryExportUrl,
+  listGeneralCustomerShops,
   listSuppliers,
   listWarehouses,
   ApiError,
@@ -42,18 +44,34 @@ import {
   type SupplierItem,
   type WarehouseItem,
 } from "@/lib/api"
+import type { GeneralCustomerShopItem } from "@/lib/types"
 
 const PAGE_SIZES = [10, 50, 100]
 
 const DOCUMENT_TYPES = ["进货单", "进货退货单", "报溢单", "报损单", "批发销售单", "批发销售退货单", "同价调拨单"]
+const DETAIL_IMPORT_DOCUMENT_TYPES = ["进货单", "进货退货单", "报溢单", "报损单", "批发销售单", "批发销售退货单", "同价调拨单"]
+const WHOLESALE_DOCUMENT_TYPES = new Set(["批发销售单", "批发销售退货单"])
+const TRANSFER_DOCUMENT_TYPES = new Set(["同价调拨单"])
+const STOCK_ADJUSTMENT_DOCUMENT_TYPES = new Set(["报溢单", "报损单"])
 const OUTBOUND_DOCUMENT_TYPES = new Set(["进货退货单", "报损单", "批发销售单"])
 const INBOUND_DOCUMENT_TYPES = new Set(["进货单", "报溢单", "批发销售退货单"])
+type SearchableOption = {
+  value: string
+  label: string
+  keywords?: string
+}
+
+function todayInputValue() {
+  const now = new Date()
+  const year = now.getFullYear()
+  const month = String(now.getMonth() + 1).padStart(2, "0")
+  const day = String(now.getDate()).padStart(2, "0")
+  return `${year}-${month}-${day}`
+}
 
 const EMPTY_FORM: Record<string, string> = {
   date: "",
   supplier: "",
-  total_count: "",
-  amount: "",
   warehouse: "",
   document_type: "",
   summary: "",
@@ -66,7 +84,14 @@ const EMPTY_IMPORT_FORM: Record<string, string> = {
   document_type: "进货单",
   handler: "",
   summary: "",
-  brand: "cbanner_mens",
+}
+
+const EMPTY_COST_FORM: Record<string, string> = {
+  date_start: "",
+  date_end: "",
+  product_code: "",
+  unit_price: "",
+  batch_text: "",
 }
 
 function getErrorMessage(error: unknown) {
@@ -87,16 +112,134 @@ function buildPageRange(current: number, total: number): (number | "ellipsis")[]
   return pages
 }
 
+function inferImportBrand(documentType: string, supplierName: string, suppliers: SupplierItem[]) {
+  if (documentType !== "进货单" && documentType !== "进货退货单") return "cbanner_mens"
+  const supplier = suppliers.find((item) => item.name === supplierName)
+  return supplier?.brand === "cbanner_womens" ? "cbanner_womens" : "cbanner_mens"
+}
+
+function SearchableSelect({
+  value,
+  options,
+  onChange,
+  placeholder = "请选择",
+  emptyText = "没有匹配项",
+  onTouched,
+}: {
+  value: string
+  options: SearchableOption[]
+  onChange: (value: string) => void
+  placeholder?: string
+  emptyText?: string
+  onTouched?: () => void
+}) {
+  const rootRef = useRef<HTMLDivElement>(null)
+  const inputRef = useRef<HTMLInputElement>(null)
+  const [open, setOpen] = useState(false)
+  const [query, setQuery] = useState("")
+  const selected = options.find((option) => option.value === value)
+  const searchTerm = query.trim().toLowerCase()
+  const visibleOptions = (searchTerm
+    ? options.filter((option) => {
+        const haystack = `${option.label} ${option.value} ${option.keywords || ""}`.toLowerCase()
+        return haystack.includes(searchTerm)
+      })
+    : options
+  ).slice(0, 80)
+
+  useEffect(() => {
+    function handlePointerDown(event: MouseEvent) {
+      if (!rootRef.current?.contains(event.target as Node)) {
+        setOpen(false)
+        setQuery("")
+      }
+    }
+    document.addEventListener("mousedown", handlePointerDown)
+    return () => document.removeEventListener("mousedown", handlePointerDown)
+  }, [])
+
+  const selectValue = (nextValue: string) => {
+    onTouched?.()
+    onChange(nextValue)
+    setOpen(false)
+    setQuery("")
+  }
+
+  return (
+    <div ref={rootRef} className="relative">
+      <div className="relative">
+        <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+        <input
+          ref={inputRef}
+          value={open ? query : selected?.label || ""}
+          onFocus={() => { setOpen(true); setQuery("") }}
+          onChange={(event) => { onTouched?.(); setQuery(event.target.value); setOpen(true) }}
+          onKeyDown={(event) => {
+            if (event.key === "Enter" && visibleOptions[0]) {
+              event.preventDefault()
+              selectValue(visibleOptions[0].value)
+            }
+            if (event.key === "Escape") {
+              setOpen(false)
+              setQuery("")
+            }
+          }}
+          placeholder={placeholder}
+          className="flex h-9 w-full cursor-pointer rounded-lg border border-input bg-card py-2 pl-9 pr-9 text-sm shadow-xs outline-none transition-colors placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/35"
+        />
+        {value && (
+          <button
+            type="button"
+            aria-label="清空"
+            onClick={() => selectValue("")}
+            className="absolute right-2 top-1/2 inline-flex h-6 w-6 -translate-y-1/2 cursor-pointer items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
+        )}
+      </div>
+      {open && (
+        <div className="absolute z-50 mt-1 max-h-72 w-full overflow-auto rounded-lg border border-border bg-popover p-1 text-sm shadow-lg">
+          {visibleOptions.length === 0 ? (
+            <div className="px-3 py-2 text-muted-foreground">{emptyText}</div>
+          ) : (
+            visibleOptions.map((option) => (
+              <button
+                key={`${option.value}-${option.label}`}
+                type="button"
+                onMouseDown={(event) => event.preventDefault()}
+                onClick={() => selectValue(option.value)}
+                className={`flex w-full cursor-pointer items-center justify-between gap-3 rounded-md px-3 py-2 text-left hover:bg-muted ${option.value === value ? "bg-muted text-foreground" : "text-foreground"}`}
+              >
+                <span className="min-w-0 truncate">{option.label}</span>
+                {option.value === value && <span className="text-xs text-primary">已选</span>}
+              </button>
+            ))
+          )}
+          {searchTerm && visibleOptions.length === 80 && (
+            <div className="border-t border-border px-3 py-2 text-xs text-muted-foreground">结果较多，请继续输入缩小范围</div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
 export function InventoryPage() {
   const [searchDateStart, setSearchDateStart] = useState("")
   const [searchDateEnd, setSearchDateEnd] = useState("")
   const [searchSupplier, setSearchSupplier] = useState("")
   const [searchWarehouse, setSearchWarehouse] = useState("")
   const [searchDocumentType, setSearchDocumentType] = useState("")
+  const [searchSummary, setSearchSummary] = useState("")
+  const [searchOriginalSku, setSearchOriginalSku] = useState("")
+  const [searchProductCode, setSearchProductCode] = useState("")
+  const [searchHandler, setSearchHandler] = useState("")
   const [submittedFilters, setSubmittedFilters] = useState<Record<string, string>>({})
 
   const [supplierOptions, setSupplierOptions] = useState<SupplierItem[]>([])
   const [warehouseOptions, setWarehouseOptions] = useState<WarehouseItem[]>([])
+  const [customerShopOptions, setCustomerShopOptions] = useState<GeneralCustomerShopItem[]>([])
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(PAGE_SIZES[0])
   const [reloadToken, setReloadToken] = useState(0)
@@ -119,6 +262,11 @@ export function InventoryPage() {
   const [editingId, setEditingId] = useState<number | null>(null)
   const [isSaving, setIsSaving] = useState(false)
 
+  const [costDialogOpen, setCostDialogOpen] = useState(false)
+  const [costFormData, setCostFormData] = useState<Record<string, string>>({ ...EMPTY_COST_FORM })
+  const [costError, setCostError] = useState("")
+  const [isUpdatingCosts, setIsUpdatingCosts] = useState(false)
+
   const [detailDocumentId, setDetailDocumentId] = useState<number | null>(null)
   const [activeTab, setActiveTab] = useState("records")
 
@@ -127,13 +275,19 @@ export function InventoryPage() {
   const [importDialogOpen, setImportDialogOpen] = useState(false)
   const [importFormData, setImportFormData] = useState<Record<string, string>>({ ...EMPTY_IMPORT_FORM })
   const [importFile, setImportFile] = useState<File | null>(null)
+  const [importError, setImportError] = useState("")
 
   useEffect(() => {
     async function loadOptions() {
       try {
-        const [suppliersRes, warehousesRes] = await Promise.all([listSuppliers(), listWarehouses()])
+        const [suppliersRes, warehousesRes, customerShopsRes] = await Promise.all([
+          listSuppliers(),
+          listWarehouses(),
+          listGeneralCustomerShops(),
+        ])
         setSupplierOptions(suppliersRes.items)
         setWarehouseOptions(warehousesRes.items)
+        setCustomerShopOptions(customerShopsRes.items)
       } catch { /* ignore */ }
     }
     void loadOptions()
@@ -151,6 +305,10 @@ export function InventoryPage() {
           supplier: submittedFilters.supplier || undefined,
           warehouse: submittedFilters.warehouse || undefined,
           document_type: submittedFilters.document_type || undefined,
+          summary: submittedFilters.summary || undefined,
+          original_sku: submittedFilters.original_sku || undefined,
+          product_code: submittedFilters.product_code || undefined,
+          handler: submittedFilters.handler || undefined,
           page,
           pageSize,
         })
@@ -179,9 +337,17 @@ export function InventoryPage() {
 
   const openCreate = () => {
     setFormMode("create")
-    setFormData({ ...EMPTY_FORM })
+    setFormData({ ...EMPTY_FORM, date: todayInputValue() })
     setEditingId(null)
     setFormOpen(true)
+  }
+
+  const openImportDialog = () => {
+    setImportError("")
+    setImportFile(null)
+    if (fileInputRef.current) fileInputRef.current.value = ""
+    setImportFormData((prev) => ({ ...prev, date: prev.date || todayInputValue() }))
+    setImportDialogOpen(true)
   }
 
   const openEdit = (item: InventoryRecord) => {
@@ -190,8 +356,6 @@ export function InventoryPage() {
     setFormData({
       date: item.date || "",
       supplier: item.supplier || "",
-      total_count: item.total_count || "",
-      amount: item.amount || "",
       warehouse: item.warehouse || "",
       document_type: item.document_type || "",
       handler: item.handler || "",
@@ -264,12 +428,17 @@ export function InventoryPage() {
   }
 
   const handleImport = async () => {
+    setImportError("")
     if (!importFile) {
-      showMessage("导入失败", "请选择 Excel 文件")
+      setImportError("请选择 Excel 文件")
       return
     }
-    if (!importFormData.supplier || !importFormData.warehouse || !importFormData.handler || !importFormData.summary) {
-      showMessage("导入失败", "请填写供货单位、收货仓库、经手人和摘要")
+    const isWholesaleImport = WHOLESALE_DOCUMENT_TYPES.has(importFormData.document_type)
+    const isTransferImport = TRANSFER_DOCUMENT_TYPES.has(importFormData.document_type)
+    const isStockAdjustmentImport = STOCK_ADJUSTMENT_DOCUMENT_TYPES.has(importFormData.document_type)
+    if ((!isStockAdjustmentImport && !importFormData.supplier) || !importFormData.warehouse || !importFormData.handler || !importFormData.summary) {
+      const requiredFields = isTransferImport ? "出货仓库、入货仓库" : isWholesaleImport ? "收货客户、发货仓库" : "供货单位、收货仓库"
+      setImportError(`请填写${isStockAdjustmentImport ? "仓库" : requiredFields}、经手人和摘要`)
       return
     }
     setIsImporting(true)
@@ -282,14 +451,14 @@ export function InventoryPage() {
         document_type: importFormData.document_type,
         handler: importFormData.handler,
         summary: importFormData.summary,
-        brand: importFormData.brand,
+        brand: inferImportBrand(importFormData.document_type, importFormData.supplier, supplierOptions),
       })
       showMessage("导入完成", result.message)
       setImportDialogOpen(false)
       setImportFile(null)
       setReloadToken((t) => t + 1)
     } catch (err) {
-      showMessage("导入失败", getErrorMessage(err))
+      setImportError(getErrorMessage(err))
     } finally {
       setIsImporting(false)
       if (fileInputRef.current) fileInputRef.current.value = ""
@@ -298,14 +467,20 @@ export function InventoryPage() {
 
   const handleExport = async () => {
     try {
-      const response = await exportInventory()
-      const blob = await response.blob()
-      const url = URL.createObjectURL(blob)
       const a = document.createElement("a")
-      a.href = url
-      a.download = "进销存数据.xlsx"
+      a.href = buildInventoryExportUrl({
+        date_start: submittedFilters.date_start || undefined,
+        date_end: submittedFilters.date_end || undefined,
+        supplier: submittedFilters.supplier || undefined,
+        warehouse: submittedFilters.warehouse || undefined,
+        document_type: submittedFilters.document_type || undefined,
+        summary: submittedFilters.summary || undefined,
+        original_sku: submittedFilters.original_sku || undefined,
+        product_code: submittedFilters.product_code || undefined,
+        handler: submittedFilters.handler || undefined,
+      })
+      a.rel = "noopener"
       a.click()
-      URL.revokeObjectURL(url)
     } catch (err) {
       showMessage("导出失败", getErrorMessage(err))
     }
@@ -319,7 +494,69 @@ export function InventoryPage() {
       supplier: searchSupplier,
       warehouse: searchWarehouse,
       document_type: searchDocumentType,
+      summary: searchSummary,
+      original_sku: searchOriginalSku,
+      product_code: searchProductCode,
+      handler: searchHandler,
     })
+  }
+
+  const openCostDialog = () => {
+    setCostError("")
+    setCostFormData({ ...EMPTY_COST_FORM })
+    setCostDialogOpen(true)
+  }
+
+  const parseCostUpdates = () => {
+    const updates: Record<string, string> = {}
+    const singleCode = costFormData.product_code.trim()
+    const singlePrice = costFormData.unit_price.trim()
+    if (singleCode || singlePrice) {
+      if (!singleCode || !singlePrice) throw new Error("单个修改需要同时填写货号和新单价")
+      updates[singleCode] = singlePrice
+    }
+    for (const line of costFormData.batch_text.split(/\r?\n/)) {
+      const trimmed = line.trim()
+      if (!trimmed) continue
+      const parts = trimmed.split(/[\s,，\t]+/).filter(Boolean)
+      if (parts.length < 2) throw new Error(`无法识别：${trimmed}`)
+      updates[parts[0]] = parts[1]
+    }
+    return updates
+  }
+
+  const handleBatchUpdateCosts = async () => {
+    setCostError("")
+    let updates: Record<string, string>
+    try {
+      updates = parseCostUpdates()
+    } catch (error) {
+      setCostError(getErrorMessage(error))
+      return
+    }
+    if (!costFormData.date_start || !costFormData.date_end) {
+      setCostError("请选择开始日期和结束日期")
+      return
+    }
+    if (Object.keys(updates).length === 0) {
+      setCostError("请填写至少一个货号和新单价")
+      return
+    }
+    setIsUpdatingCosts(true)
+    try {
+      const result = await batchUpdateInventoryCosts({
+        date_start: costFormData.date_start,
+        date_end: costFormData.date_end,
+        updates,
+      })
+      setCostDialogOpen(false)
+      setReloadToken((t) => t + 1)
+      showMessage("批量改价完成", result.message)
+    } catch (error) {
+      setCostError(getErrorMessage(error))
+    } finally {
+      setIsUpdatingCosts(false)
+    }
   }
 
   const clearSearch = () => {
@@ -328,6 +565,10 @@ export function InventoryPage() {
     setSearchSupplier("")
     setSearchWarehouse("")
     setSearchDocumentType("")
+    setSearchSummary("")
+    setSearchOriginalSku("")
+    setSearchProductCode("")
+    setSearchHandler("")
     setPage(1)
     setSubmittedFilters({})
   }
@@ -337,6 +578,28 @@ export function InventoryPage() {
   const allSelected = items.length > 0 && items.every((item) => selectedIds.has(item.id))
   const someSelected = items.some((item) => selectedIds.has(item.id))
   const pageRange = buildPageRange(page, totalPages)
+  const isFormWholesale = WHOLESALE_DOCUMENT_TYPES.has(formData.document_type || "")
+  const isFormTransfer = TRANSFER_DOCUMENT_TYPES.has(formData.document_type || "")
+  const isFormStockAdjustment = STOCK_ADJUSTMENT_DOCUMENT_TYPES.has(formData.document_type || "")
+  const isImportWholesale = WHOLESALE_DOCUMENT_TYPES.has(importFormData.document_type)
+  const isImportTransfer = TRANSFER_DOCUMENT_TYPES.has(importFormData.document_type)
+  const isImportStockAdjustment = STOCK_ADJUSTMENT_DOCUMENT_TYPES.has(importFormData.document_type)
+  const supplierSelectOptions = supplierOptions.map((supplier) => ({
+    value: supplier.name,
+    label: supplier.name,
+    keywords: [supplier.factory_code, supplier.contact, supplier.address].filter(Boolean).join(" "),
+  }))
+  const warehouseSelectOptions = warehouseOptions.map((warehouse) => ({
+    value: warehouse.name,
+    label: warehouse.name,
+  }))
+  const customerShopSelectOptions = customerShopOptions.map((shop) => ({
+    value: shop.shop_name,
+    label: `${shop.customer_name} / ${shop.shop_name}`,
+    keywords: shop.customer_name,
+  }))
+  const formCounterpartyOptions = isFormTransfer ? warehouseSelectOptions : isFormWholesale ? customerShopSelectOptions : supplierSelectOptions
+  const importCounterpartyOptions = isImportTransfer ? warehouseSelectOptions : isImportWholesale ? customerShopSelectOptions : supplierSelectOptions
 
   return (
     <div className="app-page">
@@ -347,13 +610,17 @@ export function InventoryPage() {
             <p className="page-subtitle">维护进销存单据、导入明细并查看期末库存</p>
           </div>
           <div className="flex items-center gap-2">
-            <Button variant="outline" size="sm" onClick={() => setImportDialogOpen(true)} disabled={isImporting} className="cursor-pointer">
+            <Button variant="outline" size="sm" onClick={openImportDialog} disabled={isImporting} className="cursor-pointer">
               <Upload className="h-4 w-4" />
               <span className="ml-2 hidden sm:inline">{isImporting ? "导入中..." : "导入Excel"}</span>
             </Button>
             <Button variant="outline" size="sm" onClick={handleExport} disabled={total === 0 || isLoading} className="cursor-pointer">
               <Download className="h-4 w-4" />
               <span className="ml-2 hidden sm:inline">导出Excel</span>
+            </Button>
+            <Button variant="outline" size="sm" onClick={openCostDialog} disabled={isUpdatingCosts} className="cursor-pointer">
+              <BadgeDollarSign className="h-4 w-4" />
+              <span className="ml-2 hidden sm:inline">批量改成本价</span>
             </Button>
             <Button size="sm" onClick={openCreate} className="cursor-pointer">
               <Plus className="h-4 w-4" />
@@ -371,67 +638,80 @@ export function InventoryPage() {
           {activeTab === "records" && (
             <>
               <div className="surface-panel p-4">
-          <div className="flex flex-col gap-3">
-            <div className="flex flex-wrap items-end gap-3">
-              <div className="flex flex-col gap-1.5">
-                <Label className="text-xs text-muted-foreground">日期范围</Label>
-                <div className="flex items-center gap-2">
-                  <input
-                    type="date"
-                    value={searchDateStart}
-                    max={searchDateEnd || undefined}
-                    onChange={(e) => setSearchDateStart(e.target.value)}
-                    className="h-9 rounded-lg border border-input bg-card px-3 py-2 text-sm shadow-xs outline-none transition-colors focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/35"
-                  />
-                  <span className="text-xs text-muted-foreground">至</span>
-                  <input
-                    type="date"
-                    value={searchDateEnd}
-                    min={searchDateStart || undefined}
-                    onChange={(e) => setSearchDateEnd(e.target.value)}
-                    className="h-9 rounded-lg border border-input bg-card px-3 py-2 text-sm shadow-xs outline-none transition-colors focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/35"
-                  />
+                <div className="grid gap-3 xl:grid-cols-[1fr_auto] xl:items-end">
+                  <div className="grid gap-3 lg:grid-cols-12">
+                    <div className="space-y-1.5 lg:col-span-6 xl:col-span-5">
+                      <Label className="text-xs text-muted-foreground">日期范围</Label>
+                      <div className="grid grid-cols-[minmax(8.75rem,1fr)_auto_minmax(8.75rem,1fr)] items-center gap-2">
+                        <input
+                          type="date"
+                          value={searchDateStart}
+                          max={searchDateEnd || undefined}
+                          onChange={(e) => setSearchDateStart(e.target.value)}
+                          className="h-9 min-w-0 rounded-lg border border-input bg-card px-3 py-2 text-sm shadow-xs outline-none transition-colors focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/35"
+                        />
+                        <span className="text-xs text-muted-foreground">至</span>
+                        <input
+                          type="date"
+                          value={searchDateEnd}
+                          min={searchDateStart || undefined}
+                          onChange={(e) => setSearchDateEnd(e.target.value)}
+                          className="h-9 min-w-0 rounded-lg border border-input bg-card px-3 py-2 text-sm shadow-xs outline-none transition-colors focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/35"
+                        />
+                      </div>
+                    </div>
+                    <div className="space-y-1.5 lg:col-span-3 xl:col-span-2">
+                      <Label className="text-xs text-muted-foreground">单据类型</Label>
+                      <Select value={searchDocumentType} onChange={(e) => setSearchDocumentType(e.target.value)} className="w-full">
+                        <option value="">全部</option>
+                        {DOCUMENT_TYPES.map((dt) => (<option key={dt} value={dt}>{dt}</option>))}
+                      </Select>
+                    </div>
+                    <div className="space-y-1.5 lg:col-span-3 xl:col-span-2">
+                      <Label className="text-xs text-muted-foreground">仓库</Label>
+                      <Select value={searchWarehouse} onChange={(e) => setSearchWarehouse(e.target.value)} className="w-full">
+                        <option value="">全部</option>
+                        {warehouseOptions.map((w) => (<option key={w.id} value={w.name}>{w.name}</option>))}
+                      </Select>
+                    </div>
+                    <div className="space-y-1.5 lg:col-span-3 xl:col-span-3">
+                      <Label className="text-xs text-muted-foreground">客户/供应商</Label>
+                      <Input value={searchSupplier} onChange={(e) => setSearchSupplier(e.target.value)} placeholder="客户/供应商" className="h-9" />
+                    </div>
+                    <div className="space-y-1.5 lg:col-span-3 xl:col-span-2">
+                      <Label className="text-xs text-muted-foreground">经手人</Label>
+                      <Input value={searchHandler} onChange={(e) => setSearchHandler(e.target.value)} placeholder="经手人" className="h-9" />
+                    </div>
+                    <div className="space-y-1.5 lg:col-span-3 xl:col-span-2">
+                      <Label className="text-xs text-muted-foreground">原始货号</Label>
+                      <Input value={searchOriginalSku} onChange={(e) => setSearchOriginalSku(e.target.value)} placeholder="原始货号" className="h-9" />
+                    </div>
+                    <div className="space-y-1.5 lg:col-span-3 xl:col-span-2">
+                      <Label className="text-xs text-muted-foreground">商品编码</Label>
+                      <Input value={searchProductCode} onChange={(e) => setSearchProductCode(e.target.value)} placeholder="商品编码" className="h-9" />
+                    </div>
+                    <div className="space-y-1.5 lg:col-span-6 xl:col-span-4">
+                      <Label className="text-xs text-muted-foreground">备注</Label>
+                      <Input value={searchSummary} onChange={(e) => setSearchSummary(e.target.value)} placeholder="摘要/备注" className="h-9" />
+                    </div>
+                  </div>
+                  <div className="flex flex-wrap gap-2 xl:justify-end">
+                    <Button size="sm" onClick={search} disabled={isLoading} className="cursor-pointer">
+                      <Search className="h-4 w-4" />
+                      <span className="ml-1.5">搜索</span>
+                    </Button>
+                    {hasFilters && (
+                      <Button variant="outline" size="sm" onClick={clearSearch} className="cursor-pointer">
+                        <X className="h-4 w-4" />
+                        <span className="ml-1.5">清空</span>
+                      </Button>
+                    )}
+                    <Button variant="outline" size="sm" onClick={() => setReloadToken((t) => t + 1)} disabled={isLoading} className="cursor-pointer">
+                      <RefreshCw className={`h-4 w-4 ${isLoading ? "animate-spin" : ""}`} />
+                    </Button>
+                  </div>
                 </div>
               </div>
-              <div className="flex flex-col gap-1.5">
-                <Label className="text-xs text-muted-foreground">单据类型</Label>
-                <Select value={searchDocumentType} onChange={(e) => setSearchDocumentType(e.target.value)} className="w-36">
-                  <option value="">全部</option>
-                  {DOCUMENT_TYPES.map((dt) => (<option key={dt} value={dt}>{dt}</option>))}
-                </Select>
-              </div>
-              <div className="flex flex-col gap-1.5">
-                <Label className="text-xs text-muted-foreground">供应商</Label>
-                <Select value={searchSupplier} onChange={(e) => setSearchSupplier(e.target.value)} className="w-36">
-                  <option value="">全部</option>
-                  {supplierOptions.map((s) => (<option key={s.id} value={s.name}>{s.name}</option>))}
-                </Select>
-              </div>
-              <div className="flex flex-col gap-1.5">
-                <Label className="text-xs text-muted-foreground">仓库</Label>
-                <Select value={searchWarehouse} onChange={(e) => setSearchWarehouse(e.target.value)} className="w-36">
-                  <option value="">全部</option>
-                  {warehouseOptions.map((w) => (<option key={w.id} value={w.name}>{w.name}</option>))}
-                </Select>
-              </div>
-              <div className="flex gap-2 pb-0.5">
-                <Button size="sm" onClick={search} disabled={isLoading} className="cursor-pointer">
-                  <Search className="h-4 w-4" />
-                  <span className="ml-1.5">搜索</span>
-                </Button>
-                {hasFilters && (
-                  <Button variant="outline" size="sm" onClick={clearSearch} className="cursor-pointer">
-                    <X className="h-4 w-4" />
-                    <span className="ml-1.5">清空</span>
-                  </Button>
-                )}
-                <Button variant="outline" size="sm" onClick={() => setReloadToken((t) => t + 1)} disabled={isLoading} className="cursor-pointer">
-                  <RefreshCw className={`h-4 w-4 ${isLoading ? "animate-spin" : ""}`} />
-                </Button>
-              </div>
-            </div>
-          </div>
-        </div>
 
         {/* Selection & Summary Bar */}
         <div className="flex flex-col gap-2 text-sm text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
@@ -475,7 +755,7 @@ export function InventoryPage() {
             <thead>
               <tr className="table-head-row">
                 <th className="px-4 py-3 w-10"></th>
-                <th className="px-4 py-3 font-medium">入库单号</th>
+                <th className="px-4 py-3 font-medium">单据编号</th>
                 <th className="px-4 py-3 font-medium">日期</th>
                 <th className="px-4 py-3 font-medium">单据类型</th>
                 <th className="px-4 py-3 font-medium">供应商</th>
@@ -510,7 +790,7 @@ export function InventoryPage() {
                       className="h-4 w-4 cursor-pointer rounded border border-input accent-primary"
                     />
                   </td>
-                  <td className="px-4 py-2.5 font-mono text-xs tabular-nums">{item.id}</td>
+                  <td className="px-4 py-2.5 font-mono text-xs tabular-nums">{item.document_number || item.id}</td>
                   <td className="px-4 py-2.5 whitespace-nowrap tabular-nums">{item.date || "-"}</td>
                   <td className="px-4 py-2.5 whitespace-nowrap">
                     {item.document_type ? (
@@ -638,7 +918,7 @@ export function InventoryPage() {
               <Label htmlFor="form-doc-type">单据类型</Label>
               <Select
                 value={formData.document_type || ""}
-                onChange={(e) => setFormData((prev) => ({ ...prev, document_type: e.target.value }))}
+                onChange={(e) => setFormData((prev) => ({ ...prev, document_type: e.target.value, supplier: "" }))}
               >
                 <option value="">请选择</option>
                 {DOCUMENT_TYPES.map((dt) => (<option key={dt} value={dt}>{dt}</option>))}
@@ -648,49 +928,25 @@ export function InventoryPage() {
               <Label htmlFor="form-handler">经手人</Label>
               <Input id="form-handler" value={formData.handler || ""} onChange={(e) => setFormData((prev) => ({ ...prev, handler: e.target.value }))} placeholder="经手人" />
             </div>
-            {/* Supplier */}
-            <div className="space-y-1.5">
-              <Label htmlFor="form-supplier">供应商</Label>
-              <Select
-                value={formData.supplier || ""}
-                onChange={(e) => setFormData((prev) => ({ ...prev, supplier: e.target.value }))}
-              >
-                <option value="">请选择</option>
-                {supplierOptions.map((s) => (<option key={s.id} value={s.name}>{s.name}</option>))}
-              </Select>
-            </div>
+            {!isFormStockAdjustment && (
+              <div className="space-y-1.5">
+                <Label htmlFor="form-supplier">{isFormTransfer ? "出货仓库" : isFormWholesale ? "收货客户" : "供应商"}</Label>
+                <SearchableSelect
+                  value={formData.supplier || ""}
+                  options={formCounterpartyOptions}
+                  onChange={(nextValue) => setFormData((prev) => ({ ...prev, supplier: nextValue }))}
+                  placeholder={isFormTransfer ? "搜索出货仓库" : isFormWholesale ? "搜索收货客户" : "搜索供应商"}
+                />
+              </div>
+            )}
             {/* Warehouse */}
             <div className="space-y-1.5">
-              <Label htmlFor="form-warehouse">仓库</Label>
-              <Select
+              <Label htmlFor="form-warehouse">{isFormStockAdjustment ? "仓库" : isFormTransfer ? "入货仓库" : isFormWholesale ? "发货仓库" : "仓库"}</Label>
+              <SearchableSelect
                 value={formData.warehouse || ""}
-                onChange={(e) => setFormData((prev) => ({ ...prev, warehouse: e.target.value }))}
-              >
-                <option value="">请选择</option>
-                {warehouseOptions.map((w) => (<option key={w.id} value={w.name}>{w.name}</option>))}
-              </Select>
-            </div>
-            {/* Total Count */}
-            <div className="space-y-1.5">
-              <Label htmlFor="form-total-count">总数</Label>
-              <Input
-                id="form-total-count"
-                type="number"
-                value={formData.total_count || ""}
-                onChange={(e) => setFormData((prev) => ({ ...prev, total_count: e.target.value }))}
-                placeholder="总数"
-              />
-            </div>
-            {/* Amount */}
-            <div className="space-y-1.5">
-              <Label htmlFor="form-amount">金额</Label>
-              <Input
-                id="form-amount"
-                type="number"
-                step="0.01"
-                value={formData.amount || ""}
-                onChange={(e) => setFormData((prev) => ({ ...prev, amount: e.target.value }))}
-                placeholder="金额"
+                options={warehouseSelectOptions}
+                onChange={(nextValue) => setFormData((prev) => ({ ...prev, warehouse: nextValue }))}
+                placeholder={isFormStockAdjustment ? "搜索仓库" : isFormTransfer ? "搜索入货仓库" : isFormWholesale ? "搜索发货仓库" : "搜索仓库"}
               />
             </div>
             {/* Summary - full width */}
@@ -714,53 +970,58 @@ export function InventoryPage() {
       <Dialog open={importDialogOpen} onOpenChange={setImportDialogOpen}>
         <DialogContent className="max-w-xl">
           <DialogHeader>
-            <DialogTitle>导入进货/退货明细</DialogTitle>
+            <DialogTitle>导入单据明细</DialogTitle>
           </DialogHeader>
+          {importError && (
+            <Alert className="border-destructive/30 bg-destructive/5 text-destructive">
+              <AlertDescription>{importError}</AlertDescription>
+            </Alert>
+          )}
           <div className="grid grid-cols-2 gap-4 py-2">
             <div className="space-y-1.5">
               <Label>单据日期</Label>
               <input
                 type="date"
                 value={importFormData.date}
-                onChange={(e) => setImportFormData((prev) => ({ ...prev, date: e.target.value }))}
+                onChange={(e) => { setImportError(""); setImportFormData((prev) => ({ ...prev, date: e.target.value })) }}
                 className="flex h-9 w-full rounded-lg border border-input bg-card px-3 py-2 text-sm shadow-xs outline-none transition-colors focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/35"
               />
             </div>
             <div className="space-y-1.5">
               <Label>单据类型</Label>
-              <Select value={importFormData.document_type} onChange={(e) => setImportFormData((prev) => ({ ...prev, document_type: e.target.value }))}>
-                <option value="进货单">进货单</option>
-                <option value="进货退货单">进货退货单</option>
+              <Select value={importFormData.document_type} onChange={(e) => { setImportError(""); setImportFormData((prev) => ({ ...prev, document_type: e.target.value, supplier: "" })) }}>
+                {DETAIL_IMPORT_DOCUMENT_TYPES.map((dt) => (<option key={dt} value={dt}>{dt}</option>))}
               </Select>
             </div>
+            {!isImportStockAdjustment && (
+              <div className="space-y-1.5">
+                <Label>{isImportTransfer ? "出货仓库" : isImportWholesale ? "收货客户" : "供货单位"}</Label>
+                <SearchableSelect
+                  value={importFormData.supplier}
+                  options={importCounterpartyOptions}
+                  onChange={(nextValue) => setImportFormData((prev) => ({ ...prev, supplier: nextValue }))}
+                  onTouched={() => setImportError("")}
+                  placeholder={isImportTransfer ? "搜索出货仓库" : isImportWholesale ? "搜索收货客户" : "搜索供货单位"}
+                />
+              </div>
+            )}
             <div className="space-y-1.5">
-              <Label>供货单位</Label>
-              <Select value={importFormData.supplier} onChange={(e) => setImportFormData((prev) => ({ ...prev, supplier: e.target.value }))}>
-                <option value="">请选择</option>
-                {supplierOptions.map((s) => (<option key={s.id} value={s.name}>{s.name}</option>))}
-              </Select>
-            </div>
-            <div className="space-y-1.5">
-              <Label>收货仓库</Label>
-              <Select value={importFormData.warehouse} onChange={(e) => setImportFormData((prev) => ({ ...prev, warehouse: e.target.value }))}>
-                <option value="">请选择</option>
-                {warehouseOptions.map((w) => (<option key={w.id} value={w.name}>{w.name}</option>))}
-              </Select>
+              <Label>{isImportStockAdjustment ? "仓库" : isImportTransfer ? "入货仓库" : isImportWholesale ? "发货仓库" : "收货仓库"}</Label>
+              <SearchableSelect
+                value={importFormData.warehouse}
+                options={warehouseSelectOptions}
+                onChange={(nextValue) => setImportFormData((prev) => ({ ...prev, warehouse: nextValue }))}
+                onTouched={() => setImportError("")}
+                placeholder={isImportStockAdjustment ? "搜索仓库" : isImportTransfer ? "搜索入货仓库" : isImportWholesale ? "搜索发货仓库" : "搜索收货仓库"}
+              />
             </div>
             <div className="space-y-1.5">
               <Label>经手人</Label>
-              <Input value={importFormData.handler} onChange={(e) => setImportFormData((prev) => ({ ...prev, handler: e.target.value }))} placeholder="经手人" />
-            </div>
-            <div className="space-y-1.5">
-              <Label>品牌</Label>
-              <Select value={importFormData.brand} onChange={(e) => setImportFormData((prev) => ({ ...prev, brand: e.target.value }))}>
-                <option value="cbanner_mens">千百度男鞋</option>
-                <option value="cbanner_womens">千百度女鞋</option>
-              </Select>
+              <Input value={importFormData.handler} onChange={(e) => { setImportError(""); setImportFormData((prev) => ({ ...prev, handler: e.target.value })) }} placeholder="经手人" />
             </div>
             <div className="col-span-2 space-y-1.5">
               <Label>摘要</Label>
-              <Input value={importFormData.summary} onChange={(e) => setImportFormData((prev) => ({ ...prev, summary: e.target.value }))} placeholder="摘要" />
+              <Input value={importFormData.summary} onChange={(e) => { setImportError(""); setImportFormData((prev) => ({ ...prev, summary: e.target.value })) }} placeholder="摘要" />
             </div>
             <div className="col-span-2 space-y-1.5">
               <Label>Excel 文件</Label>
@@ -768,7 +1029,7 @@ export function InventoryPage() {
                 ref={fileInputRef}
                 type="file"
                 accept=".xlsx,.xls,.xlsm"
-                onChange={(e) => setImportFile(e.target.files?.[0] ?? null)}
+                onChange={(e) => { setImportError(""); setImportFile(e.target.files?.[0] ?? null) }}
                 className="flex h-9 w-full rounded-lg border border-input bg-card px-3 py-1.5 text-sm shadow-xs outline-none transition-colors file:mr-3 file:rounded-md file:border-0 file:bg-muted file:px-2 file:py-1 file:text-xs"
               />
             </div>
@@ -776,6 +1037,76 @@ export function InventoryPage() {
           <DialogFooter>
             <Button variant="outline" onClick={() => setImportDialogOpen(false)} disabled={isImporting} className="cursor-pointer">取消</Button>
             <Button onClick={handleImport} disabled={isImporting} className="cursor-pointer">{isImporting ? "导入中..." : "导入"}</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={costDialogOpen} onOpenChange={setCostDialogOpen}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>批量改成本价</DialogTitle>
+          </DialogHeader>
+          {costError && (
+            <Alert className="border-destructive/30 bg-destructive/5 text-destructive">
+              <AlertDescription>{costError}</AlertDescription>
+            </Alert>
+          )}
+          <div className="grid grid-cols-2 gap-4 py-2">
+            <div className="space-y-1.5">
+              <Label>开始日期</Label>
+              <input
+                type="date"
+                value={costFormData.date_start}
+                max={costFormData.date_end || undefined}
+                onChange={(e) => { setCostError(""); setCostFormData((prev) => ({ ...prev, date_start: e.target.value })) }}
+                className="flex h-9 w-full rounded-lg border border-input bg-card px-3 py-2 text-sm shadow-xs outline-none transition-colors focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/35"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label>结束日期</Label>
+              <input
+                type="date"
+                value={costFormData.date_end}
+                min={costFormData.date_start || undefined}
+                onChange={(e) => { setCostError(""); setCostFormData((prev) => ({ ...prev, date_end: e.target.value })) }}
+                className="flex h-9 w-full rounded-lg border border-input bg-card px-3 py-2 text-sm shadow-xs outline-none transition-colors focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/35"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label>货号</Label>
+              <Input
+                value={costFormData.product_code}
+                onChange={(e) => { setCostError(""); setCostFormData((prev) => ({ ...prev, product_code: e.target.value })) }}
+                placeholder="例如 C2221633DO"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label>新单价</Label>
+              <Input
+                type="number"
+                min="0"
+                step="0.01"
+                value={costFormData.unit_price}
+                onChange={(e) => { setCostError(""); setCostFormData((prev) => ({ ...prev, unit_price: e.target.value })) }}
+                placeholder="例如 129.00"
+              />
+            </div>
+            <div className="col-span-2 space-y-1.5">
+              <Label>批量货号和新单价</Label>
+              <textarea
+                value={costFormData.batch_text}
+                onChange={(e) => { setCostError(""); setCostFormData((prev) => ({ ...prev, batch_text: e.target.value })) }}
+                placeholder={"每行一个：货号,新单价\nC2221633DO,129\nC2221633DJ,135"}
+                className="min-h-28 w-full resize-y rounded-lg border border-input bg-card px-3 py-2 text-sm shadow-xs outline-none transition-colors placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/35"
+              />
+            </div>
+            <div className="col-span-2 rounded-lg border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+              只会更新所选日期范围内的进货单、进货退货单明细；金额按数量 × 新单价重算，单据总金额会自动重算。
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setCostDialogOpen(false)} disabled={isUpdatingCosts} className="cursor-pointer">取消</Button>
+            <Button onClick={handleBatchUpdateCosts} disabled={isUpdatingCosts} className="cursor-pointer">{isUpdatingCosts ? "更新中..." : "确认更新"}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

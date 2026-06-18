@@ -1,13 +1,16 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from datetime import date
 from decimal import Decimal
+import secrets
+import string
 
 from pathlib import Path
 
 import orjson
 from openpyxl import load_workbook
-from sqlalchemy import and_, case, create_engine, delete, desc, func, insert, inspect, or_, select, text, update
+from sqlalchemy import and_, case, create_engine, delete, desc, func, insert, inspect, or_, select, text, union_all, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from domain.gj_schema import GJ_MERGED_PRODUCT_INFO_TABLE
@@ -39,10 +42,16 @@ class InventoryRepository:
         supplier: str | None = None,
         warehouse: str | None = None,
         document_type: str | None = None,
+        summary: str | None = None,
+        original_sku: str | None = None,
+        product_code: str | None = None,
+        handler: str | None = None,
         page: int,
         page_size: int,
     ) -> dict[str, object]:
         table = INVENTORY_TABLE
+        detail = INVENTORY_DETAIL_TABLE
+        stock = JST_STOCK_TABLE
         count_statement = select(func.count()).select_from(table)
         items_statement = select(table)
 
@@ -54,11 +63,57 @@ class InventoryRepository:
             parsed = parse_date(date_end)
             conditions.append(table.c.date_value <= parsed if parsed else table.c.date <= date_end)
         if supplier:
-            conditions.append(table.c.supplier == supplier)
+            conditions.append(table.c.supplier.ilike(f"%{supplier.strip()}%"))
         if warehouse:
             conditions.append(table.c.warehouse == warehouse)
         if document_type:
             conditions.append(table.c.document_type == document_type)
+        if summary:
+            conditions.append(table.c.summary.ilike(f"%{summary.strip()}%"))
+        if handler:
+            conditions.append(table.c.handler.ilike(f"%{handler.strip()}%"))
+        if original_sku:
+            original_like = f"%{original_sku.strip()}%"
+            conditions.append(
+                select(detail.c.id)
+                .where(
+                    detail.c.document_id == table.c.id,
+                    detail.c.product_code.ilike(original_like),
+                )
+                .exists()
+            )
+        if product_code:
+            product_like = f"%{product_code.strip()}%"
+            stock_code_matches = stock.c.product_code.ilike(product_like)
+            stock_candidates = union_all(
+                select(stock.c.product_code.label("candidate"))
+                .where(stock_code_matches),
+                select(func.left(stock.c.product_code, func.length(stock.c.product_code) - 5).label("candidate"))
+                .where(stock_code_matches)
+                .where(func.length(stock.c.product_code) > 5),
+                select(func.left(stock.c.product_code, func.length(stock.c.product_code) - 3).label("candidate"))
+                .where(stock_code_matches)
+                .where(func.length(stock.c.product_code) > 3),
+                select(func.left(stock.c.product_code, func.length(stock.c.product_code) - 2).label("candidate"))
+                .where(stock_code_matches)
+                .where(func.length(stock.c.product_code) > 2),
+            ).subquery()
+            conditions.append(
+                select(detail.c.id)
+                .where(
+                    detail.c.document_id == table.c.id,
+                    or_(
+                        detail.c.product_code.ilike(product_like),
+                        detail.c.product_code.in_(
+                            select(stock_candidates.c.candidate)
+                            .where(stock_candidates.c.candidate.isnot(None))
+                            .where(stock_candidates.c.candidate != "")
+                            .distinct()
+                        ),
+                    ),
+                )
+                .exists()
+            )
 
         if conditions:
             criterion = conditions[0] if len(conditions) == 1 else and_(*conditions)
@@ -87,8 +142,11 @@ class InventoryRepository:
 
     def create_record(self, record: Mapping[str, object]) -> dict[str, object]:
         table = INVENTORY_TABLE
-        statement = insert(table).values(**self._prepare_record(record)).returning(table)
         with self.engine.begin() as connection:
+            payload = self._prepare_record(record)
+            if not payload.get("document_number"):
+                payload["document_number"] = self._generate_document_number(connection, payload.get("date_value"))
+            statement = insert(table).values(**payload).returning(table)
             row = connection.execute(statement).mappings().one()
         return dict(row)
 
@@ -413,6 +471,18 @@ class InventoryRepository:
         with self.engine.connect() as connection:
             return [dict(row) for row in connection.execute(statement).mappings()]
 
+    def list_details_for_documents(self, document_ids: list[int]) -> list[dict[str, object]]:
+        if not document_ids:
+            return []
+        table = INVENTORY_DETAIL_TABLE
+        statement = (
+            select(table)
+            .where(table.c.document_id.in_(document_ids))
+            .order_by(table.c.document_id, table.c.id)
+        )
+        with self.engine.connect() as connection:
+            return [dict(row) for row in connection.execute(statement).mappings()]
+
     def create_detail(self, data: Mapping[str, object]) -> dict[str, object]:
         table = INVENTORY_DETAIL_TABLE
         payload = self._coerce_empty(data)
@@ -421,6 +491,16 @@ class InventoryRepository:
             row = connection.execute(statement).mappings().one()
         self.recalculate_totals(payload.get("document_id"))
         return dict(row)
+
+    def create_details(self, rows: list[Mapping[str, object]], document_id: object) -> int:
+        if not rows:
+            return 0
+        table = INVENTORY_DETAIL_TABLE
+        payload = [self._coerce_empty(row) for row in rows]
+        with self.engine.begin() as connection:
+            result = connection.execute(insert(table), payload)
+        self.recalculate_totals(document_id)
+        return result.rowcount if result.rowcount and result.rowcount > 0 else len(payload)
 
     def update_detail(self, detail_id: int, data: Mapping[str, object]) -> dict[str, object] | None:
         table = INVENTORY_DETAIL_TABLE
@@ -466,6 +546,102 @@ class InventoryRepository:
         )
         with self.engine.begin() as connection:
             connection.execute(update_stmt)
+
+    def batch_update_purchase_costs(
+        self,
+        *,
+        date_start: str | None,
+        date_end: str | None,
+        price_updates: Mapping[str, object],
+    ) -> dict[str, object]:
+        normalized_updates = {
+            str(product_code or "").strip(): Decimal(str(unit_price).strip())
+            for product_code, unit_price in price_updates.items()
+            if str(product_code or "").strip() and str(unit_price or "").strip()
+        }
+        if not normalized_updates:
+            return {"updated_details": 0, "updated_documents": 0, "items": []}
+
+        record = INVENTORY_TABLE
+        detail = INVENTORY_DETAIL_TABLE
+        conditions = [
+            record.c.document_type.in_(("进货单", "进货退货单")),
+            detail.c.product_code.in_(normalized_updates.keys()),
+        ]
+        if date_start:
+            parsed = parse_date(date_start)
+            conditions.append(record.c.date_value >= parsed if parsed else record.c.date >= date_start)
+        if date_end:
+            parsed = parse_date(date_end)
+            conditions.append(record.c.date_value <= parsed if parsed else record.c.date <= date_end)
+
+        joined = detail.join(record, detail.c.document_id == record.c.id)
+        select_stmt = (
+            select(
+                detail.c.id,
+                detail.c.document_id,
+                detail.c.product_code,
+                detail.c.quantity,
+                detail.c.unit_price,
+                detail.c.amount,
+                record.c.document_number,
+                record.c.date,
+                record.c.document_type,
+            )
+            .select_from(joined)
+            .where(and_(*conditions))
+            .order_by(record.c.date_value, record.c.id, detail.c.id)
+        )
+
+        changed_document_ids: set[int] = set()
+        updated_items: list[dict[str, object]] = []
+        with self.engine.begin() as connection:
+            rows = [dict(row) for row in connection.execute(select_stmt).mappings()]
+            for row in rows:
+                product_code = str(row.get("product_code") or "").strip()
+                new_price = normalized_updates.get(product_code)
+                if new_price is None:
+                    continue
+                quantity = Decimal(str(row.get("quantity") or "0"))
+                old_price = row.get("unit_price")
+                new_amount = quantity * new_price
+                connection.execute(
+                    update(detail)
+                    .where(detail.c.id == row["id"])
+                    .values(unit_price=new_price, amount=new_amount)
+                )
+                changed_document_ids.add(int(row["document_id"]))
+                updated_items.append({
+                    "detail_id": row["id"],
+                    "document_id": row["document_id"],
+                    "document_number": row.get("document_number"),
+                    "date": row.get("date"),
+                    "document_type": row.get("document_type"),
+                    "product_code": product_code,
+                    "quantity": str(quantity.normalize()) if quantity.as_tuple().exponent < 0 else str(int(quantity)),
+                    "old_unit_price": None if old_price is None else str(old_price),
+                    "new_unit_price": str(new_price),
+                    "new_amount": str(new_amount),
+                })
+
+            for document_id in changed_document_ids:
+                totals = connection.execute(
+                    select(
+                        func.coalesce(func.sum(detail.c.quantity), 0),
+                        func.coalesce(func.sum(detail.c.amount), 0),
+                    ).where(detail.c.document_id == document_id)
+                ).one()
+                connection.execute(
+                    update(record)
+                    .where(record.c.id == document_id)
+                    .values(total_count=totals[0], amount=totals[1])
+                )
+
+        return {
+            "updated_details": len(updated_items),
+            "updated_documents": len(changed_document_ids),
+            "items": updated_items,
+        }
 
     # ── Ending Inventory ─────────────────────────────────────────────
 
@@ -716,10 +892,19 @@ class InventoryRepository:
         with self.engine.begin() as connection:
             INVENTORY_TABLE.create(connection, checkfirst=True)
             INVENTORY_DETAIL_TABLE.create(connection, checkfirst=True)
+            JST_STOCK_TABLE.create(connection, checkfirst=True)
+            connection.execute(text("ALTER TABLE IF EXISTS inventory_records ADD COLUMN IF NOT EXISTS document_number TEXT"))
+            self._backfill_document_numbers(connection)
+            connection.execute(text("CREATE INDEX IF NOT EXISTS idx_inventory_records_document_number ON inventory_records (document_number)"))
             connection.execute(text("ALTER TABLE IF EXISTS inventory_records ADD COLUMN IF NOT EXISTS handler TEXT"))
             connection.execute(text("ALTER TABLE IF EXISTS inventory_details ADD COLUMN IF NOT EXISTS color_barcode TEXT"))
             connection.execute(text("ALTER TABLE IF EXISTS inventory_details ADD COLUMN IF NOT EXISTS color_name TEXT"))
             connection.execute(text("ALTER TABLE IF EXISTS inventory_details ADD COLUMN IF NOT EXISTS size_quantities JSON"))
+            connection.execute(text("CREATE EXTENSION IF NOT EXISTS pg_trgm"))
+            connection.execute(text("CREATE INDEX IF NOT EXISTS idx_inventory_details_product_code ON inventory_details (product_code)"))
+            connection.execute(text("CREATE INDEX IF NOT EXISTS idx_jst_stock_product_code ON jst_daily_stock (product_code)"))
+            connection.execute(text("CREATE INDEX IF NOT EXISTS idx_inventory_details_product_code_trgm ON inventory_details USING GIN (product_code gin_trgm_ops)"))
+            connection.execute(text("CREATE INDEX IF NOT EXISTS idx_jst_stock_product_code_trgm ON jst_daily_stock USING GIN (product_code gin_trgm_ops)"))
             SUPPLIER_TABLE.create(connection, checkfirst=True)
             WAREHOUSE_TABLE.create(connection, checkfirst=True)
             self._ensure_supplier_schema(connection)
@@ -915,6 +1100,45 @@ class InventoryRepository:
                 for k, v in raw_payload.items()
             }
         return payload
+
+    @staticmethod
+    def _generate_document_number(connection, date_value: object) -> str:
+        parsed_date = date_value if isinstance(date_value, date) else parse_date(date_value)
+        date_text = (parsed_date or date.today()).strftime("%Y-%m-%d")
+        alphabet = string.ascii_uppercase
+        for _ in range(100):
+            prefix = "".join(secrets.choice(alphabet) for _ in range(5))
+            suffix = f"{secrets.randbelow(10000):04d}"
+            document_number = f"{prefix}-{date_text}-{suffix}"
+            exists = connection.execute(
+                select(INVENTORY_TABLE.c.id).where(INVENTORY_TABLE.c.document_number == document_number)
+            ).first()
+            if exists is None:
+                return document_number
+        raise RuntimeError("Failed to generate unique inventory document number")
+
+    @staticmethod
+    def _backfill_document_numbers(connection) -> None:
+        rows = connection.execute(
+            select(
+                INVENTORY_TABLE.c.id,
+                INVENTORY_TABLE.c.date,
+                INVENTORY_TABLE.c.date_value,
+            ).where(or_(
+                INVENTORY_TABLE.c.document_number.is_(None),
+                INVENTORY_TABLE.c.document_number == "",
+            ))
+        ).mappings()
+        for row in rows:
+            document_number = InventoryRepository._generate_document_number(
+                connection,
+                row.get("date_value") or row.get("date"),
+            )
+            connection.execute(
+                update(INVENTORY_TABLE)
+                .where(INVENTORY_TABLE.c.id == row["id"])
+                .values(document_number=document_number)
+            )
 
     @staticmethod
     def _prepare_supplier(data: Mapping[str, object]) -> dict[str, object]:

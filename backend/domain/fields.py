@@ -65,6 +65,7 @@ PRODUCT_FIELDS: tuple[FieldSpec, ...] = (
 
 
 INVENTORY_FIELDS: tuple[FieldSpec, ...] = (
+    FieldSpec("document_number", "单据编号", aliases=("入库单号", "单据号")),
     FieldSpec("date", "日期"),
     FieldSpec("supplier", "供应商"),
     FieldSpec("total_count", "总数", "numeric"),
