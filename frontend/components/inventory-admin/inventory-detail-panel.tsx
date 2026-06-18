@@ -1,7 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useRef, useState } from "react"
-import { Plus, Trash2, Edit, X } from "lucide-react"
+import { Plus, Trash2, Edit, X, Upload } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -19,9 +19,13 @@ import {
   createDetail,
   updateDetail,
   deleteDetail,
+  batchDeleteDetails,
+  replaceDetailsFromExcel,
   matchSkuImage,
   ApiError,
+  type InventoryRecord,
   type InventoryDetail,
+  type SupplierItem,
 } from "@/lib/api"
 
 function getErrorMessage(error: unknown) {
@@ -44,7 +48,8 @@ const EMPTY_DETAIL: Record<string, string> = {
 const SIZE_COLUMNS = ["35", "36", "37", "38", "39", "40", "41", "42", "43", "44"]
 
 type Props = {
-  documentId: number | null
+  record: InventoryRecord | null
+  suppliers: SupplierItem[]
   onClose: () => void
   onTotalChanged: () => void
 }
@@ -79,10 +84,22 @@ function computeAmount(quantity: string, unitPrice: string): string {
   return (qty * price).toFixed(2)
 }
 
-export function InventoryDetailPanel({ documentId, onClose, onTotalChanged }: Props) {
+function inferReplaceImportBrand(record: InventoryRecord | null, suppliers: SupplierItem[]) {
+  if (!record) return "cbanner_mens"
+  if (record.document_type !== "进货单" && record.document_type !== "进货退货单") return "cbanner_mens"
+  const supplier = suppliers.find((item) => item.name === record.supplier)
+  return supplier?.brand === "cbanner_womens" ? "cbanner_womens" : "cbanner_mens"
+}
+
+export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChanged }: Props) {
+  const documentId = record?.id ?? null
   const [items, setItems] = useState<InventoryDetail[]>([])
   const [isLoading, setIsLoading] = useState(false)
   const [imageUrls, setImageUrls] = useState<Record<number, string | null>>({})
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set())
+  const replaceInputRef = useRef<HTMLInputElement>(null)
+  const [replaceFile, setReplaceFile] = useState<File | null>(null)
+  const [isReplacing, setIsReplacing] = useState(false)
 
   const [formOpen, setFormOpen] = useState(false)
   const [formMode, setFormMode] = useState<"create" | "edit">("create")
@@ -96,6 +113,7 @@ export function InventoryDetailPanel({ documentId, onClose, onTotalChanged }: Pr
   const [isSaving, setIsSaving] = useState(false)
 
   const [deleteTarget, setDeleteTarget] = useState<InventoryDetail | null>(null)
+  const [batchDeleteOpen, setBatchDeleteOpen] = useState(false)
   const [isDeleting, setIsDeleting] = useState(false)
   const [messageOpen, setMessageOpen] = useState(false)
   const [messageContent, setMessageContent] = useState({ title: "", description: "" })
@@ -106,14 +124,25 @@ export function InventoryDetailPanel({ documentId, onClose, onTotalChanged }: Pr
     try {
       const res = await listDetails(documentId)
       setItems(res.items)
+      setSelectedIds((current) => {
+        if (current.size === 0) return current
+        const existingIds = new Set(res.items.map((item) => item.id))
+        const next = new Set(Array.from(current).filter((id) => existingIds.has(id)))
+        return next.size === current.size ? current : next
+      })
     } catch {
       setItems([])
+      setSelectedIds(new Set())
     } finally {
       setIsLoading(false)
     }
   }, [documentId])
 
   useEffect(() => { void load() }, [load])
+
+  useEffect(() => {
+    setSelectedIds(new Set())
+  }, [documentId])
 
   // Load images for all detail items
   useEffect(() => {
@@ -266,7 +295,63 @@ export function InventoryDetailPanel({ documentId, onClose, onTotalChanged }: Pr
     }
   }
 
+  const toggleSelected = (id: number) => {
+    setSelectedIds((current) => {
+      const next = new Set(current)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  const toggleAllSelected = () => {
+    setSelectedIds((current) => {
+      if (items.length > 0 && items.every((item) => current.has(item.id))) return new Set()
+      return new Set(items.map((item) => item.id))
+    })
+  }
+
+  const handleBatchDelete = async () => {
+    if (!documentId || selectedIds.size === 0) return
+    setIsDeleting(true)
+    try {
+      const result = await batchDeleteDetails(documentId, Array.from(selectedIds))
+      setBatchDeleteOpen(false)
+      setSelectedIds(new Set())
+      await load()
+      onTotalChanged()
+      showMessage("删除完成", result.message)
+    } catch (e) {
+      showMessage("删除失败", getErrorMessage(e))
+    } finally {
+      setIsDeleting(false)
+    }
+  }
+
+  const handleReplaceImport = async () => {
+    if (!documentId || !replaceFile) return
+    setIsReplacing(true)
+    try {
+      const result = await replaceDetailsFromExcel({
+        documentId,
+        file: replaceFile,
+        brand: inferReplaceImportBrand(record, suppliers),
+      })
+      setReplaceFile(null)
+      if (replaceInputRef.current) replaceInputRef.current.value = ""
+      await load()
+      onTotalChanged()
+      showMessage("导入完成", result.message)
+    } catch (e) {
+      showMessage("导入失败", getErrorMessage(e))
+    } finally {
+      setIsReplacing(false)
+    }
+  }
+
   if (documentId === null) return null
+
+  const allSelected = items.length > 0 && items.every((item) => selectedIds.has(item.id))
 
   return (
     <>
@@ -279,9 +364,42 @@ export function InventoryDetailPanel({ documentId, onClose, onTotalChanged }: Pr
         <div className="flex items-center justify-between border-b border-border px-6 py-4 shrink-0">
           <div>
             <h2 className="text-lg font-semibold">单据明细</h2>
-            <p className="text-xs text-muted-foreground">单据 {documentId}</p>
+            <p className="text-xs text-muted-foreground">单据 {record?.document_number || documentId}</p>
           </div>
           <div className="flex items-center gap-2">
+            <input
+              ref={replaceInputRef}
+              type="file"
+              accept=".xlsx,.xls,.xlsm"
+              className="hidden"
+              onChange={(event) => {
+                const file = event.target.files?.[0] ?? null
+                if (file) setReplaceFile(file)
+              }}
+            />
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => replaceInputRef.current?.click()}
+              disabled={isReplacing}
+              className="cursor-pointer"
+              title="用 Excel 重新导入并覆盖当前单据明细"
+            >
+              <Upload className="h-4 w-4" />
+              <span className="ml-1.5">重新导入明细</span>
+            </Button>
+            {selectedIds.size > 0 && (
+              <Button
+                size="sm"
+                variant="destructive"
+                onClick={() => setBatchDeleteOpen(true)}
+                disabled={isDeleting}
+                className="cursor-pointer"
+              >
+                <Trash2 className="h-4 w-4" />
+                <span className="ml-1.5">删除选中 {selectedIds.size}</span>
+              </Button>
+            )}
             <Button size="sm" onClick={openCreate} className="cursor-pointer">
               <Plus className="h-4 w-4" />
               <span className="ml-1.5">新增明细</span>
@@ -297,6 +415,16 @@ export function InventoryDetailPanel({ documentId, onClose, onTotalChanged }: Pr
           <table className="w-full text-sm">
             <thead>
               <tr className="sticky top-0 z-10 border-b border-border bg-muted/40 text-left text-muted-foreground">
+                <th className="w-10 px-3 py-2.5 font-medium">
+                  <input
+                    type="checkbox"
+                    checked={allSelected}
+                    disabled={items.length === 0 || isLoading}
+                    onChange={toggleAllSelected}
+                    className="h-4 w-4 cursor-pointer rounded border-border"
+                    aria-label="选择全部明细"
+                  />
+                </th>
                 <th className="px-4 py-2.5 w-20 font-medium"></th>
                 <th className="px-3 py-2.5 font-medium">货号</th>
                 <th className="px-3 py-2.5 font-medium">商品全名</th>
@@ -314,16 +442,25 @@ export function InventoryDetailPanel({ documentId, onClose, onTotalChanged }: Pr
             <tbody className="divide-y divide-border">
               {isLoading && (
                 <tr>
-                  <td colSpan={19} className="px-6 py-12 text-center text-muted-foreground">加载中...</td>
+                    <td colSpan={20} className="px-6 py-12 text-center text-muted-foreground">加载中...</td>
                 </tr>
               )}
               {!isLoading && items.length === 0 && (
                 <tr>
-                  <td colSpan={19} className="px-6 py-12 text-center text-muted-foreground">暂无明细数据</td>
+                  <td colSpan={20} className="px-6 py-12 text-center text-muted-foreground">暂无明细数据</td>
                 </tr>
               )}
               {items.map((item) => (
                 <tr key={item.id} className="hover:bg-muted/30 transition-colors">
+                  <td className="px-3 py-2.5">
+                    <input
+                      type="checkbox"
+                      checked={selectedIds.has(item.id)}
+                      onChange={() => toggleSelected(item.id)}
+                      className="h-4 w-4 cursor-pointer rounded border-border"
+                      aria-label={`选择明细 ${item.product_code || item.id}`}
+                    />
+                  </td>
                   <td className="px-4 py-1.5">
                     {imageUrls[item.id] ? (
                       <img
@@ -508,6 +645,30 @@ export function InventoryDetailPanel({ documentId, onClose, onTotalChanged }: Pr
         variant="destructive"
         onConfirm={handleDelete}
         onCancel={() => setDeleteTarget(null)}
+      />
+
+      <ConfirmDialog
+        open={batchDeleteOpen}
+        title="确认批量删除"
+        description={`确定删除选中的 ${selectedIds.size} 条明细？删除后单据总数和金额会自动重算。`}
+        confirmLabel={isDeleting ? "删除中..." : "删除"}
+        variant="destructive"
+        onConfirm={handleBatchDelete}
+        onCancel={() => setBatchDeleteOpen(false)}
+      />
+
+      <ConfirmDialog
+        open={replaceFile !== null}
+        title="确认覆盖明细"
+        description={`确定用 ${replaceFile?.name || "这个 Excel"} 覆盖当前单据的全部明细？原明细会先删除，再写入新 Excel 解析出的明细。`}
+        confirmLabel={isReplacing ? "导入中..." : "覆盖导入"}
+        variant="destructive"
+        onConfirm={handleReplaceImport}
+        onCancel={() => {
+          if (isReplacing) return
+          setReplaceFile(null)
+          if (replaceInputRef.current) replaceInputRef.current.value = ""
+        }}
       />
 
       <MessageDialog

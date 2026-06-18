@@ -46,6 +46,7 @@ class InventoryRepository:
         original_sku: str | None = None,
         product_code: str | None = None,
         handler: str | None = None,
+        completion_status: str | None = None,
         page: int,
         page_size: int,
     ) -> dict[str, object]:
@@ -72,6 +73,38 @@ class InventoryRepository:
             conditions.append(table.c.summary.ilike(f"%{summary.strip()}%"))
         if handler:
             conditions.append(table.c.handler.ilike(f"%{handler.strip()}%"))
+        if completion_status == "incomplete":
+            conditions.append(or_(
+                ~select(detail.c.id)
+                .where(detail.c.document_id == table.c.id)
+                .exists(),
+                select(detail.c.id)
+                .where(
+                    detail.c.document_id == table.c.id,
+                    or_(
+                        detail.c.unit_price.is_(None),
+                        detail.c.unit_price == 0,
+                    ),
+                )
+                .exists(),
+            ))
+        elif completion_status == "completed":
+            conditions.append(
+                select(detail.c.id)
+                .where(detail.c.document_id == table.c.id)
+                .exists()
+            )
+            conditions.append(
+                ~select(detail.c.id)
+                .where(
+                    detail.c.document_id == table.c.id,
+                    or_(
+                        detail.c.unit_price.is_(None),
+                        detail.c.unit_price == 0,
+                    ),
+                )
+                .exists()
+            )
         if original_sku:
             original_like = f"%{original_sku.strip()}%"
             conditions.append(
@@ -140,6 +173,16 @@ class InventoryRepository:
             row = connection.execute(statement).mappings().first()
         return None if row is None else dict(row)
 
+    def get_record_by_summary(self, summary: str) -> dict[str, object] | None:
+        normalized_summary = str(summary or "").strip()
+        if not normalized_summary:
+            return None
+        table = INVENTORY_TABLE
+        statement = select(table).where(table.c.summary == normalized_summary).order_by(desc(table.c.id))
+        with self.engine.connect() as connection:
+            row = connection.execute(statement).mappings().first()
+        return None if row is None else dict(row)
+
     def create_record(self, record: Mapping[str, object]) -> dict[str, object]:
         table = INVENTORY_TABLE
         with self.engine.begin() as connection:
@@ -201,6 +244,8 @@ class InventoryRepository:
             conditions.append(or_(
                 SUPPLIER_TABLE.c.name.ilike(like),
                 SUPPLIER_TABLE.c.factory_code.ilike(like),
+                SUPPLIER_TABLE.c.contact.ilike(like),
+                SUPPLIER_TABLE.c.wechat.ilike(like),
             ))
         if conditions:
             criterion = conditions[0] if len(conditions) == 1 else and_(*conditions)
@@ -502,6 +547,21 @@ class InventoryRepository:
         self.recalculate_totals(document_id)
         return result.rowcount if result.rowcount and result.rowcount > 0 else len(payload)
 
+    def replace_details(self, document_id: object, rows: list[Mapping[str, object]]) -> int:
+        table = INVENTORY_DETAIL_TABLE
+        payload = []
+        for row in rows:
+            item = self._coerce_empty(row)
+            item["document_id"] = document_id
+            payload.append(item)
+        with self.engine.begin() as connection:
+            connection.execute(delete(table).where(table.c.document_id == document_id))
+            result = connection.execute(insert(table), payload) if payload else None
+        self.recalculate_totals(document_id)
+        if result is None:
+            return 0
+        return result.rowcount if result.rowcount and result.rowcount > 0 else len(payload)
+
     def update_detail(self, detail_id: int, data: Mapping[str, object]) -> dict[str, object] | None:
         table = INVENTORY_DETAIL_TABLE
         payload = self._coerce_empty(data)
@@ -530,6 +590,21 @@ class InventoryRepository:
         if result.rowcount > 0 and document_id is not None:
             self.recalculate_totals(document_id)
         return result.rowcount > 0
+
+    def delete_details(self, document_id: object, detail_ids: list[int]) -> int:
+        if not detail_ids:
+            return 0
+        table = INVENTORY_DETAIL_TABLE
+        statement = delete(table).where(
+            table.c.document_id == document_id,
+            table.c.id.in_(detail_ids),
+        )
+        with self.engine.begin() as connection:
+            result = connection.execute(statement)
+        deleted = result.rowcount or 0
+        if deleted > 0:
+            self.recalculate_totals(document_id)
+        return deleted
 
     def recalculate_totals(self, document_id: object) -> None:
         table = INVENTORY_DETAIL_TABLE
@@ -916,6 +991,8 @@ class InventoryRepository:
     @staticmethod
     def _ensure_supplier_schema(connection) -> None:
         connection.execute(text("ALTER TABLE IF EXISTS suppliers ADD COLUMN IF NOT EXISTS brand TEXT"))
+        connection.execute(text("ALTER TABLE IF EXISTS suppliers ADD COLUMN IF NOT EXISTS wechat TEXT"))
+        connection.execute(text("ALTER TABLE IF EXISTS suppliers ADD COLUMN IF NOT EXISTS cooperation_status TEXT"))
         connection.execute(
             text(
                 """
@@ -1149,6 +1226,8 @@ class InventoryRepository:
             "name": name,
             "factory_code": str(data.get("factory_code") or "").strip() or None,
             "contact": str(data.get("contact") or "").strip() or None,
+            "wechat": str(data.get("wechat") or "").strip() or None,
+            "cooperation_status": str(data.get("cooperation_status") or "").strip() or None,
             "address": str(data.get("address") or "").strip() or None,
             "notes": str(data.get("notes") or "").strip() or None,
         }

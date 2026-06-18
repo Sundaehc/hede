@@ -92,6 +92,8 @@ SUPPLIER_FIELDS: tuple[FieldSpec, ...] = (
     FieldSpec("name", "名称"),
     FieldSpec("factory_code", "工厂代码"),
     FieldSpec("contact", "联系人"),
+    FieldSpec("wechat", "微信号"),
+    FieldSpec("cooperation_status", "合作状态"),
     FieldSpec("address", "地址"),
     FieldSpec("notes", "备注"),
 )

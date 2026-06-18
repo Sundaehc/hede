@@ -40,6 +40,7 @@ const SUPPLIER_BRAND_OPTIONS: ReadonlyArray<{ key: SupplierBrand | "all"; label:
   ...SUPPLIER_BRANDS,
 ]
 const DEFAULT_SUPPLIER_BRAND: SupplierBrand = "cbanner_mens"
+const COOPERATION_STATUS_OPTIONS = ["未合作", "合作中", "暂停", "淘汰"] as const
 
 function getErrorMessage(error: unknown) {
   if (error instanceof ApiError) return error.message || `请求失败（${error.status}）`
@@ -91,11 +92,22 @@ export default function SuppliersPage() {
 
   const [formOpen, setFormOpen] = useState(false)
   const [formMode, setFormMode] = useState<"create" | "edit">("create")
-  const [formData, setFormData] = useState<{ brand: SupplierBrand; name: string; factory_code: string; contact: string; address: string; notes: string }>({
+  const [formData, setFormData] = useState<{
+    brand: SupplierBrand
+    name: string
+    factory_code: string
+    contact: string
+    wechat: string
+    cooperation_status: string
+    address: string
+    notes: string
+  }>({
     brand: DEFAULT_SUPPLIER_BRAND,
     name: "",
     factory_code: "",
     contact: "",
+    wechat: "",
+    cooperation_status: "",
     address: "",
     notes: "",
   })
@@ -145,6 +157,8 @@ export default function SuppliersPage() {
       name: "",
       factory_code: "",
       contact: "",
+      wechat: "",
+      cooperation_status: "",
       address: "",
       notes: "",
     })
@@ -160,6 +174,8 @@ export default function SuppliersPage() {
       name: item.name,
       factory_code: item.factory_code || "",
       contact: item.contact || "",
+      wechat: item.wechat || "",
+      cooperation_status: item.cooperation_status || "",
       address: item.address || "",
       notes: item.notes || "",
     })
@@ -209,6 +225,7 @@ export default function SuppliersPage() {
   const start = total === 0 ? 0 : (page - 1) * PAGE_SIZE + 1
   const end = total === 0 ? 0 : Math.min(page * PAGE_SIZE, total)
   const pageTokens = getPageTokens(page, totalPages)
+  const hasRows = items.length > 0
 
   return (
     <div className="app-page">
@@ -219,7 +236,7 @@ export default function SuppliersPage() {
               <h1 className="page-title">供应商管理</h1>
               <p className="page-subtitle">维护进销存单据中的供应商基础资料</p>
             </div>
-            <span className="rounded-full border border-border bg-muted/45 px-3 py-1 text-sm text-muted-foreground tabular-nums">{formatNumber(total)} 个</span>
+            <span className="min-w-20 rounded-full border border-border bg-muted/45 px-3 py-1 text-center text-sm text-muted-foreground tabular-nums">{formatNumber(total)} 个</span>
           </div>
           <Button size="sm" onClick={openCreate} className="cursor-pointer">
             <Plus className="h-4 w-4" />
@@ -252,9 +269,9 @@ export default function SuppliersPage() {
             <Input
               value={queryInput}
               onChange={(event) => setQueryInput(event.target.value)}
-              placeholder="搜索名称或工厂代码"
+              placeholder="搜索名称、工厂代码、联系人或微信"
               className="pl-9"
-              aria-label="搜索供应商名称或工厂代码"
+              aria-label="搜索供应商名称、工厂代码、联系人或微信"
             />
           </div>
           <div className="flex items-center gap-2">
@@ -280,39 +297,58 @@ export default function SuppliersPage() {
           </div>
         </form>
 
-        <div className="table-panel overflow-hidden">
+        <div className="table-panel relative overflow-hidden">
+          {isLoading && hasRows && (
+            <div className="absolute right-4 top-3 z-10 rounded-full border border-border bg-card/95 px-3 py-1 text-xs text-muted-foreground shadow-sm">
+              更新中...
+            </div>
+          )}
           <div className="overflow-x-auto">
-            <table className="w-full text-sm">
+            <table className="w-full min-w-[1120px] table-fixed text-sm">
+              <colgroup>
+                <col className="w-[22%]" />
+                <col className="w-[11%]" />
+                <col className="w-[10%]" />
+                <col className="w-[12%]" />
+                <col className="w-[10%]" />
+                <col className="w-[17%]" />
+                <col className="w-[10%]" />
+                <col className="w-[8%]" />
+              </colgroup>
               <thead>
                 <tr className="table-head-row">
                   <th className="px-4 py-3 font-medium">名称</th>
                   <th className="px-4 py-3 font-medium">工厂代码</th>
-                  <th className="px-4 py-3 font-medium">联系方式</th>
+                  <th className="px-4 py-3 font-medium">联系人</th>
+                  <th className="px-4 py-3 font-medium">微信号</th>
+                  <th className="px-4 py-3 font-medium">合作状态</th>
                   <th className="px-4 py-3 font-medium">地址</th>
                   <th className="px-4 py-3 font-medium">备注</th>
                   <th className="px-4 py-3 w-24 font-medium">操作</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-border">
-                {isLoading && (
+              <tbody className={`divide-y divide-border transition-opacity ${isLoading && hasRows ? "opacity-55" : "opacity-100"}`}>
+                {isLoading && !hasRows && (
                   <tr>
-                    <td colSpan={6} className="px-4 py-12 text-center text-muted-foreground">加载中...</td>
+                    <td colSpan={8} className="px-4 py-12 text-center text-muted-foreground">加载中...</td>
                   </tr>
                 )}
-                {!isLoading && items.length === 0 && (
+                {!isLoading && !hasRows && (
                   <tr>
-                    <td colSpan={6} className="px-4 py-12 text-center text-muted-foreground">
+                    <td colSpan={8} className="px-4 py-12 text-center text-muted-foreground">
                       {query ? "暂无匹配供应商" : "暂无供应商数据"}
                     </td>
                   </tr>
                 )}
-                {!isLoading && items.map((item) => (
+                {hasRows && items.map((item) => (
                   <tr key={item.id} className="table-row">
-                    <td className="px-4 py-2.5 font-medium">{item.name}</td>
-                    <td className="px-4 py-2.5 tabular-nums">{item.factory_code || "-"}</td>
-                    <td className="px-4 py-2.5">{item.contact || "-"}</td>
-                    <td className="px-4 py-2.5">{item.address || "-"}</td>
-                    <td className="px-4 py-2.5 max-w-48 truncate">{item.notes || "-"}</td>
+                    <td className="truncate px-4 py-2.5 font-medium" title={item.name}>{item.name}</td>
+                    <td className="truncate px-4 py-2.5 tabular-nums" title={item.factory_code || ""}>{item.factory_code || "-"}</td>
+                    <td className="truncate px-4 py-2.5" title={item.contact || ""}>{item.contact || "-"}</td>
+                    <td className="truncate px-4 py-2.5" title={item.wechat || ""}>{item.wechat || "-"}</td>
+                    <td className="truncate px-4 py-2.5" title={item.cooperation_status || ""}>{item.cooperation_status || "-"}</td>
+                    <td className="truncate px-4 py-2.5" title={item.address || ""}>{item.address || "-"}</td>
+                    <td className="truncate px-4 py-2.5" title={item.notes || ""}>{item.notes || "-"}</td>
                     <td className="px-4 py-2.5">
                       <div className="flex items-center gap-0.5">
                         <Button variant="ghost" size="icon" onClick={() => openEdit(item)} className="cursor-pointer" aria-label={`编辑 ${item.name}`}>
@@ -403,8 +439,26 @@ export default function SuppliersPage() {
               <Input id="supplier-factory-code" value={formData.factory_code} onChange={(e) => setFormData((prev) => ({ ...prev, factory_code: e.target.value }))} placeholder="单位编号" />
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="supplier-contact">联系方式</Label>
-              <Input id="supplier-contact" value={formData.contact} onChange={(e) => setFormData((prev) => ({ ...prev, contact: e.target.value }))} placeholder="电话/联系人" />
+              <Label htmlFor="supplier-contact">联系人</Label>
+              <Input id="supplier-contact" value={formData.contact} onChange={(e) => setFormData((prev) => ({ ...prev, contact: e.target.value }))} placeholder="联系人" />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="supplier-wechat">微信号</Label>
+              <Input id="supplier-wechat" value={formData.wechat} onChange={(e) => setFormData((prev) => ({ ...prev, wechat: e.target.value }))} placeholder="微信号" />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="supplier-cooperation-status">合作状态</Label>
+              <select
+                id="supplier-cooperation-status"
+                value={formData.cooperation_status}
+                onChange={(e) => setFormData((prev) => ({ ...prev, cooperation_status: e.target.value }))}
+                className="flex h-9 w-full rounded-lg border border-input bg-card px-3 py-2 text-sm shadow-xs outline-none transition-colors focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/35"
+              >
+                <option value="">不选择</option>
+                {COOPERATION_STATUS_OPTIONS.map((status) => (
+                  <option key={status} value={status}>{status}</option>
+                ))}
+              </select>
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="supplier-address">地址</Label>

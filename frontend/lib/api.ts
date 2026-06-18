@@ -311,6 +311,8 @@ export type SupplierItem = {
   name: string
   factory_code: string | null
   contact: string | null
+  wechat: string | null
+  cooperation_status: string | null
   address: string | null
   notes: string | null
 }
@@ -339,6 +341,7 @@ export function listInventory(params: {
   original_sku?: string
   product_code?: string
   handler?: string
+  completion_status?: string
   page: number
   pageSize: number
 }) {
@@ -355,6 +358,7 @@ export function listInventory(params: {
   if (params.original_sku) search.set("original_sku", params.original_sku)
   if (params.product_code) search.set("product_code", params.product_code)
   if (params.handler) search.set("handler", params.handler)
+  if (params.completion_status) search.set("completion_status", params.completion_status)
   return request<InventoryListResponse>(`/inventory?${search.toString()}`)
 }
 
@@ -432,6 +436,7 @@ export function buildInventoryExportUrl(params: {
   original_sku?: string
   product_code?: string
   handler?: string
+  completion_status?: string
 } = {}) {
   const search = new URLSearchParams()
   if (params.date_start) search.set("date_start", params.date_start)
@@ -443,6 +448,7 @@ export function buildInventoryExportUrl(params: {
   if (params.original_sku) search.set("original_sku", params.original_sku)
   if (params.product_code) search.set("product_code", params.product_code)
   if (params.handler) search.set("handler", params.handler)
+  if (params.completion_status) search.set("completion_status", params.completion_status)
   const suffix = search.toString() ? `?${search.toString()}` : ""
   return `${API_PREFIX}/inventory/export${suffix}`
 }
@@ -457,6 +463,7 @@ export function exportInventory(params: {
   original_sku?: string
   product_code?: string
   handler?: string
+  completion_status?: string
 } = {}) {
   return fetch(buildInventoryExportUrl(params)).then(async (response) => {
     if (!response.ok) {
@@ -558,6 +565,36 @@ export function listDetails(documentId: number) {
   return request<{ items: InventoryDetail[] }>(`/inventory/${documentId}/details`)
 }
 
+export function replaceDetailsFromExcel(payload: {
+  documentId: number
+  file: File
+  brand?: string
+}) {
+  const formData = new FormData()
+  formData.append("file", payload.file)
+  formData.append("brand", payload.brand ?? "")
+  const controller = new AbortController()
+  const timeout = window.setTimeout(() => controller.abort(), 120_000)
+  return fetch(`${API_PREFIX}/inventory/${payload.documentId}/details/import-replace`, {
+    method: "POST",
+    body: formData,
+    signal: controller.signal,
+  })
+    .then(async (response) => {
+      if (!response.ok) {
+        throw new ApiError(response.status, await response.text())
+      }
+      return (await response.json()) as { updated: number; details: number; message: string }
+    })
+    .catch((error) => {
+      if (error instanceof DOMException && error.name === "AbortError") {
+        throw new ApiError(408, "导入超过 2 分钟未返回，请检查 Excel 行数或稍后刷新确认是否已导入")
+      }
+      throw error
+    })
+    .finally(() => window.clearTimeout(timeout))
+}
+
 export function lookupInventoryDetail(params: { productCode: string; quantity?: string; brand?: string }) {
   const search = new URLSearchParams({ product_code: params.productCode })
   if (params.quantity) search.set("quantity", params.quantity)
@@ -582,6 +619,13 @@ export function updateDetail(documentId: number, detailId: number, payload: Reco
 export function deleteDetail(documentId: number, detailId: number) {
   return request<{ message: string }>(`/inventory/${documentId}/details/${detailId}`, {
     method: "DELETE",
+  })
+}
+
+export function batchDeleteDetails(documentId: number, ids: number[]) {
+  return request<{ deleted: number; message: string }>(`/inventory/${documentId}/details/batch-delete`, {
+    method: "POST",
+    body: JSON.stringify({ ids }),
   })
 }
 

@@ -55,6 +55,11 @@ const TRANSFER_DOCUMENT_TYPES = new Set(["同价调拨单"])
 const STOCK_ADJUSTMENT_DOCUMENT_TYPES = new Set(["报溢单", "报损单"])
 const OUTBOUND_DOCUMENT_TYPES = new Set(["进货退货单", "报损单", "批发销售单"])
 const INBOUND_DOCUMENT_TYPES = new Set(["进货单", "报溢单", "批发销售退货单"])
+const COMPLETION_TABS = [
+  { value: "completed", label: "已完成单据" },
+  { value: "incomplete", label: "未完成单据" },
+] as const
+type CompletionStatus = (typeof COMPLETION_TABS)[number]["value"]
 type SearchableOption = {
   value: string
   label: string
@@ -81,7 +86,7 @@ const EMPTY_IMPORT_FORM: Record<string, string> = {
   date: "",
   supplier: "",
   warehouse: "",
-  document_type: "进货单",
+  document_type: "",
   handler: "",
   summary: "",
 }
@@ -269,6 +274,7 @@ export function InventoryPage() {
 
   const [detailDocumentId, setDetailDocumentId] = useState<number | null>(null)
   const [activeTab, setActiveTab] = useState("records")
+  const [recordCompletionStatus, setRecordCompletionStatus] = useState<CompletionStatus>("completed")
 
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [isImporting, setIsImporting] = useState(false)
@@ -309,6 +315,7 @@ export function InventoryPage() {
           original_sku: submittedFilters.original_sku || undefined,
           product_code: submittedFilters.product_code || undefined,
           handler: submittedFilters.handler || undefined,
+          completion_status: recordCompletionStatus,
           page,
           pageSize,
         })
@@ -326,9 +333,9 @@ export function InventoryPage() {
     }
     void load()
     return () => { cancelled = true }
-  }, [page, pageSize, reloadToken, submittedFilters])
+  }, [page, pageSize, recordCompletionStatus, reloadToken, submittedFilters])
 
-  useEffect(() => { setSelectedIds(new Set()) }, [page, submittedFilters])
+  useEffect(() => { setSelectedIds(new Set()) }, [page, recordCompletionStatus, submittedFilters])
 
   const showMessage = useCallback((title: string, description: string) => {
     setMessageContent({ title, description })
@@ -346,7 +353,11 @@ export function InventoryPage() {
     setImportError("")
     setImportFile(null)
     if (fileInputRef.current) fileInputRef.current.value = ""
-    setImportFormData((prev) => ({ ...prev, date: prev.date || todayInputValue() }))
+    setImportFormData((prev) => ({
+      ...EMPTY_IMPORT_FORM,
+      date: todayInputValue(),
+      handler: prev.handler || "",
+    }))
     setImportDialogOpen(true)
   }
 
@@ -433,6 +444,10 @@ export function InventoryPage() {
       setImportError("请选择 Excel 文件")
       return
     }
+    if (!importFormData.document_type) {
+      setImportError("请选择单据类型")
+      return
+    }
     const isWholesaleImport = WHOLESALE_DOCUMENT_TYPES.has(importFormData.document_type)
     const isTransferImport = TRANSFER_DOCUMENT_TYPES.has(importFormData.document_type)
     const isStockAdjustmentImport = STOCK_ADJUSTMENT_DOCUMENT_TYPES.has(importFormData.document_type)
@@ -478,6 +493,7 @@ export function InventoryPage() {
         original_sku: submittedFilters.original_sku || undefined,
         product_code: submittedFilters.product_code || undefined,
         handler: submittedFilters.handler || undefined,
+        completion_status: recordCompletionStatus,
       })
       a.rel = "noopener"
       a.click()
@@ -573,10 +589,18 @@ export function InventoryPage() {
     setSubmittedFilters({})
   }
 
+  const handleCompletionTabChange = (value: string) => {
+    setRecordCompletionStatus(value as CompletionStatus)
+    setPage(1)
+    setSelectedIds(new Set())
+  }
+
   const hasFilters = Object.keys(submittedFilters).length > 0
   const totalPages = Math.max(1, Math.ceil(total / pageSize))
   const allSelected = items.length > 0 && items.every((item) => selectedIds.has(item.id))
   const someSelected = items.some((item) => selectedIds.has(item.id))
+  const detailRecord = detailDocumentId === null ? null : items.find((item) => item.id === detailDocumentId) ?? null
+  const completionLabel = COMPLETION_TABS.find((item) => item.value === recordCompletionStatus)?.label ?? "单据"
   const pageRange = buildPageRange(page, totalPages)
   const isFormWholesale = WHOLESALE_DOCUMENT_TYPES.has(formData.document_type || "")
   const isFormTransfer = TRANSFER_DOCUMENT_TYPES.has(formData.document_type || "")
@@ -637,6 +661,17 @@ export function InventoryPage() {
 
           {activeTab === "records" && (
             <>
+              <div className="surface-panel p-1.5">
+                <Tabs defaultValue="completed" value={recordCompletionStatus} onValueChange={handleCompletionTabChange}>
+                  <TabsList className="rounded-xl bg-muted/60 p-1">
+                    {COMPLETION_TABS.map((item) => (
+                      <TabsTrigger key={item.value} value={item.value} className="cursor-pointer">
+                        {item.label}
+                      </TabsTrigger>
+                    ))}
+                  </TabsList>
+                </Tabs>
+              </div>
               <div className="surface-panel p-4">
                 <div className="grid gap-3 xl:grid-cols-[1fr_auto] xl:items-end">
                   <div className="grid gap-3 lg:grid-cols-12">
@@ -776,7 +811,7 @@ export function InventoryPage() {
               {!isLoading && !error && items.length === 0 && (
                 <tr>
                   <td colSpan={11} className="px-4 py-12 text-center text-muted-foreground">
-                    {hasFilters ? "没有符合条件的数据" : "暂无数据"}
+                    {hasFilters ? `没有符合条件的${completionLabel}` : `暂无${completionLabel}`}
                   </td>
                 </tr>
               )}
@@ -887,7 +922,7 @@ export function InventoryPage() {
 
         {/* Total summary footer */}
         <div className="text-center text-xs text-muted-foreground">
-          共 {total} 条记录 · 第 {total === 0 ? 0 : (page - 1) * pageSize + 1}-{Math.min(page * pageSize, total)} 条
+          {completionLabel}共 {total} 条 · 第 {total === 0 ? 0 : (page - 1) * pageSize + 1}-{Math.min(page * pageSize, total)} 条
         </div>
             </>
           )}
@@ -990,6 +1025,7 @@ export function InventoryPage() {
             <div className="space-y-1.5">
               <Label>单据类型</Label>
               <Select value={importFormData.document_type} onChange={(e) => { setImportError(""); setImportFormData((prev) => ({ ...prev, document_type: e.target.value, supplier: "" })) }}>
+                <option value="">请选择</option>
                 {DETAIL_IMPORT_DOCUMENT_TYPES.map((dt) => (<option key={dt} value={dt}>{dt}</option>))}
               </Select>
             </div>
@@ -1032,6 +1068,9 @@ export function InventoryPage() {
                 onChange={(e) => { setImportError(""); setImportFile(e.target.files?.[0] ?? null) }}
                 className="flex h-9 w-full rounded-lg border border-input bg-card px-3 py-1.5 text-sm shadow-xs outline-none transition-colors file:mr-3 file:rounded-md file:border-0 file:bg-muted file:px-2 file:py-1 file:text-xs"
               />
+              <p className="text-xs text-muted-foreground">
+                如果这张单据已经导入过，请打开该单据明细，用“重新导入明细”覆盖。
+              </p>
             </div>
           </div>
           <DialogFooter>
@@ -1139,7 +1178,8 @@ export function InventoryPage() {
       />
 
       <InventoryDetailPanel
-        documentId={detailDocumentId}
+        record={detailRecord}
+        suppliers={supplierOptions}
         onClose={() => setDetailDocumentId(null)}
         onTotalChanged={() => setReloadToken((t) => t + 1)}
       />

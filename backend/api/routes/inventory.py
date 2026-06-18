@@ -407,6 +407,103 @@ def _build_purchase_detail_lookup(connection, product_code: str, quantity: Decim
     return item
 
 
+def _build_purchase_details_from_excel(
+    repository,
+    content: bytes,
+    *,
+    brand: str,
+    fallback_unit_price: Decimal,
+) -> tuple[list[dict[str, object]], str]:
+    rows, sheet_name = _read_purchase_import_rows(content)
+    if not rows:
+        raise HTTPException(status_code=400, detail="Excel 中没有可导入的明细")
+
+    with repository.engine.connect() as connection:
+        color_barcodes = _load_color_barcodes(connection, brand)
+
+    parsed_rows = []
+    product_codes = set()
+    for row in rows:
+        raw_code = row["product_code"]
+        quantity = _to_decimal(row["quantity"])
+        if quantity == 0:
+            continue
+        sku, original_sku, color_barcode, color_name, size = _split_purchase_product_code(raw_code, color_barcodes, brand)
+        parsed_rows.append({
+            "raw_code": raw_code,
+            "quantity": quantity,
+            "sku": sku,
+            "original_sku": original_sku,
+            "color_barcode": color_barcode,
+            "color_name": color_name,
+            "size": size,
+        })
+        if original_sku:
+            product_codes.add(original_sku)
+
+    with repository.engine.connect() as connection:
+        product_lookup = _load_purchase_product_lookup(connection, brand, product_codes)
+
+    grouped: dict[tuple[str, str], dict[str, object]] = {}
+    for row in parsed_rows:
+        raw_code = row["raw_code"]
+        quantity = row["quantity"]
+        original_sku = row["original_sku"]
+        color_barcode = row["color_barcode"]
+        color_name = row["color_name"] or product_lookup.get(original_sku, {}).get("color_name") or ""
+        product_info = product_lookup.get(original_sku, {})
+        unit_price = _to_decimal(product_info.get("unit_price")) or fallback_unit_price
+        product_name = str(product_info.get("product_name") or "").strip()
+        if not product_name:
+            product_name = f"{original_sku}{color_name}" if color_name else original_sku
+        size = row["size"]
+        key = (original_sku, color_barcode)
+        item = grouped.setdefault(
+            key,
+            {
+                "product_code": original_sku,
+                "product_name": product_name,
+                "color_spec": color_name,
+                "color_barcode": color_barcode,
+                "color_name": color_name,
+                "size_quantities": defaultdict(Decimal),
+                "quantity": Decimal("0"),
+                "unit_price": unit_price,
+                "raw_codes": [],
+            },
+        )
+        item["quantity"] = item["quantity"] + quantity
+        item["raw_codes"].append(raw_code)
+        if size:
+            item["size_quantities"][size] += quantity
+
+    if not grouped:
+        raise HTTPException(status_code=400, detail="Excel 中没有有效数量")
+
+    details = []
+    for item in grouped.values():
+        quantity = item["quantity"]
+        item_unit_price = _to_decimal(item.get("unit_price"))
+        amount = quantity * item_unit_price if item_unit_price else Decimal("0")
+        size_quantities = {
+            size: _fmt_decimal(item["size_quantities"].get(size, Decimal("0")))
+            for size in PURCHASE_SIZE_LABELS
+            if item["size_quantities"].get(size, Decimal("0")) != 0
+        }
+        details.append({
+            "product_code": item["product_code"],
+            "product_name": item["product_name"],
+            "color_spec": item["color_spec"],
+            "color_barcode": item["color_barcode"],
+            "color_name": item["color_name"],
+            "quantity": _fmt_decimal(quantity),
+            "unit_price": _fmt_decimal(item_unit_price) if item_unit_price else None,
+            "amount": _fmt_decimal(amount) if amount else None,
+            "size_quantities": size_quantities,
+        })
+    return details, sheet_name
+
+
 @router.get("/inventory")
 def list_inventory(
     request: Request,
@@ -419,6 +516,7 @@ def list_inventory(
     original_sku: str | None = None,
     product_code: str | None = None,
     handler: str | None = None,
+    completion_status: str | None = None,
     page: int = 1,
     page_size: int = 20,
 ):
@@ -434,6 +532,7 @@ def list_inventory(
         original_sku=original_sku,
         product_code=product_code,
         handler=handler,
+        completion_status=completion_status,
         page=page,
         page_size=page_size,
     )
@@ -451,6 +550,7 @@ def export_inventory(
     original_sku: str | None = None,
     product_code: str | None = None,
     handler: str | None = None,
+    completion_status: str | None = None,
 ):
     repository = request.app.state.inventory_repository
     document_type = normalize_document_type(document_type) if document_type else None
@@ -464,6 +564,7 @@ def export_inventory(
         original_sku=original_sku,
         product_code=product_code,
         handler=handler,
+        completion_status=completion_status,
         page=1,
         page_size=100_000,
     )
@@ -609,105 +710,15 @@ async def import_purchase_inventory(request: Request, file: UploadFile = None):
         raise HTTPException(status_code=400, detail="摘要不能为空")
 
     content = await file.read()
-    rows, sheet_name = _read_purchase_import_rows(content)
-    if not rows:
-        raise HTTPException(status_code=400, detail="Excel 中没有可导入的明细")
-
     repository = request.app.state.inventory_repository
-    with repository.engine.connect() as connection:
-        from domain.inventory_schema import INVENTORY_TABLE
-
-        existing = connection.execute(
-            sa_select(INVENTORY_TABLE.c.id).where(INVENTORY_TABLE.c.summary == summary)
-        ).first()
-        if existing:
-            raise HTTPException(status_code=400, detail=f"摘要 '{summary}' 已存在")
-        color_barcodes = _load_color_barcodes(connection, brand)
-
-    parsed_rows = []
-    product_codes = set()
-    for row in rows:
-        raw_code = row["product_code"]
-        quantity = _to_decimal(row["quantity"])
-        if quantity == 0:
-            continue
-        sku, original_sku, color_barcode, color_name, size = _split_purchase_product_code(raw_code, color_barcodes, brand)
-        parsed_rows.append({
-            "raw_code": raw_code,
-            "quantity": quantity,
-            "sku": sku,
-            "original_sku": original_sku,
-            "color_barcode": color_barcode,
-            "color_name": color_name,
-            "size": size,
-        })
-        if original_sku:
-            product_codes.add(original_sku)
-
-    with repository.engine.connect() as connection:
-        product_lookup = _load_purchase_product_lookup(connection, brand, product_codes)
-
-    grouped: dict[tuple[str, str], dict[str, object]] = {}
-    for row in parsed_rows:
-        raw_code = row["raw_code"]
-        quantity = row["quantity"]
-        original_sku = row["original_sku"]
-        color_barcode = row["color_barcode"]
-        color_name = row["color_name"] or product_lookup.get(original_sku, {}).get("color_name") or ""
-        product_info = product_lookup.get(original_sku, {})
-        unit_price = _to_decimal(product_info.get("unit_price")) or fallback_unit_price
-        product_name = str(product_info.get("product_name") or "").strip()
-        if not product_name:
-            product_name = f"{original_sku}{color_name}" if color_name else original_sku
-        size = row["size"]
-        key = (original_sku, color_barcode)
-        item = grouped.setdefault(
-            key,
-            {
-                "product_code": original_sku,
-                "product_name": product_name,
-                "color_spec": color_name,
-                "color_barcode": color_barcode,
-                "color_name": color_name,
-                "size_quantities": defaultdict(Decimal),
-                "quantity": Decimal("0"),
-                "unit_price": unit_price,
-                "raw_codes": [],
-            },
-        )
-        item["quantity"] = item["quantity"] + quantity
-        item["raw_codes"].append(raw_code)
-        if size:
-            item["size_quantities"][size] += quantity
-
-    if not grouped:
-        raise HTTPException(status_code=400, detail="Excel 中没有有效数量")
-
-    details = []
-    total_count = Decimal("0")
-    total_amount = Decimal("0")
-    for item in grouped.values():
-        quantity = item["quantity"]
-        item_unit_price = _to_decimal(item.get("unit_price"))
-        amount = quantity * item_unit_price if item_unit_price else Decimal("0")
-        total_count += quantity
-        total_amount += amount
-        size_quantities = {
-            size: _fmt_decimal(item["size_quantities"].get(size, Decimal("0")))
-            for size in PURCHASE_SIZE_LABELS
-            if item["size_quantities"].get(size, Decimal("0")) != 0
-        }
-        details.append({
-            "product_code": item["product_code"],
-            "product_name": item["product_name"],
-            "color_spec": item["color_spec"],
-            "color_barcode": item["color_barcode"],
-            "color_name": item["color_name"],
-            "quantity": _fmt_decimal(quantity),
-            "unit_price": _fmt_decimal(item_unit_price) if item_unit_price else None,
-            "amount": _fmt_decimal(amount) if amount else None,
-            "size_quantities": size_quantities,
-        })
+    details, sheet_name = _build_purchase_details_from_excel(
+        repository,
+        content,
+        brand=brand,
+        fallback_unit_price=fallback_unit_price,
+    )
+    total_count = sum((_to_decimal(detail.get("quantity")) for detail in details), Decimal("0"))
+    total_amount = sum((_to_decimal(detail.get("amount")) for detail in details), Decimal("0"))
 
     doc_payload = {
         "date": date_value,
@@ -723,6 +734,10 @@ async def import_purchase_inventory(request: Request, file: UploadFile = None):
         "source_row_number": "import_purchase",
         "raw_payload": {"import_type": "purchase_detail", "brand": brand},
     }
+
+    existing_doc = repository.get_record_by_summary(summary) if summary else None
+    if existing_doc:
+        raise HTTPException(status_code=400, detail=f"摘要 '{summary}' 已存在，请打开该单据明细后使用“重新导入明细”覆盖")
 
     doc = repository.create_record(doc_payload)
     detail_payloads = []
@@ -913,6 +928,44 @@ def list_inventory_details(request: Request, record_id: int):
     return {"items": repository.list_details(record_id)}
 
 
+@router.post("/inventory/{record_id}/details/import-replace")
+async def replace_inventory_details_from_excel(request: Request, record_id: int, file: UploadFile = None):
+    if file is None:
+        raise HTTPException(status_code=400, detail="No file uploaded")
+    repository = request.app.state.inventory_repository
+    record = repository.get_record(record_id)
+    if record is None:
+        raise HTTPException(status_code=404, detail="Record not found")
+
+    form = await request.form()
+    document_type = normalize_document_type(record.get("document_type"))
+    brand = str(form.get("brand") or "").strip() or _purchase_import_brand(document_type or "")
+    fallback_unit_price = _to_decimal(form.get("unit_price"))
+    content = await file.read()
+    details, sheet_name = _build_purchase_details_from_excel(
+        repository,
+        content,
+        brand=brand,
+        fallback_unit_price=fallback_unit_price,
+    )
+    detail_payloads = []
+    for detail in details:
+        item = dict(detail)
+        item["document_id"] = record_id
+        detail_payloads.append(item)
+    repository.replace_details(record_id, detail_payloads)
+    repository.update_record(record_id, {
+        "source_workbook": file.filename or record.get("source_workbook") or "",
+        "source_sheet": sheet_name or record.get("source_sheet") or "",
+        "source_row_number": "replace_details",
+    })
+    return {
+        "updated": 1,
+        "details": len(details),
+        "message": f"已重新导入并覆盖 {len(details)} 条明细",
+    }
+
+
 @router.post("/inventory/{record_id}/details")
 def create_inventory_detail(request: Request, record_id: int, payload: dict):
     repository = request.app.state.inventory_repository
@@ -928,6 +981,22 @@ def update_inventory_detail(request: Request, record_id: int, detail_id: int, pa
     if detail is None:
         raise HTTPException(status_code=404, detail="Detail not found")
     return {"item": detail, "message": "明细更新成功"}
+
+
+@router.post("/inventory/{record_id}/details/batch-delete")
+def batch_delete_inventory_details(request: Request, record_id: int, payload: dict):
+    ids = payload.get("ids", [])
+    if not isinstance(ids, list):
+        raise HTTPException(status_code=400, detail="ids 必须是数组")
+    detail_ids = []
+    for value in ids:
+        try:
+            detail_ids.append(int(value))
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=400, detail="明细 ID 格式错误")
+    repository = request.app.state.inventory_repository
+    deleted = repository.delete_details(record_id, detail_ids)
+    return {"deleted": deleted, "message": f"已删除 {deleted} 条明细"}
 
 
 @router.delete("/inventory/{record_id}/details/{detail_id}")
