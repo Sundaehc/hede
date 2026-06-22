@@ -3,7 +3,7 @@
 import { memo, useDeferredValue, useEffect, useMemo, useRef, useState, useTransition, type ReactNode } from "react"
 import {
   AlertTriangle,
-  BarChart3,
+  BarChart3, 
   Boxes,
   CalendarDays,
   Check,
@@ -183,6 +183,11 @@ function tableAlignClass(align: TableColumn["align"] = "left") {
 function csvCell(value: string | number | null | undefined) {
   const text = value == null ? "" : String(value)
   return `"${text.replace(/"/g, '""')}"`
+}
+
+function excelText(value: string | number | null | undefined) {
+  if (value == null || value === "") return ""
+  return `\t${String(value)}`
 }
 
 function downloadCsv(filename: string, rows: (string | number | null | undefined)[][]) {
@@ -583,7 +588,7 @@ function createTableColumns(dailyLabels: string[]): TableColumn[] {
     { key: "product_name", label: "品名", group: "基础", className: "min-w-28", defaultVisible: true, render: (row) => row.product_name || "-" },
     { key: "main_style", label: "主款式", group: "基础", className: "min-w-28", defaultVisible: true, render: (row) => row.main_style || "-" },
     { key: "style_code", label: "款号", group: "基础", render: (row) => row.style_code || "-" },
-    { key: "goods_id", label: "商品ID", group: "基础", className: "min-w-40", render: (row) => row.goods_id || "-" },
+    { key: "goods_id", label: "商品ID", group: "基础", className: "min-w-40", render: (row) => row.goods_id || "-", exportValue: (row) => excelText(row.goods_id) },
     { key: "p_spu", label: "P-SPU", group: "基础", className: "min-w-44", render: (row) => row.p_spu || "-" },
     { key: "category_l3", label: "三级分类", group: "基础", render: (row) => row.category_l3 || row.product_model || "-" },
     { key: "factory_sku", label: "工厂货号", group: "基础", render: (row) => row.factory_sku || "-" },

@@ -3,8 +3,6 @@ from __future__ import annotations
 from collections.abc import Mapping
 from datetime import date
 from decimal import Decimal
-import secrets
-import string
 
 from pathlib import Path
 
@@ -17,6 +15,18 @@ from domain.gj_schema import GJ_MERGED_PRODUCT_INFO_TABLE
 from domain.inventory_schema import GENERAL_CUSTOMER_BRAND_TABLE, GENERAL_CUSTOMER_SHOP_TABLE, INVENTORY_DETAIL_TABLE, INVENTORY_TABLE, JST_STOCK_TABLE, SUPPLIER_TABLE, WAREHOUSE_TABLE
 from domain.gj_brand import CBANNER_MENS_BRAND, GJ_FINE_TABLE_BRANDS, infer_supplier_brand_from_name
 from storage.date_normalization import parse_date, parse_month_day
+
+
+DOCUMENT_NUMBER_PREFIXES = {
+    "进货单": "JHD",
+    "进货退货单": "JHTHD",
+    "报溢单": "BYD",
+    "报损单": "BSD",
+    "批发销售单": "PFXSD",
+    "批发销售退货单": "PFXSTHD",
+    "同价调拨单": "TJDBD",
+}
+DEFAULT_DOCUMENT_NUMBER_PREFIX = "DJ"
 
 
 def _json_serializer(value: object) -> str:
@@ -188,7 +198,11 @@ class InventoryRepository:
         with self.engine.begin() as connection:
             payload = self._prepare_record(record)
             if not payload.get("document_number"):
-                payload["document_number"] = self._generate_document_number(connection, payload.get("date_value"))
+                payload["document_number"] = self._generate_document_number(
+                    connection,
+                    payload.get("date_value") or payload.get("date"),
+                    payload.get("document_type"),
+                )
             statement = insert(table).values(**payload).returning(table)
             row = connection.execute(statement).mappings().one()
         return dict(row)
@@ -1179,38 +1193,64 @@ class InventoryRepository:
         return payload
 
     @staticmethod
-    def _generate_document_number(connection, date_value: object) -> str:
+    def _document_number_prefix(document_type: object) -> str:
+        return DOCUMENT_NUMBER_PREFIXES.get(str(document_type or "").strip(), DEFAULT_DOCUMENT_NUMBER_PREFIX)
+
+    @staticmethod
+    def _document_number_date_text(date_value: object) -> str:
         parsed_date = date_value if isinstance(date_value, date) else parse_date(date_value)
-        date_text = (parsed_date or date.today()).strftime("%Y-%m-%d")
-        alphabet = string.ascii_uppercase
-        for _ in range(100):
-            prefix = "".join(secrets.choice(alphabet) for _ in range(5))
-            suffix = f"{secrets.randbelow(10000):04d}"
-            document_number = f"{prefix}-{date_text}-{suffix}"
-            exists = connection.execute(
-                select(INVENTORY_TABLE.c.id).where(INVENTORY_TABLE.c.document_number == document_number)
-            ).first()
-            if exists is None:
-                return document_number
-        raise RuntimeError("Failed to generate unique inventory document number")
+        return (parsed_date or date.today()).strftime("%Y-%m-%d")
+
+    @staticmethod
+    def _format_document_number(document_type: object, date_value: object, sequence: int) -> str:
+        prefix = InventoryRepository._document_number_prefix(document_type)
+        date_text = InventoryRepository._document_number_date_text(date_value)
+        return f"{prefix}-{date_text}-{sequence:04d}"
+
+    @staticmethod
+    def _generate_document_number(connection, date_value: object, document_type: object) -> str:
+        prefix = InventoryRepository._document_number_prefix(document_type)
+        date_text = InventoryRepository._document_number_date_text(date_value)
+        pattern = f"{prefix}-{date_text}-%"
+        rows = connection.execute(
+            select(INVENTORY_TABLE.c.document_number)
+            .where(INVENTORY_TABLE.c.document_number.like(pattern))
+        ).all()
+        max_sequence = 0
+        for row in rows:
+            suffix = str(row[0] or "").rsplit("-", 1)[-1]
+            if suffix.isdigit():
+                max_sequence = max(max_sequence, int(suffix))
+        return f"{prefix}-{date_text}-{max_sequence + 1:04d}"
 
     @staticmethod
     def _backfill_document_numbers(connection) -> None:
-        rows = connection.execute(
+        rows = list(connection.execute(
             select(
                 INVENTORY_TABLE.c.id,
                 INVENTORY_TABLE.c.date,
                 INVENTORY_TABLE.c.date_value,
-            ).where(or_(
-                INVENTORY_TABLE.c.document_number.is_(None),
-                INVENTORY_TABLE.c.document_number == "",
-            ))
-        ).mappings()
-        for row in rows:
-            document_number = InventoryRepository._generate_document_number(
-                connection,
-                row.get("date_value") or row.get("date"),
+                INVENTORY_TABLE.c.document_type,
+                INVENTORY_TABLE.c.document_number,
             )
+            .order_by(
+                INVENTORY_TABLE.c.date_value.nulls_last(),
+                INVENTORY_TABLE.c.date,
+                INVENTORY_TABLE.c.document_type,
+                INVENTORY_TABLE.c.id,
+            )
+        ).mappings())
+        counters: dict[tuple[str, str], int] = {}
+        for row in rows:
+            date_value = row.get("date_value") or row.get("date")
+            document_type = row.get("document_type")
+            prefix = InventoryRepository._document_number_prefix(document_type)
+            date_text = InventoryRepository._document_number_date_text(date_value)
+            key = (prefix, date_text)
+            counters[key] = counters.get(key, 0) + 1
+            document_number = InventoryRepository._format_document_number(document_type, date_value, counters[key])
+            if row.get("document_number") == document_number:
+                continue
             connection.execute(
                 update(INVENTORY_TABLE)
                 .where(INVENTORY_TABLE.c.id == row["id"])
