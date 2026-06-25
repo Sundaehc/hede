@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from datetime import date
+from datetime import date, datetime, timedelta
 from decimal import Decimal
 
 from pathlib import Path
@@ -14,6 +14,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from domain.gj_schema import GJ_MERGED_PRODUCT_INFO_TABLE
 from domain.inventory_schema import GENERAL_CUSTOMER_BRAND_TABLE, GENERAL_CUSTOMER_SHOP_TABLE, INVENTORY_DETAIL_TABLE, INVENTORY_TABLE, JST_STOCK_TABLE, SUPPLIER_TABLE, WAREHOUSE_TABLE
 from domain.gj_brand import CBANNER_MENS_BRAND, GJ_FINE_TABLE_BRANDS, infer_supplier_brand_from_name
+from domain.vip_schema import JST_MONTHLY_ORDERS_TABLE, JST_SIZE_STOCK_TABLE, VIP_DAILY_TABLE
 from storage.date_normalization import parse_date, parse_month_day
 
 
@@ -27,6 +28,7 @@ DOCUMENT_NUMBER_PREFIXES = {
     "同价调拨单": "TJDBD",
 }
 DEFAULT_DOCUMENT_NUMBER_PREFIX = "DJ"
+SUPPLIER_RATING_CACHE_TTL_SECONDS = 600
 
 
 def _json_serializer(value: object) -> str:
@@ -40,6 +42,7 @@ class InventoryRepository:
             future=True,
             json_serializer=_json_serializer,
         )
+        self._supplier_rating_metrics_cache: dict[str, tuple[datetime, dict[str, dict[str, object]]]] = {}
         self.create_tables()
 
     # ── Inventory Records ──────────────────────────────────────────
@@ -238,17 +241,29 @@ class InventoryRepository:
         statement = select(SUPPLIER_TABLE).order_by(SUPPLIER_TABLE.c.brand, SUPPLIER_TABLE.c.id)
         if brand:
             statement = statement.where(SUPPLIER_TABLE.c.brand == brand)
-        with self.engine.connect() as connection:
-            return [dict(row) for row in connection.execute(statement).mappings()]
+        with self.engine.begin() as connection:
+            items = [dict(row) for row in connection.execute(statement).mappings()]
+            self._attach_supplier_ratings(connection, items)
+            return items
 
-    def list_suppliers_page(self, *, page: int, page_size: int, query: str | None = None, brand: str | None = None) -> dict[str, object]:
+    def list_suppliers_page(
+        self,
+        *,
+        page: int,
+        page_size: int,
+        query: str | None = None,
+        brand: str | None = None,
+        sort: str | None = None,
+    ) -> dict[str, object]:
         count_statement = select(func.count()).select_from(SUPPLIER_TABLE)
+        sort = (sort or "").strip()
         items_statement = (
             select(SUPPLIER_TABLE)
             .order_by(SUPPLIER_TABLE.c.id)
-            .offset((page - 1) * page_size)
-            .limit(page_size)
         )
+        sort_by_grade = sort in {"grade_asc", "grade_desc"}
+        if not sort_by_grade:
+            items_statement = items_statement.offset((page - 1) * page_size).limit(page_size)
         conditions = []
         if brand:
             conditions.append(SUPPLIER_TABLE.c.brand == brand)
@@ -265,15 +280,276 @@ class InventoryRepository:
             criterion = conditions[0] if len(conditions) == 1 else and_(*conditions)
             count_statement = count_statement.where(criterion)
             items_statement = items_statement.where(criterion)
-        with self.engine.connect() as connection:
+        with self.engine.begin() as connection:
             total = connection.execute(count_statement).scalar_one()
-            items = [dict(row) for row in connection.execute(items_statement).mappings()]
+            if sort_by_grade:
+                missing_statement = select(func.count()).select_from(SUPPLIER_TABLE).where(or_(
+                    SUPPLIER_TABLE.c.factory_grade.is_(None),
+                    SUPPLIER_TABLE.c.factory_grade == "",
+                    SUPPLIER_TABLE.c.factory_suggestion.is_(None),
+                    SUPPLIER_TABLE.c.factory_suggestion == "",
+                ))
+                if conditions:
+                    missing_statement = missing_statement.where(criterion)
+                missing_count = connection.execute(missing_statement).scalar_one()
+                if missing_count == 0:
+                    grade_order_expr = case(
+                        (SUPPLIER_TABLE.c.factory_grade == ("A" if sort == "grade_asc" else "D"), 0),
+                        (SUPPLIER_TABLE.c.factory_grade == ("B" if sort == "grade_asc" else "C"), 1),
+                        (SUPPLIER_TABLE.c.factory_grade == ("C" if sort == "grade_asc" else "B"), 2),
+                        (SUPPLIER_TABLE.c.factory_grade == ("D" if sort == "grade_asc" else "A"), 3),
+                        else_=99,
+                    )
+                    sorted_statement = (
+                        select(SUPPLIER_TABLE)
+                        .order_by(grade_order_expr, SUPPLIER_TABLE.c.name, SUPPLIER_TABLE.c.id)
+                        .offset((page - 1) * page_size)
+                        .limit(page_size)
+                    )
+                    if conditions:
+                        sorted_statement = sorted_statement.where(criterion)
+                    items = [dict(row) for row in connection.execute(sorted_statement).mappings()]
+                else:
+                    items = [dict(row) for row in connection.execute(items_statement).mappings()]
+                    self._attach_supplier_ratings(connection, items, use_cache=True)
+                    grade_order = {"A": 0, "B": 1, "C": 2, "D": 3} if sort == "grade_asc" else {"D": 0, "C": 1, "B": 2, "A": 3}
+                    items.sort(
+                        key=lambda item: (
+                            grade_order.get(str(item.get("factory_grade") or ""), 99),
+                            str(item.get("name") or ""),
+                            int(item.get("id") or 0),
+                        ),
+                    )
+                    start = (page - 1) * page_size
+                    items = items[start:start + page_size]
+            else:
+                items = [dict(row) for row in connection.execute(items_statement).mappings()]
+                self._attach_supplier_ratings(connection, items)
         return {
             "items": items,
             "total": total,
             "page": page,
             "page_size": page_size,
         }
+
+    def _attach_supplier_ratings(self, connection, items: list[dict[str, object]], *, use_cache: bool = False) -> None:
+        supplier_names = [str(item.get("name") or "").strip() for item in items if str(item.get("name") or "").strip()]
+        if not supplier_names or not inspect(connection).has_table(GJ_MERGED_PRODUCT_INFO_TABLE.name):
+            for item in items:
+                grade, suggestion = InventoryRepository._supplier_grade_and_suggestion(item, {})
+                item["factory_grade"] = grade
+                item["factory_suggestion"] = suggestion
+            self._persist_supplier_ratings(connection, items)
+            return
+
+        cache_key = "\n".join(sorted(set(supplier_names)))
+        if use_cache:
+            cached = self._supplier_rating_metrics_cache.get(cache_key)
+            if cached is not None:
+                cached_at, cached_metrics = cached
+                if (datetime.now() - cached_at).total_seconds() < SUPPLIER_RATING_CACHE_TTL_SECONDS:
+                    for item in items:
+                        supplier = str(item.get("name") or "").strip()
+                        metrics = dict(cached_metrics.get(supplier, {}))
+                        rates = metrics.get("reject_rate_values") or []
+                        metrics["reject_rate"] = sum(rates) / len(rates) if rates else None
+                        grade, suggestion = InventoryRepository._supplier_grade_and_suggestion(item, metrics)
+                        item["factory_grade"] = grade
+                        item["factory_suggestion"] = suggestion
+                    self._persist_supplier_ratings(connection, items)
+                    return
+
+        latest_gj_date = connection.execute(select(func.max(GJ_MERGED_PRODUCT_INFO_TABLE.c.source_date_value))).scalar()
+        gj_conditions = [
+            GJ_MERGED_PRODUCT_INFO_TABLE.c.primary_supplier.in_(supplier_names),
+            GJ_MERGED_PRODUCT_INFO_TABLE.c.goods_code.isnot(None),
+            GJ_MERGED_PRODUCT_INFO_TABLE.c.goods_code != "",
+        ]
+        if latest_gj_date is not None:
+            gj_conditions.append(GJ_MERGED_PRODUCT_INFO_TABLE.c.source_date_value == latest_gj_date)
+
+        product_rows = list(connection.execute(
+            select(
+                GJ_MERGED_PRODUCT_INFO_TABLE.c.primary_supplier,
+                GJ_MERGED_PRODUCT_INFO_TABLE.c.goods_code,
+                GJ_MERGED_PRODUCT_INFO_TABLE.c.original_goods_code,
+            )
+            .where(and_(*gj_conditions))
+        ).mappings())
+
+        metrics_by_supplier: dict[str, dict[str, object]] = {
+            name: {
+                "product_codes": set(),
+                "original_codes": set(),
+                "style_count": 0,
+                "sales_30d": 0,
+                "stock_qty": 0,
+                "reject_count": 0,
+                "reject_rate_values": [],
+            }
+            for name in supplier_names
+        }
+        supplier_by_code: dict[str, set[str]] = {}
+        for row in product_rows:
+            supplier = str(row.get("primary_supplier") or "").strip()
+            code = str(row.get("goods_code") or "").strip()
+            original_code = str(row.get("original_goods_code") or "").strip()
+            if not supplier or not code:
+                continue
+            bucket = metrics_by_supplier.setdefault(supplier, {
+                "product_codes": set(),
+                "original_codes": set(),
+                "style_count": 0,
+                "sales_30d": 0,
+                "stock_qty": 0,
+                "reject_count": 0,
+                "reject_rate_values": [],
+            })
+            bucket["product_codes"].add(code)
+            if original_code:
+                bucket["original_codes"].add(original_code)
+            supplier_by_code.setdefault(code, set()).add(supplier)
+
+        for bucket in metrics_by_supplier.values():
+            bucket["style_count"] = len(bucket["original_codes"] or bucket["product_codes"])
+
+        product_codes = sorted(supplier_by_code)
+        if product_codes:
+            if inspect(connection).has_table(VIP_DAILY_TABLE.name):
+                daily_rows = connection.execute(
+                    select(
+                        VIP_DAILY_TABLE.c.goods_code,
+                        func.max(VIP_DAILY_TABLE.c.sales_volume).label("sales_volume"),
+                        func.max(VIP_DAILY_TABLE.c.reject_count).label("reject_count"),
+                        func.max(VIP_DAILY_TABLE.c.reject_rate).label("reject_rate"),
+                    )
+                    .where(VIP_DAILY_TABLE.c.goods_code.in_(product_codes))
+                    .where(VIP_DAILY_TABLE.c.period == "30d")
+                    .group_by(VIP_DAILY_TABLE.c.goods_code)
+                ).mappings()
+                for row in daily_rows:
+                    code = str(row.get("goods_code") or "").strip()
+                    for supplier in supplier_by_code.get(code, ()):
+                        bucket = metrics_by_supplier[supplier]
+                        bucket["sales_30d"] = int(bucket["sales_30d"]) + InventoryRepository._to_int(row.get("sales_volume"))
+                        bucket["reject_count"] = int(bucket["reject_count"]) + InventoryRepository._to_int(row.get("reject_count"))
+                        reject_rate = InventoryRepository._percent_to_float(row.get("reject_rate"))
+                        if reject_rate is not None:
+                            bucket["reject_rate_values"].append(reject_rate)
+
+            if inspect(connection).has_table(JST_MONTHLY_ORDERS_TABLE.name):
+                max_order_time = connection.execute(select(func.max(JST_MONTHLY_ORDERS_TABLE.c.order_time_at))).scalar()
+                if max_order_time is not None:
+                    start_time = max_order_time - timedelta(days=30)
+                    order_rows = connection.execute(
+                        select(
+                            JST_MONTHLY_ORDERS_TABLE.c.style_code,
+                            func.sum(JST_MONTHLY_ORDERS_TABLE.c.quantity).label("quantity"),
+                        )
+                        .where(JST_MONTHLY_ORDERS_TABLE.c.style_code.in_(product_codes))
+                        .where(JST_MONTHLY_ORDERS_TABLE.c.order_time_at >= start_time)
+                        .where(JST_MONTHLY_ORDERS_TABLE.c.order_time_at <= max_order_time)
+                        .group_by(JST_MONTHLY_ORDERS_TABLE.c.style_code)
+                    ).mappings()
+                    for row in order_rows:
+                        code = str(row.get("style_code") or "").strip()
+                        for supplier in supplier_by_code.get(code, ()):
+                            bucket = metrics_by_supplier[supplier]
+                            bucket["sales_30d"] = int(bucket["sales_30d"]) + InventoryRepository._to_int(row.get("quantity"))
+
+            if inspect(connection).has_table(JST_SIZE_STOCK_TABLE.name):
+                stock_rows = connection.execute(
+                    select(
+                        JST_SIZE_STOCK_TABLE.c.product_code,
+                        func.sum(JST_SIZE_STOCK_TABLE.c.stock_qty).label("stock_qty"),
+                    )
+                    .where(JST_SIZE_STOCK_TABLE.c.product_code.in_(product_codes))
+                    .group_by(JST_SIZE_STOCK_TABLE.c.product_code)
+                ).mappings()
+                for row in stock_rows:
+                    code = str(row.get("product_code") or "").strip()
+                    for supplier in supplier_by_code.get(code, ()):
+                        bucket = metrics_by_supplier[supplier]
+                        bucket["stock_qty"] = int(bucket["stock_qty"]) + InventoryRepository._to_int(row.get("stock_qty"))
+
+        for item in items:
+            supplier = str(item.get("name") or "").strip()
+            metrics = metrics_by_supplier.get(supplier, {})
+            rates = metrics.get("reject_rate_values") or []
+            metrics["reject_rate"] = sum(rates) / len(rates) if rates else None
+            grade, suggestion = InventoryRepository._supplier_grade_and_suggestion(item, metrics)
+            item["factory_grade"] = grade
+            item["factory_suggestion"] = suggestion
+
+        self._persist_supplier_ratings(connection, items)
+
+        if use_cache:
+            self._supplier_rating_metrics_cache[cache_key] = (datetime.now(), metrics_by_supplier)
+
+    @staticmethod
+    def _persist_supplier_ratings(connection, items: list[dict[str, object]]) -> None:
+        for item in items:
+            supplier_id = item.get("id")
+            grade = item.get("factory_grade")
+            suggestion = item.get("factory_suggestion")
+            if not supplier_id:
+                continue
+            connection.execute(
+                update(SUPPLIER_TABLE)
+                .where(SUPPLIER_TABLE.c.id == supplier_id)
+                .where(or_(
+                    SUPPLIER_TABLE.c.factory_grade.is_distinct_from(grade),
+                    SUPPLIER_TABLE.c.factory_suggestion.is_distinct_from(suggestion),
+                ))
+                .values(factory_grade=grade, factory_suggestion=suggestion)
+            )
+
+    @staticmethod
+    def _supplier_grade_and_suggestion(item: Mapping[str, object], metrics: Mapping[str, object]) -> tuple[str, str]:
+        status = str(item.get("cooperation_status") or "").strip()
+        if status in {"淘汰", "暂停"}:
+            return "D", "暂停合作，停止开发新款。"
+
+        style_count = InventoryRepository._to_int(metrics.get("style_count"))
+        sales_30d = InventoryRepository._to_int(metrics.get("sales_30d"))
+        stock_qty = InventoryRepository._to_int(metrics.get("stock_qty"))
+        reject_rate_raw = metrics.get("reject_rate")
+        reject_rate = float(reject_rate_raw) if reject_rate_raw is not None else None
+        sell_through = sales_30d / (sales_30d + stock_qty) if sales_30d + stock_qty > 0 else 0
+
+        if style_count == 0:
+            return "C", "暂无有效款式数据，先观察维护资料。"
+        if sales_30d <= 0 and stock_qty >= 300:
+            return "D", "库存有压力且近期无销售，建议暂停新款开发。"
+        if (reject_rate is not None and reject_rate >= 0.18) or (stock_qty >= 1000 and sell_through < 0.1):
+            return "C", "库存或退货风险偏高，建议限制下单并观察整改。"
+        if sales_30d >= 500 and sell_through >= 0.35 and (reject_rate is None or reject_rate < 0.08):
+            return "A", "重点合作，优先开发，优先下单。"
+        if sales_30d >= 100 and sell_through >= 0.15 and (reject_rate is None or reject_rate < 0.15):
+            return "B", "保持合作，继续观察。"
+        return "C", "销售表现一般，建议控制节奏继续观察。"
+
+    @staticmethod
+    def _to_int(value: object) -> int:
+        if value in (None, ""):
+            return 0
+        try:
+            return int(float(str(value)))
+        except (TypeError, ValueError):
+            return 0
+
+    @staticmethod
+    def _percent_to_float(value: object) -> float | None:
+        if value in (None, ""):
+            return None
+        text_value = str(value).strip().replace(",", "")
+        try:
+            if text_value.endswith("%"):
+                return float(text_value[:-1]) / 100
+            parsed = float(text_value)
+            return parsed / 100 if parsed > 1 else parsed
+        except ValueError:
+            return None
 
     def create_supplier(self, data: Mapping[str, object]) -> dict[str, object]:
         statement = insert(SUPPLIER_TABLE).values(**self._prepare_supplier(data)).returning(SUPPLIER_TABLE)
@@ -1007,6 +1283,8 @@ class InventoryRepository:
         connection.execute(text("ALTER TABLE IF EXISTS suppliers ADD COLUMN IF NOT EXISTS brand TEXT"))
         connection.execute(text("ALTER TABLE IF EXISTS suppliers ADD COLUMN IF NOT EXISTS wechat TEXT"))
         connection.execute(text("ALTER TABLE IF EXISTS suppliers ADD COLUMN IF NOT EXISTS cooperation_status TEXT"))
+        connection.execute(text("ALTER TABLE IF EXISTS suppliers ADD COLUMN IF NOT EXISTS factory_grade TEXT"))
+        connection.execute(text("ALTER TABLE IF EXISTS suppliers ADD COLUMN IF NOT EXISTS factory_suggestion TEXT"))
         connection.execute(
             text(
                 """
@@ -1075,6 +1353,7 @@ class InventoryRepository:
         connection.execute(text("ALTER TABLE IF EXISTS suppliers ALTER COLUMN brand SET NOT NULL"))
         connection.execute(text("DROP INDEX IF EXISTS idx_suppliers_brand"))
         connection.execute(text("CREATE INDEX IF NOT EXISTS idx_suppliers_brand ON suppliers (brand)"))
+        connection.execute(text("CREATE INDEX IF NOT EXISTS idx_suppliers_factory_grade ON suppliers (factory_grade)"))
         connection.execute(
             text(
                 """
@@ -1271,6 +1550,10 @@ class InventoryRepository:
             "address": str(data.get("address") or "").strip() or None,
             "notes": str(data.get("notes") or "").strip() or None,
         }
+        if "factory_grade" in data:
+            payload["factory_grade"] = str(data.get("factory_grade") or "").strip() or None
+        if "factory_suggestion" in data:
+            payload["factory_suggestion"] = str(data.get("factory_suggestion") or "").strip() or None
         if payload["brand"] not in GJ_FINE_TABLE_BRANDS:
             payload["brand"] = CBANNER_MENS_BRAND
         return payload
