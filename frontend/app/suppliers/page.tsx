@@ -1,7 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useState } from "react"
-import { ChevronLeft, ChevronRight, Edit, Plus, Search, Trash2, X } from "lucide-react"
+import { ArrowUpDown, ChevronLeft, ChevronRight, Edit, Plus, Search, Trash2, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -285,19 +285,6 @@ export default function SuppliersPage() {
             />
           </div>
           <div className="flex items-center gap-2">
-            <select
-              value={sort}
-              onChange={(event) => {
-                setSort(event.target.value as SupplierSort)
-                setPage(1)
-              }}
-              className="h-9 rounded-lg border border-input bg-card px-3 text-sm shadow-xs outline-none transition-colors focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/35"
-              aria-label="等级排序"
-            >
-              <option value="">默认排序</option>
-              <option value="grade_asc">等级 A-D</option>
-              <option value="grade_desc">等级 D-A</option>
-            </select>
             <Button type="submit" disabled={isLoading}>
               查询
             </Button>
@@ -346,7 +333,20 @@ export default function SuppliersPage() {
                   <th className="px-4 py-3 font-medium">联系人</th>
                   <th className="px-4 py-3 font-medium">微信号</th>
                   <th className="px-4 py-3 font-medium">合作状态</th>
-                  <th className="px-4 py-3 font-medium">等级</th>
+                  <th className="px-4 py-3 font-medium">
+                    <button
+                      type="button"
+                      className="inline-flex cursor-pointer items-center gap-1.5 rounded-md px-1 py-0.5 transition-colors hover:bg-muted"
+                      onClick={() => {
+                        setSort((current) => current === "grade_asc" ? "grade_desc" : "grade_asc")
+                        setPage(1)
+                      }}
+                      title={sort === "grade_asc" ? "当前：等级 A-D" : sort === "grade_desc" ? "当前：等级 D-A" : "按等级排序"}
+                    >
+                      <span>等级</span>
+                      <ArrowUpDown className={`h-3.5 w-3.5 ${sort ? "text-foreground" : "text-muted-foreground"}`} />
+                    </button>
+                  </th>
                   <th className="px-4 py-3 font-medium">系统建议</th>
                   <th className="px-4 py-3 font-medium">地址</th>
                   <th className="px-4 py-3 w-24 font-medium">操作</th>
