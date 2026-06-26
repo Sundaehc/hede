@@ -15,6 +15,7 @@ from sqlalchemy import desc, or_, select as sa_select
 from domain.color_barcode_schema import COLOR_BARCODE_TABLE
 from domain.gj_schema import GJ_MERGED_PRODUCT_INFO_TABLE
 from domain.inventory_sources import (
+    ACCOUNTING_DOCUMENT_TYPES,
     DOCUMENT_TYPES,
     normalize_document_type,
     INVENTORY_CANONICAL_COLUMNS,
@@ -538,6 +539,16 @@ def list_inventory(
     )
 
 
+@router.get("/inventory/recycle-bin")
+def list_inventory_recycle_bin(
+    request: Request,
+    page: int = 1,
+    page_size: int = 20,
+):
+    repository = request.app.state.inventory_repository
+    return repository.list_deleted_records(page=page, page_size=page_size)
+
+
 @router.get("/inventory/export")
 def export_inventory(
     request: Request,
@@ -568,7 +579,10 @@ def export_inventory(
         page=1,
         page_size=100_000,
     )
-    items = result["items"]
+    items = [
+        item for item in result["items"]
+        if item.get("document_type") not in ACCOUNTING_DOCUMENT_TYPES
+    ]
     details = repository.list_details_for_documents([int(item["id"]) for item in items])
     records_by_id = {item["id"]: item for item in items}
 
@@ -760,6 +774,38 @@ def list_general_customer_shops(request: Request):
     return {"items": repository.list_general_customer_shops()}
 
 
+@router.get("/inventory/account-subjects")
+def list_inventory_account_subjects(request: Request):
+    repository = request.app.state.inventory_repository
+    return {"items": repository.list_account_subjects()}
+
+
+@router.post("/inventory/account-subjects")
+def create_inventory_account_subject(request: Request, payload: dict):
+    repository = request.app.state.inventory_repository
+    name = str(payload.get("name") or "").strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="科目名称不能为空")
+    try:
+        return {
+            "item": repository.create_account_subject({
+                "code": payload.get("code"),
+                "name": name,
+            }),
+            "message": "创建成功",
+        }
+    except Exception as error:
+        raise HTTPException(status_code=400, detail=f"科目 '{name}' 已存在或无法创建") from error
+
+
+@router.delete("/inventory/account-subjects/{subject_id}")
+def delete_inventory_account_subject(request: Request, subject_id: int):
+    repository = request.app.state.inventory_repository
+    if not repository.delete_account_subject(subject_id):
+        raise HTTPException(status_code=404, detail="Subject not found")
+    return {"message": "删除成功"}
+
+
 @router.get("/inventory/general-customer-brands")
 def list_general_customer_brands(request: Request):
     repository = request.app.state.inventory_repository
@@ -911,7 +957,16 @@ def delete_inventory_record(request: Request, record_id: int):
     repository = request.app.state.inventory_repository
     if not repository.delete_record(record_id):
         raise HTTPException(status_code=404, detail="Record not found")
-    return {"message": "删除成功"}
+    return {"message": "已移入回收站，10 天内可恢复"}
+
+
+@router.post("/inventory/{record_id}/restore")
+def restore_inventory_record(request: Request, record_id: int):
+    repository = request.app.state.inventory_repository
+    record = repository.restore_record(record_id)
+    if record is None:
+        raise HTTPException(status_code=404, detail="Record not found")
+    return {"item": record, "message": "恢复成功"}
 
 
 @router.post("/inventory/batch-delete")
@@ -919,7 +974,7 @@ def batch_delete_inventory(request: Request, payload: dict):
     ids = payload.get("ids", [])
     repository = request.app.state.inventory_repository
     deleted = repository.delete_records(ids)
-    return {"deleted": deleted, "message": f"已删除 {deleted} 条记录"}
+    return {"deleted": deleted, "message": f"已移入回收站 {deleted} 条记录，10 天内可恢复"}
 
 
 @router.get("/inventory/{record_id}/details")

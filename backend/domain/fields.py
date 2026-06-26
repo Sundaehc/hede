@@ -85,6 +85,12 @@ INVENTORY_DETAIL_FIELDS: tuple[FieldSpec, ...] = (
     FieldSpec("quantity", "数量", "numeric"),
     FieldSpec("unit_price", "单价", "numeric"),
     FieldSpec("amount", "金额", "numeric"),
+    FieldSpec("remark", "备注"),
+)
+
+INVENTORY_ACCOUNT_SUBJECT_FIELDS: tuple[FieldSpec, ...] = (
+    FieldSpec("code", "科目编号"),
+    FieldSpec("name", "科目名称"),
 )
 
 SUPPLIER_FIELDS: tuple[FieldSpec, ...] = (

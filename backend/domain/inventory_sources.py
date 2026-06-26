@@ -6,6 +6,7 @@ from pathlib import Path
 from domain.fields import (
     GENERAL_CUSTOMER_BRAND_FIELDS,
     GENERAL_CUSTOMER_SHOP_FIELDS,
+    INVENTORY_ACCOUNT_SUBJECT_FIELDS,
     INVENTORY_DETAIL_FIELDS,
     INVENTORY_FIELDS,
     JST_STOCK_FIELDS,
@@ -21,6 +22,7 @@ WAREHOUSE_TABLE_NAME = "warehouses"
 GENERAL_CUSTOMER_BRAND_TABLE_NAME = "general_customer_brands"
 GENERAL_CUSTOMER_SHOP_TABLE_NAME = "general_customer_shops"
 INVENTORY_DETAIL_TABLE_NAME = "inventory_details"
+INVENTORY_ACCOUNT_SUBJECT_TABLE_NAME = "inventory_account_subjects"
 JST_STOCK_TABLE_NAME = "jst_daily_stock"
 
 JST_STOCK_COLUMNS = field_names(JST_STOCK_FIELDS)
@@ -34,10 +36,19 @@ INVENTORY_CANONICAL_COLUMNS: list[str] = field_names(INVENTORY_FIELDS)
 # Detail table canonical fields
 INVENTORY_DETAIL_COLUMNS: list[str] = field_names(INVENTORY_DETAIL_FIELDS)
 
+INVENTORY_ACCOUNT_SUBJECT_COLUMNS: list[str] = field_names(INVENTORY_ACCOUNT_SUBJECT_FIELDS)
+
 # Detail column aliases for Excel import
 INVENTORY_DETAIL_ALIASES: dict[str, str] = alias_map(INVENTORY_DETAIL_FIELDS)
 
 # Document type choices
+ACCOUNTING_DOCUMENT_TYPES: tuple[str, ...] = (
+    "应付款减少",
+    "应付款增加",
+    "应收款减少",
+    "应收款增加",
+)
+
 DOCUMENT_TYPES: tuple[str, ...] = (
     "进货单",
     "进货退货单",
@@ -46,6 +57,7 @@ DOCUMENT_TYPES: tuple[str, ...] = (
     "批发销售单",
     "批发销售退货单",
     "同价调拨单",
+    *ACCOUNTING_DOCUMENT_TYPES,
 )
 
 DOCUMENT_TYPE_ALIASES: dict[str, str] = {

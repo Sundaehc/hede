@@ -12,7 +12,8 @@ from sqlalchemy import and_, case, create_engine, delete, desc, func, insert, in
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from domain.gj_schema import GJ_MERGED_PRODUCT_INFO_TABLE
-from domain.inventory_schema import GENERAL_CUSTOMER_BRAND_TABLE, GENERAL_CUSTOMER_SHOP_TABLE, INVENTORY_DETAIL_TABLE, INVENTORY_TABLE, JST_STOCK_TABLE, SUPPLIER_TABLE, WAREHOUSE_TABLE
+from domain.inventory_schema import GENERAL_CUSTOMER_BRAND_TABLE, GENERAL_CUSTOMER_SHOP_TABLE, INVENTORY_ACCOUNT_SUBJECT_TABLE, INVENTORY_DETAIL_TABLE, INVENTORY_TABLE, JST_STOCK_TABLE, SUPPLIER_TABLE, WAREHOUSE_TABLE
+from domain.inventory_sources import ACCOUNTING_DOCUMENT_TYPES
 from domain.gj_brand import CBANNER_MENS_BRAND, GJ_FINE_TABLE_BRANDS, infer_supplier_brand_from_name
 from domain.vip_schema import JST_MONTHLY_ORDERS_TABLE, JST_SIZE_STOCK_TABLE, VIP_DAILY_TABLE
 from storage.date_normalization import parse_date, parse_month_day
@@ -26,6 +27,10 @@ DOCUMENT_NUMBER_PREFIXES = {
     "批发销售单": "PFXSD",
     "批发销售退货单": "PFXSTHD",
     "同价调拨单": "TJDBD",
+    "应付款减少": "YFKJS",
+    "应付款增加": "YFKZJ",
+    "应收款减少": "YSKJS",
+    "应收款增加": "YSKZJ",
 }
 DEFAULT_DOCUMENT_NUMBER_PREFIX = "DJ"
 SUPPLIER_RATING_CACHE_TTL_SECONDS = 600
@@ -69,7 +74,8 @@ class InventoryRepository:
         count_statement = select(func.count()).select_from(table)
         items_statement = select(table)
 
-        conditions = []
+        self.purge_expired_deleted_records()
+        conditions = [table.c.deleted_at.is_(None)]
         if date_start:
             parsed = parse_date(date_start)
             conditions.append(table.c.date_value >= parsed if parsed else table.c.date >= date_start)
@@ -87,36 +93,71 @@ class InventoryRepository:
         if handler:
             conditions.append(table.c.handler.ilike(f"%{handler.strip()}%"))
         if completion_status == "incomplete":
+            is_accounting_document = table.c.document_type.in_(ACCOUNTING_DOCUMENT_TYPES)
+            is_product_document = or_(table.c.document_type.is_(None), ~is_accounting_document)
             conditions.append(or_(
                 ~select(detail.c.id)
                 .where(detail.c.document_id == table.c.id)
                 .exists(),
-                select(detail.c.id)
-                .where(
-                    detail.c.document_id == table.c.id,
-                    or_(
-                        detail.c.unit_price.is_(None),
-                        detail.c.unit_price == 0,
-                    ),
-                )
-                .exists(),
+                and_(
+                    is_accounting_document,
+                    select(detail.c.id)
+                    .where(
+                        detail.c.document_id == table.c.id,
+                        or_(
+                            detail.c.amount.is_(None),
+                            detail.c.amount == 0,
+                        ),
+                    )
+                    .exists(),
+                ),
+                and_(
+                    is_product_document,
+                    select(detail.c.id)
+                    .where(
+                        detail.c.document_id == table.c.id,
+                        or_(
+                            detail.c.unit_price.is_(None),
+                            detail.c.unit_price == 0,
+                        ),
+                    )
+                    .exists(),
+                ),
             ))
         elif completion_status == "completed":
+            is_accounting_document = table.c.document_type.in_(ACCOUNTING_DOCUMENT_TYPES)
+            is_product_document = or_(table.c.document_type.is_(None), ~is_accounting_document)
             conditions.append(
                 select(detail.c.id)
                 .where(detail.c.document_id == table.c.id)
                 .exists()
             )
-            conditions.append(
-                ~select(detail.c.id)
-                .where(
-                    detail.c.document_id == table.c.id,
-                    or_(
-                        detail.c.unit_price.is_(None),
-                        detail.c.unit_price == 0,
-                    ),
-                )
-                .exists()
+            conditions.append(or_(
+                and_(
+                    is_accounting_document,
+                    ~select(detail.c.id)
+                    .where(
+                        detail.c.document_id == table.c.id,
+                        or_(
+                            detail.c.amount.is_(None),
+                            detail.c.amount == 0,
+                        ),
+                    )
+                    .exists(),
+                ),
+                and_(
+                    is_product_document,
+                    ~select(detail.c.id)
+                    .where(
+                        detail.c.document_id == table.c.id,
+                        or_(
+                            detail.c.unit_price.is_(None),
+                            detail.c.unit_price == 0,
+                        ),
+                    )
+                    .exists(),
+                ),
+            )
             )
         if original_sku:
             original_like = f"%{original_sku.strip()}%"
@@ -171,6 +212,8 @@ class InventoryRepository:
         with self.engine.connect() as connection:
             total = connection.execute(count_statement).scalar_one()
             items = [dict(row) for row in connection.execute(items_statement).mappings()]
+        for item in items:
+            self._clear_accounting_record_summary(item)
 
         return {
             "items": items,
@@ -181,7 +224,7 @@ class InventoryRepository:
 
     def get_record(self, record_id: int) -> dict[str, object] | None:
         table = INVENTORY_TABLE
-        statement = select(table).where(table.c.id == record_id)
+        statement = select(table).where(table.c.id == record_id, table.c.deleted_at.is_(None))
         with self.engine.connect() as connection:
             row = connection.execute(statement).mappings().first()
         return None if row is None else dict(row)
@@ -221,7 +264,11 @@ class InventoryRepository:
 
     def delete_record(self, record_id: int) -> bool:
         table = INVENTORY_TABLE
-        statement = delete(table).where(table.c.id == record_id)
+        statement = (
+            update(table)
+            .where(table.c.id == record_id, table.c.deleted_at.is_(None))
+            .values(deleted_at=func.now())
+        )
         with self.engine.begin() as connection:
             result = connection.execute(statement)
         return result.rowcount > 0
@@ -230,10 +277,58 @@ class InventoryRepository:
         if not ids:
             return 0
         table = INVENTORY_TABLE
-        statement = delete(table).where(table.c.id.in_(ids))
+        statement = (
+            update(table)
+            .where(table.c.id.in_(ids), table.c.deleted_at.is_(None))
+            .values(deleted_at=func.now())
+        )
         with self.engine.begin() as connection:
             result = connection.execute(statement)
         return result.rowcount
+
+    def list_deleted_records(self, *, page: int, page_size: int) -> dict[str, object]:
+        self.purge_expired_deleted_records()
+        table = INVENTORY_TABLE
+        criterion = table.c.deleted_at.isnot(None)
+        count_statement = select(func.count()).select_from(table).where(criterion)
+        items_statement = (
+            select(table)
+            .where(criterion)
+            .order_by(desc(table.c.deleted_at), desc(table.c.id))
+            .offset((page - 1) * page_size)
+            .limit(page_size)
+        )
+        with self.engine.connect() as connection:
+            total = connection.execute(count_statement).scalar_one()
+            items = [dict(row) for row in connection.execute(items_statement).mappings()]
+        for item in items:
+            self._clear_accounting_record_summary(item)
+        return {
+            "items": items,
+            "total": total,
+            "page": page,
+            "page_size": page_size,
+        }
+
+    def restore_record(self, record_id: int) -> dict[str, object] | None:
+        self.purge_expired_deleted_records()
+        table = INVENTORY_TABLE
+        statement = (
+            update(table)
+            .where(table.c.id == record_id, table.c.deleted_at.isnot(None))
+            .values(deleted_at=None)
+            .returning(table)
+        )
+        with self.engine.begin() as connection:
+            row = connection.execute(statement).mappings().first()
+        return None if row is None else dict(row)
+
+    def purge_expired_deleted_records(self) -> int:
+        table = INVENTORY_TABLE
+        statement = delete(table).where(table.c.deleted_at < func.now() - text("interval '10 days'"))
+        with self.engine.begin() as connection:
+            result = connection.execute(statement)
+        return result.rowcount or 0
 
     # ── Suppliers ──────────────────────────────────────────────────
 
@@ -765,6 +860,32 @@ class InventoryRepository:
             row = connection.execute(statement).mappings().first()
         return None if row is None else dict(row)
 
+    # ── Inventory Account Subjects ─────────────────────────────────
+
+    def list_account_subjects(self) -> list[dict[str, object]]:
+        statement = select(INVENTORY_ACCOUNT_SUBJECT_TABLE).order_by(
+            INVENTORY_ACCOUNT_SUBJECT_TABLE.c.id,
+            INVENTORY_ACCOUNT_SUBJECT_TABLE.c.name,
+        )
+        with self.engine.connect() as connection:
+            return [dict(row) for row in connection.execute(statement).mappings()]
+
+    def create_account_subject(self, data: Mapping[str, object]) -> dict[str, object]:
+        payload = {
+            "code": str(data.get("code") or "").strip() or None,
+            "name": str(data.get("name") or "").strip(),
+        }
+        statement = insert(INVENTORY_ACCOUNT_SUBJECT_TABLE).values(**payload).returning(INVENTORY_ACCOUNT_SUBJECT_TABLE)
+        with self.engine.begin() as connection:
+            row = connection.execute(statement).mappings().one()
+        return dict(row)
+
+    def delete_account_subject(self, subject_id: int) -> bool:
+        statement = delete(INVENTORY_ACCOUNT_SUBJECT_TABLE).where(INVENTORY_ACCOUNT_SUBJECT_TABLE.c.id == subject_id)
+        with self.engine.begin() as connection:
+            result = connection.execute(statement)
+        return result.rowcount > 0
+
     # ── Warehouses ─────────────────────────────────────────────────
 
     def list_warehouses(self) -> list[dict[str, object]]:
@@ -897,13 +1018,21 @@ class InventoryRepository:
         return deleted
 
     def recalculate_totals(self, document_id: object) -> None:
-        table = INVENTORY_DETAIL_TABLE
-        stmt = select(
-            func.coalesce(func.sum(table.c.quantity), 0),
-            func.coalesce(func.sum(table.c.amount), 0),
-        ).where(table.c.document_id == document_id)
+        detail = INVENTORY_DETAIL_TABLE
+        record = INVENTORY_TABLE
         with self.engine.connect() as connection:
-            total_count, amount = connection.execute(stmt).one()
+            document_type = connection.execute(
+                select(record.c.document_type).where(record.c.id == document_id)
+            ).scalar_one_or_none()
+            if document_type in ACCOUNTING_DOCUMENT_TYPES:
+                total_count = None
+                amount = None
+            else:
+                stmt = select(
+                    func.coalesce(func.sum(detail.c.quantity), 0),
+                    func.coalesce(func.sum(detail.c.amount), 0),
+                ).where(detail.c.document_id == document_id)
+                total_count, amount = connection.execute(stmt).one()
         update_stmt = (
             update(INVENTORY_TABLE)
             .where(INVENTORY_TABLE.c.id == document_id)
@@ -1262,14 +1391,19 @@ class InventoryRepository:
             self._backfill_document_numbers(connection)
             connection.execute(text("CREATE INDEX IF NOT EXISTS idx_inventory_records_document_number ON inventory_records (document_number)"))
             connection.execute(text("ALTER TABLE IF EXISTS inventory_records ADD COLUMN IF NOT EXISTS handler TEXT"))
+            connection.execute(text("ALTER TABLE IF EXISTS inventory_records ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ"))
+            connection.execute(text("CREATE INDEX IF NOT EXISTS idx_inventory_records_deleted_at ON inventory_records (deleted_at)"))
             connection.execute(text("ALTER TABLE IF EXISTS inventory_details ADD COLUMN IF NOT EXISTS color_barcode TEXT"))
             connection.execute(text("ALTER TABLE IF EXISTS inventory_details ADD COLUMN IF NOT EXISTS color_name TEXT"))
             connection.execute(text("ALTER TABLE IF EXISTS inventory_details ADD COLUMN IF NOT EXISTS size_quantities JSON"))
+            connection.execute(text("ALTER TABLE IF EXISTS inventory_details ADD COLUMN IF NOT EXISTS remark TEXT"))
             connection.execute(text("CREATE EXTENSION IF NOT EXISTS pg_trgm"))
             connection.execute(text("CREATE INDEX IF NOT EXISTS idx_inventory_details_product_code ON inventory_details (product_code)"))
             connection.execute(text("CREATE INDEX IF NOT EXISTS idx_jst_stock_product_code ON jst_daily_stock (product_code)"))
             connection.execute(text("CREATE INDEX IF NOT EXISTS idx_inventory_details_product_code_trgm ON inventory_details USING GIN (product_code gin_trgm_ops)"))
             connection.execute(text("CREATE INDEX IF NOT EXISTS idx_jst_stock_product_code_trgm ON jst_daily_stock USING GIN (product_code gin_trgm_ops)"))
+            INVENTORY_ACCOUNT_SUBJECT_TABLE.create(connection, checkfirst=True)
+            self._seed_account_subjects(connection)
             SUPPLIER_TABLE.create(connection, checkfirst=True)
             WAREHOUSE_TABLE.create(connection, checkfirst=True)
             self._ensure_supplier_schema(connection)
@@ -1277,6 +1411,23 @@ class InventoryRepository:
             GENERAL_CUSTOMER_BRAND_TABLE.create(connection, checkfirst=True)
             GENERAL_CUSTOMER_SHOP_TABLE.create(connection, checkfirst=True)
             self._seed_general_customer_shops(connection)
+            connection.execute(text("UPDATE inventory_records SET total_count = NULL, amount = NULL, warehouse = NULL WHERE document_type IN ('应付款减少', '应付款增加', '应收款减少', '应收款增加') AND (total_count IS NOT NULL OR amount IS NOT NULL OR warehouse IS NOT NULL)"))
+            connection.execute(text("DELETE FROM inventory_records WHERE deleted_at < now() - interval '10 days'"))
+
+    @staticmethod
+    def _seed_account_subjects(connection) -> None:
+        defaults = [
+            {"code": "0337", "name": "罚款收入"},
+            {"code": None, "name": "付货款"},
+        ]
+        for row in defaults:
+            exists = connection.execute(
+                select(INVENTORY_ACCOUNT_SUBJECT_TABLE.c.id).where(
+                    INVENTORY_ACCOUNT_SUBJECT_TABLE.c.name == row["name"]
+                )
+            ).first()
+            if exists is None:
+                connection.execute(insert(INVENTORY_ACCOUNT_SUBJECT_TABLE).values(**row))
 
     @staticmethod
     def _ensure_supplier_schema(connection) -> None:
@@ -1454,6 +1605,14 @@ class InventoryRepository:
         return {k: (None if v == "" else v) for k, v in data.items()}
 
     @staticmethod
+    def _clear_accounting_record_summary(record: dict[str, object]) -> dict[str, object]:
+        if record.get("document_type") in ACCOUNTING_DOCUMENT_TYPES:
+            record["total_count"] = None
+            record["amount"] = None
+            record["warehouse"] = None
+        return record
+
+    @staticmethod
     def _prepare_record(record: Mapping[str, object]) -> dict[str, object]:
         payload = {}
         for key, value in record.items():
@@ -1463,6 +1622,10 @@ class InventoryRepository:
                 payload[key] = value
         if "date" in payload and "date_value" not in payload:
             payload["date_value"] = parse_date(payload.get("date"))
+        if payload.get("document_type") in ACCOUNTING_DOCUMENT_TYPES:
+            payload["total_count"] = None
+            payload["amount"] = None
+            payload["warehouse"] = None
         raw_payload = payload.get("raw_payload")
         if isinstance(raw_payload, Mapping):
             payload["raw_payload"] = {

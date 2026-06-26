@@ -32,6 +32,8 @@ import {
   createInventoryRecord,
   updateInventoryRecord,
   deleteInventoryRecord,
+  listInventoryRecycleBin,
+  restoreInventoryRecord,
   batchUpdateInventoryCosts,
   batchDeleteInventory,
   importPurchaseInventory,
@@ -48,11 +50,15 @@ import type { GeneralCustomerShopItem } from "@/lib/types"
 
 const PAGE_SIZES = [10, 50, 100]
 
-const DOCUMENT_TYPES = ["进货单", "进货退货单", "报溢单", "报损单", "批发销售单", "批发销售退货单", "同价调拨单"]
+const ACCOUNTING_DOCUMENT_TYPES = ["应付款减少", "应付款增加", "应收款减少", "应收款增加"]
+const DOCUMENT_TYPES = ["进货单", "进货退货单", "报溢单", "报损单", "批发销售单", "批发销售退货单", "同价调拨单", ...ACCOUNTING_DOCUMENT_TYPES]
 const DETAIL_IMPORT_DOCUMENT_TYPES = ["进货单", "进货退货单", "报溢单", "报损单", "批发销售单", "批发销售退货单", "同价调拨单"]
 const WHOLESALE_DOCUMENT_TYPES = new Set(["批发销售单", "批发销售退货单"])
 const TRANSFER_DOCUMENT_TYPES = new Set(["同价调拨单"])
 const STOCK_ADJUSTMENT_DOCUMENT_TYPES = new Set(["报溢单", "报损单"])
+const PAYABLE_DOCUMENT_TYPES = new Set(["应付款减少", "应付款增加"])
+const RECEIVABLE_DOCUMENT_TYPES = new Set(["应收款减少", "应收款增加"])
+const ACCOUNTING_DOCUMENT_TYPE_SET = new Set(ACCOUNTING_DOCUMENT_TYPES)
 const OUTBOUND_DOCUMENT_TYPES = new Set(["进货退货单", "报损单", "批发销售单"])
 const INBOUND_DOCUMENT_TYPES = new Set(["进货单", "报溢单", "批发销售退货单"])
 const COMPLETION_TABS = [
@@ -79,6 +85,7 @@ const EMPTY_FORM: Record<string, string> = {
   supplier: "",
   warehouse: "",
   document_type: "",
+  handler: "",
   summary: "",
 }
 
@@ -103,6 +110,22 @@ function getErrorMessage(error: unknown) {
   if (error instanceof ApiError) return error.message || `请求失败（${error.status}）`
   if (error instanceof Error) return error.message
   return "发生未知错误"
+}
+
+function formatDeletedAt(value: string | null) {
+  if (!value) return "-"
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return value
+  return date.toLocaleString("zh-CN", { hour12: false })
+}
+
+function remainingRecycleDays(value: string | null) {
+  if (!value) return "-"
+  const deletedAt = new Date(value).getTime()
+  if (Number.isNaN(deletedAt)) return "-"
+  const expiresAt = deletedAt + 10 * 24 * 60 * 60 * 1000
+  const remaining = Math.ceil((expiresAt - Date.now()) / (24 * 60 * 60 * 1000))
+  return `${Math.max(0, remaining)} 天`
 }
 
 function buildPageRange(current: number, total: number): (number | "ellipsis")[] {
@@ -258,6 +281,12 @@ export function InventoryPage() {
   const [isDeleting, setIsDeleting] = useState(false)
   const [batchDeleteOpen, setBatchDeleteOpen] = useState(false)
   const [isBatchDeleting, setIsBatchDeleting] = useState(false)
+  const [recycleOpen, setRecycleOpen] = useState(false)
+  const [recycleItems, setRecycleItems] = useState<InventoryRecord[]>([])
+  const [recycleTotal, setRecycleTotal] = useState(0)
+  const [recyclePage, setRecyclePage] = useState(1)
+  const [isRecycleLoading, setIsRecycleLoading] = useState(false)
+  const [isRestoringId, setIsRestoringId] = useState<number | null>(null)
   const [messageOpen, setMessageOpen] = useState(false)
   const [messageContent, setMessageContent] = useState({ title: "", description: "" })
 
@@ -342,6 +371,25 @@ export function InventoryPage() {
     setMessageOpen(true)
   }, [])
 
+  const loadRecycleBin = useCallback(async () => {
+    setIsRecycleLoading(true)
+    try {
+      const response = await listInventoryRecycleBin({ page: recyclePage, pageSize: 10 })
+      setRecycleItems(response.items)
+      setRecycleTotal(response.total)
+    } catch (e) {
+      setRecycleItems([])
+      setRecycleTotal(0)
+      showMessage("回收站加载失败", getErrorMessage(e))
+    } finally {
+      setIsRecycleLoading(false)
+    }
+  }, [recyclePage, showMessage])
+
+  useEffect(() => {
+    if (recycleOpen) void loadRecycleBin()
+  }, [loadRecycleBin, recycleOpen])
+
   const openCreate = () => {
     setFormMode("create")
     setFormData({ ...EMPTY_FORM, date: todayInputValue() })
@@ -378,10 +426,14 @@ export function InventoryPage() {
   const handleSave = async () => {
     setIsSaving(true)
     try {
+      const payload = {
+        ...formData,
+        warehouse: ACCOUNTING_DOCUMENT_TYPE_SET.has(formData.document_type || "") ? "" : formData.warehouse,
+      }
       if (formMode === "create") {
-        await createInventoryRecord(formData)
+        await createInventoryRecord(payload)
       } else if (editingId !== null) {
-        await updateInventoryRecord(editingId, formData)
+        await updateInventoryRecord(editingId, payload)
       }
       setFormOpen(false)
       setReloadToken((t) => t + 1)
@@ -396,9 +448,10 @@ export function InventoryPage() {
     if (!deleteTarget) return
     setIsDeleting(true)
     try {
-      await deleteInventoryRecord(deleteTarget.id)
+      const result = await deleteInventoryRecord(deleteTarget.id)
       setSelectedIds((prev) => { const next = new Set(prev); next.delete(deleteTarget.id); return next })
       setReloadToken((t) => t + 1)
+      showMessage("已移入回收站", result.message)
     } catch (e) {
       showMessage("删除失败", getErrorMessage(e))
     } finally {
@@ -410,14 +463,29 @@ export function InventoryPage() {
   const handleBatchDeleteConfirm = async () => {
     setIsBatchDeleting(true)
     try {
-      await batchDeleteInventory(Array.from(selectedIds))
+      const result = await batchDeleteInventory(Array.from(selectedIds))
       setSelectedIds(new Set())
       setReloadToken((t) => t + 1)
+      showMessage("已移入回收站", result.message)
     } catch (e) {
       showMessage("批量删除失败", getErrorMessage(e))
     } finally {
       setIsBatchDeleting(false)
       setBatchDeleteOpen(false)
+    }
+  }
+
+  const handleRestoreRecord = async (recordId: number) => {
+    setIsRestoringId(recordId)
+    try {
+      const result = await restoreInventoryRecord(recordId)
+      showMessage("恢复成功", result.message)
+      await loadRecycleBin()
+      setReloadToken((t) => t + 1)
+    } catch (e) {
+      showMessage("恢复失败", getErrorMessage(e))
+    } finally {
+      setIsRestoringId(null)
     }
   }
 
@@ -482,6 +550,10 @@ export function InventoryPage() {
 
   const handleExport = async () => {
     try {
+      if (ACCOUNTING_DOCUMENT_TYPE_SET.has(submittedFilters.document_type || "")) {
+        showMessage("暂不支持导出", "应付款/应收款四类单据暂时不导出 Excel")
+        return
+      }
       const a = document.createElement("a")
       a.href = buildInventoryExportUrl({
         date_start: submittedFilters.date_start || undefined,
@@ -597,6 +669,7 @@ export function InventoryPage() {
 
   const hasFilters = Object.keys(submittedFilters).length > 0
   const totalPages = Math.max(1, Math.ceil(total / pageSize))
+  const recycleTotalPages = Math.max(1, Math.ceil(recycleTotal / 10))
   const allSelected = items.length > 0 && items.every((item) => selectedIds.has(item.id))
   const someSelected = items.some((item) => selectedIds.has(item.id))
   const detailRecord = detailDocumentId === null ? null : items.find((item) => item.id === detailDocumentId) ?? null
@@ -605,6 +678,9 @@ export function InventoryPage() {
   const isFormWholesale = WHOLESALE_DOCUMENT_TYPES.has(formData.document_type || "")
   const isFormTransfer = TRANSFER_DOCUMENT_TYPES.has(formData.document_type || "")
   const isFormStockAdjustment = STOCK_ADJUSTMENT_DOCUMENT_TYPES.has(formData.document_type || "")
+  const isFormPayable = PAYABLE_DOCUMENT_TYPES.has(formData.document_type || "")
+  const isFormReceivable = RECEIVABLE_DOCUMENT_TYPES.has(formData.document_type || "")
+  const isFormAccounting = ACCOUNTING_DOCUMENT_TYPE_SET.has(formData.document_type || "")
   const isImportWholesale = WHOLESALE_DOCUMENT_TYPES.has(importFormData.document_type)
   const isImportTransfer = TRANSFER_DOCUMENT_TYPES.has(importFormData.document_type)
   const isImportStockAdjustment = STOCK_ADJUSTMENT_DOCUMENT_TYPES.has(importFormData.document_type)
@@ -622,7 +698,7 @@ export function InventoryPage() {
     label: `${shop.customer_name} / ${shop.shop_name}`,
     keywords: shop.customer_name,
   }))
-  const formCounterpartyOptions = isFormTransfer ? warehouseSelectOptions : isFormWholesale ? customerShopSelectOptions : supplierSelectOptions
+  const formCounterpartyOptions = isFormTransfer ? warehouseSelectOptions : (isFormWholesale || isFormReceivable) ? customerShopSelectOptions : supplierSelectOptions
   const importCounterpartyOptions = isImportTransfer ? warehouseSelectOptions : isImportWholesale ? customerShopSelectOptions : supplierSelectOptions
 
   return (
@@ -645,6 +721,15 @@ export function InventoryPage() {
             <Button variant="outline" size="sm" onClick={openCostDialog} disabled={isUpdatingCosts} className="cursor-pointer">
               <BadgeDollarSign className="h-4 w-4" />
               <span className="ml-2 hidden sm:inline">批量改成本价</span>
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => { setRecyclePage(1); setRecycleOpen(true) }}
+              className="cursor-pointer"
+            >
+              <Trash2 className="h-4 w-4" />
+              <span className="ml-2 hidden sm:inline">回收站</span>
             </Button>
             <Button size="sm" onClick={openCreate} className="cursor-pointer">
               <Plus className="h-4 w-4" />
@@ -815,50 +900,53 @@ export function InventoryPage() {
                   </td>
                 </tr>
               )}
-              {!isLoading && !error && items.map((item) => (
-                <tr key={item.id} className="table-row">
-                  <td className="px-4 py-2.5">
-                    <input
-                      type="checkbox"
-                      checked={selectedIds.has(item.id)}
-                      onChange={() => handleToggleSelect(item.id)}
-                      className="h-4 w-4 cursor-pointer rounded border border-input accent-primary"
-                    />
-                  </td>
-                  <td className="px-4 py-2.5 font-mono text-xs tabular-nums">{item.document_number || item.id}</td>
-                  <td className="px-4 py-2.5 whitespace-nowrap tabular-nums">{item.date || "-"}</td>
-                  <td className="px-4 py-2.5 whitespace-nowrap">
-                    {item.document_type ? (
-                      <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${
-                        OUTBOUND_DOCUMENT_TYPES.has(item.document_type) ? "bg-red-100 text-red-700"
-                        : INBOUND_DOCUMENT_TYPES.has(item.document_type) ? "bg-green-100 text-green-700"
-                        : "bg-blue-100 text-blue-700"
-                      }`}>
-                        {item.document_type}
-                      </span>
-                    ) : "-"}
-                  </td>
-                  <td className="px-4 py-2.5">{item.supplier || "-"}</td>
-                  <td className="px-4 py-2.5 text-right tabular-nums">{item.total_count || "-"}</td>
-                  <td className="px-4 py-2.5 text-right tabular-nums">{item.amount || "-"}</td>
-                  <td className="px-4 py-2.5">{item.warehouse || "-"}</td>
-                  <td className="px-4 py-2.5">{item.handler || "-"}</td>
-                  <td className="px-4 py-2.5 max-w-48 truncate">{item.summary || "-"}</td>
-                  <td className="px-4 py-2.5">
-                    <div className="flex items-center gap-0.5">
-                      <Button variant="ghost" size="icon" onClick={() => setDetailDocumentId(item.id)} className="cursor-pointer" title="明细">
-                        <List className="h-4 w-4" />
-                      </Button>
-                      <Button variant="ghost" size="icon" onClick={() => openEdit(item)} className="cursor-pointer">
-                        <Edit className="h-4 w-4" />
-                      </Button>
-                      <Button variant="ghost" size="icon" onClick={() => setDeleteTarget(item)} className="cursor-pointer">
-                        <Trash2 className="h-4 w-4 text-destructive" />
-                      </Button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
+              {!isLoading && !error && items.map((item) => {
+                const isAccountingRow = ACCOUNTING_DOCUMENT_TYPE_SET.has(item.document_type || "")
+                return (
+                  <tr key={item.id} className="table-row">
+                    <td className="px-4 py-2.5">
+                      <input
+                        type="checkbox"
+                        checked={selectedIds.has(item.id)}
+                        onChange={() => handleToggleSelect(item.id)}
+                        className="h-4 w-4 cursor-pointer rounded border border-input accent-primary"
+                      />
+                    </td>
+                    <td className="px-4 py-2.5 font-mono text-xs tabular-nums">{item.document_number || item.id}</td>
+                    <td className="px-4 py-2.5 whitespace-nowrap tabular-nums">{item.date || "-"}</td>
+                    <td className="px-4 py-2.5 whitespace-nowrap">
+                      {item.document_type ? (
+                        <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${
+                          OUTBOUND_DOCUMENT_TYPES.has(item.document_type) ? "bg-red-100 text-red-700"
+                          : INBOUND_DOCUMENT_TYPES.has(item.document_type) ? "bg-green-100 text-green-700"
+                          : "bg-blue-100 text-blue-700"
+                        }`}>
+                          {item.document_type}
+                        </span>
+                      ) : "-"}
+                    </td>
+                    <td className="px-4 py-2.5">{item.supplier || "-"}</td>
+                    <td className="px-4 py-2.5 text-right tabular-nums">{isAccountingRow ? "" : item.total_count || "-"}</td>
+                    <td className="px-4 py-2.5 text-right tabular-nums">{isAccountingRow ? "" : item.amount || "-"}</td>
+                    <td className="px-4 py-2.5">{isAccountingRow ? "" : item.warehouse || "-"}</td>
+                    <td className="px-4 py-2.5">{item.handler || "-"}</td>
+                    <td className="px-4 py-2.5 max-w-48 truncate">{item.summary || "-"}</td>
+                    <td className="px-4 py-2.5">
+                      <div className="flex items-center gap-0.5">
+                        <Button variant="ghost" size="icon" onClick={() => setDetailDocumentId(item.id)} className="cursor-pointer" title="明细">
+                          <List className="h-4 w-4" />
+                        </Button>
+                        <Button variant="ghost" size="icon" onClick={() => openEdit(item)} className="cursor-pointer">
+                          <Edit className="h-4 w-4" />
+                        </Button>
+                        <Button variant="ghost" size="icon" onClick={() => setDeleteTarget(item)} className="cursor-pointer">
+                          <Trash2 className="h-4 w-4 text-destructive" />
+                        </Button>
+                      </div>
+                    </td>
+                  </tr>
+                )
+              })}
             </tbody>
           </table>
         </div>
@@ -965,25 +1053,27 @@ export function InventoryPage() {
             </div>
             {!isFormStockAdjustment && (
               <div className="space-y-1.5">
-                <Label htmlFor="form-supplier">{isFormTransfer ? "出货仓库" : isFormWholesale ? "收货客户" : "供应商"}</Label>
+                <Label htmlFor="form-supplier">{isFormAccounting ? "单位全名" : isFormTransfer ? "出货仓库" : isFormWholesale ? "收货客户" : "供应商"}</Label>
                 <SearchableSelect
                   value={formData.supplier || ""}
                   options={formCounterpartyOptions}
                   onChange={(nextValue) => setFormData((prev) => ({ ...prev, supplier: nextValue }))}
-                  placeholder={isFormTransfer ? "搜索出货仓库" : isFormWholesale ? "搜索收货客户" : "搜索供应商"}
+                  placeholder={isFormAccounting ? (isFormPayable ? "搜索供应商" : "搜索一般客户") : isFormTransfer ? "搜索出货仓库" : isFormWholesale ? "搜索收货客户" : "搜索供应商"}
                 />
               </div>
             )}
             {/* Warehouse */}
-            <div className="space-y-1.5">
-              <Label htmlFor="form-warehouse">{isFormStockAdjustment ? "仓库" : isFormTransfer ? "入货仓库" : isFormWholesale ? "发货仓库" : "仓库"}</Label>
-              <SearchableSelect
-                value={formData.warehouse || ""}
-                options={warehouseSelectOptions}
-                onChange={(nextValue) => setFormData((prev) => ({ ...prev, warehouse: nextValue }))}
-                placeholder={isFormStockAdjustment ? "搜索仓库" : isFormTransfer ? "搜索入货仓库" : isFormWholesale ? "搜索发货仓库" : "搜索仓库"}
-              />
-            </div>
+            {!isFormAccounting && (
+              <div className="space-y-1.5">
+                <Label htmlFor="form-warehouse">{isFormStockAdjustment ? "仓库" : isFormTransfer ? "入货仓库" : isFormWholesale ? "发货仓库" : "仓库"}</Label>
+                <SearchableSelect
+                  value={formData.warehouse || ""}
+                  options={warehouseSelectOptions}
+                  onChange={(nextValue) => setFormData((prev) => ({ ...prev, warehouse: nextValue }))}
+                  placeholder={isFormStockAdjustment ? "搜索仓库" : isFormTransfer ? "搜索入货仓库" : isFormWholesale ? "搜索发货仓库" : "搜索仓库"}
+                />
+              </div>
+            )}
             {/* Summary - full width */}
             <div className="col-span-2 space-y-1.5">
               <Label htmlFor="form-summary">摘要</Label>
@@ -1150,11 +1240,112 @@ export function InventoryPage() {
         </DialogContent>
       </Dialog>
 
+      <Dialog open={recycleOpen} onOpenChange={setRecycleOpen}>
+        <DialogContent className="max-w-5xl">
+          <DialogHeader>
+            <div className="flex items-center justify-between gap-3">
+              <DialogTitle>单据回收站</DialogTitle>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                onClick={() => setRecycleOpen(false)}
+                className="h-8 w-8 cursor-pointer"
+                aria-label="关闭回收站"
+                title="关闭"
+              >
+                <X className="h-4 w-4" />
+              </Button>
+            </div>
+          </DialogHeader>
+          <div className="space-y-3 py-2">
+            <div className="rounded-lg border border-border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+              删除的单据会在这里保留 10 天，超过 10 天后自动彻底删除。
+            </div>
+            <div className="overflow-hidden rounded-lg border border-border">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-border bg-muted/40 text-left text-muted-foreground">
+                    <th className="px-3 py-2 font-medium">单据编号</th>
+                    <th className="px-3 py-2 font-medium">日期</th>
+                    <th className="px-3 py-2 font-medium">单据类型</th>
+                    <th className="px-3 py-2 font-medium">单位全名</th>
+                    <th className="px-3 py-2 font-medium">摘要</th>
+                    <th className="px-3 py-2 font-medium">删除时间</th>
+                    <th className="px-3 py-2 font-medium">剩余</th>
+                    <th className="px-3 py-2 text-right font-medium">操作</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border">
+                  {isRecycleLoading && (
+                    <tr>
+                      <td colSpan={8} className="px-4 py-10 text-center text-muted-foreground">加载中...</td>
+                    </tr>
+                  )}
+                  {!isRecycleLoading && recycleItems.length === 0 && (
+                    <tr>
+                      <td colSpan={8} className="px-4 py-10 text-center text-muted-foreground">回收站暂无单据</td>
+                    </tr>
+                  )}
+                  {!isRecycleLoading && recycleItems.map((item) => (
+                    <tr key={item.id} className="hover:bg-muted/30">
+                      <td className="px-3 py-2 font-mono text-xs">{item.document_number || item.id}</td>
+                      <td className="px-3 py-2 whitespace-nowrap">{item.date || "-"}</td>
+                      <td className="px-3 py-2 whitespace-nowrap">{item.document_type || "-"}</td>
+                      <td className="px-3 py-2 max-w-40 truncate">{item.supplier || "-"}</td>
+                      <td className="px-3 py-2 max-w-56 truncate">{item.summary || "-"}</td>
+                      <td className="px-3 py-2 whitespace-nowrap text-xs">{formatDeletedAt(item.deleted_at)}</td>
+                      <td className="px-3 py-2 whitespace-nowrap">{remainingRecycleDays(item.deleted_at)}</td>
+                      <td className="px-3 py-2 text-right">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => handleRestoreRecord(item.id)}
+                          disabled={isRestoringId === item.id}
+                          className="cursor-pointer"
+                        >
+                          <RefreshCw className="h-3.5 w-3.5" />
+                          <span className="ml-1.5">{isRestoringId === item.id ? "恢复中..." : "恢复"}</span>
+                        </Button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div className="flex items-center justify-between text-sm text-muted-foreground">
+              <span>共 {recycleTotal} 条</span>
+              <div className="flex items-center gap-2">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => setRecyclePage((p) => Math.max(1, p - 1))}
+                  disabled={recyclePage <= 1 || isRecycleLoading}
+                  className="cursor-pointer"
+                >
+                  上一页
+                </Button>
+                <span className="tabular-nums">{recyclePage} / {recycleTotalPages}</span>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => setRecyclePage((p) => Math.min(recycleTotalPages, p + 1))}
+                  disabled={recyclePage >= recycleTotalPages || isRecycleLoading}
+                  className="cursor-pointer"
+                >
+                  下一页
+                </Button>
+              </div>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
       <ConfirmDialog
         open={deleteTarget !== null}
         title="确认删除"
-        description={`确定删除记录 ${deleteTarget?.summary || deleteTarget?.id}？此操作不可撤销。`}
-        confirmLabel={isDeleting ? "删除中..." : "删除"}
+        description={`确定把记录 ${deleteTarget?.summary || deleteTarget?.id} 移入回收站？10 天内可以恢复。`}
+        confirmLabel={isDeleting ? "处理中..." : "移入回收站"}
         variant="destructive"
         onConfirm={handleDeleteConfirm}
         onCancel={() => setDeleteTarget(null)}
@@ -1163,8 +1354,8 @@ export function InventoryPage() {
       <ConfirmDialog
         open={batchDeleteOpen}
         title="确认批量删除"
-        description={`确定删除选中的 ${selectedIds.size} 条记录？此操作不可撤销。`}
-        confirmLabel={isBatchDeleting ? "删除中..." : "删除"}
+        description={`确定把选中的 ${selectedIds.size} 条记录移入回收站？10 天内可以恢复。`}
+        confirmLabel={isBatchDeleting ? "处理中..." : "移入回收站"}
         variant="destructive"
         onConfirm={handleBatchDeleteConfirm}
         onCancel={() => setBatchDeleteOpen(false)}

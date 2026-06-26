@@ -22,10 +22,14 @@ import {
   batchDeleteDetails,
   replaceDetailsFromExcel,
   matchSkuImage,
+  listInventoryAccountSubjects,
+  createInventoryAccountSubject,
+  deleteInventoryAccountSubject,
   ApiError,
   type InventoryRecord,
   type InventoryDetail,
   type SupplierItem,
+  type InventoryAccountSubject,
 } from "@/lib/api"
 
 function getErrorMessage(error: unknown) {
@@ -43,9 +47,12 @@ const EMPTY_DETAIL: Record<string, string> = {
   quantity: "",
   unit_price: "",
   amount: "",
+  remark: "",
 }
 
 const SIZE_COLUMNS = ["35", "36", "37", "38", "39", "40", "41", "42", "43", "44"]
+const ACCOUNTING_DOCUMENT_TYPES = new Set(["应付款减少", "应付款增加", "应收款减少", "应收款增加"])
+const EMPTY_SUBJECT_FORM = { code: "", name: "" }
 
 type Props = {
   record: InventoryRecord | null
@@ -93,6 +100,9 @@ function inferReplaceImportBrand(record: InventoryRecord | null, suppliers: Supp
 
 export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChanged }: Props) {
   const documentId = record?.id ?? null
+  const documentType = record?.document_type || ""
+  const isAccountingDocument = ACCOUNTING_DOCUMENT_TYPES.has(documentType)
+  const accountingAmountLabel = documentType.includes("减少") ? "减少金额" : "增加金额"
   const [items, setItems] = useState<InventoryDetail[]>([])
   const [isLoading, setIsLoading] = useState(false)
   const [imageUrls, setImageUrls] = useState<Record<number, string | null>>({})
@@ -111,6 +121,10 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
   const lookupReasonRef = useRef<"code" | "quantity">("code")
   const [editingId, setEditingId] = useState<number | null>(null)
   const [isSaving, setIsSaving] = useState(false)
+  const [subjects, setSubjects] = useState<InventoryAccountSubject[]>([])
+  const [subjectFormData, setSubjectFormData] = useState({ ...EMPTY_SUBJECT_FORM })
+  const [subjectDeleteTarget, setSubjectDeleteTarget] = useState<InventoryAccountSubject | null>(null)
+  const [isSubjectSaving, setIsSubjectSaving] = useState(false)
 
   const [deleteTarget, setDeleteTarget] = useState<InventoryDetail | null>(null)
   const [batchDeleteOpen, setBatchDeleteOpen] = useState(false)
@@ -148,6 +162,10 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
   useEffect(() => {
     const controller = new AbortController()
     async function loadImages() {
+      if (isAccountingDocument) {
+        setImageUrls({})
+        return
+      }
       const urls: Record<number, string | null> = {}
       for (const item of items) {
         const keys = getImageKeys(item.product_code)
@@ -175,7 +193,20 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
     }
     void loadImages()
     return () => { controller.abort() }
-  }, [items])
+  }, [items, isAccountingDocument])
+
+  const loadSubjects = useCallback(async () => {
+    try {
+      const res = await listInventoryAccountSubjects()
+      setSubjects(res.items)
+    } catch {
+      setSubjects([])
+    }
+  }, [])
+
+  useEffect(() => {
+    if (isAccountingDocument) void loadSubjects()
+  }, [isAccountingDocument, loadSubjects])
 
   const showMessage = (title: string, description: string) => {
     setMessageContent({ title, description })
@@ -204,6 +235,7 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
       quantity: item.quantity || "",
       unit_price: item.unit_price || "",
       amount: item.amount || "",
+      remark: item.remark || "",
     })
     setSizeQuantities(item.size_quantities || {})
     setLookupToken(0)
@@ -213,9 +245,20 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
 
   const handleSave = async () => {
     if (!documentId) return
+    if (isAccountingDocument && (!formData.product_name?.trim() || !formData.amount?.trim())) {
+      showMessage("保存失败", "请填写科目和金额")
+      return
+    }
     setIsSaving(true)
     try {
-      const payload = { ...formData, size_quantities: sizeQuantities }
+      const payload = isAccountingDocument
+        ? {
+            product_code: formData.product_code,
+            product_name: formData.product_name,
+            amount: formData.amount,
+            remark: formData.remark,
+          }
+        : { ...formData, size_quantities: sizeQuantities }
       if (formMode === "create") {
         await createDetail(documentId, payload)
       } else if (editingId !== null) {
@@ -231,8 +274,59 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
     }
   }
 
+  const handleSubjectSelect = (subjectName: string) => {
+    const subject = subjects.find((item) => item.name === subjectName)
+    setFormData((prev) => ({
+      ...prev,
+      product_name: subjectName,
+      product_code: subject?.code || "",
+    }))
+  }
+
+  const handleCreateSubject = async () => {
+    if (!subjectFormData.name.trim()) {
+      showMessage("新增失败", "科目名称不能为空")
+      return
+    }
+    setIsSubjectSaving(true)
+    try {
+      const res = await createInventoryAccountSubject({
+        code: subjectFormData.code.trim(),
+        name: subjectFormData.name.trim(),
+      })
+      setSubjectFormData({ ...EMPTY_SUBJECT_FORM })
+      await loadSubjects()
+      setFormData((prev) => ({
+        ...prev,
+        product_code: res.item.code || "",
+        product_name: res.item.name,
+      }))
+    } catch (e) {
+      showMessage("新增失败", getErrorMessage(e))
+    } finally {
+      setIsSubjectSaving(false)
+    }
+  }
+
+  const handleDeleteSubject = async () => {
+    if (!subjectDeleteTarget) return
+    setIsSubjectSaving(true)
+    try {
+      await deleteInventoryAccountSubject(subjectDeleteTarget.id)
+      if (formData.product_name === subjectDeleteTarget.name) {
+        setFormData((prev) => ({ ...prev, product_name: "", product_code: "" }))
+      }
+      setSubjectDeleteTarget(null)
+      await loadSubjects()
+    } catch (e) {
+      showMessage("删除失败", getErrorMessage(e))
+    } finally {
+      setIsSubjectSaving(false)
+    }
+  }
+
   useEffect(() => {
-    if (!formOpen || lookupToken === 0) return
+    if (isAccountingDocument || !formOpen || lookupToken === 0) return
     const productCode = (lookupSourceCodeRef.current || formData.product_code || "").trim()
     if (!productCode) {
       setSizeQuantities({})
@@ -278,7 +372,7 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
       controller.abort()
       window.clearTimeout(timer)
     }
-  }, [formOpen, lookupToken, formData.product_code, formData.quantity])
+  }, [formOpen, lookupToken, formData.product_code, formData.quantity, isAccountingDocument])
 
   const handleDelete = async () => {
     if (!deleteTarget || !documentId) return
@@ -367,27 +461,31 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
             <p className="text-xs text-muted-foreground">单据 {record?.document_number || documentId}</p>
           </div>
           <div className="flex items-center gap-2">
-            <input
-              ref={replaceInputRef}
-              type="file"
-              accept=".xlsx,.xls,.xlsm"
-              className="hidden"
-              onChange={(event) => {
-                const file = event.target.files?.[0] ?? null
-                if (file) setReplaceFile(file)
-              }}
-            />
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => replaceInputRef.current?.click()}
-              disabled={isReplacing}
-              className="cursor-pointer"
-              title="用 Excel 重新导入并覆盖当前单据明细"
-            >
-              <Upload className="h-4 w-4" />
-              <span className="ml-1.5">重新导入明细</span>
-            </Button>
+            {!isAccountingDocument && (
+              <>
+                <input
+                  ref={replaceInputRef}
+                  type="file"
+                  accept=".xlsx,.xls,.xlsm"
+                  className="hidden"
+                  onChange={(event) => {
+                    const file = event.target.files?.[0] ?? null
+                    if (file) setReplaceFile(file)
+                  }}
+                />
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => replaceInputRef.current?.click()}
+                  disabled={isReplacing}
+                  className="cursor-pointer"
+                  title="用 Excel 重新导入并覆盖当前单据明细"
+                >
+                  <Upload className="h-4 w-4" />
+                  <span className="ml-1.5">重新导入明细</span>
+                </Button>
+              </>
+            )}
             {selectedIds.size > 0 && (
               <Button
                 size="sm"
@@ -414,43 +512,64 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
         <div className="flex-1 overflow-auto">
           <table className="w-full text-sm">
             <thead>
-              <tr className="sticky top-0 z-10 border-b border-border bg-muted/40 text-left text-muted-foreground">
-                <th className="w-10 px-3 py-2.5 font-medium">
-                  <input
-                    type="checkbox"
-                    checked={allSelected}
-                    disabled={items.length === 0 || isLoading}
-                    onChange={toggleAllSelected}
-                    className="h-4 w-4 cursor-pointer rounded border-border"
-                    aria-label="选择全部明细"
-                  />
-                </th>
-                <th className="px-4 py-2.5 w-20 font-medium"></th>
-                <th className="px-3 py-2.5 font-medium">货号</th>
-                <th className="px-3 py-2.5 font-medium">商品全名</th>
-                <th className="px-3 py-2.5 font-medium">颜色条码</th>
-                <th className="px-3 py-2.5 font-medium">颜色名称</th>
-                {SIZE_COLUMNS.map((size) => (
-                  <th key={size} className="px-2 py-2.5 text-right font-medium">{size}</th>
-                ))}
-                <th className="px-3 py-2.5 text-right font-medium">数量</th>
-                <th className="px-3 py-2.5 text-right font-medium">单价</th>
-                <th className="px-3 py-2.5 text-right font-medium">金额</th>
-                <th className="px-4 py-2.5 w-20 font-medium">操作</th>
-              </tr>
+              {isAccountingDocument ? (
+                <tr className="sticky top-0 z-10 border-b border-border bg-muted/40 text-left text-muted-foreground">
+                  <th className="w-10 px-3 py-2.5 font-medium">
+                    <input
+                      type="checkbox"
+                      checked={allSelected}
+                      disabled={items.length === 0 || isLoading}
+                      onChange={toggleAllSelected}
+                      className="h-4 w-4 cursor-pointer rounded border-border"
+                      aria-label="选择全部明细"
+                    />
+                  </th>
+                  <th className="px-3 py-2.5 w-16 font-medium">序号</th>
+                  <th className="px-3 py-2.5 w-32 font-medium">科目编号</th>
+                  <th className="px-3 py-2.5 font-medium">费用项目名 / 科目</th>
+                  <th className="px-3 py-2.5 text-right font-medium">{accountingAmountLabel}</th>
+                  <th className="px-3 py-2.5 font-medium">备注</th>
+                  <th className="px-4 py-2.5 w-20 font-medium">操作</th>
+                </tr>
+              ) : (
+                <tr className="sticky top-0 z-10 border-b border-border bg-muted/40 text-left text-muted-foreground">
+                  <th className="w-10 px-3 py-2.5 font-medium">
+                    <input
+                      type="checkbox"
+                      checked={allSelected}
+                      disabled={items.length === 0 || isLoading}
+                      onChange={toggleAllSelected}
+                      className="h-4 w-4 cursor-pointer rounded border-border"
+                      aria-label="选择全部明细"
+                    />
+                  </th>
+                  <th className="px-4 py-2.5 w-20 font-medium"></th>
+                  <th className="px-3 py-2.5 font-medium">货号</th>
+                  <th className="px-3 py-2.5 font-medium">商品全名</th>
+                  <th className="px-3 py-2.5 font-medium">颜色条码</th>
+                  <th className="px-3 py-2.5 font-medium">颜色名称</th>
+                  {SIZE_COLUMNS.map((size) => (
+                    <th key={size} className="px-2 py-2.5 text-right font-medium">{size}</th>
+                  ))}
+                  <th className="px-3 py-2.5 text-right font-medium">数量</th>
+                  <th className="px-3 py-2.5 text-right font-medium">单价</th>
+                  <th className="px-3 py-2.5 text-right font-medium">金额</th>
+                  <th className="px-4 py-2.5 w-20 font-medium">操作</th>
+                </tr>
+              )}
             </thead>
             <tbody className="divide-y divide-border">
               {isLoading && (
                 <tr>
-                    <td colSpan={20} className="px-6 py-12 text-center text-muted-foreground">加载中...</td>
+                    <td colSpan={isAccountingDocument ? 7 : 20} className="px-6 py-12 text-center text-muted-foreground">加载中...</td>
                 </tr>
               )}
               {!isLoading && items.length === 0 && (
                 <tr>
-                  <td colSpan={20} className="px-6 py-12 text-center text-muted-foreground">暂无明细数据</td>
+                  <td colSpan={isAccountingDocument ? 7 : 20} className="px-6 py-12 text-center text-muted-foreground">暂无明细数据</td>
                 </tr>
               )}
-              {items.map((item) => (
+              {items.map((item, index) => (
                 <tr key={item.id} className="hover:bg-muted/30 transition-colors">
                   <td className="px-3 py-2.5">
                     <input
@@ -461,29 +580,41 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
                       aria-label={`选择明细 ${item.product_code || item.id}`}
                     />
                   </td>
-                  <td className="px-4 py-1.5">
-                    {imageUrls[item.id] ? (
-                      <img
-                        src={`/api${imageUrls[item.id]}`}
-                        alt={item.product_code || ""}
-                        className="h-16 w-16 object-contain"
-                      />
-                    ) : (
-                      <div className="h-16 w-16 rounded-lg border border-border bg-muted/10 flex items-center justify-center text-[10px] text-muted-foreground/50">
-                        无图
-                      </div>
-                    )}
-                  </td>
-                  <td className="px-3 py-2.5 font-mono text-xs">{item.product_code || "-"}</td>
-                  <td className="px-3 py-2.5">{item.product_name || "-"}</td>
-                  <td className="px-3 py-2.5 font-mono text-xs">{item.color_barcode || "-"}</td>
-                  <td className="px-3 py-2.5">{item.color_name || item.color_spec || "-"}</td>
-                  {SIZE_COLUMNS.map((size) => (
-                    <td key={size} className="px-2 py-2.5 text-right tabular-nums">{item.size_quantities?.[size] || "-"}</td>
-                  ))}
-                  <td className="px-3 py-2.5 text-right tabular-nums">{item.quantity || "-"}</td>
-                  <td className="px-3 py-2.5 text-right tabular-nums">{item.unit_price || "-"}</td>
-                  <td className="px-3 py-2.5 text-right tabular-nums">{item.amount || "-"}</td>
+                  {isAccountingDocument ? (
+                    <>
+                      <td className="px-3 py-2.5 text-muted-foreground tabular-nums">{index + 1}</td>
+                      <td className="px-3 py-2.5 font-mono text-xs">{item.product_code || "-"}</td>
+                      <td className="px-3 py-2.5">{item.product_name || "-"}</td>
+                      <td className="px-3 py-2.5 text-right tabular-nums">{item.amount || "-"}</td>
+                      <td className="px-3 py-2.5 max-w-64 truncate">{item.remark || "-"}</td>
+                    </>
+                  ) : (
+                    <>
+                      <td className="px-4 py-1.5">
+                        {imageUrls[item.id] ? (
+                          <img
+                            src={`/api${imageUrls[item.id]}`}
+                            alt={item.product_code || ""}
+                            className="h-16 w-16 object-contain"
+                          />
+                        ) : (
+                          <div className="h-16 w-16 rounded-lg border border-border bg-muted/10 flex items-center justify-center text-[10px] text-muted-foreground/50">
+                            无图
+                          </div>
+                        )}
+                      </td>
+                      <td className="px-3 py-2.5 font-mono text-xs">{item.product_code || "-"}</td>
+                      <td className="px-3 py-2.5">{item.product_name || "-"}</td>
+                      <td className="px-3 py-2.5 font-mono text-xs">{item.color_barcode || "-"}</td>
+                      <td className="px-3 py-2.5">{item.color_name || item.color_spec || "-"}</td>
+                      {SIZE_COLUMNS.map((size) => (
+                        <td key={size} className="px-2 py-2.5 text-right tabular-nums">{item.size_quantities?.[size] || "-"}</td>
+                      ))}
+                      <td className="px-3 py-2.5 text-right tabular-nums">{item.quantity || "-"}</td>
+                      <td className="px-3 py-2.5 text-right tabular-nums">{item.unit_price || "-"}</td>
+                      <td className="px-3 py-2.5 text-right tabular-nums">{item.amount || "-"}</td>
+                    </>
+                  )}
                   <td className="px-4 py-2.5">
                     <div className="flex items-center gap-0.5">
                       <Button variant="ghost" size="icon" onClick={() => openEdit(item)} className="h-8 w-8 cursor-pointer">
@@ -508,6 +639,98 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
             <DialogTitle>{formMode === "create" ? "新增明细" : "编辑明细"}</DialogTitle>
           </DialogHeader>
           <div className="space-y-4 py-2">
+            {isAccountingDocument ? (
+              <>
+                <div className="grid grid-cols-[1fr_auto] gap-2">
+                  <div className="space-y-1.5">
+                    <Label htmlFor="detail-subject">费用项目名 / 科目</Label>
+                    <select
+                      id="detail-subject"
+                      value={formData.product_name || ""}
+                      onChange={(event) => handleSubjectSelect(event.target.value)}
+                      className="flex h-9 w-full cursor-pointer rounded-lg border border-input bg-card px-3 py-2 text-sm shadow-xs outline-none transition-colors focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/35"
+                    >
+                      <option value="">请选择科目</option>
+                      {subjects.map((subject) => (
+                        <option key={subject.id} value={subject.name}>
+                          {subject.code ? `${subject.code} / ${subject.name}` : subject.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="flex items-end">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      disabled={!formData.product_name || isSubjectSaving}
+                      onClick={() => {
+                        const subject = subjects.find((item) => item.name === formData.product_name)
+                        if (subject) setSubjectDeleteTarget(subject)
+                      }}
+                      className="cursor-pointer"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </div>
+                </div>
+                <div className="grid grid-cols-[0.8fr_1fr_auto] gap-2 rounded-lg border border-border bg-muted/20 p-3">
+                  <div className="space-y-1.5">
+                    <Label htmlFor="new-subject-code">科目编号</Label>
+                    <Input
+                      id="new-subject-code"
+                      value={subjectFormData.code}
+                      onChange={(event) => setSubjectFormData((prev) => ({ ...prev, code: event.target.value }))}
+                      placeholder="可选"
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="new-subject-name">新增科目</Label>
+                    <Input
+                      id="new-subject-name"
+                      value={subjectFormData.name}
+                      onChange={(event) => setSubjectFormData((prev) => ({ ...prev, name: event.target.value }))}
+                      placeholder="科目名称"
+                    />
+                  </div>
+                  <div className="flex items-end">
+                    <Button type="button" onClick={handleCreateSubject} disabled={isSubjectSaving} className="cursor-pointer">
+                      <Plus className="h-4 w-4" />
+                      <span className="ml-1.5">新增</span>
+                    </Button>
+                  </div>
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="detail-subject-code">科目编号</Label>
+                  <Input
+                    id="detail-subject-code"
+                    value={formData.product_code || ""}
+                    onChange={(event) => setFormData((prev) => ({ ...prev, product_code: event.target.value }))}
+                    placeholder="科目编号"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="detail-accounting-amount">{accountingAmountLabel}</Label>
+                  <Input
+                    id="detail-accounting-amount"
+                    type="number"
+                    step="0.01"
+                    value={formData.amount || ""}
+                    onChange={(event) => setFormData((prev) => ({ ...prev, amount: event.target.value }))}
+                    placeholder="0.00"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="detail-remark">备注</Label>
+                  <Input
+                    id="detail-remark"
+                    value={formData.remark || ""}
+                    onChange={(event) => setFormData((prev) => ({ ...prev, remark: event.target.value }))}
+                    placeholder="备注"
+                  />
+                </div>
+              </>
+            ) : (
+              <>
             <div className="space-y-1.5">
               <Label htmlFor="detail-product-code">货号</Label>
               <Input
@@ -627,6 +850,8 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
                 placeholder="自动计算"
               />
             </div>
+              </>
+            )}
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setFormOpen(false)} disabled={isSaving} className="cursor-pointer">取消</Button>
@@ -669,6 +894,16 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
           setReplaceFile(null)
           if (replaceInputRef.current) replaceInputRef.current.value = ""
         }}
+      />
+
+      <ConfirmDialog
+        open={subjectDeleteTarget !== null}
+        title="确认删除科目"
+        description={`确定删除科目 ${subjectDeleteTarget?.name || ""}？已保存的单据明细不会被改动。`}
+        confirmLabel={isSubjectSaving ? "删除中..." : "删除"}
+        variant="destructive"
+        onConfirm={handleDeleteSubject}
+        onCancel={() => setSubjectDeleteTarget(null)}
       />
 
       <MessageDialog

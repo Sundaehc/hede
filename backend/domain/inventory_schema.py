@@ -19,6 +19,7 @@ from sqlalchemy import (
 
 from domain.inventory_sources import (
     GENERAL_CUSTOMER_BRAND_TABLE_NAME,
+    INVENTORY_ACCOUNT_SUBJECT_TABLE_NAME,
     INVENTORY_DETAIL_TABLE_NAME,
     INVENTORY_TABLE_NAME,
     JST_STOCK_TABLE_NAME,
@@ -30,6 +31,7 @@ from domain.fields import (
     FieldSpec,
     GENERAL_CUSTOMER_BRAND_FIELDS,
     INVENTORY_DETAIL_FIELDS,
+    INVENTORY_ACCOUNT_SUBJECT_FIELDS,
     INVENTORY_FIELDS,
     JST_STOCK_FIELDS,
     SUPPLIER_FIELDS,
@@ -58,6 +60,7 @@ def build_inventory_table() -> Table:
     columns.extend(Column(field.name, _column_type(field)) for field in INVENTORY_FIELDS)
     columns.append(Column("date_value", Date, nullable=True))
     columns.append(Column("extra_fields", JSON, nullable=True))
+    columns.append(Column("deleted_at", DateTime(timezone=True), nullable=True))
     columns.append(Column("created_at", DateTime(timezone=True), server_default=func.date_trunc('minute', func.now())))
     columns.append(Column("updated_at", DateTime(timezone=True), server_default=func.date_trunc('minute', func.now()), onupdate=func.date_trunc('minute', func.now())))
     table = Table(INVENTORY_TABLE_NAME, METADATA, *columns)
@@ -80,6 +83,22 @@ def build_inventory_detail_table() -> Table:
     table = Table(INVENTORY_DETAIL_TABLE_NAME, METADATA, *columns)
     Index("idx_inventory_details_document_id", table.c.document_id)
     Index("idx_inventory_details_product_code", table.c.product_code)
+    return table
+
+
+def build_inventory_account_subject_table() -> Table:
+    columns: list = [
+        Column("id", BigInteger, Identity(always=False), primary_key=True),
+        *[
+            Column(field.name, _column_type(field), nullable=field.name != "name")
+            for field in INVENTORY_ACCOUNT_SUBJECT_FIELDS
+        ],
+        Column("created_at", DateTime(timezone=True), server_default=func.date_trunc('minute', func.now())),
+        Column("updated_at", DateTime(timezone=True), server_default=func.date_trunc('minute', func.now()), onupdate=func.date_trunc('minute', func.now())),
+        UniqueConstraint("name", name="uq_inventory_account_subjects_name"),
+    ]
+    table = Table(INVENTORY_ACCOUNT_SUBJECT_TABLE_NAME, METADATA, *columns)
+    Index("idx_inventory_account_subjects_name", table.c.name)
     return table
 
 
@@ -147,6 +166,7 @@ def build_general_customer_shop_table() -> Table:
 
 INVENTORY_TABLE = build_inventory_table()
 INVENTORY_DETAIL_TABLE = build_inventory_detail_table()
+INVENTORY_ACCOUNT_SUBJECT_TABLE = build_inventory_account_subject_table()
 SUPPLIER_TABLE = build_supplier_table()
 WAREHOUSE_TABLE = build_warehouse_table()
 GENERAL_CUSTOMER_BRAND_TABLE = build_general_customer_brand_table()

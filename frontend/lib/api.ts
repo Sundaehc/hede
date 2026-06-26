@@ -253,6 +253,7 @@ export type InventoryRecord = {
   source_workbook: string
   source_sheet: string
   source_row_number: string
+  deleted_at: string | null
   created_at: string | null
   updated_at: string | null
 }
@@ -282,6 +283,7 @@ export type InventoryDetail = {
   quantity: string | null
   unit_price: string | null
   amount: string | null
+  remark: string | null
   created_at: string | null
   updated_at: string | null
 }
@@ -333,6 +335,14 @@ export type WarehouseItem = {
   notes: string | null
 }
 
+export type InventoryAccountSubject = {
+  id: number
+  code: string | null
+  name: string
+  created_at: string | null
+  updated_at: string | null
+}
+
 export function listInventory(params: {
   date_start?: string
   date_end?: string
@@ -381,6 +391,23 @@ export function updateInventoryRecord(id: number, payload: Record<string, unknow
 export function deleteInventoryRecord(id: number) {
   return request<{ message: string }>(`/inventory/${id}`, {
     method: "DELETE",
+  })
+}
+
+export function listInventoryRecycleBin(params: {
+  page: number
+  pageSize: number
+}) {
+  const search = new URLSearchParams({
+    page: String(params.page),
+    page_size: String(params.pageSize),
+  })
+  return request<InventoryListResponse>(`/inventory/recycle-bin?${search.toString()}`)
+}
+
+export function restoreInventoryRecord(id: number) {
+  return request<{ item: InventoryRecord; message: string }>(`/inventory/${id}/restore`, {
+    method: "POST",
   })
 }
 
@@ -522,6 +549,23 @@ export function importPurchaseInventory(payload: {
 
 export function listGeneralCustomerBrands() {
   return request<GeneralCustomerBrandListResponse>("/inventory/general-customer-brands")
+}
+
+export function listInventoryAccountSubjects() {
+  return request<{ items: InventoryAccountSubject[] }>("/inventory/account-subjects")
+}
+
+export function createInventoryAccountSubject(payload: Record<string, unknown>) {
+  return request<{ item: InventoryAccountSubject; message: string }>("/inventory/account-subjects", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  })
+}
+
+export function deleteInventoryAccountSubject(id: number) {
+  return request<{ message: string }>(`/inventory/account-subjects/${id}`, {
+    method: "DELETE",
+  })
 }
 
 export function createGeneralCustomerBrand(payload: Record<string, unknown>) {
