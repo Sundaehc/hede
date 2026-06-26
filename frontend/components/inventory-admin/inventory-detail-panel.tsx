@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useRef, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { Plus, Trash2, Edit, X, Upload } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -48,7 +48,29 @@ const EMPTY_DETAIL: Record<string, string> = {
   remark: "",
 }
 
-const SIZE_COLUMNS = ["35", "36", "37", "38", "39", "40", "41", "42", "43", "44"]
+const EU_SIZE_COLUMNS = ["35", "36", "37", "38", "39", "40", "41", "42", "43", "44"]
+const MILLIMETER_SIZE_COLUMNS = ["220", "225", "230", "235", "240", "245", "250", "255", "260", "265", "270", "275", "280", "285"]
+const EU_SIZE_BRANDS = new Set(["smiley", "ni", "nike"])
+const MILLIMETER_SIZE_BRANDS = new Set(["cbanner_mens", "cbanner_womens", "yandou", "eblan"])
+const MILLIMETER_TO_EU_SIZE: Record<string, string> = {
+  "220": "34",
+  "225": "35",
+  "230": "36",
+  "235": "37",
+  "240": "38",
+  "245": "39",
+  "250": "40",
+  "255": "41",
+  "260": "42",
+  "265": "43",
+  "270": "44",
+  "275": "45",
+  "280": "46",
+  "285": "47",
+}
+const EU_TO_MILLIMETER_SIZE = Object.fromEntries(
+  Object.entries(MILLIMETER_TO_EU_SIZE).map(([millimeter, eu]) => [eu, millimeter]),
+) as Record<string, string>
 const ACCOUNTING_DOCUMENT_TYPES = new Set(["应付款减少", "应付款增加", "应收款减少", "应收款增加"])
 
 type Props = {
@@ -73,8 +95,8 @@ function formatComputedNumber(value: number): string {
   return Number.isInteger(value) ? String(value) : value.toFixed(2).replace(/\.?0+$/, "")
 }
 
-function sumSizeQuantities(values: Record<string, string>): string {
-  const total = SIZE_COLUMNS.reduce((sum, size) => {
+function sumSizeQuantities(values: Record<string, string>, sizeColumns: string[]): string {
+  const total = sizeColumns.reduce((sum, size) => {
     const value = Number.parseFloat(values[size] || "0")
     return Number.isFinite(value) ? sum + value : sum
   }, 0)
@@ -88,11 +110,52 @@ function computeAmount(quantity: string, unitPrice: string): string {
   return (qty * price).toFixed(2)
 }
 
-function inferReplaceImportBrand(record: InventoryRecord | null, suppliers: SupplierItem[]) {
-  if (!record) return "cbanner_mens"
-  if (record.document_type !== "进货单" && record.document_type !== "进货退货单") return "cbanner_mens"
-  const supplier = suppliers.find((item) => item.name === record.supplier)
-  return supplier?.brand === "cbanner_womens" ? "cbanner_womens" : "cbanner_mens"
+function isNiSupplierName(name: string | null | undefined) {
+  const value = (name || "").trim()
+  if (!value) return false
+  const upper = value.toUpperCase()
+  return /\bNI\b/.test(upper) || upper.includes("NIKE") || value.includes("耐克")
+}
+
+function isSmileySupplierName(name: string | null | undefined) {
+  const value = (name || "").trim()
+  return value.includes("笑脸") || value.includes("小莲")
+}
+
+function inferInventorySizeBrand(record: InventoryRecord | null, suppliers: SupplierItem[]) {
+  const supplierName = (record?.supplier || "").trim()
+  const supplier = suppliers.find((item) => item.name === supplierName)
+  const brand = supplier?.brand || ""
+  if (isNiSupplierName(supplierName) || isNiSupplierName(supplier?.name)) return "ni"
+  if (isSmileySupplierName(supplierName) || isSmileySupplierName(supplier?.name)) return "smiley"
+  if (brand === "ni") return brand
+  if (brand && MILLIMETER_SIZE_BRANDS.has(brand)) return brand
+  if (brand === "smiley") return brand
+  return "cbanner_mens"
+}
+
+function getSizeColumns(brand: string) {
+  return EU_SIZE_BRANDS.has(brand.toLowerCase()) ? EU_SIZE_COLUMNS : MILLIMETER_SIZE_COLUMNS
+}
+
+function getSizeQuantity(values: Record<string, string> | null | undefined, size: string, brand: string) {
+  if (!values) return ""
+  if (values[size]) return values[size]
+  if (!EU_SIZE_BRANDS.has(brand.toLowerCase())) {
+    const euSize = MILLIMETER_TO_EU_SIZE[size]
+    return euSize ? values[euSize] || "" : ""
+  }
+  const millimeterSize = EU_TO_MILLIMETER_SIZE[size]
+  return millimeterSize ? values[millimeterSize] || "" : ""
+}
+
+function normalizeSizeQuantitiesForBrand(values: Record<string, string> | null | undefined, brand: string) {
+  const next: Record<string, string> = {}
+  for (const size of getSizeColumns(brand)) {
+    const value = getSizeQuantity(values, size, brand)
+    if (value) next[size] = value
+  }
+  return next
 }
 
 export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChanged }: Props) {
@@ -100,6 +163,9 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
   const documentType = record?.document_type || ""
   const isAccountingDocument = ACCOUNTING_DOCUMENT_TYPES.has(documentType)
   const accountingAmountLabel = documentType.includes("减少") ? "减少金额" : "增加金额"
+  const inventorySizeBrand = useMemo(() => inferInventorySizeBrand(record, suppliers), [record, suppliers])
+  const sizeColumns = useMemo(() => getSizeColumns(inventorySizeBrand), [inventorySizeBrand])
+  const detailColumnCount = isAccountingDocument ? 6 : 10 + sizeColumns.length
   const [items, setItems] = useState<InventoryDetail[]>([])
   const [isLoading, setIsLoading] = useState(false)
   const [imageUrls, setImageUrls] = useState<Record<number, string | null>>({})
@@ -231,7 +297,7 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
       amount: item.amount || "",
       remark: item.remark || "",
     })
-    setSizeQuantities(item.size_quantities || {})
+    setSizeQuantities(normalizeSizeQuantitiesForBrand(item.size_quantities, inventorySizeBrand))
     setLookupToken(0)
     lookupSourceCodeRef.current = item.product_code || ""
     setFormOpen(true)
@@ -290,6 +356,7 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
         const res = await lookupInventoryDetail({
           productCode,
           quantity: formData.quantity || undefined,
+          brand: inventorySizeBrand,
         })
         if (controller.signal.aborted) return
         const item = res.item
@@ -323,7 +390,7 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
       controller.abort()
       window.clearTimeout(timer)
     }
-  }, [formOpen, lookupToken, formData.product_code, formData.quantity, isAccountingDocument])
+  }, [formOpen, lookupToken, formData.product_code, formData.quantity, isAccountingDocument, inventorySizeBrand])
 
   const handleDelete = async () => {
     if (!deleteTarget || !documentId) return
@@ -380,7 +447,7 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
       const result = await replaceDetailsFromExcel({
         documentId,
         file: replaceFile,
-        brand: inferReplaceImportBrand(record, suppliers),
+        brand: inventorySizeBrand,
       })
       setReplaceFile(null)
       if (replaceInputRef.current) replaceInputRef.current.value = ""
@@ -498,7 +565,7 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
                   <th className="px-3 py-2.5 font-medium">商品全名</th>
                   <th className="px-3 py-2.5 font-medium">颜色条码</th>
                   <th className="px-3 py-2.5 font-medium">颜色名称</th>
-                  {SIZE_COLUMNS.map((size) => (
+                  {sizeColumns.map((size) => (
                     <th key={size} className="px-2 py-2.5 text-right font-medium">{size}</th>
                   ))}
                   <th className="px-3 py-2.5 text-right font-medium">数量</th>
@@ -511,12 +578,12 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
             <tbody className="divide-y divide-border">
               {isLoading && (
                 <tr>
-                    <td colSpan={isAccountingDocument ? 6 : 20} className="px-6 py-12 text-center text-muted-foreground">加载中...</td>
+                    <td colSpan={detailColumnCount} className="px-6 py-12 text-center text-muted-foreground">加载中...</td>
                 </tr>
               )}
               {!isLoading && items.length === 0 && (
                 <tr>
-                  <td colSpan={isAccountingDocument ? 6 : 20} className="px-6 py-12 text-center text-muted-foreground">暂无明细数据</td>
+                  <td colSpan={detailColumnCount} className="px-6 py-12 text-center text-muted-foreground">暂无明细数据</td>
                 </tr>
               )}
               {items.map((item, index) => (
@@ -556,8 +623,10 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
                       <td className="px-3 py-2.5">{item.product_name || "-"}</td>
                       <td className="px-3 py-2.5 font-mono text-xs">{item.color_barcode || "-"}</td>
                       <td className="px-3 py-2.5">{item.color_name || item.color_spec || "-"}</td>
-                      {SIZE_COLUMNS.map((size) => (
-                        <td key={size} className="px-2 py-2.5 text-right tabular-nums">{item.size_quantities?.[size] || "-"}</td>
+                      {sizeColumns.map((size) => (
+                        <td key={size} className="px-2 py-2.5 text-right tabular-nums">
+                          {getSizeQuantity(item.size_quantities, size, inventorySizeBrand) || "-"}
+                        </td>
                       ))}
                       <td className="px-3 py-2.5 text-right tabular-nums">{item.quantity || "-"}</td>
                       <td className="px-3 py-2.5 text-right tabular-nums">{item.unit_price || "-"}</td>
@@ -708,7 +777,7 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
             <div className="space-y-1.5">
               <Label>尺码</Label>
               <div className="grid grid-cols-5 gap-1.5 rounded-lg border border-border bg-muted/20 p-2">
-                {SIZE_COLUMNS.map((size) => (
+                {sizeColumns.map((size) => (
                   <label key={size} className="flex flex-col gap-1 rounded-md border border-border bg-background p-1.5 text-xs">
                     <span className="text-center text-muted-foreground">{size}</span>
                     <Input
@@ -719,7 +788,7 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
                           const next = { ...prev }
                           if (value) next[size] = value
                           else delete next[size]
-                          const quantity = sumSizeQuantities(next)
+                          const quantity = sumSizeQuantities(next, sizeColumns)
                           const amount = computeAmount(quantity, formData.unit_price || "")
                           setFormData((current) => ({
                             ...current,

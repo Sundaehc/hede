@@ -148,9 +148,14 @@ function buildPageRange(current: number, total: number): (number | "ellipsis")[]
 }
 
 function inferImportBrand(documentType: string, supplierName: string, suppliers: SupplierItem[]) {
-  if (documentType !== "进货单" && documentType !== "进货退货单") return "cbanner_mens"
+  if (!DETAIL_IMPORT_DOCUMENT_TYPES.includes(documentType)) return "cbanner_mens"
+  const normalizedName = supplierName.trim()
+  const upperName = normalizedName.toUpperCase()
+  if (/\bNI\b/.test(upperName) || upperName.includes("NIKE") || normalizedName.includes("耐克")) return "ni"
+  if (normalizedName.includes("笑脸") || normalizedName.includes("小莲")) return "smiley"
   const supplier = suppliers.find((item) => item.name === supplierName)
-  return supplier?.brand === "cbanner_womens" ? "cbanner_womens" : "cbanner_mens"
+  if (supplier?.brand) return supplier.brand
+  return "cbanner_mens"
 }
 
 function SearchableSelect({

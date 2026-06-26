@@ -3,7 +3,7 @@ from __future__ import annotations
 from fastapi import APIRouter, HTTPException, Query, Request
 
 from api.schemas import BrandKey
-from domain.gj_brand import CBANNER_MENS_BRAND, GJ_FINE_TABLE_BRANDS, infer_supplier_brand_from_name
+from domain.gj_brand import CBANNER_MENS_BRAND, SUPPLIER_BRANDS, infer_supplier_brand_from_name
 
 router = APIRouter()
 
@@ -11,7 +11,7 @@ router = APIRouter()
 def _normalize_brand(value: str | None) -> str | None:
     if value in (None, "", "all"):
         return None
-    if value not in GJ_FINE_TABLE_BRANDS:
+    if value not in SUPPLIER_BRANDS:
         raise HTTPException(status_code=400, detail="无效品牌")
     return value
 

@@ -71,6 +71,9 @@ def test_suppliers_infer_brand_suffixes_from_unit_supplier_name(test_app_client:
         ("笑脸华东工厂", "smiley"),
         ("SMILEY供应商", "smiley"),
         ("小莲供应商", "smiley"),
+        ("NI供应商", "ni"),
+        ("NIKE华东供应商", "ni"),
+        ("耐克供应商", "ni"),
         ("6N6（千百度女鞋）", "cbanner_womens"),
         ("Y8Y9（千百度）", "cbanner_mens"),
     ]

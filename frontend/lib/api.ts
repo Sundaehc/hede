@@ -335,7 +335,7 @@ export type CounterpartyLedgerResponse = {
 
 export type SupplierItem = {
   id: number
-  brand: Exclude<BrandKey, "all"> | "smiley"
+  brand: Exclude<BrandKey, "all"> | "smiley" | "ni"
   name: string
   factory_code: string | null
   contact: string | null
@@ -770,7 +770,7 @@ export function listEndingInventory(params: {
 
 // ── Suppliers ────────────────────────────────────────────────────
 
-export function listSuppliers(params?: { page?: number; pageSize?: number; query?: string; brand?: BrandKey | "smiley"; sort?: "grade_asc" | "grade_desc" | "" }) {
+export function listSuppliers(params?: { page?: number; pageSize?: number; query?: string; brand?: BrandKey | "smiley" | "ni"; sort?: "grade_asc" | "grade_desc" | "" }) {
   if (!params) {
     return request<SupplierListResponse>("/suppliers")
   }

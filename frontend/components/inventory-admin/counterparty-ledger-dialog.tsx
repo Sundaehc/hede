@@ -49,9 +49,47 @@ function formatMoney(value: string | null | undefined) {
   return new Intl.NumberFormat("zh-CN", { minimumFractionDigits: 0, maximumFractionDigits: 2 }).format(numeric)
 }
 
-const SIZE_COLUMNS = ["35", "36", "37", "38", "39", "40", "41", "42", "43", "44"]
+const EU_SIZE_COLUMNS = ["35", "36", "37", "38", "39", "40", "41", "42", "43", "44"]
+const MILLIMETER_SIZE_COLUMNS = ["220", "225", "230", "235", "240", "245", "250", "255", "260", "265", "270", "275", "280", "285"]
+const MILLIMETER_TO_EU_SIZE: Record<string, string> = {
+  "220": "34",
+  "225": "35",
+  "230": "36",
+  "235": "37",
+  "240": "38",
+  "245": "39",
+  "250": "40",
+  "255": "41",
+  "260": "42",
+  "265": "43",
+  "270": "44",
+  "275": "45",
+  "280": "46",
+  "285": "47",
+}
+const EU_TO_MILLIMETER_SIZE = Object.fromEntries(
+  Object.entries(MILLIMETER_TO_EU_SIZE).map(([millimeter, eu]) => [eu, millimeter]),
+) as Record<string, string>
 const ACCOUNTING_DOCUMENT_TYPES = new Set(["应付款减少", "应付款增加", "应收款减少", "应收款增加"])
 const LEDGER_COLUMN_COUNT = 7
+
+function getDetailSizeColumns(details: InventoryDetail[]) {
+  const hasMillimeterSize = details.some((detail) =>
+    Object.keys(detail.size_quantities || {}).some((size) => MILLIMETER_SIZE_COLUMNS.includes(size)),
+  )
+  return hasMillimeterSize ? MILLIMETER_SIZE_COLUMNS : EU_SIZE_COLUMNS
+}
+
+function getDetailSizeQuantity(values: Record<string, string> | null | undefined, size: string, sizeColumns: string[]) {
+  if (!values) return ""
+  if (values[size]) return values[size]
+  if (sizeColumns === MILLIMETER_SIZE_COLUMNS) {
+    const euSize = MILLIMETER_TO_EU_SIZE[size]
+    return euSize ? values[euSize] || "" : ""
+  }
+  const millimeterSize = EU_TO_MILLIMETER_SIZE[size]
+  return millimeterSize ? values[millimeterSize] || "" : ""
+}
 
 export function CounterpartyLedgerDialog({ open, counterpartyType, name, onOpenChange }: CounterpartyLedgerDialogProps) {
   const [dateStart, setDateStart] = useState(monthStartText)
@@ -231,6 +269,7 @@ export function CounterpartyLedgerDialog({ open, counterpartyType, name, onOpenC
                   const isExpanded = expandedId === item.id
                   const isAccountingDocument = ACCOUNTING_DOCUMENT_TYPES.has(item.document_type || "")
                   const details = detailsByDocumentId[item.id] ?? []
+                  const sizeColumns = getDetailSizeColumns(details)
                   const detailError = detailErrorByDocumentId[item.id]
                   const isDetailLoading = detailLoadingId === item.id
 
@@ -295,7 +334,7 @@ export function CounterpartyLedgerDialog({ open, counterpartyType, name, onOpenC
                                         <th className="px-3 py-2 font-medium">商品全名</th>
                                         <th className="px-3 py-2 font-medium">颜色条码</th>
                                         <th className="px-3 py-2 font-medium">颜色名称</th>
-                                        {SIZE_COLUMNS.map((size) => (
+                                        {sizeColumns.map((size) => (
                                           <th key={size} className="px-2 py-2 text-right font-medium">{size}</th>
                                         ))}
                                         <th className="px-3 py-2 text-right font-medium">数量</th>
@@ -311,9 +350,9 @@ export function CounterpartyLedgerDialog({ open, counterpartyType, name, onOpenC
                                           <td className="px-3 py-2">{detail.product_name || "-"}</td>
                                           <td className="px-3 py-2 font-mono">{detail.color_barcode || "-"}</td>
                                           <td className="px-3 py-2">{detail.color_name || detail.color_spec || "-"}</td>
-                                          {SIZE_COLUMNS.map((size) => (
+                                          {sizeColumns.map((size) => (
                                             <td key={size} className="px-2 py-2 text-right font-mono tabular-nums">
-                                              {detail.size_quantities?.[size] || "-"}
+                                              {getDetailSizeQuantity(detail.size_quantities, size, sizeColumns) || "-"}
                                             </td>
                                           ))}
                                           <td className="px-3 py-2 text-right font-mono tabular-nums">{detail.quantity || "-"}</td>

@@ -34,7 +34,10 @@ DETAIL_CN_TO_FIELD = {cn: en for cn, en in INVENTORY_DETAIL_ALIASES.items() if e
 
 EXCEL_EPOCH = datetime(1899, 12, 30)
 PURCHASE_IMPORT_TYPES = {"进货单", "进货退货单", "报溢单", "报损单", "批发销售单", "批发销售退货单", "同价调拨单"}
-PURCHASE_SIZE_LABELS = ("35", "36", "37", "38", "39", "40", "41", "42", "43", "44")
+EU_PURCHASE_SIZE_LABELS = ("35", "36", "37", "38", "39", "40", "41", "42", "43", "44")
+MILLIMETER_PURCHASE_SIZE_LABELS = ("220", "225", "230", "235", "240", "245", "250", "255", "260", "265", "270", "275", "280", "285")
+PURCHASE_EXPORT_SIZE_LABELS = (*MILLIMETER_PURCHASE_SIZE_LABELS, *EU_PURCHASE_SIZE_LABELS)
+EU_SIZE_BRANDS = {"smiley", "ni", "nike"}
 PURCHASE_SIZE_CODE_MAPS = {
     "cbanner_mens": {
         "01": "38",
@@ -71,6 +74,10 @@ PURCHASE_MILLIMETER_SIZE_MAP = {
     "275": "45",
     "280": "46",
     "285": "47",
+}
+PURCHASE_EU_TO_MILLIMETER_SIZE_MAP = {
+    eu_size: millimeter_size
+    for millimeter_size, eu_size in PURCHASE_MILLIMETER_SIZE_MAP.items()
 }
 
 
@@ -116,6 +123,31 @@ def _cell_text(value: object) -> str:
 
 def _purchase_import_brand(document_type: str) -> str:
     return "cbanner_womens" if "女鞋" in document_type else "cbanner_mens"
+
+
+def _normalize_purchase_brand(brand: str | None) -> str:
+    return str(brand or "").strip().lower()
+
+
+def _uses_millimeter_purchase_sizes(brand: str | None) -> bool:
+    normalized = _normalize_purchase_brand(brand)
+    return normalized not in EU_SIZE_BRANDS
+
+
+def _purchase_size_labels(brand: str | None) -> tuple[str, ...]:
+    return MILLIMETER_PURCHASE_SIZE_LABELS if _uses_millimeter_purchase_sizes(brand) else EU_PURCHASE_SIZE_LABELS
+
+
+def _purchase_size_from_eu(size: str, brand: str | None) -> str:
+    if _uses_millimeter_purchase_sizes(brand):
+        return PURCHASE_EU_TO_MILLIMETER_SIZE_MAP.get(size, size)
+    return size
+
+
+def _purchase_size_from_millimeter(size_code: str, brand: str | None) -> str:
+    if _uses_millimeter_purchase_sizes(brand):
+        return size_code
+    return PURCHASE_MILLIMETER_SIZE_MAP.get(size_code, size_code)
 
 
 def _read_purchase_import_rows(content: bytes) -> tuple[list[dict[str, str]], str]:
@@ -218,16 +250,15 @@ def _load_color_barcodes(connection, brand: str) -> list[tuple[str, str]]:
 def _split_purchase_size_code(product_code: str, brand: str) -> tuple[str, str]:
     if len(product_code) >= 3:
         size_code = product_code[-3:]
-        size = PURCHASE_MILLIMETER_SIZE_MAP.get(size_code)
-        if size:
-            return product_code[:-3], size
+        if size_code in PURCHASE_MILLIMETER_SIZE_MAP:
+            return product_code[:-3], _purchase_size_from_millimeter(size_code, brand)
     if len(product_code) >= 2:
         size_code = product_code[-2:]
-        if size_code in PURCHASE_SIZE_LABELS:
-            return product_code[:-2], size_code
+        if size_code in EU_PURCHASE_SIZE_LABELS:
+            return product_code[:-2], _purchase_size_from_eu(size_code, brand)
         size = PURCHASE_SIZE_CODE_MAPS.get(brand, {}).get(size_code)
         if size:
-            return product_code[:-2], size
+            return product_code[:-2], _purchase_size_from_eu(size, brand)
     return product_code, ""
 
 
@@ -236,12 +267,11 @@ def _split_purchase_product_code(product_code: str, color_barcodes: list[tuple[s
         return product_code, product_code, "", "", ""
     if len(product_code) >= 5:
         raw_size_code = product_code[-3:]
-        size = PURCHASE_MILLIMETER_SIZE_MAP.get(raw_size_code)
-        if size:
+        if raw_size_code in PURCHASE_MILLIMETER_SIZE_MAP:
             original_sku = product_code[:-5]
             color_barcode = product_code[-5:-3]
             color_name = next((name for barcode, name in color_barcodes if barcode == color_barcode), "")
-            return original_sku, original_sku, color_barcode, color_name, size
+            return original_sku, original_sku, color_barcode, color_name, _purchase_size_from_millimeter(raw_size_code, brand)
     style_color_code, size = _split_purchase_size_code(product_code, brand)
     color_barcode, color_name = _split_color_from_style_code(style_color_code, color_barcodes)
     return style_color_code, style_color_code, color_barcode, color_name, size
@@ -337,7 +367,7 @@ def _load_purchase_product_lookup(connection, brand: str, product_codes: set[str
 
 
 def _purchase_size_label(size_code: str, brand: str) -> str:
-    if size_code in PURCHASE_SIZE_LABELS:
+    if size_code in EU_PURCHASE_SIZE_LABELS:
         return size_code
     return PURCHASE_SIZE_CODE_MAPS.get(brand, {}).get(size_code, size_code)
 
@@ -482,13 +512,14 @@ def _build_purchase_details_from_excel(
         raise HTTPException(status_code=400, detail="Excel 中没有有效数量")
 
     details = []
+    size_labels = _purchase_size_labels(brand)
     for item in grouped.values():
         quantity = item["quantity"]
         item_unit_price = _to_decimal(item.get("unit_price"))
         amount = quantity * item_unit_price if item_unit_price else Decimal("0")
         size_quantities = {
             size: _fmt_decimal(item["size_quantities"].get(size, Decimal("0")))
-            for size in PURCHASE_SIZE_LABELS
+            for size in size_labels
             if item["size_quantities"].get(size, Decimal("0")) != 0
         }
         details.append({
@@ -610,7 +641,7 @@ def export_inventory(
         "商品全名",
         "颜色条码",
         "颜色名称",
-        *PURCHASE_SIZE_LABELS,
+        *PURCHASE_EXPORT_SIZE_LABELS,
         "数量",
         "单价",
         "金额",
@@ -633,7 +664,7 @@ def export_inventory(
             detail.get("product_name") or "",
             detail.get("color_barcode") or "",
             detail.get("color_name") or detail.get("color_spec") or "",
-            *[size_quantities.get(size, "") for size in PURCHASE_SIZE_LABELS],
+            *[size_quantities.get(size, "") for size in PURCHASE_EXPORT_SIZE_LABELS],
             detail.get("quantity") or "",
             detail.get("unit_price") or "",
             detail.get("amount") or "",

@@ -14,7 +14,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from domain.gj_schema import GJ_MERGED_PRODUCT_INFO_TABLE
 from domain.inventory_schema import GENERAL_CUSTOMER_BRAND_TABLE, GENERAL_CUSTOMER_SHOP_TABLE, INVENTORY_ACCOUNT_SUBJECT_TABLE, INVENTORY_DETAIL_TABLE, INVENTORY_TABLE, JST_STOCK_TABLE, SUPPLIER_TABLE, WAREHOUSE_TABLE
 from domain.inventory_sources import ACCOUNTING_DOCUMENT_TYPES
-from domain.gj_brand import CBANNER_MENS_BRAND, GJ_FINE_TABLE_BRANDS, infer_supplier_brand_from_name
+from domain.gj_brand import CBANNER_MENS_BRAND, GJ_FINE_TABLE_BRANDS, SUPPLIER_BRANDS, infer_supplier_brand_from_name
 from domain.vip_schema import JST_MONTHLY_ORDERS_TABLE, JST_SIZE_STOCK_TABLE, VIP_DAILY_TABLE
 from storage.date_normalization import parse_date, parse_month_day
 
@@ -1598,6 +1598,9 @@ class InventoryRepository:
                       WHEN upper(coalesce(bad.name, '')) LIKE '%SMILEY%'
                         OR coalesce(bad.name, '') LIKE '%笑脸%'
                         OR coalesce(bad.name, '') LIKE '%小莲%' THEN 'smiley'
+                      WHEN upper(coalesce(bad.name, '')) LIKE '%NIKE%'
+                        OR upper(coalesce(bad.name, '')) ~ '(^|[^A-Z0-9])NI([^A-Z0-9]|$)'
+                        OR coalesce(bad.name, '') LIKE '%耐克%' THEN 'ni'
                       WHEN coalesce(bad.name, '') LIKE '%千百度女鞋%' THEN 'cbanner_womens'
                       ELSE bad.brand
                   END
@@ -1610,6 +1613,9 @@ class InventoryRepository:
                       OR upper(coalesce(bad.name, '')) LIKE '%SMILEY%'
                       OR coalesce(bad.name, '') LIKE '%笑脸%'
                       OR coalesce(bad.name, '') LIKE '%小莲%'
+                      OR upper(coalesce(bad.name, '')) LIKE '%NIKE%'
+                      OR upper(coalesce(bad.name, '')) ~ '(^|[^A-Z0-9])NI([^A-Z0-9]|$)'
+                      OR coalesce(bad.name, '') LIKE '%耐克%'
                       OR coalesce(bad.name, '') LIKE '%千百度女鞋%'
                   )
                 """
@@ -1627,6 +1633,9 @@ class InventoryRepository:
                     WHEN upper(coalesce(name, '')) LIKE '%SMILEY%'
                       OR coalesce(name, '') LIKE '%笑脸%'
                       OR coalesce(name, '') LIKE '%小莲%' THEN 'smiley'
+                    WHEN upper(coalesce(name, '')) LIKE '%NIKE%'
+                      OR upper(coalesce(name, '')) ~ '(^|[^A-Z0-9])NI([^A-Z0-9]|$)'
+                      OR coalesce(name, '') LIKE '%耐克%' THEN 'ni'
                     WHEN coalesce(name, '') LIKE '%千百度品牌方%' THEN :default_brand
                     WHEN coalesce(name, '') LIKE '%千百度女鞋%' THEN 'cbanner_womens'
                     WHEN coalesce(name, '') LIKE '%千百度%' THEN 'cbanner_mens'
@@ -1642,6 +1651,9 @@ class InventoryRepository:
                         OR upper(coalesce(name, '')) LIKE '%SMILEY%'
                         OR coalesce(name, '') LIKE '%笑脸%'
                         OR coalesce(name, '') LIKE '%小莲%'
+                        OR upper(coalesce(name, '')) LIKE '%NIKE%'
+                        OR upper(coalesce(name, '')) ~ '(^|[^A-Z0-9])NI([^A-Z0-9]|$)'
+                        OR coalesce(name, '') LIKE '%耐克%'
                         OR coalesce(name, '') LIKE '%千百度女鞋%'
                    )
                 """
@@ -1869,6 +1881,6 @@ class InventoryRepository:
             payload["factory_grade"] = str(data.get("factory_grade") or "").strip() or None
         if "factory_suggestion" in data:
             payload["factory_suggestion"] = str(data.get("factory_suggestion") or "").strip() or None
-        if payload["brand"] not in GJ_FINE_TABLE_BRANDS:
+        if payload["brand"] not in SUPPLIER_BRANDS:
             payload["brand"] = CBANNER_MENS_BRAND
         return payload

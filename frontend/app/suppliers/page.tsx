@@ -27,7 +27,7 @@ import { BRANDS, type BrandKey } from "@/lib/brands"
 
 const PAGE_SIZE = 30
 type PageToken = number | "start-ellipsis" | "end-ellipsis"
-type SupplierBrand = Exclude<BrandKey, "all"> | "smiley"
+type SupplierBrand = Exclude<BrandKey, "all"> | "smiley" | "ni"
 type SupplierSort = "" | "grade_asc" | "grade_desc"
 
 const SUPPLIER_BRANDS: ReadonlyArray<{ key: SupplierBrand; label: string }> = [
@@ -36,6 +36,7 @@ const SUPPLIER_BRANDS: ReadonlyArray<{ key: SupplierBrand; label: string }> = [
   { key: "yandou", label: "烟斗" },
   { key: "eblan", label: "伊伴" },
   { key: "smiley", label: "笑脸" },
+  { key: "ni", label: "NI" },
 ]
 const SUPPLIER_BRAND_OPTIONS: ReadonlyArray<{ key: SupplierBrand | "all"; label: string }> = [
   { key: "all", label: "总览" },
