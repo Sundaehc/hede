@@ -14,6 +14,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { ConfirmDialog, MessageDialog } from "@/components/confirm-dialog"
+import { CounterpartyLedgerDialog } from "@/components/inventory-admin/counterparty-ledger-dialog"
 import {
   listSuppliers,
   createSupplier,
@@ -126,6 +127,7 @@ export default function SuppliersPage() {
 
   const [deleteTarget, setDeleteTarget] = useState<SupplierItem | null>(null)
   const [isDeleting, setIsDeleting] = useState(false)
+  const [ledgerTarget, setLedgerTarget] = useState<SupplierItem | null>(null)
   const [messageOpen, setMessageOpen] = useState(false)
   const [messageContent, setMessageContent] = useState({ title: "", description: "" })
 
@@ -322,9 +324,9 @@ export default function SuppliersPage() {
                 <col className="w-[11%]" />
                 <col className="w-[8%]" />
                 <col className="w-[7%]" />
-                <col className="w-[18%]" />
-                <col className="w-[12%]" />
-                <col className="w-[6%]" />
+                <col className="w-[17%]" />
+                <col className="w-[11%]" />
+                <col className="w-[8%]" />
               </colgroup>
               <thead>
                 <tr className="table-head-row">
@@ -349,7 +351,7 @@ export default function SuppliersPage() {
                   </th>
                   <th className="px-4 py-3 font-medium">系统建议</th>
                   <th className="px-4 py-3 font-medium">地址</th>
-                  <th className="px-4 py-3 w-24 font-medium">操作</th>
+                  <th className="px-4 py-3 w-32 font-medium">操作</th>
                 </tr>
               </thead>
               <tbody className={`divide-y divide-border transition-opacity ${isLoading && hasRows ? "opacity-55" : "opacity-100"}`}>
@@ -366,7 +368,12 @@ export default function SuppliersPage() {
                   </tr>
                 )}
                 {hasRows && items.map((item) => (
-                  <tr key={item.id} className="table-row">
+                  <tr
+                    key={item.id}
+                    className="table-row cursor-pointer"
+                    onClick={() => setLedgerTarget(item)}
+                    title="点击查看单据"
+                  >
                     <td className="truncate px-4 py-2.5 font-medium" title={item.name}>{item.name}</td>
                     <td className="truncate px-4 py-2.5 tabular-nums" title={item.factory_code || ""}>{item.factory_code || "-"}</td>
                     <td className="truncate px-4 py-2.5" title={item.contact || ""}>{item.contact || "-"}</td>
@@ -381,10 +388,28 @@ export default function SuppliersPage() {
                     <td className="truncate px-4 py-2.5" title={item.address || ""}>{item.address || "-"}</td>
                     <td className="px-4 py-2.5">
                       <div className="flex items-center gap-0.5">
-                        <Button variant="ghost" size="icon" onClick={() => openEdit(item)} className="cursor-pointer" aria-label={`编辑 ${item.name}`}>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={(event) => {
+                            event.stopPropagation()
+                            openEdit(item)
+                          }}
+                          className="cursor-pointer"
+                          aria-label={`编辑 ${item.name}`}
+                        >
                           <Edit className="h-4 w-4" />
                         </Button>
-                        <Button variant="ghost" size="icon" onClick={() => setDeleteTarget(item)} className="cursor-pointer" aria-label={`删除 ${item.name}`}>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={(event) => {
+                            event.stopPropagation()
+                            setDeleteTarget(item)
+                          }}
+                          className="cursor-pointer"
+                          aria-label={`删除 ${item.name}`}
+                        >
                           <Trash2 className="h-4 w-4 text-destructive" />
                         </Button>
                       </div>
@@ -517,6 +542,15 @@ export default function SuppliersPage() {
       />
 
       <MessageDialog open={messageOpen} title={messageContent.title} description={messageContent.description} onClose={() => setMessageOpen(false)} />
+
+      <CounterpartyLedgerDialog
+        open={ledgerTarget !== null}
+        counterpartyType="supplier"
+        name={ledgerTarget?.name || ""}
+        onOpenChange={(open) => {
+          if (!open) setLedgerTarget(null)
+        }}
+      />
     </div>
   )
 }

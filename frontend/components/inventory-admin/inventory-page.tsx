@@ -34,6 +34,7 @@ import {
   deleteInventoryRecord,
   listInventoryRecycleBin,
   restoreInventoryRecord,
+  batchRestoreInventory,
   batchUpdateInventoryCosts,
   batchDeleteInventory,
   importPurchaseInventory,
@@ -287,6 +288,8 @@ export function InventoryPage() {
   const [recyclePage, setRecyclePage] = useState(1)
   const [isRecycleLoading, setIsRecycleLoading] = useState(false)
   const [isRestoringId, setIsRestoringId] = useState<number | null>(null)
+  const [selectedRecycleIds, setSelectedRecycleIds] = useState<Set<number>>(() => new Set())
+  const [isBatchRestoring, setIsBatchRestoring] = useState(false)
   const [messageOpen, setMessageOpen] = useState(false)
   const [messageContent, setMessageContent] = useState({ title: "", description: "" })
 
@@ -390,6 +393,10 @@ export function InventoryPage() {
     if (recycleOpen) void loadRecycleBin()
   }, [loadRecycleBin, recycleOpen])
 
+  useEffect(() => {
+    setSelectedRecycleIds(new Set())
+  }, [recyclePage, recycleOpen])
+
   const openCreate = () => {
     setFormMode("create")
     setFormData({ ...EMPTY_FORM, date: todayInputValue() })
@@ -479,6 +486,11 @@ export function InventoryPage() {
     setIsRestoringId(recordId)
     try {
       const result = await restoreInventoryRecord(recordId)
+      setSelectedRecycleIds((prev) => {
+        const next = new Set(prev)
+        next.delete(recordId)
+        return next
+      })
       showMessage("恢复成功", result.message)
       await loadRecycleBin()
       setReloadToken((t) => t + 1)
@@ -486,6 +498,40 @@ export function InventoryPage() {
       showMessage("恢复失败", getErrorMessage(e))
     } finally {
       setIsRestoringId(null)
+    }
+  }
+
+  const handleToggleRecycleSelect = (id: number) => {
+    setSelectedRecycleIds((prev) => {
+      const next = new Set(prev)
+      next.has(id) ? next.delete(id) : next.add(id)
+      return next
+    })
+  }
+
+  const handleToggleRecycleSelectAll = () => {
+    setSelectedRecycleIds((prev) => {
+      const allSelected = recycleItems.length > 0 && recycleItems.every((item) => prev.has(item.id))
+      const next = new Set(prev)
+      for (const item of recycleItems) allSelected ? next.delete(item.id) : next.add(item.id)
+      return next
+    })
+  }
+
+  const handleBatchRestore = async () => {
+    const ids = Array.from(selectedRecycleIds)
+    if (ids.length === 0) return
+    setIsBatchRestoring(true)
+    try {
+      const result = await batchRestoreInventory(ids)
+      setSelectedRecycleIds(new Set())
+      showMessage("批量恢复完成", result.message)
+      await loadRecycleBin()
+      setReloadToken((t) => t + 1)
+    } catch (e) {
+      showMessage("批量恢复失败", getErrorMessage(e))
+    } finally {
+      setIsBatchRestoring(false)
     }
   }
 
@@ -672,6 +718,7 @@ export function InventoryPage() {
   const recycleTotalPages = Math.max(1, Math.ceil(recycleTotal / 10))
   const allSelected = items.length > 0 && items.every((item) => selectedIds.has(item.id))
   const someSelected = items.some((item) => selectedIds.has(item.id))
+  const allRecycleSelected = recycleItems.length > 0 && recycleItems.every((item) => selectedRecycleIds.has(item.id))
   const detailRecord = detailDocumentId === null ? null : items.find((item) => item.id === detailDocumentId) ?? null
   const completionLabel = COMPLETION_TABS.find((item) => item.value === recordCompletionStatus)?.label ?? "单据"
   const pageRange = buildPageRange(page, totalPages)
@@ -1266,6 +1313,16 @@ export function InventoryPage() {
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-border bg-muted/40 text-left text-muted-foreground">
+                    <th className="w-10 px-3 py-2 font-medium">
+                      <input
+                        type="checkbox"
+                        checked={allRecycleSelected}
+                        disabled={recycleItems.length === 0 || isRecycleLoading || isBatchRestoring}
+                        onChange={handleToggleRecycleSelectAll}
+                        className="h-4 w-4 cursor-pointer rounded border border-input accent-primary"
+                        aria-label="选择当前页全部回收站单据"
+                      />
+                    </th>
                     <th className="px-3 py-2 font-medium">单据编号</th>
                     <th className="px-3 py-2 font-medium">日期</th>
                     <th className="px-3 py-2 font-medium">单据类型</th>
@@ -1279,16 +1336,26 @@ export function InventoryPage() {
                 <tbody className="divide-y divide-border">
                   {isRecycleLoading && (
                     <tr>
-                      <td colSpan={8} className="px-4 py-10 text-center text-muted-foreground">加载中...</td>
+                      <td colSpan={9} className="px-4 py-10 text-center text-muted-foreground">加载中...</td>
                     </tr>
                   )}
                   {!isRecycleLoading && recycleItems.length === 0 && (
                     <tr>
-                      <td colSpan={8} className="px-4 py-10 text-center text-muted-foreground">回收站暂无单据</td>
+                      <td colSpan={9} className="px-4 py-10 text-center text-muted-foreground">回收站暂无单据</td>
                     </tr>
                   )}
                   {!isRecycleLoading && recycleItems.map((item) => (
                     <tr key={item.id} className="hover:bg-muted/30">
+                      <td className="px-3 py-2">
+                        <input
+                          type="checkbox"
+                          checked={selectedRecycleIds.has(item.id)}
+                          disabled={isBatchRestoring || isRestoringId === item.id}
+                          onChange={() => handleToggleRecycleSelect(item.id)}
+                          className="h-4 w-4 cursor-pointer rounded border border-input accent-primary"
+                          aria-label={`选择回收站单据 ${item.document_number || item.id}`}
+                        />
+                      </td>
                       <td className="px-3 py-2 font-mono text-xs">{item.document_number || item.id}</td>
                       <td className="px-3 py-2 whitespace-nowrap">{item.date || "-"}</td>
                       <td className="px-3 py-2 whitespace-nowrap">{item.document_type || "-"}</td>
@@ -1301,7 +1368,7 @@ export function InventoryPage() {
                           size="sm"
                           variant="outline"
                           onClick={() => handleRestoreRecord(item.id)}
-                          disabled={isRestoringId === item.id}
+                          disabled={isRestoringId === item.id || isBatchRestoring}
                           className="cursor-pointer"
                         >
                           <RefreshCw className="h-3.5 w-3.5" />
@@ -1313,14 +1380,29 @@ export function InventoryPage() {
                 </tbody>
               </table>
             </div>
-            <div className="flex items-center justify-between text-sm text-muted-foreground">
-              <span>共 {recycleTotal} 条</span>
+            <div className="flex flex-wrap items-center justify-between gap-3 text-sm text-muted-foreground">
+              <span>
+                共 {recycleTotal} 条
+                {selectedRecycleIds.size > 0 && <span className="ml-2 font-medium text-foreground">已选 {selectedRecycleIds.size} 项</span>}
+              </span>
               <div className="flex items-center gap-2">
+                {selectedRecycleIds.size > 0 && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={handleBatchRestore}
+                    disabled={isBatchRestoring || isRecycleLoading}
+                    className="cursor-pointer"
+                  >
+                    <RefreshCw className={`h-4 w-4 ${isBatchRestoring ? "animate-spin" : ""}`} />
+                    <span className="ml-1.5">{isBatchRestoring ? "恢复中..." : `批量恢复 (${selectedRecycleIds.size})`}</span>
+                  </Button>
+                )}
                 <Button
                   size="sm"
                   variant="outline"
                   onClick={() => setRecyclePage((p) => Math.max(1, p - 1))}
-                  disabled={recyclePage <= 1 || isRecycleLoading}
+                  disabled={recyclePage <= 1 || isRecycleLoading || isBatchRestoring}
                   className="cursor-pointer"
                 >
                   上一页
@@ -1330,7 +1412,7 @@ export function InventoryPage() {
                   size="sm"
                   variant="outline"
                   onClick={() => setRecyclePage((p) => Math.min(recycleTotalPages, p + 1))}
-                  disabled={recyclePage >= recycleTotalPages || isRecycleLoading}
+                  disabled={recyclePage >= recycleTotalPages || isRecycleLoading || isBatchRestoring}
                   className="cursor-pointer"
                 >
                   下一页

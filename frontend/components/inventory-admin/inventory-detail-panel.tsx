@@ -52,7 +52,7 @@ const EMPTY_DETAIL: Record<string, string> = {
 
 const SIZE_COLUMNS = ["35", "36", "37", "38", "39", "40", "41", "42", "43", "44"]
 const ACCOUNTING_DOCUMENT_TYPES = new Set(["应付款减少", "应付款增加", "应收款减少", "应收款增加"])
-const EMPTY_SUBJECT_FORM = { code: "", name: "" }
+const EMPTY_SUBJECT_FORM = { name: "" }
 
 type Props = {
   record: InventoryRecord | null
@@ -123,6 +123,7 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
   const [isSaving, setIsSaving] = useState(false)
   const [subjects, setSubjects] = useState<InventoryAccountSubject[]>([])
   const [subjectFormData, setSubjectFormData] = useState({ ...EMPTY_SUBJECT_FORM })
+  const [subjectManagerOpen, setSubjectManagerOpen] = useState(false)
   const [subjectDeleteTarget, setSubjectDeleteTarget] = useState<InventoryAccountSubject | null>(null)
   const [isSubjectSaving, setIsSubjectSaving] = useState(false)
 
@@ -253,7 +254,7 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
     try {
       const payload = isAccountingDocument
         ? {
-            product_code: formData.product_code,
+            product_code: "",
             product_name: formData.product_name,
             amount: formData.amount,
             remark: formData.remark,
@@ -275,11 +276,10 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
   }
 
   const handleSubjectSelect = (subjectName: string) => {
-    const subject = subjects.find((item) => item.name === subjectName)
     setFormData((prev) => ({
       ...prev,
       product_name: subjectName,
-      product_code: subject?.code || "",
+      product_code: "",
     }))
   }
 
@@ -291,14 +291,14 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
     setIsSubjectSaving(true)
     try {
       const res = await createInventoryAccountSubject({
-        code: subjectFormData.code.trim(),
+        code: "",
         name: subjectFormData.name.trim(),
       })
       setSubjectFormData({ ...EMPTY_SUBJECT_FORM })
       await loadSubjects()
       setFormData((prev) => ({
         ...prev,
-        product_code: res.item.code || "",
+        product_code: "",
         product_name: res.item.name,
       }))
     } catch (e) {
@@ -486,6 +486,20 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
                 </Button>
               </>
             )}
+            {isAccountingDocument && (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => {
+                  setSubjectManagerOpen(true)
+                  void loadSubjects()
+                }}
+                className="cursor-pointer"
+              >
+                <Edit className="h-4 w-4" />
+                <span className="ml-1.5">科目管理</span>
+              </Button>
+            )}
             {selectedIds.size > 0 && (
               <Button
                 size="sm"
@@ -525,7 +539,6 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
                     />
                   </th>
                   <th className="px-3 py-2.5 w-16 font-medium">序号</th>
-                  <th className="px-3 py-2.5 w-32 font-medium">科目编号</th>
                   <th className="px-3 py-2.5 font-medium">费用项目名 / 科目</th>
                   <th className="px-3 py-2.5 text-right font-medium">{accountingAmountLabel}</th>
                   <th className="px-3 py-2.5 font-medium">备注</th>
@@ -561,12 +574,12 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
             <tbody className="divide-y divide-border">
               {isLoading && (
                 <tr>
-                    <td colSpan={isAccountingDocument ? 7 : 20} className="px-6 py-12 text-center text-muted-foreground">加载中...</td>
+                    <td colSpan={isAccountingDocument ? 6 : 20} className="px-6 py-12 text-center text-muted-foreground">加载中...</td>
                 </tr>
               )}
               {!isLoading && items.length === 0 && (
                 <tr>
-                  <td colSpan={isAccountingDocument ? 7 : 20} className="px-6 py-12 text-center text-muted-foreground">暂无明细数据</td>
+                  <td colSpan={isAccountingDocument ? 6 : 20} className="px-6 py-12 text-center text-muted-foreground">暂无明细数据</td>
                 </tr>
               )}
               {items.map((item, index) => (
@@ -583,7 +596,6 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
                   {isAccountingDocument ? (
                     <>
                       <td className="px-3 py-2.5 text-muted-foreground tabular-nums">{index + 1}</td>
-                      <td className="px-3 py-2.5 font-mono text-xs">{item.product_code || "-"}</td>
                       <td className="px-3 py-2.5">{item.product_name || "-"}</td>
                       <td className="px-3 py-2.5 text-right tabular-nums">{item.amount || "-"}</td>
                       <td className="px-3 py-2.5 max-w-64 truncate">{item.remark || "-"}</td>
@@ -641,72 +653,21 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
           <div className="space-y-4 py-2">
             {isAccountingDocument ? (
               <>
-                <div className="grid grid-cols-[1fr_auto] gap-2">
-                  <div className="space-y-1.5">
-                    <Label htmlFor="detail-subject">费用项目名 / 科目</Label>
-                    <select
-                      id="detail-subject"
-                      value={formData.product_name || ""}
-                      onChange={(event) => handleSubjectSelect(event.target.value)}
-                      className="flex h-9 w-full cursor-pointer rounded-lg border border-input bg-card px-3 py-2 text-sm shadow-xs outline-none transition-colors focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/35"
-                    >
-                      <option value="">请选择科目</option>
-                      {subjects.map((subject) => (
-                        <option key={subject.id} value={subject.name}>
-                          {subject.code ? `${subject.code} / ${subject.name}` : subject.name}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                  <div className="flex items-end">
-                    <Button
-                      type="button"
-                      variant="outline"
-                      disabled={!formData.product_name || isSubjectSaving}
-                      onClick={() => {
-                        const subject = subjects.find((item) => item.name === formData.product_name)
-                        if (subject) setSubjectDeleteTarget(subject)
-                      }}
-                      className="cursor-pointer"
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
-                  </div>
-                </div>
-                <div className="grid grid-cols-[0.8fr_1fr_auto] gap-2 rounded-lg border border-border bg-muted/20 p-3">
-                  <div className="space-y-1.5">
-                    <Label htmlFor="new-subject-code">科目编号</Label>
-                    <Input
-                      id="new-subject-code"
-                      value={subjectFormData.code}
-                      onChange={(event) => setSubjectFormData((prev) => ({ ...prev, code: event.target.value }))}
-                      placeholder="可选"
-                    />
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label htmlFor="new-subject-name">新增科目</Label>
-                    <Input
-                      id="new-subject-name"
-                      value={subjectFormData.name}
-                      onChange={(event) => setSubjectFormData((prev) => ({ ...prev, name: event.target.value }))}
-                      placeholder="科目名称"
-                    />
-                  </div>
-                  <div className="flex items-end">
-                    <Button type="button" onClick={handleCreateSubject} disabled={isSubjectSaving} className="cursor-pointer">
-                      <Plus className="h-4 w-4" />
-                      <span className="ml-1.5">新增</span>
-                    </Button>
-                  </div>
-                </div>
                 <div className="space-y-1.5">
-                  <Label htmlFor="detail-subject-code">科目编号</Label>
-                  <Input
-                    id="detail-subject-code"
-                    value={formData.product_code || ""}
-                    onChange={(event) => setFormData((prev) => ({ ...prev, product_code: event.target.value }))}
-                    placeholder="科目编号"
-                  />
+                  <Label htmlFor="detail-subject">费用项目名 / 科目</Label>
+                  <select
+                    id="detail-subject"
+                    value={formData.product_name || ""}
+                    onChange={(event) => handleSubjectSelect(event.target.value)}
+                    className="flex h-9 w-full cursor-pointer rounded-lg border border-input bg-card px-3 py-2 text-sm shadow-xs outline-none transition-colors focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/35"
+                  >
+                    <option value="">请选择科目</option>
+                    {subjects.map((subject) => (
+                      <option key={subject.id} value={subject.name}>
+                        {subject.name}
+                      </option>
+                    ))}
+                  </select>
                 </div>
                 <div className="space-y-1.5">
                   <Label htmlFor="detail-accounting-amount">{accountingAmountLabel}</Label>
@@ -858,6 +819,61 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
             <Button onClick={handleSave} disabled={isSaving || isLookupLoading} className="cursor-pointer">
               {isSaving ? "保存中..." : isLookupLoading ? "匹配中..." : "保存"}
             </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={subjectManagerOpen} onOpenChange={setSubjectManagerOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>科目管理</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="grid grid-cols-[1fr_auto] gap-2 rounded-lg border border-border bg-muted/20 p-3">
+              <div className="space-y-1.5">
+                <Label htmlFor="subject-manager-name">新增科目</Label>
+                <Input
+                  id="subject-manager-name"
+                  value={subjectFormData.name}
+                  onChange={(event) => setSubjectFormData((prev) => ({ ...prev, name: event.target.value }))}
+                  placeholder="科目名称"
+                />
+              </div>
+              <div className="flex items-end">
+                <Button type="button" onClick={handleCreateSubject} disabled={isSubjectSaving} className="cursor-pointer">
+                  <Plus className="h-4 w-4" />
+                  <span className="ml-1.5">新增</span>
+                </Button>
+              </div>
+            </div>
+            <div className="overflow-hidden rounded-lg border border-border">
+              <div className="border-b border-border bg-muted/35 px-3 py-2 text-sm font-medium">已有科目</div>
+              <div className="max-h-72 overflow-auto divide-y divide-border">
+                {subjects.length === 0 ? (
+                  <div className="px-3 py-8 text-center text-sm text-muted-foreground">暂无科目</div>
+                ) : (
+                  subjects.map((subject) => (
+                    <div key={subject.id} className="flex items-center justify-between gap-3 px-3 py-2">
+                      <span className="min-w-0 truncate text-sm" title={subject.name}>{subject.name}</span>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        disabled={isSubjectSaving}
+                        onClick={() => setSubjectDeleteTarget(subject)}
+                        className="h-8 w-8 shrink-0 cursor-pointer"
+                        aria-label={`删除科目 ${subject.name}`}
+                      >
+                        <Trash2 className="h-4 w-4 text-destructive" />
+                      </Button>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setSubjectManagerOpen(false)} className="cursor-pointer">关闭</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

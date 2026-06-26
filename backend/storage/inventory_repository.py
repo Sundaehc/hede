@@ -35,6 +35,12 @@ DOCUMENT_NUMBER_PREFIXES = {
 DEFAULT_DOCUMENT_NUMBER_PREFIX = "DJ"
 SUPPLIER_RATING_CACHE_TTL_SECONDS = 600
 
+SUPPLIER_LEDGER_INCREASE_TYPES = ("进货单", "应付款增加")
+SUPPLIER_LEDGER_DECREASE_TYPES = ("进货退货单", "应付款减少")
+SUPPLIER_LEDGER_NEUTRAL_TYPES = ("同价调拨单",)
+CUSTOMER_LEDGER_INCREASE_TYPES = ("批发销售单", "应收款增加")
+CUSTOMER_LEDGER_DECREASE_TYPES = ("批发销售退货单", "应收款减少")
+
 
 def _json_serializer(value: object) -> str:
     return orjson.dumps(value).decode("utf-8")
@@ -323,12 +329,153 @@ class InventoryRepository:
             row = connection.execute(statement).mappings().first()
         return None if row is None else dict(row)
 
+    def restore_records(self, ids: list[int]) -> int:
+        self.purge_expired_deleted_records()
+        if not ids:
+            return 0
+        table = INVENTORY_TABLE
+        statement = (
+            update(table)
+            .where(table.c.id.in_(ids), table.c.deleted_at.isnot(None))
+            .values(deleted_at=None)
+        )
+        with self.engine.begin() as connection:
+            result = connection.execute(statement)
+        return result.rowcount or 0
+
     def purge_expired_deleted_records(self) -> int:
         table = INVENTORY_TABLE
         statement = delete(table).where(table.c.deleted_at < func.now() - text("interval '10 days'"))
         with self.engine.begin() as connection:
             result = connection.execute(statement)
         return result.rowcount or 0
+
+    def get_counterparty_ledger(
+        self,
+        *,
+        counterparty_type: str,
+        name: str,
+        date_start: str | None = None,
+        date_end: str | None = None,
+    ) -> dict[str, object]:
+        table = INVENTORY_TABLE
+        detail = INVENTORY_DETAIL_TABLE
+        normalized_name = str(name or "").strip()
+        if counterparty_type == "customer":
+            increase_types = CUSTOMER_LEDGER_INCREASE_TYPES
+            decrease_types = CUSTOMER_LEDGER_DECREASE_TYPES
+            neutral_types: tuple[str, ...] = ()
+        else:
+            increase_types = SUPPLIER_LEDGER_INCREASE_TYPES
+            decrease_types = SUPPLIER_LEDGER_DECREASE_TYPES
+            neutral_types = SUPPLIER_LEDGER_NEUTRAL_TYPES
+        document_types = (*increase_types, *decrease_types, *neutral_types)
+
+        detail_amount = (
+            select(
+                detail.c.document_id.label("document_id"),
+                func.coalesce(func.sum(detail.c.amount), 0).label("detail_amount"),
+            )
+            .group_by(detail.c.document_id)
+            .subquery()
+        )
+        effective_amount = func.coalesce(detail_amount.c.detail_amount, table.c.amount, 0)
+        base_conditions = [
+            table.c.deleted_at.is_(None),
+            table.c.supplier == normalized_name,
+            table.c.document_type.in_(document_types),
+        ]
+
+        start_date = parse_date(date_start) if date_start else None
+        end_date = parse_date(date_end) if date_end else None
+        range_conditions = list(base_conditions)
+        if date_start:
+            range_conditions.append(table.c.date_value >= start_date if start_date else table.c.date >= date_start)
+        if date_end:
+            range_conditions.append(table.c.date_value <= end_date if end_date else table.c.date <= date_end)
+
+        increase_expr = case(
+            (table.c.document_type.in_(increase_types), effective_amount),
+            else_=0,
+        )
+        decrease_expr = case(
+            (table.c.document_type.in_(decrease_types), effective_amount),
+            else_=0,
+        )
+
+        items_statement = (
+            select(
+                table.c.id,
+                table.c.document_number,
+                table.c.date,
+                table.c.document_type,
+                table.c.summary,
+                table.c.handler,
+                table.c.warehouse,
+                increase_expr.label("increase_amount"),
+                decrease_expr.label("decrease_amount"),
+            )
+            .outerjoin(detail_amount, detail_amount.c.document_id == table.c.id)
+            .where(and_(*range_conditions))
+            .order_by(table.c.date_value.nulls_last(), table.c.date, table.c.id)
+        )
+        totals_statement = (
+            select(
+                func.coalesce(func.sum(increase_expr), 0).label("increase_total"),
+                func.coalesce(func.sum(decrease_expr), 0).label("decrease_total"),
+            )
+            .select_from(table)
+            .outerjoin(detail_amount, detail_amount.c.document_id == table.c.id)
+            .where(and_(*range_conditions))
+        )
+
+        beginning_balance = Decimal("0")
+        if date_start:
+            beginning_conditions = list(base_conditions)
+            beginning_conditions.append(table.c.date_value < start_date if start_date else table.c.date < date_start)
+            beginning_statement = (
+                select(func.coalesce(func.sum(increase_expr - decrease_expr), 0))
+                .select_from(table)
+                .outerjoin(detail_amount, detail_amount.c.document_id == table.c.id)
+                .where(and_(*beginning_conditions))
+            )
+        else:
+            beginning_statement = None
+
+        with self.engine.connect() as connection:
+            if beginning_statement is not None:
+                beginning_balance = Decimal(str(connection.execute(beginning_statement).scalar_one() or "0"))
+            totals = connection.execute(totals_statement).mappings().one()
+            rows = [dict(row) for row in connection.execute(items_statement).mappings()]
+
+        running_balance = beginning_balance
+        items: list[dict[str, object]] = []
+        for index, row in enumerate(rows, start=1):
+            increase = Decimal(str(row.pop("increase_amount") or "0"))
+            decrease = Decimal(str(row.pop("decrease_amount") or "0"))
+            running_balance = running_balance + increase - decrease
+            items.append({
+                **row,
+                "row_number": index,
+                "increase_amount": self._format_decimal(increase) if increase else "",
+                "decrease_amount": self._format_decimal(decrease) if decrease else "",
+                "balance": self._format_decimal(running_balance),
+            })
+
+        increase_total = Decimal(str(totals.get("increase_total") or "0"))
+        decrease_total = Decimal(str(totals.get("decrease_total") or "0"))
+        ending_balance = beginning_balance + increase_total - decrease_total
+        return {
+            "items": items,
+            "counterparty_type": counterparty_type,
+            "name": normalized_name,
+            "date_start": date_start,
+            "date_end": date_end,
+            "beginning_balance": self._format_decimal(beginning_balance),
+            "increase_total": self._format_decimal(increase_total),
+            "decrease_total": self._format_decimal(decrease_total),
+            "ending_balance": self._format_decimal(ending_balance),
+        }
 
     # ── Suppliers ──────────────────────────────────────────────────
 
@@ -1603,6 +1750,11 @@ class InventoryRepository:
     @staticmethod
     def _coerce_empty(data: Mapping[str, object]) -> dict[str, object]:
         return {k: (None if v == "" else v) for k, v in data.items()}
+
+    @staticmethod
+    def _format_decimal(value: Decimal) -> str:
+        normalized = value.normalize()
+        return str(normalized) if normalized.as_tuple().exponent < 0 else str(int(normalized))
 
     @staticmethod
     def _clear_accounting_record_summary(record: dict[str, object]) -> dict[str, object]:

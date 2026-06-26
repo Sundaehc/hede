@@ -307,6 +307,32 @@ export type InventoryListResponse = {
   page_size: number
 }
 
+export type CounterpartyLedgerItem = {
+  id: number
+  row_number: number
+  document_number: string | null
+  date: string | null
+  document_type: string | null
+  summary: string | null
+  handler: string | null
+  warehouse: string | null
+  increase_amount: string
+  decrease_amount: string
+  balance: string
+}
+
+export type CounterpartyLedgerResponse = {
+  items: CounterpartyLedgerItem[]
+  counterparty_type: "supplier" | "customer"
+  name: string
+  date_start: string | null
+  date_end: string | null
+  beginning_balance: string
+  increase_total: string
+  decrease_total: string
+  ending_balance: string
+}
+
 export type SupplierItem = {
   id: number
   brand: Exclude<BrandKey, "all"> | "smiley"
@@ -405,9 +431,31 @@ export function listInventoryRecycleBin(params: {
   return request<InventoryListResponse>(`/inventory/recycle-bin?${search.toString()}`)
 }
 
+export function listCounterpartyLedger(params: {
+  counterpartyType: "supplier" | "customer"
+  name: string
+  dateStart?: string
+  dateEnd?: string
+}) {
+  const search = new URLSearchParams({
+    counterparty_type: params.counterpartyType,
+    name: params.name,
+  })
+  if (params.dateStart) search.set("date_start", params.dateStart)
+  if (params.dateEnd) search.set("date_end", params.dateEnd)
+  return request<CounterpartyLedgerResponse>(`/inventory/counterparty-ledger?${search.toString()}`)
+}
+
 export function restoreInventoryRecord(id: number) {
   return request<{ item: InventoryRecord; message: string }>(`/inventory/${id}/restore`, {
     method: "POST",
+  })
+}
+
+export function batchRestoreInventory(ids: number[]) {
+  return request<{ restored: number; message: string }>("/inventory/batch-restore", {
+    method: "POST",
+    body: JSON.stringify({ ids }),
   })
 }
 

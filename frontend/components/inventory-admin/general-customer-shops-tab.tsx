@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { ConfirmDialog, MessageDialog } from "@/components/confirm-dialog"
+import { CounterpartyLedgerDialog } from "@/components/inventory-admin/counterparty-ledger-dialog"
 import {
   ApiError,
   createGeneralCustomerBrand,
@@ -56,6 +57,7 @@ export function GeneralCustomerShopsTab({ standalone = false }: GeneralCustomerS
   const [isSavingShop, setIsSavingShop] = useState(false)
   const [deleteShopTarget, setDeleteShopTarget] = useState<GeneralCustomerShopItem | null>(null)
   const [isDeletingShop, setIsDeletingShop] = useState(false)
+  const [ledgerTarget, setLedgerTarget] = useState<GeneralCustomerShopItem | null>(null)
 
   const [messageOpen, setMessageOpen] = useState(false)
   const [messageContent, setMessageContent] = useState({ title: "", description: "" })
@@ -344,7 +346,7 @@ export function GeneralCustomerShopsTab({ standalone = false }: GeneralCustomerS
             <thead>
               <tr className="table-head-row">
                 <th className="px-4 py-3 font-medium">店铺名称</th>
-                <th className="px-4 py-3 w-24 font-medium">操作</th>
+                <th className="px-4 py-3 w-32 font-medium">操作</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
@@ -364,14 +366,37 @@ export function GeneralCustomerShopsTab({ standalone = false }: GeneralCustomerS
                 </tr>
               )}
               {!isLoading && visibleShops.map((shop) => (
-                <tr key={shop.id} className="table-row">
+                <tr
+                  key={shop.id}
+                  className="table-row cursor-pointer"
+                  onClick={() => setLedgerTarget(shop)}
+                  title="点击查看单据"
+                >
                   <td className="px-4 py-2.5 font-medium">{shop.shop_name}</td>
                   <td className="px-4 py-2.5">
                     <div className="flex items-center gap-0.5">
-                      <Button variant="ghost" size="icon" onClick={() => openEditShop(shop)} className="cursor-pointer" aria-label={`编辑 ${shop.customer_name} / ${shop.shop_name}`}>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={(event) => {
+                          event.stopPropagation()
+                          openEditShop(shop)
+                        }}
+                        className="cursor-pointer"
+                        aria-label={`编辑 ${shop.customer_name} / ${shop.shop_name}`}
+                      >
                         <Edit className="h-4 w-4" />
                       </Button>
-                      <Button variant="ghost" size="icon" onClick={() => setDeleteShopTarget(shop)} className="cursor-pointer" aria-label={`删除 ${shop.customer_name} / ${shop.shop_name}`}>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={(event) => {
+                          event.stopPropagation()
+                          setDeleteShopTarget(shop)
+                        }}
+                        className="cursor-pointer"
+                        aria-label={`删除 ${shop.customer_name} / ${shop.shop_name}`}
+                      >
                         <Trash2 className="h-4 w-4 text-destructive" />
                       </Button>
                     </div>
@@ -448,6 +473,15 @@ export function GeneralCustomerShopsTab({ standalone = false }: GeneralCustomerS
       />
 
       <MessageDialog open={messageOpen} title={messageContent.title} description={messageContent.description} onClose={() => setMessageOpen(false)} />
+
+      <CounterpartyLedgerDialog
+        open={ledgerTarget !== null}
+        counterpartyType="customer"
+        name={ledgerTarget?.shop_name || ""}
+        onOpenChange={(open) => {
+          if (!open) setLedgerTarget(null)
+        }}
+      />
     </>
   )
 

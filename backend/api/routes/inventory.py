@@ -890,6 +890,29 @@ def delete_general_customer_shop(request: Request, shop_id: int):
     return {"message": "删除成功"}
 
 
+@router.get("/inventory/counterparty-ledger")
+def get_counterparty_ledger(
+    request: Request,
+    counterparty_type: str,
+    name: str,
+    date_start: str | None = None,
+    date_end: str | None = None,
+):
+    counterparty_type = str(counterparty_type or "").strip()
+    if counterparty_type not in {"supplier", "customer"}:
+        raise HTTPException(status_code=400, detail="单位类型无效")
+    name = str(name or "").strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="单位全名不能为空")
+    repository = request.app.state.inventory_repository
+    return repository.get_counterparty_ledger(
+        counterparty_type=counterparty_type,
+        name=name,
+        date_start=_normalize_date(date_start),
+        date_end=_normalize_date(date_end),
+    )
+
+
 @router.get("/inventory/detail-lookup")
 def lookup_inventory_detail(
     request: Request,
@@ -967,6 +990,22 @@ def restore_inventory_record(request: Request, record_id: int):
     if record is None:
         raise HTTPException(status_code=404, detail="Record not found")
     return {"item": record, "message": "恢复成功"}
+
+
+@router.post("/inventory/batch-restore")
+def batch_restore_inventory(request: Request, payload: dict):
+    ids = payload.get("ids", [])
+    if not isinstance(ids, list):
+        raise HTTPException(status_code=400, detail="ids 必须是数组")
+    record_ids = []
+    for value in ids:
+        try:
+            record_ids.append(int(value))
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=400, detail="ids 中包含非法编号") from None
+    repository = request.app.state.inventory_repository
+    restored = repository.restore_records(record_ids)
+    return {"restored": restored, "message": f"已恢复 {restored} 条记录"}
 
 
 @router.post("/inventory/batch-delete")
