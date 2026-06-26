@@ -23,8 +23,6 @@ import {
   replaceDetailsFromExcel,
   matchSkuImage,
   listInventoryAccountSubjects,
-  createInventoryAccountSubject,
-  deleteInventoryAccountSubject,
   ApiError,
   type InventoryRecord,
   type InventoryDetail,
@@ -52,7 +50,6 @@ const EMPTY_DETAIL: Record<string, string> = {
 
 const SIZE_COLUMNS = ["35", "36", "37", "38", "39", "40", "41", "42", "43", "44"]
 const ACCOUNTING_DOCUMENT_TYPES = new Set(["应付款减少", "应付款增加", "应收款减少", "应收款增加"])
-const EMPTY_SUBJECT_FORM = { name: "" }
 
 type Props = {
   record: InventoryRecord | null
@@ -122,10 +119,6 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
   const [editingId, setEditingId] = useState<number | null>(null)
   const [isSaving, setIsSaving] = useState(false)
   const [subjects, setSubjects] = useState<InventoryAccountSubject[]>([])
-  const [subjectFormData, setSubjectFormData] = useState({ ...EMPTY_SUBJECT_FORM })
-  const [subjectManagerOpen, setSubjectManagerOpen] = useState(false)
-  const [subjectDeleteTarget, setSubjectDeleteTarget] = useState<InventoryAccountSubject | null>(null)
-  const [isSubjectSaving, setIsSubjectSaving] = useState(false)
 
   const [deleteTarget, setDeleteTarget] = useState<InventoryDetail | null>(null)
   const [batchDeleteOpen, setBatchDeleteOpen] = useState(false)
@@ -281,48 +274,6 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
       product_name: subjectName,
       product_code: "",
     }))
-  }
-
-  const handleCreateSubject = async () => {
-    if (!subjectFormData.name.trim()) {
-      showMessage("新增失败", "科目名称不能为空")
-      return
-    }
-    setIsSubjectSaving(true)
-    try {
-      const res = await createInventoryAccountSubject({
-        code: "",
-        name: subjectFormData.name.trim(),
-      })
-      setSubjectFormData({ ...EMPTY_SUBJECT_FORM })
-      await loadSubjects()
-      setFormData((prev) => ({
-        ...prev,
-        product_code: "",
-        product_name: res.item.name,
-      }))
-    } catch (e) {
-      showMessage("新增失败", getErrorMessage(e))
-    } finally {
-      setIsSubjectSaving(false)
-    }
-  }
-
-  const handleDeleteSubject = async () => {
-    if (!subjectDeleteTarget) return
-    setIsSubjectSaving(true)
-    try {
-      await deleteInventoryAccountSubject(subjectDeleteTarget.id)
-      if (formData.product_name === subjectDeleteTarget.name) {
-        setFormData((prev) => ({ ...prev, product_name: "", product_code: "" }))
-      }
-      setSubjectDeleteTarget(null)
-      await loadSubjects()
-    } catch (e) {
-      showMessage("删除失败", getErrorMessage(e))
-    } finally {
-      setIsSubjectSaving(false)
-    }
   }
 
   useEffect(() => {
@@ -485,20 +436,6 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
                   <span className="ml-1.5">重新导入明细</span>
                 </Button>
               </>
-            )}
-            {isAccountingDocument && (
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() => {
-                  setSubjectManagerOpen(true)
-                  void loadSubjects()
-                }}
-                className="cursor-pointer"
-              >
-                <Edit className="h-4 w-4" />
-                <span className="ml-1.5">科目管理</span>
-              </Button>
             )}
             {selectedIds.size > 0 && (
               <Button
@@ -823,61 +760,6 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
         </DialogContent>
       </Dialog>
 
-      <Dialog open={subjectManagerOpen} onOpenChange={setSubjectManagerOpen}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>科目管理</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4 py-2">
-            <div className="grid grid-cols-[1fr_auto] gap-2 rounded-lg border border-border bg-muted/20 p-3">
-              <div className="space-y-1.5">
-                <Label htmlFor="subject-manager-name">新增科目</Label>
-                <Input
-                  id="subject-manager-name"
-                  value={subjectFormData.name}
-                  onChange={(event) => setSubjectFormData((prev) => ({ ...prev, name: event.target.value }))}
-                  placeholder="科目名称"
-                />
-              </div>
-              <div className="flex items-end">
-                <Button type="button" onClick={handleCreateSubject} disabled={isSubjectSaving} className="cursor-pointer">
-                  <Plus className="h-4 w-4" />
-                  <span className="ml-1.5">新增</span>
-                </Button>
-              </div>
-            </div>
-            <div className="overflow-hidden rounded-lg border border-border">
-              <div className="border-b border-border bg-muted/35 px-3 py-2 text-sm font-medium">已有科目</div>
-              <div className="max-h-72 overflow-auto divide-y divide-border">
-                {subjects.length === 0 ? (
-                  <div className="px-3 py-8 text-center text-sm text-muted-foreground">暂无科目</div>
-                ) : (
-                  subjects.map((subject) => (
-                    <div key={subject.id} className="flex items-center justify-between gap-3 px-3 py-2">
-                      <span className="min-w-0 truncate text-sm" title={subject.name}>{subject.name}</span>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon"
-                        disabled={isSubjectSaving}
-                        onClick={() => setSubjectDeleteTarget(subject)}
-                        className="h-8 w-8 shrink-0 cursor-pointer"
-                        aria-label={`删除科目 ${subject.name}`}
-                      >
-                        <Trash2 className="h-4 w-4 text-destructive" />
-                      </Button>
-                    </div>
-                  ))
-                )}
-              </div>
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setSubjectManagerOpen(false)} className="cursor-pointer">关闭</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
       <ConfirmDialog
         open={deleteTarget !== null}
         title="确认删除"
@@ -910,16 +792,6 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
           setReplaceFile(null)
           if (replaceInputRef.current) replaceInputRef.current.value = ""
         }}
-      />
-
-      <ConfirmDialog
-        open={subjectDeleteTarget !== null}
-        title="确认删除科目"
-        description={`确定删除科目 ${subjectDeleteTarget?.name || ""}？已保存的单据明细不会被改动。`}
-        confirmLabel={isSubjectSaving ? "删除中..." : "删除"}
-        variant="destructive"
-        onConfirm={handleDeleteSubject}
-        onCancel={() => setSubjectDeleteTarget(null)}
       />
 
       <MessageDialog

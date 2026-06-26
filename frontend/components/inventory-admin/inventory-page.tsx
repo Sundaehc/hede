@@ -31,6 +31,7 @@ import {
   listInventory,
   createInventoryRecord,
   updateInventoryRecord,
+  createDetail,
   deleteInventoryRecord,
   listInventoryRecycleBin,
   restoreInventoryRecord,
@@ -39,11 +40,13 @@ import {
   batchDeleteInventory,
   importPurchaseInventory,
   buildInventoryExportUrl,
+  listInventoryAccountSubjects,
   listGeneralCustomerShops,
   listSuppliers,
   listWarehouses,
   ApiError,
   type InventoryRecord,
+  type InventoryAccountSubject,
   type SupplierItem,
   type WarehouseItem,
 } from "@/lib/api"
@@ -88,6 +91,9 @@ const EMPTY_FORM: Record<string, string> = {
   document_type: "",
   handler: "",
   summary: "",
+  detail_subject: "",
+  detail_amount: "",
+  detail_remark: "",
 }
 
 const EMPTY_IMPORT_FORM: Record<string, string> = {
@@ -269,6 +275,7 @@ export function InventoryPage() {
   const [supplierOptions, setSupplierOptions] = useState<SupplierItem[]>([])
   const [warehouseOptions, setWarehouseOptions] = useState<WarehouseItem[]>([])
   const [customerShopOptions, setCustomerShopOptions] = useState<GeneralCustomerShopItem[]>([])
+  const [accountSubjectOptions, setAccountSubjectOptions] = useState<InventoryAccountSubject[]>([])
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(PAGE_SIZES[0])
   const [reloadToken, setReloadToken] = useState(0)
@@ -318,14 +325,16 @@ export function InventoryPage() {
   useEffect(() => {
     async function loadOptions() {
       try {
-        const [suppliersRes, warehousesRes, customerShopsRes] = await Promise.all([
+        const [suppliersRes, warehousesRes, customerShopsRes, accountSubjectsRes] = await Promise.all([
           listSuppliers(),
           listWarehouses(),
           listGeneralCustomerShops(),
+          listInventoryAccountSubjects(),
         ])
         setSupplierOptions(suppliersRes.items)
         setWarehouseOptions(warehousesRes.items)
         setCustomerShopOptions(customerShopsRes.items)
+        setAccountSubjectOptions(accountSubjectsRes.items)
       } catch { /* ignore */ }
     }
     void loadOptions()
@@ -401,6 +410,9 @@ export function InventoryPage() {
     setFormMode("create")
     setFormData({ ...EMPTY_FORM, date: todayInputValue() })
     setEditingId(null)
+    void listInventoryAccountSubjects()
+      .then((response) => setAccountSubjectOptions(response.items))
+      .catch(() => undefined)
     setFormOpen(true)
   }
 
@@ -431,14 +443,28 @@ export function InventoryPage() {
   }
 
   const handleSave = async () => {
+    const shouldCreateAccountingDetail = formMode === "create" && ACCOUNTING_DOCUMENT_TYPE_SET.has(formData.document_type || "")
+    if (shouldCreateAccountingDetail && (!formData.detail_subject?.trim() || !formData.detail_amount?.trim())) {
+      showMessage("保存失败", "请填写费用项目名/科目和金额")
+      return
+    }
     setIsSaving(true)
     try {
+      const { detail_subject, detail_amount, detail_remark, ...recordFormData } = formData
       const payload = {
-        ...formData,
+        ...recordFormData,
         warehouse: ACCOUNTING_DOCUMENT_TYPE_SET.has(formData.document_type || "") ? "" : formData.warehouse,
       }
       if (formMode === "create") {
-        await createInventoryRecord(payload)
+        const result = await createInventoryRecord(payload)
+        if (shouldCreateAccountingDetail) {
+          await createDetail(result.item.id, {
+            product_code: "",
+            product_name: detail_subject,
+            amount: detail_amount,
+            remark: detail_remark,
+          })
+        }
       } else if (editingId !== null) {
         await updateInventoryRecord(editingId, payload)
       }
@@ -728,6 +754,7 @@ export function InventoryPage() {
   const isFormPayable = PAYABLE_DOCUMENT_TYPES.has(formData.document_type || "")
   const isFormReceivable = RECEIVABLE_DOCUMENT_TYPES.has(formData.document_type || "")
   const isFormAccounting = ACCOUNTING_DOCUMENT_TYPE_SET.has(formData.document_type || "")
+  const shouldShowAccountingInlineDetail = formMode === "create" && isFormAccounting
   const isImportWholesale = WHOLESALE_DOCUMENT_TYPES.has(importFormData.document_type)
   const isImportTransfer = TRANSFER_DOCUMENT_TYPES.has(importFormData.document_type)
   const isImportStockAdjustment = STOCK_ADJUSTMENT_DOCUMENT_TYPES.has(importFormData.document_type)
@@ -1088,7 +1115,14 @@ export function InventoryPage() {
               <Label htmlFor="form-doc-type">单据类型</Label>
               <Select
                 value={formData.document_type || ""}
-                onChange={(e) => setFormData((prev) => ({ ...prev, document_type: e.target.value, supplier: "" }))}
+                onChange={(e) => setFormData((prev) => ({
+                  ...prev,
+                  document_type: e.target.value,
+                  supplier: "",
+                  detail_subject: "",
+                  detail_amount: "",
+                  detail_remark: "",
+                }))}
               >
                 <option value="">请选择</option>
                 {DOCUMENT_TYPES.map((dt) => (<option key={dt} value={dt}>{dt}</option>))}
@@ -1131,6 +1165,49 @@ export function InventoryPage() {
                 placeholder="摘要"
               />
             </div>
+            {shouldShowAccountingInlineDetail && (
+              <div className="col-span-2 rounded-lg border border-border bg-muted/20 p-3">
+                <div className="mb-3 flex items-center justify-between gap-3">
+                  <p className="text-sm font-medium">单据明细</p>
+                  <span className="text-xs text-muted-foreground">保存单据时自动生成</span>
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1.5">
+                    <Label htmlFor="form-detail-subject">费用项目名 / 科目</Label>
+                    <Select
+                      id="form-detail-subject"
+                      value={formData.detail_subject || ""}
+                      onChange={(e) => setFormData((prev) => ({ ...prev, detail_subject: e.target.value }))}
+                    >
+                      <option value="">请选择科目</option>
+                      {accountSubjectOptions.map((subject) => (
+                        <option key={subject.id} value={subject.name}>{subject.name}</option>
+                      ))}
+                    </Select>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="form-detail-amount">{formData.document_type?.includes("减少") ? "减少金额" : "增加金额"}</Label>
+                    <Input
+                      id="form-detail-amount"
+                      type="number"
+                      step="0.01"
+                      value={formData.detail_amount || ""}
+                      onChange={(e) => setFormData((prev) => ({ ...prev, detail_amount: e.target.value }))}
+                      placeholder="0.00"
+                    />
+                  </div>
+                  <div className="col-span-2 space-y-1.5">
+                    <Label htmlFor="form-detail-remark">明细备注</Label>
+                    <Input
+                      id="form-detail-remark"
+                      value={formData.detail_remark || ""}
+                      onChange={(e) => setFormData((prev) => ({ ...prev, detail_remark: e.target.value }))}
+                      placeholder="可选"
+                    />
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setFormOpen(false)} disabled={isSaving} className="cursor-pointer">取消</Button>
