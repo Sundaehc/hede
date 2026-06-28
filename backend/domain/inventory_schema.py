@@ -78,6 +78,7 @@ def build_inventory_detail_table() -> Table:
     ]
     columns.extend(Column(field.name, _column_type(field)) for field in INVENTORY_DETAIL_FIELDS)
     columns.append(Column("size_quantities", JSON, nullable=True))
+    columns.append(Column("extra_fields", JSON, nullable=True))
     columns.append(Column("created_at", DateTime(timezone=True), server_default=func.date_trunc('minute', func.now())))
     columns.append(Column("updated_at", DateTime(timezone=True), server_default=func.date_trunc('minute', func.now()), onupdate=func.date_trunc('minute', func.now())))
     table = Table(INVENTORY_DETAIL_TABLE_NAME, METADATA, *columns)

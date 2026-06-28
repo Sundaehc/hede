@@ -50,6 +50,7 @@ ACCOUNTING_DOCUMENT_TYPES: tuple[str, ...] = (
 )
 
 DOCUMENT_TYPES: tuple[str, ...] = (
+    "进货订单",
     "进货单",
     "进货退货单",
     "报溢单",

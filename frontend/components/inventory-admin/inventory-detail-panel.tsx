@@ -42,11 +42,34 @@ const EMPTY_DETAIL: Record<string, string> = {
   color_spec: "",
   color_barcode: "",
   color_name: "",
+  image_code: "",
+  factory_code: "",
+  style_code: "",
+  inner_color_code: "",
+  upper_material: "",
+  lining_material: "",
+  outsole_material: "",
+  insole_material: "",
+  shoe_box_spec: "",
   quantity: "",
   unit_price: "",
   amount: "",
   remark: "",
 }
+
+const PURCHASE_ORDER_DOCUMENT_TYPE = "进货订单"
+const PURCHASE_DETAIL_EXTRA_FIELDS = [
+  { key: "image_code", label: "图片" },
+  { key: "factory_code", label: "工厂货号" },
+  { key: "style_code", label: "款号（鞋内丝印）" },
+  { key: "inner_color_code", label: "色号（鞋内丝印）" },
+  { key: "upper_material", label: "鞋面材质" },
+  { key: "lining_material", label: "内里材质" },
+  { key: "outsole_material", label: "大底材质" },
+  { key: "insole_material", label: "鞋垫材质" },
+  { key: "shoe_box_spec", label: "鞋盒规格" },
+] as const
+type PurchaseDetailExtraKey = (typeof PURCHASE_DETAIL_EXTRA_FIELDS)[number]["key"]
 
 const EU_SIZE_COLUMNS = ["35", "36", "37", "38", "39", "40", "41", "42", "43", "44"]
 const MILLIMETER_SIZE_COLUMNS = ["220", "225", "230", "235", "240", "245", "250", "255", "260", "265", "270", "275", "280", "285"]
@@ -158,14 +181,33 @@ function normalizeSizeQuantitiesForBrand(values: Record<string, string> | null |
   return next
 }
 
+function getPurchaseDetailExtra(item: InventoryDetail, key: PurchaseDetailExtraKey) {
+  return item.extra_fields?.[key] || ""
+}
+
+function buildPurchaseExtraFields(formData: Record<string, string>) {
+  return PURCHASE_DETAIL_EXTRA_FIELDS.reduce<Record<string, string>>((fields, field) => {
+    fields[field.key] = formData[field.key] || ""
+    return fields
+  }, {})
+}
+
+function emptyPurchaseExtraFields() {
+  return PURCHASE_DETAIL_EXTRA_FIELDS.reduce<Record<string, string>>((fields, field) => {
+    fields[field.key] = ""
+    return fields
+  }, {})
+}
+
 export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChanged }: Props) {
   const documentId = record?.id ?? null
   const documentType = record?.document_type || ""
   const isAccountingDocument = ACCOUNTING_DOCUMENT_TYPES.has(documentType)
+  const isPurchaseOrder = documentType === PURCHASE_ORDER_DOCUMENT_TYPE
   const accountingAmountLabel = documentType.includes("减少") ? "减少金额" : "增加金额"
   const inventorySizeBrand = useMemo(() => inferInventorySizeBrand(record, suppliers), [record, suppliers])
   const sizeColumns = useMemo(() => getSizeColumns(inventorySizeBrand), [inventorySizeBrand])
-  const detailColumnCount = isAccountingDocument ? 6 : 10 + sizeColumns.length
+  const detailColumnCount = isAccountingDocument ? 6 : isPurchaseOrder ? 16 + sizeColumns.length : 10 + sizeColumns.length
   const [items, setItems] = useState<InventoryDetail[]>([])
   const [isLoading, setIsLoading] = useState(false)
   const [imageUrls, setImageUrls] = useState<Record<number, string | null>>({})
@@ -222,7 +264,7 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
   useEffect(() => {
     const controller = new AbortController()
     async function loadImages() {
-      if (isAccountingDocument) {
+      if (isAccountingDocument || isPurchaseOrder) {
         setImageUrls({})
         return
       }
@@ -253,7 +295,7 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
     }
     void loadImages()
     return () => { controller.abort() }
-  }, [items, isAccountingDocument])
+  }, [items, isAccountingDocument, isPurchaseOrder])
 
   const loadSubjects = useCallback(async () => {
     try {
@@ -292,6 +334,8 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
       color_spec: item.color_spec || "",
       color_barcode: item.color_barcode || "",
       color_name: item.color_name || "",
+      ...emptyPurchaseExtraFields(),
+      ...(item.extra_fields || {}),
       quantity: item.quantity || "",
       unit_price: item.unit_price || "",
       amount: item.amount || "",
@@ -318,7 +362,12 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
             amount: formData.amount,
             remark: formData.remark,
           }
-        : { ...formData, size_quantities: sizeQuantities }
+        : {
+            ...formData,
+            color_spec: formData.color_name || formData.color_spec,
+            size_quantities: sizeQuantities,
+            extra_fields: isPurchaseOrder ? buildPurchaseExtraFields(formData) : undefined,
+          }
       if (formMode === "create") {
         await createDetail(documentId, payload)
       } else if (editingId !== null) {
@@ -367,13 +416,14 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
           color_spec: item.color_spec || prev.color_spec,
           color_barcode: item.color_barcode || prev.color_barcode,
           color_name: item.color_name || prev.color_name,
+          ...(item.extra_fields || {}),
+          inner_color_code: isPurchaseOrder ? item.extra_fields?.inner_color_code || "" : prev.inner_color_code,
           unit_price: item.unit_price || prev.unit_price,
           amount: item.amount || prev.amount,
         }))
         setSizeQuantities((prev) => {
           const next = item.size_quantities || {}
           if (Object.keys(next).length > 0) return next
-          if (lookupReasonRef.current !== "quantity") return {}
           const filledSizes = Object.keys(prev).filter((size) => prev[size])
           if (filledSizes.length === 1 && formData.quantity) {
             return { [filledSizes[0]]: formData.quantity }
@@ -390,7 +440,7 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
       controller.abort()
       window.clearTimeout(timer)
     }
-  }, [formOpen, lookupToken, formData.product_code, formData.quantity, isAccountingDocument, inventorySizeBrand])
+  }, [formOpen, lookupToken, isAccountingDocument, isPurchaseOrder, inventorySizeBrand])
 
   const handleDelete = async () => {
     if (!deleteTarget || !documentId) return
@@ -471,7 +521,7 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
       <div className="fixed inset-0 z-40 bg-black/30 transition-opacity" onClick={onClose} />
 
       {/* Panel */}
-      <div className="fixed inset-y-0 right-0 z-50 w-full max-w-6xl border-l border-border bg-background shadow-2xl flex flex-col">
+      <div className="fixed inset-y-0 right-0 z-50 flex w-full max-w-6xl flex-col overflow-hidden rounded-l-lg border-l border-border bg-background shadow-2xl">
         {/* Header */}
         <div className="flex items-center justify-between border-b border-border px-6 py-4 shrink-0">
           <div>
@@ -548,6 +598,37 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
                   <th className="px-3 py-2.5 font-medium">备注</th>
                   <th className="px-4 py-2.5 w-20 font-medium">操作</th>
                 </tr>
+              ) : isPurchaseOrder ? (
+                <tr className="sticky top-0 z-10 border-b border-border bg-muted/40 text-left text-muted-foreground">
+                  <th className="w-10 px-3 py-2.5 font-medium">
+                    <input
+                      type="checkbox"
+                      checked={allSelected}
+                      disabled={items.length === 0 || isLoading}
+                      onChange={toggleAllSelected}
+                      className="h-4 w-4 cursor-pointer rounded border-border"
+                      aria-label="选择全部明细"
+                    />
+                  </th>
+                  <th className="px-3 py-2.5 font-medium">商品编号</th>
+                  <th className="px-3 py-2.5 font-medium">图片</th>
+                  <th className="px-3 py-2.5 font-medium">工厂货号</th>
+                  <th className="px-3 py-2.5 font-medium">款号（鞋内丝印）</th>
+                  <th className="px-3 py-2.5 font-medium">色号（鞋内丝印）</th>
+                  <th className="px-3 py-2.5 font-medium">颜色名称</th>
+                  <th className="px-3 py-2.5 font-medium">鞋面材质</th>
+                  <th className="px-3 py-2.5 font-medium">内里材质</th>
+                  <th className="px-3 py-2.5 font-medium">大底材质</th>
+                  <th className="px-3 py-2.5 font-medium">鞋垫材质</th>
+                  <th className="px-3 py-2.5 font-medium">鞋盒规格</th>
+                  {sizeColumns.map((size) => (
+                    <th key={size} className="px-2 py-2.5 text-right font-medium">{size}</th>
+                  ))}
+                  <th className="px-3 py-2.5 text-right font-medium">数量</th>
+                  <th className="px-3 py-2.5 text-right font-medium">单价</th>
+                  <th className="px-3 py-2.5 text-right font-medium">金额</th>
+                  <th className="px-4 py-2.5 w-20 font-medium">操作</th>
+                </tr>
               ) : (
                 <tr className="sticky top-0 z-10 border-b border-border bg-muted/40 text-left text-muted-foreground">
                   <th className="w-10 px-3 py-2.5 font-medium">
@@ -604,6 +685,28 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
                       <td className="px-3 py-2.5 text-right tabular-nums">{item.amount || "-"}</td>
                       <td className="px-3 py-2.5 max-w-64 truncate">{item.remark || "-"}</td>
                     </>
+                  ) : isPurchaseOrder ? (
+                    <>
+                      <td className="px-3 py-2.5 font-mono text-xs">{item.product_code || "-"}</td>
+                      <td className="px-3 py-2.5 font-mono text-xs">{getPurchaseDetailExtra(item, "image_code") || item.product_code || "-"}</td>
+                      <td className="px-3 py-2.5 font-mono text-xs">{getPurchaseDetailExtra(item, "factory_code") || "-"}</td>
+                      <td className="px-3 py-2.5 font-mono text-xs">{getPurchaseDetailExtra(item, "style_code") || "-"}</td>
+                      <td className="px-3 py-2.5 font-mono text-xs">{getPurchaseDetailExtra(item, "inner_color_code") || ""}</td>
+                      <td className="px-3 py-2.5">{item.color_name || item.color_spec || "-"}</td>
+                      <td className="px-3 py-2.5">{getPurchaseDetailExtra(item, "upper_material") || "-"}</td>
+                      <td className="px-3 py-2.5">{getPurchaseDetailExtra(item, "lining_material") || "-"}</td>
+                      <td className="px-3 py-2.5">{getPurchaseDetailExtra(item, "outsole_material") || "-"}</td>
+                      <td className="px-3 py-2.5">{getPurchaseDetailExtra(item, "insole_material") || "-"}</td>
+                      <td className="px-3 py-2.5">{getPurchaseDetailExtra(item, "shoe_box_spec") || "-"}</td>
+                      {sizeColumns.map((size) => (
+                        <td key={size} className="px-2 py-2.5 text-right tabular-nums">
+                          {getSizeQuantity(item.size_quantities, size, inventorySizeBrand) || "-"}
+                        </td>
+                      ))}
+                      <td className="px-3 py-2.5 text-right tabular-nums">{item.quantity || "-"}</td>
+                      <td className="px-3 py-2.5 text-right tabular-nums">{item.unit_price || "-"}</td>
+                      <td className="px-3 py-2.5 text-right tabular-nums">{item.amount || "-"}</td>
+                    </>
                   ) : (
                     <>
                       <td className="px-4 py-1.5">
@@ -652,7 +755,7 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
 
       {/* Detail Form Dialog */}
       <Dialog open={formOpen} onOpenChange={setFormOpen}>
-        <DialogContent className="max-w-2xl">
+        <DialogContent className={isPurchaseOrder ? "max-w-5xl" : "max-w-2xl"}>
           <DialogHeader>
             <DialogTitle>{formMode === "create" ? "新增明细" : "编辑明细"}</DialogTitle>
           </DialogHeader>
@@ -696,6 +799,175 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
                   />
                 </div>
               </>
+            ) : isPurchaseOrder ? (
+              <>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1.5">
+                    <Label htmlFor="detail-product-code">商品编号</Label>
+                    <Input
+                      id="detail-product-code"
+                      value={formData.product_code || ""}
+                      onChange={(e) => {
+                        lookupSourceCodeRef.current = e.target.value
+                        lookupReasonRef.current = "code"
+                        setLookupToken((token) => token + 1)
+                        setSizeQuantities({})
+                        setFormData((prev) => ({
+                          ...prev,
+                          product_code: e.target.value,
+                          ...emptyPurchaseExtraFields(),
+                          color_barcode: "",
+                          color_name: "",
+                          color_spec: "",
+                          quantity: "",
+                          amount: "",
+                        }))
+                      }}
+                      placeholder="商品编号"
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="detail-image-code">图片</Label>
+                    <Input
+                      id="detail-image-code"
+                      value={formData.image_code || ""}
+                      onChange={(e) => setFormData((prev) => ({ ...prev, image_code: e.target.value }))}
+                      placeholder="原始货号"
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="detail-factory-code">工厂货号</Label>
+                    <Input
+                      id="detail-factory-code"
+                      value={formData.factory_code || ""}
+                      onChange={(e) => setFormData((prev) => ({ ...prev, factory_code: e.target.value }))}
+                      placeholder="工厂货号"
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="detail-style-code">款号（鞋内丝印）</Label>
+                    <Input
+                      id="detail-style-code"
+                      value={formData.style_code || ""}
+                      onChange={(e) => setFormData((prev) => ({ ...prev, style_code: e.target.value }))}
+                      placeholder="款号"
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="detail-inner-color-code">色号（鞋内丝印）</Label>
+                    <Input
+                      id="detail-inner-color-code"
+                      value={formData.inner_color_code || ""}
+                      onChange={(e) => setFormData((prev) => ({ ...prev, inner_color_code: e.target.value }))}
+                      placeholder=""
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="detail-color-name">颜色名称</Label>
+                    <Input
+                      id="detail-color-name"
+                      value={formData.color_name || ""}
+                      onChange={(e) => setFormData((prev) => ({ ...prev, color_name: e.target.value, color_spec: e.target.value }))}
+                      placeholder="颜色名称"
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="detail-upper-material">鞋面材质</Label>
+                    <Input id="detail-upper-material" value={formData.upper_material || ""} onChange={(e) => setFormData((prev) => ({ ...prev, upper_material: e.target.value }))} />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="detail-lining-material">内里材质</Label>
+                    <Input id="detail-lining-material" value={formData.lining_material || ""} onChange={(e) => setFormData((prev) => ({ ...prev, lining_material: e.target.value }))} />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="detail-outsole-material">大底材质</Label>
+                    <Input id="detail-outsole-material" value={formData.outsole_material || ""} onChange={(e) => setFormData((prev) => ({ ...prev, outsole_material: e.target.value }))} />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="detail-insole-material">鞋垫材质</Label>
+                    <Input id="detail-insole-material" value={formData.insole_material || ""} onChange={(e) => setFormData((prev) => ({ ...prev, insole_material: e.target.value }))} />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="detail-shoe-box-spec">鞋盒规格</Label>
+                    <Input id="detail-shoe-box-spec" value={formData.shoe_box_spec || ""} onChange={(e) => setFormData((prev) => ({ ...prev, shoe_box_spec: e.target.value }))} />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="detail-unit-price">单价</Label>
+                    <Input
+                      id="detail-unit-price"
+                      type="number"
+                      step="0.01"
+                      value={formData.unit_price || ""}
+                      onChange={(e) => {
+                        const price = e.target.value
+                        const qty = formData.quantity || ""
+                        const amount = computeAmount(qty, price)
+                        setFormData((prev) => ({ ...prev, unit_price: price, amount }))
+                      }}
+                      placeholder="0.00"
+                    />
+                  </div>
+                </div>
+                <div className="space-y-1.5">
+                  <Label>尺码</Label>
+                  <div className="grid grid-cols-7 gap-1.5 rounded-lg border border-border bg-muted/20 p-2">
+                    {sizeColumns.map((size) => (
+                      <label key={size} className="flex flex-col gap-1 rounded-md border border-border bg-background p-1.5 text-xs">
+                        <span className="text-center text-muted-foreground">{size}</span>
+                        <Input
+                          value={sizeQuantities[size] || ""}
+                          onChange={(e) => {
+                            const value = e.target.value
+                            setSizeQuantities((prev) => {
+                              const next = { ...prev }
+                              if (value) next[size] = value
+                              else delete next[size]
+                              const quantity = sumSizeQuantities(next, sizeColumns)
+                              const amount = computeAmount(quantity, formData.unit_price || "")
+                              setFormData((current) => ({
+                                ...current,
+                                quantity,
+                                amount,
+                              }))
+                              return next
+                            })
+                          }}
+                          inputMode="numeric"
+                          className="h-7 px-1 text-center text-xs tabular-nums"
+                          placeholder="-"
+                        />
+                      </label>
+                    ))}
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1.5">
+                    <Label htmlFor="detail-quantity">数量</Label>
+                    <Input
+                      id="detail-quantity"
+                      type="number"
+                      value={formData.quantity || ""}
+                      onChange={(e) => {
+                        const qty = e.target.value
+                        const amount = computeAmount(qty, formData.unit_price || "")
+                        setFormData((prev) => ({ ...prev, quantity: qty, amount }))
+                      }}
+                      placeholder="自动计算"
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="detail-amount">金额</Label>
+                    <Input
+                      id="detail-amount"
+                      type="number"
+                      step="0.01"
+                      value={formData.amount || ""}
+                      onChange={(e) => setFormData((prev) => ({ ...prev, amount: e.target.value }))}
+                      placeholder="自动计算"
+                    />
+                  </div>
+                </div>
+              </>
             ) : (
               <>
             <div className="space-y-1.5">
@@ -707,7 +979,8 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
                   lookupSourceCodeRef.current = e.target.value
                   lookupReasonRef.current = "code"
                   setLookupToken((token) => token + 1)
-                  setFormData((prev) => ({ ...prev, product_code: e.target.value }))
+                  setSizeQuantities({})
+                  setFormData((prev) => ({ ...prev, product_code: e.target.value, quantity: "", amount: "" }))
                 }}
                 placeholder="货号"
               />
@@ -750,8 +1023,6 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
                     const qty = e.target.value
                     const price = formData.unit_price || ""
                     const amount = computeAmount(qty, price)
-                    lookupReasonRef.current = "quantity"
-                    setLookupToken((token) => token + 1)
                     setFormData((prev) => ({ ...prev, quantity: qty, amount }))
                   }}
                   placeholder="0"

@@ -4,7 +4,7 @@ import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { cn } from "@/lib/utils"
 import { ThemeToggle } from "@/components/theme-toggle"
-import { Package, ClipboardList, Truck, Warehouse, Store, Box, BadgeDollarSign, TableProperties } from "lucide-react"
+import { Package, ClipboardList, Truck, Warehouse, Store, Box, BadgeDollarSign, TableProperties, ShoppingCart } from "lucide-react"
 
 const NAV_ITEMS = [
   {
@@ -19,6 +19,16 @@ const NAV_ITEMS = [
         href: "/fine-table",
         label: "商品精细表",
         icon: TableProperties,
+      },
+    ],
+  },
+  {
+    section: "采购单管理",
+    items: [
+      {
+        href: "/purchase-orders",
+        label: "采购单管理",
+        icon: ShoppingCart,
       },
     ],
   },

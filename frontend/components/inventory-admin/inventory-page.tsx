@@ -36,6 +36,7 @@ import {
   listInventoryRecycleBin,
   restoreInventoryRecord,
   batchRestoreInventory,
+  batchPermanentlyDeleteInventory,
   batchUpdateInventoryCosts,
   batchDeleteInventory,
   importPurchaseInventory,
@@ -55,7 +56,8 @@ import type { GeneralCustomerShopItem } from "@/lib/types"
 const PAGE_SIZES = [10, 50, 100]
 
 const ACCOUNTING_DOCUMENT_TYPES = ["应付款减少", "应付款增加", "应收款减少", "应收款增加"]
-const DOCUMENT_TYPES = ["进货单", "进货退货单", "报溢单", "报损单", "批发销售单", "批发销售退货单", "同价调拨单", ...ACCOUNTING_DOCUMENT_TYPES]
+const PURCHASE_ORDER_DOCUMENT_TYPE = "进货订单"
+const INVENTORY_DOCUMENT_TYPES = ["进货单", "进货退货单", "报溢单", "报损单", "批发销售单", "批发销售退货单", "同价调拨单", ...ACCOUNTING_DOCUMENT_TYPES]
 const DETAIL_IMPORT_DOCUMENT_TYPES = ["进货单", "进货退货单", "报溢单", "报损单", "批发销售单", "批发销售退货单", "同价调拨单"]
 const WHOLESALE_DOCUMENT_TYPES = new Set(["批发销售单", "批发销售退货单"])
 const TRANSFER_DOCUMENT_TYPES = new Set(["同价调拨单"])
@@ -64,12 +66,13 @@ const PAYABLE_DOCUMENT_TYPES = new Set(["应付款减少", "应付款增加"])
 const RECEIVABLE_DOCUMENT_TYPES = new Set(["应收款减少", "应收款增加"])
 const ACCOUNTING_DOCUMENT_TYPE_SET = new Set(ACCOUNTING_DOCUMENT_TYPES)
 const OUTBOUND_DOCUMENT_TYPES = new Set(["进货退货单", "报损单", "批发销售单"])
-const INBOUND_DOCUMENT_TYPES = new Set(["进货单", "报溢单", "批发销售退货单"])
+const INBOUND_DOCUMENT_TYPES = new Set([PURCHASE_ORDER_DOCUMENT_TYPE, "进货单", "报溢单", "批发销售退货单"])
 const COMPLETION_TABS = [
   { value: "completed", label: "已完成单据" },
   { value: "incomplete", label: "未完成单据" },
 ] as const
 type CompletionStatus = (typeof COMPLETION_TABS)[number]["value"]
+type PurchaseExportMode = "summary" | "size_rows"
 type SearchableOption = {
   value: string
   label: string
@@ -89,6 +92,7 @@ const EMPTY_FORM: Record<string, string> = {
   supplier: "",
   warehouse: "",
   document_type: "",
+  delivery_date: "",
   handler: "",
   summary: "",
   detail_subject: "",
@@ -101,6 +105,7 @@ const EMPTY_IMPORT_FORM: Record<string, string> = {
   supplier: "",
   warehouse: "",
   document_type: "",
+  delivery_date: "",
   handler: "",
   summary: "",
 }
@@ -148,7 +153,7 @@ function buildPageRange(current: number, total: number): (number | "ellipsis")[]
 }
 
 function inferImportBrand(documentType: string, supplierName: string, suppliers: SupplierItem[]) {
-  if (!DETAIL_IMPORT_DOCUMENT_TYPES.includes(documentType)) return "cbanner_mens"
+  if (![PURCHASE_ORDER_DOCUMENT_TYPE, ...DETAIL_IMPORT_DOCUMENT_TYPES].includes(documentType)) return "cbanner_mens"
   const normalizedName = supplierName.trim()
   const upperName = normalizedName.toUpperCase()
   if (/\bNI\b/.test(upperName) || upperName.includes("NIKE") || normalizedName.includes("耐克")) return "ni"
@@ -265,7 +270,12 @@ function SearchableSelect({
   )
 }
 
-export function InventoryPage() {
+type InventoryPageProps = {
+  mode?: "inventory" | "purchase-orders"
+}
+
+export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
+  const isPurchasePage = mode === "purchase-orders"
   const [searchDateStart, setSearchDateStart] = useState("")
   const [searchDateEnd, setSearchDateEnd] = useState("")
   const [searchSupplier, setSearchSupplier] = useState("")
@@ -302,6 +312,8 @@ export function InventoryPage() {
   const [isRestoringId, setIsRestoringId] = useState<number | null>(null)
   const [selectedRecycleIds, setSelectedRecycleIds] = useState<Set<number>>(() => new Set())
   const [isBatchRestoring, setIsBatchRestoring] = useState(false)
+  const [recycleBatchDeleteOpen, setRecycleBatchDeleteOpen] = useState(false)
+  const [isRecycleBatchDeleting, setIsRecycleBatchDeleting] = useState(false)
   const [messageOpen, setMessageOpen] = useState(false)
   const [messageContent, setMessageContent] = useState({ title: "", description: "" })
 
@@ -319,6 +331,8 @@ export function InventoryPage() {
   const [detailDocumentId, setDetailDocumentId] = useState<number | null>(null)
   const [activeTab, setActiveTab] = useState("records")
   const [recordCompletionStatus, setRecordCompletionStatus] = useState<CompletionStatus>("completed")
+  const activeTabValue = isPurchasePage ? "purchase-orders" : activeTab
+  const isPurchaseOrderTab = activeTabValue === "purchase-orders"
 
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [isImporting, setIsImporting] = useState(false)
@@ -356,12 +370,13 @@ export function InventoryPage() {
           date_end: submittedFilters.date_end || undefined,
           supplier: submittedFilters.supplier || undefined,
           warehouse: submittedFilters.warehouse || undefined,
-          document_type: submittedFilters.document_type || undefined,
+          document_type: isPurchaseOrderTab ? PURCHASE_ORDER_DOCUMENT_TYPE : submittedFilters.document_type || undefined,
+          exclude_document_type: isPurchaseOrderTab ? undefined : PURCHASE_ORDER_DOCUMENT_TYPE,
           summary: submittedFilters.summary || undefined,
           original_sku: submittedFilters.original_sku || undefined,
           product_code: submittedFilters.product_code || undefined,
           handler: submittedFilters.handler || undefined,
-          completion_status: recordCompletionStatus,
+          completion_status: isPurchaseOrderTab ? undefined : recordCompletionStatus,
           page,
           pageSize,
         })
@@ -379,7 +394,7 @@ export function InventoryPage() {
     }
     void load()
     return () => { cancelled = true }
-  }, [page, pageSize, recordCompletionStatus, reloadToken, submittedFilters])
+  }, [isPurchaseOrderTab, page, pageSize, recordCompletionStatus, reloadToken, submittedFilters])
 
   useEffect(() => { setSelectedIds(new Set()) }, [page, recordCompletionStatus, submittedFilters])
 
@@ -391,7 +406,12 @@ export function InventoryPage() {
   const loadRecycleBin = useCallback(async () => {
     setIsRecycleLoading(true)
     try {
-      const response = await listInventoryRecycleBin({ page: recyclePage, pageSize: 10 })
+      const response = await listInventoryRecycleBin({
+        page: recyclePage,
+        pageSize: 10,
+        document_type: isPurchasePage ? PURCHASE_ORDER_DOCUMENT_TYPE : undefined,
+        exclude_document_type: isPurchasePage ? undefined : PURCHASE_ORDER_DOCUMENT_TYPE,
+      })
       setRecycleItems(response.items)
       setRecycleTotal(response.total)
     } catch (e) {
@@ -401,7 +421,7 @@ export function InventoryPage() {
     } finally {
       setIsRecycleLoading(false)
     }
-  }, [recyclePage, showMessage])
+  }, [isPurchasePage, recyclePage, showMessage])
 
   useEffect(() => {
     if (recycleOpen) void loadRecycleBin()
@@ -411,9 +431,20 @@ export function InventoryPage() {
     setSelectedRecycleIds(new Set())
   }, [recyclePage, recycleOpen])
 
+  useEffect(() => {
+    setRecyclePage(1)
+    setSelectedRecycleIds(new Set())
+    setRecycleItems([])
+    setRecycleTotal(0)
+  }, [isPurchasePage])
+
   const openCreate = () => {
     setFormMode("create")
-    setFormData({ ...EMPTY_FORM, date: todayInputValue() })
+    setFormData({
+      ...EMPTY_FORM,
+      date: todayInputValue(),
+      document_type: isPurchaseOrderTab ? PURCHASE_ORDER_DOCUMENT_TYPE : "",
+    })
     setEditingId(null)
     void listInventoryAccountSubjects()
       .then((response) => setAccountSubjectOptions(response.items))
@@ -428,6 +459,7 @@ export function InventoryPage() {
     setImportFormData((prev) => ({
       ...EMPTY_IMPORT_FORM,
       date: todayInputValue(),
+      document_type: isPurchaseOrderTab ? PURCHASE_ORDER_DOCUMENT_TYPE : "",
       handler: prev.handler || "",
     }))
     setImportDialogOpen(true)
@@ -441,6 +473,7 @@ export function InventoryPage() {
       supplier: item.supplier || "",
       warehouse: item.warehouse || "",
       document_type: item.document_type || "",
+      delivery_date: typeof item.extra_fields?.delivery_date === "string" ? item.extra_fields.delivery_date : "",
       handler: item.handler || "",
       summary: item.summary || "",
     })
@@ -455,9 +488,15 @@ export function InventoryPage() {
     }
     setIsSaving(true)
     try {
-      const { detail_subject, detail_amount, detail_remark, ...recordFormData } = formData
+      const { detail_subject, detail_amount, detail_remark, delivery_date, ...recordFormData } = formData
+      if (formData.document_type === PURCHASE_ORDER_DOCUMENT_TYPE && !delivery_date) {
+        showMessage("保存失败", "请选择交货日期")
+        setIsSaving(false)
+        return
+      }
       const payload = {
         ...recordFormData,
+        extra_fields: formData.document_type === PURCHASE_ORDER_DOCUMENT_TYPE && delivery_date ? { delivery_date } : undefined,
         warehouse: ACCOUNTING_DOCUMENT_TYPE_SET.has(formData.document_type || "") ? "" : formData.warehouse,
       }
       if (formMode === "create") {
@@ -566,6 +605,27 @@ export function InventoryPage() {
     }
   }
 
+  const handleRecycleBatchDeleteConfirm = async () => {
+    const ids = Array.from(selectedRecycleIds)
+    if (ids.length === 0) {
+      setRecycleBatchDeleteOpen(false)
+      return
+    }
+    setIsRecycleBatchDeleting(true)
+    try {
+      const result = await batchPermanentlyDeleteInventory(ids)
+      setSelectedRecycleIds(new Set())
+      showMessage("批量删除完成", result.message)
+      await loadRecycleBin()
+      setReloadToken((t) => t + 1)
+    } catch (e) {
+      showMessage("批量删除失败", getErrorMessage(e))
+    } finally {
+      setIsRecycleBatchDeleting(false)
+      setRecycleBatchDeleteOpen(false)
+    }
+  }
+
   const handleToggleSelect = (id: number) => {
     setSelectedIds((prev) => {
       const next = new Set(prev)
@@ -601,11 +661,16 @@ export function InventoryPage() {
       setImportError(`请填写${isStockAdjustmentImport ? "仓库" : requiredFields}、经手人和摘要`)
       return
     }
+    if (importFormData.document_type === PURCHASE_ORDER_DOCUMENT_TYPE && !importFormData.delivery_date) {
+      setImportError("请选择交货日期")
+      return
+    }
     setIsImporting(true)
     try {
       const result = await importPurchaseInventory({
         file: importFile,
         date: importFormData.date,
+        delivery_date: importFormData.delivery_date,
         supplier: importFormData.supplier,
         warehouse: importFormData.warehouse,
         document_type: importFormData.document_type,
@@ -625,7 +690,7 @@ export function InventoryPage() {
     }
   }
 
-  const handleExport = async () => {
+  const handleExport = async (purchaseExportMode?: PurchaseExportMode) => {
     try {
       if (ACCOUNTING_DOCUMENT_TYPE_SET.has(submittedFilters.document_type || "")) {
         showMessage("暂不支持导出", "应付款/应收款四类单据暂时不导出 Excel")
@@ -637,12 +702,14 @@ export function InventoryPage() {
         date_end: submittedFilters.date_end || undefined,
         supplier: submittedFilters.supplier || undefined,
         warehouse: submittedFilters.warehouse || undefined,
-        document_type: submittedFilters.document_type || undefined,
+        document_type: isPurchaseOrderTab ? PURCHASE_ORDER_DOCUMENT_TYPE : submittedFilters.document_type || undefined,
+        exclude_document_type: isPurchaseOrderTab ? undefined : PURCHASE_ORDER_DOCUMENT_TYPE,
         summary: submittedFilters.summary || undefined,
         original_sku: submittedFilters.original_sku || undefined,
         product_code: submittedFilters.product_code || undefined,
         handler: submittedFilters.handler || undefined,
-        completion_status: recordCompletionStatus,
+        completion_status: isPurchaseOrderTab ? undefined : recordCompletionStatus,
+        purchase_export_mode: isPurchaseOrderTab ? purchaseExportMode ?? "summary" : undefined,
       })
       a.rel = "noopener"
       a.click()
@@ -658,7 +725,7 @@ export function InventoryPage() {
       date_end: searchDateEnd,
       supplier: searchSupplier,
       warehouse: searchWarehouse,
-      document_type: searchDocumentType,
+      document_type: isPurchaseOrderTab ? PURCHASE_ORDER_DOCUMENT_TYPE : searchDocumentType,
       summary: searchSummary,
       original_sku: searchOriginalSku,
       product_code: searchProductCode,
@@ -735,7 +802,7 @@ export function InventoryPage() {
     setSearchProductCode("")
     setSearchHandler("")
     setPage(1)
-    setSubmittedFilters({})
+    setSubmittedFilters(isPurchaseOrderTab ? { document_type: PURCHASE_ORDER_DOCUMENT_TYPE } : {})
   }
 
   const handleCompletionTabChange = (value: string) => {
@@ -744,14 +811,26 @@ export function InventoryPage() {
     setSelectedIds(new Set())
   }
 
-  const hasFilters = Object.keys(submittedFilters).length > 0
+  const handleMainTabChange = (value: string) => {
+    if (isPurchasePage) return
+    setActiveTab(value)
+    setPage(1)
+    setSelectedIds(new Set())
+    setSearchDocumentType("")
+    setSubmittedFilters({})
+  }
+
+  const hasFilters = Object.entries(submittedFilters).some(
+    ([key, value]) => value && !(isPurchaseOrderTab && key === "document_type" && value === PURCHASE_ORDER_DOCUMENT_TYPE),
+  )
   const totalPages = Math.max(1, Math.ceil(total / pageSize))
   const recycleTotalPages = Math.max(1, Math.ceil(recycleTotal / 10))
   const allSelected = items.length > 0 && items.every((item) => selectedIds.has(item.id))
   const someSelected = items.some((item) => selectedIds.has(item.id))
   const allRecycleSelected = recycleItems.length > 0 && recycleItems.every((item) => selectedRecycleIds.has(item.id))
+  const recycleActionBusy = isBatchRestoring || isRecycleBatchDeleting
   const detailRecord = detailDocumentId === null ? null : items.find((item) => item.id === detailDocumentId) ?? null
-  const completionLabel = COMPLETION_TABS.find((item) => item.value === recordCompletionStatus)?.label ?? "单据"
+  const completionLabel = isPurchaseOrderTab ? "采购单" : COMPLETION_TABS.find((item) => item.value === recordCompletionStatus)?.label ?? "单据"
   const pageRange = buildPageRange(page, totalPages)
   const isFormWholesale = WHOLESALE_DOCUMENT_TYPES.has(formData.document_type || "")
   const isFormTransfer = TRANSFER_DOCUMENT_TYPES.has(formData.document_type || "")
@@ -779,24 +858,41 @@ export function InventoryPage() {
   }))
   const formCounterpartyOptions = isFormTransfer ? warehouseSelectOptions : (isFormWholesale || isFormReceivable) ? customerShopSelectOptions : supplierSelectOptions
   const importCounterpartyOptions = isImportTransfer ? warehouseSelectOptions : isImportWholesale ? customerShopSelectOptions : supplierSelectOptions
+  const documentTypeOptions = INVENTORY_DOCUMENT_TYPES
+  const detailImportDocumentTypeOptions = DETAIL_IMPORT_DOCUMENT_TYPES
 
   return (
     <div className="app-page">
       <div className="app-content">
         <div className="page-header">
           <div>
-            <h1 className="page-title">进销存管理</h1>
-            <p className="page-subtitle">维护进销存单据、导入明细并查看期末库存</p>
+            <h1 className="page-title">{isPurchasePage ? "采购单管理" : "进销存管理"}</h1>
+            <p className="page-subtitle">
+              {isPurchasePage ? "维护进货订单、导入采购明细并跟踪交货日期" : "维护进销存单据、导入明细并查看期末库存"}
+            </p>
           </div>
           <div className="flex items-center gap-2">
             <Button variant="outline" size="sm" onClick={openImportDialog} disabled={isImporting} className="cursor-pointer">
               <Upload className="h-4 w-4" />
-              <span className="ml-2 hidden sm:inline">{isImporting ? "导入中..." : "导入Excel"}</span>
+              <span className="ml-2 hidden sm:inline">{isImporting ? "导入中..." : isPurchaseOrderTab ? "导入采购单" : "导入Excel"}</span>
             </Button>
-            <Button variant="outline" size="sm" onClick={handleExport} disabled={total === 0 || isLoading} className="cursor-pointer">
-              <Download className="h-4 w-4" />
-              <span className="ml-2 hidden sm:inline">导出Excel</span>
-            </Button>
+            {isPurchaseOrderTab ? (
+              <>
+                <Button variant="outline" size="sm" onClick={() => handleExport("summary")} disabled={total === 0 || isLoading} className="cursor-pointer">
+                  <Download className="h-4 w-4" />
+                  <span className="ml-2 hidden sm:inline">汇总导出</span>
+                </Button>
+                <Button variant="outline" size="sm" onClick={() => handleExport("size_rows")} disabled={total === 0 || isLoading} className="cursor-pointer">
+                  <Download className="h-4 w-4" />
+                  <span className="ml-2 hidden sm:inline">尺码明细导出</span>
+                </Button>
+              </>
+            ) : (
+              <Button variant="outline" size="sm" onClick={() => handleExport()} disabled={total === 0 || isLoading} className="cursor-pointer">
+                <Download className="h-4 w-4" />
+                <span className="ml-2 hidden sm:inline">导出Excel</span>
+              </Button>
+            )}
             <Button variant="outline" size="sm" onClick={openCostDialog} disabled={isUpdatingCosts} className="cursor-pointer">
               <BadgeDollarSign className="h-4 w-4" />
               <span className="ml-2 hidden sm:inline">批量改成本价</span>
@@ -804,7 +900,13 @@ export function InventoryPage() {
             <Button
               variant="outline"
               size="sm"
-              onClick={() => { setRecyclePage(1); setRecycleOpen(true) }}
+              onClick={() => {
+                setRecyclePage(1)
+                setSelectedRecycleIds(new Set())
+                setRecycleItems([])
+                setRecycleTotal(0)
+                setRecycleOpen(true)
+              }}
               className="cursor-pointer"
             >
               <Trash2 className="h-4 w-4" />
@@ -812,30 +914,34 @@ export function InventoryPage() {
             </Button>
             <Button size="sm" onClick={openCreate} className="cursor-pointer">
               <Plus className="h-4 w-4" />
-              <span className="ml-2 hidden sm:inline">新增记录</span>
+              <span className="ml-2 hidden sm:inline">{isPurchaseOrderTab ? "新增采购单" : "新增记录"}</span>
             </Button>
           </div>
         </div>
 
-        <Tabs defaultValue="records" value={activeTab} onValueChange={setActiveTab}>
-          <TabsList className="rounded-xl bg-muted/60 p-1">
-            <TabsTrigger value="records">进销存记录</TabsTrigger>
-            <TabsTrigger value="ending">期末库存</TabsTrigger>
-          </TabsList>
+        <Tabs defaultValue="records" value={activeTab} onValueChange={handleMainTabChange}>
+          {!isPurchasePage && (
+            <TabsList className="rounded-xl bg-muted/60 p-1">
+              <TabsTrigger value="records">进销存记录</TabsTrigger>
+              <TabsTrigger value="ending">期末库存</TabsTrigger>
+            </TabsList>
+          )}
 
-          {activeTab === "records" && (
+          {(activeTabValue === "records" || activeTabValue === "purchase-orders") && (
             <>
-              <div className="surface-panel p-1.5">
-                <Tabs defaultValue="completed" value={recordCompletionStatus} onValueChange={handleCompletionTabChange}>
-                  <TabsList className="rounded-xl bg-muted/60 p-1">
-                    {COMPLETION_TABS.map((item) => (
-                      <TabsTrigger key={item.value} value={item.value} className="cursor-pointer">
-                        {item.label}
-                      </TabsTrigger>
-                    ))}
-                  </TabsList>
-                </Tabs>
-              </div>
+              {!isPurchaseOrderTab && (
+                <div className="surface-panel p-1.5">
+                  <Tabs defaultValue="completed" value={recordCompletionStatus} onValueChange={handleCompletionTabChange}>
+                    <TabsList className="rounded-xl bg-muted/60 p-1">
+                      {COMPLETION_TABS.map((item) => (
+                        <TabsTrigger key={item.value} value={item.value} className="cursor-pointer">
+                          {item.label}
+                        </TabsTrigger>
+                      ))}
+                    </TabsList>
+                  </Tabs>
+                </div>
+              )}
               <div className="surface-panel p-4">
                 <div className="grid gap-3 xl:grid-cols-[1fr_auto] xl:items-end">
                   <div className="grid gap-3 lg:grid-cols-12">
@@ -859,13 +965,19 @@ export function InventoryPage() {
                         />
                       </div>
                     </div>
-                    <div className="space-y-1.5 lg:col-span-3 xl:col-span-2">
-                      <Label className="text-xs text-muted-foreground">单据类型</Label>
-                      <Select value={searchDocumentType} onChange={(e) => setSearchDocumentType(e.target.value)} className="w-full">
-                        <option value="">全部</option>
-                        {DOCUMENT_TYPES.map((dt) => (<option key={dt} value={dt}>{dt}</option>))}
-                      </Select>
-                    </div>
+                    {!isPurchaseOrderTab && (
+                      <div className="space-y-1.5 lg:col-span-3 xl:col-span-2">
+                        <Label className="text-xs text-muted-foreground">单据类型</Label>
+                        <Select
+                          value={searchDocumentType}
+                          onChange={(e) => setSearchDocumentType(e.target.value)}
+                          className="w-full"
+                        >
+                          <option value="">全部</option>
+                          {documentTypeOptions.map((dt) => (<option key={dt} value={dt}>{dt}</option>))}
+                        </Select>
+                      </div>
+                    )}
                     <div className="space-y-1.5 lg:col-span-3 xl:col-span-2">
                       <Label className="text-xs text-muted-foreground">仓库</Label>
                       <Select value={searchWarehouse} onChange={(e) => setSearchWarehouse(e.target.value)} className="w-full">
@@ -955,8 +1067,9 @@ export function InventoryPage() {
               <tr className="table-head-row">
                 <th className="px-4 py-3 w-10"></th>
                 <th className="px-4 py-3 font-medium">单据编号</th>
-                <th className="px-4 py-3 font-medium">日期</th>
-                <th className="px-4 py-3 font-medium">单据类型</th>
+                <th className="px-4 py-3 font-medium">{isPurchaseOrderTab ? "订货日期" : "日期"}</th>
+                {isPurchaseOrderTab && <th className="px-4 py-3 font-medium">交货日期</th>}
+                {!isPurchaseOrderTab && <th className="px-4 py-3 font-medium">单据类型</th>}
                 <th className="px-4 py-3 font-medium">供应商</th>
                 <th className="px-4 py-3 text-right font-medium">总数</th>
                 <th className="px-4 py-3 text-right font-medium">金额</th>
@@ -993,17 +1106,24 @@ export function InventoryPage() {
                     </td>
                     <td className="px-4 py-2.5 font-mono text-xs tabular-nums">{item.document_number || item.id}</td>
                     <td className="px-4 py-2.5 whitespace-nowrap tabular-nums">{item.date || "-"}</td>
-                    <td className="px-4 py-2.5 whitespace-nowrap">
-                      {item.document_type ? (
-                        <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${
-                          OUTBOUND_DOCUMENT_TYPES.has(item.document_type) ? "bg-red-100 text-red-700"
-                          : INBOUND_DOCUMENT_TYPES.has(item.document_type) ? "bg-green-100 text-green-700"
-                          : "bg-blue-100 text-blue-700"
-                        }`}>
-                          {item.document_type}
-                        </span>
-                      ) : "-"}
-                    </td>
+                    {isPurchaseOrderTab && (
+                      <td className="px-4 py-2.5 whitespace-nowrap tabular-nums">
+                        {typeof item.extra_fields?.delivery_date === "string" ? item.extra_fields.delivery_date : "-"}
+                      </td>
+                    )}
+                    {!isPurchaseOrderTab && (
+                      <td className="px-4 py-2.5 whitespace-nowrap">
+                        {item.document_type ? (
+                          <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${
+                            OUTBOUND_DOCUMENT_TYPES.has(item.document_type) ? "bg-red-100 text-red-700"
+                            : INBOUND_DOCUMENT_TYPES.has(item.document_type) ? "bg-green-100 text-green-700"
+                            : "bg-blue-100 text-blue-700"
+                          }`}>
+                            {item.document_type}
+                          </span>
+                        ) : "-"}
+                      </td>
+                    )}
                     <td className="px-4 py-2.5">{item.supplier || "-"}</td>
                     <td className="px-4 py-2.5 text-right tabular-nums">{isAccountingRow ? "" : item.total_count || "-"}</td>
                     <td className="px-4 py-2.5 text-right tabular-nums">{isAccountingRow ? "" : item.amount || "-"}</td>
@@ -1093,7 +1213,7 @@ export function InventoryPage() {
         </div>
             </>
           )}
-          {activeTab === "ending" && <EndingInventoryTab />}
+          {!isPurchasePage && activeTabValue === "ending" && <EndingInventoryTab />}
         </Tabs>
       </div>
 
@@ -1101,12 +1221,12 @@ export function InventoryPage() {
       <Dialog open={formOpen} onOpenChange={setFormOpen}>
         <DialogContent className="max-w-xl">
           <DialogHeader>
-            <DialogTitle>{formMode === "create" ? "新增进销存记录" : "编辑进销存记录"}</DialogTitle>
+            <DialogTitle>{formMode === "create" ? (isPurchaseOrderTab ? "新增采购单" : "新增进销存记录") : (formData.document_type === PURCHASE_ORDER_DOCUMENT_TYPE ? "编辑采购单" : "编辑进销存记录")}</DialogTitle>
           </DialogHeader>
           <div className="grid grid-cols-2 gap-4 py-2">
             {/* Date */}
             <div className="space-y-1.5">
-              <Label htmlFor="form-date">日期</Label>
+              <Label htmlFor="form-date">{formData.document_type === PURCHASE_ORDER_DOCUMENT_TYPE ? "订货日期" : "日期"}</Label>
               <input
                 id="form-date"
                 type="date"
@@ -1115,24 +1235,39 @@ export function InventoryPage() {
                 className="flex h-9 w-full rounded-lg border border-input bg-card px-3 py-2 text-sm shadow-xs outline-none transition-colors focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/35"
               />
             </div>
-            {/* Document Type */}
-            <div className="space-y-1.5">
-              <Label htmlFor="form-doc-type">单据类型</Label>
-              <Select
-                value={formData.document_type || ""}
-                onChange={(e) => setFormData((prev) => ({
-                  ...prev,
-                  document_type: e.target.value,
-                  supplier: "",
-                  detail_subject: "",
-                  detail_amount: "",
-                  detail_remark: "",
-                }))}
-              >
-                <option value="">请选择</option>
-                {DOCUMENT_TYPES.map((dt) => (<option key={dt} value={dt}>{dt}</option>))}
-              </Select>
-            </div>
+            {!isPurchaseOrderTab && (
+              <div className="space-y-1.5">
+                <Label htmlFor="form-doc-type">单据类型</Label>
+                <Select
+                  value={formData.document_type || ""}
+                  onChange={(e) => setFormData((prev) => ({
+                    ...prev,
+                    document_type: e.target.value,
+                    supplier: "",
+                    detail_subject: "",
+                    detail_amount: "",
+                    detail_remark: "",
+                    delivery_date: e.target.value === PURCHASE_ORDER_DOCUMENT_TYPE ? prev.delivery_date : "",
+                  }))}
+                >
+                  <option value="">请选择</option>
+                  {documentTypeOptions.map((dt) => (<option key={dt} value={dt}>{dt}</option>))}
+                </Select>
+              </div>
+            )}
+            {formData.document_type === PURCHASE_ORDER_DOCUMENT_TYPE && (
+              <div className="space-y-1.5">
+                <Label htmlFor="form-delivery-date">交货日期</Label>
+                <input
+                  id="form-delivery-date"
+                  type="date"
+                  value={formData.delivery_date || ""}
+                  min={formData.date || undefined}
+                  onChange={(e) => setFormData((prev) => ({ ...prev, delivery_date: e.target.value }))}
+                  className="flex h-9 w-full rounded-lg border border-input bg-card px-3 py-2 text-sm shadow-xs outline-none transition-colors focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/35"
+                />
+              </div>
+            )}
             <div className="space-y-1.5">
               <Label htmlFor="form-handler">经手人</Label>
               <Input id="form-handler" value={formData.handler || ""} onChange={(e) => setFormData((prev) => ({ ...prev, handler: e.target.value }))} placeholder="经手人" />
@@ -1224,7 +1359,7 @@ export function InventoryPage() {
       <Dialog open={importDialogOpen} onOpenChange={setImportDialogOpen}>
         <DialogContent className="max-w-xl">
           <DialogHeader>
-            <DialogTitle>导入单据明细</DialogTitle>
+            <DialogTitle>{isPurchaseOrderTab ? "导入采购单" : "导入单据明细"}</DialogTitle>
           </DialogHeader>
           {importError && (
             <Alert className="border-destructive/30 bg-destructive/5 text-destructive">
@@ -1233,7 +1368,7 @@ export function InventoryPage() {
           )}
           <div className="grid grid-cols-2 gap-4 py-2">
             <div className="space-y-1.5">
-              <Label>单据日期</Label>
+              <Label>{importFormData.document_type === PURCHASE_ORDER_DOCUMENT_TYPE ? "订货日期" : "单据日期"}</Label>
               <input
                 type="date"
                 value={importFormData.date}
@@ -1241,13 +1376,30 @@ export function InventoryPage() {
                 className="flex h-9 w-full rounded-lg border border-input bg-card px-3 py-2 text-sm shadow-xs outline-none transition-colors focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/35"
               />
             </div>
-            <div className="space-y-1.5">
-              <Label>单据类型</Label>
-              <Select value={importFormData.document_type} onChange={(e) => { setImportError(""); setImportFormData((prev) => ({ ...prev, document_type: e.target.value, supplier: "" })) }}>
-                <option value="">请选择</option>
-                {DETAIL_IMPORT_DOCUMENT_TYPES.map((dt) => (<option key={dt} value={dt}>{dt}</option>))}
-              </Select>
-            </div>
+            {!isPurchaseOrderTab && (
+              <div className="space-y-1.5">
+                <Label>单据类型</Label>
+                <Select
+                  value={importFormData.document_type}
+                  onChange={(e) => { setImportError(""); setImportFormData((prev) => ({ ...prev, document_type: e.target.value, supplier: "" })) }}
+                >
+                  <option value="">请选择</option>
+                  {detailImportDocumentTypeOptions.map((dt) => (<option key={dt} value={dt}>{dt}</option>))}
+                </Select>
+              </div>
+            )}
+            {importFormData.document_type === PURCHASE_ORDER_DOCUMENT_TYPE && (
+              <div className="space-y-1.5">
+                <Label>交货日期</Label>
+                <input
+                  type="date"
+                  value={importFormData.delivery_date}
+                  min={importFormData.date || undefined}
+                  onChange={(e) => { setImportError(""); setImportFormData((prev) => ({ ...prev, delivery_date: e.target.value })) }}
+                  className="flex h-9 w-full rounded-lg border border-input bg-card px-3 py-2 text-sm shadow-xs outline-none transition-colors focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/35"
+                />
+              </div>
+            )}
             {!isImportStockAdjustment && (
               <div className="space-y-1.5">
                 <Label>{isImportTransfer ? "出货仓库" : isImportWholesale ? "收货客户" : "供货单位"}</Label>
@@ -1373,14 +1525,14 @@ export function InventoryPage() {
         <DialogContent className="max-w-5xl">
           <DialogHeader>
             <div className="flex items-center justify-between gap-3">
-              <DialogTitle>单据回收站</DialogTitle>
+              <DialogTitle>{isPurchasePage ? "采购单回收站" : "进销存回收站"}</DialogTitle>
               <Button
                 type="button"
                 variant="ghost"
                 size="icon"
                 onClick={() => setRecycleOpen(false)}
                 className="h-8 w-8 cursor-pointer"
-                aria-label="关闭回收站"
+                aria-label={isPurchasePage ? "关闭采购单回收站" : "关闭进销存回收站"}
                 title="关闭"
               >
                 <X className="h-4 w-4" />
@@ -1389,7 +1541,7 @@ export function InventoryPage() {
           </DialogHeader>
           <div className="space-y-3 py-2">
             <div className="rounded-lg border border-border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
-              删除的单据会在这里保留 10 天，超过 10 天后自动彻底删除。
+              删除的{isPurchasePage ? "采购单" : "进销存单据"}会在这里保留 10 天，超过 10 天后自动彻底删除。
             </div>
             <div className="overflow-hidden rounded-lg border border-border">
               <table className="w-full text-sm">
@@ -1399,10 +1551,10 @@ export function InventoryPage() {
                       <input
                         type="checkbox"
                         checked={allRecycleSelected}
-                        disabled={recycleItems.length === 0 || isRecycleLoading || isBatchRestoring}
+                        disabled={recycleItems.length === 0 || isRecycleLoading || recycleActionBusy}
                         onChange={handleToggleRecycleSelectAll}
                         className="h-4 w-4 cursor-pointer rounded border border-input accent-primary"
-                        aria-label="选择当前页全部回收站单据"
+                        aria-label={`选择当前页全部${isPurchasePage ? "采购单" : "进销存"}回收站单据`}
                       />
                     </th>
                     <th className="px-3 py-2 font-medium">单据编号</th>
@@ -1423,7 +1575,9 @@ export function InventoryPage() {
                   )}
                   {!isRecycleLoading && recycleItems.length === 0 && (
                     <tr>
-                      <td colSpan={9} className="px-4 py-10 text-center text-muted-foreground">回收站暂无单据</td>
+                      <td colSpan={9} className="px-4 py-10 text-center text-muted-foreground">
+                        {isPurchasePage ? "采购单回收站暂无单据" : "进销存回收站暂无单据"}
+                      </td>
                     </tr>
                   )}
                   {!isRecycleLoading && recycleItems.map((item) => (
@@ -1432,7 +1586,7 @@ export function InventoryPage() {
                         <input
                           type="checkbox"
                           checked={selectedRecycleIds.has(item.id)}
-                          disabled={isBatchRestoring || isRestoringId === item.id}
+                          disabled={recycleActionBusy || isRestoringId === item.id}
                           onChange={() => handleToggleRecycleSelect(item.id)}
                           className="h-4 w-4 cursor-pointer rounded border border-input accent-primary"
                           aria-label={`选择回收站单据 ${item.document_number || item.id}`}
@@ -1450,7 +1604,7 @@ export function InventoryPage() {
                           size="sm"
                           variant="outline"
                           onClick={() => handleRestoreRecord(item.id)}
-                          disabled={isRestoringId === item.id || isBatchRestoring}
+                          disabled={isRestoringId === item.id || recycleActionBusy}
                           className="cursor-pointer"
                         >
                           <RefreshCw className="h-3.5 w-3.5" />
@@ -1469,22 +1623,34 @@ export function InventoryPage() {
               </span>
               <div className="flex items-center gap-2">
                 {selectedRecycleIds.size > 0 && (
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={handleBatchRestore}
-                    disabled={isBatchRestoring || isRecycleLoading}
-                    className="cursor-pointer"
-                  >
-                    <RefreshCw className={`h-4 w-4 ${isBatchRestoring ? "animate-spin" : ""}`} />
-                    <span className="ml-1.5">{isBatchRestoring ? "恢复中..." : `批量恢复 (${selectedRecycleIds.size})`}</span>
-                  </Button>
+                  <>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={handleBatchRestore}
+                      disabled={recycleActionBusy || isRecycleLoading}
+                      className="cursor-pointer"
+                    >
+                      <RefreshCw className={`h-4 w-4 ${isBatchRestoring ? "animate-spin" : ""}`} />
+                      <span className="ml-1.5">{isBatchRestoring ? "恢复中..." : `批量恢复 (${selectedRecycleIds.size})`}</span>
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="destructive"
+                      onClick={() => setRecycleBatchDeleteOpen(true)}
+                      disabled={recycleActionBusy || isRecycleLoading}
+                      className="cursor-pointer"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                      <span className="ml-1.5">{isRecycleBatchDeleting ? "删除中..." : `批量彻底删除 (${selectedRecycleIds.size})`}</span>
+                    </Button>
+                  </>
                 )}
                 <Button
                   size="sm"
                   variant="outline"
                   onClick={() => setRecyclePage((p) => Math.max(1, p - 1))}
-                  disabled={recyclePage <= 1 || isRecycleLoading || isBatchRestoring}
+                  disabled={recyclePage <= 1 || isRecycleLoading || recycleActionBusy}
                   className="cursor-pointer"
                 >
                   上一页
@@ -1494,7 +1660,7 @@ export function InventoryPage() {
                   size="sm"
                   variant="outline"
                   onClick={() => setRecyclePage((p) => Math.min(recycleTotalPages, p + 1))}
-                  disabled={recyclePage >= recycleTotalPages || isRecycleLoading || isBatchRestoring}
+                  disabled={recyclePage >= recycleTotalPages || isRecycleLoading || recycleActionBusy}
                   className="cursor-pointer"
                 >
                   下一页
@@ -1508,7 +1674,7 @@ export function InventoryPage() {
       <ConfirmDialog
         open={deleteTarget !== null}
         title="确认删除"
-        description={`确定把记录 ${deleteTarget?.summary || deleteTarget?.id} 移入回收站？10 天内可以恢复。`}
+        description={`确定把单据编号 ${deleteTarget?.document_number || deleteTarget?.id} 移入回收站？10 天内可以恢复。`}
         confirmLabel={isDeleting ? "处理中..." : "移入回收站"}
         variant="destructive"
         onConfirm={handleDeleteConfirm}
@@ -1523,6 +1689,16 @@ export function InventoryPage() {
         variant="destructive"
         onConfirm={handleBatchDeleteConfirm}
         onCancel={() => setBatchDeleteOpen(false)}
+      />
+
+      <ConfirmDialog
+        open={recycleBatchDeleteOpen}
+        title="确认彻底删除"
+        description={`确定彻底删除回收站中选中的 ${selectedRecycleIds.size} 条单据？删除后无法恢复。`}
+        confirmLabel={isRecycleBatchDeleting ? "删除中..." : "彻底删除"}
+        variant="destructive"
+        onConfirm={handleRecycleBatchDeleteConfirm}
+        onCancel={() => setRecycleBatchDeleteOpen(false)}
       />
 
       <MessageDialog

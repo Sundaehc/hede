@@ -20,6 +20,7 @@ from storage.date_normalization import parse_date, parse_month_day
 
 
 DOCUMENT_NUMBER_PREFIXES = {
+    "进货订单": "JHDD",
     "进货单": "JHD",
     "进货退货单": "JHTHD",
     "报溢单": "BYD",
@@ -66,6 +67,7 @@ class InventoryRepository:
         supplier: str | None = None,
         warehouse: str | None = None,
         document_type: str | None = None,
+        exclude_document_type: str | None = None,
         summary: str | None = None,
         original_sku: str | None = None,
         product_code: str | None = None,
@@ -94,6 +96,8 @@ class InventoryRepository:
             conditions.append(table.c.warehouse == warehouse)
         if document_type:
             conditions.append(table.c.document_type == document_type)
+        if exclude_document_type:
+            conditions.append(or_(table.c.document_type.is_(None), table.c.document_type != exclude_document_type))
         if summary:
             conditions.append(table.c.summary.ilike(f"%{summary.strip()}%"))
         if handler:
@@ -292,10 +296,22 @@ class InventoryRepository:
             result = connection.execute(statement)
         return result.rowcount
 
-    def list_deleted_records(self, *, page: int, page_size: int) -> dict[str, object]:
+    def list_deleted_records(
+        self,
+        *,
+        page: int,
+        page_size: int,
+        document_type: str | None = None,
+        exclude_document_type: str | None = None,
+    ) -> dict[str, object]:
         self.purge_expired_deleted_records()
         table = INVENTORY_TABLE
-        criterion = table.c.deleted_at.isnot(None)
+        conditions = [table.c.deleted_at.isnot(None)]
+        if document_type:
+            conditions.append(table.c.document_type == document_type)
+        if exclude_document_type:
+            conditions.append(or_(table.c.document_type.is_(None), table.c.document_type != exclude_document_type))
+        criterion = and_(*conditions)
         count_statement = select(func.count()).select_from(table).where(criterion)
         items_statement = (
             select(table)
@@ -339,6 +355,16 @@ class InventoryRepository:
             .where(table.c.id.in_(ids), table.c.deleted_at.isnot(None))
             .values(deleted_at=None)
         )
+        with self.engine.begin() as connection:
+            result = connection.execute(statement)
+        return result.rowcount or 0
+
+    def permanently_delete_records(self, ids: list[int]) -> int:
+        self.purge_expired_deleted_records()
+        if not ids:
+            return 0
+        table = INVENTORY_TABLE
+        statement = delete(table).where(table.c.id.in_(ids), table.c.deleted_at.isnot(None))
         with self.engine.begin() as connection:
             result = connection.execute(statement)
         return result.rowcount or 0
@@ -1088,7 +1114,7 @@ class InventoryRepository:
 
     def create_detail(self, data: Mapping[str, object]) -> dict[str, object]:
         table = INVENTORY_DETAIL_TABLE
-        payload = self._coerce_empty(data)
+        payload = self._filter_table_payload(table, self._coerce_empty(data))
         statement = insert(table).values(**payload).returning(table)
         with self.engine.begin() as connection:
             row = connection.execute(statement).mappings().one()
@@ -1099,7 +1125,7 @@ class InventoryRepository:
         if not rows:
             return 0
         table = INVENTORY_DETAIL_TABLE
-        payload = [self._coerce_empty(row) for row in rows]
+        payload = [self._filter_table_payload(table, self._coerce_empty(row)) for row in rows]
         with self.engine.begin() as connection:
             result = connection.execute(insert(table), payload)
         self.recalculate_totals(document_id)
@@ -1109,7 +1135,7 @@ class InventoryRepository:
         table = INVENTORY_DETAIL_TABLE
         payload = []
         for row in rows:
-            item = self._coerce_empty(row)
+            item = self._filter_table_payload(table, self._coerce_empty(row))
             item["document_id"] = document_id
             payload.append(item)
         with self.engine.begin() as connection:
@@ -1122,7 +1148,7 @@ class InventoryRepository:
 
     def update_detail(self, detail_id: int, data: Mapping[str, object]) -> dict[str, object] | None:
         table = INVENTORY_DETAIL_TABLE
-        payload = self._coerce_empty(data)
+        payload = self._filter_table_payload(table, self._coerce_empty(data))
         document_id = payload.pop("document_id", None)
         statement = update(table).where(table.c.id == detail_id).values(**payload).returning(table)
         with self.engine.begin() as connection:
@@ -1544,6 +1570,7 @@ class InventoryRepository:
             connection.execute(text("ALTER TABLE IF EXISTS inventory_details ADD COLUMN IF NOT EXISTS color_name TEXT"))
             connection.execute(text("ALTER TABLE IF EXISTS inventory_details ADD COLUMN IF NOT EXISTS size_quantities JSON"))
             connection.execute(text("ALTER TABLE IF EXISTS inventory_details ADD COLUMN IF NOT EXISTS remark TEXT"))
+            connection.execute(text("ALTER TABLE IF EXISTS inventory_details ADD COLUMN IF NOT EXISTS extra_fields JSON"))
             connection.execute(text("CREATE EXTENSION IF NOT EXISTS pg_trgm"))
             connection.execute(text("CREATE INDEX IF NOT EXISTS idx_inventory_details_product_code ON inventory_details (product_code)"))
             connection.execute(text("CREATE INDEX IF NOT EXISTS idx_jst_stock_product_code ON jst_daily_stock (product_code)"))
@@ -1762,6 +1789,15 @@ class InventoryRepository:
     @staticmethod
     def _coerce_empty(data: Mapping[str, object]) -> dict[str, object]:
         return {k: (None if v == "" else v) for k, v in data.items()}
+
+    @staticmethod
+    def _filter_table_payload(table, data: Mapping[str, object]) -> dict[str, object]:
+        allowed = set(table.c.keys())
+        return {
+            key: value
+            for key, value in data.items()
+            if key in allowed
+        }
 
     @staticmethod
     def _format_decimal(value: Decimal) -> str:

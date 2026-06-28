@@ -280,6 +280,7 @@ export type InventoryDetail = {
   color_barcode: string | null
   color_name: string | null
   size_quantities: Record<string, string> | null
+  extra_fields: Record<string, string> | null
   quantity: string | null
   unit_price: string | null
   amount: string | null
@@ -298,6 +299,7 @@ export type InventoryDetailLookupResult = {
   unit_price: string | null
   amount: string | null
   size_quantities: Record<string, string> | null
+  extra_fields: Record<string, string> | null
 }
 
 export type InventoryListResponse = {
@@ -375,6 +377,7 @@ export function listInventory(params: {
   supplier?: string
   warehouse?: string
   document_type?: string
+  exclude_document_type?: string
   summary?: string
   original_sku?: string
   product_code?: string
@@ -392,6 +395,7 @@ export function listInventory(params: {
   if (params.supplier) search.set("supplier", params.supplier)
   if (params.warehouse) search.set("warehouse", params.warehouse)
   if (params.document_type) search.set("document_type", params.document_type)
+  if (params.exclude_document_type) search.set("exclude_document_type", params.exclude_document_type)
   if (params.summary) search.set("summary", params.summary)
   if (params.original_sku) search.set("original_sku", params.original_sku)
   if (params.product_code) search.set("product_code", params.product_code)
@@ -423,11 +427,15 @@ export function deleteInventoryRecord(id: number) {
 export function listInventoryRecycleBin(params: {
   page: number
   pageSize: number
+  document_type?: string
+  exclude_document_type?: string
 }) {
   const search = new URLSearchParams({
     page: String(params.page),
     page_size: String(params.pageSize),
   })
+  if (params.document_type) search.set("document_type", params.document_type)
+  if (params.exclude_document_type) search.set("exclude_document_type", params.exclude_document_type)
   return request<InventoryListResponse>(`/inventory/recycle-bin?${search.toString()}`)
 }
 
@@ -454,6 +462,13 @@ export function restoreInventoryRecord(id: number) {
 
 export function batchRestoreInventory(ids: number[]) {
   return request<{ restored: number; message: string }>("/inventory/batch-restore", {
+    method: "POST",
+    body: JSON.stringify({ ids }),
+  })
+}
+
+export function batchPermanentlyDeleteInventory(ids: number[]) {
+  return request<{ deleted: number; message: string }>("/inventory/recycle-bin/batch-delete", {
     method: "POST",
     body: JSON.stringify({ ids }),
   })
@@ -509,11 +524,13 @@ export function buildInventoryExportUrl(params: {
   supplier?: string
   warehouse?: string
   document_type?: string
+  exclude_document_type?: string
   summary?: string
   original_sku?: string
   product_code?: string
   handler?: string
   completion_status?: string
+  purchase_export_mode?: "summary" | "size_rows"
 } = {}) {
   const search = new URLSearchParams()
   if (params.date_start) search.set("date_start", params.date_start)
@@ -521,11 +538,13 @@ export function buildInventoryExportUrl(params: {
   if (params.supplier) search.set("supplier", params.supplier)
   if (params.warehouse) search.set("warehouse", params.warehouse)
   if (params.document_type) search.set("document_type", params.document_type)
+  if (params.exclude_document_type) search.set("exclude_document_type", params.exclude_document_type)
   if (params.summary) search.set("summary", params.summary)
   if (params.original_sku) search.set("original_sku", params.original_sku)
   if (params.product_code) search.set("product_code", params.product_code)
   if (params.handler) search.set("handler", params.handler)
   if (params.completion_status) search.set("completion_status", params.completion_status)
+  if (params.purchase_export_mode) search.set("purchase_export_mode", params.purchase_export_mode)
   const suffix = search.toString() ? `?${search.toString()}` : ""
   return `${API_PREFIX}/inventory/export${suffix}`
 }
@@ -536,11 +555,13 @@ export function exportInventory(params: {
   supplier?: string
   warehouse?: string
   document_type?: string
+  exclude_document_type?: string
   summary?: string
   original_sku?: string
   product_code?: string
   handler?: string
   completion_status?: string
+  purchase_export_mode?: "summary" | "size_rows"
 } = {}) {
   return fetch(buildInventoryExportUrl(params)).then(async (response) => {
     if (!response.ok) {
@@ -557,6 +578,7 @@ export function listGeneralCustomerShops() {
 export function importPurchaseInventory(payload: {
   file: File
   date?: string
+  delivery_date?: string
   supplier: string
   warehouse: string
   document_type: string
@@ -567,6 +589,7 @@ export function importPurchaseInventory(payload: {
   const formData = new FormData()
   formData.append("file", payload.file)
   formData.append("date", payload.date ?? "")
+  formData.append("delivery_date", payload.delivery_date ?? "")
   formData.append("supplier", payload.supplier)
   formData.append("warehouse", payload.warehouse)
   formData.append("document_type", payload.document_type)
