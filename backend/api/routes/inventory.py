@@ -1036,7 +1036,7 @@ def _purchase_detail_extra_fields(product_info: dict[str, object], detail_code: 
     extra_fields = {
         "image_code": original_code,
         "factory_code": _cell_text(product_info.get("factory_code")),
-        "style_code": code,
+        "style_code": original_code,
         "inner_color_code": "",
         "upper_material": _cell_text(product_info.get("upper_material")),
         "lining_material": _cell_text(product_info.get("lining_material")),
