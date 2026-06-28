@@ -256,6 +256,14 @@ JST_PURCHASE_DIFF_FIELDS: tuple[FieldSpec, ...] = (
 )
 
 
+JST_PRODUCT_PROFILE_FIELDS: tuple[FieldSpec, ...] = (
+    FieldSpec("product_code", "商品编码"),
+    FieldSpec("style_code", "款式编码"),
+    FieldSpec("color_name", "颜色名称"),
+    FieldSpec("size_barcode", "尺码条码"),
+)
+
+
 GJ_MERGED_PRODUCT_INFO_FIELDS: tuple[FieldSpec, ...] = (
     FieldSpec("row_no", "行号", "integer"),
     FieldSpec("goods_code", "货号"),

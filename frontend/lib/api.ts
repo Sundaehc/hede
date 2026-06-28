@@ -201,10 +201,13 @@ export function getProductImageRefreshStatus() {
   return request<ProductImageRefreshStatus>("/images/refresh-product-images/status")
 }
 
-export function exportProducts(brand: BrandKey, ids?: number[]) {
+export function exportProducts(brand: BrandKey, ids?: number[], mode?: "with_sizes") {
   const params = new URLSearchParams({ brand })
   if (ids && ids.length > 0) {
     params.set("ids", ids.join(","))
+  }
+  if (mode) {
+    params.set("mode", mode)
   }
   return fetch(`${API_PREFIX}/export?${params.toString()}`).then(async (response) => {
     if (!response.ok) {

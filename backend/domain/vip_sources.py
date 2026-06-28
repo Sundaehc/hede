@@ -3,6 +3,7 @@ from __future__ import annotations
 from domain.fields import (
     JST_MONTHLY_ORDER_FIELDS,
     JST_PRICE_FIELDS,
+    JST_PRODUCT_PROFILE_FIELDS,
     JST_PURCHASE_DIFF_FIELDS,
     JST_SIZE_STOCK_FIELDS,
     JST_STOCK_SUMMARY_FIELDS,
@@ -72,3 +73,10 @@ JST_STOCK_SUMMARY_COLUMNS: list[str] = field_names(JST_STOCK_SUMMARY_FIELDS)
 JST_PURCHASE_DIFF_TABLE_NAME = "jst_purchase_defects"
 
 JST_PURCHASE_DIFF_COLUMNS: list[str] = field_names(JST_PURCHASE_DIFF_FIELDS)
+
+# ── jst_product_profiles: 聚水潭商品资料表 共 4 列 ────────────────
+JST_PRODUCT_PROFILE_TABLE_NAME = "jst_product_profiles"
+
+JST_PRODUCT_PROFILE_COLUMNS: list[str] = field_names(JST_PRODUCT_PROFILE_FIELDS)
+
+JST_PRODUCT_PROFILE_COLUMN_ALIASES: dict[str, str] = alias_map(JST_PRODUCT_PROFILE_FIELDS)

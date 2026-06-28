@@ -19,6 +19,9 @@ DEFAULT_CBANNER_WOMENS_PRODUCT_DETAIL_SOURCE = Path(
 DEFAULT_EBLAN_PRODUCT_DETAIL_SOURCE = Path(
     r"\\Hede\运营组资料\9商品组（卢嘉诚）\商品分析\商品运营货品表\伊伴\2026\2026-06"
 )
+DEFAULT_JST_PRODUCT_PROFILE_ROOT = Path(
+    r"\\192.168.10.229\商品组-财务组资料\聚水潭商品资料表"
+)
 
 
 @dataclass(frozen=True)
@@ -33,6 +36,7 @@ class Settings:
     vip_data_root: Path | None = None
     yandou_vip_data_root: Path | None = None
     jst_price_root: Path | None = None
+    jst_product_profile_root: Path | None = DEFAULT_JST_PRODUCT_PROFILE_ROOT
     cbanner_mens_group_source: Path | None = DEFAULT_CBANNER_MENS_GROUP_SOURCE
     cbanner_womens_product_detail_source: Path | None = DEFAULT_CBANNER_WOMENS_PRODUCT_DETAIL_SOURCE
     eblan_product_detail_source: Path | None = DEFAULT_EBLAN_PRODUCT_DETAIL_SOURCE
@@ -91,6 +95,12 @@ def load_settings(require_database: bool = True) -> Settings:
     yandou_vip_data_root = Path(yandou_vip_data_root_raw) if yandou_vip_data_root_raw else None
     jst_price_root_raw = os.getenv("JST_PRICE_ROOT")
     jst_price_root = Path(jst_price_root_raw) if jst_price_root_raw else None
+    jst_product_profile_root_raw = os.getenv("JST_PRODUCT_PROFILE_ROOT")
+    jst_product_profile_root = (
+        Path(jst_product_profile_root_raw)
+        if jst_product_profile_root_raw
+        else DEFAULT_JST_PRODUCT_PROFILE_ROOT
+    )
     cbanner_mens_group_source_raw = os.getenv("CBANNER_MENS_GROUP_SOURCE")
     cbanner_mens_group_source = (
         Path(cbanner_mens_group_source_raw)
@@ -121,6 +131,7 @@ def load_settings(require_database: bool = True) -> Settings:
         vip_data_root=vip_data_root,
         yandou_vip_data_root=yandou_vip_data_root,
         jst_price_root=jst_price_root,
+        jst_product_profile_root=jst_product_profile_root,
         cbanner_mens_group_source=cbanner_mens_group_source,
         cbanner_womens_product_detail_source=cbanner_womens_product_detail_source,
         eblan_product_detail_source=eblan_product_detail_source,

@@ -1,19 +1,23 @@
 from __future__ import annotations
 
 import re
+from zipfile import BadZipFile
 from datetime import date
 from pathlib import Path
 
 import orjson
+import xlrd
 from openpyxl import load_workbook
+from openpyxl.utils.exceptions import InvalidFileException
 from sqlalchemy import create_engine, func as sa_func, text
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
-from domain.vip_schema import VIP_DAILY_TABLE, VIP_DAILY_SNAPSHOT_TABLE, VIP_OPS_TABLE, VIP_OPS_SNAPSHOT_TABLE, JST_PRICE_TABLE, VIP_REALTIME_TABLE, JST_MONTHLY_ORDERS_TABLE, JST_SIZE_STOCK_TABLE, JST_STOCK_SUMMARY_TABLE, JST_PURCHASE_DIFF_TABLE
+from domain.vip_schema import VIP_DAILY_TABLE, VIP_DAILY_SNAPSHOT_TABLE, VIP_OPS_TABLE, VIP_OPS_SNAPSHOT_TABLE, JST_PRICE_TABLE, VIP_REALTIME_TABLE, JST_MONTHLY_ORDERS_TABLE, JST_SIZE_STOCK_TABLE, JST_STOCK_SUMMARY_TABLE, JST_PURCHASE_DIFF_TABLE, JST_PRODUCT_PROFILE_TABLE
 from domain.vip_sources import (
     VIP_DAILY_COLUMN_ALIASES,
     VIP_OPS_COLUMN_ALIASES,
     JST_PRICE_COLUMN_ALIASES,
+    JST_PRODUCT_PROFILE_COLUMN_ALIASES,
     VIP_REALTIME_COLUMN_ALIASES,
     JST_MONTHLY_ORDERS_COLUMN_ALIASES,
 )
@@ -536,6 +540,58 @@ class VipRepository:
             "message": f"{file_path.name}: {len(rows)} 条",
         }
 
+    # ── jst_product_profiles (聚水潭商品资料表) ───────────────────
+
+    def import_product_profiles(self, source_root: Path) -> dict[str, object]:
+        if not source_root.exists():
+            return {"imported": 0, "read_rows": 0, "message": f"目录不存在: {source_root}"}
+
+        files: list[Path] = []
+        for ext in (".xlsx", ".xlsm", ".xls"):
+            files.extend(path for path in source_root.rglob(f"*{ext}") if not path.name.startswith("~$"))
+
+        rows: list[dict[str, object]] = []
+        skipped_sheets: list[str] = []
+        for file_path in sorted(files):
+            try:
+                file_rows, file_skipped = self._read_product_profile_file(file_path)
+            except Exception as exc:
+                skipped_sheets.append(f"{file_path.name}: {type(exc).__name__}: {exc}")
+                continue
+            rows.extend(file_rows)
+            skipped_sheets.extend(file_skipped)
+
+        if not rows:
+            return {
+                "imported": 0,
+                "read_rows": 0,
+                "files": len(files),
+                "skipped_sheets": skipped_sheets,
+                "message": "无可导入数据",
+            }
+
+        deduped_by_code: dict[str, dict[str, object]] = {}
+        for row in rows:
+            product_code = str(row.get("product_code") or "").strip()
+            if product_code:
+                deduped_by_code[product_code] = row
+        payload = list(deduped_by_code.values())
+
+        from sqlalchemy import delete as sa_delete
+
+        with self.engine.begin() as conn:
+            JST_PRODUCT_PROFILE_TABLE.create(conn, checkfirst=True)
+            conn.execute(sa_delete(JST_PRODUCT_PROFILE_TABLE))
+            self._batch_insert(JST_PRODUCT_PROFILE_TABLE, payload, conn=conn)
+
+        return {
+            "imported": len(payload),
+            "read_rows": len(rows),
+            "files": len(files),
+            "skipped_sheets": skipped_sheets,
+            "message": f"聚水潭商品资料表导入完成: {len(payload)} 条 (原始 {len(rows)} 行, 文件 {len(files)} 个)",
+        }
+
     # ── Helpers ────────────────────────────────────────────────────
 
     def _ensure_price_history_schema(self) -> None:
@@ -651,3 +707,122 @@ class VipRepository:
 
         wb.close()
         return rows
+
+    def _read_product_profile_file(self, file_path: Path) -> tuple[list[dict[str, object]], list[str]]:
+        if file_path.suffix.lower() == ".xls":
+            return self._read_product_profile_xls(file_path)
+
+        try:
+            wb = load_workbook(str(file_path), data_only=True, read_only=True)
+        except (BadZipFile, InvalidFileException):
+            return self._read_product_profile_xls(file_path)
+        aliases = JST_PRODUCT_PROFILE_COLUMN_ALIASES
+        rows: list[dict[str, object]] = []
+        skipped_sheets: list[str] = []
+
+        try:
+            for ws in wb.worksheets:
+                header_info = self._find_product_profile_header(ws, aliases)
+                if header_info is None:
+                    skipped_sheets.append(f"{file_path.name}/{ws.title}: 未找到必要表头")
+                    continue
+                header_row_number, headers, column_map = header_info
+                for row_num, row in enumerate(ws.iter_rows(min_row=header_row_number + 1, values_only=True), start=header_row_number + 1):
+                    record: dict[str, object] = {
+                        "source_workbook": file_path.stem,
+                        "source_sheet": ws.title,
+                        "source_row_number": str(row_num),
+                    }
+                    raw: dict[str, object] = {}
+                    for idx, header in enumerate(headers):
+                        value = row[idx] if idx < len(row) else None
+                        raw[header] = value
+                        col = column_map.get(idx)
+                        if col:
+                            record[col] = self._cell_text(value)
+                    if not record.get("product_code"):
+                        continue
+                    record["raw_payload"] = raw
+                    rows.append(record)
+        finally:
+            wb.close()
+
+        return rows, skipped_sheets
+
+    @staticmethod
+    def _find_product_profile_header(ws, aliases: dict[str, str]) -> tuple[int, list[str], dict[int, str]] | None:
+        required = {"product_code", "style_code", "color_name", "size_barcode"}
+        for row_number, row in enumerate(ws.iter_rows(values_only=True), start=1):
+            if row_number > 30:
+                break
+            headers = [VipRepository._normalize_header(value) for value in row]
+            column_map = {
+                idx: aliases[header]
+                for idx, header in enumerate(headers)
+                if header in aliases
+            }
+            if required.issubset(set(column_map.values())):
+                return row_number, headers, column_map
+        return None
+
+    def _read_product_profile_xls(self, file_path: Path) -> tuple[list[dict[str, object]], list[str]]:
+        workbook = xlrd.open_workbook(str(file_path))
+        aliases = JST_PRODUCT_PROFILE_COLUMN_ALIASES
+        rows: list[dict[str, object]] = []
+        skipped_sheets: list[str] = []
+
+        for sheet in workbook.sheets():
+            header_info = self._find_product_profile_header_xls(sheet, aliases)
+            if header_info is None:
+                skipped_sheets.append(f"{file_path.name}/{sheet.name}: 未找到必要表头")
+                continue
+            header_row_index, headers, column_map = header_info
+            for row_index in range(header_row_index + 1, sheet.nrows):
+                values = sheet.row_values(row_index)
+                record: dict[str, object] = {
+                    "source_workbook": file_path.stem,
+                    "source_sheet": sheet.name,
+                    "source_row_number": str(row_index + 1),
+                }
+                raw: dict[str, object] = {}
+                for idx, header in enumerate(headers):
+                    value = values[idx] if idx < len(values) else None
+                    raw[header] = value
+                    col = column_map.get(idx)
+                    if col:
+                        record[col] = self._cell_text(value)
+                if not record.get("product_code"):
+                    continue
+                record["raw_payload"] = raw
+                rows.append(record)
+
+        return rows, skipped_sheets
+
+    @staticmethod
+    def _find_product_profile_header_xls(sheet, aliases: dict[str, str]) -> tuple[int, list[str], dict[int, str]] | None:
+        required = {"product_code", "style_code", "color_name", "size_barcode"}
+        for row_index in range(min(sheet.nrows, 30)):
+            headers = [VipRepository._normalize_header(value) for value in sheet.row_values(row_index)]
+            column_map = {
+                idx: aliases[header]
+                for idx, header in enumerate(headers)
+                if header in aliases
+            }
+            if required.issubset(set(column_map.values())):
+                return row_index, headers, column_map
+        return None
+
+    @staticmethod
+    def _normalize_header(value: object) -> str:
+        if value is None:
+            return ""
+        return str(value).strip().replace("\n", "").replace("\r", "")
+
+    @staticmethod
+    def _cell_text(value: object) -> str | None:
+        if value is None:
+            return None
+        if isinstance(value, float) and value.is_integer():
+            return str(int(value))
+        text_value = str(value).strip()
+        return text_value or None

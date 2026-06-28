@@ -93,10 +93,10 @@ export function ProductToolbar({
     }
   }, [awaitingImageRefresh, imageRefreshStatus, onMessage, onRefresh])
 
-  const handleExport = async () => {
+  const handleExport = async (mode?: "with_sizes") => {
     try {
       const ids = selectedIds && selectedIds.size > 0 ? Array.from(selectedIds) : undefined
-      const response = await exportProducts(brand, ids)
+      const response = await exportProducts(brand, ids, mode)
       const disposition = response.headers.get("Content-Disposition") ?? ""
       const match = disposition.match(/filename\*=UTF-8''(.+)/)
       const filename = match ? decodeURIComponent(match[1]) : `${brand}_products.xlsx`
@@ -215,6 +215,9 @@ export function ProductToolbar({
         <div className="flex items-center gap-2 border-t border-border pt-3">
           <Button type="button" variant="outline" size="sm" onClick={() => void handleExport()} disabled={isLoading} className="cursor-pointer">
             {hasSelection ? `导出选中 (${selectedIds!.size})` : "导出 Excel"}
+          </Button>
+          <Button type="button" variant="outline" size="sm" onClick={() => void handleExport("with_sizes")} disabled={isLoading} className="cursor-pointer">
+            带尺码导出
           </Button>
           <Button type="button" variant="outline" size="sm" onClick={() => fileInputRef.current?.click()} disabled={importing} className="cursor-pointer">
             {importing ? "导入中..." : "导入 Excel"}

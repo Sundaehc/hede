@@ -20,6 +20,7 @@ from domain.fields import (
     FieldSpec,
     JST_MONTHLY_ORDER_FIELDS,
     JST_PRICE_FIELDS,
+    JST_PRODUCT_PROFILE_FIELDS,
     JST_PURCHASE_DIFF_FIELDS,
     JST_SIZE_STOCK_FIELDS,
     JST_STOCK_SUMMARY_FIELDS,
@@ -40,6 +41,7 @@ from domain.vip_sources import (
     JST_SIZE_STOCK_TABLE_NAME,
     JST_STOCK_SUMMARY_TABLE_NAME,
     JST_PURCHASE_DIFF_TABLE_NAME,
+    JST_PRODUCT_PROFILE_TABLE_NAME,
 )
 
 
@@ -329,3 +331,29 @@ def build_jst_purchase_diff_table() -> Table:
 
 JST_PURCHASE_DIFF_TABLE = build_jst_purchase_diff_table()
 Index("idx_jst_purchase_defects_product_code", JST_PURCHASE_DIFF_TABLE.c.product_code)
+
+
+# ── jst_product_profiles ─────────────────────────────────────────
+
+def build_jst_product_profile_table() -> Table:
+    columns: list = [
+        Column("id", BigInteger, Identity(always=False), primary_key=True),
+        Column("source_workbook", Text, nullable=False, default=""),
+        Column("source_sheet", Text, nullable=False, default=""),
+        Column("source_row_number", Text, nullable=False, default=""),
+        Column("raw_payload", JSON, nullable=False, default=dict),
+    ]
+    columns.extend(Column(field.name, _col_type(field)) for field in JST_PRODUCT_PROFILE_FIELDS)
+    columns.append(Column("extra_fields", JSON, nullable=True))
+    columns.append(Column("created_at", DateTime(timezone=True), server_default=func.date_trunc('minute', func.now())))
+    columns.append(Column("updated_at", DateTime(timezone=True), server_default=func.date_trunc('minute', func.now()), onupdate=func.date_trunc('minute', func.now())))
+    return Table(
+        JST_PRODUCT_PROFILE_TABLE_NAME, METADATA,
+        *columns,
+        UniqueConstraint("product_code", name="uq_jst_product_profiles_product_code"),
+    )
+
+
+JST_PRODUCT_PROFILE_TABLE = build_jst_product_profile_table()
+Index("idx_jst_product_profiles_style_code", JST_PRODUCT_PROFILE_TABLE.c.style_code)
+Index("idx_jst_product_profiles_color_name", JST_PRODUCT_PROFILE_TABLE.c.color_name)
