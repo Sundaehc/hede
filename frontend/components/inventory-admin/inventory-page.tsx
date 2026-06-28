@@ -893,10 +893,12 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
                 <span className="ml-2 hidden sm:inline">导出Excel</span>
               </Button>
             )}
-            <Button variant="outline" size="sm" onClick={openCostDialog} disabled={isUpdatingCosts} className="cursor-pointer">
-              <BadgeDollarSign className="h-4 w-4" />
-              <span className="ml-2 hidden sm:inline">批量改成本价</span>
-            </Button>
+            {!isPurchasePage && (
+              <Button variant="outline" size="sm" onClick={openCostDialog} disabled={isUpdatingCosts} className="cursor-pointer">
+                <BadgeDollarSign className="h-4 w-4" />
+                <span className="ml-2 hidden sm:inline">批量改成本价</span>
+              </Button>
+            )}
             <Button
               variant="outline"
               size="sm"
@@ -1451,75 +1453,77 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={costDialogOpen} onOpenChange={setCostDialogOpen}>
-        <DialogContent className="max-w-2xl">
-          <DialogHeader>
-            <DialogTitle>批量改成本价</DialogTitle>
-          </DialogHeader>
-          {costError && (
-            <Alert className="border-destructive/30 bg-destructive/5 text-destructive">
-              <AlertDescription>{costError}</AlertDescription>
-            </Alert>
-          )}
-          <div className="grid grid-cols-2 gap-4 py-2">
-            <div className="space-y-1.5">
-              <Label>开始日期</Label>
-              <input
-                type="date"
-                value={costFormData.date_start}
-                max={costFormData.date_end || undefined}
-                onChange={(e) => { setCostError(""); setCostFormData((prev) => ({ ...prev, date_start: e.target.value })) }}
-                className="flex h-9 w-full rounded-lg border border-input bg-card px-3 py-2 text-sm shadow-xs outline-none transition-colors focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/35"
-              />
+      {!isPurchasePage && (
+        <Dialog open={costDialogOpen} onOpenChange={setCostDialogOpen}>
+          <DialogContent className="max-w-2xl">
+            <DialogHeader>
+              <DialogTitle>批量改成本价</DialogTitle>
+            </DialogHeader>
+            {costError && (
+              <Alert className="border-destructive/30 bg-destructive/5 text-destructive">
+                <AlertDescription>{costError}</AlertDescription>
+              </Alert>
+            )}
+            <div className="grid grid-cols-2 gap-4 py-2">
+              <div className="space-y-1.5">
+                <Label>开始日期</Label>
+                <input
+                  type="date"
+                  value={costFormData.date_start}
+                  max={costFormData.date_end || undefined}
+                  onChange={(e) => { setCostError(""); setCostFormData((prev) => ({ ...prev, date_start: e.target.value })) }}
+                  className="flex h-9 w-full rounded-lg border border-input bg-card px-3 py-2 text-sm shadow-xs outline-none transition-colors focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/35"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label>结束日期</Label>
+                <input
+                  type="date"
+                  value={costFormData.date_end}
+                  min={costFormData.date_start || undefined}
+                  onChange={(e) => { setCostError(""); setCostFormData((prev) => ({ ...prev, date_end: e.target.value })) }}
+                  className="flex h-9 w-full rounded-lg border border-input bg-card px-3 py-2 text-sm shadow-xs outline-none transition-colors focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/35"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label>货号</Label>
+                <Input
+                  value={costFormData.product_code}
+                  onChange={(e) => { setCostError(""); setCostFormData((prev) => ({ ...prev, product_code: e.target.value })) }}
+                  placeholder="例如 C2221633DO"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label>新单价</Label>
+                <Input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={costFormData.unit_price}
+                  onChange={(e) => { setCostError(""); setCostFormData((prev) => ({ ...prev, unit_price: e.target.value })) }}
+                  placeholder="例如 129.00"
+                />
+              </div>
+              <div className="col-span-2 space-y-1.5">
+                <Label>批量货号和新单价</Label>
+                <textarea
+                  value={costFormData.batch_text}
+                  onChange={(e) => { setCostError(""); setCostFormData((prev) => ({ ...prev, batch_text: e.target.value })) }}
+                  placeholder={"每行一个：货号,新单价\nC2221633DO,129\nC2221633DJ,135"}
+                  className="min-h-28 w-full resize-y rounded-lg border border-input bg-card px-3 py-2 text-sm shadow-xs outline-none transition-colors placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/35"
+                />
+              </div>
+              <div className="col-span-2 rounded-lg border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+                只会更新所选日期范围内的进货单、进货退货单明细；金额按数量 × 新单价重算，单据总金额会自动重算。
+              </div>
             </div>
-            <div className="space-y-1.5">
-              <Label>结束日期</Label>
-              <input
-                type="date"
-                value={costFormData.date_end}
-                min={costFormData.date_start || undefined}
-                onChange={(e) => { setCostError(""); setCostFormData((prev) => ({ ...prev, date_end: e.target.value })) }}
-                className="flex h-9 w-full rounded-lg border border-input bg-card px-3 py-2 text-sm shadow-xs outline-none transition-colors focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/35"
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label>货号</Label>
-              <Input
-                value={costFormData.product_code}
-                onChange={(e) => { setCostError(""); setCostFormData((prev) => ({ ...prev, product_code: e.target.value })) }}
-                placeholder="例如 C2221633DO"
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label>新单价</Label>
-              <Input
-                type="number"
-                min="0"
-                step="0.01"
-                value={costFormData.unit_price}
-                onChange={(e) => { setCostError(""); setCostFormData((prev) => ({ ...prev, unit_price: e.target.value })) }}
-                placeholder="例如 129.00"
-              />
-            </div>
-            <div className="col-span-2 space-y-1.5">
-              <Label>批量货号和新单价</Label>
-              <textarea
-                value={costFormData.batch_text}
-                onChange={(e) => { setCostError(""); setCostFormData((prev) => ({ ...prev, batch_text: e.target.value })) }}
-                placeholder={"每行一个：货号,新单价\nC2221633DO,129\nC2221633DJ,135"}
-                className="min-h-28 w-full resize-y rounded-lg border border-input bg-card px-3 py-2 text-sm shadow-xs outline-none transition-colors placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/35"
-              />
-            </div>
-            <div className="col-span-2 rounded-lg border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
-              只会更新所选日期范围内的进货单、进货退货单明细；金额按数量 × 新单价重算，单据总金额会自动重算。
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setCostDialogOpen(false)} disabled={isUpdatingCosts} className="cursor-pointer">取消</Button>
-            <Button onClick={handleBatchUpdateCosts} disabled={isUpdatingCosts} className="cursor-pointer">{isUpdatingCosts ? "更新中..." : "确认更新"}</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setCostDialogOpen(false)} disabled={isUpdatingCosts} className="cursor-pointer">取消</Button>
+              <Button onClick={handleBatchUpdateCosts} disabled={isUpdatingCosts} className="cursor-pointer">{isUpdatingCosts ? "更新中..." : "确认更新"}</Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      )}
 
       <Dialog open={recycleOpen} onOpenChange={setRecycleOpen}>
         <DialogContent className="max-w-5xl">
