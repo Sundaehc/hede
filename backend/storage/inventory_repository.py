@@ -8,7 +8,7 @@ from pathlib import Path
 
 import orjson
 from openpyxl import load_workbook
-from sqlalchemy import and_, case, create_engine, delete, desc, func, insert, inspect, or_, select, text, union_all, update
+from sqlalchemy import Text, and_, case, create_engine, delete, desc, func, insert, inspect, or_, select, text, union_all, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from domain.gj_schema import GJ_MERGED_PRODUCT_INFO_TABLE
@@ -41,6 +41,8 @@ SUPPLIER_LEDGER_DECREASE_TYPES = ("进货退货单", "应付款减少")
 SUPPLIER_LEDGER_NEUTRAL_TYPES = ("同价调拨单",)
 CUSTOMER_LEDGER_INCREASE_TYPES = ("批发销售单", "应收款增加")
 CUSTOMER_LEDGER_DECREASE_TYPES = ("批发销售退货单", "应收款减少")
+NEGATIVE_TOTAL_DOCUMENT_TYPES = {"进货退货单"}
+PURCHASE_INBOUND_DETAIL_TYPES = ("进货单", "进货退货单")
 
 
 def _json_serializer(value: object) -> str:
@@ -232,6 +234,153 @@ class InventoryRepository:
             "page_size": page_size,
         }
 
+    def list_purchase_inbound_details(
+        self,
+        *,
+        date_start: str | None = None,
+        date_end: str | None = None,
+        document_type: str | None = None,
+        supplier: str | None = None,
+        warehouse: str | None = None,
+        product_code: str | None = None,
+        product_name: str | None = None,
+        color_name: str | None = None,
+        size_name: str | None = None,
+        page: int,
+        page_size: int,
+    ) -> dict[str, object]:
+        record = INVENTORY_TABLE
+        detail = INVENTORY_DETAIL_TABLE
+        joined = detail.join(record, detail.c.document_id == record.c.id)
+        conditions = [
+            record.c.deleted_at.is_(None),
+            record.c.document_type.in_(PURCHASE_INBOUND_DETAIL_TYPES),
+        ]
+        if date_start:
+            parsed = parse_date(date_start)
+            conditions.append(record.c.date_value >= parsed if parsed else record.c.date >= date_start)
+        if date_end:
+            parsed = parse_date(date_end)
+            conditions.append(record.c.date_value <= parsed if parsed else record.c.date <= date_end)
+        if document_type:
+            conditions.append(record.c.document_type == document_type)
+        if supplier:
+            conditions.append(record.c.supplier.ilike(f"%{supplier.strip()}%"))
+        if warehouse:
+            conditions.append(record.c.warehouse.ilike(f"%{warehouse.strip()}%"))
+        if product_code:
+            conditions.append(detail.c.product_code.ilike(f"%{product_code.strip()}%"))
+        if product_name:
+            conditions.append(detail.c.product_name.ilike(f"%{product_name.strip()}%"))
+        if color_name:
+            color_like = f"%{color_name.strip()}%"
+            conditions.append(or_(detail.c.color_name.ilike(color_like), detail.c.color_spec.ilike(color_like)))
+        if size_name:
+            conditions.append(detail.c.size_quantities.cast(Text).ilike(f"%\"{size_name.strip()}\"%"))
+
+        criterion = and_(*conditions)
+        signed_quantity = case(
+            (record.c.document_type == "进货退货单", -func.coalesce(detail.c.quantity, 0)),
+            else_=func.coalesce(detail.c.quantity, 0),
+        )
+        signed_amount = case(
+            (record.c.document_type == "进货退货单", -func.coalesce(detail.c.amount, 0)),
+            else_=func.coalesce(detail.c.amount, 0),
+        )
+        count_statement = select(func.count()).select_from(joined).where(criterion)
+        totals_statement = select(
+            func.coalesce(func.sum(signed_quantity), 0).label("quantity_total"),
+            func.coalesce(func.sum(signed_amount), 0).label("purchase_amount_total"),
+        ).select_from(joined).where(criterion)
+        items_statement = (
+            select(
+                detail.c.id,
+                detail.c.document_id,
+                detail.c.product_code,
+                detail.c.product_name,
+                detail.c.color_name,
+                detail.c.color_spec,
+                detail.c.quantity,
+                detail.c.amount,
+                detail.c.extra_fields,
+                record.c.document_type,
+                record.c.document_number,
+                record.c.date,
+                record.c.supplier,
+                record.c.warehouse,
+            )
+            .select_from(joined)
+            .where(criterion)
+            .order_by(record.c.date_value.nulls_last(), record.c.date, record.c.document_number, detail.c.id)
+            .offset((page - 1) * page_size)
+            .limit(page_size)
+        )
+
+        with self.engine.connect() as connection:
+            total = connection.execute(count_statement).scalar_one()
+            totals = connection.execute(totals_statement).mappings().one()
+            rows = [dict(row) for row in connection.execute(items_statement).mappings()]
+            supplier_names = sorted({
+                str(row.get("supplier") or "").strip()
+                for row in rows
+                if str(row.get("supplier") or "").strip()
+            })
+            supplier_codes: dict[str, str] = {}
+            if supplier_names:
+                supplier_rows = connection.execute(
+                    select(SUPPLIER_TABLE.c.name, SUPPLIER_TABLE.c.factory_code)
+                    .where(SUPPLIER_TABLE.c.name.in_(supplier_names))
+                ).mappings()
+                for supplier_row in supplier_rows:
+                    name = str(supplier_row.get("name") or "").strip()
+                    if not name:
+                        continue
+                    code = str(supplier_row.get("factory_code") or "").strip()
+                    if code or name not in supplier_codes:
+                        supplier_codes[name] = code
+
+        items: list[dict[str, object]] = []
+        offset = (page - 1) * page_size
+        for index, row in enumerate(rows, start=1):
+            document_type_text = str(row.get("document_type") or "")
+            multiplier = Decimal("-1") if document_type_text == "进货退货单" else Decimal("1")
+            quantity = Decimal(str(row.get("quantity") or "0")) * multiplier
+            purchase_amount = Decimal(str(row.get("amount") or "0")) * multiplier
+            extra_fields = row.get("extra_fields") if isinstance(row.get("extra_fields"), dict) else {}
+            supplier_name = str(row.get("supplier") or "").strip()
+            items.append({
+                "row_number": offset + index,
+                "detail_id": row.get("id"),
+                "document_id": row.get("document_id"),
+                "product_code": row.get("product_code"),
+                "product_name": row.get("product_name"),
+                "document_type": row.get("document_type"),
+                "document_number": row.get("document_number"),
+                "date": row.get("date"),
+                "purchase_quantity": self._format_decimal(quantity),
+                "purchase_amount": self._format_decimal(purchase_amount),
+                "retail_amount": "",
+                "factory_code": extra_fields.get("factory_code") or "",
+                "unit_code": supplier_codes.get(supplier_name, ""),
+                "unit_name": row.get("supplier"),
+                "warehouse_name": row.get("warehouse"),
+                "color_name": row.get("color_name") or row.get("color_spec") or "",
+            })
+
+        quantity_total = Decimal(str(totals.get("quantity_total") or "0"))
+        purchase_amount_total = Decimal(str(totals.get("purchase_amount_total") or "0"))
+        return {
+            "items": items,
+            "total": total,
+            "page": page,
+            "page_size": page_size,
+            "totals": {
+                "purchase_quantity": self._format_decimal(quantity_total),
+                "purchase_amount": self._format_decimal(purchase_amount_total),
+                "retail_amount": "",
+            },
+        }
+
     def get_record(self, record_id: int) -> dict[str, object] | None:
         table = INVENTORY_TABLE
         statement = select(table).where(table.c.id == record_id, table.c.deleted_at.is_(None))
@@ -270,7 +419,13 @@ class InventoryRepository:
         statement = update(table).where(table.c.id == record_id).values(**payload).returning(table)
         with self.engine.begin() as connection:
             row = connection.execute(statement).mappings().first()
-        return None if row is None else dict(row)
+        if row is None:
+            return None
+        item = dict(row)
+        if "document_type" in payload:
+            self.recalculate_totals(record_id)
+            return self.get_record(record_id) or item
+        return item
 
     def delete_record(self, record_id: int) -> bool:
         table = INVENTORY_TABLE
@@ -406,6 +561,7 @@ class InventoryRepository:
             .subquery()
         )
         effective_amount = func.coalesce(detail_amount.c.detail_amount, table.c.amount, 0)
+        ledger_amount = func.abs(effective_amount)
         base_conditions = [
             table.c.deleted_at.is_(None),
             table.c.supplier == normalized_name,
@@ -421,11 +577,11 @@ class InventoryRepository:
             range_conditions.append(table.c.date_value <= end_date if end_date else table.c.date <= date_end)
 
         increase_expr = case(
-            (table.c.document_type.in_(increase_types), effective_amount),
+            (table.c.document_type.in_(increase_types), ledger_amount),
             else_=0,
         )
         decrease_expr = case(
-            (table.c.document_type.in_(decrease_types), effective_amount),
+            (table.c.document_type.in_(decrease_types), ledger_amount),
             else_=0,
         )
 
@@ -1206,6 +1362,8 @@ class InventoryRepository:
                     func.coalesce(func.sum(detail.c.amount), 0),
                 ).where(detail.c.document_id == document_id)
                 total_count, amount = connection.execute(stmt).one()
+                total_count = self._apply_document_total_sign(document_type, total_count)
+                amount = self._apply_document_total_sign(document_type, amount)
         update_stmt = (
             update(INVENTORY_TABLE)
             .where(INVENTORY_TABLE.c.id == document_id)
@@ -1260,7 +1418,7 @@ class InventoryRepository:
             .order_by(record.c.date_value, record.c.id, detail.c.id)
         )
 
-        changed_document_ids: set[int] = set()
+        changed_documents: dict[int, str] = {}
         updated_items: list[dict[str, object]] = []
         with self.engine.begin() as connection:
             rows = [dict(row) for row in connection.execute(select_stmt).mappings()]
@@ -1277,7 +1435,7 @@ class InventoryRepository:
                     .where(detail.c.id == row["id"])
                     .values(unit_price=new_price, amount=new_amount)
                 )
-                changed_document_ids.add(int(row["document_id"]))
+                changed_documents[int(row["document_id"])] = str(row.get("document_type") or "")
                 updated_items.append({
                     "detail_id": row["id"],
                     "document_id": row["document_id"],
@@ -1291,7 +1449,7 @@ class InventoryRepository:
                     "new_amount": str(new_amount),
                 })
 
-            for document_id in changed_document_ids:
+            for document_id, document_type in changed_documents.items():
                 totals = connection.execute(
                     select(
                         func.coalesce(func.sum(detail.c.quantity), 0),
@@ -1301,12 +1459,15 @@ class InventoryRepository:
                 connection.execute(
                     update(record)
                     .where(record.c.id == document_id)
-                    .values(total_count=totals[0], amount=totals[1])
+                    .values(
+                        total_count=self._apply_document_total_sign(document_type, totals[0]),
+                        amount=self._apply_document_total_sign(document_type, totals[1]),
+                    )
                 )
 
         return {
             "updated_details": len(updated_items),
-            "updated_documents": len(changed_document_ids),
+            "updated_documents": len(changed_documents),
             "items": updated_items,
         }
 
@@ -1586,6 +1747,8 @@ class InventoryRepository:
             GENERAL_CUSTOMER_SHOP_TABLE.create(connection, checkfirst=True)
             self._seed_general_customer_shops(connection)
             connection.execute(text("UPDATE inventory_records SET total_count = NULL, amount = NULL, warehouse = NULL WHERE document_type IN ('应付款减少', '应付款增加', '应收款减少', '应收款增加') AND (total_count IS NOT NULL OR amount IS NOT NULL OR warehouse IS NOT NULL)"))
+            connection.execute(text("UPDATE inventory_records SET total_count = -abs(total_count) WHERE document_type = '进货退货单' AND total_count IS NOT NULL AND total_count > 0"))
+            connection.execute(text("UPDATE inventory_records SET amount = -abs(amount) WHERE document_type = '进货退货单' AND amount IS NOT NULL AND amount > 0"))
             connection.execute(text("DELETE FROM inventory_records WHERE deleted_at < now() - interval '10 days'"))
 
     @staticmethod
@@ -1813,6 +1976,13 @@ class InventoryRepository:
         return record
 
     @staticmethod
+    def _apply_document_total_sign(document_type: object, value: object) -> object:
+        if value is None or str(document_type or "").strip() not in NEGATIVE_TOTAL_DOCUMENT_TYPES:
+            return value
+        decimal_value = Decimal(str(value or "0"))
+        return -abs(decimal_value)
+
+    @staticmethod
     def _prepare_record(record: Mapping[str, object]) -> dict[str, object]:
         payload = {}
         for key, value in record.items():
@@ -1826,6 +1996,10 @@ class InventoryRepository:
             payload["total_count"] = None
             payload["amount"] = None
             payload["warehouse"] = None
+        else:
+            for field in ("total_count", "amount"):
+                if field in payload:
+                    payload[field] = InventoryRepository._apply_document_total_sign(payload.get("document_type"), payload[field])
         raw_payload = payload.get("raw_payload")
         if isinstance(raw_payload, Mapping):
             payload["raw_payload"] = {

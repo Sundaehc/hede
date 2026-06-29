@@ -10,6 +10,8 @@ import xlrd
 from fastapi import APIRouter, HTTPException, Query, Request, UploadFile
 from fastapi.responses import StreamingResponse
 from openpyxl import Workbook, load_workbook
+from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+from openpyxl.utils import get_column_letter
 from sqlalchemy import desc, or_, select as sa_select
 
 from domain.color_barcode_schema import COLOR_BARCODE_TABLE
@@ -92,7 +94,8 @@ PURCHASE_DETAIL_EXTRA_FIELDS = {
     "insole_material": "鞋垫材质",
     "shoe_box_spec": "鞋盒规格",
 }
-PURCHASE_EXPORT_MODES = {"summary", "size_rows"}
+PURCHASE_PRODUCTION_ORDER_EXPORT_MODE = "production_order"
+PURCHASE_EXPORT_MODES = {"summary", "size_rows", PURCHASE_PRODUCTION_ORDER_EXPORT_MODE}
 PURCHASE_SUMMARY_EXPORT_HEADERS = [
     "行号",
     "单据类型",
@@ -136,6 +139,26 @@ PURCHASE_SIZE_ROW_EXPORT_HEADERS = [
     "到货数量",
     "未到货数量",
     "完成率%",
+]
+PURCHASE_PRODUCTION_FIXED_HEADERS = [
+    "商品编号",
+    "图片",
+    "工厂货号",
+    "款号\n（鞋内丝印）",
+    "色号\n（鞋内丝印）",
+    "颜色名称",
+    "鞋面材质",
+    "内里材质",
+    "大底材质",
+    "鞋垫材质",
+    "鞋盒规格",
+]
+PURCHASE_PRODUCTION_TAIL_HEADERS = [
+    "数量",
+    "单价",
+    "金额",
+    "要求交货日期",
+    "工厂回复交货日期",
 ]
 
 
@@ -566,6 +589,255 @@ def _append_purchase_size_rows_export(
             _fmt_export_decimal(unreceived_quantity, blank_zero=True),
             completion_rate,
         ])
+
+
+def _short_sheet_title(value: str, fallback: str) -> str:
+    title = (value or fallback).strip() or fallback
+    for ch in "[]:*?/\\":
+        title = title.replace(ch, "-")
+    return title[:31] or fallback[:31]
+
+
+def _purchase_sheet_date(value: object) -> str:
+    text = _cell_text(value)
+    if not text:
+        return ""
+    return text.replace("-", ".")
+
+
+def _purchase_production_size_labels(details: list[dict[str, object]]) -> tuple[str, ...]:
+    used_sizes: set[str] = set()
+    for detail in details:
+        size_quantities = _dict_or_empty(detail.get("size_quantities"))
+        for size, quantity in size_quantities.items():
+            size_text = _cell_text(size)
+            if size_text and _to_decimal(quantity) != 0:
+                used_sizes.add(size_text)
+    ordered = [size for size in PURCHASE_EXPORT_SIZE_LABELS if size in used_sizes]
+    extra = sorted(size for size in used_sizes if size not in PURCHASE_EXPORT_SIZE_LABELS)
+    return tuple(ordered + extra) or ("220", "225", "230", "235", "240", "245", "250")
+
+
+def _purchase_production_detail_rows(
+    details: list[dict[str, object]],
+    size_labels: tuple[str, ...],
+    delivery_date: str,
+) -> list[list[object]]:
+    rows: list[list[object]] = []
+    for detail in details:
+        extra_fields = _dict_or_empty(detail.get("extra_fields"))
+        size_quantities = _dict_or_empty(detail.get("size_quantities"))
+        quantity = _purchase_detail_quantity(detail, size_quantities)
+        unit_price = _to_decimal(detail.get("unit_price"))
+        amount = _purchase_detail_amount(detail, quantity)
+        product_code = _cell_text(detail.get("product_code"))
+        if not product_code and quantity == 0:
+            continue
+        rows.append([
+            product_code,
+            _cell_text(extra_fields.get("image_code") or product_code),
+            _cell_text(extra_fields.get("factory_code")),
+            _cell_text(extra_fields.get("style_code") or product_code),
+            _cell_text(extra_fields.get("inner_color_code")),
+            _first_text(detail.get("color_name"), detail.get("color_spec")),
+            _cell_text(extra_fields.get("upper_material")),
+            _cell_text(extra_fields.get("lining_material")),
+            _cell_text(extra_fields.get("outsole_material")),
+            _cell_text(extra_fields.get("insole_material")),
+            _cell_text(extra_fields.get("shoe_box_spec")),
+            *[
+                _fmt_export_decimal(_to_decimal(size_quantities.get(size)), blank_zero=True)
+                for size in size_labels
+            ],
+            _fmt_export_decimal(quantity, blank_zero=True),
+            _fmt_export_decimal(unit_price, blank_zero=True),
+            _fmt_export_decimal(amount, blank_zero=True),
+            _purchase_sheet_date(_first_text(extra_fields.get("required_delivery_date"), delivery_date)),
+            _purchase_sheet_date(_first_text(extra_fields.get("factory_reply_delivery_date"), extra_fields.get("reply_delivery_date"))),
+        ])
+    return rows
+
+
+def _style_purchase_production_sheet(worksheet, max_row: int, max_col: int, size_start_col: int, tail_start_col: int) -> None:
+    thin = Side(style="thin", color="000000")
+    border = Border(left=thin, right=thin, top=thin, bottom=thin)
+    center = Alignment(horizontal="center", vertical="center", wrap_text=True)
+    no_wrap_center = Alignment(horizontal="center", vertical="center", wrap_text=False)
+    title_font = Font(name="宋体", size=18, bold=True)
+    header_font = Font(name="宋体", size=10, bold=True)
+    body_font = Font(name="宋体", size=10)
+    red_font = Font(name="宋体", size=10, bold=True, color="FF0000")
+    fill = PatternFill("solid", fgColor="F7F7F7")
+
+    worksheet.row_dimensions[1].height = 32
+    worksheet.row_dimensions[2].height = 34
+    worksheet.row_dimensions[3].height = 34
+    worksheet.row_dimensions[4].height = 82
+    for row_index in range(5, max_row + 1):
+        worksheet.row_dimensions[row_index].height = 42
+
+    for row in worksheet.iter_rows(min_row=1, max_row=max_row, min_col=1, max_col=max_col):
+        for cell in row:
+            cell.alignment = center
+            cell.border = border
+            cell.font = body_font
+
+    for cell in worksheet[1]:
+        cell.font = title_font
+
+    for row_index in (2, 3, 4):
+        for cell in worksheet[row_index]:
+            cell.font = header_font
+            cell.fill = fill if row_index == 4 else PatternFill(fill_type=None)
+
+    for col_index in range(tail_start_col + 3, tail_start_col + 5):
+        worksheet.cell(row=4, column=col_index).font = red_font
+        worksheet.cell(row=4, column=col_index).alignment = Alignment(horizontal="center", vertical="center", wrap_text=True, text_rotation=255)
+
+    for row_index in range(5, max_row + 1):
+        for col_index in (1, 2, 3, 4):
+            worksheet.cell(row=row_index, column=col_index).alignment = no_wrap_center
+
+    width_map = {
+        1: 16,
+        2: 16,
+        3: 12,
+        4: 16,
+        5: 8,
+        6: 9,
+        7: 9,
+        8: 8,
+        9: 8,
+        10: 8,
+        11: 8,
+    }
+    for col_index in range(1, max_col + 1):
+        if col_index in width_map:
+            width = width_map[col_index]
+        elif size_start_col <= col_index < tail_start_col:
+            width = 5
+        elif col_index >= tail_start_col:
+            width = 7 if col_index < tail_start_col + 3 else 8
+        else:
+            width = 9
+        worksheet.column_dimensions[get_column_letter(col_index)].width = width
+
+    worksheet.freeze_panes = "A5"
+    worksheet.sheet_view.showGridLines = False
+    worksheet.page_setup.orientation = "landscape"
+    worksheet.page_setup.fitToWidth = 1
+    worksheet.page_setup.fitToHeight = 0
+    worksheet.sheet_properties.pageSetUpPr.fitToPage = True
+    worksheet.page_margins.left = 0.2
+    worksheet.page_margins.right = 0.2
+    worksheet.page_margins.top = 0.3
+    worksheet.page_margins.bottom = 0.3
+
+
+def _append_purchase_production_order_sheet(
+    worksheet,
+    record: dict[str, object],
+    details: list[dict[str, object]],
+    supplier_codes: dict[str, str],
+) -> None:
+    context = _purchase_record_export_context(record, supplier_codes)
+    size_labels = _purchase_production_size_labels(details)
+    headers = [*PURCHASE_PRODUCTION_FIXED_HEADERS, *size_labels, *PURCHASE_PRODUCTION_TAIL_HEADERS]
+    max_col = len(headers)
+    size_start_col = len(PURCHASE_PRODUCTION_FIXED_HEADERS) + 1
+    tail_start_col = size_start_col + len(size_labels)
+
+    worksheet.merge_cells(start_row=1, start_column=1, end_row=1, end_column=max_col)
+    worksheet.cell(row=1, column=1, value="赫德电商（千百度）生产采购单")
+
+    worksheet.merge_cells(start_row=2, start_column=2, end_row=2, end_column=4)
+    worksheet.merge_cells(start_row=2, start_column=6, end_row=2, end_column=8)
+    worksheet.merge_cells(start_row=2, start_column=10, end_row=2, end_column=min(max_col, 14))
+    worksheet.cell(row=2, column=1, value="供货单位")
+    worksheet.cell(row=2, column=2, value=context["unit_name"])
+    worksheet.cell(row=2, column=5, value="收货仓库")
+    worksheet.cell(row=2, column=6, value=context["warehouse_name"])
+    worksheet.cell(row=2, column=9, value="订货日期")
+    worksheet.cell(row=2, column=10, value=context["date"])
+
+    worksheet.merge_cells(start_row=3, start_column=2, end_row=3, end_column=8)
+    worksheet.merge_cells(start_row=3, start_column=10, end_row=3, end_column=min(max_col, 14))
+    worksheet.cell(row=3, column=1, value="摘要")
+    worksheet.cell(row=3, column=2, value=context["summary"])
+    worksheet.cell(row=3, column=9, value="单据编号")
+    worksheet.cell(row=3, column=10, value=context["document_number"])
+    if max_col >= 15:
+        worksheet.cell(row=2, column=15, value="交货日期")
+        worksheet.cell(row=2, column=16, value=context["delivery_date"])
+        worksheet.cell(row=3, column=15, value="经手人")
+        worksheet.cell(row=3, column=16, value=context["handler_name"])
+        if max_col >= 16:
+            worksheet.merge_cells(start_row=2, start_column=16, end_row=2, end_column=max_col)
+            worksheet.merge_cells(start_row=3, start_column=16, end_row=3, end_column=max_col)
+    else:
+        worksheet.cell(row=2, column=15, value="交货日期")
+        worksheet.cell(row=3, column=max_col, value=context["handler_name"])
+
+    for col_index, header in enumerate(headers, start=1):
+        worksheet.cell(row=4, column=col_index, value=header)
+
+    detail_rows = _purchase_production_detail_rows(details, size_labels, context["delivery_date"])
+    data_start_row = 5
+    for row_offset, row_values in enumerate(detail_rows):
+        for col_index, value in enumerate(row_values, start=1):
+            worksheet.cell(row=data_start_row + row_offset, column=col_index, value=value)
+
+    total_row = data_start_row + len(detail_rows)
+    if detail_rows:
+        worksheet.cell(row=total_row, column=1, value="合计")
+        worksheet.merge_cells(start_row=total_row, start_column=1, end_row=total_row, end_column=len(PURCHASE_PRODUCTION_FIXED_HEADERS))
+        for index, size in enumerate(size_labels, start=size_start_col):
+            total = sum(
+                _to_decimal(_dict_or_empty(detail.get("size_quantities")).get(size))
+                for detail in details
+            )
+            worksheet.cell(row=total_row, column=index, value=_fmt_export_decimal(total, blank_zero=True))
+        quantity_total = sum(
+            _purchase_detail_quantity(detail, _dict_or_empty(detail.get("size_quantities")))
+            for detail in details
+        )
+        amount_total = sum(
+            _purchase_detail_amount(detail, _purchase_detail_quantity(detail, _dict_or_empty(detail.get("size_quantities"))))
+            for detail in details
+        )
+        worksheet.cell(row=total_row, column=tail_start_col, value=_fmt_export_decimal(quantity_total, blank_zero=True))
+        worksheet.cell(row=total_row, column=tail_start_col + 2, value=_fmt_export_decimal(amount_total, blank_zero=True))
+    else:
+        worksheet.cell(row=total_row, column=1, value="暂无明细")
+        worksheet.merge_cells(start_row=total_row, start_column=1, end_row=total_row, end_column=max_col)
+
+    _style_purchase_production_sheet(worksheet, total_row, max_col, size_start_col, tail_start_col)
+
+
+def _append_purchase_production_order_export(
+    workbook: Workbook,
+    details: list[dict[str, object]],
+    records_by_id: dict[object, dict[str, object]],
+    supplier_codes: dict[str, str],
+) -> None:
+    workbook.remove(workbook.active)
+    details_by_document: dict[object, list[dict[str, object]]] = defaultdict(list)
+    for detail in details:
+        details_by_document[detail.get("document_id")].append(detail)
+
+    for index, record in enumerate(records_by_id.values(), start=1):
+        title = _short_sheet_title(_first_text(record.get("document_number"), record.get("summary")), f"采购单{index}")
+        worksheet = workbook.create_sheet(title)
+        _append_purchase_production_order_sheet(
+            worksheet,
+            record,
+            details_by_document.get(record.get("id"), []),
+            supplier_codes,
+        )
+
+    if not records_by_id:
+        worksheet = workbook.create_sheet("生产采购单")
+        _append_purchase_production_order_sheet(worksheet, {}, [], supplier_codes)
 
 
 def _stream_excel_workbook(workbook: Workbook, filename: str) -> StreamingResponse:
@@ -1289,6 +1561,40 @@ def list_inventory(
     )
 
 
+@router.get("/inventory-reports/purchase-inbound-details")
+def list_purchase_inbound_details(
+    request: Request,
+    date_start: str | None = None,
+    date_end: str | None = None,
+    document_type: str | None = None,
+    supplier: str | None = None,
+    warehouse: str | None = None,
+    product_code: str | None = None,
+    product_name: str | None = None,
+    color_name: str | None = None,
+    size_name: str | None = None,
+    page: int = 1,
+    page_size: int = 50,
+):
+    repository = request.app.state.inventory_repository
+    normalized_document_type = normalize_document_type(document_type) if document_type else None
+    if normalized_document_type and normalized_document_type not in {"进货单", "进货退货单"}:
+        raise HTTPException(status_code=400, detail="单据类型仅支持进货单或进货退货单")
+    return repository.list_purchase_inbound_details(
+        date_start=date_start,
+        date_end=date_end,
+        document_type=normalized_document_type,
+        supplier=supplier,
+        warehouse=warehouse,
+        product_code=product_code,
+        product_name=product_name,
+        color_name=color_name,
+        size_name=size_name,
+        page=page,
+        page_size=page_size,
+    )
+
+
 @router.get("/inventory/recycle-bin")
 def list_inventory_recycle_bin(
     request: Request,
@@ -1353,11 +1659,14 @@ def export_inventory(
     if is_purchase_detail_export:
         normalized_purchase_export_mode = str(purchase_export_mode or "summary").strip() or "summary"
         if normalized_purchase_export_mode not in PURCHASE_EXPORT_MODES:
-            raise HTTPException(status_code=400, detail="采购单导出类型仅支持 summary 或 size_rows")
+            raise HTTPException(status_code=400, detail="采购单导出类型仅支持 summary、size_rows 或 production_order")
 
         wb = Workbook()
         ws = wb.active
         supplier_codes = _load_supplier_code_lookup(repository, items)
+        if normalized_purchase_export_mode == PURCHASE_PRODUCTION_ORDER_EXPORT_MODE:
+            _append_purchase_production_order_export(wb, details, records_by_id, supplier_codes)
+            return _stream_excel_workbook(wb, "生产采购单.xlsx")
         if normalized_purchase_export_mode == "size_rows":
             ws.title = "尺码明细"
             _append_purchase_size_rows_export(ws, details, records_by_id, supplier_codes)
@@ -1369,7 +1678,7 @@ def export_inventory(
 
     wb = Workbook()
     ws = wb.active
-    ws.title = "进销存记录"
+    ws.title = "经营历程"
 
     headers = [INVENTORY_EXPORT_LABELS.get(c, c) for c in INVENTORY_CANONICAL_COLUMNS]
     ws.append(headers)

@@ -72,7 +72,7 @@ const COMPLETION_TABS = [
   { value: "incomplete", label: "未完成单据" },
 ] as const
 type CompletionStatus = (typeof COMPLETION_TABS)[number]["value"]
-type PurchaseExportMode = "summary" | "size_rows"
+type PurchaseExportMode = "summary" | "size_rows" | "production_order"
 type SearchableOption = {
   value: string
   label: string
@@ -886,6 +886,10 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
                   <Download className="h-4 w-4" />
                   <span className="ml-2 hidden sm:inline">尺码明细导出</span>
                 </Button>
+                <Button variant="outline" size="sm" onClick={() => handleExport("production_order")} disabled={total === 0 || isLoading} className="cursor-pointer">
+                  <Download className="h-4 w-4" />
+                  <span className="ml-2 hidden sm:inline">生产采购单导出</span>
+                </Button>
               </>
             ) : (
               <Button variant="outline" size="sm" onClick={() => handleExport()} disabled={total === 0 || isLoading} className="cursor-pointer">
@@ -916,7 +920,7 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
             </Button>
             <Button size="sm" onClick={openCreate} className="cursor-pointer">
               <Plus className="h-4 w-4" />
-              <span className="ml-2 hidden sm:inline">{isPurchaseOrderTab ? "新增采购单" : "新增记录"}</span>
+              <span className="ml-2 hidden sm:inline">{isPurchaseOrderTab ? "新增采购单" : "新增经营历程"}</span>
             </Button>
           </div>
         </div>
@@ -924,7 +928,7 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
         <Tabs defaultValue="records" value={activeTab} onValueChange={handleMainTabChange}>
           {!isPurchasePage && (
             <TabsList className="rounded-xl bg-muted/60 p-1">
-              <TabsTrigger value="records">进销存记录</TabsTrigger>
+              <TabsTrigger value="records">经营历程</TabsTrigger>
               <TabsTrigger value="ending">期末库存</TabsTrigger>
             </TabsList>
           )}
@@ -1223,7 +1227,7 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
       <Dialog open={formOpen} onOpenChange={setFormOpen}>
         <DialogContent className="max-w-xl">
           <DialogHeader>
-            <DialogTitle>{formMode === "create" ? (isPurchaseOrderTab ? "新增采购单" : "新增进销存记录") : (formData.document_type === PURCHASE_ORDER_DOCUMENT_TYPE ? "编辑采购单" : "编辑进销存记录")}</DialogTitle>
+            <DialogTitle>{formMode === "create" ? (isPurchaseOrderTab ? "新增采购单" : "新增经营历程") : (formData.document_type === PURCHASE_ORDER_DOCUMENT_TYPE ? "编辑采购单" : "编辑经营历程")}</DialogTitle>
           </DialogHeader>
           <div className="grid grid-cols-2 gap-4 py-2">
             {/* Date */}

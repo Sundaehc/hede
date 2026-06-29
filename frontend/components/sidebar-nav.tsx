@@ -37,8 +37,13 @@ const NAV_ITEMS = [
     items: [
       {
         href: "/inventory",
-        label: "进销存记录",
+        label: "经营历程",
         icon: ClipboardList,
+      },
+      {
+        href: "/inventory-purchase-details",
+        label: "商品进货明细",
+        icon: Package,
       },
       {
         href: "/suppliers",

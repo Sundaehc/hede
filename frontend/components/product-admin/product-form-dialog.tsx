@@ -1,7 +1,7 @@
 "use client"
 
-import { useMemo, useState } from "react"
-import { X } from "lucide-react"
+import { useEffect, useId, useMemo, useRef, useState } from "react"
+import { Check, Search, X } from "lucide-react"
 
 import { ImageLookupStatus } from "@/components/product-admin/image-lookup-status"
 import { Button } from "@/components/ui/button"
@@ -15,10 +15,11 @@ import {
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select } from "@/components/ui/select"
-import { ApiError, createProduct, lookupImage, updateProduct } from "@/lib/api"
+import { ApiError, createProduct, listProductColorBarcodes, lookupImage, updateProduct } from "@/lib/api"
 import { BRANDS, type BrandKey } from "@/lib/brands"
 import { ALL_PRODUCT_FIELDS, FIELD_GROUPS, FIELD_LABELS, SEASON_OPTIONS } from "@/lib/fields"
-import type { ImageLookupStatusState, ProductFormValues, ProductListItem, ProductMutationPayload } from "@/lib/types"
+import type { ImageLookupStatusState, ProductColorBarcodeItem, ProductFormValues, ProductListItem, ProductMutationPayload } from "@/lib/types"
+import { cn } from "@/lib/utils"
 
 type ProductFormDialogProps = {
   item?: ProductListItem | null
@@ -35,6 +36,145 @@ function makeEmptyForm(): Record<string, string> {
 }
 
 const EMPTY_FORM: ProductFormValues = { brand: "", ...makeEmptyForm() } as ProductFormValues
+
+type ColorCodeSearchSelectProps = {
+  disabled: boolean
+  id: string
+  isLoading: boolean
+  onChange: (value: string) => void
+  options: ProductColorBarcodeItem[]
+  value: string
+}
+
+function ColorCodeSearchSelect({ disabled, id, isLoading, onChange, options, value }: ColorCodeSearchSelectProps) {
+  const listboxId = useId()
+  const inputRef = useRef<HTMLInputElement>(null)
+  const rootRef = useRef<HTMLDivElement>(null)
+  const [isOpen, setIsOpen] = useState(false)
+  const [query, setQuery] = useState("")
+
+  const selected = options.find((option) => option.color_code === value)
+  const displayValue = selected ? `${selected.color_code} - ${selected.color_name}` : value
+  const filteredOptions = useMemo(() => {
+    const normalizedQuery = query.trim().toLowerCase()
+    if (!normalizedQuery) {
+      return options
+    }
+
+    return options.filter((option) => {
+      return `${option.color_code} ${option.color_name}`.toLowerCase().includes(normalizedQuery)
+    })
+  }, [options, query])
+  const visibleOptions = filteredOptions.slice(0, 80)
+
+  useEffect(() => {
+    if (!isOpen) {
+      return
+    }
+
+    const handlePointerDown = (event: MouseEvent | TouchEvent) => {
+      if (rootRef.current?.contains(event.target as Node)) {
+        return
+      }
+
+      setIsOpen(false)
+      setQuery("")
+    }
+
+    document.addEventListener("mousedown", handlePointerDown)
+    document.addEventListener("touchstart", handlePointerDown)
+
+    return () => {
+      document.removeEventListener("mousedown", handlePointerDown)
+      document.removeEventListener("touchstart", handlePointerDown)
+    }
+  }, [isOpen])
+
+  const handleSelect = (nextValue: string) => {
+    onChange(nextValue)
+    setQuery("")
+    setIsOpen(false)
+    inputRef.current?.blur()
+  }
+
+  return (
+    <div ref={rootRef} className="relative">
+      <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+      <Input
+        id={id}
+        ref={inputRef}
+        role="combobox"
+        aria-expanded={isOpen}
+        aria-controls={listboxId}
+        aria-autocomplete="list"
+        value={isOpen ? query : displayValue}
+        placeholder={isLoading ? "颜色代码加载中..." : "搜索颜色代码/颜色名称"}
+        disabled={disabled}
+        onFocus={() => {
+          if (disabled) return
+          setQuery("")
+          setIsOpen(true)
+        }}
+        onChange={(event) => {
+          setQuery(event.target.value)
+          setIsOpen(true)
+        }}
+        onKeyDown={(event) => {
+          if (event.key === "Escape") {
+            setIsOpen(false)
+            setQuery("")
+            inputRef.current?.blur()
+            return
+          }
+
+          if (event.key === "Enter" && isOpen && visibleOptions.length > 0) {
+            event.preventDefault()
+            handleSelect(visibleOptions[0].color_code)
+          }
+        }}
+        className="pl-8"
+        autoComplete="off"
+        spellCheck={false}
+      />
+
+      {isOpen ? (
+        <div
+          id={listboxId}
+          role="listbox"
+          className="absolute z-50 mt-1 max-h-56 w-full overflow-y-auto rounded-lg border border-border bg-popover py-1 text-sm shadow-lg"
+        >
+          {visibleOptions.length > 0 ? (
+            visibleOptions.map((option) => {
+              const isSelected = option.color_code === value
+              return (
+                <button
+                  key={`${option.brand}-${option.color_code}-${option.color_name}`}
+                  type="button"
+                  role="option"
+                  aria-selected={isSelected}
+                  className={cn(
+                    "flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-muted focus-visible:bg-muted focus-visible:outline-none",
+                    isSelected && "bg-muted",
+                  )}
+                  onMouseDown={(event) => {
+                    event.preventDefault()
+                    handleSelect(option.color_code)
+                  }}
+                >
+                  <span className="shrink-0 font-medium text-foreground">{option.color_code}</span>
+                  <span className="min-w-0 truncate text-muted-foreground">{option.color_name}</span>
+                  <Check className={cn("ml-auto h-4 w-4 shrink-0", isSelected ? "opacity-100" : "opacity-0")} />
+                </button>
+              )
+            })
+          ) : (
+            <div className="px-3 py-2 text-muted-foreground">没有匹配的颜色代码</div>
+          )}
+        </div>
+      ) : null}
+    </div>
+  )
+}
 
 function getErrorMessage(error: unknown) {
   if (error instanceof ApiError) {
@@ -94,11 +234,50 @@ export function ProductFormDialog({ item, mode, onOpenChange, onSaved, open }: P
   const [submitError, setSubmitError] = useState<string | null>(null)
   const [isSaving, setIsSaving] = useState(false)
   const [lookupStatus, setLookupStatus] = useState<ImageLookupStatusState>({ status: "idle", message: null })
+  const [colorBarcodeOptions, setColorBarcodeOptions] = useState<ProductColorBarcodeItem[]>([])
+  const [isLoadingColorBarcodes, setIsLoadingColorBarcodes] = useState(false)
 
   const title = mode === "create" ? "新增商品" : "编辑商品"
   const lookupDisabled = useMemo(() => {
     return !values.brand || (!values.original_sku.trim() && !values.sku.trim()) || lookupStatus.status === "loading"
   }, [lookupStatus.status, values.brand, values.original_sku, values.sku])
+
+  useEffect(() => {
+    setValues(initialValues)
+    setLookupStatus({ status: "idle", message: null })
+    setSubmitError(null)
+    setBrandError(null)
+  }, [initialValues, open])
+
+  useEffect(() => {
+    if (!open || !values.brand) {
+      setColorBarcodeOptions([])
+      return
+    }
+
+    let cancelled = false
+    setIsLoadingColorBarcodes(true)
+    listProductColorBarcodes(values.brand as Exclude<BrandKey, "all">)
+      .then((response) => {
+        if (!cancelled) {
+          setColorBarcodeOptions(response.items)
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setColorBarcodeOptions([])
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setIsLoadingColorBarcodes(false)
+        }
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [open, values.brand])
 
   const handleFieldChange = (field: keyof ProductFormValues, nextValue: string) => {
     setValues((current) => ({ ...current, [field]: nextValue }))
@@ -110,6 +289,15 @@ export function ProductFormDialog({ item, mode, onOpenChange, onSaved, open }: P
     if (field === "original_sku" || field === "sku") {
       setLookupStatus({ status: "idle", message: null })
     }
+  }
+
+  const handleColorCodeChange = (nextValue: string) => {
+    const selected = colorBarcodeOptions.find((option) => option.color_code === nextValue)
+    setValues((current) => ({
+      ...current,
+      color_code: nextValue,
+      color: selected?.color_name ?? current.color,
+    }))
   }
 
   const handleLookup = async () => {
@@ -304,6 +492,15 @@ export function ProductFormDialog({ item, mode, onOpenChange, onSaved, open }: P
                                 value={values[field as keyof ProductFormValues] as string}
                                 onChange={(event) => handleFieldChange(field as keyof ProductFormValues, event.target.value)}
                                 autoComplete="off"
+                              />
+                            ) : field === "color_code" ? (
+                              <ColorCodeSearchSelect
+                                id={`product-form-${field}`}
+                                value={values.color_code}
+                                options={colorBarcodeOptions}
+                                isLoading={isLoadingColorBarcodes}
+                                disabled={!values.brand || isLoadingColorBarcodes}
+                                onChange={handleColorCodeChange}
                               />
                             ) : (
                               <Input

@@ -203,6 +203,17 @@ export type ProductImageRefreshStatus = {
   runs?: ProductImageRefreshRun[]
 }
 
+export type ProductColorBarcodeItem = {
+  brand: string
+  color_code: string
+  color_name: string
+}
+
+export type ProductColorBarcodeListResponse = {
+  items: ProductColorBarcodeItem[]
+  source_brand: string
+}
+
 export type RefreshProductImagesResult = {
   accepted: boolean
   in_progress: boolean

@@ -59,6 +59,7 @@ def read_color_barcode_rows(path: Path, *, brand: str, sheet_name: str = DEFAULT
             color_name = _cell_text(row[name_index] if name_index < len(row) else None)
             if not color_barcode or not color_name:
                 continue
+            row_brand = "smiley" if "笑脸" in color_name else brand
             raw_payload = {
                 headers[index] or f"column_{index + 1}": _cell_text(value)
                 for index, value in enumerate(row)
@@ -66,7 +67,7 @@ def read_color_barcode_rows(path: Path, *, brand: str, sheet_name: str = DEFAULT
             }
             payloads.append(
                 {
-                    "brand": brand,
+                    "brand": row_brand,
                     "color_barcode": color_barcode,
                     "color_name": color_name,
                     "source_workbook": str(path),

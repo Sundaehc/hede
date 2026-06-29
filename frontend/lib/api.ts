@@ -4,6 +4,7 @@ import type {
   ProductListItem,
   ProductListResponse,
   ProductMutationPayload,
+  ProductColorBarcodeListResponse,
   ProductImageRefreshStatus,
   RefreshProductImagesResult,
   FineTableResponse,
@@ -45,6 +46,11 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
 
 export function getProductYears(brand: BrandKey) {
   return request<{ years: string[] }>(`/products/${brand}/years`)
+}
+
+export function listProductColorBarcodes(brand: Exclude<BrandKey, "all">) {
+  const search = new URLSearchParams({ brand })
+  return request<ProductColorBarcodeListResponse>(`/products/color-barcodes?${search.toString()}`)
 }
 
 export function listProducts(params: {
@@ -533,7 +539,7 @@ export function buildInventoryExportUrl(params: {
   product_code?: string
   handler?: string
   completion_status?: string
-  purchase_export_mode?: "summary" | "size_rows"
+  purchase_export_mode?: "summary" | "size_rows" | "production_order"
 } = {}) {
   const search = new URLSearchParams()
   if (params.date_start) search.set("date_start", params.date_start)
@@ -564,7 +570,7 @@ export function exportInventory(params: {
   product_code?: string
   handler?: string
   completion_status?: string
-  purchase_export_mode?: "summary" | "size_rows"
+  purchase_export_mode?: "summary" | "size_rows" | "production_order"
 } = {}) {
   return fetch(buildInventoryExportUrl(params)).then(async (response) => {
     if (!response.ok) {
@@ -768,6 +774,37 @@ export type EndingInventoryResponse = {
   page_size: number
 }
 
+export type PurchaseInboundDetailItem = {
+  row_number: number
+  detail_id: number
+  document_id: number
+  product_code: string | null
+  product_name: string | null
+  document_type: string | null
+  document_number: string | null
+  date: string | null
+  purchase_quantity: string | null
+  purchase_amount: string | null
+  retail_amount: string | null
+  factory_code: string | null
+  unit_code: string | null
+  unit_name: string | null
+  warehouse_name: string | null
+  color_name: string | null
+}
+
+export type PurchaseInboundDetailResponse = {
+  items: PurchaseInboundDetailItem[]
+  total: number
+  page: number
+  page_size: number
+  totals: {
+    purchase_quantity: string
+    purchase_amount: string
+    retail_amount: string
+  }
+}
+
 export function importJstStock(stockDate?: string) {
   const search = stockDate ? `?stock_date=${stockDate}` : ""
   return request<{ imported: number; message: string }>(`/inventory/import-jst-stock${search}`, {
@@ -792,6 +829,35 @@ export function listEndingInventory(params: {
   if (params.date_end) search.set("date_end", params.date_end)
   if (params.product_code) search.set("product_code", params.product_code)
   return request<EndingInventoryResponse>(`/inventory/ending-balance?${search.toString()}`)
+}
+
+export function listPurchaseInboundDetails(params: {
+  date_start?: string
+  date_end?: string
+  document_type?: string
+  supplier?: string
+  warehouse?: string
+  product_code?: string
+  product_name?: string
+  color_name?: string
+  size_name?: string
+  page: number
+  pageSize: number
+}) {
+  const search = new URLSearchParams({
+    page: String(params.page),
+    page_size: String(params.pageSize),
+  })
+  if (params.date_start) search.set("date_start", params.date_start)
+  if (params.date_end) search.set("date_end", params.date_end)
+  if (params.document_type) search.set("document_type", params.document_type)
+  if (params.supplier) search.set("supplier", params.supplier)
+  if (params.warehouse) search.set("warehouse", params.warehouse)
+  if (params.product_code) search.set("product_code", params.product_code)
+  if (params.product_name) search.set("product_name", params.product_name)
+  if (params.color_name) search.set("color_name", params.color_name)
+  if (params.size_name) search.set("size_name", params.size_name)
+  return request<PurchaseInboundDetailResponse>(`/inventory-reports/purchase-inbound-details?${search.toString()}`)
 }
 
 // ── Suppliers ────────────────────────────────────────────────────

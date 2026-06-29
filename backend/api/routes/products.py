@@ -8,10 +8,17 @@ from api.schemas import BatchDeleteRequest, BrandKey, ProductWriteRequest
 
 from sqlalchemy import distinct as sa_distinct, select as sa_select
 
+from domain.color_barcode_schema import COLOR_BARCODE_TABLE
 from domain.excluded_skus import is_excluded_sku
 from domain.schema import PRODUCT_TABLES
 
 ALL_BRAND_KEYS = ["cbanner_mens", "cbanner_womens", "yandou", "eblan"]
+PRODUCT_COLOR_BARCODE_BRANDS = {
+    "cbanner_mens": "cbanner_mens",
+    "cbanner_womens": "cbanner_womens",
+    "yandou": "cbanner_mens",
+    "eblan": "cbanner_mens",
+}
 from transform.rows import build_admin_record
 
 
@@ -87,6 +94,35 @@ def get_product_years(request: Request, brand: str):
                 years.append(y)
     years.sort()
     return {"years": years}
+
+
+@router.get("/products/color-barcodes")
+def list_product_color_barcodes(request: Request, brand: BrandKey):
+    source_brand = PRODUCT_COLOR_BARCODE_BRANDS.get(brand)
+    if source_brand is None:
+        raise HTTPException(status_code=400, detail=f"Invalid brand: {brand}")
+
+    repository = request.app.state.inventory_repository
+    with repository.engine.connect() as connection:
+        rows = connection.execute(
+            sa_select(
+                COLOR_BARCODE_TABLE.c.brand,
+                COLOR_BARCODE_TABLE.c.color_barcode,
+                COLOR_BARCODE_TABLE.c.color_name,
+            )
+            .where(COLOR_BARCODE_TABLE.c.brand == source_brand)
+            .order_by(COLOR_BARCODE_TABLE.c.color_barcode, COLOR_BARCODE_TABLE.c.color_name)
+        ).mappings()
+        items = [
+            {
+                "brand": row["brand"],
+                "color_code": row["color_barcode"],
+                "color_name": row["color_name"],
+            }
+            for row in rows
+        ]
+
+    return {"items": items, "source_brand": source_brand}
 
 
 @router.get("/products/{brand}/{product_id}")
