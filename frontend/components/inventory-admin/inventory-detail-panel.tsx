@@ -21,7 +21,6 @@ import {
   deleteDetail,
   batchDeleteDetails,
   replaceDetailsFromExcel,
-  matchSkuImage,
   listInventoryAccountSubjects,
   ApiError,
   type InventoryRecord,
@@ -103,16 +102,6 @@ type Props = {
   onTotalChanged: () => void
 }
 
-function getImageKeys(productCode: string | null): string[] {
-  const code = (productCode || "").trim()
-  if (!code) return []
-
-  const keys = [code]
-  if (code.length > 2) keys.push(code.slice(0, -2))
-  if (code.length > 5) keys.push(code.slice(0, -5))
-  return Array.from(new Set(keys.filter(Boolean)))
-}
-
 function formatComputedNumber(value: number): string {
   if (!Number.isFinite(value)) return ""
   return Number.isInteger(value) ? String(value) : value.toFixed(2).replace(/\.?0+$/, "")
@@ -137,12 +126,12 @@ function isNiSupplierName(name: string | null | undefined) {
   const value = (name || "").trim()
   if (!value) return false
   const upper = value.toUpperCase()
-  return /\bNI\b/.test(upper) || upper.includes("NIKE") || value.includes("耐克")
+  return upper.includes("NI")
 }
 
 function isSmileySupplierName(name: string | null | undefined) {
   const value = (name || "").trim()
-  return value.includes("笑脸") || value.includes("小莲")
+  return value.includes("笑脸")
 }
 
 function inferInventorySizeBrand(record: InventoryRecord | null, suppliers: SupplierItem[]) {
@@ -186,10 +175,12 @@ function getPurchaseDetailExtra(item: InventoryDetail, key: PurchaseDetailExtraK
 }
 
 function buildPurchaseExtraFields(formData: Record<string, string>) {
-  return PURCHASE_DETAIL_EXTRA_FIELDS.reduce<Record<string, string>>((fields, field) => {
-    fields[field.key] = formData[field.key] || ""
-    return fields
+  const fields = PURCHASE_DETAIL_EXTRA_FIELDS.reduce<Record<string, string>>((values, field) => {
+    values[field.key] = formData[field.key] || ""
+    return values
   }, {})
+  fields.style_code = fields.image_code || fields.style_code || ""
+  return fields
 }
 
 function emptyPurchaseExtraFields() {
@@ -207,10 +198,9 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
   const accountingAmountLabel = documentType.includes("减少") ? "减少金额" : "增加金额"
   const inventorySizeBrand = useMemo(() => inferInventorySizeBrand(record, suppliers), [record, suppliers])
   const sizeColumns = useMemo(() => getSizeColumns(inventorySizeBrand), [inventorySizeBrand])
-  const detailColumnCount = isAccountingDocument ? 6 : isPurchaseOrder ? 16 + sizeColumns.length : 10 + sizeColumns.length
+  const detailColumnCount = isAccountingDocument ? 6 : isPurchaseOrder ? 16 + sizeColumns.length : 9 + sizeColumns.length
   const [items, setItems] = useState<InventoryDetail[]>([])
   const [isLoading, setIsLoading] = useState(false)
-  const [imageUrls, setImageUrls] = useState<Record<number, string | null>>({})
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set())
   const replaceInputRef = useRef<HTMLInputElement>(null)
   const [replaceFile, setReplaceFile] = useState<File | null>(null)
@@ -259,43 +249,6 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
   useEffect(() => {
     setSelectedIds(new Set())
   }, [documentId])
-
-  // Load images for all detail items
-  useEffect(() => {
-    const controller = new AbortController()
-    async function loadImages() {
-      if (isAccountingDocument || isPurchaseOrder) {
-        setImageUrls({})
-        return
-      }
-      const urls: Record<number, string | null> = {}
-      for (const item of items) {
-        const keys = getImageKeys(item.product_code)
-        if (keys.length === 0) {
-          urls[item.id] = null
-          continue
-        }
-        try {
-          let imageUrl: string | null = null
-          for (const key of keys) {
-            const result = await matchSkuImage(key)
-            if (result.found && result.image_url) {
-              imageUrl = result.image_url
-              break
-            }
-          }
-          urls[item.id] = imageUrl
-        } catch {
-          urls[item.id] = null
-        }
-      }
-      if (!controller.signal.aborted) {
-        setImageUrls(urls)
-      }
-    }
-    void loadImages()
-    return () => { controller.abort() }
-  }, [items, isAccountingDocument, isPurchaseOrder])
 
   const loadSubjects = useCallback(async () => {
     try {
@@ -514,6 +467,11 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
   if (documentId === null) return null
 
   const allSelected = items.length > 0 && items.every((item) => selectedIds.has(item.id))
+  const tableClassName = isPurchaseOrder ? "w-[2240px] table-fixed text-xs" : "w-full text-sm"
+  const purchaseHeaderClassName = "px-3 py-2.5 font-medium whitespace-nowrap"
+  const purchaseCodeCellClassName = "px-3 py-2.5 whitespace-nowrap font-mono text-[11px]"
+  const purchaseTextCellClassName = "px-3 py-2.5 truncate whitespace-nowrap"
+  const purchaseNumberCellClassName = "px-2 py-2.5 text-right whitespace-nowrap tabular-nums"
 
   return (
     <>
@@ -521,7 +479,7 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
       <div className="fixed inset-0 z-40 bg-black/30 transition-opacity" onClick={onClose} />
 
       {/* Panel */}
-      <div className="fixed inset-y-0 right-0 z-50 flex w-full max-w-6xl flex-col overflow-hidden rounded-l-lg border-l border-border bg-background shadow-2xl">
+      <div className="fixed inset-y-0 right-0 z-50 flex w-full max-w-[1500px] flex-col overflow-hidden rounded-l-lg border-l border-border bg-background shadow-2xl">
         {/* Header */}
         <div className="flex items-center justify-between border-b border-border px-6 py-4 shrink-0">
           <div>
@@ -578,7 +536,7 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
 
         {/* Table */}
         <div className="flex-1 overflow-auto">
-          <table className="w-full text-sm">
+          <table className={tableClassName}>
             <thead>
               {isAccountingDocument ? (
                 <tr className="sticky top-0 z-10 border-b border-border bg-muted/40 text-left text-muted-foreground">
@@ -599,8 +557,8 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
                   <th className="px-4 py-2.5 w-20 font-medium">操作</th>
                 </tr>
               ) : isPurchaseOrder ? (
-                <tr className="sticky top-0 z-10 border-b border-border bg-muted/40 text-left text-muted-foreground">
-                  <th className="w-10 px-3 py-2.5 font-medium">
+                <tr className="sticky top-0 z-10 border-b border-border bg-muted/95 text-left text-muted-foreground shadow-sm">
+                  <th className="w-10 px-3 py-2.5 font-medium whitespace-nowrap">
                     <input
                       type="checkbox"
                       checked={allSelected}
@@ -610,24 +568,24 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
                       aria-label="选择全部明细"
                     />
                   </th>
-                  <th className="px-3 py-2.5 font-medium">商品编号</th>
-                  <th className="px-3 py-2.5 font-medium">图片</th>
-                  <th className="px-3 py-2.5 font-medium">工厂货号</th>
-                  <th className="px-3 py-2.5 font-medium">款号（鞋内丝印）</th>
-                  <th className="px-3 py-2.5 font-medium">色号（鞋内丝印）</th>
-                  <th className="px-3 py-2.5 font-medium">颜色名称</th>
-                  <th className="px-3 py-2.5 font-medium">鞋面材质</th>
-                  <th className="px-3 py-2.5 font-medium">内里材质</th>
-                  <th className="px-3 py-2.5 font-medium">大底材质</th>
-                  <th className="px-3 py-2.5 font-medium">鞋垫材质</th>
-                  <th className="px-3 py-2.5 font-medium">鞋盒规格</th>
+                  <th className={`${purchaseHeaderClassName} w-[130px]`}>商品编号</th>
+                  <th className={`${purchaseHeaderClassName} w-[130px]`}>图片</th>
+                  <th className={`${purchaseHeaderClassName} w-[96px]`}>工厂货号</th>
+                  <th className={`${purchaseHeaderClassName} w-[140px]`}>款号（鞋内丝印）</th>
+                  <th className={`${purchaseHeaderClassName} w-[128px]`}>色号（鞋内丝印）</th>
+                  <th className={`${purchaseHeaderClassName} w-[104px]`}>颜色名称</th>
+                  <th className={`${purchaseHeaderClassName} w-[112px]`}>鞋面材质</th>
+                  <th className={`${purchaseHeaderClassName} w-[112px]`}>内里材质</th>
+                  <th className={`${purchaseHeaderClassName} w-[112px]`}>大底材质</th>
+                  <th className={`${purchaseHeaderClassName} w-[112px]`}>鞋垫材质</th>
+                  <th className={`${purchaseHeaderClassName} w-[104px]`}>鞋盒规格</th>
                   {sizeColumns.map((size) => (
-                    <th key={size} className="px-2 py-2.5 text-right font-medium">{size}</th>
+                    <th key={size} className="w-[48px] px-2 py-2.5 text-right font-medium whitespace-nowrap">{size}</th>
                   ))}
-                  <th className="px-3 py-2.5 text-right font-medium">数量</th>
-                  <th className="px-3 py-2.5 text-right font-medium">单价</th>
-                  <th className="px-3 py-2.5 text-right font-medium">金额</th>
-                  <th className="px-4 py-2.5 w-20 font-medium">操作</th>
+                  <th className="w-[72px] px-3 py-2.5 text-right font-medium whitespace-nowrap">数量</th>
+                  <th className="w-[72px] px-3 py-2.5 text-right font-medium whitespace-nowrap">单价</th>
+                  <th className="w-[82px] px-3 py-2.5 text-right font-medium whitespace-nowrap">金额</th>
+                  <th className="w-20 px-4 py-2.5 font-medium whitespace-nowrap">操作</th>
                 </tr>
               ) : (
                 <tr className="sticky top-0 z-10 border-b border-border bg-muted/40 text-left text-muted-foreground">
@@ -641,7 +599,6 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
                       aria-label="选择全部明细"
                     />
                   </th>
-                  <th className="px-4 py-2.5 w-20 font-medium"></th>
                   <th className="px-3 py-2.5 font-medium">货号</th>
                   <th className="px-3 py-2.5 font-medium">商品全名</th>
                   <th className="px-3 py-2.5 font-medium">颜色条码</th>
@@ -687,41 +644,28 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
                     </>
                   ) : isPurchaseOrder ? (
                     <>
-                      <td className="px-3 py-2.5 font-mono text-xs">{item.product_code || "-"}</td>
-                      <td className="px-3 py-2.5 font-mono text-xs">{getPurchaseDetailExtra(item, "image_code") || item.product_code || "-"}</td>
-                      <td className="px-3 py-2.5 font-mono text-xs">{getPurchaseDetailExtra(item, "factory_code") || "-"}</td>
-                      <td className="px-3 py-2.5 font-mono text-xs">{getPurchaseDetailExtra(item, "style_code") || "-"}</td>
-                      <td className="px-3 py-2.5 font-mono text-xs">{getPurchaseDetailExtra(item, "inner_color_code") || ""}</td>
-                      <td className="px-3 py-2.5">{item.color_name || item.color_spec || "-"}</td>
-                      <td className="px-3 py-2.5">{getPurchaseDetailExtra(item, "upper_material") || "-"}</td>
-                      <td className="px-3 py-2.5">{getPurchaseDetailExtra(item, "lining_material") || "-"}</td>
-                      <td className="px-3 py-2.5">{getPurchaseDetailExtra(item, "outsole_material") || "-"}</td>
-                      <td className="px-3 py-2.5">{getPurchaseDetailExtra(item, "insole_material") || "-"}</td>
-                      <td className="px-3 py-2.5">{getPurchaseDetailExtra(item, "shoe_box_spec") || "-"}</td>
+                      <td className={purchaseCodeCellClassName}>{item.product_code || "-"}</td>
+                      <td className={purchaseCodeCellClassName}>{getPurchaseDetailExtra(item, "image_code") || item.product_code || "-"}</td>
+                      <td className={purchaseCodeCellClassName}>{getPurchaseDetailExtra(item, "factory_code") || "-"}</td>
+                      <td className={purchaseCodeCellClassName}>{getPurchaseDetailExtra(item, "image_code") || getPurchaseDetailExtra(item, "style_code") || "-"}</td>
+                      <td className={purchaseCodeCellClassName}>{getPurchaseDetailExtra(item, "inner_color_code") || ""}</td>
+                      <td className={purchaseTextCellClassName} title={item.color_name || item.color_spec || ""}>{item.color_name || item.color_spec || "-"}</td>
+                      <td className={purchaseTextCellClassName} title={getPurchaseDetailExtra(item, "upper_material")}>{getPurchaseDetailExtra(item, "upper_material") || "-"}</td>
+                      <td className={purchaseTextCellClassName} title={getPurchaseDetailExtra(item, "lining_material")}>{getPurchaseDetailExtra(item, "lining_material") || "-"}</td>
+                      <td className={purchaseTextCellClassName} title={getPurchaseDetailExtra(item, "outsole_material")}>{getPurchaseDetailExtra(item, "outsole_material") || "-"}</td>
+                      <td className={purchaseTextCellClassName} title={getPurchaseDetailExtra(item, "insole_material")}>{getPurchaseDetailExtra(item, "insole_material") || "-"}</td>
+                      <td className={purchaseTextCellClassName} title={getPurchaseDetailExtra(item, "shoe_box_spec")}>{getPurchaseDetailExtra(item, "shoe_box_spec") || "-"}</td>
                       {sizeColumns.map((size) => (
-                        <td key={size} className="px-2 py-2.5 text-right tabular-nums">
+                        <td key={size} className={purchaseNumberCellClassName}>
                           {getSizeQuantity(item.size_quantities, size, inventorySizeBrand) || "-"}
                         </td>
                       ))}
-                      <td className="px-3 py-2.5 text-right tabular-nums">{item.quantity || "-"}</td>
-                      <td className="px-3 py-2.5 text-right tabular-nums">{item.unit_price || "-"}</td>
-                      <td className="px-3 py-2.5 text-right tabular-nums">{item.amount || "-"}</td>
+                      <td className="px-3 py-2.5 text-right whitespace-nowrap tabular-nums">{item.quantity || "-"}</td>
+                      <td className="px-3 py-2.5 text-right whitespace-nowrap tabular-nums">{item.unit_price || "-"}</td>
+                      <td className="px-3 py-2.5 text-right whitespace-nowrap tabular-nums">{item.amount || "-"}</td>
                     </>
                   ) : (
                     <>
-                      <td className="px-4 py-1.5">
-                        {imageUrls[item.id] ? (
-                          <img
-                            src={`/api${imageUrls[item.id]}`}
-                            alt={item.product_code || ""}
-                            className="h-16 w-16 object-contain"
-                          />
-                        ) : (
-                          <div className="h-16 w-16 rounded-lg border border-border bg-muted/10 flex items-center justify-center text-[10px] text-muted-foreground/50">
-                            无图
-                          </div>
-                        )}
-                      </td>
                       <td className="px-3 py-2.5 font-mono text-xs">{item.product_code || "-"}</td>
                       <td className="px-3 py-2.5">{item.product_name || "-"}</td>
                       <td className="px-3 py-2.5 font-mono text-xs">{item.color_barcode || "-"}</td>
@@ -831,7 +775,7 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
                     <Input
                       id="detail-image-code"
                       value={formData.image_code || ""}
-                      onChange={(e) => setFormData((prev) => ({ ...prev, image_code: e.target.value }))}
+                      onChange={(e) => setFormData((prev) => ({ ...prev, image_code: e.target.value, style_code: e.target.value }))}
                       placeholder="原始货号"
                     />
                   </div>

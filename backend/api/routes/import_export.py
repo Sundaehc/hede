@@ -8,6 +8,7 @@ from fastapi.responses import StreamingResponse
 from openpyxl import Workbook, load_workbook
 from sqlalchemy import desc, or_, select
 
+from api.excel_export import style_excel_worksheet
 from api.fine_table_cache import clear_fine_table_cache
 from api.routes.images import image_url_for
 from domain.excluded_skus import is_excluded_sku
@@ -279,6 +280,8 @@ def _export_products_with_sizes(repository, brand: str, ids: str | None) -> Stre
             logo,
         ])
 
+    style_excel_worksheet(ws)
+
     buf = io.BytesIO()
     wb.save(buf)
     buf.seek(0)
@@ -319,6 +322,8 @@ def export_products(
     for item in items:
         row = [item.get(c) for c in EXPORT_COLUMNS]
         ws.append(row)
+
+    style_excel_worksheet(ws)
 
     buf = io.BytesIO()
     wb.save(buf)

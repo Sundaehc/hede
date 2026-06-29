@@ -14,6 +14,7 @@ from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 from sqlalchemy import desc, or_, select as sa_select
 
+from api.excel_export import style_excel_workbook, style_excel_worksheet
 from domain.color_barcode_schema import COLOR_BARCODE_TABLE
 from domain.gj_schema import GJ_MERGED_PRODUCT_INFO_TABLE
 from domain.inventory_schema import SUPPLIER_TABLE
@@ -265,9 +266,11 @@ def _purchase_prorated_decimal(total: Decimal, part: Decimal, base: Decimal) -> 
         return Decimal("0")
 
 
-def _purchase_color_barcode(product_code: str) -> str:
+def _purchase_color_barcode(product_code: str, brand: str | None = None) -> str:
     if not product_code:
         return ""
+    if str(brand or "").strip().lower() == "smiley":
+        return product_code[-4:] if len(product_code) >= 4 else product_code
     return product_code[-2:] if len(product_code) >= 2 else product_code
 
 
@@ -287,10 +290,9 @@ def _purchase_record_brand(record: dict[str, object]) -> str:
 
     supplier_name = _cell_text(record.get("supplier"))
     upper_name = supplier_name.upper()
-    normalized_upper_name = upper_name.replace("-", " ").replace("_", " ").replace("/", " ")
-    if f" {normalized_upper_name} ".find(" NI ") >= 0 or "NIKE" in upper_name or "耐克" in supplier_name:
+    if "NI" in upper_name:
         return "ni"
-    if "笑脸" in supplier_name or "小莲" in supplier_name:
+    if "笑脸" in supplier_name:
         return "smiley"
     return brand
 
@@ -469,6 +471,7 @@ def _append_purchase_summary_export(
             _fmt_export_decimal(unreceived_quantity, blank_zero=True),
             completion_rate,
         ])
+    _style_purchase_detail_export_sheet(worksheet)
 
 
 def _append_purchase_size_rows_export(
@@ -487,12 +490,13 @@ def _append_purchase_size_rows_export(
         record = records_by_id.get(document_id)
         if not record:
             continue
+        record_context = _purchase_record_export_context(record, supplier_codes)
         detail_extra_fields = _dict_or_empty(detail.get("extra_fields"))
         product_code = _cell_text(detail.get("product_code"))
         if not product_code:
             continue
         product_name = _first_text(detail.get("product_name"), product_code)
-        color_barcode = _purchase_color_barcode(product_code)
+        color_barcode = _purchase_color_barcode(product_code, record_context["brand"])
         color_name = _first_text(detail.get("color_name"), detail.get("color_spec"))
         size_quantities = _dict_or_empty(detail.get("size_quantities"))
         detail_quantity = _purchase_detail_quantity(detail, size_quantities)
@@ -518,7 +522,7 @@ def _append_purchase_size_rows_export(
             key = (document_id, product_code, color_barcode, size_text)
             if key not in groups:
                 groups[key] = {
-                    "record_context": _purchase_record_export_context(record, supplier_codes),
+                    "record_context": record_context,
                     "product_code": product_code,
                     "product_name": product_name,
                     "color_barcode": color_barcode,
@@ -589,6 +593,11 @@ def _append_purchase_size_rows_export(
             _fmt_export_decimal(unreceived_quantity, blank_zero=True),
             completion_rate,
         ])
+    _style_purchase_detail_export_sheet(worksheet)
+
+
+def _style_purchase_detail_export_sheet(worksheet) -> None:
+    style_excel_worksheet(worksheet)
 
 
 def _short_sheet_title(value: str, fallback: str) -> str:
@@ -603,6 +612,27 @@ def _purchase_sheet_date(value: object) -> str:
     if not text:
         return ""
     return text.replace("-", ".")
+
+
+def _purchase_hyphen_date(value: object) -> str:
+    text = _normalize_date(_cell_text(value))
+    if not text:
+        return ""
+    try:
+        return datetime.fromisoformat(text).strftime("%Y-%m-%d")
+    except ValueError:
+        pass
+    normalized = text.replace("年", "-").replace("月", "-").replace("日", "").replace("/", "-").replace(".", "-")
+    parts = [part for part in normalized.split("-") if part]
+    if len(parts) == 3 and all(part.isdigit() for part in parts):
+        year, month, day = parts
+        return f"{int(year):04d}-{int(month):02d}-{int(day):02d}"
+    if len(parts) == 3 and parts[0].isdigit() and parts[1].isdigit() and parts[2].split()[0].isdigit():
+        year, month, day = parts
+        return f"{int(year):04d}-{int(month):02d}-{int(day.split()[0]):02d}"
+    if len(normalized) == 8 and normalized.isdigit():
+        return f"{normalized[:4]}-{normalized[4:6]}-{normalized[6:]}"
+    return normalized
 
 
 def _purchase_production_size_labels(details: list[dict[str, object]]) -> tuple[str, ...]:
@@ -637,7 +667,7 @@ def _purchase_production_detail_rows(
             product_code,
             _cell_text(extra_fields.get("image_code") or product_code),
             _cell_text(extra_fields.get("factory_code")),
-            _cell_text(extra_fields.get("style_code") or product_code),
+            _cell_text(extra_fields.get("image_code") or extra_fields.get("style_code") or product_code),
             _cell_text(extra_fields.get("inner_color_code")),
             _first_text(detail.get("color_name"), detail.get("color_spec")),
             _cell_text(extra_fields.get("upper_material")),
@@ -652,7 +682,7 @@ def _purchase_production_detail_rows(
             _fmt_export_decimal(quantity, blank_zero=True),
             _fmt_export_decimal(unit_price, blank_zero=True),
             _fmt_export_decimal(amount, blank_zero=True),
-            _purchase_sheet_date(_first_text(extra_fields.get("required_delivery_date"), delivery_date)),
+            _purchase_hyphen_date(_first_text(extra_fields.get("required_delivery_date"), delivery_date)),
             _purchase_sheet_date(_first_text(extra_fields.get("factory_reply_delivery_date"), extra_fields.get("reply_delivery_date"))),
         ])
     return rows
@@ -1054,8 +1084,8 @@ def _load_color_barcodes(connection, brand: str | None = None) -> list[tuple[str
     )
 
 
-def _lookup_color_name_by_tail(connection, product_code: str) -> tuple[str, str]:
-    color_barcode = _purchase_color_barcode(product_code)
+def _lookup_color_name_by_tail(connection, product_code: str, brand: str | None = None) -> tuple[str, str]:
+    color_barcode = _purchase_color_barcode(product_code, brand)
     if not color_barcode:
         return "", ""
     row = connection.execute(
@@ -1088,12 +1118,17 @@ def _split_purchase_product_code(product_code: str, color_barcodes: list[tuple[s
     if len(product_code) >= 5:
         raw_size_code = product_code[-3:]
         if raw_size_code in PURCHASE_MILLIMETER_SIZE_MAP:
+            if str(brand or "").strip().lower() == "smiley":
+                style_color_code = product_code[:-3]
+                color_barcode = _purchase_color_barcode(style_color_code, brand)
+                color_name = next((name for barcode, name in color_barcodes if barcode == color_barcode), "")
+                return style_color_code, style_color_code, color_barcode, color_name, _purchase_size_from_millimeter(raw_size_code, brand)
             original_sku = product_code[:-5]
             color_barcode = product_code[-5:-3]
             color_name = next((name for barcode, name in color_barcodes if barcode == color_barcode), "")
             return original_sku, original_sku, color_barcode, color_name, _purchase_size_from_millimeter(raw_size_code, brand)
     style_color_code, size = _split_purchase_size_code(product_code, brand)
-    color_barcode = _purchase_color_barcode(style_color_code)
+    color_barcode = _purchase_color_barcode(style_color_code, brand)
     color_name = next((name for barcode, name in color_barcodes if barcode == color_barcode), "")
     return style_color_code, style_color_code, color_barcode, color_name, size
 
@@ -1308,7 +1343,7 @@ def _purchase_detail_extra_fields(product_info: dict[str, object], detail_code: 
     extra_fields = {
         "image_code": original_code,
         "factory_code": _cell_text(product_info.get("factory_code")),
-        "style_code": code,
+        "style_code": original_code,
         "inner_color_code": "",
         "upper_material": _cell_text(product_info.get("upper_material")),
         "lining_material": _cell_text(product_info.get("lining_material")),
@@ -1323,6 +1358,7 @@ def _purchase_detail_extra_fields(product_info: dict[str, object], detail_code: 
             text = _cell_text(value)
             if text or key == "inner_color_code":
                 extra_fields[key] = text
+    extra_fields["style_code"] = _first_text(extra_fields.get("image_code"), original_code)
     return extra_fields
 
 
@@ -1357,7 +1393,7 @@ def _build_purchase_detail_lookup_for_brand(connection, product_code: str, quant
     if not product_info and stripped_code != raw_code:
         detail_code = stripped_code
 
-    color_barcode, color_name = _lookup_color_name_by_tail(connection, detail_code)
+    color_barcode, color_name = _lookup_color_name_by_tail(connection, detail_code, brand)
     unit_price = _to_decimal(product_info.get("unit_price"))
     amount = quantity * unit_price if quantity and unit_price else Decimal("0")
     product_name = str(product_info.get("product_name") or "").strip()
@@ -1423,7 +1459,7 @@ def _build_purchase_details_from_excel(
         if isinstance(imported_size_quantities, dict) and imported_size_quantities:
             sku = raw_code
             original_sku = raw_code
-            color_barcode = _purchase_color_barcode(raw_code)
+            color_barcode = _purchase_color_barcode(raw_code, brand)
             color_name = next((name for barcode, name in color_barcodes if barcode == color_barcode), "")
             size = ""
             normalized_sizes = {
@@ -1740,6 +1776,7 @@ def export_inventory(
             detail.get("amount") or "",
         ])
 
+    style_excel_workbook(wb)
     return _stream_excel_workbook(wb, "进销存数据.xlsx")
 
 
