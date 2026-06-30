@@ -118,7 +118,6 @@ export default function WarehousesPage() {
           <div className="flex items-center gap-3">
             <div>
               <h1 className="page-title">仓库管理</h1>
-              <p className="page-subtitle">维护仓库名称、地址和备注信息</p>
             </div>
             <span className="rounded-full border border-border bg-muted/45 px-3 py-1 text-sm text-muted-foreground tabular-nums">{items.length} 个</span>
           </div>

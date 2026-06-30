@@ -247,7 +247,6 @@ export default function SuppliersPage() {
           <div className="flex items-center gap-3">
             <div>
               <h1 className="page-title">供应商管理</h1>
-              <p className="page-subtitle">维护进销存单据中的供应商基础资料</p>
             </div>
             <span className="min-w-20 rounded-full border border-border bg-muted/45 px-3 py-1 text-center text-sm text-muted-foreground tabular-nums">{formatNumber(total)} 个</span>
           </div>

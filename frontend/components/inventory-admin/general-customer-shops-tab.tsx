@@ -281,17 +281,15 @@ export function GeneralCustomerShopsTab({ standalone = false }: GeneralCustomerS
           return (
             <div
               key={brand.id}
-              className={`group relative flex items-center gap-1 overflow-hidden rounded-xl border px-2 py-2 shadow-xs transition-all duration-150 ${
-                selected
+              className={`group relative flex items-center gap-1 overflow-hidden rounded-xl border px-2 py-2 shadow-xs transition-all duration-150 ${selected
                   ? "border-foreground bg-muted/70 shadow-sm ring-1 ring-foreground/10"
                   : "border-border bg-card hover:-translate-y-px hover:border-foreground/25 hover:bg-muted/45 hover:shadow-sm"
-              }`}
+                }`}
             >
               <span
                 aria-hidden="true"
-                className={`absolute inset-y-2 left-0 w-1 rounded-r-full bg-foreground transition-all duration-150 ${
-                  selected ? "opacity-100" : "opacity-0 group-hover:opacity-25"
-                }`}
+                className={`absolute inset-y-2 left-0 w-1 rounded-r-full bg-foreground transition-all duration-150 ${selected ? "opacity-100" : "opacity-0 group-hover:opacity-25"
+                  }`}
               />
               <button
                 type="button"
@@ -300,9 +298,8 @@ export function GeneralCustomerShopsTab({ standalone = false }: GeneralCustomerS
                 className="relative flex min-h-8 min-w-0 flex-1 cursor-pointer items-center justify-between gap-2 rounded-lg px-1.5 text-left text-sm outline-none transition-all active:translate-y-px focus-visible:ring-3 focus-visible:ring-ring/35"
               >
                 <span className="truncate font-medium text-foreground">{brand.name}</span>
-                <span className={`flex shrink-0 items-center gap-1.5 rounded-full px-1.5 py-0.5 text-xs transition-colors ${
-                  selected ? "bg-background text-foreground shadow-xs" : "text-muted-foreground"
-                }`}>
+                <span className={`flex shrink-0 items-center gap-1.5 rounded-full px-1.5 py-0.5 text-xs transition-colors ${selected ? "bg-background text-foreground shadow-xs" : "text-muted-foreground"
+                  }`}>
                   <span>{brand.shop_count} 家</span>
                   <ChevronRight className={`h-4 w-4 transition-all ${selected ? "translate-x-0.5 opacity-100" : "opacity-40 group-hover:translate-x-0.5 group-hover:opacity-70"}`} />
                 </span>
@@ -492,7 +489,6 @@ export function GeneralCustomerShopsTab({ standalone = false }: GeneralCustomerS
           <div className="flex items-center gap-3">
             <div>
               <h1 className="page-title">品牌店铺</h1>
-              <p className="page-subtitle">先维护品牌，再维护品牌下的店铺</p>
             </div>
             <span className="rounded-full border border-border bg-muted/45 px-3 py-1 text-sm text-muted-foreground tabular-nums">{brands.length} 个品牌</span>
           </div>

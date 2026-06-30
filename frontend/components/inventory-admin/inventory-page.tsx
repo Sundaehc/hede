@@ -186,9 +186,9 @@ function SearchableSelect({
   const searchTerm = query.trim().toLowerCase()
   const visibleOptions = (searchTerm
     ? options.filter((option) => {
-        const haystack = `${option.label} ${option.value} ${option.keywords || ""}`.toLowerCase()
-        return haystack.includes(searchTerm)
-      })
+      const haystack = `${option.label} ${option.value} ${option.keywords || ""}`.toLowerCase()
+      return haystack.includes(searchTerm)
+    })
     : options
   ).slice(0, 80)
 
@@ -867,9 +867,6 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
         <div className="page-header">
           <div>
             <h1 className="page-title">{isPurchasePage ? "采购单管理" : "进销存管理"}</h1>
-            <p className="page-subtitle">
-              {isPurchasePage ? "维护进货订单、导入采购明细并跟踪交货日期" : "维护进销存单据、导入明细并查看期末库存"}
-            </p>
           </div>
           <div className="flex items-center gap-2">
             <Button variant="outline" size="sm" onClick={openImportDialog} disabled={isImporting} className="cursor-pointer">
@@ -1030,193 +1027,192 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
                 </div>
               </div>
 
-        {/* Selection & Summary Bar */}
-        <div className="flex flex-col gap-2 text-sm text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex items-center gap-3">
-            <input
-              type="checkbox"
-              checked={allSelected}
-              ref={(el) => { if (el) el.indeterminate = !allSelected && someSelected }}
-              onChange={handleToggleSelectAll}
-              className="h-4 w-4 cursor-pointer rounded border border-input accent-primary"
-            />
-            <span>
-              共 {total} 条{hasFilters ? " (已筛选)" : ""}
-              {selectedIds.size > 0 && <span className="ml-2 font-medium text-foreground">已选 {selectedIds.size} 项</span>}
-            </span>
-          </div>
-          <div className="flex items-center gap-2">
-            {selectedIds.size > 0 && (
-              <Button variant="outline" size="sm" className="text-destructive hover:text-destructive cursor-pointer" onClick={() => setBatchDeleteOpen(true)}>
-                <Trash2 className="h-4 w-4" />
-                <span className="ml-1.5">批量删除 ({selectedIds.size})</span>
-              </Button>
-            )}
-            <span>每页</span>
-            <Select value={String(pageSize)} onChange={(e) => { setPageSize(Number(e.target.value)); setPage(1) }} className="w-20">
-              {PAGE_SIZES.map((s) => (<option key={s} value={String(s)}>{s} 条</option>))}
-            </Select>
-          </div>
-        </div>
-
-        {/* Error */}
-        {error && !isLoading && (
-          <Alert className="border-destructive/30">
-            <AlertDescription>{error}</AlertDescription>
-          </Alert>
-        )}
-
-        {/* Table */}
-        <div className="table-panel overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="table-head-row">
-                <th className="px-4 py-3 w-10"></th>
-                <th className="px-4 py-3 font-medium">单据编号</th>
-                <th className="px-4 py-3 font-medium">{isPurchaseOrderTab ? "订货日期" : "日期"}</th>
-                {isPurchaseOrderTab && <th className="px-4 py-3 font-medium">交货日期</th>}
-                {!isPurchaseOrderTab && <th className="px-4 py-3 font-medium">单据类型</th>}
-                <th className="px-4 py-3 font-medium">供应商</th>
-                <th className="px-4 py-3 text-right font-medium">总数</th>
-                <th className="px-4 py-3 text-right font-medium">金额</th>
-                <th className="px-4 py-3 font-medium">仓库</th>
-                <th className="px-4 py-3 font-medium">经手人</th>
-                <th className="px-4 py-3 font-medium">摘要</th>
-                <th className="px-4 py-3 w-28 font-medium">操作</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-border">
-              {isLoading && (
-                <tr>
-                  <td colSpan={11} className="px-4 py-12 text-center text-muted-foreground">加载中...</td>
-                </tr>
-              )}
-              {!isLoading && !error && items.length === 0 && (
-                <tr>
-                  <td colSpan={11} className="px-4 py-12 text-center text-muted-foreground">
-                    {hasFilters ? `没有符合条件的${completionLabel}` : `暂无${completionLabel}`}
-                  </td>
-                </tr>
-              )}
-              {!isLoading && !error && items.map((item) => {
-                const isAccountingRow = ACCOUNTING_DOCUMENT_TYPE_SET.has(item.document_type || "")
-                return (
-                  <tr key={item.id} className="table-row">
-                    <td className="px-4 py-2.5">
-                      <input
-                        type="checkbox"
-                        checked={selectedIds.has(item.id)}
-                        onChange={() => handleToggleSelect(item.id)}
-                        className="h-4 w-4 cursor-pointer rounded border border-input accent-primary"
-                      />
-                    </td>
-                    <td className="px-4 py-2.5 font-mono text-xs tabular-nums">{item.document_number || item.id}</td>
-                    <td className="px-4 py-2.5 whitespace-nowrap tabular-nums">{item.date || "-"}</td>
-                    {isPurchaseOrderTab && (
-                      <td className="px-4 py-2.5 whitespace-nowrap tabular-nums">
-                        {typeof item.extra_fields?.delivery_date === "string" ? item.extra_fields.delivery_date : "-"}
-                      </td>
-                    )}
-                    {!isPurchaseOrderTab && (
-                      <td className="px-4 py-2.5 whitespace-nowrap">
-                        {item.document_type ? (
-                          <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${
-                            OUTBOUND_DOCUMENT_TYPES.has(item.document_type) ? "bg-red-100 text-red-700"
-                            : INBOUND_DOCUMENT_TYPES.has(item.document_type) ? "bg-green-100 text-green-700"
-                            : "bg-blue-100 text-blue-700"
-                          }`}>
-                            {item.document_type}
-                          </span>
-                        ) : "-"}
-                      </td>
-                    )}
-                    <td className="px-4 py-2.5">{item.supplier || "-"}</td>
-                    <td className="px-4 py-2.5 text-right tabular-nums">{isAccountingRow ? "" : item.total_count || "-"}</td>
-                    <td className="px-4 py-2.5 text-right tabular-nums">{isAccountingRow ? "" : item.amount || "-"}</td>
-                    <td className="px-4 py-2.5">{isAccountingRow ? "" : item.warehouse || "-"}</td>
-                    <td className="px-4 py-2.5">{item.handler || "-"}</td>
-                    <td className="px-4 py-2.5 max-w-48 truncate">{item.summary || "-"}</td>
-                    <td className="px-4 py-2.5">
-                      <div className="flex items-center gap-0.5">
-                        <Button variant="ghost" size="icon" onClick={() => setDetailDocumentId(item.id)} className="cursor-pointer" title="明细">
-                          <List className="h-4 w-4" />
-                        </Button>
-                        <Button variant="ghost" size="icon" onClick={() => openEdit(item)} className="cursor-pointer">
-                          <Edit className="h-4 w-4" />
-                        </Button>
-                        <Button variant="ghost" size="icon" onClick={() => setDeleteTarget(item)} className="cursor-pointer">
-                          <Trash2 className="h-4 w-4 text-destructive" />
-                        </Button>
-                      </div>
-                    </td>
-                  </tr>
-                )
-              })}
-            </tbody>
-          </table>
-        </div>
-
-        {/* Pagination */}
-        {totalPages > 1 && (
-          <div className="flex items-center justify-center gap-4">
-            <Pagination>
-              <PaginationContent>
-                <PaginationItem>
-                  <PaginationPrevious
-                    text="上一页"
-                    onClick={() => setPage((p) => Math.max(1, p - 1))}
-                    className={page <= 1 ? "pointer-events-none opacity-50" : "cursor-pointer"}
+              {/* Selection & Summary Bar */}
+              <div className="flex flex-col gap-2 text-sm text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
+                <div className="flex items-center gap-3">
+                  <input
+                    type="checkbox"
+                    checked={allSelected}
+                    ref={(el) => { if (el) el.indeterminate = !allSelected && someSelected }}
+                    onChange={handleToggleSelectAll}
+                    className="h-4 w-4 cursor-pointer rounded border border-input accent-primary"
                   />
-                </PaginationItem>
-                {pageRange.map((p, i) =>
-                  p === "ellipsis" ? (
-                    <PaginationItem key={`ellipsis-${i}`}>
-                      <PaginationEllipsis />
-                    </PaginationItem>
-                  ) : (
-                    <PaginationItem key={p}>
-                      <PaginationLink
-                        isActive={p === page}
-                        onClick={() => p !== page && setPage(p)}
-                        className={p === page ? "cursor-default" : "cursor-pointer"}
-                      >
-                        {p}
-                      </PaginationLink>
-                    </PaginationItem>
-                  )
-                )}
-                <PaginationItem>
-                  <PaginationNext
-                    text="下一页"
-                    onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-                    className={page >= totalPages ? "pointer-events-none opacity-50" : "cursor-pointer"}
-                  />
-                </PaginationItem>
-              </PaginationContent>
-            </Pagination>
-            <div className="flex items-center gap-1 text-sm text-muted-foreground whitespace-nowrap">
-              <span>跳至</span>
-              <input
-                type="number"
-                min={1}
-                max={totalPages}
-                className="h-8 w-16 rounded-md border border-input bg-card px-2 text-center text-sm outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/35"
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") {
-                    const target = parseInt((e.target as HTMLInputElement).value, 10)
-                    if (target >= 1 && target <= totalPages) setPage(target)
-                  }
-                }}
-              />
-              <span>页</span>
-            </div>
-          </div>
-        )}
+                  <span>
+                    共 {total} 条{hasFilters ? " (已筛选)" : ""}
+                    {selectedIds.size > 0 && <span className="ml-2 font-medium text-foreground">已选 {selectedIds.size} 项</span>}
+                  </span>
+                </div>
+                <div className="flex items-center gap-2">
+                  {selectedIds.size > 0 && (
+                    <Button variant="outline" size="sm" className="text-destructive hover:text-destructive cursor-pointer" onClick={() => setBatchDeleteOpen(true)}>
+                      <Trash2 className="h-4 w-4" />
+                      <span className="ml-1.5">批量删除 ({selectedIds.size})</span>
+                    </Button>
+                  )}
+                  <span>每页</span>
+                  <Select value={String(pageSize)} onChange={(e) => { setPageSize(Number(e.target.value)); setPage(1) }} className="w-20">
+                    {PAGE_SIZES.map((s) => (<option key={s} value={String(s)}>{s} 条</option>))}
+                  </Select>
+                </div>
+              </div>
 
-        {/* Total summary footer */}
-        <div className="text-center text-xs text-muted-foreground">
-          {completionLabel}共 {total} 条 · 第 {total === 0 ? 0 : (page - 1) * pageSize + 1}-{Math.min(page * pageSize, total)} 条
-        </div>
+              {/* Error */}
+              {error && !isLoading && (
+                <Alert className="border-destructive/30">
+                  <AlertDescription>{error}</AlertDescription>
+                </Alert>
+              )}
+
+              {/* Table */}
+              <div className="table-panel overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="table-head-row">
+                      <th className="px-4 py-3 w-10"></th>
+                      <th className="px-4 py-3 font-medium">单据编号</th>
+                      <th className="px-4 py-3 font-medium">{isPurchaseOrderTab ? "订货日期" : "日期"}</th>
+                      {isPurchaseOrderTab && <th className="px-4 py-3 font-medium">交货日期</th>}
+                      {!isPurchaseOrderTab && <th className="px-4 py-3 font-medium">单据类型</th>}
+                      <th className="px-4 py-3 font-medium">供应商</th>
+                      <th className="px-4 py-3 text-right font-medium">总数</th>
+                      <th className="px-4 py-3 text-right font-medium">金额</th>
+                      <th className="px-4 py-3 font-medium">仓库</th>
+                      <th className="px-4 py-3 font-medium">经手人</th>
+                      <th className="px-4 py-3 font-medium">摘要</th>
+                      <th className="px-4 py-3 w-28 font-medium">操作</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-border">
+                    {isLoading && (
+                      <tr>
+                        <td colSpan={11} className="px-4 py-12 text-center text-muted-foreground">加载中...</td>
+                      </tr>
+                    )}
+                    {!isLoading && !error && items.length === 0 && (
+                      <tr>
+                        <td colSpan={11} className="px-4 py-12 text-center text-muted-foreground">
+                          {hasFilters ? `没有符合条件的${completionLabel}` : `暂无${completionLabel}`}
+                        </td>
+                      </tr>
+                    )}
+                    {!isLoading && !error && items.map((item) => {
+                      const isAccountingRow = ACCOUNTING_DOCUMENT_TYPE_SET.has(item.document_type || "")
+                      return (
+                        <tr key={item.id} className="table-row">
+                          <td className="px-4 py-2.5">
+                            <input
+                              type="checkbox"
+                              checked={selectedIds.has(item.id)}
+                              onChange={() => handleToggleSelect(item.id)}
+                              className="h-4 w-4 cursor-pointer rounded border border-input accent-primary"
+                            />
+                          </td>
+                          <td className="px-4 py-2.5 font-mono text-xs tabular-nums">{item.document_number || item.id}</td>
+                          <td className="px-4 py-2.5 whitespace-nowrap tabular-nums">{item.date || "-"}</td>
+                          {isPurchaseOrderTab && (
+                            <td className="px-4 py-2.5 whitespace-nowrap tabular-nums">
+                              {typeof item.extra_fields?.delivery_date === "string" ? item.extra_fields.delivery_date : "-"}
+                            </td>
+                          )}
+                          {!isPurchaseOrderTab && (
+                            <td className="px-4 py-2.5 whitespace-nowrap">
+                              {item.document_type ? (
+                                <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${OUTBOUND_DOCUMENT_TYPES.has(item.document_type) ? "bg-red-100 text-red-700"
+                                    : INBOUND_DOCUMENT_TYPES.has(item.document_type) ? "bg-green-100 text-green-700"
+                                      : "bg-blue-100 text-blue-700"
+                                  }`}>
+                                  {item.document_type}
+                                </span>
+                              ) : "-"}
+                            </td>
+                          )}
+                          <td className="px-4 py-2.5">{item.supplier || "-"}</td>
+                          <td className="px-4 py-2.5 text-right tabular-nums">{isAccountingRow ? "" : item.total_count || "-"}</td>
+                          <td className="px-4 py-2.5 text-right tabular-nums">{isAccountingRow ? "" : item.amount || "-"}</td>
+                          <td className="px-4 py-2.5">{isAccountingRow ? "" : item.warehouse || "-"}</td>
+                          <td className="px-4 py-2.5">{item.handler || "-"}</td>
+                          <td className="px-4 py-2.5 max-w-48 truncate">{item.summary || "-"}</td>
+                          <td className="px-4 py-2.5">
+                            <div className="flex items-center gap-0.5">
+                              <Button variant="ghost" size="icon" onClick={() => setDetailDocumentId(item.id)} className="cursor-pointer" title="明细">
+                                <List className="h-4 w-4" />
+                              </Button>
+                              <Button variant="ghost" size="icon" onClick={() => openEdit(item)} className="cursor-pointer">
+                                <Edit className="h-4 w-4" />
+                              </Button>
+                              <Button variant="ghost" size="icon" onClick={() => setDeleteTarget(item)} className="cursor-pointer">
+                                <Trash2 className="h-4 w-4 text-destructive" />
+                              </Button>
+                            </div>
+                          </td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Pagination */}
+              {totalPages > 1 && (
+                <div className="flex items-center justify-center gap-4">
+                  <Pagination>
+                    <PaginationContent>
+                      <PaginationItem>
+                        <PaginationPrevious
+                          text="上一页"
+                          onClick={() => setPage((p) => Math.max(1, p - 1))}
+                          className={page <= 1 ? "pointer-events-none opacity-50" : "cursor-pointer"}
+                        />
+                      </PaginationItem>
+                      {pageRange.map((p, i) =>
+                        p === "ellipsis" ? (
+                          <PaginationItem key={`ellipsis-${i}`}>
+                            <PaginationEllipsis />
+                          </PaginationItem>
+                        ) : (
+                          <PaginationItem key={p}>
+                            <PaginationLink
+                              isActive={p === page}
+                              onClick={() => p !== page && setPage(p)}
+                              className={p === page ? "cursor-default" : "cursor-pointer"}
+                            >
+                              {p}
+                            </PaginationLink>
+                          </PaginationItem>
+                        )
+                      )}
+                      <PaginationItem>
+                        <PaginationNext
+                          text="下一页"
+                          onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                          className={page >= totalPages ? "pointer-events-none opacity-50" : "cursor-pointer"}
+                        />
+                      </PaginationItem>
+                    </PaginationContent>
+                  </Pagination>
+                  <div className="flex items-center gap-1 text-sm text-muted-foreground whitespace-nowrap">
+                    <span>跳至</span>
+                    <input
+                      type="number"
+                      min={1}
+                      max={totalPages}
+                      className="h-8 w-16 rounded-md border border-input bg-card px-2 text-center text-sm outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/35"
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          const target = parseInt((e.target as HTMLInputElement).value, 10)
+                          if (target >= 1 && target <= totalPages) setPage(target)
+                        }
+                      }}
+                    />
+                    <span>页</span>
+                  </div>
+                </div>
+              )}
+
+              {/* Total summary footer */}
+              <div className="text-center text-xs text-muted-foreground">
+                {completionLabel}共 {total} 条 · 第 {total === 0 ? 0 : (page - 1) * pageSize + 1}-{Math.min(page * pageSize, total)} 条
+              </div>
             </>
           )}
           {!isPurchasePage && activeTabValue === "ending" && <EndingInventoryTab />}

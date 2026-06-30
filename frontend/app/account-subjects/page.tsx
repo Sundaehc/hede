@@ -89,7 +89,6 @@ export default function AccountSubjectsPage() {
         <div className="page-header">
           <div>
             <h1 className="page-title">科目管理</h1>
-            <p className="page-subtitle">维护应收应付类单据使用的费用项目名 / 科目</p>
           </div>
           <Button size="sm" variant="outline" onClick={() => void load()} disabled={isLoading} className="cursor-pointer">
             <RefreshCw className={`h-4 w-4 ${isLoading ? "animate-spin" : ""}`} />
