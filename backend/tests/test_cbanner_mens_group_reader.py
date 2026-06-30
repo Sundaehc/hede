@@ -64,3 +64,22 @@ def test_read_eblan_product_level_map_reads_xlsm_product_detail_workbook(tmp_pat
     workbook.close()
 
     assert read_eblan_product_level_map(source_root) == {"E1001": "重点"}
+
+
+def test_read_eblan_product_level_map_prefers_original_sku_over_empty_style_code(tmp_path):
+    source_root = tmp_path / "伊伴" / "2026" / "2026-06"
+    source_root.mkdir(parents=True)
+    workbook_path = source_root / "伊伴货品表（06.30）.xlsm"
+    workbook = Workbook()
+    analysis_sheet = workbook.active
+    analysis_sheet.title = "平台分析"
+    analysis_sheet.append(["季节分类", "商品等级"])
+    detail_sheet = workbook.create_sheet("商品明细表")
+    detail_sheet.append(["说明"])
+    detail_sheet.append(["说明"])
+    detail_sheet.append(["款号", "原始货号", "款号", "商品等级"])
+    detail_sheet.append([None, "E0153642D09", "E0153642D", "D"])
+    workbook.save(workbook_path)
+    workbook.close()
+
+    assert read_eblan_product_level_map(source_root) == {"E0153642D09": "D"}

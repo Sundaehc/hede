@@ -94,18 +94,31 @@ def resolve_cbanner_mens_group_workbook(source: Path | None) -> Path | None:
     return resolve_product_detail_workbook(source, CBANNER_MENS_WORKBOOK_NAME_PREFIX)
 
 
-def _find_header_indexes(headers: list[str], value_headers: tuple[str, ...]) -> tuple[int, int] | None:
-    sku_index = next((index for index, value in enumerate(headers) if value in SKU_HEADERS), None)
+def _find_header_indexes(headers: list[str], value_headers: tuple[str, ...]) -> tuple[tuple[int, ...], int] | None:
+    sku_indexes = tuple(
+        index
+        for header in SKU_HEADERS
+        for index, value in enumerate(headers)
+        if value == header
+    )
     value_index = next((index for index, value in enumerate(headers) if value in value_headers), None)
-    if sku_index is None or value_index is None:
+    if not sku_indexes or value_index is None:
         return None
-    return sku_index, value_index
+    return sku_indexes, value_index
 
 
 def _get_value(row: tuple[object, ...], index: int) -> object:
     if index >= len(row):
         return None
     return row[index]
+
+
+def _get_code_value(row: tuple[object, ...], indexes: tuple[int, ...]) -> str:
+    for index in indexes:
+        value = normalize_cell(_get_value(row, index))
+        if value:
+            return str(value)
+    return ""
 
 
 def _candidate_sheet_names(workbook_sheet_names: list[str], preferred_sheet_name: str | None) -> list[str]:
@@ -220,7 +233,7 @@ def _read_zipped_xlsx_value_map(
         for candidate_sheet in _candidate_sheet_names(list(sheet_paths), sheet_name):
             sheet_path = sheet_paths[candidate_sheet]
             rows = _iter_xlsx_rows(archive, sheet_path, shared_strings)
-            header_indexes: tuple[int, int] | None = None
+            header_indexes: tuple[tuple[int, ...], int] | None = None
             for row_number, row in enumerate(rows, start=1):
                 headers = [normalize_header(value) for value in row]
                 header_indexes = _find_header_indexes(headers, value_headers)
@@ -232,13 +245,13 @@ def _read_zipped_xlsx_value_map(
             if header_indexes is None:
                 continue
 
-            sku_index, value_index = header_indexes
+            sku_indexes, value_index = header_indexes
             values_by_sku: dict[str, str] = {}
             for row in rows:
-                sku = normalize_cell(_get_value(row, sku_index))
+                sku = _get_code_value(row, sku_indexes)
                 value = normalize_cell(_get_value(row, value_index))
                 if sku and value:
-                    values_by_sku[str(sku)] = str(value)
+                    values_by_sku[sku] = str(value)
             return values_by_sku
     return {}
 
@@ -253,7 +266,7 @@ def _read_xlsx_value_map(
     try:
         for candidate_sheet in _candidate_sheet_names(workbook.sheetnames, sheet_name):
             worksheet = workbook[candidate_sheet]
-            header_indexes: tuple[int, int] | None = None
+            header_indexes: tuple[tuple[int, ...], int] | None = None
             rows = worksheet.iter_rows(values_only=True)
             for row_number, row in enumerate(rows, start=1):
                 headers = [normalize_header(value) for value in row]
@@ -266,13 +279,13 @@ def _read_xlsx_value_map(
             if header_indexes is None:
                 continue
 
-            sku_index, value_index = header_indexes
+            sku_indexes, value_index = header_indexes
             values_by_sku: dict[str, str] = {}
             for row in rows:
-                sku = normalize_cell(_get_value(row, sku_index))
+                sku = _get_code_value(row, sku_indexes)
                 value = normalize_cell(_get_value(row, value_index))
                 if sku and value:
-                    values_by_sku[str(sku)] = str(value)
+                    values_by_sku[sku] = str(value)
             return values_by_sku
         return {}
     finally:
@@ -293,7 +306,7 @@ def _read_xls_value_map(
         except xlrd.biffh.XLRDError:
             continue
 
-        header_indexes: tuple[int, int] | None = None
+        header_indexes: tuple[tuple[int, ...], int] | None = None
         data_start_row = 0
         for row_index in range(min(worksheet.nrows, 30)):
             headers = [normalize_header(value) for value in worksheet.row_values(row_index)]
@@ -305,14 +318,14 @@ def _read_xls_value_map(
         if header_indexes is None:
             continue
 
-        sku_index, value_index = header_indexes
+        sku_indexes, value_index = header_indexes
         values_by_sku: dict[str, str] = {}
         for row_index in range(data_start_row, worksheet.nrows):
             row = tuple(worksheet.row_values(row_index))
-            sku = normalize_cell(_get_value(row, sku_index))
+            sku = _get_code_value(row, sku_indexes)
             value = normalize_cell(_get_value(row, value_index))
             if sku and value:
-                values_by_sku[str(sku)] = str(value)
+                values_by_sku[sku] = str(value)
         return values_by_sku
     return {}
 
@@ -367,4 +380,5 @@ def read_eblan_product_level_map(source: Path | None) -> dict[str, str]:
         source,
         workbook_name_prefix=EBLAN_WORKBOOK_NAME_PREFIX,
         value_headers=PRODUCT_LEVEL_HEADERS,
+        sheet_name="商品明细表",
     )

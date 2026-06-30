@@ -22,6 +22,9 @@ DEFAULT_EBLAN_PRODUCT_DETAIL_SOURCE = Path(
 DEFAULT_JST_PRODUCT_PROFILE_ROOT = Path(
     r"\\192.168.10.229\商品组-财务组资料\聚水潭商品资料表"
 )
+DEFAULT_FINE_TABLE_EXPORT_ROOT = Path(
+    r"\\192.168.10.229\运营组资料\精细表"
+)
 
 
 @dataclass(frozen=True)
@@ -37,6 +40,7 @@ class Settings:
     yandou_vip_data_root: Path | None = None
     jst_price_root: Path | None = None
     jst_product_profile_root: Path | None = DEFAULT_JST_PRODUCT_PROFILE_ROOT
+    fine_table_export_root: Path | None = DEFAULT_FINE_TABLE_EXPORT_ROOT
     cbanner_mens_group_source: Path | None = DEFAULT_CBANNER_MENS_GROUP_SOURCE
     cbanner_womens_product_detail_source: Path | None = DEFAULT_CBANNER_WOMENS_PRODUCT_DETAIL_SOURCE
     eblan_product_detail_source: Path | None = DEFAULT_EBLAN_PRODUCT_DETAIL_SOURCE
@@ -101,6 +105,12 @@ def load_settings(require_database: bool = True) -> Settings:
         if jst_product_profile_root_raw
         else DEFAULT_JST_PRODUCT_PROFILE_ROOT
     )
+    fine_table_export_root_raw = os.getenv("FINE_TABLE_EXPORT_ROOT")
+    fine_table_export_root = (
+        Path(fine_table_export_root_raw)
+        if fine_table_export_root_raw
+        else DEFAULT_FINE_TABLE_EXPORT_ROOT
+    )
     cbanner_mens_group_source_raw = os.getenv("CBANNER_MENS_GROUP_SOURCE")
     cbanner_mens_group_source = (
         Path(cbanner_mens_group_source_raw)
@@ -132,6 +142,7 @@ def load_settings(require_database: bool = True) -> Settings:
         yandou_vip_data_root=yandou_vip_data_root,
         jst_price_root=jst_price_root,
         jst_product_profile_root=jst_product_profile_root,
+        fine_table_export_root=fine_table_export_root,
         cbanner_mens_group_source=cbanner_mens_group_source,
         cbanner_womens_product_detail_source=cbanner_womens_product_detail_source,
         eblan_product_detail_source=eblan_product_detail_source,
