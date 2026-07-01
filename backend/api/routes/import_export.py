@@ -399,8 +399,6 @@ def export_products(
         return _export_products_with_sizes(repository, brand, ids)
 
     if brand == "all":
-        if ids:
-            raise HTTPException(status_code=400, detail="总览导出暂不支持勾选商品")
         return _export_all_products(repository)
 
     if ids:

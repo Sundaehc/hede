@@ -209,7 +209,7 @@ export function getProductImageRefreshStatus() {
 
 export function buildProductExportUrl(brand: BrandKey, ids?: number[], mode?: "with_sizes") {
   const params = new URLSearchParams({ brand })
-  if (ids && ids.length > 0) {
+  if (brand !== "all" && ids && ids.length > 0) {
     params.set("ids", ids.join(","))
   }
   if (mode) {

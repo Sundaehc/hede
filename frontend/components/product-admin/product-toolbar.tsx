@@ -95,7 +95,7 @@ export function ProductToolbar({
   }, [awaitingImageRefresh, imageRefreshStatus, onMessage, onRefresh])
 
   const handleExport = async (mode?: "with_sizes") => {
-    const ids = selectedIds && selectedIds.size > 0 ? Array.from(selectedIds) : undefined
+    const ids = brand !== "all" && selectedIds && selectedIds.size > 0 ? Array.from(selectedIds) : undefined
     setExporting(true)
     try {
       const response = await exportProducts(brand, ids, mode)
@@ -162,7 +162,7 @@ export function ProductToolbar({
   }
 
   const hasMultipleLines = value.includes("\n") || value.includes(",") || value.includes("，")
-  const hasSelection = selectedIds && selectedIds.size > 0
+  const hasSelection = brand !== "all" && selectedIds && selectedIds.size > 0
   const lastImageRun = imageRefreshStatus?.last_run
   const imageStatusText = imageRefreshStatus?.in_progress
     ? "图片刷新任务正在后台运行"
