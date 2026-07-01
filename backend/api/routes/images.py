@@ -8,6 +8,8 @@ from fastapi.responses import FileResponse
 
 from api.fine_table_cache import clear_fine_table_cache
 from api.schemas import BrandKey, ImageLookupRequest, MatchSkuRequest
+from domain.sources import IMAGE_BRAND_KEYS, TABLE_NAMES
+from fileio.image_matcher import ImageMatcher
 from storage.product_image_refresh import get_image_refresh_status, run_product_image_refresh
 
 
@@ -25,7 +27,6 @@ MIME_MAP = {
 def image_url_for(brand: str, image_path: str | None, settings) -> str | None:
     if not image_path:
         return None
-    from domain.sources import IMAGE_BRAND_KEYS
 
     brand_key = IMAGE_BRAND_KEYS.get(brand, brand)
     root = settings.image_roots.get(brand_key)
@@ -38,10 +39,27 @@ def image_url_for(brand: str, image_path: str | None, settings) -> str | None:
         return None
 
 
+def get_image_matcher(request: Request, brand: str) -> ImageMatcher | None:
+    if brand not in TABLE_NAMES:
+        return None
+    matchers = request.app.state.image_matchers
+    matcher = matchers.get(brand)
+    if matcher is not None:
+        return matcher
+
+    settings = request.app.state.settings
+    image_brand = IMAGE_BRAND_KEYS[brand]
+    root = settings.image_roots.get(image_brand)
+    if root is None:
+        return None
+    matcher = ImageMatcher(root)
+    matchers[brand] = matcher
+    return matcher
+
+
 @router.get("/images/serve/{brand}/{image_path:path}")
 def serve_image(brand: str, image_path: str, request: Request):
     settings = request.app.state.settings
-    from domain.sources import IMAGE_BRAND_KEYS, TABLE_NAMES
 
     brand_key = brand
     if brand_key not in settings.image_roots:
@@ -68,7 +86,7 @@ def serve_image(brand: str, image_path: str, request: Request):
 
 @router.post("/images/lookup")
 def lookup_image(request: Request, body: ImageLookupRequest):
-    matcher = request.app.state.image_matchers.get(body.brand)
+    matcher = get_image_matcher(request, body.brand)
     if matcher is None:
         raise HTTPException(status_code=400, detail=f"Unknown image brand: {body.brand}")
 
@@ -103,12 +121,14 @@ def lookup_image(request: Request, body: ImageLookupRequest):
 @router.post("/images/match-sku")
 def match_sku_image(request: Request, body: MatchSkuRequest):
     settings = request.app.state.settings
-    matchers = request.app.state.image_matchers
     sku = body.sku.strip()
     if not sku:
         return {"found": False, "image_url": None, "brand": None}
 
-    for brand, matcher in matchers.items():
+    for brand in TABLE_NAMES:
+        matcher = get_image_matcher(request, brand)
+        if matcher is None:
+            continue
         image_path = matcher.find(sku)
         if image_path:
             url = image_url_for(brand, image_path, settings)

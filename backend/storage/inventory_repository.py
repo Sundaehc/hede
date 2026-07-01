@@ -12,7 +12,7 @@ from sqlalchemy import Text, and_, case, create_engine, delete, desc, func, inse
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from domain.gj_schema import GJ_MERGED_PRODUCT_INFO_TABLE
-from domain.inventory_schema import GENERAL_CUSTOMER_BRAND_TABLE, GENERAL_CUSTOMER_SHOP_TABLE, INVENTORY_ACCOUNT_SUBJECT_TABLE, INVENTORY_DETAIL_TABLE, INVENTORY_TABLE, JST_STOCK_TABLE, SUPPLIER_TABLE, WAREHOUSE_TABLE
+from domain.inventory_schema import GENERAL_CUSTOMER_BRAND_TABLE, GENERAL_CUSTOMER_SHOP_TABLE, INVENTORY_ACCOUNT_SUBJECT_TABLE, INVENTORY_DETAIL_TABLE, INVENTORY_TABLE, JST_STOCK_TABLE, PURCHASE_ORDER_REQUIREMENT_TABLE, SUPPLIER_TABLE, WAREHOUSE_TABLE
 from domain.inventory_sources import ACCOUNTING_DOCUMENT_TYPES
 from domain.gj_brand import CBANNER_MENS_BRAND, GJ_FINE_TABLE_BRANDS, SUPPLIER_BRANDS, infer_supplier_brand_from_name
 from domain.vip_schema import JST_MONTHLY_ORDERS_TABLE, JST_SIZE_STOCK_TABLE, VIP_DAILY_TABLE
@@ -1215,6 +1215,39 @@ class InventoryRepository:
             result = connection.execute(statement)
         return result.rowcount > 0
 
+    # ── Purchase Order Requirements ────────────────────────────────
+
+    def list_purchase_order_requirement_templates(self) -> list[dict[str, object]]:
+        statement = select(PURCHASE_ORDER_REQUIREMENT_TABLE).order_by(PURCHASE_ORDER_REQUIREMENT_TABLE.c.brand)
+        with self.engine.connect() as connection:
+            return [dict(row) for row in connection.execute(statement).mappings()]
+
+    def get_purchase_order_requirement_template_map(self) -> dict[str, str]:
+        rows = self.list_purchase_order_requirement_templates()
+        return {
+            str(row.get("brand") or "").strip().lower(): str(row.get("content") or "")
+            for row in rows
+            if str(row.get("brand") or "").strip()
+        }
+
+    def upsert_purchase_order_requirement_template(self, brand: str, content: str) -> dict[str, object]:
+        normalized_brand = str(brand or "").strip().lower()
+        payload = {
+            "brand": normalized_brand,
+            "content": str(content or ""),
+        }
+        insert_statement = pg_insert(PURCHASE_ORDER_REQUIREMENT_TABLE).values(**payload)
+        statement = insert_statement.on_conflict_do_update(
+            index_elements=[PURCHASE_ORDER_REQUIREMENT_TABLE.c.brand],
+            set_={
+                "content": insert_statement.excluded.content,
+                "updated_at": func.date_trunc('minute', func.now()),
+            },
+        ).returning(PURCHASE_ORDER_REQUIREMENT_TABLE)
+        with self.engine.begin() as connection:
+            row = connection.execute(statement).mappings().one()
+        return dict(row)
+
     # ── Warehouses ─────────────────────────────────────────────────
 
     def list_warehouses(self) -> list[dict[str, object]]:
@@ -1725,6 +1758,7 @@ class InventoryRepository:
             self._backfill_document_numbers(connection)
             connection.execute(text("CREATE INDEX IF NOT EXISTS idx_inventory_records_document_number ON inventory_records (document_number)"))
             connection.execute(text("ALTER TABLE IF EXISTS inventory_records ADD COLUMN IF NOT EXISTS handler TEXT"))
+            connection.execute(text("ALTER TABLE IF EXISTS inventory_records ADD COLUMN IF NOT EXISTS additional_note TEXT"))
             connection.execute(text("ALTER TABLE IF EXISTS inventory_records ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ"))
             connection.execute(text("CREATE INDEX IF NOT EXISTS idx_inventory_records_deleted_at ON inventory_records (deleted_at)"))
             connection.execute(text("ALTER TABLE IF EXISTS inventory_details ADD COLUMN IF NOT EXISTS color_barcode TEXT"))
@@ -1739,6 +1773,7 @@ class InventoryRepository:
             connection.execute(text("CREATE INDEX IF NOT EXISTS idx_jst_stock_product_code_trgm ON jst_daily_stock USING GIN (product_code gin_trgm_ops)"))
             INVENTORY_ACCOUNT_SUBJECT_TABLE.create(connection, checkfirst=True)
             self._seed_account_subjects(connection)
+            PURCHASE_ORDER_REQUIREMENT_TABLE.create(connection, checkfirst=True)
             SUPPLIER_TABLE.create(connection, checkfirst=True)
             WAREHOUSE_TABLE.create(connection, checkfirst=True)
             self._ensure_supplier_schema(connection)

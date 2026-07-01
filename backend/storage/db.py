@@ -99,6 +99,26 @@ class Database:
                 connection.execute(stmt)
         return len(payload)
 
+    def insert_new_brand_rows(self, brand_group: str, rows: Iterable[dict[str, object]]) -> int:
+        table = PRODUCT_TABLES[brand_group]
+        payload = self._dedupe_by_sku(
+            [dict(apply_product_defaults(brand_group, dict(row))) for row in rows]
+        )
+        if not payload:
+            return 0
+
+        inserted = 0
+        with self._require_engine().begin() as connection:
+            for index in range(0, len(payload), 1000):
+                stmt = (
+                    pg_insert(table)
+                    .values(payload[index:index + 1000])
+                    .on_conflict_do_nothing(index_elements=["sku"])
+                )
+                result = connection.execute(stmt)
+                inserted += result.rowcount or 0
+        return inserted
+
     @staticmethod
     def _dedupe_by_sku(rows: list[dict[str, object]]) -> list[dict[str, object]]:
         seen: dict[str, int] = {}

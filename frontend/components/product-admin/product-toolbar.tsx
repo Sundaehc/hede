@@ -40,6 +40,7 @@ export function ProductToolbar({
   const submittedImageRefreshAtRef = useRef<number | null>(null)
   const [importing, setImporting] = useState(false)
   const [refreshingImages, setRefreshingImages] = useState(false)
+  const [exporting, setExporting] = useState(false)
   const [awaitingImageRefresh, setAwaitingImageRefresh] = useState(false)
   const [imageRefreshStatus, setImageRefreshStatus] = useState<ProductImageRefreshStatus | null>(null)
 
@@ -94,8 +95,9 @@ export function ProductToolbar({
   }, [awaitingImageRefresh, imageRefreshStatus, onMessage, onRefresh])
 
   const handleExport = async (mode?: "with_sizes") => {
+    const ids = selectedIds && selectedIds.size > 0 ? Array.from(selectedIds) : undefined
+    setExporting(true)
     try {
-      const ids = selectedIds && selectedIds.size > 0 ? Array.from(selectedIds) : undefined
       const response = await exportProducts(brand, ids, mode)
       const disposition = response.headers.get("Content-Disposition") ?? ""
       const match = disposition.match(/filename\*=UTF-8''(.+)/)
@@ -105,10 +107,15 @@ export function ProductToolbar({
       const a = document.createElement("a")
       a.href = url
       a.download = filename
+      a.style.display = "none"
+      document.body.appendChild(a)
       a.click()
-      URL.revokeObjectURL(url)
-    } catch {
-      onMessage("导出失败", "导出 Excel 时发生错误，请重试")
+      document.body.removeChild(a)
+      window.setTimeout(() => URL.revokeObjectURL(url), 0)
+    } catch (error) {
+      onMessage("导出失败", error instanceof Error ? error.message : "导出 Excel 时发生错误，请重试")
+    } finally {
+      setExporting(false)
     }
   }
 
@@ -211,30 +218,32 @@ export function ProductToolbar({
       </div>
       <p className="text-xs text-muted-foreground">{imageStatusText}</p>
 
-      {onCreate ? (
-        <div className="flex items-center gap-2 border-t border-border pt-3">
-          <Button type="button" variant="outline" size="sm" onClick={() => void handleExport()} disabled={isLoading} className="cursor-pointer">
-            {hasSelection ? `导出选中 (${selectedIds!.size})` : "导出 Excel"}
-          </Button>
-          <Button type="button" variant="outline" size="sm" onClick={() => void handleExport("with_sizes")} disabled={isLoading} className="cursor-pointer">
-            带尺码导出
-          </Button>
-          <Button type="button" variant="outline" size="sm" onClick={() => fileInputRef.current?.click()} disabled={importing} className="cursor-pointer">
-            {importing ? "导入中..." : "导入 Excel"}
-          </Button>
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept=".xlsx,.xls"
-            className="hidden"
-            onChange={(e) => void handleImport(e)}
-          />
-          <div className="flex-1" />
-          <Button type="button" size="sm" onClick={onCreate} className="cursor-pointer">
-            <span>新增商品</span>
-          </Button>
-        </div>
-      ) : null}
+      <div className="flex items-center gap-2 border-t border-border pt-3">
+        <Button type="button" variant="outline" size="sm" onClick={() => void handleExport()} disabled={isLoading || exporting} className="cursor-pointer">
+          {exporting ? "导出中..." : hasSelection ? `导出选中 (${selectedIds!.size})` : "导出 Excel"}
+        </Button>
+        {onCreate ? (
+          <>
+            <Button type="button" variant="outline" size="sm" onClick={() => void handleExport("with_sizes")} disabled={isLoading || exporting} className="cursor-pointer">
+              带尺码导出
+            </Button>
+            <Button type="button" variant="outline" size="sm" onClick={() => fileInputRef.current?.click()} disabled={importing} className="cursor-pointer">
+              {importing ? "导入中..." : "导入 Excel"}
+            </Button>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".xlsx,.xls"
+              className="hidden"
+              onChange={(e) => void handleImport(e)}
+            />
+            <div className="flex-1" />
+            <Button type="button" size="sm" onClick={onCreate} className="cursor-pointer">
+              <span>新增商品</span>
+            </Button>
+          </>
+        ) : null}
+      </div>
     </div>
   )
 }

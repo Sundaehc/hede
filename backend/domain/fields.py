@@ -74,6 +74,7 @@ INVENTORY_FIELDS: tuple[FieldSpec, ...] = (
     FieldSpec("document_type", "单据类型"),
     FieldSpec("handler", "经手人"),
     FieldSpec("summary", "摘要"),
+    FieldSpec("additional_note", "附加说明"),
 )
 
 INVENTORY_DETAIL_FIELDS: tuple[FieldSpec, ...] = (

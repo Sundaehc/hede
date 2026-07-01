@@ -2,20 +2,27 @@ from __future__ import annotations
 
 import io
 import urllib.parse
+import unicodedata
+from collections.abc import Iterator
 
 from fastapi import APIRouter, HTTPException, Query, Request, UploadFile
 from fastapi.responses import StreamingResponse
 from openpyxl import Workbook, load_workbook
+from openpyxl.cell import WriteOnlyCell
+from openpyxl.cell.cell import ILLEGAL_CHARACTERS_RE
+from openpyxl.styles import Alignment, Font, PatternFill
+from openpyxl.utils import get_column_letter
 from sqlalchemy import desc, or_, select
 
-from api.excel_export import style_excel_worksheet
+from api.excel_export import DEFAULT_WIDTH_BY_HEADER, style_excel_worksheet
 from api.fine_table_cache import clear_fine_table_cache
-from api.routes.images import image_url_for
-from domain.excluded_skus import is_excluded_sku
+from api.routes.images import get_image_matcher, image_url_for
+from domain.excluded_skus import is_excluded_sku, not_excluded_sku_condition
 from domain.gj_schema import GJ_MERGED_PRODUCT_INFO_TABLE
 from domain.sources import CANONICAL_COLUMNS, COLUMN_ALIASES, TABLE_NAMES
 from domain.schema import PRODUCT_TABLES
 from domain.vip_schema import JST_PRODUCT_PROFILE_TABLE
+from storage.product_repository import apply_jst_product_costs
 from transform.rows import build_admin_record, normalize_admin_field
 
 router = APIRouter()
@@ -86,7 +93,32 @@ BRAND_LABELS = {
     "cbanner_womens": "千百度女鞋",
     "yandou": "烟斗",
     "eblan": "伊伴",
+    "all": "总览",
 }
+
+
+def _iter_all_export_rows(repository) -> Iterator[tuple[str, list[object]]]:
+    with repository.engine.connect() as connection:
+        for brand in TABLE_NAMES:
+            table = PRODUCT_TABLES[brand]
+            statement = (
+                select(*(table.c[column] for column in EXPORT_COLUMNS))
+                .where(not_excluded_sku_condition(table.c.sku, table.c.original_sku))
+                .order_by(desc(table.c.id))
+            )
+            rows = connection.execution_options(stream_results=True).execute(statement)
+            batch: list[dict[str, object]] = []
+            for row in rows.mappings():
+                batch.append(dict(row))
+                if len(batch) >= LOOKUP_CHUNK_SIZE:
+                    apply_jst_product_costs(repository.engine, batch)
+                    for item in batch:
+                        yield brand, [item.get(column) for column in EXPORT_COLUMNS]
+                    batch = []
+            if batch:
+                apply_jst_product_costs(repository.engine, batch)
+                for item in batch:
+                    yield brand, [item.get(column) for column in EXPORT_COLUMNS]
 
 
 def _cell_text(value: object) -> str:
@@ -95,6 +127,64 @@ def _cell_text(value: object) -> str:
     if isinstance(value, float) and value.is_integer():
         return str(int(value))
     return str(value).strip()
+
+
+def _display_width(value: object) -> int:
+    width = 0
+    for char in _cell_text(value):
+        width += 2 if unicodedata.east_asian_width(char) in {"F", "W", "A"} else 1
+    return width
+
+
+def _excel_cell_value(value: object) -> object:
+    if isinstance(value, str):
+        return ILLEGAL_CHARACTERS_RE.sub("", value)
+    return value
+
+
+def _export_all_products(repository) -> StreamingResponse:
+    headers = ["品牌"] + [EXPORT_LABELS.get(c, c) for c in EXPORT_COLUMNS]
+    wb = Workbook(write_only=True)
+    ws = wb.create_sheet(title="总览")
+    header_font = Font(name="宋体", size=10, bold=True)
+    header_fill = PatternFill("solid", fgColor="F2F2F2")
+    header_alignment = Alignment(horizontal="center", vertical="center", wrap_text=False)
+    max_width = 42
+    min_width = 10
+    column_widths = [max(DEFAULT_WIDTH_BY_HEADER.get(header, min_width), _display_width(header) + 2) for header in headers]
+
+    header_cells = []
+    for header in headers:
+        cell = WriteOnlyCell(ws, value=header)
+        cell.font = header_font
+        cell.fill = header_fill
+        cell.alignment = header_alignment
+        header_cells.append(cell)
+    ws.append(header_cells)
+
+    row_count = 1
+    for brand, values in _iter_all_export_rows(repository):
+        row = [BRAND_LABELS.get(brand, brand)] + [_excel_cell_value(value) for value in values]
+        for index, value in enumerate(row):
+            column_widths[index] = max(column_widths[index], min(_display_width(value) + 2, max_width))
+        ws.append(row)
+        row_count += 1
+
+    for index, width in enumerate(column_widths, start=1):
+        ws.column_dimensions[get_column_letter(index)].width = max(min_width, min(width, max_width))
+    ws.freeze_panes = "A2"
+    ws.auto_filter.ref = f"A1:{get_column_letter(len(headers))}{row_count}"
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+
+    filename = urllib.parse.quote("总览.xlsx")
+    return StreamingResponse(
+        buf,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{filename}"},
+    )
 
 
 def _dict_or_empty(value: object) -> dict[str, object]:
@@ -213,6 +303,7 @@ def _export_products_with_sizes(repository, brand: str, ids: str | None) -> Stre
     else:
         table = repository.list_products(brand, query=None, page=1, page_size=1_000_000)
         source_products = list(table["items"])
+    apply_jst_product_costs(repository.engine, source_products)
 
     selected_codes = {
         code
@@ -238,9 +329,11 @@ def _export_products_with_sizes(repository, brand: str, ids: str | None) -> Stre
         }
         lookup_codes.update(selected_codes)
         archive_rows = _index_product_archive_rows(source_products)
+        loaded_archive_rows = _load_product_archive_rows(connection, brand, lookup_codes)
+        apply_jst_product_costs(repository.engine, list(loaded_archive_rows.values()))
         archive_rows.update({
             code: item
-            for code, item in _load_product_archive_rows(connection, brand, lookup_codes).items()
+            for code, item in loaded_archive_rows.items()
             if code not in archive_rows
         })
         gj_rows = _load_gj_rows(connection, lookup_codes)
@@ -305,6 +398,11 @@ def export_products(
     if mode == SIZE_EXPORT_MODE:
         return _export_products_with_sizes(repository, brand, ids)
 
+    if brand == "all":
+        if ids:
+            raise HTTPException(status_code=400, detail="总览导出暂不支持勾选商品")
+        return _export_all_products(repository)
+
     if ids:
         id_list = [int(i.strip()) for i in ids.split(",") if i.strip()]
         items = repository.get_products_by_ids(brand, id_list)
@@ -320,7 +418,7 @@ def export_products(
     ws.append(headers)
 
     for item in items:
-        row = [item.get(c) for c in EXPORT_COLUMNS]
+        row = [_excel_cell_value(item.get(c)) for c in EXPORT_COLUMNS]
         ws.append(row)
 
     style_excel_worksheet(ws)
@@ -370,7 +468,7 @@ async def import_products(
         reverse_aliases[en_field] = en_field
 
     repository = request.app.state.repository
-    image_matcher = request.app.state.image_matchers.get(brand)
+    image_matcher = get_image_matcher(request, brand)
     created = 0
     updated = 0
     imported_skus: list[str] = []

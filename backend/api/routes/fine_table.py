@@ -824,18 +824,24 @@ def list_fine_table(
             ops_by_sku.setdefault(str(row["goods_code"]), dict(row))
 
         price_by_sku: dict[str, dict[str, Any]] = {}
-        latest_price_date = conn.execute(
-            select(func.max(JST_PRICE_TABLE.c.source_date_value))
+        for row in conn.execute(
+            select(
+                JST_PRICE_TABLE.c.goods_code,
+                JST_PRICE_TABLE.c.cost_unit_price,
+            )
             .where(JST_PRICE_TABLE.c.goods_code.in_(skus))
-        ).scalar()
-        price_statement = (
-            select(JST_PRICE_TABLE)
-            .where(JST_PRICE_TABLE.c.goods_code.in_(skus))
-            .order_by(desc(JST_PRICE_TABLE.c.updated_at), desc(JST_PRICE_TABLE.c.id))
-        )
-        if latest_price_date is not None:
-            price_statement = price_statement.where(JST_PRICE_TABLE.c.source_date_value == latest_price_date)
-        for row in conn.execute(price_statement).mappings():
+            .order_by(
+                JST_PRICE_TABLE.c.goods_code,
+                JST_PRICE_TABLE.c.source_date_value.desc().nulls_last(),
+                desc(JST_PRICE_TABLE.c.updated_at),
+                desc(JST_PRICE_TABLE.c.id),
+            )
+        ).mappings():
+            cost_unit_price = row.get("cost_unit_price")
+            if cost_unit_price is None:
+                continue
+            if isinstance(cost_unit_price, str) and not cost_unit_price.strip():
+                continue
             price_by_sku.setdefault(str(row["goods_code"]), dict(row))
 
         daily_by_sku: dict[str, dict[tuple[str, str], dict[str, Any]]] = {sku: {} for sku in skus}
@@ -1060,12 +1066,7 @@ def list_fine_table(
         original_stock_summary = original_stock_summary_by_code.get(original_sku, {})
         original_inbound_qty = original_stock_summary.get("purchase_in_transit_qty", 0)
         original_defect_in_transit_qty = original_defect_in_transit_by_code.get(original_sku, 0)
-        cost = (
-            _to_float(price.get("latest_purchase_price"))
-            or _to_float(price.get("preset_price"))
-            or _to_float(price.get("cost_unit_price"))
-            or _to_float(product.get("cost"))
-        )
+        cost = _to_float(price.get("cost_unit_price")) or _to_float(product.get("cost"))
         final_price = _to_float(ops.get("final_price"))
         market_price = _to_float(ops.get("market_price"))
         vip_price = _to_float(ops.get("vip_price"))

@@ -224,8 +224,8 @@ class ImportPipeline:
         if not dry_run:
             self.database.create_tables()
             for brand_group, rows in rows_by_brand.items():
-                if mode == "sync" and brand_group not in GJ_PRODUCT_BRANDS:
-                    summaries[brand_group].loaded_rows = self.database.upsert_brand_rows(brand_group, rows)
+                if mode == "sync":
+                    summaries[brand_group].loaded_rows = self.database.insert_new_brand_rows(brand_group, rows)
                 else:
                     summaries[brand_group].loaded_rows = self.database.replace_brand_rows(brand_group, rows)
         else:

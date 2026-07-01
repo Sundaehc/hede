@@ -10,8 +10,6 @@ from api.routes.inventory import router as inventory_router
 from api.routes.products import router as products_router
 from api.routes.suppliers import router as suppliers_router
 from api.routes.warehouses import router as warehouses_router
-from domain.sources import IMAGE_BRAND_KEYS, TABLE_NAMES
-from fileio.image_matcher import ImageMatcher
 from storage.inventory_repository import InventoryRepository
 from storage.product_repository import ProductRepository
 
@@ -22,10 +20,7 @@ def create_app(*, settings, repository=None, image_matchers=None, inventory_repo
 
     resolved_repository = repository or ProductRepository(settings.database_url)
     resolved_inventory_repository = inventory_repository or InventoryRepository(settings.database_url)
-    resolved_matchers = image_matchers or {
-        brand: ImageMatcher(settings.image_roots[IMAGE_BRAND_KEYS[brand]])
-        for brand in TABLE_NAMES
-    }
+    resolved_matchers = image_matchers if image_matchers is not None else {}
 
     app = FastAPI(title="Hede Product Admin API")
     app.add_middleware(

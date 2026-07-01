@@ -10,10 +10,82 @@ from sqlalchemy import and_, create_engine, delete, desc, func, insert, literal,
 from domain.excluded_skus import not_excluded_sku_condition
 from domain.product_defaults import apply_product_defaults
 from domain.schema import PRODUCT_TABLES
+from domain.vip_schema import JST_PRICE_TABLE
 
 
 def _json_serializer(value: object) -> bytes:
     return orjson.dumps(value)
+
+
+PRICE_LOOKUP_CHUNK_SIZE = 2000
+
+
+def _normalize_code(value: object) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, float) and value.is_integer():
+        return str(int(value))
+    return str(value).strip()
+
+
+def _chunk_codes(codes: set[str]) -> list[list[str]]:
+    ordered = sorted(codes)
+    return [
+        ordered[index:index + PRICE_LOOKUP_CHUNK_SIZE]
+        for index in range(0, len(ordered), PRICE_LOOKUP_CHUNK_SIZE)
+    ]
+
+
+def _load_jst_product_costs(engine, codes: set[str]) -> dict[str, object | None]:
+    if not codes:
+        return {}
+
+    costs: dict[str, object | None] = {}
+    with engine.connect() as connection:
+        for chunk in _chunk_codes(codes):
+            statement = (
+                select(
+                    JST_PRICE_TABLE.c.goods_code,
+                    JST_PRICE_TABLE.c.cost_unit_price,
+                )
+                .where(JST_PRICE_TABLE.c.goods_code.in_(chunk))
+                .order_by(
+                    JST_PRICE_TABLE.c.goods_code,
+                    JST_PRICE_TABLE.c.source_date_value.desc().nulls_last(),
+                    desc(JST_PRICE_TABLE.c.updated_at),
+                    desc(JST_PRICE_TABLE.c.id),
+                )
+            )
+            for row in connection.execute(statement).mappings():
+                code = _normalize_code(row.get("goods_code"))
+                if not code or code in costs:
+                    continue
+                cost = row.get("cost_unit_price")
+                if isinstance(cost, str) and not cost.strip():
+                    cost = None
+                costs[code] = cost
+    return costs
+
+
+def apply_jst_product_costs(engine, items: list[dict[str, object]]) -> list[dict[str, object]]:
+    codes = {
+        code
+        for item in items
+        for code in (_normalize_code(item.get("sku")), _normalize_code(item.get("original_sku")))
+        if code
+    }
+    costs = _load_jst_product_costs(engine, codes)
+    if not costs:
+        return items
+
+    for item in items:
+        sku = _normalize_code(item.get("sku"))
+        original_sku = _normalize_code(item.get("original_sku"))
+        if sku in costs:
+            item["cost"] = costs[sku]
+        elif original_sku in costs:
+            item["cost"] = costs[original_sku]
+    return items
 
 
 class ProductRepository:
@@ -62,6 +134,7 @@ class ProductRepository:
             total = connection.execute(count_statement).scalar_one()
             items = [dict(row) for row in connection.execute(items_statement).mappings()]
 
+        apply_jst_product_costs(self.engine, items)
         return {
             "items": items,
             "total": total,
@@ -104,6 +177,7 @@ class ProductRepository:
             total = connection.execute(count_statement).scalar_one()
             items = [dict(row) for row in connection.execute(items_statement).mappings()]
 
+        apply_jst_product_costs(self.engine, items)
         return {
             "items": items,
             "total": total,
@@ -120,7 +194,11 @@ class ProductRepository:
         )
         with self.engine.connect() as connection:
             row = connection.execute(statement).mappings().first()
-        return None if row is None else dict(row)
+        if row is None:
+            return None
+        item = dict(row)
+        apply_jst_product_costs(self.engine, [item])
+        return item
 
     def get_products_by_ids(self, brand: str, ids: list[int]) -> list[dict[str, object]]:
         if not ids:
@@ -133,7 +211,8 @@ class ProductRepository:
             .order_by(desc(table.c.id))
         )
         with self.engine.connect() as connection:
-            return [dict(row) for row in connection.execute(statement).mappings()]
+            items = [dict(row) for row in connection.execute(statement).mappings()]
+        return apply_jst_product_costs(self.engine, items)
 
     def find_by_sku(self, brand: str, sku: object) -> dict[str, object] | None:
         table = PRODUCT_TABLES[brand]
@@ -182,7 +261,9 @@ class ProductRepository:
         statement = insert(table).values(**self._prepare_record(record, brand=brand)).returning(table)
         with self.engine.begin() as connection:
             row = connection.execute(statement).mappings().one()
-        return dict(row)
+        item = dict(row)
+        apply_jst_product_costs(self.engine, [item])
+        return item
 
     def update_product(
         self,
@@ -196,7 +277,11 @@ class ProductRepository:
         statement = update(table).where(table.c.id == product_id).values(**payload).returning(table)
         with self.engine.begin() as connection:
             row = connection.execute(statement).mappings().first()
-        return None if row is None else dict(row)
+        if row is None:
+            return None
+        item = dict(row)
+        apply_jst_product_costs(self.engine, [item])
+        return item
 
     def delete_product(self, brand: str, product_id: int) -> bool:
         table = PRODUCT_TABLES[brand]

@@ -207,7 +207,7 @@ export function getProductImageRefreshStatus() {
   return request<ProductImageRefreshStatus>("/images/refresh-product-images/status")
 }
 
-export function exportProducts(brand: BrandKey, ids?: number[], mode?: "with_sizes") {
+export function buildProductExportUrl(brand: BrandKey, ids?: number[], mode?: "with_sizes") {
   const params = new URLSearchParams({ brand })
   if (ids && ids.length > 0) {
     params.set("ids", ids.join(","))
@@ -215,7 +215,11 @@ export function exportProducts(brand: BrandKey, ids?: number[], mode?: "with_siz
   if (mode) {
     params.set("mode", mode)
   }
-  return fetch(`${API_PREFIX}/export?${params.toString()}`).then(async (response) => {
+  return `${API_PREFIX}/export?${params.toString()}`
+}
+
+export function exportProducts(brand: BrandKey, ids?: number[], mode?: "with_sizes") {
+  return fetch(buildProductExportUrl(brand, ids, mode)).then(async (response) => {
     if (!response.ok) {
       throw new ApiError(response.status, await response.text())
     }
@@ -258,6 +262,7 @@ export type InventoryRecord = {
   document_type: string | null
   handler: string | null
   summary: string | null
+  additional_note: string | null
   extra_fields: Record<string, string> | null
   source_workbook: string
   source_sheet: string
@@ -378,6 +383,17 @@ export type InventoryAccountSubject = {
   name: string
   created_at: string | null
   updated_at: string | null
+}
+
+export type PurchaseOrderRequirementBrand = Exclude<BrandKey, "all"> | "smiley" | "ni"
+
+export type PurchaseOrderRequirementTemplate = {
+  brand: PurchaseOrderRequirementBrand
+  label: string
+  content: string
+  default_content: string
+  updated_at: string | null
+  is_custom: boolean
 }
 
 export function listInventory(params: {
@@ -528,6 +544,7 @@ export function importInventory(file: File) {
 }
 
 export function buildInventoryExportUrl(params: {
+  ids?: number[]
   date_start?: string
   date_end?: string
   supplier?: string
@@ -542,6 +559,7 @@ export function buildInventoryExportUrl(params: {
   purchase_export_mode?: "summary" | "size_rows" | "production_order"
 } = {}) {
   const search = new URLSearchParams()
+  if (params.ids && params.ids.length > 0) search.set("ids", params.ids.join(","))
   if (params.date_start) search.set("date_start", params.date_start)
   if (params.date_end) search.set("date_end", params.date_end)
   if (params.supplier) search.set("supplier", params.supplier)
@@ -559,6 +577,7 @@ export function buildInventoryExportUrl(params: {
 }
 
 export function exportInventory(params: {
+  ids?: number[]
   date_start?: string
   date_end?: string
   supplier?: string
@@ -633,6 +652,17 @@ export function listGeneralCustomerBrands() {
 
 export function listInventoryAccountSubjects() {
   return request<{ items: InventoryAccountSubject[] }>("/inventory/account-subjects")
+}
+
+export function listPurchaseOrderRequirements() {
+  return request<{ items: PurchaseOrderRequirementTemplate[] }>("/inventory/purchase-order-requirements")
+}
+
+export function updatePurchaseOrderRequirement(brand: PurchaseOrderRequirementBrand, content: string) {
+  return request<{ item: PurchaseOrderRequirementTemplate; message: string }>(`/inventory/purchase-order-requirements/${brand}`, {
+    method: "PUT",
+    body: JSON.stringify({ content }),
+  })
 }
 
 export function createInventoryAccountSubject(payload: Record<string, unknown>) {

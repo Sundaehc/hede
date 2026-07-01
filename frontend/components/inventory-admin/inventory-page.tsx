@@ -1,7 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useRef, useState } from "react"
-import { Plus, Download, Upload, Trash2, Edit, Search, X, RefreshCw, List, BadgeDollarSign } from "lucide-react"
+import { Plus, Download, Upload, Trash2, Edit, Search, X, RefreshCw, List, BadgeDollarSign, FileText } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -40,6 +40,8 @@ import {
   batchUpdateInventoryCosts,
   batchDeleteInventory,
   importPurchaseInventory,
+  listPurchaseOrderRequirements,
+  updatePurchaseOrderRequirement,
   buildInventoryExportUrl,
   listInventoryAccountSubjects,
   listGeneralCustomerShops,
@@ -48,6 +50,7 @@ import {
   ApiError,
   type InventoryRecord,
   type InventoryAccountSubject,
+  type PurchaseOrderRequirementBrand,
   type SupplierItem,
   type WarehouseItem,
 } from "@/lib/api"
@@ -71,6 +74,14 @@ const COMPLETION_TABS = [
   { value: "completed", label: "已完成单据" },
   { value: "incomplete", label: "未完成单据" },
 ] as const
+const PURCHASE_REQUIREMENT_BRAND_OPTIONS: Array<{ value: PurchaseOrderRequirementBrand; label: string }> = [
+  { value: "cbanner_mens", label: "千百度男鞋" },
+  { value: "cbanner_womens", label: "千百度女鞋" },
+  { value: "yandou", label: "烟斗" },
+  { value: "eblan", label: "伊伴" },
+  { value: "smiley", label: "笑脸" },
+  { value: "ni", label: "NI" },
+]
 type CompletionStatus = (typeof COMPLETION_TABS)[number]["value"]
 type PurchaseExportMode = "summary" | "size_rows" | "production_order"
 type SearchableOption = {
@@ -95,6 +106,7 @@ const EMPTY_FORM: Record<string, string> = {
   delivery_date: "",
   handler: "",
   summary: "",
+  additional_note: "",
   detail_subject: "",
   detail_amount: "",
   detail_remark: "",
@@ -340,6 +352,12 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
   const [importFormData, setImportFormData] = useState<Record<string, string>>({ ...EMPTY_IMPORT_FORM })
   const [importFile, setImportFile] = useState<File | null>(null)
   const [importError, setImportError] = useState("")
+  const [requirementsDialogOpen, setRequirementsDialogOpen] = useState(false)
+  const [requirementDrafts, setRequirementDrafts] = useState<Record<string, string>>({})
+  const [selectedRequirementBrand, setSelectedRequirementBrand] = useState<PurchaseOrderRequirementBrand>("cbanner_mens")
+  const [requirementsError, setRequirementsError] = useState("")
+  const [isRequirementsLoading, setIsRequirementsLoading] = useState(false)
+  const [isSavingRequirement, setIsSavingRequirement] = useState(false)
 
   useEffect(() => {
     async function loadOptions() {
@@ -373,7 +391,7 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
           document_type: isPurchaseOrderTab ? PURCHASE_ORDER_DOCUMENT_TYPE : submittedFilters.document_type || undefined,
           exclude_document_type: isPurchaseOrderTab ? undefined : PURCHASE_ORDER_DOCUMENT_TYPE,
           summary: submittedFilters.summary || undefined,
-          original_sku: submittedFilters.original_sku || undefined,
+          original_sku: isPurchaseOrderTab ? undefined : submittedFilters.original_sku || undefined,
           product_code: submittedFilters.product_code || undefined,
           handler: submittedFilters.handler || undefined,
           completion_status: isPurchaseOrderTab ? undefined : recordCompletionStatus,
@@ -402,6 +420,54 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
     setMessageContent({ title, description })
     setMessageOpen(true)
   }, [])
+
+  const openRequirementDialog = async () => {
+    setRequirementsDialogOpen(true)
+    setRequirementsError("")
+    setRequirementDrafts({})
+    setIsRequirementsLoading(true)
+    try {
+      const response = await listPurchaseOrderRequirements()
+      const drafts: Record<string, string> = {}
+      for (const item of response.items) {
+        drafts[item.brand] = item.content ?? ""
+      }
+      for (const option of PURCHASE_REQUIREMENT_BRAND_OPTIONS) {
+        if (drafts[option.value] === undefined) drafts[option.value] = ""
+      }
+      setRequirementDrafts(drafts)
+      if (!response.items.some((item) => item.brand === selectedRequirementBrand)) {
+        setSelectedRequirementBrand("cbanner_mens")
+      }
+    } catch (e) {
+      setRequirementDrafts({})
+      setRequirementsError(getErrorMessage(e))
+    } finally {
+      setIsRequirementsLoading(false)
+    }
+  }
+
+  const handleRequirementBrandChange = (value: string) => {
+    const option = PURCHASE_REQUIREMENT_BRAND_OPTIONS.find((item) => item.value === value)
+    if (option) setSelectedRequirementBrand(option.value)
+  }
+
+  const handleSavePurchaseRequirement = async () => {
+    setRequirementsError("")
+    setIsSavingRequirement(true)
+    try {
+      const result = await updatePurchaseOrderRequirement(
+        selectedRequirementBrand,
+        requirementDrafts[selectedRequirementBrand] ?? "",
+      )
+      setRequirementDrafts((prev) => ({ ...prev, [result.item.brand]: result.item.content ?? "" }))
+      showMessage("保存成功", "订单要求已更新")
+    } catch (e) {
+      setRequirementsError(getErrorMessage(e))
+    } finally {
+      setIsSavingRequirement(false)
+    }
+  }
 
   const loadRecycleBin = useCallback(async () => {
     setIsRecycleLoading(true)
@@ -476,6 +542,7 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
       delivery_date: typeof item.extra_fields?.delivery_date === "string" ? item.extra_fields.delivery_date : "",
       handler: item.handler || "",
       summary: item.summary || "",
+      additional_note: item.additional_note || "",
     })
     setFormOpen(true)
   }
@@ -656,12 +723,13 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
     const isWholesaleImport = WHOLESALE_DOCUMENT_TYPES.has(importFormData.document_type)
     const isTransferImport = TRANSFER_DOCUMENT_TYPES.has(importFormData.document_type)
     const isStockAdjustmentImport = STOCK_ADJUSTMENT_DOCUMENT_TYPES.has(importFormData.document_type)
-    if ((!isStockAdjustmentImport && !importFormData.supplier) || !importFormData.warehouse || !importFormData.handler || !importFormData.summary) {
+    const canReadDocumentFieldsFromExcel = isPurchaseOrderTab && importFormData.document_type === PURCHASE_ORDER_DOCUMENT_TYPE
+    if (!canReadDocumentFieldsFromExcel && ((!isStockAdjustmentImport && !importFormData.supplier) || !importFormData.warehouse || !importFormData.handler || !importFormData.summary)) {
       const requiredFields = isTransferImport ? "出货仓库、入货仓库" : isWholesaleImport ? "收货客户、发货仓库" : "供货单位、收货仓库"
       setImportError(`请填写${isStockAdjustmentImport ? "仓库" : requiredFields}、经手人和摘要`)
       return
     }
-    if (importFormData.document_type === PURCHASE_ORDER_DOCUMENT_TYPE && !importFormData.delivery_date) {
+    if (!canReadDocumentFieldsFromExcel && importFormData.document_type === PURCHASE_ORDER_DOCUMENT_TYPE && !importFormData.delivery_date) {
       setImportError("请选择交货日期")
       return
     }
@@ -696,8 +764,10 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
         showMessage("暂不支持导出", "应付款/应收款四类单据暂时不导出 Excel")
         return
       }
+      const selectedExportIds = Array.from(selectedIds)
       const a = document.createElement("a")
       a.href = buildInventoryExportUrl({
+        ids: selectedExportIds.length > 0 ? selectedExportIds : undefined,
         date_start: submittedFilters.date_start || undefined,
         date_end: submittedFilters.date_end || undefined,
         supplier: submittedFilters.supplier || undefined,
@@ -705,7 +775,7 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
         document_type: isPurchaseOrderTab ? PURCHASE_ORDER_DOCUMENT_TYPE : submittedFilters.document_type || undefined,
         exclude_document_type: isPurchaseOrderTab ? undefined : PURCHASE_ORDER_DOCUMENT_TYPE,
         summary: submittedFilters.summary || undefined,
-        original_sku: submittedFilters.original_sku || undefined,
+        original_sku: isPurchaseOrderTab ? undefined : submittedFilters.original_sku || undefined,
         product_code: submittedFilters.product_code || undefined,
         handler: submittedFilters.handler || undefined,
         completion_status: isPurchaseOrderTab ? undefined : recordCompletionStatus,
@@ -727,8 +797,8 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
       warehouse: searchWarehouse,
       document_type: isPurchaseOrderTab ? PURCHASE_ORDER_DOCUMENT_TYPE : searchDocumentType,
       summary: searchSummary,
-      original_sku: searchOriginalSku,
-      product_code: searchProductCode,
+      original_sku: isPurchaseOrderTab ? "" : searchOriginalSku,
+      product_code: isPurchaseOrderTab ? searchOriginalSku : searchProductCode,
       handler: searchHandler,
     })
   }
@@ -842,6 +912,7 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
   const isImportWholesale = WHOLESALE_DOCUMENT_TYPES.has(importFormData.document_type)
   const isImportTransfer = TRANSFER_DOCUMENT_TYPES.has(importFormData.document_type)
   const isImportStockAdjustment = STOCK_ADJUSTMENT_DOCUMENT_TYPES.has(importFormData.document_type)
+  const isImportPurchaseOrder = isPurchaseOrderTab && importFormData.document_type === PURCHASE_ORDER_DOCUMENT_TYPE
   const supplierSelectOptions = supplierOptions.map((supplier) => ({
     value: supplier.name,
     label: supplier.name,
@@ -860,6 +931,7 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
   const importCounterpartyOptions = isImportTransfer ? warehouseSelectOptions : isImportWholesale ? customerShopSelectOptions : supplierSelectOptions
   const documentTypeOptions = INVENTORY_DOCUMENT_TYPES
   const detailImportDocumentTypeOptions = DETAIL_IMPORT_DOCUMENT_TYPES
+  const currentRequirementContent = requirementDrafts[selectedRequirementBrand] ?? ""
 
   return (
     <div className="app-page">
@@ -886,6 +958,10 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
                 <Button variant="outline" size="sm" onClick={() => handleExport("production_order")} disabled={total === 0 || isLoading} className="cursor-pointer">
                   <Download className="h-4 w-4" />
                   <span className="ml-2 hidden sm:inline">生产采购单导出</span>
+                </Button>
+                <Button variant="outline" size="sm" onClick={openRequirementDialog} disabled={isRequirementsLoading} className="cursor-pointer">
+                  <FileText className="h-4 w-4" />
+                  <span className="ml-2 hidden sm:inline">订单要求</span>
                 </Button>
               </>
             ) : (
@@ -997,13 +1073,15 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
                       <Input value={searchHandler} onChange={(e) => setSearchHandler(e.target.value)} placeholder="经手人" className="h-9" />
                     </div>
                     <div className="space-y-1.5 lg:col-span-3 xl:col-span-2">
-                      <Label className="text-xs text-muted-foreground">原始货号</Label>
-                      <Input value={searchOriginalSku} onChange={(e) => setSearchOriginalSku(e.target.value)} placeholder="原始货号" className="h-9" />
+                      <Label className="text-xs text-muted-foreground">{isPurchaseOrderTab ? "货号" : "原始货号"}</Label>
+                      <Input value={searchOriginalSku} onChange={(e) => setSearchOriginalSku(e.target.value)} placeholder={isPurchaseOrderTab ? "货号" : "原始货号"} className="h-9" />
                     </div>
-                    <div className="space-y-1.5 lg:col-span-3 xl:col-span-2">
-                      <Label className="text-xs text-muted-foreground">商品编码</Label>
-                      <Input value={searchProductCode} onChange={(e) => setSearchProductCode(e.target.value)} placeholder="商品编码" className="h-9" />
-                    </div>
+                    {!isPurchaseOrderTab && (
+                      <div className="space-y-1.5 lg:col-span-3 xl:col-span-2">
+                        <Label className="text-xs text-muted-foreground">商品编码</Label>
+                        <Input value={searchProductCode} onChange={(e) => setSearchProductCode(e.target.value)} placeholder="商品编码" className="h-9" />
+                      </div>
+                    )}
                     <div className="space-y-1.5 lg:col-span-6 xl:col-span-4">
                       <Label className="text-xs text-muted-foreground">备注</Label>
                       <Input value={searchSummary} onChange={(e) => setSearchSummary(e.target.value)} placeholder="摘要/备注" className="h-9" />
@@ -1065,32 +1143,48 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
 
               {/* Table */}
               <div className="table-panel overflow-x-auto">
-                <table className="w-full text-sm">
+                <table className={isPurchaseOrderTab ? "w-full min-w-[1280px] table-fixed text-sm" : "w-full min-w-[1320px] table-fixed text-sm"}>
+                  <colgroup>
+                    <col className="w-12" />
+                    <col className={isPurchaseOrderTab ? "w-40" : "w-36"} />
+                    <col className="w-28" />
+                    {isPurchaseOrderTab && <col className="w-28" />}
+                    {!isPurchaseOrderTab && <col className="w-28" />}
+                    <col className={isPurchaseOrderTab ? "w-48" : "w-44"} />
+                    {!isPurchaseOrderTab && <col className="w-20" />}
+                    {!isPurchaseOrderTab && <col className="w-24" />}
+                    {!isPurchaseOrderTab && <col className="w-48" />}
+                    <col className="w-24" />
+                    <col />
+                    {isPurchaseOrderTab && <col />}
+                    <col className="w-28" />
+                  </colgroup>
                   <thead>
                     <tr className="table-head-row">
-                      <th className="px-4 py-3 w-10"></th>
+                      <th className="px-4 py-3"></th>
                       <th className="px-4 py-3 font-medium">单据编号</th>
                       <th className="px-4 py-3 font-medium">{isPurchaseOrderTab ? "订货日期" : "日期"}</th>
                       {isPurchaseOrderTab && <th className="px-4 py-3 font-medium">交货日期</th>}
                       {!isPurchaseOrderTab && <th className="px-4 py-3 font-medium">单据类型</th>}
                       <th className="px-4 py-3 font-medium">供应商</th>
-                      <th className="px-4 py-3 text-right font-medium">总数</th>
-                      <th className="px-4 py-3 text-right font-medium">金额</th>
-                      <th className="px-4 py-3 font-medium">仓库</th>
+                      {!isPurchaseOrderTab && <th className="px-4 py-3 text-right font-medium">总数</th>}
+                      {!isPurchaseOrderTab && <th className="px-4 py-3 text-right font-medium">金额</th>}
+                      {!isPurchaseOrderTab && <th className="px-4 py-3 font-medium">仓库</th>}
                       <th className="px-4 py-3 font-medium">经手人</th>
                       <th className="px-4 py-3 font-medium">摘要</th>
-                      <th className="px-4 py-3 w-28 font-medium">操作</th>
+                      {isPurchaseOrderTab && <th className="px-4 py-3 font-medium">附加说明</th>}
+                      <th className="px-4 py-3 text-center font-medium">操作</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-border">
                     {isLoading && (
                       <tr>
-                        <td colSpan={11} className="px-4 py-12 text-center text-muted-foreground">加载中...</td>
+                        <td colSpan={isPurchaseOrderTab ? 9 : 11} className="px-4 py-12 text-center text-muted-foreground">加载中...</td>
                       </tr>
                     )}
                     {!isLoading && !error && items.length === 0 && (
                       <tr>
-                        <td colSpan={11} className="px-4 py-12 text-center text-muted-foreground">
+                        <td colSpan={isPurchaseOrderTab ? 9 : 11} className="px-4 py-12 text-center text-muted-foreground">
                           {hasFilters ? `没有符合条件的${completionLabel}` : `暂无${completionLabel}`}
                         </td>
                       </tr>
@@ -1099,7 +1193,7 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
                       const isAccountingRow = ACCOUNTING_DOCUMENT_TYPE_SET.has(item.document_type || "")
                       return (
                         <tr key={item.id} className="table-row">
-                          <td className="px-4 py-2.5">
+                          <td className="px-4 py-3 align-middle">
                             <input
                               type="checkbox"
                               checked={selectedIds.has(item.id)}
@@ -1107,15 +1201,17 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
                               className="h-4 w-4 cursor-pointer rounded border border-input accent-primary"
                             />
                           </td>
-                          <td className="px-4 py-2.5 font-mono text-xs tabular-nums">{item.document_number || item.id}</td>
-                          <td className="px-4 py-2.5 whitespace-nowrap tabular-nums">{item.date || "-"}</td>
+                          <td className="px-4 py-3 align-middle font-mono text-xs leading-4 tabular-nums">
+                            <span className="block truncate" title={String(item.document_number || item.id)}>{item.document_number || item.id}</span>
+                          </td>
+                          <td className="px-4 py-3 align-middle whitespace-nowrap tabular-nums">{item.date || "-"}</td>
                           {isPurchaseOrderTab && (
-                            <td className="px-4 py-2.5 whitespace-nowrap tabular-nums">
+                            <td className="px-4 py-3 align-middle whitespace-nowrap tabular-nums">
                               {typeof item.extra_fields?.delivery_date === "string" ? item.extra_fields.delivery_date : "-"}
                             </td>
                           )}
                           {!isPurchaseOrderTab && (
-                            <td className="px-4 py-2.5 whitespace-nowrap">
+                            <td className="px-4 py-3 align-middle whitespace-nowrap">
                               {item.document_type ? (
                                 <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${OUTBOUND_DOCUMENT_TYPES.has(item.document_type) ? "bg-red-100 text-red-700"
                                     : INBOUND_DOCUMENT_TYPES.has(item.document_type) ? "bg-green-100 text-green-700"
@@ -1126,21 +1222,36 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
                               ) : "-"}
                             </td>
                           )}
-                          <td className="px-4 py-2.5">{item.supplier || "-"}</td>
-                          <td className="px-4 py-2.5 text-right tabular-nums">{isAccountingRow ? "" : item.total_count || "-"}</td>
-                          <td className="px-4 py-2.5 text-right tabular-nums">{isAccountingRow ? "" : item.amount || "-"}</td>
-                          <td className="px-4 py-2.5">{isAccountingRow ? "" : item.warehouse || "-"}</td>
-                          <td className="px-4 py-2.5">{item.handler || "-"}</td>
-                          <td className="px-4 py-2.5 max-w-48 truncate">{item.summary || "-"}</td>
-                          <td className="px-4 py-2.5">
-                            <div className="flex items-center gap-0.5">
-                              <Button variant="ghost" size="icon" onClick={() => setDetailDocumentId(item.id)} className="cursor-pointer" title="明细">
+                          <td className="px-4 py-3 align-middle">
+                            <span className="block truncate" title={item.supplier || ""}>{item.supplier || "-"}</span>
+                          </td>
+                          {!isPurchaseOrderTab && <td className="px-4 py-3 align-middle text-right font-mono tabular-nums">{isAccountingRow ? "" : item.total_count || "-"}</td>}
+                          {!isPurchaseOrderTab && <td className="px-4 py-3 align-middle text-right font-mono tabular-nums">{isAccountingRow ? "" : item.amount || "-"}</td>}
+                          {!isPurchaseOrderTab && (
+                            <td className="px-4 py-3 align-middle">
+                              <span className="block truncate" title={item.warehouse || ""}>{isAccountingRow ? "" : item.warehouse || "-"}</span>
+                            </td>
+                          )}
+                          <td className="px-4 py-3 align-middle">
+                            <span className="block truncate" title={item.handler || ""}>{item.handler || "-"}</span>
+                          </td>
+                          <td className="px-4 py-3 align-middle">
+                            <span className="block whitespace-normal break-words leading-5" title={item.summary || ""}>{item.summary || "-"}</span>
+                          </td>
+                          {isPurchaseOrderTab && (
+                            <td className="px-4 py-3 align-middle">
+                              <span className="block whitespace-normal break-words leading-5" title={item.additional_note || ""}>{item.additional_note || "-"}</span>
+                            </td>
+                          )}
+                          <td className="px-4 py-3 align-middle">
+                            <div className="flex items-center justify-center gap-1">
+                              <Button variant="ghost" size="icon-sm" onClick={() => setDetailDocumentId(item.id)} className="cursor-pointer" title="明细">
                                 <List className="h-4 w-4" />
                               </Button>
-                              <Button variant="ghost" size="icon" onClick={() => openEdit(item)} className="cursor-pointer">
+                              <Button variant="ghost" size="icon-sm" onClick={() => openEdit(item)} className="cursor-pointer" title="编辑">
                                 <Edit className="h-4 w-4" />
                               </Button>
-                              <Button variant="ghost" size="icon" onClick={() => setDeleteTarget(item)} className="cursor-pointer">
+                              <Button variant="ghost" size="icon-sm" onClick={() => setDeleteTarget(item)} className="cursor-pointer" title="删除">
                                 <Trash2 className="h-4 w-4 text-destructive" />
                               </Button>
                             </div>
@@ -1307,6 +1418,19 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
                 placeholder="摘要"
               />
             </div>
+            {formData.document_type === PURCHASE_ORDER_DOCUMENT_TYPE && (
+              <div className="col-span-2 space-y-1.5">
+                <Label htmlFor="form-additional-note">附加说明</Label>
+                <textarea
+                  id="form-additional-note"
+                  value={formData.additional_note || ""}
+                  onChange={(e) => setFormData((prev) => ({ ...prev, additional_note: e.target.value }))}
+                  placeholder="附加说明"
+                  rows={3}
+                  className="flex min-h-20 w-full resize-y rounded-lg border border-input bg-card px-3 py-2 text-sm shadow-xs outline-none transition-colors focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/35"
+                />
+              </div>
+            )}
             {shouldShowAccountingInlineDetail && (
               <div className="col-span-2 rounded-lg border border-border bg-muted/20 p-3">
                 <div className="mb-3 flex items-center justify-between gap-3">
@@ -1369,69 +1493,73 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
             </Alert>
           )}
           <div className="grid grid-cols-2 gap-4 py-2">
-            <div className="space-y-1.5">
-              <Label>{importFormData.document_type === PURCHASE_ORDER_DOCUMENT_TYPE ? "订货日期" : "单据日期"}</Label>
-              <input
-                type="date"
-                value={importFormData.date}
-                onChange={(e) => { setImportError(""); setImportFormData((prev) => ({ ...prev, date: e.target.value })) }}
-                className="flex h-9 w-full rounded-lg border border-input bg-card px-3 py-2 text-sm shadow-xs outline-none transition-colors focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/35"
-              />
-            </div>
-            {!isPurchaseOrderTab && (
-              <div className="space-y-1.5">
-                <Label>单据类型</Label>
-                <Select
-                  value={importFormData.document_type}
-                  onChange={(e) => { setImportError(""); setImportFormData((prev) => ({ ...prev, document_type: e.target.value, supplier: "" })) }}
-                >
-                  <option value="">请选择</option>
-                  {detailImportDocumentTypeOptions.map((dt) => (<option key={dt} value={dt}>{dt}</option>))}
-                </Select>
-              </div>
+            {!isImportPurchaseOrder && (
+              <>
+                <div className="space-y-1.5">
+                  <Label>{importFormData.document_type === PURCHASE_ORDER_DOCUMENT_TYPE ? "订货日期" : "单据日期"}</Label>
+                  <input
+                    type="date"
+                    value={importFormData.date}
+                    onChange={(e) => { setImportError(""); setImportFormData((prev) => ({ ...prev, date: e.target.value })) }}
+                    className="flex h-9 w-full rounded-lg border border-input bg-card px-3 py-2 text-sm shadow-xs outline-none transition-colors focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/35"
+                  />
+                </div>
+                {!isPurchaseOrderTab && (
+                  <div className="space-y-1.5">
+                    <Label>单据类型</Label>
+                    <Select
+                      value={importFormData.document_type}
+                      onChange={(e) => { setImportError(""); setImportFormData((prev) => ({ ...prev, document_type: e.target.value, supplier: "" })) }}
+                    >
+                      <option value="">请选择</option>
+                      {detailImportDocumentTypeOptions.map((dt) => (<option key={dt} value={dt}>{dt}</option>))}
+                    </Select>
+                  </div>
+                )}
+                {importFormData.document_type === PURCHASE_ORDER_DOCUMENT_TYPE && (
+                  <div className="space-y-1.5">
+                    <Label>交货日期</Label>
+                    <input
+                      type="date"
+                      value={importFormData.delivery_date}
+                      min={importFormData.date || undefined}
+                      onChange={(e) => { setImportError(""); setImportFormData((prev) => ({ ...prev, delivery_date: e.target.value })) }}
+                      className="flex h-9 w-full rounded-lg border border-input bg-card px-3 py-2 text-sm shadow-xs outline-none transition-colors focus-visible:border-ring focus-visible:ring-ring/35"
+                    />
+                  </div>
+                )}
+                {!isImportStockAdjustment && (
+                  <div className="space-y-1.5">
+                    <Label>{isImportTransfer ? "出货仓库" : isImportWholesale ? "收货客户" : "供货单位"}</Label>
+                    <SearchableSelect
+                      value={importFormData.supplier}
+                      options={importCounterpartyOptions}
+                      onChange={(nextValue) => setImportFormData((prev) => ({ ...prev, supplier: nextValue }))}
+                      onTouched={() => setImportError("")}
+                      placeholder={isImportTransfer ? "搜索出货仓库" : isImportWholesale ? "搜索收货客户" : "搜索供货单位"}
+                    />
+                  </div>
+                )}
+                <div className="space-y-1.5">
+                  <Label>{isImportStockAdjustment ? "仓库" : isImportTransfer ? "入货仓库" : isImportWholesale ? "发货仓库" : "收货仓库"}</Label>
+                  <SearchableSelect
+                    value={importFormData.warehouse}
+                    options={warehouseSelectOptions}
+                    onChange={(nextValue) => setImportFormData((prev) => ({ ...prev, warehouse: nextValue }))}
+                    onTouched={() => setImportError("")}
+                    placeholder={isImportStockAdjustment ? "搜索仓库" : isImportTransfer ? "搜索入货仓库" : isImportWholesale ? "搜索发货仓库" : "搜索收货仓库"}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>经手人</Label>
+                  <Input value={importFormData.handler} onChange={(e) => { setImportError(""); setImportFormData((prev) => ({ ...prev, handler: e.target.value })) }} placeholder="经手人" />
+                </div>
+                <div className="col-span-2 space-y-1.5">
+                  <Label>摘要</Label>
+                  <Input value={importFormData.summary} onChange={(e) => { setImportError(""); setImportFormData((prev) => ({ ...prev, summary: e.target.value })) }} placeholder="摘要" />
+                </div>
+              </>
             )}
-            {importFormData.document_type === PURCHASE_ORDER_DOCUMENT_TYPE && (
-              <div className="space-y-1.5">
-                <Label>交货日期</Label>
-                <input
-                  type="date"
-                  value={importFormData.delivery_date}
-                  min={importFormData.date || undefined}
-                  onChange={(e) => { setImportError(""); setImportFormData((prev) => ({ ...prev, delivery_date: e.target.value })) }}
-                  className="flex h-9 w-full rounded-lg border border-input bg-card px-3 py-2 text-sm shadow-xs outline-none transition-colors focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/35"
-                />
-              </div>
-            )}
-            {!isImportStockAdjustment && (
-              <div className="space-y-1.5">
-                <Label>{isImportTransfer ? "出货仓库" : isImportWholesale ? "收货客户" : "供货单位"}</Label>
-                <SearchableSelect
-                  value={importFormData.supplier}
-                  options={importCounterpartyOptions}
-                  onChange={(nextValue) => setImportFormData((prev) => ({ ...prev, supplier: nextValue }))}
-                  onTouched={() => setImportError("")}
-                  placeholder={isImportTransfer ? "搜索出货仓库" : isImportWholesale ? "搜索收货客户" : "搜索供货单位"}
-                />
-              </div>
-            )}
-            <div className="space-y-1.5">
-              <Label>{isImportStockAdjustment ? "仓库" : isImportTransfer ? "入货仓库" : isImportWholesale ? "发货仓库" : "收货仓库"}</Label>
-              <SearchableSelect
-                value={importFormData.warehouse}
-                options={warehouseSelectOptions}
-                onChange={(nextValue) => setImportFormData((prev) => ({ ...prev, warehouse: nextValue }))}
-                onTouched={() => setImportError("")}
-                placeholder={isImportStockAdjustment ? "搜索仓库" : isImportTransfer ? "搜索入货仓库" : isImportWholesale ? "搜索发货仓库" : "搜索收货仓库"}
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label>经手人</Label>
-              <Input value={importFormData.handler} onChange={(e) => { setImportError(""); setImportFormData((prev) => ({ ...prev, handler: e.target.value })) }} placeholder="经手人" />
-            </div>
-            <div className="col-span-2 space-y-1.5">
-              <Label>摘要</Label>
-              <Input value={importFormData.summary} onChange={(e) => { setImportError(""); setImportFormData((prev) => ({ ...prev, summary: e.target.value })) }} placeholder="摘要" />
-            </div>
             <div className="col-span-2 space-y-1.5">
               <Label>Excel 文件</Label>
               <input
@@ -1449,6 +1577,63 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
           <DialogFooter>
             <Button variant="outline" onClick={() => setImportDialogOpen(false)} disabled={isImporting} className="cursor-pointer">取消</Button>
             <Button onClick={handleImport} disabled={isImporting} className="cursor-pointer">{isImporting ? "导入中..." : "导入"}</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={requirementsDialogOpen}
+        onOpenChange={(open) => {
+          setRequirementsDialogOpen(open)
+          if (!open) setRequirementsError("")
+        }}
+      >
+        <DialogContent className="max-w-4xl">
+          <DialogHeader>
+            <DialogTitle>订单要求</DialogTitle>
+          </DialogHeader>
+          {requirementsError && (
+            <Alert className="border-destructive/30 bg-destructive/5 text-destructive">
+              <AlertDescription>{requirementsError}</AlertDescription>
+            </Alert>
+          )}
+          <div className="grid gap-4 py-2 md:grid-cols-[12rem_1fr]">
+            <div className="space-y-1.5">
+              <Label>品牌</Label>
+              <Select
+                value={selectedRequirementBrand}
+                onChange={(event) => {
+                  setRequirementsError("")
+                  handleRequirementBrandChange(event.target.value)
+                }}
+                disabled={isRequirementsLoading || isSavingRequirement}
+              >
+                {PURCHASE_REQUIREMENT_BRAND_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>{option.label}</option>
+                ))}
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label>内容</Label>
+              <textarea
+                value={isRequirementsLoading ? "加载中..." : currentRequirementContent}
+                onChange={(event) => {
+                  setRequirementsError("")
+                  setRequirementDrafts((prev) => ({
+                    ...prev,
+                    [selectedRequirementBrand]: event.target.value,
+                  }))
+                }}
+                disabled={isRequirementsLoading || isSavingRequirement}
+                className="min-h-[28rem] w-full resize-y rounded-lg border border-input bg-card px-3 py-2 text-sm leading-6 shadow-xs outline-none transition-colors placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/35 disabled:cursor-not-allowed disabled:bg-muted disabled:opacity-70"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setRequirementsDialogOpen(false)} disabled={isSavingRequirement} className="cursor-pointer">取消</Button>
+            <Button onClick={handleSavePurchaseRequirement} disabled={isRequirementsLoading || isSavingRequirement} className="cursor-pointer">
+              {isSavingRequirement ? "保存中..." : "保存"}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

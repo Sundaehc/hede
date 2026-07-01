@@ -23,6 +23,7 @@ from domain.inventory_sources import (
     INVENTORY_DETAIL_TABLE_NAME,
     INVENTORY_TABLE_NAME,
     JST_STOCK_TABLE_NAME,
+    PURCHASE_ORDER_REQUIREMENT_TABLE_NAME,
     SUPPLIER_TABLE_NAME,
     WAREHOUSE_TABLE_NAME,
     GENERAL_CUSTOMER_SHOP_TABLE_NAME,
@@ -103,6 +104,20 @@ def build_inventory_account_subject_table() -> Table:
     return table
 
 
+def build_purchase_order_requirement_table() -> Table:
+    columns: list = [
+        Column("id", BigInteger, Identity(always=False), primary_key=True),
+        Column("brand", Text, nullable=False),
+        Column("content", Text, nullable=False, default=""),
+        Column("created_at", DateTime(timezone=True), server_default=func.date_trunc('minute', func.now())),
+        Column("updated_at", DateTime(timezone=True), server_default=func.date_trunc('minute', func.now()), onupdate=func.date_trunc('minute', func.now())),
+        UniqueConstraint("brand", name="uq_purchase_order_requirement_brand"),
+    ]
+    table = Table(PURCHASE_ORDER_REQUIREMENT_TABLE_NAME, METADATA, *columns)
+    Index("idx_purchase_order_requirement_brand", table.c.brand)
+    return table
+
+
 def build_supplier_table() -> Table:
     columns: list = [
         Column("id", BigInteger, Identity(always=False), primary_key=True),
@@ -168,6 +183,7 @@ def build_general_customer_shop_table() -> Table:
 INVENTORY_TABLE = build_inventory_table()
 INVENTORY_DETAIL_TABLE = build_inventory_detail_table()
 INVENTORY_ACCOUNT_SUBJECT_TABLE = build_inventory_account_subject_table()
+PURCHASE_ORDER_REQUIREMENT_TABLE = build_purchase_order_requirement_table()
 SUPPLIER_TABLE = build_supplier_table()
 WAREHOUSE_TABLE = build_warehouse_table()
 GENERAL_CUSTOMER_BRAND_TABLE = build_general_customer_brand_table()

@@ -24,6 +24,7 @@ GENERAL_CUSTOMER_SHOP_TABLE_NAME = "general_customer_shops"
 INVENTORY_DETAIL_TABLE_NAME = "inventory_details"
 INVENTORY_ACCOUNT_SUBJECT_TABLE_NAME = "inventory_account_subjects"
 JST_STOCK_TABLE_NAME = "jst_daily_stock"
+PURCHASE_ORDER_REQUIREMENT_TABLE_NAME = "purchase_order_requirement_templates"
 
 JST_STOCK_COLUMNS = field_names(JST_STOCK_FIELDS)
 
