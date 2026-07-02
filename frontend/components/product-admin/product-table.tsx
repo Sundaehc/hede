@@ -29,6 +29,7 @@ type ProductTableProps = {
   onBatchDelete?: () => void
   onEdit?: (item: ProductListItem) => void
   onDelete?: (item: ProductListItem) => void
+  onPreviewImage?: (item: ProductListItem) => void
   onPageChange: (page: number) => void
   onPageSizeChange: (size: number) => void
   onClearSelection?: () => void
@@ -64,8 +65,9 @@ function buildPageRange(current: number, total: number): (number | "ellipsis")[]
   return pages
 }
 
-function ProductImage({ item }: { item: ProductListItem }) {
+function ProductImage({ item, onPreviewImage }: { item: ProductListItem; onPreviewImage?: (item: ProductListItem) => void }) {
   const src = item.image_url ? `/api${item.image_url}` : null
+  const alt = item.sku || item.original_sku || "商品图片"
 
   if (!src) {
     return (
@@ -75,23 +77,42 @@ function ProductImage({ item }: { item: ProductListItem }) {
     )
   }
 
+  if (!onPreviewImage) {
+    return (
+      <img
+        src={src}
+        alt={alt}
+        className="h-32 w-32 shrink-0 object-contain"
+        loading="lazy"
+      />
+    )
+  }
+
   return (
-    <img
-      src={src}
-      alt={item.sku || item.original_sku || "商品图片"}
-      className="h-32 w-32 shrink-0 object-contain"
-      loading="lazy"
-    />
+    <button
+      type="button"
+      className="inline-flex h-32 w-32 shrink-0 cursor-zoom-in items-center justify-center rounded-lg focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+      onClick={() => onPreviewImage?.(item)}
+      aria-label={`查看原图 ${alt}`}
+    >
+      <img
+        src={src}
+        alt={alt}
+        className="h-32 w-32 object-contain"
+        loading="lazy"
+      />
+    </button>
   )
 }
 
-function ProductCard({ item, selectable, selectedIds, onToggleSelect, onEdit, onDelete }: {
+function ProductCard({ item, selectable, selectedIds, onToggleSelect, onEdit, onDelete, onPreviewImage }: {
   item: ProductListItem
   selectable?: boolean
   selectedIds: Set<number>
   onToggleSelect: (id: number) => void
   onEdit?: (item: ProductListItem) => void
   onDelete?: (item: ProductListItem) => void
+  onPreviewImage?: (item: ProductListItem) => void
 }) {
   const checked = selectedIds.has(item.id)
 
@@ -106,7 +127,7 @@ function ProductCard({ item, selectable, selectedIds, onToggleSelect, onEdit, on
           className="h-4 w-4 shrink-0 cursor-pointer rounded border border-input accent-primary"
         />
       ) : null}
-      <ProductImage item={item} />
+      <ProductImage item={item} onPreviewImage={onPreviewImage} />
       <div className="flex min-w-0 flex-1 flex-col gap-2">
         {/* Header: SKU + actions */}
         <div className="flex items-start justify-between gap-2">
@@ -193,6 +214,7 @@ export function ProductTable({
   onBatchDelete,
   onEdit,
   onDelete,
+  onPreviewImage,
   onPageChange,
   onPageSizeChange,
   onClearSelection,
@@ -297,6 +319,7 @@ export function ProductTable({
               onToggleSelect={onToggleSelect}
               onEdit={onEdit}
               onDelete={onDelete}
+              onPreviewImage={onPreviewImage}
             />
           ))
         )}

@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import io
+
 from fastapi.testclient import TestClient
+from openpyxl import Workbook
 
 from transform.rows import build_admin_record
 
@@ -210,3 +213,58 @@ def test_product_payload_forbids_extra_fields(test_app_client: TestClient):
     )
 
     assert response.status_code == 422
+
+
+def test_import_products_updates_by_original_sku_without_clearing_blank_cells(
+    test_app_client: TestClient,
+    repository,
+):
+    existing = repository.create_product(
+        "cbanner_mens",
+        build_admin_record(
+            "cbanner_mens",
+            {
+                "sku": "SKU-OLD",
+                "original_sku": "ORIG-001",
+                "color": "黑色",
+                "upper_material": "牛皮",
+                "execution_standard": "QB/T 1002",
+                "season_category": "春秋",
+            },
+        ),
+    )
+
+    workbook = Workbook()
+    worksheet = workbook.active
+    worksheet.append(["货号", "原始货号", "颜色", "鞋面材质", "执行标准", "季节分类"])
+    worksheet.append(["", "ORIG-001", "白色", "", "", ""])
+    buffer = io.BytesIO()
+    workbook.save(buffer)
+    buffer.seek(0)
+
+    response = test_app_client.post(
+        "/import",
+        params={"brand": "cbanner_mens"},
+        files={
+            "file": (
+                "partial-products.xlsx",
+                buffer.getvalue(),
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            ),
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["created"] == 0
+    assert body["updated"] == 1
+
+    updated = repository.get_product("cbanner_mens", existing["id"])
+    assert updated is not None
+    assert updated["color"] == "白色"
+    assert updated["upper_material"] == "牛皮"
+    assert updated["execution_standard"] == "QB/T 1002"
+    assert updated["season_category"] == "春秋"
+
+    listing = repository.list_products("cbanner_mens", query="ORIG-001", page=1, page_size=10)
+    assert listing["total"] == 1

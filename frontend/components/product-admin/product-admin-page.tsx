@@ -1,12 +1,15 @@
 "use client"
 
 import { useCallback, useEffect, useState } from "react"
+import { X } from "lucide-react"
 
 import { ConfirmDialog, MessageDialog } from "@/components/confirm-dialog"
 import { ProductFormDialog } from "@/components/product-admin/product-form-dialog"
 import { ProductTable } from "@/components/product-admin/product-table"
 import { ProductTabs } from "@/components/product-admin/product-tabs"
 import { ProductToolbar } from "@/components/product-admin/product-toolbar"
+import { Button } from "@/components/ui/button"
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Tabs, TabsContent } from "@/components/ui/tabs"
 
 import { BRANDS, type BrandKey } from "@/lib/brands"
@@ -46,6 +49,7 @@ export function ProductAdminPage() {
   const [isDialogOpen, setIsDialogOpen] = useState(false)
   const [dialogMode, setDialogMode] = useState<"create" | "edit">("create")
   const [selectedItem, setSelectedItem] = useState<ProductListItem | null>(null)
+  const [previewImage, setPreviewImage] = useState<{ src: string; alt: string } | null>(null)
 
   // Selection state
   const [selectedIds, setSelectedIds] = useState<Set<number>>(() => new Set())
@@ -311,6 +315,13 @@ export function ProductAdminPage() {
                 setIsDialogOpen(true)
               }}
               onDelete={isAllBrand(brand) ? undefined : handleDeleteRequest}
+              onPreviewImage={(item) => {
+                if (!item.image_url) return
+                setPreviewImage({
+                  src: `/api${item.image_url}`,
+                  alt: item.sku || item.original_sku || "商品图片",
+                })
+              }}
               onPageChange={setPage}
               onPageSizeChange={(size) => {
                 setPageSize(size)
@@ -361,6 +372,33 @@ export function ProductAdminPage() {
           description={messageContent.description}
           onClose={() => setMessageOpen(false)}
         />
+        <Dialog open={previewImage !== null} onOpenChange={(open) => !open && setPreviewImage(null)}>
+          <DialogContent className="max-h-[92svh] max-w-[min(94vw,1120px)] overflow-hidden bg-background p-0 shadow-2xl">
+            <DialogHeader className="flex flex-row items-center justify-between gap-4 border-b border-border px-4 py-3 sm:px-5">
+              <DialogTitle className="text-base font-semibold">原图预览</DialogTitle>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8 shrink-0"
+                onClick={() => setPreviewImage(null)}
+                aria-label="关闭原图预览"
+              >
+                <X className="h-4 w-4" />
+              </Button>
+            </DialogHeader>
+            {previewImage ? (
+              <div className="flex h-[min(78svh,760px)] items-center justify-center bg-muted/20 p-4 sm:p-6">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={previewImage.src}
+                  alt={previewImage.alt}
+                  className="max-h-full w-auto max-w-full rounded-md object-contain shadow-sm"
+                />
+              </div>
+            ) : null}
+          </DialogContent>
+        </Dialog>
       </div>
     </div>
   )

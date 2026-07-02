@@ -517,9 +517,11 @@ async def import_products(
         if extra_fields:
             payload["extra_fields"] = extra_fields
 
-        # Match by sku only
         sku_val = str(payload.get("sku", "") or "").strip()
+        original_sku_val = str(payload.get("original_sku", "") or "").strip()
         existing = repository.find_by_sku(brand, sku_val) if sku_val else None
+        if existing is None and original_sku_val:
+            existing = repository.find_by_original_sku(brand, original_sku_val)
 
         if sku_val:
             imported_skus.append(sku_val)
