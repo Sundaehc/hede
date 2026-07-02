@@ -5,7 +5,7 @@ import secrets
 from collections.abc import Mapping
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import and_, create_engine, func, insert, select, update
+from sqlalchemy import and_, create_engine, delete, func, insert, select, update
 
 from domain.auth_schema import AUTH_DEPARTMENT_TABLE, AUTH_ROLE_TABLE, AUTH_SESSION_TABLE, AUTH_USER_TABLE, METADATA
 
@@ -14,17 +14,27 @@ SESSION_COOKIE_NAME = "hede_session"
 SESSION_MAX_AGE_SECONDS = 30 * 24 * 60 * 60
 
 DEPARTMENTS = [
-    {"code": "finance", "name": "财务部"},
-    {"code": "product", "name": "商品部"},
-    {"code": "operation", "name": "运营部"},
-    {"code": "design", "name": "美工部"},
+    {"code": "财务部", "name": "财务部"},
+    {"code": "商品部", "name": "商品部"},
+    {"code": "运营部", "name": "运营部"},
+    {"code": "美工部", "name": "美工部"},
 ]
 
+LEGACY_DEPARTMENT_CODE_MAP = {
+    "finance": "财务部",
+    "product": "商品部",
+    "operation": "运营部",
+    "design": "美工部",
+    "财务组": "财务部",
+    "商品组": "商品部",
+    "运营组": "运营部",
+}
+
 DEFAULT_ROLE_BY_DEPARTMENT = {
-    "finance": "finance_user",
-    "product": "product_user",
-    "operation": "operation_user",
-    "design": "design_viewer",
+    "财务部": "finance_user",
+    "商品部": "product_user",
+    "运营部": "operation_user",
+    "美工部": "design_viewer",
 }
 
 DEFAULT_ROLES = [
@@ -37,29 +47,29 @@ DEFAULT_ROLES = [
     },
     {
         "code": "finance_user",
-        "name": "财务部用户",
-        "department_code": "finance",
+        "name": "财务组",
+        "department_code": "财务部",
         "description": "查看商品、经营历程和采购相关数据，允许导出",
         "permissions": "product.view,product.export,fine_table.view,fine_table.export,inventory.view,inventory.export,purchase.view,purchase.export",
     },
     {
         "code": "product_user",
-        "name": "商品部用户",
-        "department_code": "product",
-        "description": "维护商品档案和采购单",
-        "permissions": "product.view,product.manage,product.import,product.export,fine_table.view,purchase.view,purchase.manage,purchase.import,purchase.export,inventory.view",
+        "name": "商品组",
+        "department_code": "商品部",
+        "description": "维护商品档案和采购单，允许精细表导出",
+        "permissions": "product.view,product.manage,product.import,product.export,fine_table.view,fine_table.export,purchase.view,purchase.manage,purchase.import,purchase.export,inventory.view",
     },
     {
         "code": "operation_user",
-        "name": "运营部用户",
-        "department_code": "operation",
-        "description": "查看和导出商品档案、精细表、经营数据",
-        "permissions": "product.view,product.export,fine_table.view,fine_table.export,inventory.view,purchase.view",
+        "name": "运营组",
+        "department_code": "运营部",
+        "description": "维护商品档案，查看和导出商品档案、精细表、经营数据",
+        "permissions": "product.view,product.manage,product.import,product.export,fine_table.view,fine_table.export,inventory.view,purchase.view",
     },
     {
         "code": "design_viewer",
         "name": "美工部只读",
-        "department_code": "design",
+        "department_code": "美工部",
         "description": "只允许查看商品信息档案",
         "permissions": "product.view",
     },
@@ -85,6 +95,11 @@ def _split_permissions(value: object) -> list[str]:
     return [item.strip() for item in text.split(",") if item.strip()]
 
 
+def normalize_department_code(value: object) -> str:
+    code = str(value or "").strip()
+    return LEGACY_DEPARTMENT_CODE_MAP.get(code, code)
+
+
 class AuthRepository:
     def __init__(self, database_url: str):
         self.engine = create_engine(database_url, future=True)
@@ -95,6 +110,34 @@ class AuthRepository:
 
     def seed_defaults(self) -> None:
         with self.engine.begin() as connection:
+            for old_code, new_code in LEGACY_DEPARTMENT_CODE_MAP.items():
+                if old_code == new_code:
+                    continue
+                connection.execute(
+                    update(AUTH_USER_TABLE)
+                    .where(AUTH_USER_TABLE.c.department_code == old_code)
+                    .values(department_code=new_code)
+                )
+                connection.execute(
+                    update(AUTH_ROLE_TABLE)
+                    .where(AUTH_ROLE_TABLE.c.department_code == old_code)
+                    .values(department_code=new_code)
+                )
+                old_department = connection.execute(
+                    select(AUTH_DEPARTMENT_TABLE.c.id).where(AUTH_DEPARTMENT_TABLE.c.code == old_code)
+                ).first()
+                new_department = connection.execute(
+                    select(AUTH_DEPARTMENT_TABLE.c.id).where(AUTH_DEPARTMENT_TABLE.c.code == new_code)
+                ).first()
+                if old_department is not None and new_department is None:
+                    connection.execute(
+                        update(AUTH_DEPARTMENT_TABLE)
+                        .where(AUTH_DEPARTMENT_TABLE.c.code == old_code)
+                        .values(code=new_code, name=new_code)
+                    )
+                elif old_department is not None:
+                    connection.execute(delete(AUTH_DEPARTMENT_TABLE).where(AUTH_DEPARTMENT_TABLE.c.code == old_code))
+
             for department in DEPARTMENTS:
                 existing = connection.execute(
                     select(AUTH_DEPARTMENT_TABLE.c.id).where(AUTH_DEPARTMENT_TABLE.c.code == department["code"])
@@ -145,7 +188,7 @@ class AuthRepository:
         username = str(payload.get("username") or "").strip()
         password = str(payload.get("password") or "")
         display_name = str(payload.get("display_name") or username).strip()
-        department_code = str(payload.get("department_code") or "").strip()
+        department_code = normalize_department_code(payload.get("department_code"))
         if not username or not password or not department_code:
             raise ValueError("username, password and department_code are required")
 
@@ -251,7 +294,7 @@ class AuthRepository:
         values: dict[str, object] = {}
         for key in ("display_name", "department_code", "role_code", "status"):
             if key in payload and payload[key] is not None:
-                values[key] = str(payload[key]).strip()
+                values[key] = normalize_department_code(payload[key]) if key == "department_code" else str(payload[key]).strip()
         password = payload.get("password")
         if password is not None and str(password):
             values["password_hash"] = hash_password_md5(str(password))

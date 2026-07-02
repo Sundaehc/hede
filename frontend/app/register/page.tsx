@@ -21,7 +21,7 @@ export default function RegisterPage() {
   const [username, setUsername] = useState("")
   const [displayName, setDisplayName] = useState("")
   const [password, setPassword] = useState("")
-  const [departmentCode, setDepartmentCode] = useState("product")
+  const [departmentCode, setDepartmentCode] = useState("商品部")
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState("")
 
@@ -31,13 +31,13 @@ export default function RegisterPage() {
         const response = await getAuthOptions()
         setDepartments(response.departments)
         setHasUsers(response.has_users)
-        setDepartmentCode(response.departments[0]?.code ?? "product")
+        setDepartmentCode(response.departments[0]?.code ?? "商品部")
       } catch {
         setDepartments([
-          { id: 1, code: "finance", name: "财务部" },
-          { id: 2, code: "product", name: "商品部" },
-          { id: 3, code: "operation", name: "运营部" },
-          { id: 4, code: "design", name: "美工部" },
+          { id: 1, code: "财务部", name: "财务部" },
+          { id: 2, code: "商品部", name: "商品部" },
+          { id: 3, code: "运营部", name: "运营部" },
+          { id: 4, code: "美工部", name: "美工部" },
         ])
       }
     }
@@ -95,7 +95,7 @@ export default function RegisterPage() {
                 <option key={department.code} value={department.code}>{department.name}</option>
               ))}
             </Select>
-            {departmentCode === "design" ? <p className="text-xs text-muted-foreground">美工部默认只可查看商品信息档案。</p> : null}
+            {departmentCode === "美工部" || departmentCode === "design" ? <p className="text-xs text-muted-foreground">美工部默认只可查看商品信息档案。</p> : null}
           </div>
           <div className="space-y-1.5">
             <label className="text-xs font-medium text-muted-foreground" htmlFor="register-password">密码</label>

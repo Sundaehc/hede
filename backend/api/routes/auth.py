@@ -11,7 +11,7 @@ from storage.auth_repository import SESSION_COOKIE_NAME, SESSION_MAX_AGE_SECONDS
 router = APIRouter(prefix="/auth")
 
 
-DepartmentCode = Literal["finance", "product", "operation", "design"]
+DepartmentCode = Literal["财务部", "商品部", "运营部", "美工部", "finance", "product", "operation", "design", "财务组", "商品组", "运营组"]
 StatusCode = Literal["active", "disabled"]
 
 
