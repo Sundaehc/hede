@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useRef, useState } from "react"
-import { ImagePlus } from "lucide-react"
+import { History, ImagePlus } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
@@ -14,12 +14,16 @@ type ProductToolbarProps = {
   value: string
   isLoading: boolean
   selectedIds?: Set<number>
+  canExport?: boolean
+  canImport?: boolean
+  canRefreshImages?: boolean
   onValueChange: (value: string) => void
   onSearch: () => void
   onClear: () => void
   onRefresh: () => void
   onImportComplete: (skus: string[]) => void
   onCreate?: () => void
+  onOpenLogs?: () => void
   onMessage: (title: string, description: string) => void
 }
 
@@ -28,12 +32,16 @@ export function ProductToolbar({
   value,
   isLoading,
   selectedIds,
+  canExport = true,
+  canImport = true,
+  canRefreshImages = true,
   onValueChange,
   onSearch,
   onClear,
   onRefresh,
   onImportComplete,
   onCreate,
+  onOpenLogs,
   onMessage,
 }: ProductToolbarProps) {
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -163,6 +171,7 @@ export function ProductToolbar({
 
   const hasMultipleLines = value.includes("\n") || value.includes(",") || value.includes("，")
   const hasSelection = brand !== "all" && selectedIds && selectedIds.size > 0
+  const showActions = canExport || onCreate
   const lastImageRun = imageRefreshStatus?.last_run
   const imageStatusText = imageRefreshStatus?.in_progress
     ? "图片刷新任务正在后台运行"
@@ -202,41 +211,58 @@ export function ProductToolbar({
           <Button type="button" variant="outline" size="sm" onClick={onRefresh} disabled={isLoading} className="cursor-pointer">
             刷新
           </Button>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={() => void handleRefreshImages()}
-            disabled={refreshingImages || imageRefreshStatus?.in_progress}
-            className="cursor-pointer"
-            title={brand === "all" ? "提交全部品牌图片刷新任务" : "提交当前品牌图片刷新任务"}
-          >
-            <ImagePlus className="h-3.5 w-3.5" />
-            {imageRefreshStatus?.in_progress ? "后台刷新中..." : refreshingImages ? "提交中..." : "刷新图片"}
-          </Button>
+          {onOpenLogs ? (
+            <Button type="button" variant="outline" size="sm" onClick={onOpenLogs} className="cursor-pointer">
+              <History className="h-3.5 w-3.5" />
+              操作日志
+            </Button>
+          ) : null}
+          {canRefreshImages ? (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => void handleRefreshImages()}
+              disabled={refreshingImages || imageRefreshStatus?.in_progress}
+              className="cursor-pointer"
+              title={brand === "all" ? "提交全部品牌图片刷新任务" : "提交当前品牌图片刷新任务"}
+            >
+              <ImagePlus className="h-3.5 w-3.5" />
+              {imageRefreshStatus?.in_progress ? "后台刷新中..." : refreshingImages ? "提交中..." : "刷新图片"}
+            </Button>
+          ) : null}
         </div>
       </div>
       <p className="text-xs text-muted-foreground">{imageStatusText}</p>
 
+      {showActions ? (
       <div className="flex items-center gap-2 border-t border-border pt-3">
-        <Button type="button" variant="outline" size="sm" onClick={() => void handleExport()} disabled={isLoading || exporting} className="cursor-pointer">
-          {exporting ? "导出中..." : hasSelection ? `导出选中 (${selectedIds!.size})` : "导出 Excel"}
-        </Button>
+        {canExport ? (
+          <Button type="button" variant="outline" size="sm" onClick={() => void handleExport()} disabled={isLoading || exporting} className="cursor-pointer">
+            {exporting ? "导出中..." : hasSelection ? `导出选中 (${selectedIds!.size})` : "导出 Excel"}
+          </Button>
+        ) : null}
         {onCreate ? (
           <>
-            <Button type="button" variant="outline" size="sm" onClick={() => void handleExport("with_sizes")} disabled={isLoading || exporting} className="cursor-pointer">
-              带尺码导出
-            </Button>
-            <Button type="button" variant="outline" size="sm" onClick={() => fileInputRef.current?.click()} disabled={importing} className="cursor-pointer">
-              {importing ? "导入中..." : "导入 Excel"}
-            </Button>
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept=".xlsx,.xls"
-              className="hidden"
-              onChange={(e) => void handleImport(e)}
-            />
+            {canExport ? (
+              <Button type="button" variant="outline" size="sm" onClick={() => void handleExport("with_sizes")} disabled={isLoading || exporting} className="cursor-pointer">
+                带尺码导出
+              </Button>
+            ) : null}
+            {canImport ? (
+              <>
+                <Button type="button" variant="outline" size="sm" onClick={() => fileInputRef.current?.click()} disabled={importing} className="cursor-pointer">
+                  {importing ? "导入中..." : "导入 Excel"}
+                </Button>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept=".xlsx,.xls"
+                  className="hidden"
+                  onChange={(e) => void handleImport(e)}
+                />
+              </>
+            ) : null}
             <div className="flex-1" />
             <Button type="button" size="sm" onClick={onCreate} className="cursor-pointer">
               <span>新增商品</span>
@@ -244,6 +270,7 @@ export function ProductToolbar({
           </>
         ) : null}
       </div>
+      ) : null}
     </div>
   )
 }

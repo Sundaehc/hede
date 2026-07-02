@@ -15,6 +15,16 @@ from openpyxl.utils import get_column_letter
 from sqlalchemy import desc, or_, select as sa_select
 
 from api.excel_export import style_excel_workbook, style_excel_worksheet
+from api.operation_log_utils import (
+    DETAIL_FIELD_LABELS,
+    INVENTORY_FIELD_LABELS,
+    build_changed_fields,
+    detail_entity_label,
+    inventory_entity_label,
+    inventory_module_for_record,
+    summarize_changes,
+    write_operation_log,
+)
 from domain.color_barcode_schema import COLOR_BARCODE_TABLE
 from domain.gj_brand import CBANNER_MENS_BRAND, CBANNER_WOMENS_BRAND, EBLAN_BRAND, NI_BRAND, SMILEY_BRAND, SUPPLIER_BRANDS, YANDOU_BRAND, infer_supplier_brand_from_name
 from domain.gj_schema import GJ_MERGED_PRODUCT_INFO_TABLE
@@ -410,6 +420,59 @@ def _purchase_detail_completion_text(extra_fields: dict[str, object]) -> str:
         extra_fields.get("complete_rate"),
         extra_fields.get("完成率"),
         extra_fields.get("完成率%"),
+    )
+
+
+def _log_record_operation(
+    request: Request,
+    *,
+    action: str,
+    prefix: str,
+    before: dict[str, object] | None = None,
+    after: dict[str, object] | None = None,
+) -> None:
+    record = after or before or {}
+    label = inventory_entity_label(record)
+    changes = build_changed_fields(before, after, INVENTORY_FIELD_LABELS) if before and after else []
+    write_operation_log(
+        request,
+        module=inventory_module_for_record(record),
+        action=action,
+        entity_type="inventory_record",
+        entity_id=record.get("id"),
+        entity_label=label,
+        summary=summarize_changes(prefix, label, changes) if changes else f"{prefix} {label}".strip(),
+        changed_fields=changes,
+        before_data=before,
+        after_data=after,
+    )
+
+
+def _log_detail_operation(
+    request: Request,
+    *,
+    action: str,
+    prefix: str,
+    record: dict[str, object] | None,
+    before: dict[str, object] | None = None,
+    after: dict[str, object] | None = None,
+) -> None:
+    detail = after or before or {}
+    label = detail_entity_label(detail)
+    changes = build_changed_fields(before, after, DETAIL_FIELD_LABELS) if before and after else []
+    record_label = inventory_entity_label(record)
+    summary_prefix = f"{prefix} {record_label} 的明细" if record_label else f"{prefix}明细"
+    write_operation_log(
+        request,
+        module=inventory_module_for_record(record),
+        action=action,
+        entity_type="inventory_detail",
+        entity_id=detail.get("id"),
+        entity_label=label,
+        summary=summarize_changes(summary_prefix, label, changes) if changes else f"{summary_prefix} {label}".strip(),
+        changed_fields=changes,
+        before_data=before,
+        after_data=after,
     )
 
 
@@ -2260,6 +2323,7 @@ async def import_purchase_inventory(request: Request, file: UploadFile = None):
     created_docs = 0
     created_details = 0
     first_doc: dict[str, object] | None = None
+    created_records: list[dict[str, object]] = []
     for plan in plans:
         details = plan["details"] if isinstance(plan.get("details"), list) else []
         total_count = sum((_to_decimal(detail.get("quantity")) for detail in details), Decimal("0"))
@@ -2284,6 +2348,7 @@ async def import_purchase_inventory(request: Request, file: UploadFile = None):
         doc = repository.create_record(doc_payload)
         if first_doc is None:
             first_doc = doc
+        created_records.append(doc)
         created_docs += 1
         detail_payloads = []
         for detail in details:
@@ -2293,6 +2358,21 @@ async def import_purchase_inventory(request: Request, file: UploadFile = None):
         repository.create_details(detail_payloads, doc["id"])
         created_details += len(detail_payloads)
 
+    write_operation_log(
+        request,
+        module="purchase" if document_type == "进货订单" else "inventory",
+        action="import_purchase",
+        entity_type="inventory_record",
+        entity_label=file.filename or "采购/进销存导入",
+        summary=f"导入{document_type}：新增 {created_docs} 条单据，{created_details} 条明细",
+        after_data={
+            "filename": file.filename,
+            "document_type": document_type,
+            "documents": created_records[:200],
+            "document_count": created_docs,
+            "detail_count": created_details,
+        },
+    )
     return {
         "created": created_docs,
         "details": created_details,
@@ -2347,6 +2427,16 @@ def update_purchase_order_requirement(request: Request, brand: str, payload: dic
     item = repository.upsert_purchase_order_requirement_template(
         normalized_brand,
         "" if content is None else str(content),
+    )
+    write_operation_log(
+        request,
+        module="purchase",
+        action="update_requirement",
+        entity_type="purchase_order_requirement",
+        entity_id=normalized_brand,
+        entity_label=PURCHASE_ORDER_REQUIREMENT_BRAND_LABELS.get(normalized_brand, normalized_brand),
+        summary=f"修改订单要求 {PURCHASE_ORDER_REQUIREMENT_BRAND_LABELS.get(normalized_brand, normalized_brand)}",
+        after_data=item,
     )
     return {
         "item": {
@@ -2550,12 +2640,17 @@ def create_inventory_record(request: Request, payload: dict):
             ).first()
             if existing:
                 raise HTTPException(status_code=400, detail=f"摘要 '{summary}' 已存在")
-    return {"item": repository.create_record(payload), "message": "创建成功"}
+    record = repository.create_record(payload)
+    _log_record_operation(request, action="create", prefix="新增单据", after=record)
+    return {"item": record, "message": "创建成功"}
 
 
 @router.put("/inventory/{record_id}")
 def update_inventory_record(request: Request, record_id: int, payload: dict):
     repository = request.app.state.inventory_repository
+    before = repository.get_record(record_id)
+    if before is None:
+        raise HTTPException(status_code=404, detail="Record not found")
     if payload.get("date"):
         payload["date"] = _normalize_date(str(payload["date"]))
     if "document_type" in payload:
@@ -2563,23 +2658,30 @@ def update_inventory_record(request: Request, record_id: int, payload: dict):
     record = repository.update_record(record_id, payload)
     if record is None:
         raise HTTPException(status_code=404, detail="Record not found")
+    _log_record_operation(request, action="update", prefix="编辑单据", before=before, after=record)
     return {"item": record, "message": "更新成功"}
 
 
 @router.delete("/inventory/{record_id}")
 def delete_inventory_record(request: Request, record_id: int):
     repository = request.app.state.inventory_repository
+    before = repository.get_record(record_id)
+    if before is None:
+        raise HTTPException(status_code=404, detail="Record not found")
     if not repository.delete_record(record_id):
         raise HTTPException(status_code=404, detail="Record not found")
+    _log_record_operation(request, action="delete", prefix="移入回收站", before=before)
     return {"message": "已移入回收站，10 天内可恢复"}
 
 
 @router.post("/inventory/{record_id}/restore")
 def restore_inventory_record(request: Request, record_id: int):
     repository = request.app.state.inventory_repository
+    before = repository.get_record_any_status(record_id)
     record = repository.restore_record(record_id)
     if record is None:
         raise HTTPException(status_code=404, detail="Record not found")
+    _log_record_operation(request, action="restore", prefix="恢复单据", before=before, after=record)
     return {"item": record, "message": "恢复成功"}
 
 
@@ -2595,7 +2697,21 @@ def batch_restore_inventory(request: Request, payload: dict):
         except (TypeError, ValueError):
             raise HTTPException(status_code=400, detail="ids 中包含非法编号") from None
     repository = request.app.state.inventory_repository
+    before_records = [record for record_id in record_ids if (record := repository.get_record_any_status(record_id)) is not None]
     restored = repository.restore_records(record_ids)
+    grouped: dict[str, list[dict[str, object]]] = defaultdict(list)
+    for record in before_records:
+        grouped[inventory_module_for_record(record)].append(record)
+    for module, records in grouped.items():
+        write_operation_log(
+            request,
+            module=module,
+            action="batch_restore",
+            entity_type="inventory_record",
+            entity_label=f"{len(records)} 条单据",
+            summary=f"批量恢复单据 {len(records)} 条",
+            after_data={"ids": [record.get("id") for record in records], "records": records[:200]},
+        )
     return {"restored": restored, "message": f"已恢复 {restored} 条记录"}
 
 
@@ -2611,7 +2727,21 @@ def batch_permanently_delete_inventory(request: Request, payload: dict):
         except (TypeError, ValueError):
             raise HTTPException(status_code=400, detail="ids 中包含非法编号") from None
     repository = request.app.state.inventory_repository
+    before_records = [record for record_id in record_ids if (record := repository.get_record_any_status(record_id)) is not None]
     deleted = repository.permanently_delete_records(record_ids)
+    grouped: dict[str, list[dict[str, object]]] = defaultdict(list)
+    for record in before_records:
+        grouped[inventory_module_for_record(record)].append(record)
+    for module, records in grouped.items():
+        write_operation_log(
+            request,
+            module=module,
+            action="batch_permanent_delete",
+            entity_type="inventory_record",
+            entity_label=f"{len(records)} 条单据",
+            summary=f"彻底删除回收站单据 {len(records)} 条",
+            before_data={"ids": [record.get("id") for record in records], "records": records[:200]},
+        )
     return {"deleted": deleted, "message": f"已彻底删除 {deleted} 条单据"}
 
 
@@ -2619,7 +2749,27 @@ def batch_permanently_delete_inventory(request: Request, payload: dict):
 def batch_delete_inventory(request: Request, payload: dict):
     ids = payload.get("ids", [])
     repository = request.app.state.inventory_repository
-    deleted = repository.delete_records(ids)
+    record_ids = []
+    for value in ids:
+        try:
+            record_ids.append(int(value))
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=400, detail="ids 中包含非法编号") from None
+    before_records = [record for record_id in record_ids if (record := repository.get_record(record_id)) is not None]
+    deleted = repository.delete_records(record_ids)
+    grouped: dict[str, list[dict[str, object]]] = defaultdict(list)
+    for record in before_records:
+        grouped[inventory_module_for_record(record)].append(record)
+    for module, records in grouped.items():
+        write_operation_log(
+            request,
+            module=module,
+            action="batch_delete",
+            entity_type="inventory_record",
+            entity_label=f"{len(records)} 条单据",
+            summary=f"批量移入回收站 {len(records)} 条单据",
+            before_data={"ids": [record.get("id") for record in records], "records": records[:200]},
+        )
     return {"deleted": deleted, "message": f"已移入回收站 {deleted} 条记录，10 天内可恢复"}
 
 
@@ -2637,6 +2787,7 @@ async def replace_inventory_details_from_excel(request: Request, record_id: int,
     record = repository.get_record(record_id)
     if record is None:
         raise HTTPException(status_code=404, detail="Record not found")
+    before_details = repository.list_details(record_id)
 
     form = await request.form()
     document_type = normalize_document_type(record.get("document_type"))
@@ -2660,6 +2811,17 @@ async def replace_inventory_details_from_excel(request: Request, record_id: int,
         "source_sheet": sheet_name or record.get("source_sheet") or "",
         "source_row_number": "replace_details",
     })
+    write_operation_log(
+        request,
+        module=inventory_module_for_record(record),
+        action="replace_details_import",
+        entity_type="inventory_detail",
+        entity_id=record_id,
+        entity_label=inventory_entity_label(record),
+        summary=f"重新导入并覆盖 {inventory_entity_label(record)} 的明细：{len(before_details)} 条 -> {len(details)} 条",
+        before_data={"details": before_details[:200], "count": len(before_details)},
+        after_data={"details": detail_payloads[:200], "count": len(details), "filename": file.filename},
+    )
     return {
         "updated": 1,
         "details": len(details),
@@ -2670,17 +2832,29 @@ async def replace_inventory_details_from_excel(request: Request, record_id: int,
 @router.post("/inventory/{record_id}/details")
 def create_inventory_detail(request: Request, record_id: int, payload: dict):
     repository = request.app.state.inventory_repository
+    record = repository.get_record(record_id)
+    if record is None:
+        raise HTTPException(status_code=404, detail="Record not found")
     payload["document_id"] = record_id
-    return {"item": repository.create_detail(payload), "message": "明细添加成功"}
+    detail = repository.create_detail(payload)
+    _log_detail_operation(request, action="detail_create", prefix="新增", record=record, after=detail)
+    return {"item": detail, "message": "明细添加成功"}
 
 
 @router.put("/inventory/{record_id}/details/{detail_id}")
 def update_inventory_detail(request: Request, record_id: int, detail_id: int, payload: dict):
     repository = request.app.state.inventory_repository
+    record = repository.get_record(record_id)
+    if record is None:
+        raise HTTPException(status_code=404, detail="Record not found")
+    before = repository.get_detail(detail_id)
+    if before is None:
+        raise HTTPException(status_code=404, detail="Detail not found")
     payload["document_id"] = record_id
     detail = repository.update_detail(detail_id, payload)
     if detail is None:
         raise HTTPException(status_code=404, detail="Detail not found")
+    _log_detail_operation(request, action="detail_update", prefix="编辑", record=record, before=before, after=detail)
     return {"item": detail, "message": "明细更新成功"}
 
 
@@ -2696,15 +2870,36 @@ def batch_delete_inventory_details(request: Request, record_id: int, payload: di
         except (TypeError, ValueError):
             raise HTTPException(status_code=400, detail="明细 ID 格式错误")
     repository = request.app.state.inventory_repository
+    record = repository.get_record(record_id)
+    if record is None:
+        raise HTTPException(status_code=404, detail="Record not found")
+    before_details = [detail for detail_id in detail_ids if (detail := repository.get_detail(detail_id)) is not None]
     deleted = repository.delete_details(record_id, detail_ids)
+    write_operation_log(
+        request,
+        module=inventory_module_for_record(record),
+        action="detail_batch_delete",
+        entity_type="inventory_detail",
+        entity_id=record_id,
+        entity_label=inventory_entity_label(record),
+        summary=f"批量删除 {inventory_entity_label(record)} 的明细 {deleted} 条",
+        before_data={"details": before_details[:200], "count": len(before_details)},
+    )
     return {"deleted": deleted, "message": f"已删除 {deleted} 条明细"}
 
 
 @router.delete("/inventory/{record_id}/details/{detail_id}")
 def delete_inventory_detail(request: Request, record_id: int, detail_id: int):
     repository = request.app.state.inventory_repository
+    record = repository.get_record(record_id)
+    if record is None:
+        raise HTTPException(status_code=404, detail="Record not found")
+    before = repository.get_detail(detail_id)
+    if before is None:
+        raise HTTPException(status_code=404, detail="Detail not found")
     if not repository.delete_detail(detail_id):
         raise HTTPException(status_code=404, detail="Detail not found")
+    _log_detail_operation(request, action="detail_delete", prefix="删除", record=record, before=before)
     return {"message": "明细删除成功"}
 
 
@@ -2725,6 +2920,20 @@ def batch_update_inventory_costs(request: Request, payload: dict):
         date_start=date_start,
         date_end=date_end,
         price_updates=updates,
+    )
+    write_operation_log(
+        request,
+        module="inventory",
+        action="batch_update_costs",
+        entity_type="inventory_detail",
+        entity_label=f"{result['updated_details']} 条明细",
+        summary=f"批量改成本价：更新 {result['updated_details']} 条明细，涉及 {result['updated_documents']} 张单据",
+        after_data={
+            "date_start": date_start,
+            "date_end": date_end,
+            "updates": updates,
+            "result": result,
+        },
     )
     return {
         **result,
@@ -2852,6 +3061,7 @@ async def import_inventory(request: Request, file: UploadFile = None):
     created_docs = 0
     created_details = 0
     skipped_docs = 0
+    created_records: list[dict[str, object]] = []
 
     from domain.inventory_schema import INVENTORY_TABLE
     from sqlalchemy import select as sa_select
@@ -2880,6 +3090,7 @@ async def import_inventory(request: Request, file: UploadFile = None):
 
         try:
             doc = repository.create_record(doc_payload)
+            created_records.append(doc)
             created_docs += 1
             doc_id = doc["id"]
 
@@ -2916,4 +3127,21 @@ async def import_inventory(request: Request, file: UploadFile = None):
         msg += f"，新增供应商 {supplier_added} 个"
     if warehouse_added > 0:
         msg += f"，新增仓库 {warehouse_added} 个"
+    write_operation_log(
+        request,
+        module="inventory",
+        action="import",
+        entity_type="inventory_record",
+        entity_label=file.filename or "进销存导入",
+        summary=f"导入进销存：新增 {created_docs} 条单据，{created_details} 条明细，跳过 {skipped_docs} 条",
+        after_data={
+            "filename": file.filename,
+            "documents": created_records[:200],
+            "document_count": created_docs,
+            "detail_count": created_details,
+            "skipped": skipped_docs,
+            "supplier_added": supplier_added,
+            "warehouse_added": warehouse_added,
+        },
+    )
     return {"created": created_docs, "details": created_details, "skipped": skipped_docs, "message": msg}

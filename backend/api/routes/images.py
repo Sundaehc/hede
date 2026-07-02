@@ -7,6 +7,7 @@ from fastapi import APIRouter, BackgroundTasks, HTTPException, Request
 from fastapi.responses import FileResponse
 
 from api.fine_table_cache import clear_fine_table_cache
+from api.operation_log_utils import actor_from_request
 from api.schemas import BrandKey, ImageLookupRequest, MatchSkuRequest
 from domain.sources import IMAGE_BRAND_KEYS, TABLE_NAMES
 from fileio.image_matcher import ImageMatcher
@@ -146,6 +147,8 @@ def refresh_product_images(
 ):
     repository = request.app.state.repository
     settings = request.app.state.settings
+    actor = actor_from_request(request)
+    operation_log_repository = getattr(request.app.state, "operation_log_repository", None)
     status = get_image_refresh_status()
     if status.get("in_progress"):
         return {
@@ -155,13 +158,25 @@ def refresh_product_images(
             "status": status,
         }
 
-    background_tasks.add_task(
-        run_product_image_refresh,
-        settings=settings,
-        repository=repository,
-        brand=brand,
-        overwrite=overwrite,
-    )
+    def run_and_log_refresh() -> None:
+        result = run_product_image_refresh(
+            settings=settings,
+            repository=repository,
+            brand=brand,
+            overwrite=overwrite,
+        )
+        if operation_log_repository is not None:
+            operation_log_repository.create_log(
+                module="product",
+                action="refresh_images",
+                entity_type="product_image",
+                entity_label=brand or "全部品牌",
+                summary=result.get("message") or "刷新商品图片",
+                after_data=result,
+                user=actor,
+            )
+
+    background_tasks.add_task(run_and_log_refresh)
     clear_fine_table_cache()
     return {
         "accepted": True,

@@ -3,7 +3,9 @@
 import { useCallback, useEffect, useState } from "react"
 import { X } from "lucide-react"
 
+import { useAuth } from "@/components/auth/auth-provider"
 import { ConfirmDialog, MessageDialog } from "@/components/confirm-dialog"
+import { OperationLogDialog } from "@/components/operation-log-dialog"
 import { ProductFormDialog } from "@/components/product-admin/product-form-dialog"
 import { ProductTable } from "@/components/product-admin/product-table"
 import { ProductTabs } from "@/components/product-admin/product-tabs"
@@ -34,6 +36,7 @@ function getErrorMessage(error: unknown) {
 }
 
 export function ProductAdminPage() {
+  const { hasPermission } = useAuth()
   const [brand, setBrand] = useState<BrandKey>(DEFAULT_BRAND)
   const [year, setYear] = useState("")
   const [availableYears, setAvailableYears] = useState<string[]>([])
@@ -50,6 +53,7 @@ export function ProductAdminPage() {
   const [dialogMode, setDialogMode] = useState<"create" | "edit">("create")
   const [selectedItem, setSelectedItem] = useState<ProductListItem | null>(null)
   const [previewImage, setPreviewImage] = useState<{ src: string; alt: string } | null>(null)
+  const [operationLogOpen, setOperationLogOpen] = useState(false)
 
   // Selection state
   const [selectedIds, setSelectedIds] = useState<Set<number>>(() => new Set())
@@ -215,6 +219,10 @@ export function ProductAdminPage() {
   }, [])
 
   const showBatchDelete = !isAllBrand(brand) && selectedIds.size > 0
+  const canManageProducts = hasPermission("product.manage")
+  const canExportProducts = hasPermission("product.export")
+  const canImportProducts = hasPermission("product.import")
+  const canSelectProducts = canManageProducts || canExportProducts
 
   return (
     <div className="app-page">
@@ -269,6 +277,9 @@ export function ProductAdminPage() {
               value={searchInput}
               isLoading={isLoading}
               selectedIds={selectedIds}
+              canExport={canExportProducts}
+              canImport={canImportProducts}
+              canRefreshImages={canManageProducts}
               onValueChange={setSearchInput}
               onSearch={() => {
                 setPage(1)
@@ -282,13 +293,14 @@ export function ProductAdminPage() {
               onRefresh={() => {
                 setReloadToken((current) => current + 1)
               }}
+              onOpenLogs={() => setOperationLogOpen(true)}
               onImportComplete={(skus: string[]) => {
                 const query = skus.join(",")
                 setSearchInput(query)
                 setSubmittedQuery(query)
                 setPage(1)
               }}
-              onCreate={isAllBrand(brand) ? undefined : () => {
+              onCreate={isAllBrand(brand) || !canManageProducts ? undefined : () => {
                 setDialogMode("create")
                 setSelectedItem(null)
                 setIsDialogOpen(true)
@@ -304,17 +316,17 @@ export function ProductAdminPage() {
               pageSizes={PAGE_SIZES}
               isLoading={isLoading}
               error={error}
-              selectable={!isAllBrand(brand)}
+              selectable={!isAllBrand(brand) && canSelectProducts}
               selectedIds={selectedIds}
               onToggleSelect={handleToggleSelect}
               onToggleSelectAll={handleToggleSelectAll}
-              onBatchDelete={showBatchDelete ? handleBatchDeleteRequest : undefined}
-              onEdit={isAllBrand(brand) ? undefined : (item) => {
+              onBatchDelete={showBatchDelete && canManageProducts ? handleBatchDeleteRequest : undefined}
+              onEdit={isAllBrand(brand) || !canManageProducts ? undefined : (item) => {
                 setDialogMode("edit")
                 setSelectedItem(item)
                 setIsDialogOpen(true)
               }}
-              onDelete={isAllBrand(brand) ? undefined : handleDeleteRequest}
+              onDelete={isAllBrand(brand) || !canManageProducts ? undefined : handleDeleteRequest}
               onPreviewImage={(item) => {
                 if (!item.image_url) return
                 setPreviewImage({
@@ -344,6 +356,13 @@ export function ProductAdminPage() {
             }
           }}
           onSaved={handleSaved}
+        />
+
+        <OperationLogDialog
+          module="product"
+          title="商品信息档案操作日志"
+          open={operationLogOpen}
+          onOpenChange={setOperationLogOpen}
         />
 
         <ConfirmDialog

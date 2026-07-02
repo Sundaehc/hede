@@ -3,6 +3,13 @@ from __future__ import annotations
 from fastapi import APIRouter, HTTPException, Query, Request
 
 from api.routes.images import image_url_for
+from api.operation_log_utils import (
+    PRODUCT_FIELD_LABELS,
+    build_changed_fields,
+    product_entity_label,
+    summarize_changes,
+    write_operation_log,
+)
 from api.fine_table_cache import clear_fine_table_cache
 from api.schemas import BatchDeleteRequest, BrandKey, ProductWriteRequest
 
@@ -141,6 +148,17 @@ def create_product(request: Request, body: ProductWriteRequest):
         raise HTTPException(status_code=400, detail="该货号已在永久排除清单中")
     item = request.app.state.repository.create_product(body.brand, record)
     clear_fine_table_cache()
+    label = product_entity_label(item)
+    write_operation_log(
+        request,
+        module="product",
+        action="create",
+        entity_type="product",
+        entity_id=item.get("id"),
+        entity_label=label,
+        summary=f"新增商品 {label}",
+        after_data={**item, "brand": body.brand},
+    )
     return {"item": {**item, "brand": body.brand}, "message": "Product created"}
 
 
@@ -169,15 +187,43 @@ def update_product(request: Request, brand: BrandKey, product_id: int, body: Pro
         # Re-check after the pre-read in case the row was deleted concurrently.
         raise HTTPException(status_code=404, detail="Product not found")
     clear_fine_table_cache()
+    label = product_entity_label(item)
+    changes = build_changed_fields(existing, item, PRODUCT_FIELD_LABELS)
+    write_operation_log(
+        request,
+        module="product",
+        action="update",
+        entity_type="product",
+        entity_id=product_id,
+        entity_label=label,
+        summary=summarize_changes("编辑商品", label, changes),
+        changed_fields=changes,
+        before_data={**existing, "brand": brand},
+        after_data={**item, "brand": brand},
+    )
     return {"item": {**item, "brand": brand}, "message": "Product updated"}
 
 
 @router.delete("/products/{brand}/{product_id}")
 def delete_product(request: Request, brand: BrandKey, product_id: int):
+    existing = request.app.state.repository.get_product(brand, product_id)
+    if existing is None:
+        raise HTTPException(status_code=404, detail="Product not found")
     deleted = request.app.state.repository.delete_product(brand, product_id)
     if not deleted:
         raise HTTPException(status_code=404, detail="Product not found")
     clear_fine_table_cache()
+    label = product_entity_label(existing)
+    write_operation_log(
+        request,
+        module="product",
+        action="delete",
+        entity_type="product",
+        entity_id=product_id,
+        entity_label=label,
+        summary=f"删除商品 {label}",
+        before_data={**existing, "brand": brand},
+    )
     return {"message": "Product deleted"}
 
 
@@ -185,6 +231,18 @@ def delete_product(request: Request, brand: BrandKey, product_id: int):
 def batch_delete_products(request: Request, body: BatchDeleteRequest):
     if not body.ids:
         raise HTTPException(status_code=400, detail="No ids provided")
+    existing_items = request.app.state.repository.get_products_by_ids(body.brand, body.ids)
     deleted = request.app.state.repository.delete_products(body.brand, body.ids)
     clear_fine_table_cache()
+    labels = [product_entity_label(item) for item in existing_items]
+    write_operation_log(
+        request,
+        module="product",
+        action="batch_delete",
+        entity_type="product",
+        entity_id=",".join(str(item.get("id")) for item in existing_items),
+        entity_label=f"{deleted} 条商品",
+        summary=f"批量删除商品 {deleted} 条",
+        before_data={"brand": body.brand, "items": existing_items[:200], "labels": labels[:200]},
+    )
     return {"deleted": deleted, "message": f"已删除 {deleted} 条商品"}

@@ -1,5 +1,67 @@
 import type { BrandKey } from "@/lib/brands"
 
+export type AuthUser = {
+  id: number
+  username: string
+  display_name: string
+  department_code: string
+  department_name: string
+  role_code: string
+  role_name: string
+  status: string
+  permissions: string[]
+  created_at?: string | null
+  updated_at?: string | null
+  last_login_at?: string | null
+}
+
+export type AuthDepartment = {
+  id: number
+  code: string
+  name: string
+}
+
+export type AuthRole = {
+  id: number
+  code: string
+  name: string
+  department_code: string | null
+  description: string | null
+  permissions: string[]
+}
+
+export type OperationLogChange = {
+  field: string
+  label: string
+  before: unknown
+  after: unknown
+}
+
+export type OperationLogItem = {
+  id: number
+  module: "product" | "inventory" | "purchase"
+  action: string
+  entity_type: string
+  entity_id: string | null
+  entity_label: string | null
+  summary: string
+  changed_fields: OperationLogChange[] | null
+  before_data: unknown
+  after_data: unknown
+  user_id: number | null
+  username: string | null
+  display_name: string | null
+  department_name: string | null
+  created_at: string | null
+}
+
+export type OperationLogResponse = {
+  items: OperationLogItem[]
+  total: number
+  page: number
+  page_size: number
+}
+
 export type ProductListItem = {
   id: number
   brand: BrandKey

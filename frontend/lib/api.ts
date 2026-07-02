@@ -7,6 +7,9 @@ import type {
   ProductColorBarcodeListResponse,
   ProductImageRefreshStatus,
   RefreshProductImagesResult,
+  AuthDepartment,
+  AuthRole,
+  AuthUser,
   FineTableResponse,
   FineTableSnapshotListResponse,
   FineTableSnapshotResponse,
@@ -14,6 +17,7 @@ import type {
   GeneralCustomerBrandListResponse,
   GeneralCustomerShopItem,
   GeneralCustomerShopListResponse,
+  OperationLogResponse,
 } from "@/lib/types"
 
 const API_PREFIX = "/api"
@@ -28,9 +32,26 @@ export class ApiError extends Error {
   }
 }
 
+async function readApiError(response: Response) {
+  const text = await response.text()
+  if (!text) {
+    return `请求失败（${response.status}）`
+  }
+  try {
+    const parsed = JSON.parse(text) as { detail?: unknown }
+    if (typeof parsed.detail === "string") {
+      return parsed.detail
+    }
+  } catch {
+    // Fall through to plain text.
+  }
+  return text
+}
+
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   const response = await fetch(`${API_PREFIX}${path}`, {
     ...init,
+    credentials: "include",
     headers: {
       "Content-Type": "application/json",
       ...(init.headers ?? {}),
@@ -38,10 +59,64 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   })
 
   if (!response.ok) {
-    throw new ApiError(response.status, await response.text())
+    throw new ApiError(response.status, await readApiError(response))
   }
 
   return (await response.json()) as T
+}
+
+export function login(payload: { username: string; password: string }) {
+  return request<{ user: AuthUser; message: string }>("/auth/login", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  })
+}
+
+export function register(payload: { username: string; password: string; display_name: string; department_code: string }) {
+  return request<{ user: AuthUser; message: string }>("/auth/register", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  })
+}
+
+export function logout() {
+  return request<{ message: string }>("/auth/logout", {
+    method: "POST",
+  })
+}
+
+export function getCurrentUser() {
+  return request<{ user: AuthUser }>("/auth/me")
+}
+
+export function getAuthOptions() {
+  return request<{ departments: AuthDepartment[]; roles: AuthRole[]; has_users: boolean }>("/auth/options")
+}
+
+export function listAdminUsers() {
+  return request<{ items: AuthUser[] }>("/auth/admin/users")
+}
+
+export function updateAdminUser(id: number, payload: Partial<Pick<AuthUser, "display_name" | "department_code" | "role_code" | "status">> & { password?: string }) {
+  return request<{ item: AuthUser; message: string }>(`/auth/admin/users/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify(payload),
+  })
+}
+
+export function listOperationLogs(params: {
+  module: "product" | "inventory" | "purchase"
+  query?: string
+  page: number
+  pageSize: number
+}) {
+  const search = new URLSearchParams({
+    module: params.module,
+    page: String(params.page),
+    page_size: String(params.pageSize),
+  })
+  if (params.query) search.set("query", params.query)
+  return request<OperationLogResponse>(`/operation-logs?${search.toString()}`)
 }
 
 export function getProductYears(brand: BrandKey) {
@@ -219,7 +294,9 @@ export function buildProductExportUrl(brand: BrandKey, ids?: number[], mode?: "w
 }
 
 export function exportProducts(brand: BrandKey, ids?: number[], mode?: "with_sizes") {
-  return fetch(buildProductExportUrl(brand, ids, mode)).then(async (response) => {
+  return fetch(buildProductExportUrl(brand, ids, mode), {
+    credentials: "include",
+  }).then(async (response) => {
     if (!response.ok) {
       throw new ApiError(response.status, await response.text())
     }
@@ -241,6 +318,7 @@ export function importProducts(brand: BrandKey, file: File) {
   return fetch(`${API_PREFIX}/import?brand=${brand}`, {
     method: "POST",
     body: formData,
+    credentials: "include",
   }).then(async (response) => {
     if (!response.ok) {
       throw new ApiError(response.status, await response.text())
@@ -535,6 +613,7 @@ export function importInventory(file: File) {
   return fetch(`${API_PREFIX}/inventory/import`, {
     method: "POST",
     body: formData,
+    credentials: "include",
   }).then(async (response) => {
     if (!response.ok) {
       throw new ApiError(response.status, await response.text())
@@ -591,7 +670,9 @@ export function exportInventory(params: {
   completion_status?: string
   purchase_export_mode?: "summary" | "size_rows" | "production_order"
 } = {}) {
-  return fetch(buildInventoryExportUrl(params)).then(async (response) => {
+  return fetch(buildInventoryExportUrl(params), {
+    credentials: "include",
+  }).then(async (response) => {
     if (!response.ok) {
       throw new ApiError(response.status, await response.text())
     }
@@ -630,6 +711,7 @@ export function importPurchaseInventory(payload: {
     method: "POST",
     body: formData,
     signal: controller.signal,
+    credentials: "include",
   })
     .then(async (response) => {
       if (!response.ok) {
@@ -735,6 +817,7 @@ export function replaceDetailsFromExcel(payload: {
     method: "POST",
     body: formData,
     signal: controller.signal,
+    credentials: "include",
   })
     .then(async (response) => {
       if (!response.ok) {

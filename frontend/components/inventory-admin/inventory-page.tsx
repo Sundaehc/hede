@@ -1,7 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useRef, useState } from "react"
-import { Plus, Download, Upload, Trash2, Edit, Search, X, RefreshCw, List, BadgeDollarSign, FileText } from "lucide-react"
+import { Plus, Download, Upload, Trash2, Edit, Search, X, RefreshCw, List, BadgeDollarSign, FileText, History } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -26,6 +26,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert"
 import { ConfirmDialog, MessageDialog } from "@/components/confirm-dialog"
 import { InventoryDetailPanel } from "@/components/inventory-admin/inventory-detail-panel"
 import { EndingInventoryTab } from "@/components/inventory-admin/ending-inventory-tab"
+import { OperationLogDialog } from "@/components/operation-log-dialog"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import {
   listInventory,
@@ -358,6 +359,7 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
   const [requirementsError, setRequirementsError] = useState("")
   const [isRequirementsLoading, setIsRequirementsLoading] = useState(false)
   const [isSavingRequirement, setIsSavingRequirement] = useState(false)
+  const [operationLogOpen, setOperationLogOpen] = useState(false)
 
   useEffect(() => {
     async function loadOptions() {
@@ -990,6 +992,10 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
             >
               <Trash2 className="h-4 w-4" />
               <span className="ml-2 hidden sm:inline">回收站</span>
+            </Button>
+            <Button variant="outline" size="sm" onClick={() => setOperationLogOpen(true)} className="cursor-pointer">
+              <History className="h-4 w-4" />
+              <span className="ml-2 hidden sm:inline">操作日志</span>
             </Button>
             <Button size="sm" onClick={openCreate} className="cursor-pointer">
               <Plus className="h-4 w-4" />
@@ -1895,6 +1901,13 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
         title={messageContent.title}
         description={messageContent.description}
         onClose={() => setMessageOpen(false)}
+      />
+
+      <OperationLogDialog
+        module={isPurchasePage ? "purchase" : "inventory"}
+        title={isPurchasePage ? "采购单管理操作日志" : "经营历程操作日志"}
+        open={operationLogOpen}
+        onOpenChange={setOperationLogOpen}
       />
 
       <InventoryDetailPanel

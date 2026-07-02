@@ -388,6 +388,13 @@ class InventoryRepository:
             row = connection.execute(statement).mappings().first()
         return None if row is None else dict(row)
 
+    def get_record_any_status(self, record_id: int) -> dict[str, object] | None:
+        table = INVENTORY_TABLE
+        statement = select(table).where(table.c.id == record_id)
+        with self.engine.connect() as connection:
+            row = connection.execute(statement).mappings().first()
+        return None if row is None else dict(row)
+
     def get_record_by_summary(self, summary: str) -> dict[str, object] | None:
         normalized_summary = str(summary or "").strip()
         if not normalized_summary:
@@ -1288,6 +1295,13 @@ class InventoryRepository:
         statement = select(table).where(table.c.document_id == document_id).order_by(table.c.id)
         with self.engine.connect() as connection:
             return [dict(row) for row in connection.execute(statement).mappings()]
+
+    def get_detail(self, detail_id: int) -> dict[str, object] | None:
+        table = INVENTORY_DETAIL_TABLE
+        statement = select(table).where(table.c.id == detail_id)
+        with self.engine.connect() as connection:
+            row = connection.execute(statement).mappings().first()
+        return None if row is None else dict(row)
 
     def list_details_for_documents(self, document_ids: list[int]) -> list[dict[str, object]]:
         if not document_ids:

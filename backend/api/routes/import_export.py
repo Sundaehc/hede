@@ -16,6 +16,7 @@ from sqlalchemy import desc, or_, select
 
 from api.excel_export import DEFAULT_WIDTH_BY_HEADER, style_excel_worksheet
 from api.fine_table_cache import clear_fine_table_cache
+from api.operation_log_utils import write_operation_log
 from api.routes.images import get_image_matcher, image_url_for
 from domain.excluded_skus import is_excluded_sku, not_excluded_sku_condition
 from domain.gj_schema import GJ_MERGED_PRODUCT_INFO_TABLE
@@ -570,4 +571,20 @@ async def import_products(
 
     wb.close()
     clear_fine_table_cache()
+    write_operation_log(
+        request,
+        module="product",
+        action="import",
+        entity_type="product_import",
+        entity_label=file.filename or "商品档案导入",
+        summary=f"导入商品档案：新增 {created} 条，更新 {updated} 条",
+        after_data={
+            "brand": brand,
+            "filename": file.filename,
+            "created": created,
+            "updated": updated,
+            "skus": imported_skus[:500],
+            "sku_count": len(imported_skus),
+        },
+    )
     return {"created": created, "updated": updated, "skus": imported_skus, "message": f"导入完成：新增 {created} 条，更新 {updated} 条"}
