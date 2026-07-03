@@ -32,10 +32,12 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
+import { useAuth } from "@/components/auth/auth-provider"
+import { OperationLogDialog } from "@/components/operation-log-dialog"
 import { Input } from "@/components/ui/input"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { BRANDS, type BrandKey } from "@/lib/brands"
-import { ApiError, getFineTableSnapshotByDate, listFineTable } from "@/lib/api"
+import { ApiError, getFineTableSnapshotByDate, listFineTable, logFineTableExport } from "@/lib/api"
 import type { FineTableItem, FineTableResponse, FineTableSnapshotResponse, ProductListItem } from "@/lib/types"
 import { cn } from "@/lib/utils"
 
@@ -1317,6 +1319,7 @@ function rememberFineTablePage(
 }
 
 export function FineTablePage() {
+  const { hasPermission } = useAuth()
   const [brand, setBrand] = useState<FineTableBrandKey>(DEFAULT_FINE_TABLE_BRAND)
   const [items, setItems] = useState<FineTableItem[]>([])
   const [page, setPage] = useState(1)
@@ -1340,6 +1343,7 @@ export function FineTablePage() {
   const [collapsedColumnGroups, setCollapsedColumnGroups] = useState<ColumnGroup[]>([])
   const [isExporting, setIsExporting] = useState(false)
   const [exportProgress, setExportProgress] = useState<{ loaded: number; total: number } | null>(null)
+  const [operationLogOpen, setOperationLogOpen] = useState(false)
   const [previewImage, setPreviewImage] = useState<{ src: string; alt: string } | null>(null)
   const [historyDate, setHistoryDate] = useState("")
   const [snapshotLabel, setSnapshotLabel] = useState<string | null>(null)
@@ -1349,6 +1353,7 @@ export function FineTablePage() {
   const prefetchingPagesRef = useRef(new Set<string>())
   const historyDateInputRef = useRef<HTMLInputElement>(null)
   const maxHistoryDate = getMaxHistoryDate()
+  const canExportFineTable = hasPermission("fine_table.export")
 
   useEffect(() => {
     let cancelled = false
@@ -1594,6 +1599,10 @@ export function FineTablePage() {
   }
 
   async function handleExport() {
+    if (!canExportFineTable) {
+      window.alert("权限不足")
+      return
+    }
     setIsExporting(true)
     setExportProgress({ loaded: 0, total })
     try {
@@ -1649,7 +1658,25 @@ export function FineTablePage() {
       })
       const csvRows = buildFineTableCsvRows(rowsForExport, visibleColumns)
       const brandLabel = FINE_TABLE_BRANDS.find((item) => item.key === brand)?.label ?? "商品"
-      downloadCsv(`${brandLabel}_商品精细表_${timestampForFilename(new Date())}.csv`, csvRows)
+      const filename = `${brandLabel}_商品精细表_${timestampForFilename(new Date())}.csv`
+      downloadCsv(filename, csvRows)
+      try {
+        await logFineTableExport({
+          brand,
+          brand_label: brandLabel,
+          exported_rows: rowsForExport.length,
+          total_rows: expectedTotal,
+          view,
+          query: query || undefined,
+          sku_prefix: skuPrefix || undefined,
+          history_date: historyDate || undefined,
+          column_mode: columnMode,
+          column_count: visibleColumns.length,
+          filename,
+        })
+      } catch {
+        // Export has already completed; a log failure should not block the downloaded file.
+      }
     } catch (exportError) {
       window.alert(getErrorMessage(exportError))
     } finally {
@@ -1755,12 +1782,18 @@ export function FineTablePage() {
                 <RefreshCw className="h-4 w-4" />
                 刷新
               </Button>
-              <Button variant="outline" className="h-8 px-3 text-xs font-semibold" onClick={handleExport} disabled={isExporting || isLoading}>
-                <Download className="h-4 w-4" />
-                {isExporting && exportProgress
-                  ? `导出 ${formatNumber(Math.min(exportProgress.loaded, exportProgress.total))}/${formatNumber(exportProgress.total)}`
-                  : "导出"}
+              <Button variant="outline" className="h-8 px-3 text-xs font-semibold" onClick={() => setOperationLogOpen(true)}>
+                <History className="h-4 w-4" />
+                操作日志
               </Button>
+              {canExportFineTable ? (
+                <Button variant="outline" className="h-8 px-3 text-xs font-semibold" onClick={handleExport} disabled={isExporting || isLoading}>
+                  <Download className="h-4 w-4" />
+                  {isExporting && exportProgress
+                    ? `导出 ${formatNumber(Math.min(exportProgress.loaded, exportProgress.total))}/${formatNumber(exportProgress.total)}`
+                    : "导出"}
+                </Button>
+              ) : null}
             </div>
           </div>
         </div>
@@ -2122,6 +2155,12 @@ export function FineTablePage() {
           </div>
         </DialogContent>
       </Dialog>
+      <OperationLogDialog
+        module="fine_table"
+        title="商品精细表操作日志"
+        open={operationLogOpen}
+        onOpenChange={setOperationLogOpen}
+      />
       {selectedRow && <div aria-hidden="true" className="fixed inset-0 z-[80] bg-black/20" onClick={() => setSelectedRow(null)} />}
       <DetailDrawer row={selectedRow} onClose={() => setSelectedRow(null)} />
       <Dialog open={previewImage !== null} onOpenChange={(open) => !open && setPreviewImage(null)}>

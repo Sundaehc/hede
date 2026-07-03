@@ -37,7 +37,8 @@ export default function RegisterPage() {
           { id: 1, code: "财务部", name: "财务部" },
           { id: 2, code: "商品部", name: "商品部" },
           { id: 3, code: "运营部", name: "运营部" },
-          { id: 4, code: "美工部", name: "美工部" },
+          { id: 4, code: "开发部", name: "开发部" },
+          { id: 5, code: "美工部", name: "美工部" },
         ])
       }
     }

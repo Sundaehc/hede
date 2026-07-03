@@ -7,9 +7,11 @@ from typing import Any
 
 from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.encoders import jsonable_encoder
+from pydantic import BaseModel
 from sqlalchemy import and_, delete, desc, func, insert, or_, select, update
 
 from api.fine_table_cache import get_fine_table_cache, set_fine_table_cache
+from api.operation_log_utils import write_operation_log
 from api.routes.images import image_url_for
 from api.schemas import BrandKey
 from domain.excluded_skus import is_excluded_sku, not_excluded_sku_condition
@@ -60,6 +62,20 @@ SIZE_LABELS = {
 EXCLUDED_OTHER_PLATFORM_ORDER_STATUSES = {"取消", "异常", "被拆分", "已付款待审核"}
 DAILY_SALES_DAYS = 5
 SNAPSHOT_PAGE_SIZE = 200
+
+
+class FineTableExportLogRequest(BaseModel):
+    brand: BrandKey
+    brand_label: str | None = None
+    exported_rows: int = 0
+    total_rows: int | None = None
+    view: str | None = None
+    query: str | None = None
+    sku_prefix: str | None = None
+    history_date: str | None = None
+    column_mode: str | None = None
+    column_count: int | None = None
+    filename: str | None = None
 
 
 def _ensure_snapshot_tables(engine) -> None:
@@ -357,6 +373,54 @@ def _hydrate_snapshot_image_urls(
 
 def _gj_fine_table_brand(brand: BrandKey) -> str | None:
     return brand if brand in {CBANNER_MENS_BRAND, CBANNER_WOMENS_BRAND} else None
+
+
+def _fine_table_view_label(value: str | None) -> str:
+    if value == "missingImage":
+        return "暂无图片"
+    if value == "stockRisk":
+        return "缺货风险"
+    return "全部"
+
+
+@router.post("/fine-table/export-log")
+def log_fine_table_export(request: Request, body: FineTableExportLogRequest):
+    brand_label = (body.brand_label or str(body.brand)).strip()
+    exported_rows = max(0, int(body.exported_rows or 0))
+    total_rows = max(0, int(body.total_rows or 0)) if body.total_rows is not None else None
+    filters = [f"视图：{_fine_table_view_label(body.view)}"]
+    if body.query:
+        filters.append(f"包含搜索：{body.query.strip()}")
+    if body.sku_prefix:
+        filters.append(f"货号前缀：{body.sku_prefix.strip()}")
+    if body.history_date:
+        filters.append(f"历史日期：{body.history_date.strip()}")
+
+    total_text = f"，当前条件共 {total_rows} 行" if total_rows is not None else ""
+    summary = f"导出商品精细表 {brand_label}，导出 {exported_rows} 行{total_text}（{'；'.join(filters)}）"
+    write_operation_log(
+        request,
+        module="fine_table",
+        action="export",
+        entity_type="fine_table",
+        entity_id=body.brand,
+        entity_label=brand_label,
+        summary=summary,
+        after_data={
+            "brand": body.brand,
+            "brand_label": brand_label,
+            "exported_rows": exported_rows,
+            "total_rows": total_rows,
+            "view": body.view,
+            "query": body.query,
+            "sku_prefix": body.sku_prefix,
+            "history_date": body.history_date,
+            "column_mode": body.column_mode,
+            "column_count": body.column_count,
+            "filename": body.filename,
+        },
+    )
+    return {"message": "操作日志已记录"}
 
 
 @router.post("/fine-table/snapshots")

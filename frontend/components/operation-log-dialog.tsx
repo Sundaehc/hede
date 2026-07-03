@@ -9,7 +9,7 @@ import { Input } from "@/components/ui/input"
 import { listOperationLogs } from "@/lib/api"
 import type { OperationLogChange, OperationLogItem } from "@/lib/types"
 
-type OperationLogModule = "product" | "inventory" | "purchase"
+type OperationLogModule = "product" | "fine_table" | "inventory" | "purchase"
 
 type OperationLogDialogProps = {
   module: OperationLogModule
@@ -29,6 +29,7 @@ const ACTION_LABELS: Record<string, string> = {
   batch_restore: "批量恢复",
   batch_permanent_delete: "彻底删除",
   import: "导入",
+  export: "导出",
   import_purchase: "导入",
   detail_create: "新增明细",
   detail_update: "编辑明细",

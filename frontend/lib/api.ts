@@ -105,7 +105,7 @@ export function updateAdminUser(id: number, payload: Partial<Pick<AuthUser, "dis
 }
 
 export function listOperationLogs(params: {
-  module: "product" | "inventory" | "purchase"
+  module: "product" | "fine_table" | "inventory" | "purchase"
   query?: string
   page: number
   pageSize: number
@@ -166,6 +166,25 @@ export function listFineTable(params: {
   if (params.query) search.set("query", params.query)
   if (params.skuPrefix) search.set("sku_prefix", params.skuPrefix)
   return request<FineTableResponse>(`/fine-table?${search.toString()}`)
+}
+
+export function logFineTableExport(payload: {
+  brand: Exclude<BrandKey, "all">
+  brand_label?: string
+  exported_rows: number
+  total_rows?: number
+  view?: string
+  query?: string
+  sku_prefix?: string
+  history_date?: string
+  column_mode?: string
+  column_count?: number
+  filename?: string
+}) {
+  return request<{ message: string }>("/fine-table/export-log", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  })
 }
 
 export function listFineTableSnapshots(params: {
