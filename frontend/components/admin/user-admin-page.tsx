@@ -87,7 +87,6 @@ function UserIdentity({ user }: { user: AuthUser }) {
             {meta.label}
           </span>
         </div>
-        <p className="mt-0.5 text-xs text-muted-foreground">ID {user.id}</p>
       </div>
     </div>
   )
