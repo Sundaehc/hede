@@ -3,8 +3,9 @@
 import Link from "next/link"
 import { useState } from "react"
 import { useRouter } from "next/navigation"
-import { LogIn } from "lucide-react"
+import { AlertCircle, ArrowRight, KeyRound, Loader2, LogIn, UserRound } from "lucide-react"
 
+import { AuthPageShell } from "@/components/auth/auth-page-shell"
 import { useAuth } from "@/components/auth/auth-provider"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -35,37 +36,58 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="flex min-h-svh items-center justify-center bg-background px-4">
-      <div className="w-full max-w-sm rounded-lg border border-border bg-card p-6 shadow-sm">
-        <div className="mb-6 flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary text-primary-foreground">
-            <LogIn className="h-4 w-4" />
-          </div>
-          <div>
-            <h1 className="text-lg font-semibold">登录赫德系统</h1>
-            <p className="text-xs text-muted-foreground">使用账号进入商品运营中台</p>
-          </div>
-        </div>
-
-        <form className="space-y-4" onSubmit={(event) => void handleSubmit(event)}>
-          <div className="space-y-1.5">
-            <label className="text-xs font-medium text-muted-foreground" htmlFor="login-username">账号</label>
-            <Input id="login-username" value={username} onChange={(event) => setUsername(event.target.value)} autoComplete="username" />
-          </div>
-          <div className="space-y-1.5">
-            <label className="text-xs font-medium text-muted-foreground" htmlFor="login-password">密码</label>
-            <Input id="login-password" type="password" value={password} onChange={(event) => setPassword(event.target.value)} autoComplete="current-password" />
-          </div>
-          {error ? <p className="rounded-md bg-destructive/10 px-3 py-2 text-xs text-destructive">{error}</p> : null}
-          <Button type="submit" className="w-full" disabled={submitting || !username.trim() || !password}>
-            {submitting ? "登录中..." : "登录"}
-          </Button>
-        </form>
-
-        <div className="mt-4 text-center text-xs text-muted-foreground">
+    <AuthPageShell
+      badge="账号登录"
+      title="登录赫德系统"
+      description="使用账号进入商品运营中台。"
+      icon={LogIn}
+      footer={(
+        <>
           没有账号？<Link className="font-medium text-primary hover:underline" href="/register">注册账号</Link>
+        </>
+      )}
+    >
+      <form className="space-y-4" onSubmit={(event) => void handleSubmit(event)}>
+        <div className="space-y-1.5">
+          <label className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground" htmlFor="login-username">
+            <UserRound className="size-3.5" />
+            账号
+          </label>
+          <Input
+            id="login-username"
+            className="h-10"
+            value={username}
+            onChange={(event) => setUsername(event.target.value)}
+            autoComplete="username"
+            placeholder="请输入账号"
+          />
         </div>
-      </div>
-    </div>
+        <div className="space-y-1.5">
+          <label className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground" htmlFor="login-password">
+            <KeyRound className="size-3.5" />
+            密码
+          </label>
+          <Input
+            id="login-password"
+            className="h-10"
+            type="password"
+            value={password}
+            onChange={(event) => setPassword(event.target.value)}
+            autoComplete="current-password"
+            placeholder="请输入密码"
+          />
+        </div>
+        {error ? (
+          <div className="flex items-start gap-2 rounded-lg border border-destructive/20 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+            <AlertCircle className="mt-0.5 size-3.5 shrink-0" />
+            <span>{error}</span>
+          </div>
+        ) : null}
+        <Button type="submit" size="lg" className="h-10 w-full justify-between px-3" disabled={submitting || !username.trim() || !password}>
+          <span>{submitting ? "登录中..." : "登录"}</span>
+          {submitting ? <Loader2 className="size-4 animate-spin" /> : <ArrowRight className="size-4" />}
+        </Button>
+      </form>
+    </AuthPageShell>
   )
 }

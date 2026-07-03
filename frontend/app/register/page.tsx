@@ -3,8 +3,9 @@
 import Link from "next/link"
 import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
-import { UserPlus } from "lucide-react"
+import { AlertCircle, ArrowRight, BadgeCheck, Building2, KeyRound, Loader2, UserPlus, UserRound } from "lucide-react"
 
+import { AuthPageShell } from "@/components/auth/auth-page-shell"
 import { useAuth } from "@/components/auth/auth-provider"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -66,52 +67,87 @@ export default function RegisterPage() {
   }
 
   return (
-    <div className="flex min-h-svh items-center justify-center bg-background px-4">
-      <div className="w-full max-w-md rounded-lg border border-border bg-card p-6 shadow-sm">
-        <div className="mb-6 flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary text-primary-foreground">
-            <UserPlus className="h-4 w-4" />
-          </div>
-          <div>
-            <h1 className="text-lg font-semibold">注册账号</h1>
-            <p className="text-xs text-muted-foreground">{hasUsers ? "注册后按部门获得默认权限" : "首个账号会自动成为超级管理员"}</p>
-          </div>
-        </div>
-
-        <form className="space-y-4" onSubmit={(event) => void handleSubmit(event)}>
-          <div className="grid gap-3 sm:grid-cols-2">
-            <div className="space-y-1.5">
-              <label className="text-xs font-medium text-muted-foreground" htmlFor="register-username">账号</label>
-              <Input id="register-username" value={username} onChange={(event) => setUsername(event.target.value)} autoComplete="username" />
-            </div>
-            <div className="space-y-1.5">
-              <label className="text-xs font-medium text-muted-foreground" htmlFor="register-display-name">姓名</label>
-              <Input id="register-display-name" value={displayName} onChange={(event) => setDisplayName(event.target.value)} />
-            </div>
-          </div>
-          <div className="space-y-1.5">
-            <label className="text-xs font-medium text-muted-foreground" htmlFor="register-department">部门</label>
-            <Select id="register-department" value={departmentCode} onChange={(event) => setDepartmentCode(event.target.value)}>
-              {departments.map((department) => (
-                <option key={department.code} value={department.code}>{department.name}</option>
-              ))}
-            </Select>
-            {departmentCode === "美工部" || departmentCode === "design" ? <p className="text-xs text-muted-foreground">美工部默认只可查看商品信息档案。</p> : null}
-          </div>
-          <div className="space-y-1.5">
-            <label className="text-xs font-medium text-muted-foreground" htmlFor="register-password">密码</label>
-            <Input id="register-password" type="password" value={password} onChange={(event) => setPassword(event.target.value)} autoComplete="new-password" />
-          </div>
-          {error ? <p className="rounded-md bg-destructive/10 px-3 py-2 text-xs text-destructive">{error}</p> : null}
-          <Button type="submit" className="w-full" disabled={submitting || !username.trim() || !displayName.trim() || !password}>
-            {submitting ? "注册中..." : "注册并登录"}
-          </Button>
-        </form>
-
-        <div className="mt-4 text-center text-xs text-muted-foreground">
+    <AuthPageShell
+      badge="账号注册"
+      title="注册账号"
+      description={hasUsers ? "注册后按部门获得默认权限。" : "首个账号会自动成为超级管理员。"}
+      icon={UserPlus}
+      footer={(
+        <>
           已有账号？<Link className="font-medium text-primary hover:underline" href="/login">返回登录</Link>
+        </>
+      )}
+    >
+      <form className="space-y-4" onSubmit={(event) => void handleSubmit(event)}>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <div className="space-y-1.5">
+            <label className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground" htmlFor="register-username">
+              <UserRound className="size-3.5" />
+              账号
+            </label>
+            <Input
+              id="register-username"
+              className="h-10"
+              value={username}
+              onChange={(event) => setUsername(event.target.value)}
+              autoComplete="username"
+              placeholder="登录账号"
+            />
+          </div>
+          <div className="space-y-1.5">
+            <label className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground" htmlFor="register-display-name">
+              <BadgeCheck className="size-3.5" />
+              姓名
+            </label>
+            <Input
+              id="register-display-name"
+              className="h-10"
+              value={displayName}
+              onChange={(event) => setDisplayName(event.target.value)}
+              placeholder="真实姓名"
+            />
+          </div>
         </div>
-      </div>
-    </div>
+        <div className="space-y-1.5">
+          <label className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground" htmlFor="register-department">
+            <Building2 className="size-3.5" />
+            部门
+          </label>
+          <Select id="register-department" className="h-10" value={departmentCode} onChange={(event) => setDepartmentCode(event.target.value)}>
+            {departments.map((department) => (
+              <option key={department.code} value={department.code}>{department.name}</option>
+            ))}
+          </Select>
+          {departmentCode === "美工部" || departmentCode === "design" ? (
+            <p className="text-xs text-muted-foreground">美工部默认只可查看商品信息档案。</p>
+          ) : null}
+        </div>
+        <div className="space-y-1.5">
+          <label className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground" htmlFor="register-password">
+            <KeyRound className="size-3.5" />
+            密码
+          </label>
+          <Input
+            id="register-password"
+            className="h-10"
+            type="password"
+            value={password}
+            onChange={(event) => setPassword(event.target.value)}
+            autoComplete="new-password"
+            placeholder="设置登录密码"
+          />
+        </div>
+        {error ? (
+          <div className="flex items-start gap-2 rounded-lg border border-destructive/20 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+            <AlertCircle className="mt-0.5 size-3.5 shrink-0" />
+            <span>{error}</span>
+          </div>
+        ) : null}
+        <Button type="submit" size="lg" className="h-10 w-full justify-between px-3" disabled={submitting || !username.trim() || !displayName.trim() || !password}>
+          <span>{submitting ? "注册中..." : "注册并登录"}</span>
+          {submitting ? <Loader2 className="size-4 animate-spin" /> : <ArrowRight className="size-4" />}
+        </Button>
+      </form>
+    </AuthPageShell>
   )
 }
