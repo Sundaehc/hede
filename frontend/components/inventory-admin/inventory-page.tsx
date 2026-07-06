@@ -138,6 +138,12 @@ function getErrorMessage(error: unknown) {
   return "发生未知错误"
 }
 
+function formatImportSummaryPreview(summaries: string[]) {
+  const preview = summaries.slice(0, 5).join("、")
+  if (!preview) return "已存在摘要"
+  return summaries.length > 5 ? `${preview} 等 ${summaries.length} 个摘要` : preview
+}
+
 function formatDeletedAt(value: string | null) {
   if (!value) return "-"
   const date = new Date(value)
@@ -354,6 +360,8 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
   const [importFormData, setImportFormData] = useState<Record<string, string>>({ ...EMPTY_IMPORT_FORM })
   const [importFile, setImportFile] = useState<File | null>(null)
   const [importError, setImportError] = useState("")
+  const [importOverwriteConfirmOpen, setImportOverwriteConfirmOpen] = useState(false)
+  const [importOverwriteSummaries, setImportOverwriteSummaries] = useState<string[]>([])
   const [requirementsDialogOpen, setRequirementsDialogOpen] = useState(false)
   const [requirementDrafts, setRequirementDrafts] = useState<Record<string, string>>({})
   const [selectedRequirementBrand, setSelectedRequirementBrand] = useState<PurchaseOrderRequirementBrand>("cbanner_mens")
@@ -524,6 +532,8 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
   const openImportDialog = () => {
     setImportError("")
     setImportFile(null)
+    setImportOverwriteConfirmOpen(false)
+    setImportOverwriteSummaries([])
     if (fileInputRef.current) fileInputRef.current.value = ""
     setImportFormData((prev) => ({
       ...EMPTY_IMPORT_FORM,
@@ -713,8 +723,9 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
     })
   }
 
-  const handleImport = async () => {
+  const handleImport = async (overwriteExisting = false) => {
     setImportError("")
+    if (overwriteExisting) setImportOverwriteConfirmOpen(false)
     if (!importFile) {
       setImportError("请选择 Excel 文件")
       return
@@ -736,6 +747,7 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
       setImportError("请选择交货日期")
       return
     }
+    let shouldClearFileInput = true
     setIsImporting(true)
     try {
       const result = await importPurchaseInventory({
@@ -748,16 +760,25 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
         handler: importFormData.handler,
         summary: importFormData.summary,
         brand: inferImportBrand(importFormData.document_type, importFormData.supplier, supplierOptions),
+        overwrite_existing: overwriteExisting,
       })
+      if (result.requires_confirmation) {
+        setImportOverwriteSummaries(result.duplicate_summaries ?? [])
+        setImportOverwriteConfirmOpen(true)
+        shouldClearFileInput = false
+        return
+      }
       showMessage("导入完成", result.message)
       setImportDialogOpen(false)
       setImportFile(null)
+      setImportOverwriteConfirmOpen(false)
+      setImportOverwriteSummaries([])
       setReloadToken((t) => t + 1)
     } catch (err) {
       setImportError(getErrorMessage(err))
     } finally {
       setIsImporting(false)
-      if (fileInputRef.current) fileInputRef.current.value = ""
+      if (shouldClearFileInput && fileInputRef.current) fileInputRef.current.value = ""
     }
   }
 
@@ -1157,10 +1178,10 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
 
               {/* Table */}
               <div className="table-panel overflow-x-auto">
-                <table className={isPurchaseOrderTab ? "w-full min-w-[1280px] table-fixed text-sm" : "w-full min-w-[1320px] table-fixed text-sm"}>
+                <table className={isPurchaseOrderTab ? "w-full min-w-[1440px] table-fixed text-sm" : "w-full min-w-[1320px] table-fixed text-sm"}>
                   <colgroup>
                     <col className="w-12" />
-                    <col className={isPurchaseOrderTab ? "w-40" : "w-36"} />
+                    <col className={isPurchaseOrderTab ? "w-56" : "w-36"} />
                     <col className="w-28" />
                     {isPurchaseOrderTab && <col className="w-28" />}
                     {!isPurchaseOrderTab && <col className="w-28" />}
@@ -1216,7 +1237,7 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
                             />
                           </td>
                           <td className="px-4 py-3 align-middle font-mono text-xs leading-4 tabular-nums">
-                            <span className="block truncate" title={String(item.document_number || item.id)}>{item.document_number || item.id}</span>
+                            <span className={isPurchaseOrderTab ? "block whitespace-nowrap" : "block truncate"} title={String(item.document_number || item.id)}>{item.document_number || item.id}</span>
                           </td>
                           <td className="px-4 py-3 align-middle whitespace-nowrap tabular-nums">{item.date || "-"}</td>
                           {isPurchaseOrderTab && (
@@ -1496,7 +1517,16 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={importDialogOpen} onOpenChange={setImportDialogOpen}>
+      <Dialog
+        open={importDialogOpen}
+        onOpenChange={(open) => {
+          setImportDialogOpen(open)
+          if (!open) {
+            setImportOverwriteConfirmOpen(false)
+            setImportOverwriteSummaries([])
+          }
+        }}
+      >
         <DialogContent className="max-w-xl">
           <DialogHeader>
             <DialogTitle>{isPurchaseOrderTab ? "导入采购单" : "导入单据明细"}</DialogTitle>
@@ -1595,17 +1625,33 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
                 ref={fileInputRef}
                 type="file"
                 accept=".xlsx,.xls,.xlsm"
-                onChange={(e) => { setImportError(""); setImportFile(e.target.files?.[0] ?? null) }}
+                onChange={(e) => {
+                  setImportError("")
+                  setImportOverwriteConfirmOpen(false)
+                  setImportOverwriteSummaries([])
+                  setImportFile(e.target.files?.[0] ?? null)
+                }}
                 className="flex h-9 w-full rounded-lg border border-input bg-card px-3 py-1.5 text-sm shadow-xs outline-none transition-colors file:mr-3 file:rounded-md file:border-0 file:bg-muted file:px-2 file:py-1 file:text-xs"
               />
               <p className="text-xs text-muted-foreground">
-                如果这张单据已经导入过，请打开该单据明细，用“重新导入明细”覆盖。
+                如果摘要已存在，导入时会先提示确认，确认后覆盖对应单据和明细。
               </p>
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setImportDialogOpen(false)} disabled={isImporting} className="cursor-pointer">取消</Button>
-            <Button onClick={handleImport} disabled={isImporting} className="cursor-pointer">{isImporting ? "导入中..." : "导入"}</Button>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setImportDialogOpen(false)
+                setImportOverwriteConfirmOpen(false)
+                setImportOverwriteSummaries([])
+              }}
+              disabled={isImporting}
+              className="cursor-pointer"
+            >
+              取消
+            </Button>
+            <Button onClick={() => void handleImport()} disabled={isImporting} className="cursor-pointer">{isImporting ? "导入中..." : "导入"}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -1888,6 +1934,17 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
           </div>
         </DialogContent>
       </Dialog>
+
+      <ConfirmDialog
+        open={importOverwriteConfirmOpen}
+        title={isPurchaseOrderTab ? "确认覆盖采购单" : "确认覆盖单据"}
+        description={`摘要 ${formatImportSummaryPreview(importOverwriteSummaries)} 已存在。确认后会覆盖这些单据的主信息和全部明细，同一张 Excel 中其他摘要会继续新增。`}
+        confirmLabel="覆盖并导入"
+        onConfirm={() => void handleImport(true)}
+        onCancel={() => {
+          setImportOverwriteConfirmOpen(false)
+        }}
+      />
 
       <ConfirmDialog
         open={deleteTarget !== null}

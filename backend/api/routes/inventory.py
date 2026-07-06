@@ -2508,6 +2508,7 @@ async def import_purchase_inventory(request: Request, file: UploadFile = None):
     delivery_date = _normalize_date(str(form.get("delivery_date") or "")) or None
     brand = str(form.get("brand") or "").strip() or _purchase_import_brand(document_type)
     fallback_unit_price = _to_decimal(form.get("unit_price"))
+    overwrite_existing = str(form.get("overwrite_existing") or "").strip().lower() in {"1", "true", "yes", "on"}
 
     content = await file.read()
     repository = request.app.state.inventory_repository
@@ -2566,7 +2567,8 @@ async def import_purchase_inventory(request: Request, file: UploadFile = None):
             raise HTTPException(status_code=400, detail=f"{label}：采购日期不能为空")
         if document_type == "进货订单" and not group_delivery_date:
             raise HTTPException(status_code=400, detail=f"{label}：交货日期不能为空")
-        if repository.get_record_by_summary(group_summary):
+        existing_record = repository.get_record_by_summary(group_summary)
+        if existing_record:
             duplicate_summaries.append(group_summary)
 
         group_rows = group.get("rows") if isinstance(group.get("rows"), list) else []
@@ -2580,12 +2582,19 @@ async def import_purchase_inventory(request: Request, file: UploadFile = None):
             "delivery_date": group_delivery_date,
             "brand": group_brand,
             "rows": group_rows,
+            "existing_record": existing_record,
         })
 
-    if duplicate_summaries:
+    if duplicate_summaries and not overwrite_existing:
         preview = "、".join(duplicate_summaries[:5])
         suffix = "等" if len(duplicate_summaries) > 5 else ""
-        raise HTTPException(status_code=400, detail=f"摘要 {preview}{suffix} 已存在，请打开对应单据明细后使用“重新导入明细”覆盖")
+        return {
+            "created": 0,
+            "details": 0,
+            "requires_confirmation": True,
+            "duplicate_summaries": duplicate_summaries,
+            "message": f"摘要 {preview}{suffix} 已存在，确认后将覆盖这些单据的主信息和全部明细，是否继续？",
+        }
 
     for plan in plans:
         plan["details"] = _build_purchase_details_from_rows(
@@ -2598,8 +2607,12 @@ async def import_purchase_inventory(request: Request, file: UploadFile = None):
 
     created_docs = 0
     created_details = 0
+    overwritten_docs = 0
+    overwritten_details = 0
     first_doc: dict[str, object] | None = None
     created_records: list[dict[str, object]] = []
+    overwritten_records: list[dict[str, object]] = []
+    overwritten_before: list[dict[str, object]] = []
     for plan in plans:
         details = plan["details"] if isinstance(plan.get("details"), list) else []
         total_count = sum((_to_decimal(detail.get("quantity")) for detail in details), Decimal("0"))
@@ -2621,18 +2634,49 @@ async def import_purchase_inventory(request: Request, file: UploadFile = None):
             "extra_fields": {"delivery_date": plan_delivery_date} if plan_delivery_date else None,
             "raw_payload": {"import_type": "purchase_detail", "brand": plan_brand, "delivery_date": plan_delivery_date},
         }
-        doc = repository.create_record(doc_payload)
+        detail_payloads = []
+        existing_record = plan.get("existing_record") if isinstance(plan.get("existing_record"), dict) else None
+        if existing_record and overwrite_existing:
+            doc_id = existing_record.get("id")
+            if doc_id is None:
+                raise HTTPException(status_code=400, detail=f"摘要 {plan['summary']} 对应的旧单据编号异常，无法覆盖")
+            before_details = repository.list_details(int(doc_id))
+            doc_payload["deleted_at"] = None
+            doc = repository.update_record(int(doc_id), doc_payload)
+            if doc is None:
+                raise HTTPException(status_code=404, detail=f"摘要 {plan['summary']} 对应的旧单据不存在，无法覆盖")
+            for detail in details:
+                item = dict(detail)
+                item["document_id"] = doc["id"]
+                detail_payloads.append(item)
+            repository.replace_details(doc["id"], detail_payloads)
+            doc = repository.get_record(int(doc["id"])) or doc
+            overwritten_docs += 1
+            overwritten_details += len(detail_payloads)
+            overwritten_records.append(doc)
+            overwritten_before.append({
+                "record": existing_record,
+                "details": before_details[:200],
+                "detail_count": len(before_details),
+            })
+        else:
+            doc = repository.create_record(doc_payload)
+            created_records.append(doc)
+            created_docs += 1
+            for detail in details:
+                item = dict(detail)
+                item["document_id"] = doc["id"]
+                detail_payloads.append(item)
+            repository.create_details(detail_payloads, doc["id"])
+            created_details += len(detail_payloads)
         if first_doc is None:
             first_doc = doc
-        created_records.append(doc)
-        created_docs += 1
-        detail_payloads = []
-        for detail in details:
-            item = dict(detail)
-            item["document_id"] = doc["id"]
-            detail_payloads.append(item)
-        repository.create_details(detail_payloads, doc["id"])
-        created_details += len(detail_payloads)
+    total_details = created_details + overwritten_details
+    summary_parts = [f"新增 {created_docs} 条单据"]
+    if overwritten_docs:
+        summary_parts.append(f"覆盖 {overwritten_docs} 条单据")
+    summary_parts.append(f"{total_details} 条明细")
+    result_message = f"导入完成：{'，'.join(summary_parts)}"
 
     write_operation_log(
         request,
@@ -2640,19 +2684,28 @@ async def import_purchase_inventory(request: Request, file: UploadFile = None):
         action="import_purchase",
         entity_type="inventory_record",
         entity_label=file.filename or "采购/进销存导入",
-        summary=f"导入{document_type}：新增 {created_docs} 条单据，{created_details} 条明细",
+        summary=f"导入{document_type}：{'，'.join(summary_parts)}",
+        before_data={
+            "overwritten": overwritten_before[:200],
+            "overwritten_count": overwritten_docs,
+        } if overwritten_docs else None,
         after_data={
             "filename": file.filename,
             "document_type": document_type,
             "documents": created_records[:200],
+            "overwritten_documents": overwritten_records[:200],
             "document_count": created_docs,
-            "detail_count": created_details,
+            "overwritten_count": overwritten_docs,
+            "detail_count": total_details,
+            "created_detail_count": created_details,
+            "overwritten_detail_count": overwritten_details,
         },
     )
     return {
         "created": created_docs,
-        "details": created_details,
-        "message": f"导入完成：新增 {created_docs} 条单据，{created_details} 条明细",
+        "overwritten": overwritten_docs,
+        "details": total_details,
+        "message": result_message,
         "item": first_doc,
     }
 

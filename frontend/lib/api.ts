@@ -643,7 +643,12 @@ export function batchDeleteInventory(ids: number[]) {
 
 export type InventoryImportResult = {
   created: number
+  details?: number
+  overwritten?: number
+  requires_confirmation?: boolean
+  duplicate_summaries?: string[]
   message: string
+  item?: InventoryRecord
 }
 
 export function importInventory(file: File) {
@@ -737,6 +742,7 @@ export function importPurchaseInventory(payload: {
   handler: string
   summary: string
   brand?: string
+  overwrite_existing?: boolean
 }) {
   const formData = new FormData()
   formData.append("file", payload.file)
@@ -748,6 +754,7 @@ export function importPurchaseInventory(payload: {
   formData.append("handler", payload.handler)
   formData.append("summary", payload.summary)
   formData.append("brand", payload.brand ?? "")
+  formData.append("overwrite_existing", payload.overwrite_existing ? "1" : "0")
   const controller = new AbortController()
   const timeout = window.setTimeout(() => controller.abort(), 120_000)
   return fetch(`${API_PREFIX}/inventory/import-purchase`, {
