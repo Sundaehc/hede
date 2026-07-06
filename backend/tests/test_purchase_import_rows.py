@@ -17,7 +17,7 @@ from api.routes.inventory import (
 def _sample_purchase_workbook() -> bytes:
     workbook = Workbook()
     worksheet = workbook.active
-    worksheet.append(["供货单位", "商品编码", "数量", "摘要", "采购日期", "协议到货日期", "收货仓库", "经办人"])
+    worksheet.append(["供应商", "商品编码", "数量", "采购单备注", "采购日期", "协议到货日期", "收货仓库", "经办人", "商品备注"])
     worksheet.append([
         "友宝保罗（千百度）",
         "C5563406D8080240",
@@ -27,6 +27,7 @@ def _sample_purchase_workbook() -> bytes:
         "2026/7/15",
         "赫德仙岩仓",
         "陈希华",
+        "首批",
     ])
     worksheet.append([
         "友宝保罗（千百度）",
@@ -37,6 +38,7 @@ def _sample_purchase_workbook() -> bytes:
         "2026/7/15",
         "赫德仙岩仓",
         "陈希华",
+        "",
     ])
     buffer = io.BytesIO()
     workbook.save(buffer)
@@ -76,6 +78,8 @@ def test_purchase_import_rows_include_document_fields_and_group_by_summary() -> 
     assert rows[0]["supplier"] == "友宝保罗（千百度）"
     assert rows[0]["warehouse"] == "赫德仙岩仓"
     assert rows[0]["handler"] == "陈希华"
+    assert rows[0]["summary"] == "26.06.29友宝保罗（千百度）新款下单160双 未打"
+    assert rows[0]["remark"] == "首批"
 
     assert len(groups) == 1
     assert groups[0]["fields"]["summary"] == "26.06.29友宝保罗（千百度）新款下单160双 未打"
@@ -107,15 +111,15 @@ def test_purchase_order_import_template_does_not_require_unit_price() -> None:
     headers = [cell.value for cell in worksheet[1]]
 
     assert headers == [
-        "供货单位",
-        "摘要",
+        "供应商",
+        "商品编码",
+        "数量",
+        "采购单备注",
         "采购日期",
         "协议到货日期",
         "收货仓库",
         "经办人",
-        "商品货号",
         "商品备注",
-        "数量",
     ]
     assert "单价" not in headers
 

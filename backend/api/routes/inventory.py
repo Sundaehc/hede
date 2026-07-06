@@ -110,7 +110,7 @@ PURCHASE_DETAIL_EXTRA_FIELDS = {
 }
 PURCHASE_IMPORT_DOC_FIELD_ALIASES = {
     "supplier": {"供货单位", "供应商", "单位全名", "单位名称"},
-    "summary": {"摘要"},
+    "summary": {"摘要", "采购单备注", "单据摘要"},
     "date": {"采购日期", "订货日期", "单据日期", "日期"},
     "delivery_date": {"协议到货日期", "交货日期", "到货日期", "要求交货日期"},
     "warehouse": {"收货仓库", "仓库", "入货仓库"},
@@ -118,15 +118,15 @@ PURCHASE_IMPORT_DOC_FIELD_ALIASES = {
 }
 PURCHASE_ORDER_IMPORT_REQUIRED_DOC_FIELDS = ("supplier", "summary", "date", "delivery_date", "warehouse", "handler")
 PURCHASE_ORDER_IMPORT_FIELD_LABELS = {
-    "supplier": "供货单位",
-    "summary": "摘要",
+    "supplier": "供应商",
+    "summary": "采购单备注",
     "date": "采购日期",
     "delivery_date": "协议到货日期",
     "warehouse": "收货仓库",
     "handler": "经办人",
 }
 PURCHASE_ORDER_IMPORT_CODE_HEADERS = {"商品编码", "货品编码", "商品编号", "商品货号", "货号"}
-PURCHASE_DETAIL_REMARK_HEADERS = {"商品备注", "采购单备注", "备注"}
+PURCHASE_DETAIL_REMARK_HEADERS = {"商品备注", "明细备注", "备注"}
 PURCHASE_DETAIL_REMARK_LIMIT = 20
 PURCHASE_PRODUCTION_ORDER_EXPORT_MODE = "production_order"
 PURCHASE_EXPORT_MODES = {"summary", "size_rows", PURCHASE_PRODUCTION_ORDER_EXPORT_MODE}
@@ -1185,19 +1185,19 @@ def _build_purchase_order_import_template() -> Workbook:
     worksheet = workbook.active
     worksheet.title = "采购单导入模板"
     headers = [
-        "供货单位",
-        "摘要",
+        "供应商",
+        "商品编码",
+        "数量",
+        "采购单备注",
         "采购日期",
         "协议到货日期",
         "收货仓库",
         "经办人",
-        "商品货号",
         "商品备注",
-        "数量",
     ]
     worksheet.append(headers)
     worksheet.append([
-        "说明：同一个摘要会导入为同一张采购单；不同摘要会自动分成多张采购单。商品货号请填写带颜色和尺码的完整商品编码，系统导入时会自动拆解并匹配单价。",
+        "说明：同一个采购单备注会导入为同一张采购单；不同采购单备注会自动分成多张采购单。商品编码请填写带颜色和尺码的完整商品编码，系统导入时会自动拆解并匹配单价。",
         "",
         "",
         "",
@@ -1211,19 +1211,20 @@ def _build_purchase_order_import_template() -> Workbook:
     style_excel_worksheet(
         worksheet,
         width_by_header={
-            "供货单位": 24,
-            "摘要": 28,
+            "供应商": 24,
+            "商品编码": 24,
+            "数量": 10,
+            "采购单备注": 36,
             "采购日期": 14,
             "协议到货日期": 14,
             "收货仓库": 18,
             "经办人": 12,
-            "商品货号": 24,
             "商品备注": 18,
-            "数量": 10,
         },
         freeze_panes="A2",
         auto_filter=False,
     )
+    worksheet.auto_filter.ref = f"A1:{get_column_letter(len(headers))}1"
     worksheet.row_dimensions[2].height = 36
     worksheet.cell(row=2, column=1).alignment = Alignment(horizontal="left", vertical="center", wrap_text=True)
     return workbook
@@ -1326,7 +1327,7 @@ def _read_purchase_import_rows(content: bytes) -> tuple[list[dict[str, object]],
             if row_number >= 29:
                 break
         if header_index is None or code_index is None or (qty_index is None and not size_indexes):
-            raise HTTPException(status_code=400, detail="Excel 中需要包含 商品货号/商品编码/货品编码/商品编号/货号，以及 数量 或尺码数量列")
+            raise HTTPException(status_code=400, detail="Excel 中需要包含 商品编码/货品编码/商品编号/商品货号/货号，以及 数量 或尺码数量列")
 
         parsed_rows: list[dict[str, object]] = []
         empty_streak = 0
@@ -1409,7 +1410,7 @@ def _read_purchase_import_rows_xls(content: bytes) -> tuple[list[dict[str, objec
             data_start_row = row_index + 1
             break
     if code_index is None or (qty_index is None and not size_indexes):
-        raise HTTPException(status_code=400, detail="Excel 中需要包含 商品货号/商品编码/货品编码/商品编号/货号，以及 数量 或尺码数量列")
+        raise HTTPException(status_code=400, detail="Excel 中需要包含 商品编码/货品编码/商品编号/商品货号/货号，以及 数量 或尺码数量列")
 
     parsed_rows: list[dict[str, object]] = []
     empty_streak = 0
@@ -2519,7 +2520,7 @@ async def import_purchase_inventory(request: Request, file: UploadFile = None):
     is_purchase_order_import = document_type == "进货订单"
     if is_purchase_order_import:
         if _purchase_order_import_has_size_columns(rows):
-            raise HTTPException(status_code=400, detail="采购单导入只支持新模板：商品货号（完整商品编码）+ 数量，不再支持尺码列旧模板")
+            raise HTTPException(status_code=400, detail="采购单导入只支持新模板：商品编码（完整商品编码）+ 数量，不再支持尺码列旧模板")
         missing_fields = _missing_purchase_order_import_fields(rows)
         if missing_fields:
             labels = "、".join(PURCHASE_ORDER_IMPORT_FIELD_LABELS[field] for field in missing_fields)
