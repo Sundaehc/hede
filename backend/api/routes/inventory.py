@@ -17,6 +17,8 @@ from sqlalchemy import desc, or_, select as sa_select
 from api.excel_export import style_excel_workbook, style_excel_worksheet
 from api.operation_log_utils import (
     DETAIL_FIELD_LABELS,
+    GENERAL_CUSTOMER_BRAND_FIELD_LABELS,
+    GENERAL_CUSTOMER_SHOP_FIELD_LABELS,
     INVENTORY_FIELD_LABELS,
     build_changed_fields,
     detail_entity_label,
@@ -123,6 +125,9 @@ PURCHASE_ORDER_IMPORT_FIELD_LABELS = {
     "warehouse": "收货仓库",
     "handler": "经办人",
 }
+PURCHASE_ORDER_IMPORT_CODE_HEADERS = {"商品编码", "货品编码", "商品编号", "商品货号", "货号"}
+PURCHASE_DETAIL_REMARK_HEADERS = {"商品备注", "采购单备注", "备注"}
+PURCHASE_DETAIL_REMARK_LIMIT = 20
 PURCHASE_PRODUCTION_ORDER_EXPORT_MODE = "production_order"
 PURCHASE_EXPORT_MODES = {"summary", "size_rows", PURCHASE_PRODUCTION_ORDER_EXPORT_MODE}
 PURCHASE_SUMMARY_EXPORT_HEADERS = [
@@ -146,9 +151,13 @@ PURCHASE_SUMMARY_EXPORT_HEADERS = [
     "完成率%",
 ]
 PURCHASE_SIZE_ROW_EXPORT_HEADERS = [
-    "行号",
+    "供应商",
+    "商品编码",
+    "数量",
+    "采购单备注",
+    "采购日期",
+    "协议到货日期",
     "仓库全名",
-    "货号",
     "商品全名",
     "颜色条码",
     "颜色名称",
@@ -157,11 +166,8 @@ PURCHASE_SIZE_ROW_EXPORT_HEADERS = [
     "条码",
     "单据类型",
     "单据编号",
-    "摘要",
+    "商品备注",
     "单位全名",
-    "订货数量",
-    "录单日期",
-    "到货日期",
     "单位编号",
     "职员全名",
     "订货金额",
@@ -423,6 +429,15 @@ def _purchase_detail_completion_text(extra_fields: dict[str, object]) -> str:
     )
 
 
+def _validate_purchase_detail_remark(record: dict[str, object], payload: dict[str, object]) -> None:
+    if _cell_text(record.get("document_type")) != "进货订单":
+        return
+    remark = _cell_text(payload.get("remark"))
+    if len(remark) > PURCHASE_DETAIL_REMARK_LIMIT:
+        raise HTTPException(status_code=400, detail=f"商品备注最多 {PURCHASE_DETAIL_REMARK_LIMIT} 个字")
+    payload["remark"] = remark
+
+
 def _log_record_operation(
     request: Request,
     *,
@@ -676,6 +691,7 @@ def _append_purchase_size_rows_export(
             continue
         record_context = _purchase_record_export_context(record, supplier_lookup)
         detail_extra_fields = _dict_or_empty(detail.get("extra_fields"))
+        detail_remark = _cell_text(detail.get("remark"))
         product_code = _cell_text(detail.get("product_code"))
         if not product_code:
             continue
@@ -709,6 +725,7 @@ def _append_purchase_size_rows_export(
                     "record_context": record_context,
                     "product_code": product_code,
                     "product_name": product_name,
+                    "detail_remark": detail_remark,
                     "color_barcode": color_barcode,
                     "color_name": color_name,
                     "size": size_text,
@@ -723,6 +740,8 @@ def _append_purchase_size_rows_export(
                 ordered_keys.append(key)
 
             group = groups[key]
+            if detail_remark and not group.get("detail_remark"):
+                group["detail_remark"] = detail_remark
             size_amount = quantity * unit_price if unit_price != 0 else _purchase_prorated_decimal(detail_amount, quantity, detail_quantity)
             group["quantity"] = group["quantity"] + quantity
             group["amount"] = group["amount"] + size_amount
@@ -735,7 +754,7 @@ def _append_purchase_size_rows_export(
             if completion_text and not group["completion_rate"]:
                 group["completion_rate"] = completion_text
 
-    for index, key in enumerate(ordered_keys, start=1):
+    for key in ordered_keys:
         group = groups[key]
         record_context = group["record_context"]
         quantity = group["quantity"]
@@ -754,9 +773,13 @@ def _append_purchase_size_rows_export(
         size = group["size"]
 
         worksheet.append([
-            index,
-            record_context["warehouse_name"],
+            record_context["unit_name"],
             group["product_code"],
+            _fmt_export_decimal(quantity, blank_zero=True),
+            record_context["summary"],
+            record_context["date"],
+            record_context["delivery_date"],
+            record_context["warehouse_name"],
             group["product_name"],
             group["color_barcode"],
             group["color_name"],
@@ -765,11 +788,8 @@ def _append_purchase_size_rows_export(
             _purchase_export_barcode(group["product_code"], group["color_barcode"], size, record_context["brand"]),
             record_context["document_type"],
             record_context["document_number"],
-            record_context["summary"],
+            group["detail_remark"],
             record_context["unit_name"],
-            _fmt_export_decimal(quantity, blank_zero=True),
-            record_context["date"],
-            record_context["delivery_date"],
             record_context["unit_code"],
             record_context["handler_name"],
             _fmt_export_decimal(group["amount"], blank_zero=True),
@@ -872,6 +892,28 @@ def _purchase_production_detail_rows(
     return rows
 
 
+def _purchase_production_total_row(
+    detail_rows: list[list[object]],
+    size_labels: tuple[str, ...],
+) -> list[object]:
+    fixed_count = len(PURCHASE_PRODUCTION_FIXED_HEADERS)
+    quantity_index = fixed_count + len(size_labels)
+    amount_index = quantity_index + 2
+    row_length = fixed_count + len(size_labels) + len(PURCHASE_PRODUCTION_TAIL_HEADERS)
+    total_row: list[object] = [""] * row_length
+
+    for size_offset in range(len(size_labels)):
+        col_index = fixed_count + size_offset
+        total = sum((_to_decimal(row[col_index]) for row in detail_rows), Decimal("0"))
+        total_row[col_index] = _fmt_export_decimal(total, blank_zero=True)
+
+    quantity_total = sum((_to_decimal(row[quantity_index]) for row in detail_rows), Decimal("0"))
+    amount_total = sum((_to_decimal(row[amount_index]) for row in detail_rows), Decimal("0"))
+    total_row[quantity_index] = _fmt_export_decimal(quantity_total, blank_zero=True)
+    total_row[amount_index] = _fmt_export_decimal(amount_total, blank_zero=True)
+    return total_row
+
+
 def _purchase_order_requirements_for_brand(
     brand: str,
     requirement_templates: dict[str, str] | None = None,
@@ -929,6 +971,15 @@ def _style_purchase_production_spacer_row(worksheet, row_index: int, max_col: in
         cell.fill = fill
         cell.alignment = alignment
         cell.font = font
+
+
+def _style_purchase_production_total_row(worksheet, row_index: int, max_col: int) -> None:
+    font = Font(name="宋体", size=10, bold=True)
+    fill = PatternFill("solid", fgColor="F7F7F7")
+    for col_index in range(1, max_col + 1):
+        cell = worksheet.cell(row=row_index, column=col_index)
+        cell.font = font
+        cell.fill = fill
 
 
 def _style_purchase_production_sheet(worksheet, max_row: int, max_col: int, size_start_col: int, tail_start_col: int) -> None:
@@ -1062,12 +1113,21 @@ def _append_purchase_production_order_sheet(
             worksheet.cell(row=data_start_row + row_offset, column=col_index, value=value)
 
     content_last_row = data_start_row + len(detail_rows) - 1
-    if not detail_rows:
+    total_row_index: int | None = None
+    if detail_rows:
+        total_row_index = data_start_row + len(detail_rows)
+        total_row_values = _purchase_production_total_row(detail_rows, size_labels)
+        for col_index, value in enumerate(total_row_values, start=1):
+            worksheet.cell(row=total_row_index, column=col_index, value=value)
+        content_last_row = total_row_index
+    else:
         content_last_row = data_start_row
         worksheet.cell(row=content_last_row, column=1, value="暂无明细")
         worksheet.merge_cells(start_row=content_last_row, start_column=1, end_row=content_last_row, end_column=max_col)
 
     _style_purchase_production_sheet(worksheet, content_last_row, max_col, size_start_col, tail_start_col)
+    if total_row_index is not None:
+        _style_purchase_production_total_row(worksheet, total_row_index, max_col)
     requirements = _purchase_order_requirements_for_brand(context["brand"], requirement_templates)
     if requirements:
         _style_purchase_production_spacer_row(worksheet, content_last_row + 1, max_col)
@@ -1118,6 +1178,55 @@ def _stream_excel_workbook(workbook: Workbook, filename: str) -> StreamingRespon
             "Cache-Control": "no-store",
         },
     )
+
+
+def _build_purchase_order_import_template() -> Workbook:
+    workbook = Workbook()
+    worksheet = workbook.active
+    worksheet.title = "采购单导入模板"
+    headers = [
+        "供货单位",
+        "摘要",
+        "采购日期",
+        "协议到货日期",
+        "收货仓库",
+        "经办人",
+        "商品货号",
+        "商品备注",
+        "数量",
+    ]
+    worksheet.append(headers)
+    worksheet.append([
+        "说明：同一个摘要会导入为同一张采购单；不同摘要会自动分成多张采购单。商品货号请填写带颜色和尺码的完整商品编码，系统导入时会自动拆解并匹配单价。",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+    ])
+    worksheet.merge_cells(start_row=2, start_column=1, end_row=2, end_column=len(headers))
+    style_excel_worksheet(
+        worksheet,
+        width_by_header={
+            "供货单位": 24,
+            "摘要": 28,
+            "采购日期": 14,
+            "协议到货日期": 14,
+            "收货仓库": 18,
+            "经办人": 12,
+            "商品货号": 24,
+            "商品备注": 18,
+            "数量": 10,
+        },
+        freeze_panes="A2",
+        auto_filter=False,
+    )
+    worksheet.row_dimensions[2].height = 36
+    worksheet.cell(row=2, column=1).alignment = Alignment(horizontal="left", vertical="center", wrap_text=True)
+    return workbook
 
 
 def _purchase_import_brand(document_type: str) -> str:
@@ -1188,15 +1297,17 @@ def _read_purchase_import_rows(content: bytes) -> tuple[list[dict[str, object]],
         code_index = None
         qty_index = None
         unit_price_index = None
+        remark_index = None
         size_indexes: dict[int, str] = {}
         extra_indexes: dict[int, str] = {}
         doc_field_indexes: dict[int, str] = {}
         iterator = worksheet.iter_rows(values_only=True)
         for row_number, row in enumerate(iterator):
             headers = [_cell_text(value).replace("\n", "").replace("\r", "") for value in row]
-            code_index = next((index for index, value in enumerate(headers) if value in {"商品编码", "货品编码", "商品编号", "货号"}), None)
+            code_index = next((index for index, value in enumerate(headers) if value in PURCHASE_ORDER_IMPORT_CODE_HEADERS), None)
             qty_index = next((index for index, value in enumerate(headers) if value == "数量"), None)
             unit_price_index = next((index for index, value in enumerate(headers) if value == "单价"), None)
+            remark_index = next((index for index, value in enumerate(headers) if value in PURCHASE_DETAIL_REMARK_HEADERS), None)
             doc_field_indexes = _purchase_import_doc_field_indexes(headers)
             extra_indexes = {
                 index: key
@@ -1215,7 +1326,7 @@ def _read_purchase_import_rows(content: bytes) -> tuple[list[dict[str, object]],
             if row_number >= 29:
                 break
         if header_index is None or code_index is None or (qty_index is None and not size_indexes):
-            raise HTTPException(status_code=400, detail="Excel 中需要包含 商品编码/货品编码/商品编号/货号，以及 数量 或尺码数量列")
+            raise HTTPException(status_code=400, detail="Excel 中需要包含 商品货号/商品编码/货品编码/商品编号/货号，以及 数量 或尺码数量列")
 
         parsed_rows: list[dict[str, object]] = []
         empty_streak = 0
@@ -1223,6 +1334,9 @@ def _read_purchase_import_rows(content: bytes) -> tuple[list[dict[str, object]],
             product_code = _cell_text(row[code_index] if code_index < len(row) else None)
             quantity = _cell_text(row[qty_index] if qty_index is not None and qty_index < len(row) else None)
             unit_price = _cell_text(row[unit_price_index] if unit_price_index is not None and unit_price_index < len(row) else None)
+            remark = _cell_text(row[remark_index] if remark_index is not None and remark_index < len(row) else None)
+            if len(remark) > PURCHASE_DETAIL_REMARK_LIMIT:
+                raise HTTPException(status_code=400, detail=f"商品备注最多 {PURCHASE_DETAIL_REMARK_LIMIT} 个字")
             size_quantities = {
                 size: _cell_text(row[index] if index < len(row) else None)
                 for index, size in size_indexes.items()
@@ -1240,6 +1354,7 @@ def _read_purchase_import_rows(content: bytes) -> tuple[list[dict[str, object]],
                     "product_code": product_code,
                     "quantity": quantity,
                     "unit_price": unit_price,
+                    "remark": remark,
                     "size_quantities": size_quantities,
                     "extra_fields": extra_fields,
                     **_purchase_import_doc_fields_from_values(row, doc_field_indexes),
@@ -1267,15 +1382,17 @@ def _read_purchase_import_rows_xls(content: bytes) -> tuple[list[dict[str, objec
     code_index = None
     qty_index = None
     unit_price_index = None
+    remark_index = None
     size_indexes: dict[int, str] = {}
     extra_indexes: dict[int, str] = {}
     doc_field_indexes: dict[int, str] = {}
     data_start_row = 0
     for row_index in range(min(worksheet.nrows, 30)):
         headers = [_cell_text(value).replace("\n", "").replace("\r", "") for value in worksheet.row_values(row_index)]
-        code_index = next((index for index, value in enumerate(headers) if value in {"商品编码", "货品编码", "商品编号", "货号"}), None)
+        code_index = next((index for index, value in enumerate(headers) if value in PURCHASE_ORDER_IMPORT_CODE_HEADERS), None)
         qty_index = next((index for index, value in enumerate(headers) if value == "数量"), None)
         unit_price_index = next((index for index, value in enumerate(headers) if value == "单价"), None)
+        remark_index = next((index for index, value in enumerate(headers) if value in PURCHASE_DETAIL_REMARK_HEADERS), None)
         doc_field_indexes = _purchase_import_doc_field_indexes(headers)
         extra_indexes = {
             index: key
@@ -1292,7 +1409,7 @@ def _read_purchase_import_rows_xls(content: bytes) -> tuple[list[dict[str, objec
             data_start_row = row_index + 1
             break
     if code_index is None or (qty_index is None and not size_indexes):
-        raise HTTPException(status_code=400, detail="Excel 中需要包含 商品编码/货品编码/商品编号/货号，以及 数量 或尺码数量列")
+        raise HTTPException(status_code=400, detail="Excel 中需要包含 商品货号/商品编码/货品编码/商品编号/货号，以及 数量 或尺码数量列")
 
     parsed_rows: list[dict[str, object]] = []
     empty_streak = 0
@@ -1301,6 +1418,9 @@ def _read_purchase_import_rows_xls(content: bytes) -> tuple[list[dict[str, objec
         product_code = _cell_text(values[code_index] if code_index < len(values) else None)
         quantity = _cell_text(values[qty_index] if qty_index is not None and qty_index < len(values) else None)
         unit_price = _cell_text(values[unit_price_index] if unit_price_index is not None and unit_price_index < len(values) else None)
+        remark = _cell_text(values[remark_index] if remark_index is not None and remark_index < len(values) else None)
+        if len(remark) > PURCHASE_DETAIL_REMARK_LIMIT:
+            raise HTTPException(status_code=400, detail=f"商品备注最多 {PURCHASE_DETAIL_REMARK_LIMIT} 个字")
         size_quantities = {
             size: _cell_text(values[index] if index < len(values) else None)
             for index, size in size_indexes.items()
@@ -1318,6 +1438,7 @@ def _read_purchase_import_rows_xls(content: bytes) -> tuple[list[dict[str, objec
                 "product_code": product_code,
                 "quantity": quantity,
                 "unit_price": unit_price,
+                "remark": remark,
                 "size_quantities": size_quantities,
                 "extra_fields": extra_fields,
                 **_purchase_import_doc_fields_from_values(values, doc_field_indexes),
@@ -1511,9 +1632,9 @@ def _load_purchase_product_lookup(connection, brand: str, product_codes: set[str
         if not code or code not in lookup:
             continue
         price = (
-            row.get("latest_purchase_price")
+            row.get("cost_unit_price")
+            or row.get("latest_purchase_price")
             or row.get("preset_price")
-            or row.get("cost_unit_price")
         )
         product_name = str(row.get("goods_full_name") or "").strip()
         if product_name and not lookup[code].get("product_name"):
@@ -1615,6 +1736,142 @@ def _load_purchase_product_lookup(connection, brand: str, product_codes: set[str
                 if code and code in lookup:
                     _merge_product_info(lookup[code], smiley_info)
     return lookup
+
+
+def _build_purchase_detail_candidates(connection, query: str, brand: str | None = None, limit: int = 20) -> list[dict[str, str]]:
+    keyword = _cell_text(query)
+    if len(keyword) < 2:
+        return []
+
+    candidate_brands = [brand] if brand else ["cbanner_mens", "cbanner_womens"]
+    seen: set[tuple[str, str]] = set()
+    items: list[dict[str, str]] = []
+
+    for candidate_brand in candidate_brands:
+        normalized_brand = _cell_text(candidate_brand).lower()
+        if normalized_brand == "nike":
+            normalized_brand = "ni"
+        if not normalized_brand:
+            continue
+        if normalized_brand == "smiley":
+            statement = (
+                sa_select(
+                    SMILEY_FINE_TABLE.c.sku,
+                    SMILEY_FINE_TABLE.c.original_sku,
+                    SMILEY_FINE_TABLE.c.product_name,
+                    SMILEY_FINE_TABLE.c.factory_sku,
+                    SMILEY_FINE_TABLE.c.raw_payload,
+                )
+                .where(or_(
+                    SMILEY_FINE_TABLE.c.sku.ilike(f"%{keyword}%"),
+                    SMILEY_FINE_TABLE.c.original_sku.ilike(f"%{keyword}%"),
+                ))
+                .order_by(SMILEY_FINE_TABLE.c.snapshot_date.desc().nulls_last(), desc(SMILEY_FINE_TABLE.c.updated_at), desc(SMILEY_FINE_TABLE.c.id))
+                .limit(limit)
+            )
+            rows = connection.execute(statement).mappings()
+            for row in rows:
+                sku = _cell_text(row.get("sku"))
+                original_sku = _cell_text(row.get("original_sku")) or sku
+                key = (normalized_brand, sku)
+                if not sku or key in seen:
+                    continue
+                raw_payload = _dict_or_empty(row.get("raw_payload"))
+                items.append({
+                    "product_code": sku,
+                    "sku": sku,
+                    "original_sku": original_sku,
+                    "product_name": _cell_text(row.get("product_name")),
+                    "color_name": _first_text(
+                        raw_payload.get("颜色名称"),
+                        raw_payload.get("颜色"),
+                        raw_payload.get("新色"),
+                        raw_payload.get("颜色及规格"),
+                    ),
+                    "factory_code": _cell_text(row.get("factory_sku")),
+                    "brand": normalized_brand,
+                })
+                seen.add(key)
+                if len(items) >= limit:
+                    return items
+
+        product_table = PRODUCT_TABLES.get(normalized_brand)
+        if product_table is not None:
+            rows = connection.execute(
+                sa_select(
+                    product_table.c.sku,
+                    product_table.c.original_sku,
+                    product_table.c.color,
+                    product_table.c.factory_sku,
+                    product_table.c.product_model,
+                )
+                .where(or_(
+                    product_table.c.sku.ilike(f"%{keyword}%"),
+                    product_table.c.original_sku.ilike(f"%{keyword}%"),
+                ))
+                .order_by(desc(product_table.c.updated_at), desc(product_table.c.id))
+                .limit(limit)
+            ).mappings()
+            for row in rows:
+                sku = _cell_text(row.get("sku"))
+                original_sku = _cell_text(row.get("original_sku")) or sku
+                key = (normalized_brand, sku)
+                if not sku or key in seen:
+                    continue
+                items.append({
+                    "product_code": sku,
+                    "sku": sku,
+                    "original_sku": original_sku,
+                    "product_name": _cell_text(row.get("product_model")),
+                    "color_name": _cell_text(row.get("color")),
+                    "factory_code": _cell_text(row.get("factory_sku")),
+                    "brand": normalized_brand,
+                })
+                seen.add(key)
+                if len(items) >= limit:
+                    return items
+
+        gj_statement = (
+            sa_select(
+                GJ_MERGED_PRODUCT_INFO_TABLE.c.goods_code,
+                GJ_MERGED_PRODUCT_INFO_TABLE.c.original_goods_code,
+                GJ_MERGED_PRODUCT_INFO_TABLE.c.goods_full_name,
+                GJ_MERGED_PRODUCT_INFO_TABLE.c.product_name,
+                GJ_MERGED_PRODUCT_INFO_TABLE.c.factory_code,
+                GJ_MERGED_PRODUCT_INFO_TABLE.c.fine_table_brand,
+            )
+            .where(or_(
+                GJ_MERGED_PRODUCT_INFO_TABLE.c.goods_code.ilike(f"%{keyword}%"),
+                GJ_MERGED_PRODUCT_INFO_TABLE.c.original_goods_code.ilike(f"%{keyword}%"),
+            ))
+            .where(GJ_MERGED_PRODUCT_INFO_TABLE.c.fine_table_brand == normalized_brand)
+            .order_by(
+                GJ_MERGED_PRODUCT_INFO_TABLE.c.source_date_value.desc().nulls_last(),
+                desc(GJ_MERGED_PRODUCT_INFO_TABLE.c.updated_at),
+                desc(GJ_MERGED_PRODUCT_INFO_TABLE.c.id),
+            )
+            .limit(limit)
+        )
+        for row in connection.execute(gj_statement).mappings():
+            sku = _cell_text(row.get("goods_code"))
+            original_sku = _cell_text(row.get("original_goods_code")) or sku
+            key = (normalized_brand, sku)
+            if not sku or key in seen:
+                continue
+            items.append({
+                "product_code": sku,
+                "sku": sku,
+                "original_sku": original_sku,
+                "product_name": _first_text(row.get("goods_full_name"), row.get("product_name")),
+                "color_name": "",
+                "factory_code": _cell_text(row.get("factory_code")),
+                "brand": _cell_text(row.get("fine_table_brand")) or normalized_brand,
+            })
+            seen.add(key)
+            if len(items) >= limit:
+                return items
+
+    return items
 
 
 def _purchase_detail_extra_fields(product_info: dict[str, object], detail_code: object, imported_extra_fields: object | None = None) -> dict[str, str]:
@@ -1721,6 +1978,7 @@ def _build_purchase_details_from_rows(
     *,
     brand: str,
     fallback_unit_price: Decimal,
+    prefer_lookup_unit_price: bool = False,
 ) -> list[dict[str, object]]:
     if not rows:
         raise HTTPException(status_code=400, detail="Excel 中没有可导入的明细")
@@ -1761,6 +2019,7 @@ def _build_purchase_details_from_rows(
             "color_name": color_name,
             "size": size,
             "unit_price": row.get("unit_price") or "",
+            "remark": _cell_text(row.get("remark")),
             "size_quantities": normalized_sizes,
             "extra_fields": row.get("extra_fields") if isinstance(row.get("extra_fields"), dict) else {},
         })
@@ -1791,7 +2050,12 @@ def _build_purchase_details_from_rows(
             or {}
         )
         color_barcode, color_name = _purchase_detail_color_values(product_info, color_barcode, color_name)
-        unit_price = _to_decimal(row.get("unit_price")) or _to_decimal(product_info.get("unit_price")) or fallback_unit_price
+        imported_unit_price = _to_decimal(row.get("unit_price"))
+        lookup_unit_price = _to_decimal(product_info.get("unit_price"))
+        if prefer_lookup_unit_price:
+            unit_price = lookup_unit_price or fallback_unit_price
+        else:
+            unit_price = imported_unit_price or lookup_unit_price or fallback_unit_price
         product_name = str(product_info.get("product_name") or "").strip()
         if not product_name:
             product_name = f"{original_sku}{color_name}" if color_name else original_sku
@@ -1809,10 +2073,13 @@ def _build_purchase_details_from_rows(
                 "size_quantities": defaultdict(Decimal),
                 "quantity": Decimal("0"),
                 "unit_price": unit_price,
+                "remark": _cell_text(row.get("remark")),
                 "extra_fields": extra_fields,
                 "raw_codes": [],
             },
         )
+        if row.get("remark") and not item.get("remark"):
+            item["remark"] = _cell_text(row.get("remark"))
         if isinstance(item.get("extra_fields"), dict):
             for field_key, field_value in extra_fields.items():
                 if (field_value or field_key == "inner_color_code") and not item["extra_fields"].get(field_key):
@@ -1849,6 +2116,7 @@ def _build_purchase_details_from_rows(
             "quantity": _fmt_decimal(quantity),
             "unit_price": _fmt_decimal(item_unit_price) if item_unit_price else None,
             "amount": _fmt_decimal(amount) if amount else None,
+            "remark": item.get("remark") or "",
             "size_quantities": size_quantities,
             "extra_fields": item.get("extra_fields") or {},
         })
@@ -1861,6 +2129,7 @@ def _build_purchase_details_from_excel(
     *,
     brand: str,
     fallback_unit_price: Decimal,
+    prefer_lookup_unit_price: bool = False,
 ) -> tuple[list[dict[str, object]], str]:
     rows, sheet_name = _read_purchase_import_rows(content)
     details = _build_purchase_details_from_rows(
@@ -1868,6 +2137,7 @@ def _build_purchase_details_from_excel(
         rows,
         brand=brand,
         fallback_unit_price=fallback_unit_price,
+        prefer_lookup_unit_price=prefer_lookup_unit_price,
     )
     return details, sheet_name
 
@@ -2216,6 +2486,11 @@ def import_jst_stock(request: Request, stock_date: str | None = None):
     )
 
 
+@router.get("/inventory/import-purchase/template")
+def download_purchase_import_template():
+    return _stream_excel_workbook(_build_purchase_order_import_template(), "采购单导入模板.xlsx")
+
+
 @router.post("/inventory/import-purchase")
 async def import_purchase_inventory(request: Request, file: UploadFile = None):
     if file is None:
@@ -2243,7 +2518,7 @@ async def import_purchase_inventory(request: Request, file: UploadFile = None):
     is_purchase_order_import = document_type == "进货订单"
     if is_purchase_order_import:
         if _purchase_order_import_has_size_columns(rows):
-            raise HTTPException(status_code=400, detail="采购单导入只支持新模板：商品编码 + 数量，不再支持尺码列旧模板")
+            raise HTTPException(status_code=400, detail="采购单导入只支持新模板：商品货号（完整商品编码）+ 数量，不再支持尺码列旧模板")
         missing_fields = _missing_purchase_order_import_fields(rows)
         if missing_fields:
             labels = "、".join(PURCHASE_ORDER_IMPORT_FIELD_LABELS[field] for field in missing_fields)
@@ -2318,6 +2593,7 @@ async def import_purchase_inventory(request: Request, file: UploadFile = None):
             plan["rows"],
             brand=str(plan["brand"]),
             fallback_unit_price=fallback_unit_price,
+            prefer_lookup_unit_price=is_purchase_order_import,
         )
 
     created_docs = 0
@@ -2468,22 +2744,50 @@ def create_inventory_account_subject(request: Request, payload: dict):
     if not name:
         raise HTTPException(status_code=400, detail="科目名称不能为空")
     try:
-        return {
-            "item": repository.create_account_subject({
-                "code": payload.get("code"),
-                "name": name,
-            }),
-            "message": "创建成功",
-        }
+        item = repository.create_account_subject({
+            "code": payload.get("code"),
+            "name": name,
+        })
     except Exception as error:
         raise HTTPException(status_code=400, detail=f"科目 '{name}' 已存在或无法创建") from error
+    label = str(item.get("name") or item.get("id") or "").strip()
+    write_operation_log(
+        request,
+        module="account_subject",
+        action="create",
+        entity_type="inventory_account_subject",
+        entity_id=item.get("id"),
+        entity_label=label,
+        summary=f"新增科目 {label}".strip(),
+        before_data=None,
+        after_data=item,
+    )
+    return {
+        "item": item,
+        "message": "创建成功",
+    }
 
 
 @router.delete("/inventory/account-subjects/{subject_id}")
 def delete_inventory_account_subject(request: Request, subject_id: int):
     repository = request.app.state.inventory_repository
+    before = repository.get_account_subject(subject_id)
+    if before is None:
+        raise HTTPException(status_code=404, detail="Subject not found")
     if not repository.delete_account_subject(subject_id):
         raise HTTPException(status_code=404, detail="Subject not found")
+    label = str(before.get("name") or subject_id).strip()
+    write_operation_log(
+        request,
+        module="account_subject",
+        action="delete",
+        entity_type="inventory_account_subject",
+        entity_id=subject_id,
+        entity_label=label,
+        summary=f"删除科目 {label}".strip(),
+        before_data=before,
+        after_data=None,
+    )
     return {"message": "删除成功"}
 
 
@@ -2501,10 +2805,23 @@ def create_general_customer_brand(request: Request, payload: dict):
         raise HTTPException(status_code=400, detail="品牌名称不能为空")
     if repository.get_general_customer_brand_by_name(name):
         raise HTTPException(status_code=400, detail=f"品牌 '{name}' 已存在")
+    item = repository.create_general_customer_brand({
+        "name": name,
+    })
+    label = str(item.get("name") or item.get("id") or "").strip()
+    write_operation_log(
+        request,
+        module="general_customer",
+        action="create",
+        entity_type="general_customer_brand",
+        entity_id=item.get("id"),
+        entity_label=label,
+        summary=f"新增一般客户品牌 {label}".strip(),
+        before_data=None,
+        after_data=item,
+    )
     return {
-        "item": repository.create_general_customer_brand({
-            "name": name,
-        }),
+        "item": item,
         "message": "创建成功",
     }
 
@@ -2518,20 +2835,52 @@ def update_general_customer_brand(request: Request, brand_id: int, payload: dict
     existing = repository.get_general_customer_brand_by_name(name)
     if existing and existing.get("id") != brand_id:
         raise HTTPException(status_code=400, detail=f"品牌 '{name}' 已存在")
+    before = repository.get_general_customer_brand(brand_id)
+    if before is None:
+        raise HTTPException(status_code=404, detail="Brand not found")
     record = repository.update_general_customer_brand(brand_id, {
         "name": name,
     })
     if record is None:
         raise HTTPException(status_code=404, detail="Brand not found")
+    label = str(record.get("name") or before.get("name") or brand_id).strip()
+    changes = build_changed_fields(before, record, GENERAL_CUSTOMER_BRAND_FIELD_LABELS)
+    write_operation_log(
+        request,
+        module="general_customer",
+        action="update",
+        entity_type="general_customer_brand",
+        entity_id=brand_id,
+        entity_label=label,
+        summary=summarize_changes("编辑一般客户品牌", label, changes),
+        changed_fields=changes,
+        before_data=before,
+        after_data=record,
+    )
     return {"item": record, "message": "更新成功"}
 
 
 @router.delete("/inventory/general-customer-brands/{brand_id}")
 def delete_general_customer_brand(request: Request, brand_id: int):
     repository = request.app.state.inventory_repository
+    before = repository.get_general_customer_brand(brand_id)
+    if before is None:
+        raise HTTPException(status_code=404, detail="Brand not found")
     result = repository.delete_general_customer_brand(brand_id)
     if result == "not_found":
         raise HTTPException(status_code=404, detail="Brand not found")
+    label = str(before.get("name") or brand_id).strip()
+    write_operation_log(
+        request,
+        module="general_customer",
+        action="delete",
+        entity_type="general_customer_brand",
+        entity_id=brand_id,
+        entity_label=label,
+        summary=f"删除一般客户品牌 {label}".strip(),
+        before_data=before,
+        after_data=None,
+    )
     return {"message": "删除成功"}
 
 
@@ -2549,7 +2898,20 @@ def create_general_customer_shop(request: Request, payload: dict):
         raise HTTPException(status_code=400, detail=f"店铺 '{customer_name} / {shop_name}' 已存在")
     payload["customer_name"] = customer_name
     payload["shop_name"] = shop_name
-    return {"item": repository.create_general_customer_shop(payload), "message": "创建成功"}
+    item = repository.create_general_customer_shop(payload)
+    label = f"{customer_name} / {shop_name}"
+    write_operation_log(
+        request,
+        module="general_customer",
+        action="create",
+        entity_type="general_customer_shop",
+        entity_id=item.get("id"),
+        entity_label=label,
+        summary=f"新增一般客户店铺 {label}".strip(),
+        before_data=None,
+        after_data=item,
+    )
+    return {"item": item, "message": "创建成功"}
 
 
 @router.put("/inventory/general-customer-shops/{shop_id}")
@@ -2557,17 +2919,53 @@ def update_general_customer_shop(request: Request, shop_id: int, payload: dict):
     repository = request.app.state.inventory_repository
     payload["customer_name"] = str(payload.get("customer_name") or "").strip()
     payload["shop_name"] = str(payload.get("shop_name") or "").strip()
+    if not payload["customer_name"]:
+        raise HTTPException(status_code=400, detail="品牌名称不能为空")
+    if not payload["shop_name"]:
+        raise HTTPException(status_code=400, detail="店铺名称不能为空")
+    before = repository.get_general_customer_shop(shop_id)
+    if before is None:
+        raise HTTPException(status_code=404, detail="Shop not found")
     record = repository.update_general_customer_shop(shop_id, payload)
     if record is None:
         raise HTTPException(status_code=404, detail="Shop not found")
+    label = f"{record.get('customer_name') or ''} / {record.get('shop_name') or ''}".strip()
+    changes = build_changed_fields(before, record, GENERAL_CUSTOMER_SHOP_FIELD_LABELS)
+    write_operation_log(
+        request,
+        module="general_customer",
+        action="update",
+        entity_type="general_customer_shop",
+        entity_id=shop_id,
+        entity_label=label,
+        summary=summarize_changes("编辑一般客户店铺", label, changes),
+        changed_fields=changes,
+        before_data=before,
+        after_data=record,
+    )
     return {"item": record, "message": "更新成功"}
 
 
 @router.delete("/inventory/general-customer-shops/{shop_id}")
 def delete_general_customer_shop(request: Request, shop_id: int):
     repository = request.app.state.inventory_repository
+    before = repository.get_general_customer_shop(shop_id)
+    if before is None:
+        raise HTTPException(status_code=404, detail="Shop not found")
     if not repository.delete_general_customer_shop(shop_id):
         raise HTTPException(status_code=404, detail="Shop not found")
+    label = f"{before.get('customer_name') or ''} / {before.get('shop_name') or ''}".strip()
+    write_operation_log(
+        request,
+        module="general_customer",
+        action="delete",
+        entity_type="general_customer_shop",
+        entity_id=shop_id,
+        entity_label=label,
+        summary=f"删除一般客户店铺 {label}".strip(),
+        before_data=before,
+        after_data=None,
+    )
     return {"message": "删除成功"}
 
 
@@ -2610,6 +3008,20 @@ def lookup_inventory_detail(
             brand,
         )
     return {"item": item}
+
+
+@router.get("/inventory/detail-candidates")
+def list_inventory_detail_candidates(
+    request: Request,
+    query: str,
+    brand: str | None = None,
+    limit: int = 20,
+):
+    normalized_limit = min(max(limit, 1), 50)
+    repository = request.app.state.inventory_repository
+    with repository.engine.connect() as connection:
+        items = _build_purchase_detail_candidates(connection, query, brand, normalized_limit)
+    return {"items": items}
 
 
 @router.get("/inventory/{record_id}")
@@ -2799,6 +3211,7 @@ async def replace_inventory_details_from_excel(request: Request, record_id: int,
         content,
         brand=brand,
         fallback_unit_price=fallback_unit_price,
+        prefer_lookup_unit_price=document_type == "进货订单",
     )
     detail_payloads = []
     for detail in details:
@@ -2835,6 +3248,7 @@ def create_inventory_detail(request: Request, record_id: int, payload: dict):
     record = repository.get_record(record_id)
     if record is None:
         raise HTTPException(status_code=404, detail="Record not found")
+    _validate_purchase_detail_remark(record, payload)
     payload["document_id"] = record_id
     detail = repository.create_detail(payload)
     _log_detail_operation(request, action="detail_create", prefix="新增", record=record, after=detail)
@@ -2850,6 +3264,7 @@ def update_inventory_detail(request: Request, record_id: int, detail_id: int, pa
     before = repository.get_detail(detail_id)
     if before is None:
         raise HTTPException(status_code=404, detail="Detail not found")
+    _validate_purchase_detail_remark(record, payload)
     payload["document_id"] = record_id
     detail = repository.update_detail(detail_id, payload)
     if detail is None:

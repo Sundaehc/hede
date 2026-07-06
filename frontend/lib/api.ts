@@ -105,7 +105,7 @@ export function updateAdminUser(id: number, payload: Partial<Pick<AuthUser, "dis
 }
 
 export function listOperationLogs(params: {
-  module: "product" | "fine_table" | "inventory" | "purchase"
+  module: "product" | "fine_table" | "inventory" | "purchase" | "supplier" | "warehouse" | "account_subject" | "general_customer"
   query?: string
   page: number
   pageSize: number
@@ -312,6 +312,16 @@ export function buildProductExportUrl(brand: BrandKey, ids?: number[], mode?: "w
   return `${API_PREFIX}/export?${params.toString()}`
 }
 
+export async function assertProductExportAllowed(brand: BrandKey, ids?: number[], mode?: "with_sizes") {
+  const response = await fetch(buildProductExportUrl(brand, ids, mode), {
+    credentials: "include",
+    method: "HEAD",
+  })
+  if (!response.ok) {
+    throw new ApiError(response.status, await readApiError(response))
+  }
+}
+
 export function exportProducts(brand: BrandKey, ids?: number[], mode?: "with_sizes") {
   return fetch(buildProductExportUrl(brand, ids, mode), {
     credentials: "include",
@@ -411,6 +421,16 @@ export type InventoryDetailLookupResult = {
   amount: string | null
   size_quantities: Record<string, string> | null
   extra_fields: Record<string, string> | null
+}
+
+export type InventoryDetailCandidate = {
+  product_code: string
+  sku: string
+  original_sku: string
+  product_name: string
+  color_name: string
+  factory_code: string
+  brand: string
 }
 
 export type InventoryListResponse = {
@@ -674,6 +694,10 @@ export function buildInventoryExportUrl(params: {
   return `${API_PREFIX}/inventory/export${suffix}`
 }
 
+export function buildPurchaseImportTemplateUrl() {
+  return `${API_PREFIX}/inventory/import-purchase/template`
+}
+
 export function exportInventory(params: {
   ids?: number[]
   date_start?: string
@@ -858,6 +882,13 @@ export function lookupInventoryDetail(params: { productCode: string; quantity?: 
   if (params.quantity) search.set("quantity", params.quantity)
   if (params.brand) search.set("brand", params.brand)
   return request<{ item: InventoryDetailLookupResult }>(`/inventory/detail-lookup?${search.toString()}`)
+}
+
+export function listInventoryDetailCandidates(params: { query: string; brand?: string; limit?: number }) {
+  const search = new URLSearchParams({ query: params.query })
+  if (params.brand) search.set("brand", params.brand)
+  if (params.limit) search.set("limit", String(params.limit))
+  return request<{ items: InventoryDetailCandidate[] }>(`/inventory/detail-candidates?${search.toString()}`)
 }
 
 export function createDetail(documentId: number, payload: Record<string, unknown>) {

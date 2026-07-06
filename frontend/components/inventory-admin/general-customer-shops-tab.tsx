@@ -1,13 +1,14 @@
 "use client"
 
 import { useCallback, useEffect, useMemo, useState } from "react"
-import { ChevronRight, Edit, Plus, Search, Trash2, X } from "lucide-react"
+import { ChevronRight, Edit, History, Plus, Search, Trash2, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { ConfirmDialog, MessageDialog } from "@/components/confirm-dialog"
 import { CounterpartyLedgerDialog } from "@/components/inventory-admin/counterparty-ledger-dialog"
+import { OperationLogDialog } from "@/components/operation-log-dialog"
 import {
   ApiError,
   createGeneralCustomerBrand,
@@ -58,6 +59,7 @@ export function GeneralCustomerShopsTab({ standalone = false }: GeneralCustomerS
   const [deleteShopTarget, setDeleteShopTarget] = useState<GeneralCustomerShopItem | null>(null)
   const [isDeletingShop, setIsDeletingShop] = useState(false)
   const [ledgerTarget, setLedgerTarget] = useState<GeneralCustomerShopItem | null>(null)
+  const [operationLogOpen, setOperationLogOpen] = useState(false)
 
   const [messageOpen, setMessageOpen] = useState(false)
   const [messageContent, setMessageContent] = useState({ title: "", description: "" })
@@ -479,6 +481,13 @@ export function GeneralCustomerShopsTab({ standalone = false }: GeneralCustomerS
           if (!open) setLedgerTarget(null)
         }}
       />
+
+      <OperationLogDialog
+        module="general_customer"
+        title="一般客户操作日志"
+        open={operationLogOpen}
+        onOpenChange={setOperationLogOpen}
+      />
     </>
   )
 
@@ -492,6 +501,10 @@ export function GeneralCustomerShopsTab({ standalone = false }: GeneralCustomerS
             </div>
             <span className="rounded-full border border-border bg-muted/45 px-3 py-1 text-sm text-muted-foreground tabular-nums">{brands.length} 个品牌</span>
           </div>
+          <Button size="sm" variant="outline" onClick={() => setOperationLogOpen(true)} className="cursor-pointer">
+            <History className="h-4 w-4" />
+            <span className="ml-1.5">操作日志</span>
+          </Button>
         </div>
 
         <div className="grid gap-4 lg:grid-cols-[320px_minmax(0,1fr)]">
@@ -507,10 +520,16 @@ export function GeneralCustomerShopsTab({ standalone = false }: GeneralCustomerS
       <div className="flex flex-col gap-3">
         <div className="flex items-center justify-between gap-3">
           <p className="text-sm font-medium text-foreground">品牌店铺管理</p>
-          <Button size="sm" onClick={openCreateBrand} className="cursor-pointer">
-            <Plus className="h-4 w-4" />
-            <span className="ml-1.5">新增品牌</span>
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button size="sm" variant="outline" onClick={() => setOperationLogOpen(true)} className="cursor-pointer">
+              <History className="h-4 w-4" />
+              <span className="ml-1.5">操作日志</span>
+            </Button>
+            <Button size="sm" onClick={openCreateBrand} className="cursor-pointer">
+              <Plus className="h-4 w-4" />
+              <span className="ml-1.5">新增品牌</span>
+            </Button>
+          </div>
         </div>
         <div className="grid gap-4 lg:grid-cols-[320px_minmax(0,1fr)]">
           {brandList}

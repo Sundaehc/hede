@@ -69,6 +69,40 @@ DETAIL_FIELD_LABELS = {
     "extra_fields": "扩展信息",
 }
 
+SUPPLIER_FIELD_LABELS = {
+    "brand": "品牌",
+    "name": "供应商名称",
+    "factory_code": "工厂代码",
+    "contact": "联系人",
+    "wechat": "微信号",
+    "cooperation_status": "合作状态",
+    "factory_grade": "工厂等级",
+    "factory_suggestion": "系统建议",
+    "address": "地址",
+    "notes": "备注",
+}
+
+WAREHOUSE_FIELD_LABELS = {
+    "name": "仓库名称",
+    "address": "地址",
+    "notes": "备注",
+}
+
+ACCOUNT_SUBJECT_FIELD_LABELS = {
+    "code": "科目编号",
+    "name": "科目名称",
+}
+
+GENERAL_CUSTOMER_BRAND_FIELD_LABELS = {
+    "name": "品牌名称",
+    "shop_count": "店铺数量",
+}
+
+GENERAL_CUSTOMER_SHOP_FIELD_LABELS = {
+    "customer_name": "品牌名称",
+    "shop_name": "店铺名称",
+}
+
 IGNORED_FIELDS = {
     "created_at",
     "updated_at",

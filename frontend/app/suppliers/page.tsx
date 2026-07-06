@@ -1,7 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useState } from "react"
-import { ArrowUpDown, ChevronLeft, ChevronRight, Edit, Plus, Search, Trash2, X } from "lucide-react"
+import { ArrowUpDown, ChevronLeft, ChevronRight, Edit, History, Plus, Search, Trash2, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -15,6 +15,7 @@ import {
 } from "@/components/ui/dialog"
 import { ConfirmDialog, MessageDialog } from "@/components/confirm-dialog"
 import { CounterpartyLedgerDialog } from "@/components/inventory-admin/counterparty-ledger-dialog"
+import { OperationLogDialog } from "@/components/operation-log-dialog"
 import {
   listSuppliers,
   createSupplier,
@@ -129,6 +130,7 @@ export default function SuppliersPage() {
   const [deleteTarget, setDeleteTarget] = useState<SupplierItem | null>(null)
   const [isDeleting, setIsDeleting] = useState(false)
   const [ledgerTarget, setLedgerTarget] = useState<SupplierItem | null>(null)
+  const [operationLogOpen, setOperationLogOpen] = useState(false)
   const [messageOpen, setMessageOpen] = useState(false)
   const [messageContent, setMessageContent] = useState({ title: "", description: "" })
 
@@ -250,10 +252,16 @@ export default function SuppliersPage() {
             </div>
             <span className="min-w-20 rounded-full border border-border bg-muted/45 px-3 py-1 text-center text-sm text-muted-foreground tabular-nums">{formatNumber(total)} 个</span>
           </div>
-          <Button size="sm" onClick={openCreate} className="cursor-pointer">
-            <Plus className="h-4 w-4" />
-            <span className="ml-1.5">新增供应商</span>
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button size="sm" variant="outline" onClick={() => setOperationLogOpen(true)} className="cursor-pointer">
+              <History className="h-4 w-4" />
+              <span className="ml-1.5">操作日志</span>
+            </Button>
+            <Button size="sm" onClick={openCreate} className="cursor-pointer">
+              <Plus className="h-4 w-4" />
+              <span className="ml-1.5">新增供应商</span>
+            </Button>
+          </div>
         </div>
 
         <div className="surface-panel mb-3 p-1.5">
@@ -550,6 +558,13 @@ export default function SuppliersPage() {
         onOpenChange={(open) => {
           if (!open) setLedgerTarget(null)
         }}
+      />
+
+      <OperationLogDialog
+        module="supplier"
+        title="供应商管理操作日志"
+        open={operationLogOpen}
+        onOpenChange={setOperationLogOpen}
       />
     </div>
   )

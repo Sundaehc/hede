@@ -37,7 +37,6 @@ export default function LoginPage() {
 
   return (
     <AuthPageShell
-      badge="账号登录"
       title="登录赫德系统"
       description="使用账号进入商品运营中台。"
       icon={LogIn}

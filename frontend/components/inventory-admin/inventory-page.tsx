@@ -44,6 +44,7 @@ import {
   listPurchaseOrderRequirements,
   updatePurchaseOrderRequirement,
   buildInventoryExportUrl,
+  buildPurchaseImportTemplateUrl,
   listInventoryAccountSubjects,
   listGeneralCustomerShops,
   listSuppliers,
@@ -788,6 +789,13 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
     } catch (err) {
       showMessage("导出失败", getErrorMessage(err))
     }
+  }
+
+  const handleDownloadPurchaseTemplate = () => {
+    const a = document.createElement("a")
+    a.href = buildPurchaseImportTemplateUrl()
+    a.rel = "noopener"
+    a.click()
   }
 
   const search = () => {
@@ -1567,7 +1575,22 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
               </>
             )}
             <div className="col-span-2 space-y-1.5">
-              <Label>Excel 文件</Label>
+              <div className="flex items-center justify-between gap-3">
+                <Label>Excel 文件</Label>
+                {isPurchaseOrderTab && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={handleDownloadPurchaseTemplate}
+                    disabled={isImporting}
+                    className="h-8 cursor-pointer"
+                  >
+                    <Download className="h-3.5 w-3.5" />
+                    <span className="ml-1.5">模版下载</span>
+                  </Button>
+                )}
+              </div>
               <input
                 ref={fileInputRef}
                 type="file"

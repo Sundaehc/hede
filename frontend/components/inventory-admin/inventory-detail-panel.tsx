@@ -1,7 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import { Plus, Trash2, Edit, X, Upload } from "lucide-react"
+import { Plus, Trash2, Edit, X, Upload, Search } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -16,6 +16,7 @@ import { ConfirmDialog, MessageDialog } from "@/components/confirm-dialog"
 import {
   listDetails,
   lookupInventoryDetail,
+  listInventoryDetailCandidates,
   createDetail,
   updateDetail,
   deleteDetail,
@@ -25,6 +26,7 @@ import {
   ApiError,
   type InventoryRecord,
   type InventoryDetail,
+  type InventoryDetailCandidate,
   type SupplierItem,
   type InventoryAccountSubject,
 } from "@/lib/api"
@@ -190,6 +192,14 @@ function emptyPurchaseExtraFields() {
   }, {})
 }
 
+function candidateSubtitle(candidate: InventoryDetailCandidate) {
+  return [
+    candidate.original_sku && candidate.original_sku !== candidate.product_code ? `原始货号 ${candidate.original_sku}` : "",
+    candidate.color_name,
+    candidate.factory_code ? `工厂货号 ${candidate.factory_code}` : "",
+  ].filter(Boolean).join(" · ")
+}
+
 export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChanged }: Props) {
   const documentId = record?.id ?? null
   const documentType = record?.document_type || ""
@@ -198,7 +208,7 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
   const accountingAmountLabel = documentType.includes("减少") ? "减少金额" : "增加金额"
   const inventorySizeBrand = useMemo(() => inferInventorySizeBrand(record, suppliers), [record, suppliers])
   const sizeColumns = useMemo(() => getSizeColumns(inventorySizeBrand), [inventorySizeBrand])
-  const detailColumnCount = isAccountingDocument ? 6 : isPurchaseOrder ? 16 + sizeColumns.length : 9 + sizeColumns.length
+  const detailColumnCount = isAccountingDocument ? 6 : isPurchaseOrder ? 17 + sizeColumns.length : 9 + sizeColumns.length
   const [items, setItems] = useState<InventoryDetail[]>([])
   const [isLoading, setIsLoading] = useState(false)
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set())
@@ -214,6 +224,10 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
   const [lookupToken, setLookupToken] = useState(0)
   const lookupSourceCodeRef = useRef("")
   const lookupReasonRef = useRef<"code" | "quantity">("code")
+  const productCodeRootRef = useRef<HTMLDivElement>(null)
+  const [productCandidates, setProductCandidates] = useState<InventoryDetailCandidate[]>([])
+  const [isCandidateLoading, setIsCandidateLoading] = useState(false)
+  const [candidateOpen, setCandidateOpen] = useState(false)
   const [editingId, setEditingId] = useState<number | null>(null)
   const [isSaving, setIsSaving] = useState(false)
   const [subjects, setSubjects] = useState<InventoryAccountSubject[]>([])
@@ -274,6 +288,8 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
     setSizeQuantities({})
     setLookupToken(0)
     lookupSourceCodeRef.current = ""
+    setProductCandidates([])
+    setCandidateOpen(false)
     setEditingId(null)
     setFormOpen(true)
   }
@@ -297,13 +313,46 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
     setSizeQuantities(normalizeSizeQuantitiesForBrand(item.size_quantities, inventorySizeBrand))
     setLookupToken(0)
     lookupSourceCodeRef.current = item.product_code || ""
+    setProductCandidates([])
+    setCandidateOpen(false)
     setFormOpen(true)
+  }
+
+  const handleProductCodeInput = (value: string, options: { resetPurchaseFields: boolean }) => {
+    const { resetPurchaseFields } = options
+    lookupSourceCodeRef.current = value
+    lookupReasonRef.current = "code"
+    setLookupToken((token) => token + 1)
+    setSizeQuantities({})
+    setCandidateOpen(true)
+    setFormData((prev) => ({
+      ...prev,
+      product_code: value,
+      ...(resetPurchaseFields ? emptyPurchaseExtraFields() : {}),
+      ...(resetPurchaseFields ? {
+        color_barcode: "",
+        color_name: "",
+        color_spec: "",
+      } : {}),
+      quantity: "",
+      amount: "",
+    }))
+  }
+
+  const handleCandidateSelect = (candidate: InventoryDetailCandidate) => {
+    handleProductCodeInput(candidate.product_code, { resetPurchaseFields: true })
+    setCandidateOpen(false)
+    setProductCandidates([])
   }
 
   const handleSave = async () => {
     if (!documentId) return
     if (isAccountingDocument && (!formData.product_name?.trim() || !formData.amount?.trim())) {
       showMessage("保存失败", "请填写科目和金额")
+      return
+    }
+    if (isPurchaseOrder && (formData.remark || "").length > 20) {
+      showMessage("保存失败", "商品备注最多 20 个字")
       return
     }
     setIsSaving(true)
@@ -395,6 +444,54 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
     }
   }, [formOpen, lookupToken, isAccountingDocument, isPurchaseOrder, inventorySizeBrand])
 
+  useEffect(() => {
+    if (!formOpen || !isPurchaseOrder) return
+    function handlePointerDown(event: MouseEvent) {
+      if (!productCodeRootRef.current?.contains(event.target as Node)) {
+        setCandidateOpen(false)
+      }
+    }
+    document.addEventListener("mousedown", handlePointerDown)
+    return () => document.removeEventListener("mousedown", handlePointerDown)
+  }, [formOpen, isPurchaseOrder])
+
+  useEffect(() => {
+    if (!formOpen || !isPurchaseOrder) {
+      setProductCandidates([])
+      setCandidateOpen(false)
+      setIsCandidateLoading(false)
+      return
+    }
+    const query = (formData.product_code || "").trim()
+    if (query.length < 2) {
+      setProductCandidates([])
+      setIsCandidateLoading(false)
+      return
+    }
+
+    let cancelled = false
+    const timer = window.setTimeout(async () => {
+      setIsCandidateLoading(true)
+      try {
+        const result = await listInventoryDetailCandidates({
+          query,
+          brand: inventorySizeBrand,
+          limit: 20,
+        })
+        if (!cancelled) setProductCandidates(result.items)
+      } catch {
+        if (!cancelled) setProductCandidates([])
+      } finally {
+        if (!cancelled) setIsCandidateLoading(false)
+      }
+    }, 220)
+
+    return () => {
+      cancelled = true
+      window.clearTimeout(timer)
+    }
+  }, [formData.product_code, formOpen, inventorySizeBrand, isPurchaseOrder])
+
   const handleDelete = async () => {
     if (!deleteTarget || !documentId) return
     setIsDeleting(true)
@@ -467,7 +564,7 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
   if (documentId === null) return null
 
   const allSelected = items.length > 0 && items.every((item) => selectedIds.has(item.id))
-  const tableClassName = isPurchaseOrder ? "w-[2240px] table-fixed text-xs" : "w-full text-sm"
+  const tableClassName = isPurchaseOrder ? "w-[2360px] table-fixed text-xs" : "w-full text-sm"
   const purchaseHeaderClassName = "px-3 py-2.5 font-medium whitespace-nowrap"
   const purchaseCodeCellClassName = "px-3 py-2.5 whitespace-nowrap font-mono text-[11px]"
   const purchaseTextCellClassName = "px-3 py-2.5 truncate whitespace-nowrap"
@@ -568,7 +665,8 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
                       aria-label="选择全部明细"
                     />
                   </th>
-                  <th className={`${purchaseHeaderClassName} w-[130px]`}>商品编号</th>
+                  <th className={`${purchaseHeaderClassName} w-[130px]`}>商品货号</th>
+                  <th className={`${purchaseHeaderClassName} w-[120px]`}>商品备注</th>
                   <th className={`${purchaseHeaderClassName} w-[130px]`}>图片</th>
                   <th className={`${purchaseHeaderClassName} w-[96px]`}>工厂货号</th>
                   <th className={`${purchaseHeaderClassName} w-[140px]`}>款号（鞋内丝印）</th>
@@ -645,6 +743,7 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
                   ) : isPurchaseOrder ? (
                     <>
                       <td className={purchaseCodeCellClassName}>{item.product_code || "-"}</td>
+                      <td className={purchaseTextCellClassName} title={item.remark || ""}>{item.remark || "-"}</td>
                       <td className={purchaseCodeCellClassName}>{getPurchaseDetailExtra(item, "image_code") || item.product_code || "-"}</td>
                       <td className={purchaseCodeCellClassName}>{getPurchaseDetailExtra(item, "factory_code") || "-"}</td>
                       <td className={purchaseCodeCellClassName}>{getPurchaseDetailExtra(item, "image_code") || getPurchaseDetailExtra(item, "style_code") || "-"}</td>
@@ -747,27 +846,60 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
               <>
                 <div className="grid grid-cols-2 gap-3">
                   <div className="space-y-1.5">
-                    <Label htmlFor="detail-product-code">商品编号</Label>
+                    <Label htmlFor="detail-product-code">商品货号</Label>
+                    <div ref={productCodeRootRef} className="relative">
+                      <Search className="pointer-events-none absolute left-3 top-1/2 z-10 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                      <Input
+                        id="detail-product-code"
+                        value={formData.product_code || ""}
+                        onFocus={() => {
+                          if ((formData.product_code || "").trim().length >= 2) setCandidateOpen(true)
+                        }}
+                        onChange={(e) => handleProductCodeInput(e.target.value, { resetPurchaseFields: true })}
+                        onKeyDown={(event) => {
+                          if (event.key === "Escape") setCandidateOpen(false)
+                        }}
+                        placeholder="商品货号"
+                        autoComplete="off"
+                        className="pl-9"
+                      />
+                      {candidateOpen && (formData.product_code || "").trim().length >= 2 && (
+                        <div className="absolute z-50 mt-1 max-h-72 w-full overflow-auto rounded-lg border border-border bg-popover p-1 text-sm shadow-lg">
+                          {isCandidateLoading ? (
+                            <div className="px-3 py-2 text-muted-foreground">匹配中...</div>
+                          ) : productCandidates.length === 0 ? (
+                            <div className="px-3 py-2 text-muted-foreground">没有匹配货号</div>
+                          ) : (
+                            productCandidates.map((candidate) => (
+                              <button
+                                key={`${candidate.brand}-${candidate.product_code}-${candidate.original_sku}`}
+                                type="button"
+                                onMouseDown={(event) => event.preventDefault()}
+                                onClick={() => handleCandidateSelect(candidate)}
+                                className="flex w-full cursor-pointer flex-col gap-0.5 rounded-md px-3 py-2 text-left hover:bg-muted"
+                              >
+                                <span className="font-mono text-xs font-medium text-foreground">{candidate.product_code}</span>
+                                <span className="truncate text-xs text-muted-foreground">
+                                  {candidate.product_name || candidateSubtitle(candidate) || "商品档案"}
+                                </span>
+                                {candidate.product_name && candidateSubtitle(candidate) && (
+                                  <span className="truncate text-[11px] text-muted-foreground">{candidateSubtitle(candidate)}</span>
+                                )}
+                              </button>
+                            ))
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="detail-purchase-remark">商品备注</Label>
                     <Input
-                      id="detail-product-code"
-                      value={formData.product_code || ""}
-                      onChange={(e) => {
-                        lookupSourceCodeRef.current = e.target.value
-                        lookupReasonRef.current = "code"
-                        setLookupToken((token) => token + 1)
-                        setSizeQuantities({})
-                        setFormData((prev) => ({
-                          ...prev,
-                          product_code: e.target.value,
-                          ...emptyPurchaseExtraFields(),
-                          color_barcode: "",
-                          color_name: "",
-                          color_spec: "",
-                          quantity: "",
-                          amount: "",
-                        }))
-                      }}
-                      placeholder="商品编号"
+                      id="detail-purchase-remark"
+                      value={formData.remark || ""}
+                      maxLength={20}
+                      onChange={(e) => setFormData((prev) => ({ ...prev, remark: e.target.value.slice(0, 20) }))}
+                      placeholder="20字以内"
                     />
                   </div>
                   <div className="space-y-1.5">

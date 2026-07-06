@@ -68,7 +68,6 @@ export default function RegisterPage() {
 
   return (
     <AuthPageShell
-      badge="账号注册"
       title="注册账号"
       description={hasUsers ? "注册后按部门获得默认权限。" : "首个账号会自动成为超级管理员。"}
       icon={UserPlus}

@@ -13,6 +13,10 @@ MODULE_PERMISSIONS = {
     "fine_table": "fine_table.view",
     "inventory": "inventory.view",
     "purchase": "purchase.view",
+    "supplier": "inventory.view",
+    "warehouse": "inventory.view",
+    "account_subject": "inventory.view",
+    "general_customer": "inventory.view",
 }
 
 

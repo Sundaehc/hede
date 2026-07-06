@@ -8,7 +8,6 @@ import { ThemeToggle } from "@/components/theme-toggle"
 
 
 type AuthPageShellProps = {
-  badge: string
   title: string
   description: string
   icon: LucideIcon
@@ -22,7 +21,7 @@ const systemItems = [
   { icon: Activity, label: "操作留痕", value: "按账号记录" },
 ]
 
-export function AuthPageShell({ badge, title, description, icon: Icon, children, footer }: AuthPageShellProps) {
+export function AuthPageShell({ title, description, icon: Icon, children, footer }: AuthPageShellProps) {
   return (
     <div className="relative min-h-svh overflow-hidden bg-background px-4 py-5 text-foreground sm:px-6 lg:px-8">
       <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-emerald-500/55 to-transparent" />
@@ -66,9 +65,6 @@ export function AuthPageShell({ badge, title, description, icon: Icon, children,
 
           <div className="overflow-hidden rounded-2xl border border-border bg-card/95 shadow-lg shadow-black/[0.04] backdrop-blur">
             <div className="border-b border-border bg-muted/25 px-6 py-5">
-              <div className="mb-4 inline-flex items-center rounded-full border border-border bg-card px-2.5 py-1 text-[11px] font-medium text-muted-foreground">
-                {badge}
-              </div>
               <div className="flex items-start gap-3">
                 <div className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-primary text-primary-foreground shadow-sm">
                   <Icon className="size-5" />

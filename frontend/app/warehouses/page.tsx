@@ -1,7 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useState } from "react"
-import { Plus, Trash2, Edit } from "lucide-react"
+import { Plus, Trash2, Edit, History } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -13,6 +13,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { ConfirmDialog, MessageDialog } from "@/components/confirm-dialog"
+import { OperationLogDialog } from "@/components/operation-log-dialog"
 import {
   listWarehouses,
   createWarehouse,
@@ -40,6 +41,7 @@ export default function WarehousesPage() {
 
   const [deleteTarget, setDeleteTarget] = useState<WarehouseItem | null>(null)
   const [isDeleting, setIsDeleting] = useState(false)
+  const [operationLogOpen, setOperationLogOpen] = useState(false)
   const [messageOpen, setMessageOpen] = useState(false)
   const [messageContent, setMessageContent] = useState({ title: "", description: "" })
 
@@ -121,10 +123,16 @@ export default function WarehousesPage() {
             </div>
             <span className="rounded-full border border-border bg-muted/45 px-3 py-1 text-sm text-muted-foreground tabular-nums">{items.length} 个</span>
           </div>
-          <Button size="sm" onClick={openCreate} className="cursor-pointer">
-            <Plus className="h-4 w-4" />
-            <span className="ml-1.5">新增仓库</span>
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button size="sm" variant="outline" onClick={() => setOperationLogOpen(true)} className="cursor-pointer">
+              <History className="h-4 w-4" />
+              <span className="ml-1.5">操作日志</span>
+            </Button>
+            <Button size="sm" onClick={openCreate} className="cursor-pointer">
+              <Plus className="h-4 w-4" />
+              <span className="ml-1.5">新增仓库</span>
+            </Button>
+          </div>
         </div>
 
         <div className="table-panel overflow-x-auto">
@@ -207,6 +215,13 @@ export default function WarehousesPage() {
       />
 
       <MessageDialog open={messageOpen} title={messageContent.title} description={messageContent.description} onClose={() => setMessageOpen(false)} />
+
+      <OperationLogDialog
+        module="warehouse"
+        title="仓库管理操作日志"
+        open={operationLogOpen}
+        onOpenChange={setOperationLogOpen}
+      />
     </div>
   )
 }

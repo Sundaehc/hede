@@ -143,7 +143,7 @@ def _excel_cell_value(value: object) -> object:
     return value
 
 
-def _export_all_products(repository) -> StreamingResponse:
+def _export_all_products(request: Request, repository) -> StreamingResponse:
     headers = ["品牌"] + [EXPORT_LABELS.get(c, c) for c in EXPORT_COLUMNS]
     wb = Workbook(write_only=True)
     ws = wb.create_sheet(title="总览")
@@ -181,6 +181,21 @@ def _export_all_products(repository) -> StreamingResponse:
     buf.seek(0)
 
     filename = urllib.parse.quote("总览.xlsx")
+    exported_rows = max(0, row_count - 1)
+    write_operation_log(
+        request,
+        module="product",
+        action="export",
+        entity_type="product_export",
+        entity_label="总览",
+        summary=f"导出商品信息档案总览：{exported_rows} 条",
+        after_data={
+            "brand": "all",
+            "brand_label": "总览",
+            "exported_rows": exported_rows,
+            "filename": "总览.xlsx",
+        },
+    )
     return StreamingResponse(
         buf,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -294,7 +309,7 @@ def _load_product_profile_rows(connection, codes: set[str]) -> list[dict[str, ob
     return profiles
 
 
-def _export_products_with_sizes(repository, brand: str, ids: str | None) -> StreamingResponse:
+def _export_products_with_sizes(request: Request, repository, brand: str, ids: str | None) -> StreamingResponse:
     if brand == "all":
         raise HTTPException(status_code=400, detail="带尺码导出请选择具体品牌")
 
@@ -380,7 +395,24 @@ def _export_products_with_sizes(repository, brand: str, ids: str | None) -> Stre
     wb.save(buf)
     buf.seek(0)
 
-    filename = urllib.parse.quote(f"{brand_label}带尺码商品档案.xlsx")
+    raw_filename = f"{brand_label}带尺码商品档案.xlsx"
+    filename = urllib.parse.quote(raw_filename)
+    write_operation_log(
+        request,
+        module="product",
+        action="export",
+        entity_type="product_export",
+        entity_label=f"{brand_label}带尺码",
+        summary=f"导出商品信息档案带尺码：{brand_label}，{len(profiles)} 条",
+        after_data={
+            "brand": brand,
+            "brand_label": brand_label,
+            "mode": SIZE_EXPORT_MODE,
+            "ids": ids,
+            "exported_rows": len(profiles),
+            "filename": raw_filename,
+        },
+    )
     return StreamingResponse(
         buf,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -397,10 +429,10 @@ def export_products(
 ):
     repository = request.app.state.repository
     if mode == SIZE_EXPORT_MODE:
-        return _export_products_with_sizes(repository, brand, ids)
+        return _export_products_with_sizes(request, repository, brand, ids)
 
     if brand == "all":
-        return _export_all_products(repository)
+        return _export_all_products(request, repository)
 
     if ids:
         id_list = [int(i.strip()) for i in ids.split(",") if i.strip()]
@@ -427,12 +459,40 @@ def export_products(
     buf.seek(0)
 
     brand_label = BRAND_LABELS.get(brand, brand)
-    filename = urllib.parse.quote(f"{brand_label}.xlsx")
+    raw_filename = f"{brand_label}.xlsx"
+    filename = urllib.parse.quote(raw_filename)
+    write_operation_log(
+        request,
+        module="product",
+        action="export",
+        entity_type="product_export",
+        entity_label=brand_label,
+        summary=f"导出商品信息档案：{brand_label}，{len(items)} 条",
+        after_data={
+            "brand": brand,
+            "brand_label": brand_label,
+            "ids": ids,
+            "exported_rows": len(items),
+            "filename": raw_filename,
+        },
+    )
     return StreamingResponse(
         buf,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition": f"attachment; filename*=UTF-8''{filename}"},
     )
+
+
+@router.head("/export")
+def check_export_products(
+    brand: str = Query(...),
+    mode: str | None = Query(None),
+):
+    if mode == SIZE_EXPORT_MODE and brand == "all":
+        raise HTTPException(status_code=400, detail="带尺码导出请选择具体品牌")
+    if brand != "all" and brand not in PRODUCT_TABLES:
+        raise HTTPException(status_code=400, detail="无效品牌")
+    return StreamingResponse(io.BytesIO(b""))
 
 
 @router.post("/import")

@@ -1,11 +1,12 @@
 "use client"
 
 import { useCallback, useEffect, useState } from "react"
-import { Plus, RefreshCw, Trash2 } from "lucide-react"
+import { History, Plus, RefreshCw, Trash2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { ConfirmDialog, MessageDialog } from "@/components/confirm-dialog"
+import { OperationLogDialog } from "@/components/operation-log-dialog"
 import {
   ApiError,
   createInventoryAccountSubject,
@@ -26,6 +27,7 @@ export default function AccountSubjectsPage() {
   const [isLoading, setIsLoading] = useState(true)
   const [isSaving, setIsSaving] = useState(false)
   const [deleteTarget, setDeleteTarget] = useState<InventoryAccountSubject | null>(null)
+  const [operationLogOpen, setOperationLogOpen] = useState(false)
   const [messageOpen, setMessageOpen] = useState(false)
   const [messageContent, setMessageContent] = useState({ title: "", description: "" })
 
@@ -90,10 +92,16 @@ export default function AccountSubjectsPage() {
           <div>
             <h1 className="page-title">科目管理</h1>
           </div>
-          <Button size="sm" variant="outline" onClick={() => void load()} disabled={isLoading} className="cursor-pointer">
-            <RefreshCw className={`h-4 w-4 ${isLoading ? "animate-spin" : ""}`} />
-            <span className="ml-1.5">刷新</span>
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button size="sm" variant="outline" onClick={() => setOperationLogOpen(true)} className="cursor-pointer">
+              <History className="h-4 w-4" />
+              <span className="ml-1.5">操作日志</span>
+            </Button>
+            <Button size="sm" variant="outline" onClick={() => void load()} disabled={isLoading} className="cursor-pointer">
+              <RefreshCw className={`h-4 w-4 ${isLoading ? "animate-spin" : ""}`} />
+              <span className="ml-1.5">刷新</span>
+            </Button>
+          </div>
         </div>
 
         <div className="surface-panel mb-4 p-4">
@@ -176,6 +184,13 @@ export default function AccountSubjectsPage() {
         title={messageContent.title}
         description={messageContent.description}
         onClose={() => setMessageOpen(false)}
+      />
+
+      <OperationLogDialog
+        module="account_subject"
+        title="科目管理操作日志"
+        open={operationLogOpen}
+        onOpenChange={setOperationLogOpen}
       />
     </div>
   )

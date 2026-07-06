@@ -6,7 +6,7 @@ import { History, ImagePlus } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
 import { type BrandKey } from "@/lib/brands"
-import { exportProducts, getProductImageRefreshStatus, importProducts, refreshProductImages } from "@/lib/api"
+import { assertProductExportAllowed, buildProductExportUrl, getProductImageRefreshStatus, importProducts, refreshProductImages } from "@/lib/api"
 import type { ProductImageRefreshStatus } from "@/lib/types"
 
 type ProductToolbarProps = {
@@ -106,20 +106,13 @@ export function ProductToolbar({
     const ids = brand !== "all" && selectedIds && selectedIds.size > 0 ? Array.from(selectedIds) : undefined
     setExporting(true)
     try {
-      const response = await exportProducts(brand, ids, mode)
-      const disposition = response.headers.get("Content-Disposition") ?? ""
-      const match = disposition.match(/filename\*=UTF-8''(.+)/)
-      const filename = match ? decodeURIComponent(match[1]) : `${brand}_products.xlsx`
-      const blob = await response.blob()
-      const url = URL.createObjectURL(blob)
+      await assertProductExportAllowed(brand, ids, mode)
       const a = document.createElement("a")
-      a.href = url
-      a.download = filename
+      a.href = buildProductExportUrl(brand, ids, mode)
       a.style.display = "none"
       document.body.appendChild(a)
       a.click()
       document.body.removeChild(a)
-      window.setTimeout(() => URL.revokeObjectURL(url), 0)
     } catch (error) {
       onMessage("导出失败", error instanceof Error ? error.message : "导出 Excel 时发生错误，请重试")
     } finally {

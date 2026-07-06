@@ -996,6 +996,12 @@ class InventoryRepository:
             row = connection.execute(statement).mappings().first()
         return None if row is None else dict(row)
 
+    def get_supplier(self, supplier_id: int) -> dict[str, object] | None:
+        statement = select(SUPPLIER_TABLE).where(SUPPLIER_TABLE.c.id == supplier_id)
+        with self.engine.connect() as connection:
+            row = connection.execute(statement).mappings().first()
+        return None if row is None else dict(row)
+
     def delete_supplier(self, supplier_id: int) -> bool:
         statement = delete(SUPPLIER_TABLE).where(SUPPLIER_TABLE.c.id == supplier_id)
         with self.engine.begin() as connection:
@@ -1052,6 +1058,24 @@ class InventoryRepository:
         item = dict(row)
         item["shop_count"] = 0
         return item
+
+    def get_general_customer_brand(self, brand_id: int) -> dict[str, object] | None:
+        shop_count = (
+            select(func.count())
+            .select_from(GENERAL_CUSTOMER_SHOP_TABLE)
+            .where(GENERAL_CUSTOMER_SHOP_TABLE.c.customer_name == GENERAL_CUSTOMER_BRAND_TABLE.c.name)
+            .scalar_subquery()
+        )
+        statement = select(
+            GENERAL_CUSTOMER_BRAND_TABLE.c.id,
+            GENERAL_CUSTOMER_BRAND_TABLE.c.name,
+            GENERAL_CUSTOMER_BRAND_TABLE.c.created_at,
+            GENERAL_CUSTOMER_BRAND_TABLE.c.updated_at,
+            shop_count.label("shop_count"),
+        ).where(GENERAL_CUSTOMER_BRAND_TABLE.c.id == brand_id)
+        with self.engine.connect() as connection:
+            row = connection.execute(statement).mappings().first()
+        return None if row is None else dict(row)
 
     def update_general_customer_brand(self, brand_id: int, data: Mapping[str, object]) -> dict[str, object] | None:
         payload = {"name": str(data.get("name") or "").strip()}
@@ -1153,6 +1177,18 @@ class InventoryRepository:
             row = connection.execute(statement).mappings().one()
         return dict(row)
 
+    def get_general_customer_shop(self, shop_id: int) -> dict[str, object] | None:
+        statement = select(
+            GENERAL_CUSTOMER_SHOP_TABLE.c.id,
+            GENERAL_CUSTOMER_SHOP_TABLE.c.customer_name,
+            GENERAL_CUSTOMER_SHOP_TABLE.c.shop_name,
+            GENERAL_CUSTOMER_SHOP_TABLE.c.created_at,
+            GENERAL_CUSTOMER_SHOP_TABLE.c.updated_at,
+        ).where(GENERAL_CUSTOMER_SHOP_TABLE.c.id == shop_id)
+        with self.engine.connect() as connection:
+            row = connection.execute(statement).mappings().first()
+        return None if row is None else dict(row)
+
     def update_general_customer_shop(self, shop_id: int, data: Mapping[str, object]) -> dict[str, object] | None:
         payload = {
             "customer_name": str(data.get("customer_name") or "").strip(),
@@ -1216,6 +1252,12 @@ class InventoryRepository:
             row = connection.execute(statement).mappings().one()
         return dict(row)
 
+    def get_account_subject(self, subject_id: int) -> dict[str, object] | None:
+        statement = select(INVENTORY_ACCOUNT_SUBJECT_TABLE).where(INVENTORY_ACCOUNT_SUBJECT_TABLE.c.id == subject_id)
+        with self.engine.connect() as connection:
+            row = connection.execute(statement).mappings().first()
+        return None if row is None else dict(row)
+
     def delete_account_subject(self, subject_id: int) -> bool:
         statement = delete(INVENTORY_ACCOUNT_SUBJECT_TABLE).where(INVENTORY_ACCOUNT_SUBJECT_TABLE.c.id == subject_id)
         with self.engine.begin() as connection:
@@ -1273,6 +1315,12 @@ class InventoryRepository:
         payload.pop("id", None)
         statement = update(WAREHOUSE_TABLE).where(WAREHOUSE_TABLE.c.id == warehouse_id).values(**payload).returning(WAREHOUSE_TABLE)
         with self.engine.begin() as connection:
+            row = connection.execute(statement).mappings().first()
+        return None if row is None else dict(row)
+
+    def get_warehouse(self, warehouse_id: int) -> dict[str, object] | None:
+        statement = select(WAREHOUSE_TABLE).where(WAREHOUSE_TABLE.c.id == warehouse_id)
+        with self.engine.connect() as connection:
             row = connection.execute(statement).mappings().first()
         return None if row is None else dict(row)
 

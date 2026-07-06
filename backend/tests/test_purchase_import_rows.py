@@ -5,10 +5,12 @@ import io
 from openpyxl import Workbook
 
 from api.routes.inventory import (
+    _build_purchase_order_import_template,
     _group_purchase_import_rows_by_summary,
     _missing_purchase_order_import_fields,
     _purchase_order_import_has_size_columns,
     _read_purchase_import_rows,
+    PURCHASE_SIZE_ROW_EXPORT_HEADERS,
 )
 
 
@@ -97,3 +99,28 @@ def test_purchase_order_import_rejects_legacy_size_column_template() -> None:
     rows, _ = _read_purchase_import_rows(_legacy_size_column_workbook())
 
     assert _purchase_order_import_has_size_columns(rows) is True
+
+
+def test_purchase_order_import_template_does_not_require_unit_price() -> None:
+    workbook = _build_purchase_order_import_template()
+    worksheet = workbook.active
+    headers = [cell.value for cell in worksheet[1]]
+
+    assert headers == [
+        "供货单位",
+        "摘要",
+        "采购日期",
+        "协议到货日期",
+        "收货仓库",
+        "经办人",
+        "商品货号",
+        "商品备注",
+        "数量",
+    ]
+    assert "单价" not in headers
+
+
+def test_purchase_size_row_export_does_not_include_duplicate_note_columns() -> None:
+    assert "行号" not in PURCHASE_SIZE_ROW_EXPORT_HEADERS
+    assert "摘要" not in PURCHASE_SIZE_ROW_EXPORT_HEADERS
+    assert "采购单备注" in PURCHASE_SIZE_ROW_EXPORT_HEADERS
