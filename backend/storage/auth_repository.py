@@ -11,7 +11,7 @@ from domain.auth_schema import AUTH_DEPARTMENT_TABLE, AUTH_ROLE_TABLE, AUTH_SESS
 
 
 SESSION_COOKIE_NAME = "hede_session"
-SESSION_MAX_AGE_SECONDS = 30 * 24 * 60 * 60
+SESSION_MAX_AGE_SECONDS = 7 * 24 * 60 * 60
 
 DEPARTMENTS = [
     {"code": "财务部", "name": "财务部"},
