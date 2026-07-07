@@ -143,6 +143,18 @@ def _excel_cell_value(value: object) -> object:
     return value
 
 
+def _excel_streaming_response(buf: io.BytesIO, filename: str) -> StreamingResponse:
+    quoted_filename = urllib.parse.quote(filename)
+    return StreamingResponse(
+        buf,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={
+            "Content-Disposition": f"attachment; filename*=UTF-8''{quoted_filename}",
+            "Content-Length": str(buf.getbuffer().nbytes),
+        },
+    )
+
+
 def _export_all_products(request: Request, repository) -> StreamingResponse:
     headers = ["品牌"] + [EXPORT_LABELS.get(c, c) for c in EXPORT_COLUMNS]
     wb = Workbook(write_only=True)
@@ -180,7 +192,6 @@ def _export_all_products(request: Request, repository) -> StreamingResponse:
     wb.save(buf)
     buf.seek(0)
 
-    filename = urllib.parse.quote("总览.xlsx")
     exported_rows = max(0, row_count - 1)
     write_operation_log(
         request,
@@ -196,11 +207,7 @@ def _export_all_products(request: Request, repository) -> StreamingResponse:
             "filename": "总览.xlsx",
         },
     )
-    return StreamingResponse(
-        buf,
-        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{filename}"},
-    )
+    return _excel_streaming_response(buf, "总览.xlsx")
 
 
 def _dict_or_empty(value: object) -> dict[str, object]:
@@ -396,7 +403,6 @@ def _export_products_with_sizes(request: Request, repository, brand: str, ids: s
     buf.seek(0)
 
     raw_filename = f"{brand_label}带尺码商品档案.xlsx"
-    filename = urllib.parse.quote(raw_filename)
     write_operation_log(
         request,
         module="product",
@@ -413,11 +419,7 @@ def _export_products_with_sizes(request: Request, repository, brand: str, ids: s
             "filename": raw_filename,
         },
     )
-    return StreamingResponse(
-        buf,
-        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{filename}"},
-    )
+    return _excel_streaming_response(buf, raw_filename)
 
 
 @router.get("/export")
@@ -460,7 +462,6 @@ def export_products(
 
     brand_label = BRAND_LABELS.get(brand, brand)
     raw_filename = f"{brand_label}.xlsx"
-    filename = urllib.parse.quote(raw_filename)
     write_operation_log(
         request,
         module="product",
@@ -476,11 +477,7 @@ def export_products(
             "filename": raw_filename,
         },
     )
-    return StreamingResponse(
-        buf,
-        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{filename}"},
-    )
+    return _excel_streaming_response(buf, raw_filename)
 
 
 @router.head("/export")

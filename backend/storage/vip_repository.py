@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import re
 from zipfile import BadZipFile
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 
 import orjson
@@ -12,12 +12,13 @@ from openpyxl.utils.exceptions import InvalidFileException
 from sqlalchemy import create_engine, func as sa_func, text
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
-from domain.vip_schema import VIP_DAILY_TABLE, VIP_DAILY_SNAPSHOT_TABLE, VIP_OPS_TABLE, VIP_OPS_SNAPSHOT_TABLE, JST_PRICE_TABLE, VIP_REALTIME_TABLE, JST_MONTHLY_ORDERS_TABLE, JST_SIZE_STOCK_TABLE, JST_STOCK_SUMMARY_TABLE, JST_PURCHASE_DIFF_TABLE, JST_PRODUCT_PROFILE_TABLE
+from domain.vip_schema import VIP_DAILY_TABLE, VIP_DAILY_SNAPSHOT_TABLE, VIP_OPS_TABLE, VIP_OPS_SNAPSHOT_TABLE, JST_PRICE_TABLE, VIP_REALTIME_TABLE, JST_MONTHLY_ORDERS_TABLE, JST_SIZE_STOCK_TABLE, JST_STOCK_SUMMARY_TABLE, JST_PURCHASE_DIFF_TABLE, JST_PRODUCT_PROFILE_TABLE, JST_AFTERSALE_RETURN_TABLE
 from domain.vip_sources import (
     VIP_DAILY_COLUMN_ALIASES,
     VIP_OPS_COLUMN_ALIASES,
     JST_PRICE_COLUMN_ALIASES,
     JST_PRODUCT_PROFILE_COLUMN_ALIASES,
+    JST_AFTERSALE_RETURN_COLUMN_ALIASES,
     VIP_REALTIME_COLUMN_ALIASES,
     JST_MONTHLY_ORDERS_COLUMN_ALIASES,
 )
@@ -592,7 +593,105 @@ class VipRepository:
             "message": f"聚水潭商品资料表导入完成: {len(payload)} 条 (原始 {len(rows)} 行, 文件 {len(files)} 个)",
         }
 
+    # ── jst_aftersale_returns (售后退货退款) ───────────────────────
+
+    def import_aftersale_returns(self, file_path: Path) -> dict[str, object]:
+        if not file_path.exists():
+            return {"imported": 0, "read_rows": 0, "message": f"文件不存在: {file_path}"}
+
+        wb = load_workbook(str(file_path), data_only=True, read_only=True)
+        ws = wb[wb.sheetnames[0]]
+        sheet_title = ws.title
+        iterator = ws.iter_rows(values_only=True)
+        header_row = next(iterator, None)
+        if header_row is None:
+            wb.close()
+            return {"imported": 0, "read_rows": 0, "message": "无表头"}
+
+        aliases = JST_AFTERSALE_RETURN_COLUMN_ALIASES
+        headers = [self._normalize_header(value) for value in header_row]
+        column_map = {
+            idx: aliases[header]
+            for idx, header in enumerate(headers)
+            if header in aliases
+        }
+        mapped_columns = set(column_map.values())
+        missing = sorted({"original_goods_code", "returned_qty"} - mapped_columns)
+        if "order_date" not in mapped_columns and "order_time" not in mapped_columns:
+            missing.append("order_date/order_time")
+        if missing:
+            wb.close()
+            return {
+                "imported": 0,
+                "read_rows": 0,
+                "message": f"售后表缺少字段: {', '.join(missing)}",
+            }
+
+        rows: list[dict[str, object]] = []
+        read_rows = 0
+        skipped_rows = 0
+        for row_num, row in enumerate(iterator, start=2):
+            read_rows += 1
+            record: dict[str, object] = {
+                "source_workbook": file_path.stem,
+                "source_sheet": sheet_title,
+                "source_row_number": str(row_num),
+            }
+            raw: dict[str, object] = {}
+            original_values: dict[str, object] = {}
+            for idx, header in enumerate(headers):
+                value = row[idx] if idx < len(row) else None
+                raw[header] = self._json_cell_value(value)
+                col = column_map.get(idx)
+                if not col:
+                    continue
+                original_values[col] = value
+                if col == "returned_qty":
+                    record[col] = self._cell_int(value)
+                else:
+                    record[col] = self._cell_text(value)
+
+            original_code = str(record.get("original_goods_code") or "").strip()
+            returned_qty = self._cell_int(record.get("returned_qty"))
+            if not original_code or returned_qty <= 0:
+                skipped_rows += 1
+                continue
+            record["original_goods_code"] = original_code
+            record["returned_qty"] = returned_qty
+            record["order_date_value"] = self._parse_excel_date(original_values.get("order_date") or record.get("order_date"))
+            record["order_time_value"] = self._parse_excel_date(original_values.get("order_time") or record.get("order_time"))
+            record["raw_payload"] = raw
+            rows.append(record)
+
+        wb.close()
+
+        from sqlalchemy import delete as sa_delete
+
+        with self.engine.begin() as conn:
+            JST_AFTERSALE_RETURN_TABLE.create(conn, checkfirst=True)
+            self._ensure_aftersale_return_schema(conn)
+            conn.execute(sa_delete(JST_AFTERSALE_RETURN_TABLE))
+            if rows:
+                self._batch_insert(JST_AFTERSALE_RETURN_TABLE, rows, conn=conn)
+
+        return {
+            "imported": len(rows),
+            "read_rows": read_rows,
+            "skipped_rows": skipped_rows,
+            "source_file": str(file_path),
+            "message": f"{file_path.name}: {len(rows)} 条 (读取 {read_rows} 行, 跳过 {skipped_rows} 行)",
+        }
+
     # ── Helpers ────────────────────────────────────────────────────
+
+    @staticmethod
+    def _ensure_aftersale_return_schema(conn) -> None:
+        conn.execute(text("ALTER TABLE jst_aftersale_returns ADD COLUMN IF NOT EXISTS order_time TEXT"))
+        conn.execute(text("ALTER TABLE jst_aftersale_returns ADD COLUMN IF NOT EXISTS platform_site TEXT"))
+        conn.execute(text("ALTER TABLE jst_aftersale_returns ADD COLUMN IF NOT EXISTS shop_name TEXT"))
+        conn.execute(text("ALTER TABLE jst_aftersale_returns ADD COLUMN IF NOT EXISTS online_order_id TEXT"))
+        conn.execute(text("ALTER TABLE jst_aftersale_returns ADD COLUMN IF NOT EXISTS order_time_value DATE"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS idx_jst_aftersale_returns_order_time ON jst_aftersale_returns (order_time_value)"))
 
     def _ensure_price_history_schema(self) -> None:
         JST_PRICE_TABLE.create(self.engine, checkfirst=True)
@@ -826,3 +925,41 @@ class VipRepository:
             return str(int(value))
         text_value = str(value).strip()
         return text_value or None
+
+    @staticmethod
+    def _cell_int(value: object) -> int:
+        if value in (None, ""):
+            return 0
+        if isinstance(value, int):
+            return value
+        if isinstance(value, float):
+            return int(value)
+        text_value = str(value).strip().replace(",", "")
+        if not text_value:
+            return 0
+        try:
+            return int(float(text_value))
+        except ValueError:
+            return 0
+
+    @staticmethod
+    def _parse_excel_date(value: object) -> date | None:
+        if isinstance(value, datetime):
+            return value.date()
+        if isinstance(value, date):
+            return value
+        text_value = str(value).strip() if value is not None else ""
+        if not text_value:
+            return None
+        for fmt in ("%Y/%m/%d %H:%M:%S", "%Y-%m-%d %H:%M:%S", "%Y/%m/%d", "%Y-%m-%d"):
+            try:
+                return datetime.strptime(text_value, fmt).date()
+            except ValueError:
+                continue
+        return parse_date(text_value)
+
+    @staticmethod
+    def _json_cell_value(value: object) -> object:
+        if isinstance(value, (date, datetime)):
+            return value.isoformat()
+        return value

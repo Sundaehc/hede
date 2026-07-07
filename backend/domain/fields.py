@@ -265,6 +265,17 @@ JST_PRODUCT_PROFILE_FIELDS: tuple[FieldSpec, ...] = (
 )
 
 
+JST_AFTERSALE_RETURN_FIELDS: tuple[FieldSpec, ...] = (
+    FieldSpec("original_goods_code", "原始货号", aliases=("款号", "货号", "商品货号", "商品编码")),
+    FieldSpec("returned_qty", "实退数量", "integer", aliases=("退货数量", "退货退款数量")),
+    FieldSpec("order_date", "订单日期", aliases=("售后日期", "退款日期", "退货日期", "申请时间", "创建时间")),
+    FieldSpec("order_time", "下单时间", aliases=("订单时间", "原始下单时间", "原订单日期", "原始订单日期")),
+    FieldSpec("platform_site", "平台站点", aliases=("平台", "渠道")),
+    FieldSpec("shop_name", "店铺名称", aliases=("店铺", "店铺名")),
+    FieldSpec("online_order_id", "线上订单号", aliases=("订单号", "平台订单号", "原始订单号")),
+)
+
+
 GJ_MERGED_PRODUCT_INFO_FIELDS: tuple[FieldSpec, ...] = (
     FieldSpec("row_no", "行号", "integer"),
     FieldSpec("goods_code", "货号"),

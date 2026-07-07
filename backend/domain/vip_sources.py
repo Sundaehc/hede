@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from domain.fields import (
+    JST_AFTERSALE_RETURN_FIELDS,
     JST_MONTHLY_ORDER_FIELDS,
     JST_PRICE_FIELDS,
     JST_PRODUCT_PROFILE_FIELDS,
@@ -80,3 +81,10 @@ JST_PRODUCT_PROFILE_TABLE_NAME = "jst_product_profiles"
 JST_PRODUCT_PROFILE_COLUMNS: list[str] = field_names(JST_PRODUCT_PROFILE_FIELDS)
 
 JST_PRODUCT_PROFILE_COLUMN_ALIASES: dict[str, str] = alias_map(JST_PRODUCT_PROFILE_FIELDS)
+
+# ── jst_aftersale_returns: 售后（退货退款）字段 ───────────────────
+JST_AFTERSALE_RETURN_TABLE_NAME = "jst_aftersale_returns"
+
+JST_AFTERSALE_RETURN_COLUMNS: list[str] = field_names(JST_AFTERSALE_RETURN_FIELDS)
+
+JST_AFTERSALE_RETURN_COLUMN_ALIASES: dict[str, str] = alias_map(JST_AFTERSALE_RETURN_FIELDS)

@@ -6,7 +6,7 @@ import { History, ImagePlus } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
 import { type BrandKey } from "@/lib/brands"
-import { assertProductExportAllowed, buildProductExportUrl, getProductImageRefreshStatus, importProducts, refreshProductImages } from "@/lib/api"
+import { assertProductExportAllowed, downloadProductExport, getProductImageRefreshStatus, importProducts, refreshProductImages, type ProductExportProgress } from "@/lib/api"
 import type { ProductImageRefreshStatus } from "@/lib/types"
 
 type ProductToolbarProps = {
@@ -49,6 +49,8 @@ export function ProductToolbar({
   const [importing, setImporting] = useState(false)
   const [refreshingImages, setRefreshingImages] = useState(false)
   const [exporting, setExporting] = useState(false)
+  const [exportingMode, setExportingMode] = useState<"default" | "with_sizes" | null>(null)
+  const [exportProgress, setExportProgress] = useState<ProductExportProgress | null>(null)
   const [awaitingImageRefresh, setAwaitingImageRefresh] = useState(false)
   const [imageRefreshStatus, setImageRefreshStatus] = useState<ProductImageRefreshStatus | null>(null)
 
@@ -105,18 +107,17 @@ export function ProductToolbar({
   const handleExport = async (mode?: "with_sizes") => {
     const ids = brand !== "all" && selectedIds && selectedIds.size > 0 ? Array.from(selectedIds) : undefined
     setExporting(true)
+    setExportingMode(mode ?? "default")
+    setExportProgress({ phase: "preparing", loaded: 0, total: null, percent: null })
     try {
       await assertProductExportAllowed(brand, ids, mode)
-      const a = document.createElement("a")
-      a.href = buildProductExportUrl(brand, ids, mode)
-      a.style.display = "none"
-      document.body.appendChild(a)
-      a.click()
-      document.body.removeChild(a)
+      await downloadProductExport(brand, ids, mode, setExportProgress)
     } catch (error) {
       onMessage("导出失败", error instanceof Error ? error.message : "导出 Excel 时发生错误，请重试")
     } finally {
       setExporting(false)
+      setExportingMode(null)
+      setExportProgress(null)
     }
   }
 
@@ -165,6 +166,17 @@ export function ProductToolbar({
   const hasMultipleLines = value.includes("\n") || value.includes(",") || value.includes("，")
   const hasSelection = brand !== "all" && selectedIds && selectedIds.size > 0
   const showActions = canExport || onCreate
+  const exportStatusText = exportProgress?.phase === "preparing"
+    ? "准备导出..."
+    : exportProgress?.percent !== null && exportProgress?.percent !== undefined
+      ? `导出 ${exportProgress.percent}%`
+      : exporting
+        ? "导出中..."
+        : null
+  const defaultExportLabel = exportingMode === "default" && exportStatusText
+    ? exportStatusText
+    : hasSelection ? `导出选中 (${selectedIds!.size})` : "导出 Excel"
+  const sizeExportLabel = exportingMode === "with_sizes" && exportStatusText ? exportStatusText : "带尺码导出"
   const lastImageRun = imageRefreshStatus?.last_run
   const imageStatusText = imageRefreshStatus?.in_progress
     ? "图片刷新任务正在后台运行"
@@ -232,14 +244,14 @@ export function ProductToolbar({
       <div className="flex items-center gap-2 border-t border-border pt-3">
         {canExport ? (
           <Button type="button" variant="outline" size="sm" onClick={() => void handleExport()} disabled={isLoading || exporting} className="cursor-pointer">
-            {exporting ? "导出中..." : hasSelection ? `导出选中 (${selectedIds!.size})` : "导出 Excel"}
+            {defaultExportLabel}
           </Button>
         ) : null}
         {onCreate ? (
           <>
             {canExport ? (
               <Button type="button" variant="outline" size="sm" onClick={() => void handleExport("with_sizes")} disabled={isLoading || exporting} className="cursor-pointer">
-                带尺码导出
+                {sizeExportLabel}
               </Button>
             ) : null}
             {canImport ? (

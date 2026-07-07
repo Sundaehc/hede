@@ -157,6 +157,7 @@ export function listFineTable(params: {
   skuPrefix?: string
   page: number
   pageSize: number
+  cacheBust?: number | string
 }) {
   const search = new URLSearchParams({
     brand: params.brand,
@@ -165,6 +166,7 @@ export function listFineTable(params: {
   })
   if (params.query) search.set("query", params.query)
   if (params.skuPrefix) search.set("sku_prefix", params.skuPrefix)
+  if (params.cacheBust) search.set("cache_bust", String(params.cacheBust))
   return request<FineTableResponse>(`/fine-table?${search.toString()}`)
 }
 
@@ -310,6 +312,103 @@ export function buildProductExportUrl(brand: BrandKey, ids?: number[], mode?: "w
     params.set("mode", mode)
   }
   return `${API_PREFIX}/export?${params.toString()}`
+}
+
+export type ProductExportProgress = {
+  phase: "preparing" | "downloading"
+  loaded: number
+  total: number | null
+  percent: number | null
+}
+
+function filenameFromContentDisposition(header: string | null, fallback: string) {
+  if (!header) return fallback
+  const encodedMatch = /filename\*=UTF-8''([^;]+)/i.exec(header)
+  if (encodedMatch?.[1]) {
+    try {
+      return decodeURIComponent(encodedMatch[1].replace(/^"|"$/g, ""))
+    } catch {
+      return encodedMatch[1].replace(/^"|"$/g, "")
+    }
+  }
+  const plainMatch = /filename="?([^";]+)"?/i.exec(header)
+  return plainMatch?.[1] || fallback
+}
+
+function downloadBlob(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement("a")
+  a.href = url
+  a.download = filename
+  a.style.display = "none"
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
+  window.setTimeout(() => URL.revokeObjectURL(url), 0)
+}
+
+export async function downloadProductExport(
+  brand: BrandKey,
+  ids?: number[],
+  mode?: "with_sizes",
+  onProgress?: (progress: ProductExportProgress) => void,
+) {
+  onProgress?.({ phase: "preparing", loaded: 0, total: null, percent: null })
+  const response = await fetch(buildProductExportUrl(brand, ids, mode), {
+    credentials: "include",
+  })
+  if (!response.ok) {
+    throw new ApiError(response.status, await readApiError(response))
+  }
+
+  const totalHeader = response.headers.get("content-length")
+  const parsedTotal = totalHeader ? Number.parseInt(totalHeader, 10) : Number.NaN
+  const total = Number.isFinite(parsedTotal) && parsedTotal > 0 ? parsedTotal : null
+  const contentType = response.headers.get("content-type") || "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+  const filename = filenameFromContentDisposition(response.headers.get("content-disposition"), "商品信息档案.xlsx")
+
+  onProgress?.({ phase: "downloading", loaded: 0, total, percent: total ? 0 : null })
+
+  if (!response.body) {
+    const blob = await response.blob()
+    onProgress?.({
+      phase: "downloading",
+      loaded: blob.size,
+      total: total ?? blob.size,
+      percent: 100,
+    })
+    downloadBlob(blob, filename)
+    return { filename, size: blob.size }
+  }
+
+  const reader = response.body.getReader()
+  const chunks: BlobPart[] = []
+  let loaded = 0
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+    if (!value) continue
+    const chunk = new Uint8Array(value.byteLength)
+    chunk.set(value)
+    chunks.push(chunk.buffer)
+    loaded += value.byteLength
+    onProgress?.({
+      phase: "downloading",
+      loaded,
+      total,
+      percent: total ? Math.min(100, Math.round((loaded / total) * 100)) : null,
+    })
+  }
+
+  const blob = new Blob(chunks, { type: contentType })
+  onProgress?.({
+    phase: "downloading",
+    loaded,
+    total: total ?? loaded,
+    percent: 100,
+  })
+  downloadBlob(blob, filename)
+  return { filename, size: loaded }
 }
 
 export async function assertProductExportAllowed(brand: BrandKey, ids?: number[], mode?: "with_sizes") {

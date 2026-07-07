@@ -10,6 +10,7 @@ from api.routes.inventory import (
     _missing_purchase_order_import_fields,
     _purchase_order_import_has_size_columns,
     _read_purchase_import_rows,
+    PURCHASE_SUMMARY_EXPORT_HEADERS,
     PURCHASE_SIZE_ROW_EXPORT_HEADERS,
 )
 
@@ -128,3 +129,7 @@ def test_purchase_size_row_export_does_not_include_duplicate_note_columns() -> N
     assert "行号" not in PURCHASE_SIZE_ROW_EXPORT_HEADERS
     assert "摘要" not in PURCHASE_SIZE_ROW_EXPORT_HEADERS
     assert "采购单备注" in PURCHASE_SIZE_ROW_EXPORT_HEADERS
+
+
+def test_purchase_summary_export_does_not_include_row_number() -> None:
+    assert "行号" not in PURCHASE_SUMMARY_EXPORT_HEADERS

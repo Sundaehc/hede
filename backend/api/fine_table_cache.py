@@ -6,10 +6,10 @@ from time import monotonic
 from typing import Any
 
 
-FineTableCacheKey = tuple[str, str, str, int, int]
+FineTableCacheKey = tuple[str, str, str, str, int, int]
 
-_MAX_ENTRIES = 64
-_TTL_SECONDS = 30
+_MAX_ENTRIES = 160
+_TTL_SECONDS = 300
 _CACHE: OrderedDict[FineTableCacheKey, tuple[float, dict[str, Any]]] = OrderedDict()
 _LOCK = RLock()
 

@@ -664,6 +664,7 @@ def list_fine_table(
     query: str | None = None,
     sku_prefix: str | None = None,
     season: str | None = None,
+    cache_bust: str | None = None,
     page: int = Query(1, ge=1),
     page_size: int = Query(80, ge=1, le=200),
 ):
@@ -675,12 +676,13 @@ def list_fine_table(
     normalized_query = ",".join(terms)
     normalized_sku_prefix = ",".join(prefix_terms)
     normalized_season = season if season and season != "all" else "all"
+    bypass_cache = bool(cache_bust)
     cache_key = (brand, normalized_query, normalized_sku_prefix, normalized_season, page, page_size)
     total_cache_key = (brand, normalized_query, normalized_sku_prefix, normalized_season, 0, 0)
-    cached = get_fine_table_cache(cache_key)
+    cached = None if bypass_cache else get_fine_table_cache(cache_key)
     if cached is not None:
         return cached
-    cached_total_payload = get_fine_table_cache(total_cache_key)
+    cached_total_payload = None if bypass_cache else get_fine_table_cache(total_cache_key)
     cached_total = (
         int(cached_total_payload["total"])
         if cached_total_payload is not None and "total" in cached_total_payload

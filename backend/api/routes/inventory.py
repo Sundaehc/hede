@@ -131,7 +131,6 @@ PURCHASE_DETAIL_REMARK_LIMIT = 20
 PURCHASE_PRODUCTION_ORDER_EXPORT_MODE = "production_order"
 PURCHASE_EXPORT_MODES = {"summary", "size_rows", PURCHASE_PRODUCTION_ORDER_EXPORT_MODE}
 PURCHASE_SUMMARY_EXPORT_HEADERS = [
-    "行号",
     "单据类型",
     "货号",
     "原始货号",
@@ -632,7 +631,7 @@ def _append_purchase_summary_export(
         if completion_text and not group["completion_rate"]:
             group["completion_rate"] = completion_text
 
-    for index, key in enumerate(ordered_keys, start=1):
+    for key in ordered_keys:
         group = groups[key]
         record_context = group["record_context"]
         quantity = group["quantity"]
@@ -651,7 +650,6 @@ def _append_purchase_summary_export(
         )
 
         worksheet.append([
-            index,
             record_context["document_type"],
             group["product_code"],
             group["original_code"],

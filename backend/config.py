@@ -25,6 +25,9 @@ DEFAULT_JST_PRODUCT_PROFILE_ROOT = Path(
 DEFAULT_FINE_TABLE_EXPORT_ROOT = Path(
     r"\\192.168.10.229\运营组资料\精细表"
 )
+DEFAULT_AFTERSALE_RETURN_FILE = Path(
+    r"\\192.168.10.229\运营组资料\影刀\商品库存\售后（退货退款）.xlsx"
+)
 
 
 @dataclass(frozen=True)
@@ -41,6 +44,7 @@ class Settings:
     jst_price_root: Path | None = None
     jst_product_profile_root: Path | None = DEFAULT_JST_PRODUCT_PROFILE_ROOT
     fine_table_export_root: Path | None = DEFAULT_FINE_TABLE_EXPORT_ROOT
+    aftersale_return_file: Path | None = DEFAULT_AFTERSALE_RETURN_FILE
     cbanner_mens_group_source: Path | None = DEFAULT_CBANNER_MENS_GROUP_SOURCE
     cbanner_womens_product_detail_source: Path | None = DEFAULT_CBANNER_WOMENS_PRODUCT_DETAIL_SOURCE
     eblan_product_detail_source: Path | None = DEFAULT_EBLAN_PRODUCT_DETAIL_SOURCE
@@ -111,6 +115,12 @@ def load_settings(require_database: bool = True) -> Settings:
         if fine_table_export_root_raw
         else DEFAULT_FINE_TABLE_EXPORT_ROOT
     )
+    aftersale_return_file_raw = os.getenv("AFTERSALE_RETURN_FILE")
+    aftersale_return_file = (
+        Path(aftersale_return_file_raw)
+        if aftersale_return_file_raw
+        else DEFAULT_AFTERSALE_RETURN_FILE
+    )
     cbanner_mens_group_source_raw = os.getenv("CBANNER_MENS_GROUP_SOURCE")
     cbanner_mens_group_source = (
         Path(cbanner_mens_group_source_raw)
@@ -143,6 +153,7 @@ def load_settings(require_database: bool = True) -> Settings:
         jst_price_root=jst_price_root,
         jst_product_profile_root=jst_product_profile_root,
         fine_table_export_root=fine_table_export_root,
+        aftersale_return_file=aftersale_return_file,
         cbanner_mens_group_source=cbanner_mens_group_source,
         cbanner_womens_product_detail_source=cbanner_womens_product_detail_source,
         eblan_product_detail_source=eblan_product_detail_source,

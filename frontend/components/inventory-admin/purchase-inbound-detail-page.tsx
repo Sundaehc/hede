@@ -30,6 +30,9 @@ import { ApiError, listPurchaseInboundDetails, type PurchaseInboundDetailItem } 
 import { cn } from "@/lib/utils"
 
 const PAGE_SIZES = [50, 100, 200]
+const FILTER_FIELD_CLASS_NAME = "min-w-0 space-y-1"
+const FILTER_LABEL_CLASS_NAME = "text-[11px] font-medium text-muted-foreground"
+const FILTER_CONTROL_CLASS_NAME = "bg-background"
 
 type SubmittedFilters = {
   date_start?: string
@@ -178,58 +181,58 @@ export function PurchaseInboundDetailPage() {
           </div>
         </div>
 
-        <div className="rounded-lg border border-border bg-card p-4">
-          <div className="grid gap-3 md:grid-cols-3 xl:grid-cols-5">
-            <div className="space-y-1.5">
-              <Label className="text-xs text-muted-foreground">开始日期</Label>
-              <Input type="date" value={dateStart} max={dateEnd || undefined} onChange={(event) => setDateStart(event.target.value)} />
+        <div className="rounded-lg border border-border bg-card px-4 py-3 shadow-xs">
+          <div className="grid items-end gap-x-3 gap-y-2.5 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
+            <div className={FILTER_FIELD_CLASS_NAME}>
+              <Label className={FILTER_LABEL_CLASS_NAME}>开始日期</Label>
+              <Input className={FILTER_CONTROL_CLASS_NAME} type="date" value={dateStart} max={dateEnd || undefined} onChange={(event) => setDateStart(event.target.value)} />
             </div>
-            <div className="space-y-1.5">
-              <Label className="text-xs text-muted-foreground">结束日期</Label>
-              <Input type="date" value={dateEnd} min={dateStart || undefined} onChange={(event) => setDateEnd(event.target.value)} />
+            <div className={FILTER_FIELD_CLASS_NAME}>
+              <Label className={FILTER_LABEL_CLASS_NAME}>结束日期</Label>
+              <Input className={FILTER_CONTROL_CLASS_NAME} type="date" value={dateEnd} min={dateStart || undefined} onChange={(event) => setDateEnd(event.target.value)} />
             </div>
-            <div className="space-y-1.5">
-              <Label className="text-xs text-muted-foreground">单据类型</Label>
-              <Select value={documentType} onChange={(event) => setDocumentType(event.target.value)}>
+            <div className={FILTER_FIELD_CLASS_NAME}>
+              <Label className={FILTER_LABEL_CLASS_NAME}>单据类型</Label>
+              <Select className={FILTER_CONTROL_CLASS_NAME} value={documentType} onChange={(event) => setDocumentType(event.target.value)}>
                 <option value="">全部</option>
                 <option value="进货单">进货单</option>
                 <option value="进货退货单">进货退货单</option>
               </Select>
             </div>
-            <div className="space-y-1.5">
-              <Label className="text-xs text-muted-foreground">仓库全名</Label>
-              <Input value={warehouse} onChange={(event) => setWarehouse(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") submitSearch() }} />
+            <div className={FILTER_FIELD_CLASS_NAME}>
+              <Label className={FILTER_LABEL_CLASS_NAME}>仓库全名</Label>
+              <Input className={FILTER_CONTROL_CLASS_NAME} value={warehouse} onChange={(event) => setWarehouse(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") submitSearch() }} />
             </div>
-            <div className="space-y-1.5">
-              <Label className="text-xs text-muted-foreground">商品名称</Label>
-              <Input value={productName} onChange={(event) => setProductName(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") submitSearch() }} />
+            <div className={FILTER_FIELD_CLASS_NAME}>
+              <Label className={FILTER_LABEL_CLASS_NAME}>商品名称</Label>
+              <Input className={FILTER_CONTROL_CLASS_NAME} value={productName} onChange={(event) => setProductName(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") submitSearch() }} />
             </div>
-            <div className="space-y-1.5">
-              <Label className="text-xs text-muted-foreground">单位全名</Label>
-              <Input value={supplier} onChange={(event) => setSupplier(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") submitSearch() }} />
+            <div className={FILTER_FIELD_CLASS_NAME}>
+              <Label className={FILTER_LABEL_CLASS_NAME}>单位全名</Label>
+              <Input className={FILTER_CONTROL_CLASS_NAME} value={supplier} onChange={(event) => setSupplier(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") submitSearch() }} />
             </div>
-            <div className="space-y-1.5">
-              <Label className="text-xs text-muted-foreground">颜色名称</Label>
-              <Input value={colorName} onChange={(event) => setColorName(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") submitSearch() }} />
+            <div className={FILTER_FIELD_CLASS_NAME}>
+              <Label className={FILTER_LABEL_CLASS_NAME}>颜色名称</Label>
+              <Input className={FILTER_CONTROL_CLASS_NAME} value={colorName} onChange={(event) => setColorName(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") submitSearch() }} />
             </div>
-            <div className="space-y-1.5">
-              <Label className="text-xs text-muted-foreground">尺码名称</Label>
-              <Input value={sizeName} onChange={(event) => setSizeName(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") submitSearch() }} />
+            <div className={FILTER_FIELD_CLASS_NAME}>
+              <Label className={FILTER_LABEL_CLASS_NAME}>尺码名称</Label>
+              <Input className={FILTER_CONTROL_CLASS_NAME} value={sizeName} onChange={(event) => setSizeName(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") submitSearch() }} />
             </div>
-          </div>
-          <div className="mt-3 flex flex-wrap items-end gap-2">
-            <div className="w-56 space-y-1.5">
-              <Label className="text-xs text-muted-foreground">货号</Label>
-              <Input value={productCode} onChange={(event) => setProductCode(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") submitSearch() }} />
+            <div className={FILTER_FIELD_CLASS_NAME}>
+              <Label className={FILTER_LABEL_CLASS_NAME}>货号</Label>
+              <Input className={FILTER_CONTROL_CLASS_NAME} value={productCode} onChange={(event) => setProductCode(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") submitSearch() }} />
             </div>
-            <Button onClick={submitSearch} disabled={isLoading} className="cursor-pointer">
-              <Search className="h-4 w-4" />
-              <span className="ml-2">查询</span>
-            </Button>
-            <Button variant="outline" onClick={clearSearch} disabled={isLoading} className="cursor-pointer">
-              <X className="h-4 w-4" />
-              <span className="ml-2">清空</span>
-            </Button>
+            <div className="grid grid-cols-2 gap-2 md:col-span-2 lg:col-span-3 xl:col-span-1">
+              <Button size="lg" onClick={submitSearch} disabled={isLoading} className="min-w-0 cursor-pointer px-3">
+                <Search className="h-4 w-4" />
+                <span className="ml-1.5">查询</span>
+              </Button>
+              <Button size="lg" variant="outline" onClick={clearSearch} disabled={isLoading} className="min-w-0 cursor-pointer px-3">
+                <X className="h-4 w-4" />
+                <span className="ml-1.5">清空</span>
+              </Button>
+            </div>
           </div>
         </div>
 

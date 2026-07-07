@@ -45,6 +45,7 @@ const PAGE_SIZE = 50
 const EXPORT_PAGE_SIZE = 200
 const EXPORT_CONCURRENCY = 3
 const FINE_TABLE_PAGE_CACHE_LIMIT = 80
+const FINE_TABLE_CLIENT_CACHE_TTL_MS = 5 * 60 * 1000
 const DAILY_SALES_DISPLAY_DAYS = 5
 
 type ViewKey = "all" | "missingImage" | "stockRisk"
@@ -69,12 +70,24 @@ type FineTablePageCacheEntry = {
   total: number
   latestOrderDate: string | null
   snapshotLabel: string | null
+  cachedAt: number
 }
 type FineTablePageContext = {
   brand: FineTableBrandKey
   historyDate: string
   query: string
   skuPrefix: string
+  reloadToken: number
+}
+type FineTableLastState = {
+  brand: FineTableBrandKey
+  page: number
+  query: string
+  queryInput: string
+  skuPrefix: string
+  skuPrefixInput: string
+  view: ViewKey
+  historyDate: string
   reloadToken: number
 }
 
@@ -86,6 +99,19 @@ const viewTabs: { value: ViewKey; label: string }[] = [
 
 const FINE_TABLE_BRANDS = BRANDS.filter((item) => item.key !== "all") as Array<{ key: FineTableBrandKey; label: string }>
 const DEFAULT_FINE_TABLE_BRAND: FineTableBrandKey = "cbanner_mens"
+const fineTablePageCache = new Map<string, FineTablePageCacheEntry>()
+const fineTablePagePrefetching = new Set<string>()
+let fineTableLastState: FineTableLastState = {
+  brand: DEFAULT_FINE_TABLE_BRAND,
+  page: 1,
+  query: "",
+  queryInput: "",
+  skuPrefix: "",
+  skuPrefixInput: "",
+  view: "all",
+  historyDate: "",
+  reloadToken: 0,
+}
 
 const SIZE_STOCK_LABELS = [
   "34/220",
@@ -1271,6 +1297,7 @@ function fineTableResponseToCacheEntry(response: FineTableResponse | FineTableSn
       total: response.total,
       latestOrderDate: response.snapshot.latest_order_date,
       snapshotLabel: response.snapshot.snapshot_date,
+      cachedAt: Date.now(),
     }
   }
 
@@ -1279,6 +1306,7 @@ function fineTableResponseToCacheEntry(response: FineTableResponse | FineTableSn
     total: response.total,
     latestOrderDate: response.latest_order_date,
     snapshotLabel: null,
+    cachedAt: Date.now(),
   }
 }
 
@@ -1298,6 +1326,7 @@ async function loadFineTablePage(context: FineTablePageContext, page: number) {
       pageSize: PAGE_SIZE,
       query: context.query || undefined,
       skuPrefix: context.skuPrefix || undefined,
+      cacheBust: context.reloadToken || undefined,
     })
 
   return fineTableResponseToCacheEntry(response)
@@ -1309,7 +1338,7 @@ function rememberFineTablePage(
   entry: FineTablePageCacheEntry,
 ) {
   if (cache.has(key)) cache.delete(key)
-  cache.set(key, entry)
+  cache.set(key, { ...entry, cachedAt: Date.now() })
 
   while (cache.size > FINE_TABLE_PAGE_CACHE_LIMIT) {
     const oldestKey = cache.keys().next().value
@@ -1318,22 +1347,45 @@ function rememberFineTablePage(
   }
 }
 
+function getCachedFineTablePage(cache: Map<string, FineTablePageCacheEntry>, key: string) {
+  const entry = cache.get(key)
+  if (!entry) return null
+
+  if (Date.now() - entry.cachedAt > FINE_TABLE_CLIENT_CACHE_TTL_MS) {
+    cache.delete(key)
+    return null
+  }
+
+  cache.delete(key)
+  cache.set(key, entry)
+  return entry
+}
+
 export function FineTablePage() {
   const { hasPermission } = useAuth()
-  const [brand, setBrand] = useState<FineTableBrandKey>(DEFAULT_FINE_TABLE_BRAND)
-  const [items, setItems] = useState<FineTableItem[]>([])
-  const [page, setPage] = useState(1)
-  const [total, setTotal] = useState(0)
-  const [queryInput, setQueryInput] = useState("")
-  const [query, setQuery] = useState("")
-  const [skuPrefixInput, setSkuPrefixInput] = useState("")
-  const [skuPrefix, setSkuPrefix] = useState("")
-  const [view, setView] = useState<ViewKey>("all")
+  const initialStateRef = useRef(fineTableLastState)
+  const initialState = initialStateRef.current
+  const initialCacheEntry = getCachedFineTablePage(fineTablePageCache, fineTablePageCacheKey({
+    brand: initialState.brand,
+    historyDate: initialState.historyDate,
+    query: initialState.query,
+    skuPrefix: initialState.skuPrefix,
+    reloadToken: initialState.reloadToken,
+  }, initialState.page))
+  const [brand, setBrand] = useState<FineTableBrandKey>(initialState.brand)
+  const [items, setItems] = useState<FineTableItem[]>(() => initialCacheEntry?.items ?? [])
+  const [page, setPage] = useState(initialState.page)
+  const [total, setTotal] = useState(() => initialCacheEntry?.total ?? 0)
+  const [queryInput, setQueryInput] = useState(initialState.queryInput)
+  const [query, setQuery] = useState(initialState.query)
+  const [skuPrefixInput, setSkuPrefixInput] = useState(initialState.skuPrefixInput)
+  const [skuPrefix, setSkuPrefix] = useState(initialState.skuPrefix)
+  const [view, setView] = useState<ViewKey>(initialState.view)
   const [selectedRow, setSelectedRow] = useState<FineTableItem | null>(null)
-  const [isLoading, setIsLoading] = useState(true)
+  const [isLoading, setIsLoading] = useState(() => !initialCacheEntry)
   const [error, setError] = useState<string | null>(null)
-  const [reloadToken, setReloadToken] = useState(0)
-  const [latestOrderDate, setLatestOrderDate] = useState<string | null>(null)
+  const [reloadToken, setReloadToken] = useState(initialState.reloadToken)
+  const [latestOrderDate, setLatestOrderDate] = useState<string | null>(() => initialCacheEntry?.latestOrderDate ?? null)
   const [columnMode, setColumnMode] = useState<ColumnMode>("full")
   const [customColumnPickerOpen, setCustomColumnPickerOpen] = useState(false)
   const [customColumnKeys, setCustomColumnKeys] = useState<string[]>(DEFAULT_COLUMN_KEYS)
@@ -1345,15 +1397,22 @@ export function FineTablePage() {
   const [exportProgress, setExportProgress] = useState<{ loaded: number; total: number } | null>(null)
   const [operationLogOpen, setOperationLogOpen] = useState(false)
   const [previewImage, setPreviewImage] = useState<{ src: string; alt: string } | null>(null)
-  const [historyDate, setHistoryDate] = useState("")
-  const [snapshotLabel, setSnapshotLabel] = useState<string | null>(null)
+  const [historyDate, setHistoryDate] = useState(initialState.historyDate)
+  const [snapshotLabel, setSnapshotLabel] = useState<string | null>(() => (initialCacheEntry?.snapshotLabel ?? initialState.historyDate) || null)
   const [, startPageTransition] = useTransition()
   const loadRequestIdRef = useRef(0)
-  const pageCacheRef = useRef(new Map<string, FineTablePageCacheEntry>())
-  const prefetchingPagesRef = useRef(new Set<string>())
+  const pageCacheRef = useRef(fineTablePageCache)
+  const prefetchingPagesRef = useRef(fineTablePagePrefetching)
   const historyDateInputRef = useRef<HTMLInputElement>(null)
   const maxHistoryDate = getMaxHistoryDate()
   const canExportFineTable = hasPermission("fine_table.export")
+
+  function applyPageEntry(entry: FineTablePageCacheEntry) {
+    setItems(entry.items)
+    setTotal(entry.total)
+    setLatestOrderDate(entry.latestOrderDate)
+    setSnapshotLabel(entry.snapshotLabel)
+  }
 
   useEffect(() => {
     let cancelled = false
@@ -1363,18 +1422,11 @@ export function FineTablePage() {
     const context: FineTablePageContext = { brand, historyDate, query, skuPrefix, reloadToken }
     const cacheKey = fineTablePageCacheKey(context, page)
 
-    function applyPageEntry(entry: FineTablePageCacheEntry) {
-      setItems(entry.items)
-      setTotal(entry.total)
-      setLatestOrderDate(entry.latestOrderDate)
-      setSnapshotLabel(entry.snapshotLabel)
-    }
-
     function prefetchPage(pageToPrefetch: number, totalPageCount: number) {
       if (pageToPrefetch < 1 || pageToPrefetch > totalPageCount) return
 
       const prefetchKey = fineTablePageCacheKey(context, pageToPrefetch)
-      if (pageCacheRef.current.has(prefetchKey) || prefetchingPagesRef.current.has(prefetchKey)) return
+      if (getCachedFineTablePage(pageCacheRef.current, prefetchKey) || prefetchingPagesRef.current.has(prefetchKey)) return
 
       prefetchingPagesRef.current.add(prefetchKey)
       void loadFineTablePage(context, pageToPrefetch)
@@ -1389,7 +1441,7 @@ export function FineTablePage() {
         })
     }
 
-    const cachedEntry = pageCacheRef.current.get(cacheKey)
+    const cachedEntry = getCachedFineTablePage(pageCacheRef.current, cacheKey)
     if (cachedEntry) {
       applyPageEntry(cachedEntry)
       setError(null)
@@ -1429,6 +1481,20 @@ export function FineTablePage() {
       cancelled = true
     }
   }, [brand, historyDate, page, query, skuPrefix, reloadToken])
+
+  useEffect(() => {
+    fineTableLastState = {
+      brand,
+      page,
+      query,
+      queryInput,
+      skuPrefix,
+      skuPrefixInput,
+      view,
+      historyDate,
+      reloadToken,
+    }
+  }, [brand, historyDate, page, query, queryInput, reloadToken, skuPrefix, skuPrefixInput, view])
 
   const deferredView = useDeferredValue(view)
   const filteredRows = useMemo(() => {
@@ -1535,29 +1601,60 @@ export function FineTablePage() {
     ))
   }
 
-  function handleBrandChange(nextBrand: FineTableBrandKey) {
-    if (nextBrand === brand) return
-    loadRequestIdRef.current += 1
-    setBrand(nextBrand)
-    setPage(1)
+  function showCachedPageOrLoading(context: FineTablePageContext, pageToLoad: number, snapshotLabelFallback: string | null) {
+    const cachedEntry = getCachedFineTablePage(pageCacheRef.current, fineTablePageCacheKey(context, pageToLoad))
+    if (cachedEntry) {
+      applyPageEntry(cachedEntry)
+      setError(null)
+      setIsLoading(false)
+      return true
+    }
+
     setItems([])
     setTotal(0)
     setLatestOrderDate(null)
+    setSnapshotLabel(snapshotLabelFallback)
     setError(null)
     setIsLoading(true)
+    return false
+  }
+
+  function prefetchBrandPage(nextBrand: FineTableBrandKey) {
+    if (nextBrand === brand) return
+    const context = { brand: nextBrand, historyDate, query, skuPrefix, reloadToken }
+    const prefetchKey = fineTablePageCacheKey(context, 1)
+    if (getCachedFineTablePage(pageCacheRef.current, prefetchKey) || prefetchingPagesRef.current.has(prefetchKey)) return
+
+    prefetchingPagesRef.current.add(prefetchKey)
+    void loadFineTablePage(context, 1)
+      .then((entry) => {
+        rememberFineTablePage(pageCacheRef.current, prefetchKey, entry)
+      })
+      .catch(() => {
+        // Hover prefetch is opportunistic; active tab loading will surface real errors.
+      })
+      .finally(() => {
+        prefetchingPagesRef.current.delete(prefetchKey)
+      })
+  }
+
+  function handleBrandChange(nextBrand: FineTableBrandKey) {
+    if (nextBrand === brand) return
+    loadRequestIdRef.current += 1
+    const nextContext = { brand: nextBrand, historyDate, query, skuPrefix, reloadToken }
+    setBrand(nextBrand)
+    setPage(1)
     setSelectedRow(null)
     setPreviewImage(null)
-    setSnapshotLabel(historyDate || null)
+    showCachedPageOrLoading(nextContext, 1, historyDate || null)
   }
 
   function clearHistoryDate() {
     if (!historyDate) return
+    const nextContext = { brand, historyDate: "", query, skuPrefix, reloadToken }
     setHistoryDate("")
-    setSnapshotLabel(null)
     setPage(1)
-    setItems([])
-    setTotal(0)
-    setError(null)
+    showCachedPageOrLoading(nextContext, 1, null)
   }
 
   function openHistoryDatePicker() {
@@ -1587,11 +1684,10 @@ export function FineTablePage() {
       setError("历史日期只能选择今天以前")
       return
     }
+    const nextContext = { brand, historyDate: nextDate, query, skuPrefix, reloadToken }
     setHistoryDate(nextDate)
     setPage(1)
-    setItems([])
-    setTotal(0)
-    setError(null)
+    showCachedPageOrLoading(nextContext, 1, nextDate || null)
   }
 
   function handlePageChange(nextPage: number) {
@@ -1622,6 +1718,7 @@ export function FineTablePage() {
             pageSize: EXPORT_PAGE_SIZE,
             query: query || undefined,
             skuPrefix: skuPrefix || undefined,
+            cacheBust: reloadToken || undefined,
           })
       )
       const firstResponse = await loadExportPage(1)
@@ -1711,6 +1808,8 @@ export function FineTablePage() {
                     <TabsTrigger
                       key={item.key}
                       value={item.key}
+                      onFocus={() => prefetchBrandPage(item.key)}
+                      onMouseEnter={() => prefetchBrandPage(item.key)}
                       className="cursor-pointer rounded-lg border border-transparent bg-muted/45 px-3 py-1.5 text-xs font-medium text-muted-foreground transition-all duration-150 hover:bg-muted hover:text-foreground data-[state=active]:border-border data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-sm"
                     >
                       {item.label}
