@@ -1,10 +1,17 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import Literal
 
 from fastapi import APIRouter, HTTPException, Request, Response
 from pydantic import BaseModel, ConfigDict
 
+from api.operation_log_utils import (
+    USER_FIELD_LABELS,
+    build_changed_fields,
+    summarize_changes,
+    write_operation_log,
+)
 from storage.auth_repository import SESSION_COOKIE_NAME, SESSION_MAX_AGE_SECONDS
 
 
@@ -43,6 +50,31 @@ class AdminUserUpdateRequest(BaseModel):
 
 def sanitize_user(user: dict[str, object]) -> dict[str, object]:
     return {key: value for key, value in user.items() if key != "password_hash"}
+
+
+USER_STATUS_LABELS = {
+    "active": "启用",
+    "disabled": "禁用",
+}
+
+
+def user_entity_label(user: Mapping[str, object] | None) -> str:
+    if not user:
+        return ""
+    return str(user.get("username") or user.get("display_name") or user.get("id") or "").strip()
+
+
+def user_log_payload(user: Mapping[str, object] | None) -> dict[str, object]:
+    if not user:
+        return {}
+    status = str(user.get("status") or "").strip()
+    return {
+        "username": user.get("username") or "",
+        "display_name": user.get("display_name") or "",
+        "department_name": user.get("department_name") or user.get("department_code") or "",
+        "role_name": user.get("role_name") or user.get("role_code") or "",
+        "status": USER_STATUS_LABELS.get(status, status),
+    }
 
 
 def user_has_permission(user: dict[str, object] | None, permission: str | None) -> bool:
@@ -118,6 +150,19 @@ def register(request: Request, response: Response, body: RegisterRequest):
         secure=False,
         path="/",
     )
+    request.state.current_user = user
+    label = user_entity_label(user)
+    after_log = user_log_payload(user)
+    write_operation_log(
+        request,
+        module="user",
+        action="create",
+        entity_type="auth_user",
+        entity_id=user.get("id"),
+        entity_label=label,
+        summary=f"注册用户 {label}" if label else "注册用户",
+        after_data=after_log,
+    )
     return {"user": sanitize_user(user), "message": "注册成功"}
 
 
@@ -156,9 +201,36 @@ def admin_list_users(request: Request):
 
 @router.patch("/admin/users/{user_id}")
 def admin_update_user(request: Request, user_id: int, body: AdminUserUpdateRequest):
-    require_permission(request, "system.admin")
+    actor = require_permission(request, "system.admin")
+    request.state.current_user = actor
     repository = request.app.state.auth_repository
-    user = repository.update_user(user_id, body.model_dump(exclude_none=True))
+    before = repository.get_user(user_id)
+    if before is None:
+        raise HTTPException(status_code=404, detail="用户不存在")
+
+    payload = body.model_dump(exclude_none=True)
+    password_changed = bool(str(payload.get("password") or ""))
+    user = repository.update_user(user_id, payload)
     if user is None:
         raise HTTPException(status_code=404, detail="用户不存在")
+
+    before_log = user_log_payload(before)
+    after_log = user_log_payload(user)
+    if password_changed:
+        before_log["password"] = "未修改"
+        after_log["password"] = "已修改"
+    changes = build_changed_fields(before_log, after_log, USER_FIELD_LABELS)
+    label = user_entity_label(user)
+    write_operation_log(
+        request,
+        module="user",
+        action="update",
+        entity_type="auth_user",
+        entity_id=user_id,
+        entity_label=label,
+        summary=summarize_changes("编辑用户", label, changes),
+        changed_fields=changes,
+        before_data=before_log,
+        after_data=after_log,
+    )
     return {"item": sanitize_user(user), "message": "用户已更新"}

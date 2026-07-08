@@ -17,6 +17,7 @@ MODULE_PERMISSIONS = {
     "warehouse": "inventory.view",
     "account_subject": "inventory.view",
     "general_customer": "inventory.view",
+    "user": "system.admin",
 }
 
 

@@ -105,7 +105,7 @@ export function updateAdminUser(id: number, payload: Partial<Pick<AuthUser, "dis
 }
 
 export function listOperationLogs(params: {
-  module: "product" | "fine_table" | "inventory" | "purchase" | "supplier" | "warehouse" | "account_subject" | "general_customer"
+  module: "product" | "fine_table" | "inventory" | "purchase" | "supplier" | "warehouse" | "account_subject" | "general_customer" | "user"
   query?: string
   page: number
   pageSize: number

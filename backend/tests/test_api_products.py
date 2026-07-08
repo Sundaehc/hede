@@ -69,6 +69,7 @@ def test_put_products_preserves_existing_metadata(test_app_client: TestClient, r
                 "sku": "A1001",
                 "original_sku": "OA1001",
                 "color": "黑色",
+                "extra_fields": {"数据源列": "原始值"},
             },
         ),
     )
@@ -92,6 +93,7 @@ def test_put_products_preserves_existing_metadata(test_app_client: TestClient, r
     assert body["item"]["source_workbook"] == created["source_workbook"]
     assert body["item"]["source_sheet"] == created["source_sheet"]
     assert body["item"]["source_row_number"] == created["source_row_number"]
+    assert body["item"]["extra_fields"] == {"数据源列": "原始值"}
 
 
 def test_put_products_rejects_brand_mismatch(test_app_client: TestClient, repository):

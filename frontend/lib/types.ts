@@ -39,7 +39,7 @@ export type OperationLogChange = {
 
 export type OperationLogItem = {
   id: number
-  module: "product" | "fine_table" | "inventory" | "purchase" | "supplier" | "warehouse" | "account_subject" | "general_customer"
+  module: "product" | "fine_table" | "inventory" | "purchase" | "supplier" | "warehouse" | "account_subject" | "general_customer" | "user"
   action: string
   entity_type: string
   entity_id: string | null

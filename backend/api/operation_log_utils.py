@@ -103,6 +103,17 @@ GENERAL_CUSTOMER_SHOP_FIELD_LABELS = {
     "shop_name": "店铺名称",
 }
 
+USER_FIELD_LABELS = {
+    "username": "账号",
+    "display_name": "姓名",
+    "department_code": "部门",
+    "department_name": "部门",
+    "role_code": "角色",
+    "role_name": "角色",
+    "status": "状态",
+    "password": "密码",
+}
+
 IGNORED_FIELDS = {
     "created_at",
     "updated_at",

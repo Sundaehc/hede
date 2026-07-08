@@ -22,7 +22,7 @@ def required_permission_for_request(method: str, path: str) -> str | tuple[str, 
     if path.startswith("/auth/"):
         return None
     if path.startswith("/operation-logs"):
-        return ("product.view", "fine_table.view", "inventory.view", "purchase.view")
+        return ("system.admin", "product.view", "fine_table.view", "inventory.view", "purchase.view")
     if path.startswith("/products"):
         return "product.view" if method == "GET" else "product.manage"
     if path == "/export":

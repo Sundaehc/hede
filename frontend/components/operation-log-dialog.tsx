@@ -9,7 +9,7 @@ import { Input } from "@/components/ui/input"
 import { listOperationLogs } from "@/lib/api"
 import type { OperationLogChange, OperationLogItem } from "@/lib/types"
 
-type OperationLogModule = "product" | "fine_table" | "inventory" | "purchase" | "supplier" | "warehouse" | "account_subject" | "general_customer"
+type OperationLogModule = "product" | "fine_table" | "inventory" | "purchase" | "supplier" | "warehouse" | "account_subject" | "general_customer" | "user"
 
 type OperationLogDialogProps = {
   module: OperationLogModule

@@ -1,9 +1,10 @@
 "use client"
 
 import { useEffect, useMemo, useState, type ReactNode } from "react"
-import { AlertCircle, Ban, Building2, CheckCircle2, Loader2, RefreshCw, Save, ShieldCheck, UserCog, Users, type LucideIcon } from "lucide-react"
+import { AlertCircle, Ban, Building2, CheckCircle2, History, Loader2, RefreshCw, Save, ShieldCheck, UserCog, Users, type LucideIcon } from "lucide-react"
 
 import { useAuth } from "@/components/auth/auth-provider"
+import { OperationLogDialog } from "@/components/operation-log-dialog"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Select } from "@/components/ui/select"
@@ -130,6 +131,7 @@ export function UserAdminPage() {
   const [loading, setLoading] = useState(true)
   const [savingId, setSavingId] = useState<number | null>(null)
   const [message, setMessage] = useState("")
+  const [operationLogOpen, setOperationLogOpen] = useState(false)
 
   const rolesByDepartment = useMemo(() => {
     return roles.reduce<Record<string, AuthRole[]>>((acc, role) => {
@@ -393,10 +395,16 @@ export function UserAdminPage() {
             <h1 className="page-title">用户管理</h1>
             <p className="page-subtitle">管理登录账号、部门、角色和账号状态</p>
           </div>
-          <Button type="button" variant="outline" onClick={() => void load()} disabled={loading}>
-            <RefreshCw className={loading ? "h-3.5 w-3.5 animate-spin" : "h-3.5 w-3.5"} />
-            刷新
-          </Button>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button type="button" variant="outline" onClick={() => setOperationLogOpen(true)}>
+              <History className="h-3.5 w-3.5" />
+              操作日志
+            </Button>
+            <Button type="button" variant="outline" onClick={() => void load()} disabled={loading}>
+              <RefreshCw className={loading ? "h-3.5 w-3.5 animate-spin" : "h-3.5 w-3.5"} />
+              刷新
+            </Button>
+          </div>
         </div>
 
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
@@ -497,6 +505,12 @@ export function UserAdminPage() {
             ) : null}
           </div>
         </div>
+        <OperationLogDialog
+          module="user"
+          title="用户管理操作日志"
+          open={operationLogOpen}
+          onOpenChange={setOperationLogOpen}
+        />
       </div>
     </div>
   )
