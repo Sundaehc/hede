@@ -1,6 +1,10 @@
 from __future__ import annotations
 
+from copy import deepcopy
+
 from fastapi import FastAPI
+from fastapi.openapi.docs import get_redoc_html, get_swagger_ui_html
+from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 
 from api.auth_middleware import auth_middleware
@@ -17,6 +21,80 @@ from storage.auth_repository import AuthRepository
 from storage.inventory_repository import InventoryRepository
 from storage.operation_log_repository import OperationLogRepository
 from storage.product_repository import ProductRepository
+
+
+PUBLIC_DOC_METHODS = {"get", "head"}
+PUBLIC_DOC_EXCLUDED_PREFIXES = (
+    "/auth",
+    "/operation-logs",
+    "/public",
+    "/docs",
+    "/redoc",
+    "/openapi.json",
+)
+PUBLIC_DOC_EXCLUDED_KEYWORDS = (
+    "admin",
+    "import",
+    "export",
+    "recycle-bin",
+    "refresh-product-images",
+)
+
+
+def _is_public_read_path(path: str) -> bool:
+    if any(path == prefix or path.startswith(prefix + "/") for prefix in PUBLIC_DOC_EXCLUDED_PREFIXES):
+        return False
+    return not any(keyword in path for keyword in PUBLIC_DOC_EXCLUDED_KEYWORDS)
+
+
+def _public_read_openapi_schema(app: FastAPI) -> dict[str, object]:
+    schema = deepcopy(app.openapi())
+    paths = schema.get("paths")
+    if not isinstance(paths, dict):
+        return schema
+
+    filtered_paths: dict[str, object] = {}
+    for path, path_item in paths.items():
+        if not isinstance(path, str) or not isinstance(path_item, dict):
+            continue
+        if not _is_public_read_path(path):
+            continue
+
+        filtered_item = {
+            method: operation
+            for method, operation in path_item.items()
+            if method.lower() in PUBLIC_DOC_METHODS
+        }
+        if filtered_item:
+            filtered_paths[path] = filtered_item
+
+    schema["paths"] = filtered_paths
+    schema["info"] = {
+        **(schema.get("info") if isinstance(schema.get("info"), dict) else {}),
+        "title": "Hede Product Admin API - Public Read Only",
+        "description": "只读接口文档，仅包含 GET/HEAD 查询类接口；完整接口请登录后查看 /docs。",
+    }
+    return schema
+
+
+def _add_public_docs_routes(app: FastAPI) -> None:
+    @app.get("/public/openapi.json", include_in_schema=False)
+    def public_openapi():
+        return JSONResponse(_public_read_openapi_schema(app))
+
+    @app.get("/public/docs", include_in_schema=False)
+    def public_docs():
+        return get_swagger_ui_html(
+            openapi_url="/public/openapi.json",
+            title="Hede Product Admin API - Public Read Only",
+        )
+
+    @app.get("/public/redoc", include_in_schema=False)
+    def public_redoc():
+        return get_redoc_html(
+            openapi_url="/public/openapi.json",
+            title="Hede Product Admin API - Public Read Only",
+        )
 
 
 def create_app(*, settings, repository=None, image_matchers=None, inventory_repository=None, auth_repository=None, operation_log_repository=None) -> FastAPI:
@@ -57,4 +135,5 @@ def create_app(*, settings, repository=None, image_matchers=None, inventory_repo
     app.include_router(operation_logs_router)
     app.include_router(suppliers_router)
     app.include_router(warehouses_router)
+    _add_public_docs_routes(app)
     return app

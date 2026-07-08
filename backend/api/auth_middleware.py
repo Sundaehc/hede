@@ -10,9 +10,9 @@ PUBLIC_PATHS = (
     "/auth/login",
     "/auth/register",
     "/auth/options",
-    "/openapi.json",
-    "/docs",
-    "/redoc",
+    "/public/docs",
+    "/public/openapi.json",
+    "/public/redoc",
 )
 
 
