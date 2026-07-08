@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import date
 
 from config import Settings
 from domain.excluded_skus import is_excluded_sku
@@ -225,7 +226,11 @@ class ImportPipeline:
             self.database.create_tables()
             for brand_group, rows in rows_by_brand.items():
                 if mode == "sync":
-                    summaries[brand_group].loaded_rows = self.database.insert_new_brand_rows(brand_group, rows)
+                    summaries[brand_group].loaded_rows = self.database.sync_brand_rows(
+                        brand_group,
+                        rows,
+                        refresh_launch_year=date.today().year,
+                    )
                 else:
                     summaries[brand_group].loaded_rows = self.database.replace_brand_rows(brand_group, rows)
         else:
