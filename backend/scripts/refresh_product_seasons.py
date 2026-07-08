@@ -1,7 +1,7 @@
 """Refresh product season_category from source product archive workbooks.
 
-Only the explicit "季节分类" column is used. This avoids turning source values
-like "春秋季" back into sheet-derived values such as "spring".
+Only the explicit "季节分类" column is used. Sheet-derived fallback seasons are
+kept as Chinese labels such as "春季" and "秋季".
 """
 
 from __future__ import annotations
@@ -30,10 +30,6 @@ VALID_SEASON_VALUES = {
     "秋季",
     "秋冬",
     "冬季",
-    "spring",
-    "summer",
-    "autumn",
-    "winter",
 }
 
 

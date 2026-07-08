@@ -39,7 +39,7 @@ def test_build_canonical_row_uses_original_sku_when_sku_missing():
     assert canonical["sku"] == "A1001"
     assert canonical["original_sku"] == "A1001"
     assert canonical["cost"] == Decimal("199.5")
-    assert canonical["season_category"] == "spring"
+    assert canonical["season_category"] == "春季"
     assert canonical["year"] == "2025"
     assert canonical["image_path"] == "//server/images/A1001.jpg"
 

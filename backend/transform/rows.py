@@ -99,13 +99,13 @@ def derive_year_from_sheet(sheet_name: str) -> str | None:
 
 def derive_season_category(sheet_name: str) -> str | None:
     if "春" in sheet_name:
-        return "spring"
+        return "春季"
     if "夏" in sheet_name:
-        return "summer"
+        return "夏季"
     if "秋" in sheet_name:
-        return "autumn"
+        return "秋季"
     if "冬" in sheet_name:
-        return "winter"
+        return "冬季"
     return None
 
 
