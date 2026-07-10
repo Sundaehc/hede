@@ -72,7 +72,7 @@ def test_create_app_is_import_safe_without_database_url():
 
     settings = Settings(
         database_url=None,
-        frontend_origin="http://localhost:3000",
+        frontend_origin="http://localhost:3001",
         excel_root="unused",
         cbanner_image_root="unused",
         yandou_image_root="unused",

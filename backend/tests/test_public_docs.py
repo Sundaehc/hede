@@ -17,7 +17,7 @@ class _RepositoryStub:
 def _create_test_app():
     settings = SimpleNamespace(
         database_url="postgresql://unused",
-        frontend_origin="http://localhost:3000",
+        frontend_origin="http://localhost:3001",
     )
     repository = _RepositoryStub()
     return create_app(

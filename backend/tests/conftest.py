@@ -62,7 +62,7 @@ def test_app_client(
 
     monkeypatch.setattr(config_module, "BACKEND_ROOT", backend_root)
     monkeypatch.setenv("DATABASE_URL", test_database_url)
-    monkeypatch.setenv("FRONTEND_ORIGIN", "http://localhost:3000")
+    monkeypatch.setenv("FRONTEND_ORIGIN", "http://localhost:3001")
     monkeypatch.setenv("EXCEL_ROOT", str(excel_root))
     monkeypatch.setenv("CBANNER_IMAGE_ROOT", str(cbanner_image_root))
     monkeypatch.setenv("YANDOU_IMAGE_ROOT", str(yandou_image_root))

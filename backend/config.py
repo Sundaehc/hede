@@ -9,7 +9,7 @@ from dotenv import load_dotenv
 
 ENV_FILE_NAME = ".env"
 BACKEND_ROOT = Path(__file__).resolve().parent
-DEFAULT_FRONTEND_ORIGIN = "http://127.0.0.1:3000"
+DEFAULT_FRONTEND_ORIGIN = "http://127.0.0.1:3001"
 DEFAULT_CBANNER_MENS_GROUP_SOURCE = Path(
     r"\\192.168.10.229\运营组资料\9商品组（卢嘉诚）\商品分析\商品运营货品表\千百度男鞋"
 )

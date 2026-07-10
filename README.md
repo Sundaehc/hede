@@ -77,7 +77,7 @@ pip install -e ".[dev]"
 
 ```env
 DATABASE_URL=postgresql+psycopg://postgres:密码@127.0.0.1:5432/数据库名
-FRONTEND_ORIGIN=http://127.0.0.1:3000
+FRONTEND_ORIGIN=http://127.0.0.1:3001
 EXCEL_ROOT=\\共享路径\商品资料档案汇总
 QBD_IMAGE_ROOT=\\共享路径\千百度45度图男女鞋
 YANDOU_IMAGE_ROOT=\\共享路径\烟斗45图准确版
@@ -94,7 +94,7 @@ python -m cli import
 python -m scripts.enrich_from_jst
 
 # 启动 API 服务
-uvicorn api_main:app --host 0.0.0.0 --port 8137
+uv run python -m uvicorn api_main:app --host 0.0.0.0 --port 8137
 ```
 
 ### 3. 前端
@@ -105,7 +105,7 @@ pnpm install
 pnpm run dev
 ```
 
-访问 http://127.0.0.1:3000
+访问 http://127.0.0.1:3001
 
 前端通过 Next.js rewrites 代理 API 请求到后端，无需配置后端地址。
 
