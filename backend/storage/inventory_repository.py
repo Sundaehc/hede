@@ -2088,6 +2088,35 @@ class InventoryRepository:
             connection.execute(text("ALTER TABLE IF EXISTS inventory_records ADD COLUMN IF NOT EXISTS additional_note TEXT"))
             connection.execute(text("ALTER TABLE IF EXISTS inventory_records ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ"))
             connection.execute(text("CREATE INDEX IF NOT EXISTS idx_inventory_records_deleted_at ON inventory_records (deleted_at)"))
+            connection.execute(
+                text(
+                    """
+                    DO $$
+                    BEGIN
+                        IF EXISTS (
+                            SELECT 1
+                            FROM inventory_records
+                            WHERE deleted_at IS NULL
+                              AND NULLIF(BTRIM(document_number), '') IS NOT NULL
+                            GROUP BY document_number
+                            HAVING COUNT(*) > 1
+                        ) THEN
+                            RAISE EXCEPTION 'duplicate active inventory document_number exists';
+                        END IF;
+                    END $$;
+                    """
+                )
+            )
+            connection.execute(
+                text(
+                    """
+                    CREATE UNIQUE INDEX IF NOT EXISTS uq_inventory_records_active_document_number
+                    ON inventory_records (document_number)
+                    WHERE deleted_at IS NULL
+                      AND NULLIF(BTRIM(document_number), '') IS NOT NULL
+                    """
+                )
+            )
             connection.execute(text("ALTER TABLE IF EXISTS inventory_details ADD COLUMN IF NOT EXISTS color_barcode TEXT"))
             connection.execute(text("ALTER TABLE IF EXISTS inventory_details ADD COLUMN IF NOT EXISTS color_name TEXT"))
             connection.execute(text("ALTER TABLE IF EXISTS inventory_details ADD COLUMN IF NOT EXISTS size_quantities JSON"))

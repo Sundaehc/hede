@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from sqlalchemy import Boolean, Column, DateTime, Index, Integer, MetaData, Table, Text, UniqueConstraint, func
+from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Index, Integer, MetaData, Table, Text, UniqueConstraint, func
 
 
 METADATA = MetaData()
@@ -23,7 +23,12 @@ AUTH_ROLE_TABLE = Table(
     Column("id", Integer, primary_key=True),
     Column("code", Text, nullable=False),
     Column("name", Text, nullable=False),
-    Column("department_code", Text, nullable=True),
+    Column(
+        "department_code",
+        Text,
+        ForeignKey("auth_departments.code", name="fk_auth_roles_department_code", onupdate="CASCADE"),
+        nullable=True,
+    ),
     Column("description", Text, nullable=True),
     Column("permissions", Text, nullable=False, default=""),
     Column("is_system", Boolean, nullable=False, default=True),
@@ -39,8 +44,18 @@ AUTH_USER_TABLE = Table(
     Column("username", Text, nullable=False),
     Column("password_hash", Text, nullable=False),
     Column("display_name", Text, nullable=False),
-    Column("department_code", Text, nullable=False),
-    Column("role_code", Text, nullable=False),
+    Column(
+        "department_code",
+        Text,
+        ForeignKey("auth_departments.code", name="fk_auth_users_department_code", onupdate="CASCADE"),
+        nullable=False,
+    ),
+    Column(
+        "role_code",
+        Text,
+        ForeignKey("auth_roles.code", name="fk_auth_users_role_code", onupdate="CASCADE"),
+        nullable=False,
+    ),
     Column("status", Text, nullable=False, default="active"),
     Column("last_login_at", DateTime(timezone=True), nullable=True),
     Column("created_at", DateTime(timezone=True), server_default=func.now()),
@@ -53,7 +68,7 @@ AUTH_SESSION_TABLE = Table(
     "auth_sessions",
     METADATA,
     Column("id", Integer, primary_key=True),
-    Column("user_id", Integer, nullable=False),
+    Column("user_id", Integer, ForeignKey("auth_users.id", name="fk_auth_sessions_user_id", ondelete="CASCADE"), nullable=False),
     Column("token_hash", Text, nullable=False),
     Column("expires_at", DateTime(timezone=True), nullable=False),
     Column("revoked_at", DateTime(timezone=True), nullable=True),

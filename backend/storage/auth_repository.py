@@ -5,7 +5,7 @@ import secrets
 from collections.abc import Mapping
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import and_, create_engine, delete, func, insert, select, update
+from sqlalchemy import and_, create_engine, delete, func, insert, select, text, update
 
 from domain.auth_schema import AUTH_DEPARTMENT_TABLE, AUTH_ROLE_TABLE, AUTH_SESSION_TABLE, AUTH_USER_TABLE, METADATA
 
@@ -123,6 +123,7 @@ class AuthRepository:
     def create_tables(self) -> None:
         METADATA.create_all(self.engine)
         self.seed_defaults()
+        self.ensure_constraints()
 
     def seed_defaults(self) -> None:
         with self.engine.begin() as connection:
@@ -184,6 +185,101 @@ class AuthRepository:
                             permissions=role["permissions"],
                         )
                     )
+
+    def ensure_constraints(self) -> None:
+        with self.engine.begin() as connection:
+            connection.execute(
+                text(
+                    """
+                    DELETE FROM auth_sessions AS s
+                    WHERE NOT EXISTS (
+                        SELECT 1
+                        FROM auth_users AS u
+                        WHERE u.id = s.user_id
+                    )
+                    """
+                )
+            )
+            connection.execute(
+                text(
+                    """
+                    DO $$
+                    BEGIN
+                        IF NOT EXISTS (
+                            SELECT 1
+                            FROM pg_constraint
+                            WHERE conname = 'fk_auth_roles_department_code'
+                        ) THEN
+                            ALTER TABLE auth_roles
+                            ADD CONSTRAINT fk_auth_roles_department_code
+                            FOREIGN KEY (department_code)
+                            REFERENCES auth_departments (code)
+                            ON UPDATE CASCADE;
+                        END IF;
+                    END $$;
+                    """
+                )
+            )
+            connection.execute(
+                text(
+                    """
+                    DO $$
+                    BEGIN
+                        IF NOT EXISTS (
+                            SELECT 1
+                            FROM pg_constraint
+                            WHERE conname = 'fk_auth_users_department_code'
+                        ) THEN
+                            ALTER TABLE auth_users
+                            ADD CONSTRAINT fk_auth_users_department_code
+                            FOREIGN KEY (department_code)
+                            REFERENCES auth_departments (code)
+                            ON UPDATE CASCADE;
+                        END IF;
+                    END $$;
+                    """
+                )
+            )
+            connection.execute(
+                text(
+                    """
+                    DO $$
+                    BEGIN
+                        IF NOT EXISTS (
+                            SELECT 1
+                            FROM pg_constraint
+                            WHERE conname = 'fk_auth_users_role_code'
+                        ) THEN
+                            ALTER TABLE auth_users
+                            ADD CONSTRAINT fk_auth_users_role_code
+                            FOREIGN KEY (role_code)
+                            REFERENCES auth_roles (code)
+                            ON UPDATE CASCADE;
+                        END IF;
+                    END $$;
+                    """
+                )
+            )
+            connection.execute(
+                text(
+                    """
+                    DO $$
+                    BEGIN
+                        IF NOT EXISTS (
+                            SELECT 1
+                            FROM pg_constraint
+                            WHERE conname = 'fk_auth_sessions_user_id'
+                        ) THEN
+                            ALTER TABLE auth_sessions
+                            ADD CONSTRAINT fk_auth_sessions_user_id
+                            FOREIGN KEY (user_id)
+                            REFERENCES auth_users (id)
+                            ON DELETE CASCADE;
+                        END IF;
+                    END $$;
+                    """
+                )
+            )
 
     def has_users(self) -> bool:
         with self.engine.connect() as connection:
