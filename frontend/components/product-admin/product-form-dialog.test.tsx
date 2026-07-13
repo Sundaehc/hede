@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
 import { ProductFormDialog } from "@/components/product-admin/product-form-dialog"
+import { ApiError } from "@/lib/api"
 import type { ProductListItem } from "@/lib/types"
 
 const { mockCreateProduct, mockLookupImage, mockUpdateProduct } = vi.hoisted(() => ({
@@ -187,6 +188,20 @@ describe("ProductFormDialog", () => {
     })
 
     expect(onSaved).toHaveBeenCalledTimes(1)
+  })
+
+  it("treats image lookup server errors as a non-blocking warning", async () => {
+    const user = userEvent.setup()
+
+    mockLookupImage.mockRejectedValue(new ApiError(500, "Internal Server Error"))
+
+    render(<ProductFormDialog open mode="edit" item={sampleItem} onOpenChange={vi.fn()} onSaved={vi.fn()} />)
+
+    await user.click(screen.getByRole("button", { name: "查询图片" }))
+
+    expect(await screen.findByText("未找到图片")).toBeInTheDocument()
+    expect(screen.getByText("未找到对应图片，或图片目录暂时不可用，可继续保存商品。")).toBeInTheDocument()
+    expect(screen.queryByText("Internal Server Error")).not.toBeInTheDocument()
   })
 
   it("disables brand selection in edit mode", () => {

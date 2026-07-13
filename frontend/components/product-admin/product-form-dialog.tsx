@@ -330,6 +330,14 @@ export function ProductFormDialog({ item, mode, onOpenChange, onSaved, open }: P
         message: result.message || "未找到对应图片，可继续保存商品。",
       })
     } catch (error) {
+      if (error instanceof ApiError && error.status >= 500) {
+        setLookupStatus({
+          status: "warning",
+          message: "未找到对应图片，或图片目录暂时不可用，可继续保存商品。",
+        })
+        return
+      }
+
       setLookupStatus({
         status: "error",
         message: getErrorMessage(error),

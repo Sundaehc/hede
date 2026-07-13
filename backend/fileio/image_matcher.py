@@ -21,10 +21,10 @@ class ImageMatcher:
                 try:
                     if not path.is_file() or path.suffix.lower() not in IMAGE_EXTENSIONS:
                         continue
-                except OSError:
+                    index.setdefault(path.stem.strip(), str(path))
+                except Exception:
                     continue
-                index.setdefault(path.stem.strip(), str(path))
-        except OSError:
+        except Exception:
             return index
 
         return index

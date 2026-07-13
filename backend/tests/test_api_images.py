@@ -1,6 +1,11 @@
 from __future__ import annotations
 
+from types import SimpleNamespace
+
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
+
+from api.routes.images import router as images_router
 
 
 def test_image_lookup_prefers_original_sku(test_app_client: TestClient):
@@ -42,6 +47,31 @@ def test_image_lookup_returns_none_when_no_match(test_app_client: TestClient):
     }
 
 
+def test_image_lookup_returns_none_when_matcher_raises(tmp_path):
+    class BrokenMatcher:
+        def find_with_refresh(self, sku):
+            raise OSError("network share unavailable")
+
+    app = FastAPI()
+    app.state.settings = SimpleNamespace(image_roots={"cbanner": tmp_path})
+    app.state.image_matchers = {"cbanner_mens": BrokenMatcher()}
+    app.include_router(images_router)
+    client = TestClient(app)
+
+    response = client.post(
+        "/images/lookup",
+        json={"brand": "cbanner_mens", "original_sku": "MISSING", "sku": "ALSO_MISSING"},
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "found": False,
+        "image_path": None,
+        "matched_by": "none",
+        "message": "Image not found",
+    }
+
+
 def test_image_lookup_rejects_missing_lookup_values(test_app_client: TestClient):
     response = test_app_client.post(
         "/images/lookup",
@@ -70,6 +100,10 @@ def test_create_app_is_import_safe_without_database_url():
     from api.app import create_app
     from config import Settings
 
+    class RepositoryStub:
+        def create_tables(self):
+            pass
+
     settings = Settings(
         database_url=None,
         frontend_origin="http://localhost:3001",
@@ -83,6 +117,8 @@ def test_create_app_is_import_safe_without_database_url():
         settings=settings,
         repository=object(),
         inventory_repository=object(),
+        auth_repository=RepositoryStub(),
+        operation_log_repository=RepositoryStub(),
         image_matchers={
             "cbanner_mens": object(),
             "cbanner_womens": object(),

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import mimetypes
 from pathlib import Path
 
@@ -15,6 +16,7 @@ from storage.product_image_refresh import get_image_refresh_status, run_product_
 
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 MIME_MAP = {
     ".jpg": "image/jpeg",
@@ -53,9 +55,23 @@ def get_image_matcher(request: Request, brand: str) -> ImageMatcher | None:
     root = settings.image_roots.get(image_brand)
     if root is None:
         return None
-    matcher = ImageMatcher(root)
+    try:
+        matcher = ImageMatcher(root)
+    except Exception:
+        logger.exception("Failed to build image matcher for brand %s", brand)
+        return None
     matchers[brand] = matcher
     return matcher
+
+
+def find_image_safely(matcher: ImageMatcher, sku: object, *, refresh_on_missing: bool = False) -> str | None:
+    try:
+        if refresh_on_missing:
+            return matcher.find_with_refresh(sku)
+        return matcher.find(sku)
+    except Exception:
+        logger.exception("Failed to lookup product image for %s", sku)
+        return None
 
 
 @router.get("/images/serve/{brand}/{image_path:path}")
@@ -92,7 +108,7 @@ def lookup_image(request: Request, body: ImageLookupRequest):
         raise HTTPException(status_code=400, detail=f"Unknown image brand: {body.brand}")
 
     if body.original_sku:
-        image_path = matcher.find(body.original_sku)
+        image_path = find_image_safely(matcher, body.original_sku, refresh_on_missing=True)
         if image_path:
             return {
                 "found": True,
@@ -102,7 +118,7 @@ def lookup_image(request: Request, body: ImageLookupRequest):
             }
 
     if body.sku:
-        image_path = matcher.find(body.sku)
+        image_path = find_image_safely(matcher, body.sku, refresh_on_missing=True)
         if image_path:
             return {
                 "found": True,
@@ -130,7 +146,7 @@ def match_sku_image(request: Request, body: MatchSkuRequest):
         matcher = get_image_matcher(request, brand)
         if matcher is None:
             continue
-        image_path = matcher.find(sku)
+        image_path = find_image_safely(matcher, sku)
         if image_path:
             url = image_url_for(brand, image_path, settings)
             return {"found": True, "image_url": url, "brand": brand}
