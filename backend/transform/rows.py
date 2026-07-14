@@ -10,6 +10,7 @@ from domain.sources import CANONICAL_COLUMNS, COLUMN_ALIASES
 
 EMPTY_VALUES = {None, "", "-", "/"}
 NA_MARKERS = {"#N/A"}
+EXCLUDED_EXTRA_FIELD_KEYS = frozenset({"原始货号库存", "采购在途"})
 
 
 
@@ -50,6 +51,17 @@ def normalize_cell(value: object) -> object:
         return value.isoformat()
     text = str(value).strip()
     return text or None
+
+
+def filter_extra_fields(value: object) -> dict[str, object] | None:
+    if not isinstance(value, dict):
+        return None
+    filtered = {
+        str(key): item
+        for key, item in value.items()
+        if str(key).strip() not in EXCLUDED_EXTRA_FIELD_KEYS
+    }
+    return filtered or None
 
 
 
@@ -181,7 +193,7 @@ def normalize_admin_payload(payload: dict[str, object]) -> dict[str, object]:
 
     # Pass through extra_fields if present
     if "extra_fields" in payload:
-        normalized["extra_fields"] = payload["extra_fields"]
+        normalized["extra_fields"] = filter_extra_fields(payload["extra_fields"])
 
     return normalized
 
@@ -193,7 +205,7 @@ def build_admin_record(
     existing_metadata: dict[str, object] | None = None,
 ) -> dict[str, object]:
     normalized_payload = normalize_admin_payload(payload)
-    extra = normalized_payload.pop("extra_fields", None)
+    extra = filter_extra_fields(normalized_payload.pop("extra_fields", None))
     record = {column: None for column in CANONICAL_COLUMNS}
     record.update(normalized_payload)
     record["extra_fields"] = extra
@@ -256,6 +268,8 @@ def build_canonical_row(
     raw_normalized = {normalize_header(key): normalize_cell(value) for key, value in raw_row.items()}
     for key, value in raw_normalized.items():
         if key and key not in COLUMN_ALIASES and key not in known_keys:
+            if key in EXCLUDED_EXTRA_FIELD_KEYS:
+                continue
             if value is not None and str(value).strip():
                 extra[key] = value
     canonical["extra_fields"] = extra if extra else None

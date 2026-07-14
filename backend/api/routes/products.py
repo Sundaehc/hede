@@ -26,7 +26,7 @@ PRODUCT_COLOR_BARCODE_BRANDS = {
     "yandou": "cbanner_mens",
     "eblan": "cbanner_mens",
 }
-from transform.rows import build_admin_record
+from transform.rows import build_admin_record, filter_extra_fields
 
 
 router = APIRouter()
@@ -180,7 +180,7 @@ def update_product(request: Request, brand: BrandKey, product_id: int, body: Pro
             "source_row_number": existing["source_row_number"],
         },
     )
-    record["extra_fields"] = existing.get("extra_fields")
+    record["extra_fields"] = filter_extra_fields(existing.get("extra_fields"))
     if is_excluded_sku(record.get("sku"), record.get("original_sku")):
         raise HTTPException(status_code=400, detail="该货号已在永久排除清单中")
     item = request.app.state.repository.update_product(brand, product_id, record)

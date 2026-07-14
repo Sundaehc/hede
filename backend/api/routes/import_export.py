@@ -24,7 +24,7 @@ from domain.sources import CANONICAL_COLUMNS, COLUMN_ALIASES, TABLE_NAMES
 from domain.schema import PRODUCT_TABLES
 from domain.vip_schema import JST_PRODUCT_PROFILE_TABLE
 from storage.product_repository import apply_jst_product_costs
-from transform.rows import build_admin_record, normalize_admin_field
+from transform.rows import EXCLUDED_EXTRA_FIELD_KEYS, build_admin_record, filter_extra_fields, normalize_admin_field
 
 router = APIRouter()
 
@@ -678,6 +678,8 @@ async def import_products(
                 payload[field] = value
             elif key and key not in known_fields:
                 # Unrecognized column -> store in extra_fields
+                if key in EXCLUDED_EXTRA_FIELD_KEYS:
+                    continue
                 normalized = normalize_admin_field(key, value)
                 if normalized is not None and str(normalized).strip():
                     extra_fields[key] = normalized
@@ -744,8 +746,8 @@ async def import_products(
             merged = {k: v for k, v in existing.items() if v is not None}
             merged.update(import_fields)
             # Merge extra_fields: keep existing + add new
-            existing_extra = existing.get("extra_fields") or {}
-            new_extra = payload.get("extra_fields") or {}
+            existing_extra = filter_extra_fields(existing.get("extra_fields")) or {}
+            new_extra = filter_extra_fields(payload.get("extra_fields")) or {}
             if existing_extra or new_extra:
                 merged["extra_fields"] = {**existing_extra, **new_extra}
             record = build_admin_record(brand, merged, existing_metadata={

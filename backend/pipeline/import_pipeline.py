@@ -19,7 +19,7 @@ from fileio.excel_reader import read_workbook_rows
 from fileio.image_matcher import ImageMatcher
 from storage.date_normalization import parse_date
 from storage.db import Database
-from transform.rows import build_canonical_row
+from transform.rows import build_canonical_row, filter_extra_fields
 from sqlalchemy import func, select
 
 
@@ -94,7 +94,7 @@ def _merge_extra_fields(*values: object) -> dict[str, object] | None:
     for value in values:
         if isinstance(value, dict):
             merged.update(value)
-    return merged or None
+    return filter_extra_fields(merged)
 
 
 def _gj_row_to_product_row(
