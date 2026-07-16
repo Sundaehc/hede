@@ -1188,6 +1188,7 @@ def list_fine_table(
             "brand": brand,
             "image_url": image_url_for(brand, product.get("image_path"), settings),
             "factory_code": supplier_factory_code_by_name.get(supplier_name),
+            "factory_name": supplier_name or None,
             "product_name": gj_info.get("product_name"),
             "upper_material": gj_info.get("upper_material") or product.get("upper_material"),
             "lining_material": gj_info.get("lining_material") or product.get("lining_material"),

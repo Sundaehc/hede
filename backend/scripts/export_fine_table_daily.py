@@ -62,6 +62,7 @@ KNOWN_COLUMNS: tuple[tuple[str, str], ...] = (
     ("group_name", "组别"),
     ("product_level", "商品等级"),
     ("factory_code", "工厂代码"),
+    ("factory_name", "工厂名称"),
     ("product_name", "品名"),
     ("main_style", "主款式"),
     ("style_code", "款号"),

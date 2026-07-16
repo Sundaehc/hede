@@ -123,6 +123,7 @@ export type FineTableDailySale = {
 
 export type FineTableItem = ProductListItem & {
   factory_code: string | null
+  factory_name: string | null
   goods_id: string | null
   p_spu: string | null
   style_code: string | null
