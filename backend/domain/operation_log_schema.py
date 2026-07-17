@@ -22,6 +22,7 @@ OPERATION_LOG_TABLE = Table(
     Column("username", Text, nullable=True),
     Column("display_name", Text, nullable=True),
     Column("department_name", Text, nullable=True),
+    Column("role_code", Text, nullable=True),
     Column("created_at", DateTime(timezone=True), server_default=func.now()),
 )
 

@@ -32,7 +32,7 @@ def list_operation_logs(
     permission = MODULE_PERMISSIONS.get(module)
     if permission is None:
         raise HTTPException(status_code=400, detail="日志模块无效")
-    require_permission(request, permission)
+    user = require_permission(request, permission)
     page = max(1, page)
     page_size = min(max(1, page_size), 100)
     return request.app.state.operation_log_repository.list_logs(
@@ -40,4 +40,5 @@ def list_operation_logs(
         query=query,
         page=page,
         page_size=page_size,
+        exclude_super_admin_logs=str(user.get("role_code") or "") != "super_admin",
     )

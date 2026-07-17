@@ -5,8 +5,9 @@ from datetime import date, datetime
 from decimal import Decimal
 
 import orjson
-from sqlalchemy import and_, create_engine, desc, func, insert, select
+from sqlalchemy import and_, create_engine, desc, func, insert, or_, select, text
 
+from domain.auth_schema import AUTH_USER_TABLE
 from domain.operation_log_schema import OPERATION_LOG_TABLE
 
 
@@ -43,6 +44,8 @@ class OperationLogRepository:
 
     def create_tables(self) -> None:
         OPERATION_LOG_TABLE.create(self.engine, checkfirst=True)
+        with self.engine.begin() as connection:
+            connection.execute(text("ALTER TABLE operation_logs ADD COLUMN IF NOT EXISTS role_code TEXT"))
 
     def create_log(
         self,
@@ -73,6 +76,7 @@ class OperationLogRepository:
             "username": actor.get("username"),
             "display_name": actor.get("display_name"),
             "department_name": actor.get("department_name"),
+            "role_code": actor.get("role_code"),
         }
         with self.engine.begin() as connection:
             row = connection.execute(insert(OPERATION_LOG_TABLE).values(**payload).returning(OPERATION_LOG_TABLE)).mappings().one()
@@ -85,6 +89,7 @@ class OperationLogRepository:
         query: str | None,
         page: int,
         page_size: int,
+        exclude_super_admin_logs: bool = False,
     ) -> dict[str, object]:
         table = OPERATION_LOG_TABLE
         conditions = []
@@ -97,6 +102,19 @@ class OperationLogRepository:
                 | table.c.entity_label.ilike(pattern)
                 | table.c.username.ilike(pattern)
                 | table.c.display_name.ilike(pattern)
+            )
+        if exclude_super_admin_logs:
+            conditions.append(
+                or_(
+                    table.c.role_code.is_(None),
+                    table.c.role_code != "super_admin",
+                )
+            )
+            conditions.append(
+                ~select(AUTH_USER_TABLE.c.id)
+                .where(AUTH_USER_TABLE.c.id == table.c.user_id)
+                .where(AUTH_USER_TABLE.c.role_code == "super_admin")
+                .exists()
             )
 
         criterion = and_(*conditions) if conditions else None
