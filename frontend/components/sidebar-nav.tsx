@@ -6,7 +6,7 @@ import { cn } from "@/lib/utils"
 import { useAuth } from "@/components/auth/auth-provider"
 import { Button } from "@/components/ui/button"
 import { ThemeToggle } from "@/components/theme-toggle"
-import { Package, ClipboardList, Truck, Warehouse, Store, Box, BadgeDollarSign, TableProperties, ShoppingCart, UserCog, LogOut } from "lucide-react"
+import { Package, ClipboardList, Truck, Warehouse, Store, Box, BadgeDollarSign, TableProperties, ShoppingCart, UserCog, LogOut, Rows3 } from "lucide-react"
 
 const NAV_ITEMS = [
   {
@@ -23,6 +23,12 @@ const NAV_ITEMS = [
         label: "商品精细表",
         icon: TableProperties,
         permission: "fine_table.view",
+      },
+      {
+        href: "/product-goods",
+        label: "商品货品表",
+        icon: Rows3,
+        permission: "product.view",
       },
     ],
   },
@@ -94,9 +100,12 @@ const NAV_ITEMS = [
 export function SidebarNav() {
   const pathname = usePathname()
   const { hasPermission, logout, user } = useAuth()
+  const canAccessProductGoods = user?.role_code === "super_admin" || user?.department_code === "商品部"
   const visibleGroups = NAV_ITEMS.map((group) => ({
     ...group,
-    items: group.items.filter((item) => hasPermission(item.permission)),
+    items: group.items.filter((item) => (
+      hasPermission(item.permission) && (item.href !== "/product-goods" || canAccessProductGoods)
+    )),
   })).filter((group) => group.items.length > 0)
 
   return (

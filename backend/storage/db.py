@@ -15,6 +15,9 @@ from domain import vip_schema  # noqa: F401 - register VIP/JST analytics tables 
 from domain import gj_schema  # noqa: F401 - register GJ export tables on METADATA
 from domain import smiley_schema  # noqa: F401 - register Smiley fine table on METADATA
 from domain import color_barcode_schema  # noqa: F401 - register color barcode table on METADATA
+from domain import jst_stock_snapshot_schema  # noqa: F401 - register JST stock snapshot tables on METADATA
+from domain import product_goods_schema  # noqa: F401 - register product goods overrides on METADATA
+from domain import product_goods_historical_sales_schema  # noqa: F401 - register historical product-goods sales on METADATA
 
 
 def _json_serializer(value):

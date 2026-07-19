@@ -16,6 +16,11 @@ from domain.inventory_schema import GENERAL_CUSTOMER_BRAND_TABLE, GENERAL_CUSTOM
 from domain.inventory_sources import ACCOUNTING_DOCUMENT_TYPES
 from domain.gj_brand import CBANNER_MENS_BRAND, GJ_FINE_TABLE_BRANDS, SUPPLIER_BRANDS, infer_supplier_brand_from_name
 from domain.vip_schema import JST_AFTERSALE_RETURN_TABLE, JST_MONTHLY_ORDERS_TABLE, JST_SIZE_STOCK_TABLE, VIP_DAILY_TABLE
+from domain import jst_stock_snapshot_schema  # noqa: F401 - register JST stock snapshot tables on METADATA
+from domain import product_goods_schema  # noqa: F401 - register goods table overrides on METADATA
+from domain.jst_stock_snapshot_schema import JST_SIZE_STOCK_SNAPSHOT_TABLE, JST_STOCK_SUMMARY_SNAPSHOT_TABLE
+from domain.product_goods_schema import PRODUCT_GOODS_OVERRIDES_TABLE
+from domain.product_goods_historical_sales_schema import HISTORICAL_SALES_YEARS, ensure_product_goods_historical_sales_table
 from storage.date_normalization import parse_date, parse_month_day
 
 
@@ -2081,6 +2086,44 @@ class InventoryRepository:
             INVENTORY_TABLE.create(connection, checkfirst=True)
             INVENTORY_DETAIL_TABLE.create(connection, checkfirst=True)
             JST_STOCK_TABLE.create(connection, checkfirst=True)
+            JST_SIZE_STOCK_SNAPSHOT_TABLE.create(connection, checkfirst=True)
+            JST_STOCK_SUMMARY_SNAPSHOT_TABLE.create(connection, checkfirst=True)
+            PRODUCT_GOODS_OVERRIDES_TABLE.create(connection, checkfirst=True)
+            for sales_year in HISTORICAL_SALES_YEARS:
+                ensure_product_goods_historical_sales_table(connection, sales_year)
+            connection.execute(
+                text(
+                    """
+                    DO $$
+                    BEGIN
+                        IF EXISTS (
+                            SELECT 1
+                            FROM information_schema.columns
+                            WHERE table_schema = current_schema()
+                              AND table_name = 'product_goods_overrides'
+                              AND column_name = 'douyin_hot'
+                              AND data_type = 'boolean'
+                        ) THEN
+                            ALTER TABLE product_goods_overrides
+                            ALTER COLUMN douyin_hot TYPE TEXT
+                            USING CASE WHEN douyin_hot THEN '是' ELSE NULL END;
+                        END IF;
+                        IF EXISTS (
+                            SELECT 1
+                            FROM information_schema.columns
+                            WHERE table_schema = current_schema()
+                              AND table_name = 'product_goods_overrides'
+                              AND column_name = 'clearance'
+                              AND data_type = 'boolean'
+                        ) THEN
+                            ALTER TABLE product_goods_overrides
+                            ALTER COLUMN clearance TYPE TEXT
+                            USING CASE WHEN clearance THEN '是' ELSE NULL END;
+                        END IF;
+                    END $$;
+                    """
+                )
+            )
             connection.execute(text("ALTER TABLE IF EXISTS inventory_records ADD COLUMN IF NOT EXISTS document_number TEXT"))
             self._backfill_document_numbers(connection)
             connection.execute(text("CREATE INDEX IF NOT EXISTS idx_inventory_records_document_number ON inventory_records (document_number)"))

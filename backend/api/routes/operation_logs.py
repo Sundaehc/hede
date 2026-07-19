@@ -10,6 +10,7 @@ router = APIRouter(prefix="/operation-logs")
 
 MODULE_PERMISSIONS = {
     "product": "product.view",
+    "product_goods": "product.view",
     "fine_table": "fine_table.view",
     "inventory": "inventory.view",
     "purchase": "purchase.view",

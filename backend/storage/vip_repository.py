@@ -13,6 +13,7 @@ from sqlalchemy import create_engine, func as sa_func, text
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from domain.vip_schema import VIP_DAILY_TABLE, VIP_DAILY_SNAPSHOT_TABLE, VIP_OPS_TABLE, VIP_OPS_SNAPSHOT_TABLE, JST_PRICE_TABLE, VIP_REALTIME_TABLE, JST_MONTHLY_ORDERS_TABLE, JST_SIZE_STOCK_TABLE, JST_STOCK_SUMMARY_TABLE, JST_PURCHASE_DIFF_TABLE, JST_PRODUCT_PROFILE_TABLE, JST_AFTERSALE_RETURN_TABLE
+from domain.jst_stock_snapshot_schema import JST_SIZE_STOCK_SNAPSHOT_TABLE, JST_STOCK_SUMMARY_SNAPSHOT_TABLE
 from domain.vip_sources import (
     VIP_DAILY_COLUMN_ALIASES,
     VIP_OPS_COLUMN_ALIASES,
@@ -400,7 +401,9 @@ class VipRepository:
 
     # ── jst_size_stock (尺码库存) ──────────────────────────────────
 
-    def import_size_stock(self, file_path: Path) -> dict[str, object]:
+    def import_size_stock(self, file_path: Path, *, snapshot_date: date | None = None) -> dict[str, object]:
+        snapshot_date = snapshot_date or date.today()
+        JST_SIZE_STOCK_SNAPSHOT_TABLE.create(self.engine, checkfirst=True)
         wb = load_workbook(str(file_path), data_only=True)
         ws = wb["尺码表"]
         sheet_title = ws.title
@@ -425,7 +428,7 @@ class VipRepository:
 
             for col_idx, size_val in size_cols:
                 qty = row[col_idx] if col_idx < len(row) else None
-                if qty is None or qty == 0:
+                if qty is None:
                     continue
                 record: dict[str, object] = {
                     "source_workbook": file_path.stem,
@@ -448,6 +451,13 @@ class VipRepository:
         with self.engine.begin() as conn:
             conn.execute(sa_delete(JST_SIZE_STOCK_TABLE))
             self._batch_insert(JST_SIZE_STOCK_TABLE, rows, conn=conn)
+            snapshot_rows = [{**row, "snapshot_date": snapshot_date} for row in rows]
+            self._upsert(
+                JST_SIZE_STOCK_SNAPSHOT_TABLE,
+                snapshot_rows,
+                ["snapshot_date", "product_code", "size"],
+                [column.name for column in JST_SIZE_STOCK_SNAPSHOT_TABLE.columns if column.name not in {"id", "created_at", "snapshot_date", "product_code", "size"}],
+            )
 
         return {
             "imported": len(rows),
@@ -456,7 +466,9 @@ class VipRepository:
 
     # ── jst_stock_summary (商品库存 Sheet4) ───────────────────────
 
-    def import_stock_summary(self, file_path: Path) -> dict[str, object]:
+    def import_stock_summary(self, file_path: Path, *, snapshot_date: date | None = None) -> dict[str, object]:
+        snapshot_date = snapshot_date or date.today()
+        JST_STOCK_SUMMARY_SNAPSHOT_TABLE.create(self.engine, checkfirst=True)
         wb = load_workbook(str(file_path), data_only=True, read_only=True)
         ws = wb["Sheet4"]
         sheet_title = ws.title
@@ -493,6 +505,13 @@ class VipRepository:
         with self.engine.begin() as conn:
             conn.execute(sa_delete(JST_STOCK_SUMMARY_TABLE))
             self._batch_insert(JST_STOCK_SUMMARY_TABLE, rows, conn=conn)
+            snapshot_rows = [{**row, "snapshot_date": snapshot_date} for row in rows]
+            self._upsert(
+                JST_STOCK_SUMMARY_SNAPSHOT_TABLE,
+                snapshot_rows,
+                ["snapshot_date", "product_code"],
+                [column.name for column in JST_STOCK_SUMMARY_SNAPSHOT_TABLE.columns if column.name not in {"id", "created_at", "snapshot_date", "product_code"}],
+            )
 
         return {
             "imported": len(rows),

@@ -3,6 +3,7 @@ import type {
   ImageLookupResult,
   ProductListItem,
   ProductListResponse,
+  ProductGoodsResponse,
   ProductMutationPayload,
   ProductColorBarcodeListResponse,
   ProductImageRefreshStatus,
@@ -105,7 +106,7 @@ export function updateAdminUser(id: number, payload: Partial<Pick<AuthUser, "dis
 }
 
 export function listOperationLogs(params: {
-  module: "product" | "fine_table" | "inventory" | "purchase" | "supplier" | "warehouse" | "account_subject" | "general_customer" | "user"
+  module: "product" | "product_goods" | "fine_table" | "inventory" | "purchase" | "supplier" | "warehouse" | "account_subject" | "general_customer" | "user"
   query?: string
   page: number
   pageSize: number
@@ -168,6 +169,18 @@ export function listFineTable(params: {
   if (params.skuPrefix) search.set("sku_prefix", params.skuPrefix)
   if (params.cacheBust) search.set("cache_bust", String(params.cacheBust))
   return request<FineTableResponse>(`/fine-table?${search.toString()}`)
+}
+
+export function listProductGoods(params: { brand?: BrandKey; query?: string; platform?: string; snapshotDate?: string; page: number; pageSize: number }) {
+  const search = new URLSearchParams({ brand: params.brand ?? "cbanner_womens", page: String(params.page), page_size: String(params.pageSize) })
+  if (params.query) search.set("query", params.query)
+  if (params.platform) search.set("platform", params.platform)
+  if (params.snapshotDate) search.set("snapshot_date", params.snapshotDate)
+  return request<ProductGoodsResponse>(`/product-goods?${search.toString()}`)
+}
+
+export function updateProductGoods(brand: BrandKey, id: number, payload: Record<string, string | boolean | null>) {
+  return request<{ message: string }>(`/product-goods/${id}?brand=${brand}`, { method: "PATCH", body: JSON.stringify(payload) })
 }
 
 export function logFineTableExport(payload: {

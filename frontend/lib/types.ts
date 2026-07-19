@@ -39,7 +39,7 @@ export type OperationLogChange = {
 
 export type OperationLogItem = {
   id: number
-  module: "product" | "fine_table" | "inventory" | "purchase" | "supplier" | "warehouse" | "account_subject" | "general_customer" | "user"
+  module: "product" | "product_goods" | "fine_table" | "inventory" | "purchase" | "supplier" | "warehouse" | "account_subject" | "general_customer" | "user"
   action: string
   entity_type: string
   entity_id: string | null
@@ -264,6 +264,61 @@ export type ProductImageRefreshStatus = {
   current_run?: ProductImageRefreshRun | null
   last_run?: ProductImageRefreshRun | null
   runs?: ProductImageRefreshRun[]
+}
+
+export type ProductGoodsItem = {
+  id: number
+  brand: BrandKey
+  year: string | null
+  season: string | null
+  platform: string | null
+  category_l4: string | null
+  first_order_date: string | null
+  factory_sku: string | null
+  factory_code: string | null
+  factory_name: string | null
+  style_code: string | null
+  goods_code: string | null
+  color: string | null
+  image_url: string | null
+  cost: string | null
+  product_role: string | null
+  product_type: string | null
+  douyin_hot: string | boolean | null
+  clearance: string | boolean | null
+  remark: string | null
+  stock_by_size: Record<string, number>
+  stock_total: number
+  in_transit_total: number
+  inventory_total: number
+  daily_sales_by_date: Record<string, number>
+  annual_sales: Record<string, number>
+  monthly_sales: Record<string, number>
+  platform_sales: Record<string, number>
+  daily_platform_sales: Record<string, number>
+  weekly_platform_sales: Record<string, number>
+  monthly_platform_sales: Record<string, number>
+  in_transit_by_size: Record<string, number>
+  inventory_by_size: Record<string, number>
+  shortage_by_size: Record<string, number>
+  sales_by_size: Record<string, number>
+  replenishment_by_size: Record<string, number>
+  post_replenishment_by_size: Record<string, number>
+  metrics: Record<string, number | string | null>
+}
+
+export type ProductGoodsResponse = {
+  items: ProductGoodsItem[]
+  total: number
+  page: number
+  page_size: number
+  daily_dates: string[]
+  annual_sales_columns: string[]
+  monthly_sales_columns: string[]
+  size_columns: string[]
+  platform_columns: string[]
+  snapshot_date: string | null
+  snapshot_dates: string[]
 }
 
 export type ProductColorBarcodeItem = {

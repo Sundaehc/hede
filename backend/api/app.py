@@ -15,6 +15,7 @@ from api.routes.import_export import router as import_export_router
 from api.routes.inventory import router as inventory_router
 from api.routes.operation_logs import router as operation_logs_router
 from api.routes.products import router as products_router
+from api.routes.product_goods import router as product_goods_router
 from api.routes.suppliers import router as suppliers_router
 from api.routes.warehouses import router as warehouses_router
 from storage.auth_repository import AuthRepository
@@ -128,6 +129,7 @@ def create_app(*, settings, repository=None, image_matchers=None, inventory_repo
     app.state.image_matchers = resolved_matchers
     app.include_router(auth_router)
     app.include_router(products_router)
+    app.include_router(product_goods_router)
     app.include_router(fine_table_router)
     app.include_router(images_router)
     app.include_router(import_export_router)

@@ -17,14 +17,14 @@ def main() -> None:
     # 尺码表
     size_file = today_dir / "商品库存.xlsx"
     if size_file.exists():
-        result = repo.import_size_stock(size_file)
+        result = repo.import_size_stock(size_file, snapshot_date=date.today())
         print(f"[尺码表] 导入完成, 共 {result['imported']} 条")
     else:
         print(f"[SKIP] 商品库存不存在: {size_file}")
 
     # 商品库存汇总（Sheet4）
     if size_file.exists():
-        result = repo.import_stock_summary(size_file)
+        result = repo.import_stock_summary(size_file, snapshot_date=date.today())
         print(f"[库存汇总] 导入完成, 共 {result['imported']} 条")
 
     # 采购差异
