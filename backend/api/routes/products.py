@@ -11,6 +11,7 @@ from api.operation_log_utils import (
     write_operation_log,
 )
 from api.fine_table_cache import clear_fine_table_cache
+from api.product_goods_cache import clear_product_goods_cache
 from api.schemas import BatchDeleteRequest, BrandKey, ProductWriteRequest
 
 from sqlalchemy import distinct as sa_distinct, select as sa_select
@@ -148,6 +149,7 @@ def create_product(request: Request, body: ProductWriteRequest):
         raise HTTPException(status_code=400, detail="该货号已在永久排除清单中")
     item = request.app.state.repository.create_product(body.brand, record)
     clear_fine_table_cache()
+    clear_product_goods_cache()
     label = product_entity_label(item)
     write_operation_log(
         request,
@@ -188,6 +190,7 @@ def update_product(request: Request, brand: BrandKey, product_id: int, body: Pro
         # Re-check after the pre-read in case the row was deleted concurrently.
         raise HTTPException(status_code=404, detail="Product not found")
     clear_fine_table_cache()
+    clear_product_goods_cache()
     label = product_entity_label(item)
     changes = build_changed_fields(existing, item, PRODUCT_FIELD_LABELS)
     write_operation_log(
@@ -214,6 +217,7 @@ def delete_product(request: Request, brand: BrandKey, product_id: int):
     if not deleted:
         raise HTTPException(status_code=404, detail="Product not found")
     clear_fine_table_cache()
+    clear_product_goods_cache()
     label = product_entity_label(existing)
     write_operation_log(
         request,
@@ -235,6 +239,7 @@ def batch_delete_products(request: Request, body: BatchDeleteRequest):
     existing_items = request.app.state.repository.get_products_by_ids(body.brand, body.ids)
     deleted = request.app.state.repository.delete_products(body.brand, body.ids)
     clear_fine_table_cache()
+    clear_product_goods_cache()
     labels = [product_entity_label(item) for item in existing_items]
     write_operation_log(
         request,

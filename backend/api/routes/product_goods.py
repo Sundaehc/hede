@@ -11,6 +11,7 @@ import re
 from sqlalchemy import desc, func, inspect, or_, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
+from api.product_goods_cache import clear_product_goods_cache, get_product_goods_cache, set_product_goods_cache
 from api.routes.images import image_url_for
 from domain.product_goods_schema import PRODUCT_GOODS_OVERRIDES_TABLE
 from domain.product_goods_historical_sales_schema import HISTORICAL_SALES_YEARS, product_goods_historical_sales_table_for_year
@@ -397,6 +398,7 @@ def list_product_goods(
     platform: str | None = None,
     year: str | None = None,
     snapshot_date: date | None = None,
+    cache_bust: str | None = None,
     page: int = 1,
     page_size: int = 50,
 ):
@@ -404,16 +406,25 @@ def list_product_goods(
         raise HTTPException(status_code=400, detail=f"Invalid brand: {brand}")
     page = max(page, 1)
     page_size = min(max(page_size, 1), 500)
+    normalized_query = (query or "").strip()
+    normalized_platform = (platform or "").strip()
+    normalized_year = (year or "").strip()
+    normalized_snapshot_date = snapshot_date.isoformat() if snapshot_date else ""
+    cache_key = (brand, normalized_query, normalized_platform, normalized_year, normalized_snapshot_date, page, page_size)
+    if not cache_bust:
+        cached = get_product_goods_cache(cache_key)
+        if cached is not None:
+            return cached
     product_table = PRODUCT_TABLES[brand]
     override = PRODUCT_GOODS_OVERRIDES_TABLE
     conditions = []
-    if query and query.strip():
-        term = f"%{query.strip()}%"
+    if normalized_query:
+        term = f"%{normalized_query}%"
         conditions.append(or_(product_table.c.sku.ilike(term), product_table.c.original_sku.ilike(term), product_table.c.factory_sku.ilike(term), product_table.c.color.ilike(term)))
-    if year and year.strip():
-        conditions.append(product_table.c.year.ilike(f"%{year.strip()}%"))
-    if platform and platform.strip():
-        conditions.append(override.c.platform == platform.strip())
+    if normalized_year:
+        conditions.append(product_table.c.year.ilike(f"%{normalized_year}%"))
+    if normalized_platform:
+        conditions.append(override.c.platform == normalized_platform)
     join = product_table.outerjoin(override, (override.c.brand == brand) & (override.c.product_id == product_table.c.id))
     statement = select(product_table, override).select_from(join)
     count_statement = select(func.count()).select_from(join)
@@ -540,7 +551,7 @@ def list_product_goods(
             "sales_by_size": sales_by_size.get(sku, {}), "replenishment_by_size": {}, "post_replenishment_by_size": {},
             "metrics": metrics,
         })
-    return {
+    payload = {
         "items": items,
         "total": total,
         "page": page,
@@ -553,6 +564,8 @@ def list_product_goods(
         "snapshot_date": snapshot_date.isoformat() if snapshot_date else None,
         "snapshot_dates": [item.isoformat() for item in snapshot_dates],
     }
+    set_product_goods_cache(cache_key, payload)
+    return payload
 
 
 @router.patch("/product-goods/{product_id}")
@@ -571,6 +584,7 @@ def update_product_goods(request: Request, product_id: int, body: ProductGoodsUp
             set_={field: values[field] for field in body.model_fields},
         )
         connection.execute(statement)
+    clear_product_goods_cache()
     from api.operation_log_utils import write_operation_log
 
     write_operation_log(

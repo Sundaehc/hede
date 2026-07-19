@@ -171,11 +171,12 @@ export function listFineTable(params: {
   return request<FineTableResponse>(`/fine-table?${search.toString()}`)
 }
 
-export function listProductGoods(params: { brand?: BrandKey; query?: string; platform?: string; snapshotDate?: string; page: number; pageSize: number }) {
+export function listProductGoods(params: { brand?: BrandKey; query?: string; platform?: string; snapshotDate?: string; page: number; pageSize: number; cacheBust?: number | string }) {
   const search = new URLSearchParams({ brand: params.brand ?? "cbanner_womens", page: String(params.page), page_size: String(params.pageSize) })
   if (params.query) search.set("query", params.query)
   if (params.platform) search.set("platform", params.platform)
   if (params.snapshotDate) search.set("snapshot_date", params.snapshotDate)
+  if (params.cacheBust) search.set("cache_bust", String(params.cacheBust))
   return request<ProductGoodsResponse>(`/product-goods?${search.toString()}`)
 }
 

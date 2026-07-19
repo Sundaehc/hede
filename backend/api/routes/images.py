@@ -8,6 +8,7 @@ from fastapi import APIRouter, BackgroundTasks, HTTPException, Request
 from fastapi.responses import FileResponse
 
 from api.fine_table_cache import clear_fine_table_cache
+from api.product_goods_cache import clear_product_goods_cache
 from api.operation_log_utils import actor_from_request
 from api.schemas import BrandKey, ImageLookupRequest, MatchSkuRequest
 from domain.sources import IMAGE_BRAND_KEYS, TABLE_NAMES
@@ -194,6 +195,7 @@ def refresh_product_images(
 
     background_tasks.add_task(run_and_log_refresh)
     clear_fine_table_cache()
+    clear_product_goods_cache()
     return {
         "accepted": True,
         "in_progress": True,

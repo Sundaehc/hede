@@ -16,6 +16,7 @@ from sqlalchemy import desc, or_, select
 
 from api.excel_export import DEFAULT_WIDTH_BY_HEADER, style_excel_worksheet
 from api.fine_table_cache import clear_fine_table_cache
+from api.product_goods_cache import clear_product_goods_cache
 from api.operation_log_utils import write_operation_log
 from api.routes.images import get_image_matcher, image_url_for
 from domain.excluded_skus import is_excluded_sku, not_excluded_sku_condition
@@ -764,6 +765,7 @@ async def import_products(
 
     wb.close()
     clear_fine_table_cache()
+    clear_product_goods_cache()
     write_operation_log(
         request,
         module="product",
