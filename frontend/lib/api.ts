@@ -180,7 +180,7 @@ export function listProductGoods(params: { brand?: BrandKey; query?: string; pla
   return request<ProductGoodsResponse>(`/product-goods?${search.toString()}`)
 }
 
-export function updateProductGoods(brand: BrandKey, id: number, payload: Record<string, string | boolean | null>) {
+export function updateProductGoods(brand: BrandKey, id: number, payload: Record<string, string | boolean | number | Record<string, number> | null>) {
   return request<{ message: string }>(`/product-goods/${id}?brand=${brand}`, { method: "PATCH", body: JSON.stringify(payload) })
 }
 

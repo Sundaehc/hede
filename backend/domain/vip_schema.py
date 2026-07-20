@@ -75,7 +75,7 @@ def build_vip_daily_table() -> Table:
     return Table(
         VIP_DAILY_TABLE_NAME, METADATA,
         *columns,
-        UniqueConstraint("report_type", "period", "goods_id", name="uq_daily_report_goods"),
+        UniqueConstraint("report_type", "period", "goods_id", "date", name="uq_daily_report_goods_date"),
     )
 
 

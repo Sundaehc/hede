@@ -9,14 +9,18 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import type { ProductGoodsItem, ProductGoodsResponse } from "@/lib/types"
 
 
-export type ProductGoodsManualFields = Pick<ProductGoodsItem, "platform" | "category_l4" | "product_role" | "product_type" | "douyin_hot" | "clearance" | "remark">
+type ProductGoodsOperationFields = Pick<ProductGoodsItem, "platform" | "category_l4" | "product_role" | "product_type" | "douyin_hot" | "clearance" | "remark">
+type ProductGoodsReplenishmentFields = Pick<ProductGoodsItem, "replenishment_by_size" | "post_replenishment_by_size">
+  & Pick<ProductGoodsItem["metrics"], "replenishment_total" | "post_replenishment_stock" | "post_replenishment_total" | "post_replenishment_turnover_days">
+
+export type ProductGoodsManualFields = ProductGoodsOperationFields & ProductGoodsReplenishmentFields
 
 type DrawerProps = {
   item: ProductGoodsItem | null
   data: Pick<ProductGoodsResponse, "annual_sales_columns" | "daily_dates" | "monthly_sales_columns" | "platform_columns" | "size_columns">
   canEdit: boolean
   onClose: () => void
-  onSave: (item: ProductGoodsItem, fields: ProductGoodsManualFields) => Promise<void>
+  onSave: (item: ProductGoodsItem, fields: Partial<ProductGoodsManualFields>) => Promise<void>
   onPreviewImage: (item: ProductGoodsItem) => void
 }
 
@@ -50,7 +54,7 @@ function manualValue(value: string | boolean | null) {
 }
 
 function ManualFieldsForm({ item, canEdit, onSave }: { item: ProductGoodsItem; canEdit: boolean; onSave: DrawerProps["onSave"] }) {
-  const [fields, setFields] = useState<ProductGoodsManualFields>(() => ({
+  const [fields, setFields] = useState<ProductGoodsOperationFields>(() => ({
     platform: item.platform,
     category_l4: item.category_l4,
     product_role: item.product_role,
@@ -73,7 +77,7 @@ function ManualFieldsForm({ item, canEdit, onSave }: { item: ProductGoodsItem; c
     })
   }, [item])
 
-  function update(field: keyof ProductGoodsManualFields, value: string) {
+  function update(field: keyof ProductGoodsOperationFields, value: string) {
     setFields((current) => ({ ...current, [field]: value }))
   }
 
@@ -92,6 +96,88 @@ function ManualFieldsForm({ item, canEdit, onSave }: { item: ProductGoodsItem; c
       <label className="grid gap-1.5 text-sm font-medium sm:col-span-2">备注<Input value={manualValue(fields.remark)} onChange={(event) => update("remark", event.target.value)} disabled={saving} /></label>
     </div></DetailSection>
     <div className="flex justify-end border-t border-border pt-4"><Button type="submit" disabled={saving}>{saving ? "保存中..." : "保存运营字段"}</Button></div>
+  </form>
+}
+
+type ReplenishmentDraft = {
+  replenishment_by_size: Record<string, string>
+  replenishment_total: string
+  post_replenishment_by_size: Record<string, string>
+  post_replenishment_stock: string
+  post_replenishment_total: string
+  post_replenishment_turnover_days: string
+}
+
+function textNumber(value: unknown) {
+  return value === null || value === undefined ? "" : String(value)
+}
+
+function quantityDraft(values: Record<string, number>) {
+  return Object.fromEntries(Object.entries(values).map(([size, quantity]) => [size, String(quantity)]))
+}
+
+function replenishmentDraft(item: ProductGoodsItem): ReplenishmentDraft {
+  return {
+    replenishment_by_size: quantityDraft(item.replenishment_by_size),
+    replenishment_total: textNumber(item.metrics?.replenishment_total),
+    post_replenishment_by_size: quantityDraft(item.post_replenishment_by_size),
+    post_replenishment_stock: textNumber(item.metrics?.post_replenishment_stock),
+    post_replenishment_total: textNumber(item.metrics?.post_replenishment_total),
+    post_replenishment_turnover_days: textNumber(item.metrics?.post_replenishment_turnover_days),
+  }
+}
+
+function numberOrNull(value: string) {
+  const normalized = value.trim()
+  if (!normalized) return null
+  const number = Number(normalized)
+  return Number.isFinite(number) && number >= 0 ? number : null
+}
+
+function quantitiesFromDraft(values: Record<string, string>, sizes: string[]) {
+  return Object.fromEntries(sizes.flatMap((size) => {
+    const quantity = numberOrNull(values[size] ?? "")
+    return quantity === null ? [] : [[size, Math.trunc(quantity)] as [string, number]]
+  }))
+}
+
+function ManualReplenishmentForm({ item, sizes, canEdit, onSave }: { item: ProductGoodsItem; sizes: string[]; canEdit: boolean; onSave: DrawerProps["onSave"] }) {
+  const [fields, setFields] = useState<ReplenishmentDraft>(() => replenishmentDraft(item))
+  const [saving, setSaving] = useState(false)
+
+  useEffect(() => setFields(replenishmentDraft(item)), [item])
+
+  function updateQuantity(field: "replenishment_by_size" | "post_replenishment_by_size", size: string, quantity: string) {
+    setFields((current) => ({ ...current, [field]: { ...current[field], [size]: quantity } }))
+  }
+
+  function updateValue(field: Exclude<keyof ReplenishmentDraft, "replenishment_by_size" | "post_replenishment_by_size">, value: string) {
+    setFields((current) => ({ ...current, [field]: value }))
+  }
+
+  if (!canEdit) return <DetailSection title="补单信息"><div className="grid gap-2 sm:grid-cols-2"><DetailField label="补单合计" value={metric(item, "replenishment_total")} /><DetailField label="补单后库存" value={metric(item, "post_replenishment_stock")} /><DetailField label="补单后合计" value={metric(item, "post_replenishment_total")} /><DetailField label="补单后周转天数" value={metric(item, "post_replenishment_turnover_days")} /></div></DetailSection>
+
+  return <form className="space-y-4 border-t border-border pt-5" onSubmit={(event) => {
+    event.preventDefault()
+    setSaving(true)
+    void onSave(item, {
+      replenishment_by_size: quantitiesFromDraft(fields.replenishment_by_size, sizes),
+      replenishment_total: numberOrNull(fields.replenishment_total),
+      post_replenishment_by_size: quantitiesFromDraft(fields.post_replenishment_by_size, sizes),
+      post_replenishment_stock: numberOrNull(fields.post_replenishment_stock),
+      post_replenishment_total: numberOrNull(fields.post_replenishment_total),
+      post_replenishment_turnover_days: numberOrNull(fields.post_replenishment_turnover_days),
+    }).finally(() => setSaving(false))
+  }}>
+    <DetailSection title="补单明细"><div className="grid grid-cols-3 gap-2 sm:grid-cols-4">{sizes.map((size) => <label key={size} className="grid gap-1 text-xs text-muted-foreground"><span>{size}</span><Input type="number" min="0" step="1" inputMode="numeric" value={fields.replenishment_by_size[size] ?? ""} onChange={(event) => updateQuantity("replenishment_by_size", size, event.target.value)} disabled={saving} /></label>)}</div></DetailSection>
+    <DetailSection title="补单后尺码"><div className="grid grid-cols-3 gap-2 sm:grid-cols-4">{sizes.map((size) => <label key={size} className="grid gap-1 text-xs text-muted-foreground"><span>{size}</span><Input type="number" min="0" step="1" inputMode="numeric" value={fields.post_replenishment_by_size[size] ?? ""} onChange={(event) => updateQuantity("post_replenishment_by_size", size, event.target.value)} disabled={saving} /></label>)}</div></DetailSection>
+    <DetailSection title="补单汇总"><div className="grid gap-4 sm:grid-cols-2">
+      <label className="grid gap-1.5 text-sm font-medium">补单合计<Input type="number" min="0" step="1" inputMode="numeric" value={fields.replenishment_total} onChange={(event) => updateValue("replenishment_total", event.target.value)} disabled={saving} /></label>
+      <label className="grid gap-1.5 text-sm font-medium">补单后库存<Input type="number" min="0" step="1" inputMode="numeric" value={fields.post_replenishment_stock} onChange={(event) => updateValue("post_replenishment_stock", event.target.value)} disabled={saving} /></label>
+      <label className="grid gap-1.5 text-sm font-medium">补单后合计<Input type="number" min="0" step="1" inputMode="numeric" value={fields.post_replenishment_total} onChange={(event) => updateValue("post_replenishment_total", event.target.value)} disabled={saving} /></label>
+      <label className="grid gap-1.5 text-sm font-medium">补单后周转天数<Input type="number" min="0" step="0.1" inputMode="decimal" value={fields.post_replenishment_turnover_days} onChange={(event) => updateValue("post_replenishment_turnover_days", event.target.value)} disabled={saving} /></label>
+    </div></DetailSection>
+    <div className="flex justify-end"><Button type="submit" disabled={saving}>{saving ? "保存中..." : "保存补单字段"}</Button></div>
   </form>
 }
 
@@ -138,7 +224,7 @@ export function ProductGoodsDetailDrawer({ item, data, canEdit, onClose, onSave,
           <TabsContent value="base" className="space-y-4"><DetailSection title="商品识别"><div className="grid gap-2 sm:grid-cols-2"><DetailField label="货号" value={item.goods_code} /><DetailField label="款号" value={item.style_code} /><DetailField label="年份" value={item.year} /><DetailField label="季节" value={item.season} /><DetailField label="四级分类" value={item.category_l4} /><DetailField label="颜色" value={item.color} /><DetailField label="首单日期" value={item.first_order_date} /><DetailField label="成本" value={item.cost} /></div></DetailSection><DetailSection title="工厂信息"><div className="grid gap-2 sm:grid-cols-2"><DetailField label="工厂货号" value={item.factory_sku} /><DetailField label="工厂代码" value={item.factory_code} /><DetailField label="工厂名称" value={item.factory_name} /><DetailField label="所属平台" value={item.platform} /></div></DetailSection></TabsContent>
           <TabsContent value="operation" className="space-y-4"><ManualFieldsForm item={item} canEdit={canEdit} onSave={onSave} /></TabsContent>
           <TabsContent value="sales" className="space-y-4"><div className="grid gap-3 sm:grid-cols-2"><SummaryMetric icon={TrendingUp} label="总订单量" value={metric(item, "total_order_count")} /><SummaryMetric icon={TrendingUp} label="总销量" value={metric(item, "total_sales")} /><SummaryMetric icon={CalendarDays} label="昨日销量" value={metric(item, "yesterday_sales")} /><SummaryMetric icon={TrendingUp} label="上周销量" value={metric(item, "last_week_sales")} /></div><DetailSection title="近14天每日销量"><div className="grid grid-cols-4 gap-2 sm:grid-cols-7">{data.daily_dates.map((day) => <DetailField key={day} label={day.slice(5)} value={item.daily_sales_by_date[day]} />)}</div></DetailSection><DetailSection title="平台销量"><div className="grid gap-2 sm:grid-cols-3">{data.platform_columns.map((platform) => <DetailField key={platform} label={`日销 · ${platform}`} value={item.daily_platform_sales[platform]} />)}</div></DetailSection><DetailSection title="年度销量"><div className="grid grid-cols-3 gap-2 sm:grid-cols-5">{annualValues.map((period) => <DetailField key={period} label={`${period}年`} value={item.annual_sales[period]} />)}</div></DetailSection><DetailSection title="月度销量"><div className="grid grid-cols-3 gap-2 sm:grid-cols-5">{monthlyValues.map((period) => <DetailField key={period} label={period} value={item.monthly_sales[period]} />)}</div></DetailSection></TabsContent>
-          <TabsContent value="stock" className="space-y-4"><div className="grid gap-3 sm:grid-cols-2"><SummaryMetric icon={Boxes} label="在仓合计" value={item.stock_total} /><SummaryMetric icon={Boxes} label="在途合计" value={item.in_transit_total} /><SummaryMetric icon={Boxes} label="整体库存合计" value={item.inventory_total} /><SummaryMetric icon={Boxes} label="回单" value={metric(item, "return_qty")} /></div><SizeGrid title="在仓库存" values={item.stock_by_size} sizes={data.size_columns} /><SizeGrid title="在途库存" values={item.in_transit_by_size} sizes={data.size_columns} /><SizeGrid title="库存合计" values={item.inventory_by_size} sizes={data.size_columns} /><SizeGrid title="销售明细" values={item.sales_by_size} sizes={data.size_columns} /></TabsContent>
+          <TabsContent value="stock" className="space-y-4"><div className="grid gap-3 sm:grid-cols-2"><SummaryMetric icon={Boxes} label="在仓合计" value={item.stock_total} /><SummaryMetric icon={Boxes} label="在途合计" value={item.in_transit_total} /><SummaryMetric icon={Boxes} label="整体库存合计" value={item.inventory_total} /><SummaryMetric icon={Boxes} label="回单" value={metric(item, "return_qty")} /><SummaryMetric icon={Boxes} label="补单合计" value={metric(item, "replenishment_total")} /><SummaryMetric icon={Boxes} label="补单后库存" value={metric(item, "post_replenishment_stock")} /><SummaryMetric icon={Boxes} label="补单后合计" value={metric(item, "post_replenishment_total")} /><SummaryMetric icon={CalendarDays} label="补单后周转天数" value={metric(item, "post_replenishment_turnover_days")} /></div><SizeGrid title="在仓库存" values={item.stock_by_size} sizes={data.size_columns} /><SizeGrid title="在途库存" values={item.in_transit_by_size} sizes={data.size_columns} /><SizeGrid title="库存合计" values={item.inventory_by_size} sizes={data.size_columns} /><SizeGrid title="销售明细" values={item.sales_by_size} sizes={data.size_columns} /><SizeGrid title="补单明细" values={item.replenishment_by_size} sizes={data.size_columns} /><SizeGrid title="补单后尺码" values={item.post_replenishment_by_size} sizes={data.size_columns} /><ManualReplenishmentForm item={item} sizes={data.size_columns} canEdit={canEdit} onSave={onSave} /></TabsContent>
         </div>
       </Tabs>
     </div>

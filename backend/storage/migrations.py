@@ -15,6 +15,33 @@ def apply_core_database_optimizations(engine: Engine) -> None:
         conn.execute(text("ALTER TABLE jst_daily_stock ADD COLUMN IF NOT EXISTS stock_date_value DATE"))
         conn.execute(text("ALTER TABLE vip_product_daily ADD COLUMN IF NOT EXISTS report_start_date DATE"))
         conn.execute(text("ALTER TABLE vip_product_daily ADD COLUMN IF NOT EXISTS report_end_date DATE"))
+        conn.execute(
+            text(
+                """
+                do $$
+                begin
+                    if exists (
+                        select 1
+                        from pg_constraint
+                        where conname = 'uq_daily_report_goods'
+                    ) then
+                        alter table vip_product_daily
+                        drop constraint uq_daily_report_goods;
+                    end if;
+
+                    if not exists (
+                        select 1
+                        from pg_constraint
+                        where conname = 'uq_daily_report_goods_date'
+                    ) then
+                        alter table vip_product_daily
+                        add constraint uq_daily_report_goods_date
+                        unique (report_type, period, goods_id, date);
+                    end if;
+                end $$;
+                """
+            )
+        )
         conn.execute(text("ALTER TABLE jst_product_price ADD COLUMN IF NOT EXISTS source_date TEXT"))
         conn.execute(text("ALTER TABLE jst_product_price ADD COLUMN IF NOT EXISTS source_date_value DATE"))
         conn.execute(text("ALTER TABLE jst_monthly_orders ADD COLUMN IF NOT EXISTS order_time_at TIMESTAMP"))

@@ -42,6 +42,31 @@ class ProductGoodsUpdateRequest(BaseModel):
     douyin_hot: str | None = None
     clearance: str | None = None
     remark: str | None = None
+    replenishment_by_size: dict[str, int] | None = None
+    replenishment_total: int | None = None
+    post_replenishment_by_size: dict[str, int] | None = None
+    post_replenishment_stock: int | None = None
+    post_replenishment_total: int | None = None
+    post_replenishment_turnover_days: float | None = None
+
+
+PRODUCT_GOODS_STANDARD_OVERRIDE_FIELDS = {
+    "platform",
+    "category_l4",
+    "product_role",
+    "product_type",
+    "douyin_hot",
+    "clearance",
+    "remark",
+}
+PRODUCT_GOODS_REPLENISHMENT_FIELDS = {
+    "replenishment_by_size",
+    "replenishment_total",
+    "post_replenishment_by_size",
+    "post_replenishment_stock",
+    "post_replenishment_total",
+    "post_replenishment_turnover_days",
+}
 
 
 def _size_stock_payload(
@@ -72,6 +97,29 @@ def _size_stock_payload(
         if code and size:
             result.setdefault(code, {})[size] = int(row["quantity"] or 0)
     return result
+
+
+def _manual_size_quantities(value: object) -> dict[str, int]:
+    if not isinstance(value, dict):
+        return {}
+    quantities: dict[str, int] = {}
+    for size, quantity in value.items():
+        normalized_size = str(size).strip()
+        if normalized_size not in SIZE_COLUMNS:
+            continue
+        try:
+            normalized_quantity = int(quantity)
+        except (TypeError, ValueError):
+            continue
+        if normalized_quantity >= 0:
+            quantities[normalized_size] = normalized_quantity
+    return quantities
+
+
+def _manual_number(value: object) -> int | float | None:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    return value if value >= 0 else None
 
 
 def _size_from_color_spec(value: object) -> str | None:
@@ -497,6 +545,9 @@ def list_product_goods(
         stock_by_size = size_stocks.get(sku, {})
         summary = summaries.get(sku, {})
         sales = sales_summary.get(sku, {})
+        extra_fields = row.get("extra_fields") if isinstance(row.get("extra_fields"), dict) else {}
+        replenishment_by_size = _manual_size_quantities(extra_fields.get("replenishment_by_size"))
+        post_replenishment_by_size = _manual_size_quantities(extra_fields.get("post_replenishment_by_size"))
         yesterday_sales = sales.get("yesterday_sales")
         previous_day_sales = sales.get("previous_day_sales")
         metrics = {
@@ -505,8 +556,8 @@ def list_product_goods(
             "stock_plus_purchase": sum(stock_by_size.values()),
             "in_transit_total": int(summary.get("purchase_in_transit_qty") or 0),
             "return_qty": sales.get("return_qty"),
-            "post_replenishment_stock": None,
-            "post_replenishment_turnover_days": None,
+            "post_replenishment_stock": _manual_number(extra_fields.get("post_replenishment_stock")),
+            "post_replenishment_turnover_days": _manual_number(extra_fields.get("post_replenishment_turnover_days")),
             "day_over_day": (int(yesterday_sales) - int(previous_day_sales)) if yesterday_sales is not None and previous_day_sales is not None else None,
             "yesterday_sales": yesterday_sales,
             "normal_shelf_sales": None,
@@ -520,8 +571,8 @@ def list_product_goods(
             "stock_health": None,
             "broken_size_sku": None,
             "sales_size_total": sum(sales_by_size.get(sku, {}).values()) if sales_by_size.get(sku) else None,
-            "replenishment_total": None,
-            "post_replenishment_total": None,
+            "replenishment_total": _manual_number(extra_fields.get("replenishment_total")),
+            "post_replenishment_total": _manual_number(extra_fields.get("post_replenishment_total")),
             "three_day_change": None,
             "sales_2024": sales.get("sales_2024"),
             "sales_2025": sales.get("sales_2025"),
@@ -548,7 +599,7 @@ def list_product_goods(
             "weekly_platform_sales": platform_sales.get(sku, {}).get("weekly", {}),
             "monthly_platform_sales": platform_sales.get(sku, {}).get("monthly", {}),
             "in_transit_by_size": {}, "inventory_by_size": stock_by_size, "shortage_by_size": {},
-            "sales_by_size": sales_by_size.get(sku, {}), "replenishment_by_size": {}, "post_replenishment_by_size": {},
+            "sales_by_size": sales_by_size.get(sku, {}), "replenishment_by_size": replenishment_by_size, "post_replenishment_by_size": post_replenishment_by_size,
             "metrics": metrics,
         })
     payload = {
@@ -578,10 +629,36 @@ def update_product_goods(request: Request, product_id: int, body: ProductGoodsUp
         exists = connection.execute(select(product_table.c.id).where(product_table.c.id == product_id)).scalar_one_or_none()
         if exists is None:
             raise HTTPException(status_code=404, detail="Product not found")
-        values = {"brand": brand, "product_id": product_id, **body.model_dump()}
+        standard_values = {
+            field: getattr(body, field)
+            for field in PRODUCT_GOODS_STANDARD_OVERRIDE_FIELDS
+            if field in body.model_fields_set
+        }
+        manual_replenishment_fields = PRODUCT_GOODS_REPLENISHMENT_FIELDS.intersection(body.model_fields_set)
+        if not standard_values and not manual_replenishment_fields:
+            raise HTTPException(status_code=400, detail="No fields to update")
+        existing_extra_fields = connection.execute(
+            select(PRODUCT_GOODS_OVERRIDES_TABLE.c.extra_fields).where(
+                (PRODUCT_GOODS_OVERRIDES_TABLE.c.brand == brand)
+                & (PRODUCT_GOODS_OVERRIDES_TABLE.c.product_id == product_id)
+            )
+        ).scalar_one_or_none()
+        extra_fields = dict(existing_extra_fields) if isinstance(existing_extra_fields, dict) else {}
+        for field in manual_replenishment_fields:
+            field_value = getattr(body, field)
+            if field_value is None:
+                extra_fields.pop(field, None)
+            else:
+                extra_fields[field] = field_value
+        values = {"brand": brand, "product_id": product_id, **standard_values}
+        if manual_replenishment_fields:
+            values["extra_fields"] = extra_fields or None
+        update_values = dict(standard_values)
+        if manual_replenishment_fields:
+            update_values["extra_fields"] = values["extra_fields"]
         statement = pg_insert(PRODUCT_GOODS_OVERRIDES_TABLE).values(**values).on_conflict_do_update(
             index_elements=["brand", "product_id"],
-            set_={field: values[field] for field in body.model_fields},
+            set_=update_values,
         )
         connection.execute(statement)
     clear_product_goods_cache()
@@ -595,6 +672,10 @@ def update_product_goods(request: Request, product_id: int, body: ProductGoodsUp
         entity_id=product_id,
         entity_label=str(product_id),
         summary="编辑商品货品表运营字段",
-        after_data={"brand": brand, **body.model_dump()},
+        after_data={
+            "brand": brand,
+            **standard_values,
+            **{field: getattr(body, field) for field in manual_replenishment_fields},
+        },
     )
     return {"message": "Product goods fields updated"}

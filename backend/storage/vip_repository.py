@@ -103,12 +103,12 @@ class VipRepository:
         else:
             update_cols = [
                 c for c in rows[0]
-                if c not in ("id", "report_type", "period", "goods_id")
+                if c not in ("id", "report_type", "period", "goods_id", "date")
             ]
             self._upsert(
                 VIP_DAILY_TABLE,
                 rows,
-                ["report_type", "period", "goods_id"],
+                ["report_type", "period", "goods_id", "date"],
                 update_cols,
             )
 
@@ -505,7 +505,14 @@ class VipRepository:
         with self.engine.begin() as conn:
             conn.execute(sa_delete(JST_STOCK_SUMMARY_TABLE))
             self._batch_insert(JST_STOCK_SUMMARY_TABLE, rows, conn=conn)
-            snapshot_rows = [{**row, "snapshot_date": snapshot_date} for row in rows]
+            snapshot_column_names = {column.name for column in JST_STOCK_SUMMARY_SNAPSHOT_TABLE.columns}
+            snapshot_rows = [
+                {
+                    **{key: value for key, value in row.items() if key in snapshot_column_names},
+                    "snapshot_date": snapshot_date,
+                }
+                for row in rows
+            ]
             self._upsert(
                 JST_STOCK_SUMMARY_SNAPSHOT_TABLE,
                 snapshot_rows,
