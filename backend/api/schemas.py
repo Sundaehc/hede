@@ -38,6 +38,8 @@ class ProductPayload(BaseModel):
     toe_shape: str | None = None
     closure_type: str | None = None
     shoe_box_spec: str | None = None
+    shoe_box_type: str | None = None
+    selling_points: str | None = None
     first_order_time: str | None = None
     size_range: str | None = None
     product_model: str | None = None

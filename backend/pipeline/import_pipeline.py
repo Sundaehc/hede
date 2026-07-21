@@ -52,6 +52,8 @@ GJ_ARCHIVE_SUPPLEMENT_FIELDS = {
     "upper_height",
     "toe_shape",
     "closure_type",
+    "shoe_box_type",
+    "selling_points",
     "first_order_time",
     "size_range",
     "color_code",
@@ -133,6 +135,8 @@ def _gj_row_to_product_row(
         for field in GJ_ARCHIVE_SUPPLEMENT_FIELDS:
             if canonical.get(field) in (None, ""):
                 canonical[field] = archive_row.get(field)
+        if brand_group == "eblan" and canonical.get("shoe_box_type") in (None, ""):
+            canonical["shoe_box_type"] = archive_row.get("shoe_box_type") or archive_row.get("shoe_box_spec")
 
     return {
         **canonical,

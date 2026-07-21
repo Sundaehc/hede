@@ -92,6 +92,8 @@ export type ProductListItem = {
   toe_shape: string | null
   closure_type: string | null
   shoe_box_spec: string | null
+  shoe_box_type: string | null
+  selling_points: string | null
   first_order_time: string | null
   size_range: string | null
   product_model: string | null
@@ -379,6 +381,8 @@ export type ProductFormValues = {
   toe_shape: string
   closure_type: string
   shoe_box_spec: string
+  shoe_box_type: string
+  selling_points: string
   first_order_time: string
   size_range: string
   product_model: string
@@ -414,6 +418,8 @@ export type ProductMutationPayload = Record<string, unknown> & {
   toe_shape?: string | null
   closure_type?: string | null
   shoe_box_spec?: string | null
+  shoe_box_type?: string | null
+  selling_points?: string | null
   first_order_time?: string | null
   size_range?: string | null
   product_model?: string | null

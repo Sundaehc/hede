@@ -14,12 +14,14 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from api.product_goods_cache import clear_product_goods_cache, get_product_goods_cache, set_product_goods_cache
 from api.routes.images import image_url_for
 from domain.product_goods_schema import PRODUCT_GOODS_OVERRIDES_TABLE
+from domain.product_goods_shop_channel_schema import PRODUCT_GOODS_SHOP_CHANNEL_MAPPINGS_TABLE
 from domain.product_goods_historical_sales_schema import HISTORICAL_SALES_YEARS, product_goods_historical_sales_table_for_year
 from domain.product_goods_sales_period_schema import PRODUCT_GOODS_SALES_PERIODS_TABLE
 from domain.schema import PRODUCT_TABLES
 from domain.vip_schema import JST_SIZE_STOCK_TABLE, JST_STOCK_SUMMARY_TABLE
 from domain.daily_sales_schema import jst_daily_sales_table_for_year, vip_daily_sales_table_for_year
 from domain.inventory_schema import SUPPLIER_TABLE
+from domain.jst_full_stock_schema import JST_FULL_STOCK_TABLE
 from domain.jst_stock_snapshot_schema import JST_SIZE_STOCK_SNAPSHOT_TABLE, JST_STOCK_SUMMARY_SNAPSHOT_TABLE
 
 
@@ -30,6 +32,8 @@ PLATFORM_COLUMNS = ["唯品", "天猫", "得物", "拼多多", "京东", "商品
 SIZE_TO_STOCK_CODE = {str(size): str(50 + size * 5) for size in range(34, 45)}
 STOCK_CODE_TO_SIZE = {value: key for key, value in SIZE_TO_STOCK_CODE.items()}
 SALES_PERIOD_START_YEAR = 2022
+LOW_STOCK_SALE_DAYS = 7
+HIGH_STOCK_SALE_DAYS = 90
 
 
 class ProductGoodsUpdateRequest(BaseModel):
@@ -99,6 +103,105 @@ def _size_stock_payload(
     return result
 
 
+def _full_stock_size(value: object) -> str | None:
+    """Return a display size only when the source value maps to one exact size."""
+    normalized = str(value or "").strip()
+    if normalized.endswith(".0") and normalized[:-2].isdigit():
+        normalized = normalized[:-2]
+    if normalized in SIZE_COLUMNS:
+        return normalized
+    return STOCK_CODE_TO_SIZE.get(normalized)
+
+
+def _stock_health_label(stock_sale_days: float | None, shortage_total: int) -> str | None:
+    if shortage_total > 0:
+        return "缺货"
+    if stock_sale_days is None:
+        return None
+    if stock_sale_days <= LOW_STOCK_SALE_DAYS:
+        return "低库存"
+    if stock_sale_days >= HIGH_STOCK_SALE_DAYS:
+        return "积压风险"
+    return "正常"
+
+
+def _current_full_stock_payload(
+    connection,
+    product_codes: list[str],
+) -> dict[str, dict[str, Any]]:
+    """Aggregate the full JST inventory file for the products displayed on one page.
+
+    The source product code contains a base goods code plus a color/size suffix, so
+    resolving the longest matching base code prevents one goods code from being
+    attributed to a shorter prefix.
+    """
+    if not product_codes or not inspect(connection).has_table(JST_FULL_STOCK_TABLE.name):
+        return {}
+    normalized_codes = sorted({code.strip() for code in product_codes if code.strip()}, key=len, reverse=True)
+    if not normalized_codes:
+        return {}
+    code_conditions = [JST_FULL_STOCK_TABLE.c.product_code.startswith(code) for code in normalized_codes]
+    rows = connection.execute(
+        select(
+            JST_FULL_STOCK_TABLE.c.product_code,
+            JST_FULL_STOCK_TABLE.c.size,
+            JST_FULL_STOCK_TABLE.c.actual_stock_qty,
+            JST_FULL_STOCK_TABLE.c.purchase_warehouse_stock_qty,
+            JST_FULL_STOCK_TABLE.c.purchase_in_transit_qty,
+            JST_FULL_STOCK_TABLE.c.transfer_in_transit_qty,
+            JST_FULL_STOCK_TABLE.c.return_in_transit_qty,
+            JST_FULL_STOCK_TABLE.c.available_qty,
+            JST_FULL_STOCK_TABLE.c.stock_sale_days,
+        ).where(or_(*code_conditions))
+    ).mappings()
+    result: dict[str, dict[str, Any]] = {}
+    for row in rows:
+        source_code = str(row["product_code"] or "").strip()
+        matched_code = next((code for code in normalized_codes if source_code.startswith(code)), None)
+        if not matched_code:
+            continue
+        payload = result.setdefault(
+            matched_code,
+            {
+                "stock_by_size": {},
+                "in_transit_by_size": {},
+                "available_by_size": {},
+                "stock_total": 0,
+                "in_transit_total": 0,
+                "stock_sale_days": [],
+            },
+        )
+        stock_quantity = int(row["actual_stock_qty"] or 0) + int(row["purchase_warehouse_stock_qty"] or 0)
+        in_transit_quantity = (
+            int(row["purchase_in_transit_qty"] or 0)
+            + int(row["transfer_in_transit_qty"] or 0)
+            + int(row["return_in_transit_qty"] or 0)
+        )
+        payload["stock_total"] += stock_quantity
+        payload["in_transit_total"] += in_transit_quantity
+        if row["stock_sale_days"] is not None:
+            payload["stock_sale_days"].append(float(row["stock_sale_days"]))
+        size = _full_stock_size(row["size"])
+        if size is not None:
+            stock_by_size = payload["stock_by_size"]
+            in_transit_by_size = payload["in_transit_by_size"]
+            available_by_size = payload["available_by_size"]
+            stock_by_size[size] = stock_by_size.get(size, 0) + stock_quantity
+            in_transit_by_size[size] = in_transit_by_size.get(size, 0) + in_transit_quantity
+            available_by_size[size] = available_by_size.get(size, 0) + int(row["available_qty"] or 0)
+    for payload in result.values():
+        available_by_size = payload.pop("available_by_size")
+        payload["shortage_by_size"] = {
+            size: -quantity
+            for size, quantity in available_by_size.items()
+            if quantity < 0
+        }
+        payload["shortage_total"] = sum(payload["shortage_by_size"].values())
+        stock_sale_days = payload.pop("stock_sale_days")
+        payload["stock_sale_days"] = min(stock_sale_days) if stock_sale_days else None
+    return result
+
+
 def _manual_size_quantities(value: object) -> dict[str, int]:
     if not isinstance(value, dict):
         return {}
@@ -128,8 +231,31 @@ def _size_from_color_spec(value: object) -> str | None:
     return matched.group(1) if matched else None
 
 
-def _platform_name(channel: object) -> str:
+def _shop_channel_key(value: object) -> str:
+    return re.sub(r"\s+", "", str(value or "").strip())
+
+
+def _shop_channel_mapping_payload(connection, brand: str) -> dict[str, str]:
+    if not inspect(connection).has_table(PRODUCT_GOODS_SHOP_CHANNEL_MAPPINGS_TABLE.name):
+        return {}
+    rows = connection.execute(
+        select(
+            PRODUCT_GOODS_SHOP_CHANNEL_MAPPINGS_TABLE.c.shop_name,
+            PRODUCT_GOODS_SHOP_CHANNEL_MAPPINGS_TABLE.c.channel,
+        ).where(PRODUCT_GOODS_SHOP_CHANNEL_MAPPINGS_TABLE.c.brand == brand)
+    ).mappings()
+    return {
+        _shop_channel_key(row["shop_name"]): _platform_name(row["channel"])
+        for row in rows
+        if _shop_channel_key(row["shop_name"]) and str(row["channel"] or "").strip()
+    }
+
+
+def _platform_name(channel: object, shop_channel_mappings: dict[str, str] | None = None) -> str:
     value = str(channel or "").strip()
+    mapped_channel = (shop_channel_mappings or {}).get(_shop_channel_key(value))
+    if mapped_channel:
+        return mapped_channel
     if "唯品" in value:
         return "唯品"
     if "天猫" in value:
@@ -185,6 +311,7 @@ def _sales_matrix_payload(
         for style_code, matches in style_code_matches.items()
         if len(matches) == 1
     }
+    shop_channel_mappings = _shop_channel_mapping_payload(connection, brand)
     inspector = inspect(engine)
     jst_tables = []
     vip_tables = []
@@ -319,7 +446,7 @@ def _sales_matrix_payload(
             quantity = int(row["quantity"] or 0)
             if code is None or not isinstance(day, date):
                 continue
-            platform = _platform_name(row["channel"])
+            platform = _platform_name(row["channel"], shop_channel_mappings)
             if platform == "唯品" and (code, day) in vip_product_dates:
                 continue
             add_sale(
@@ -366,7 +493,7 @@ def _sales_matrix_payload(
                 code,
                 sales_date,
                 int(row["quantity"] or 0),
-                platform=_platform_name(row["channel"]),
+                platform=_platform_name(row["channel"], shop_channel_mappings),
                 size=_size_from_color_spec(row["size"]),
             )
     return [item.isoformat() for item in dates], daily_by_sku, platform_by_sku, sales_by_size, dict(summary_by_sku)
@@ -499,10 +626,13 @@ def list_product_goods(
         rows = connection.execute(statement).mappings().all()
         product_codes = sorted({str(row.get("sku") or "").strip() for row in rows if str(row.get("sku") or "").strip()})
         if snapshot_date is None:
-            size_stocks = _size_stock_payload(connection, product_codes)
+            full_stocks = _current_full_stock_payload(connection, product_codes)
+            fallback_product_codes = [code for code in product_codes if code not in full_stocks]
+            size_stocks = _size_stock_payload(connection, fallback_product_codes)
             summary_table = JST_STOCK_SUMMARY_TABLE
             summary_filter = summary_table.c.product_code.in_(product_codes)
         else:
+            full_stocks = {}
             size_stocks = _size_stock_payload(connection, product_codes, snapshot_date=snapshot_date)
             summary_table = JST_STOCK_SUMMARY_SNAPSHOT_TABLE
             summary_filter = (summary_table.c.product_code.in_(product_codes)) & (summary_table.c.snapshot_date == snapshot_date)
@@ -542,8 +672,19 @@ def list_product_goods(
     items: list[dict[str, Any]] = []
     for row in rows:
         sku = str(row.get("sku") or "").strip()
-        stock_by_size = size_stocks.get(sku, {})
+        full_stock = full_stocks.get(sku)
+        stock_by_size = dict(full_stock["stock_by_size"]) if full_stock else size_stocks.get(sku, {})
+        in_transit_by_size = dict(full_stock["in_transit_by_size"]) if full_stock else {}
+        shortage_by_size = dict(full_stock["shortage_by_size"]) if full_stock else {}
+        shortage_total = int(full_stock["shortage_total"]) if full_stock else 0
+        stock_total = int(full_stock["stock_total"]) if full_stock else sum(stock_by_size.values())
         summary = summaries.get(sku, {})
+        in_transit_total = int(full_stock["in_transit_total"]) if full_stock else int(summary.get("purchase_in_transit_qty") or 0)
+        inventory_by_size = {
+            size: int(stock_by_size.get(size, 0)) + int(in_transit_by_size.get(size, 0))
+            for size in sorted(set(stock_by_size) | set(in_transit_by_size), key=lambda value: int(value))
+        }
+        inventory_total = stock_total + in_transit_total
         sales = sales_summary.get(sku, {})
         extra_fields = row.get("extra_fields") if isinstance(row.get("extra_fields"), dict) else {}
         replenishment_by_size = _manual_size_quantities(extra_fields.get("replenishment_by_size"))
@@ -553,8 +694,8 @@ def list_product_goods(
         metrics = {
             "total_order_count": sales.get("total_order_count"),
             "total_sales": sales.get("total_sales"),
-            "stock_plus_purchase": sum(stock_by_size.values()),
-            "in_transit_total": int(summary.get("purchase_in_transit_qty") or 0),
+            "stock_plus_purchase": stock_total,
+            "in_transit_total": in_transit_total,
             "return_qty": sales.get("return_qty"),
             "post_replenishment_stock": _manual_number(extra_fields.get("post_replenishment_stock")),
             "post_replenishment_turnover_days": _manual_number(extra_fields.get("post_replenishment_turnover_days")),
@@ -568,7 +709,8 @@ def list_product_goods(
             "last_week_sales": sales.get("last_week_sales"),
             "same_week_sales": None,
             "same_week_non_douyin_sales": None,
-            "stock_health": None,
+            "shortage_total": shortage_total,
+            "stock_health": _stock_health_label(full_stock["stock_sale_days"], shortage_total) if full_stock else None,
             "broken_size_sku": None,
             "sales_size_total": sum(sales_by_size.get(sku, {}).values()) if sales_by_size.get(sku) else None,
             "replenishment_total": _manual_number(extra_fields.get("replenishment_total")),
@@ -588,9 +730,9 @@ def list_product_goods(
             "cost": str(row["cost"]) if row.get("cost") is not None else None,
             "product_role": row.get("product_role"), "product_type": row.get("product_type"),
             "douyin_hot": row.get("douyin_hot"), "clearance": row.get("clearance"), "remark": row.get("remark"),
-            "stock_by_size": stock_by_size, "stock_total": sum(stock_by_size.values()),
-            "in_transit_total": int(summary.get("purchase_in_transit_qty") or 0),
-            "inventory_total": sum(stock_by_size.values()) + int(summary.get("purchase_in_transit_qty") or 0),
+            "stock_by_size": stock_by_size, "stock_total": stock_total,
+            "in_transit_total": in_transit_total,
+            "inventory_total": inventory_total,
             "daily_sales_by_date": daily_sales.get(sku, {}),
             "annual_sales": annual_sales.get(sku, {}),
             "monthly_sales": monthly_sales.get(sku, {}),
@@ -598,7 +740,7 @@ def list_product_goods(
             "daily_platform_sales": platform_sales.get(sku, {}).get("daily", {}),
             "weekly_platform_sales": platform_sales.get(sku, {}).get("weekly", {}),
             "monthly_platform_sales": platform_sales.get(sku, {}).get("monthly", {}),
-            "in_transit_by_size": {}, "inventory_by_size": stock_by_size, "shortage_by_size": {},
+            "in_transit_by_size": in_transit_by_size, "inventory_by_size": inventory_by_size, "shortage_by_size": shortage_by_size,
             "sales_by_size": sales_by_size.get(sku, {}), "replenishment_by_size": replenishment_by_size, "post_replenishment_by_size": post_replenishment_by_size,
             "metrics": metrics,
         })

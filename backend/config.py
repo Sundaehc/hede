@@ -31,6 +31,7 @@ DEFAULT_AFTERSALE_RETURN_FILE = Path(
 DEFAULT_DAILY_SALES_REPORT_ROOT = Path(
     r"\\Hede\运营组资料\影刀\商品库存"
 )
+DEFAULT_JST_FULL_STOCK_FILE = DEFAULT_DAILY_SALES_REPORT_ROOT / "聚水潭库存.xlsx"
 
 
 @dataclass(frozen=True)
@@ -49,6 +50,7 @@ class Settings:
     fine_table_export_root: Path | None = DEFAULT_FINE_TABLE_EXPORT_ROOT
     aftersale_return_file: Path | None = DEFAULT_AFTERSALE_RETURN_FILE
     daily_sales_report_root: Path | None = DEFAULT_DAILY_SALES_REPORT_ROOT
+    jst_full_stock_file: Path | None = DEFAULT_JST_FULL_STOCK_FILE
     cbanner_mens_group_source: Path | None = DEFAULT_CBANNER_MENS_GROUP_SOURCE
     cbanner_womens_product_detail_source: Path | None = DEFAULT_CBANNER_WOMENS_PRODUCT_DETAIL_SOURCE
     eblan_product_detail_source: Path | None = DEFAULT_EBLAN_PRODUCT_DETAIL_SOURCE
@@ -131,6 +133,12 @@ def load_settings(require_database: bool = True) -> Settings:
         if daily_sales_report_root_raw
         else DEFAULT_DAILY_SALES_REPORT_ROOT
     )
+    jst_full_stock_file_raw = os.getenv("JST_FULL_STOCK_FILE")
+    jst_full_stock_file = (
+        Path(jst_full_stock_file_raw)
+        if jst_full_stock_file_raw
+        else DEFAULT_JST_FULL_STOCK_FILE
+    )
     cbanner_mens_group_source_raw = os.getenv("CBANNER_MENS_GROUP_SOURCE")
     cbanner_mens_group_source = (
         Path(cbanner_mens_group_source_raw)
@@ -165,6 +173,7 @@ def load_settings(require_database: bool = True) -> Settings:
         fine_table_export_root=fine_table_export_root,
         aftersale_return_file=aftersale_return_file,
         daily_sales_report_root=daily_sales_report_root,
+        jst_full_stock_file=jst_full_stock_file,
         cbanner_mens_group_source=cbanner_mens_group_source,
         cbanner_womens_product_detail_source=cbanner_womens_product_detail_source,
         eblan_product_detail_source=eblan_product_detail_source,

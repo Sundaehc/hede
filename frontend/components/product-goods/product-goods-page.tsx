@@ -19,7 +19,7 @@ const PAGE_SIZE = 50
 const PAGE_SIZE_OPTIONS = [50, 100, 200]
 const GOODS_BRANDS = BRANDS.filter((item) => item.key !== "all") as Array<{ key: Exclude<BrandKey, "all">; label: string }>
 const DEFAULT_BRAND: Exclude<BrandKey, "all"> = "cbanner_mens"
-const DEFAULT_COLUMN_KEYS = ["year", "season", "platform", "category_l4", "first_order_date", "factory_sku", "factory_code", "factory_name", "color", "cost", "product_role", "product_type", "douyin_hot", "clearance", "remark", "total_order_count", "total_sales", "stock_plus_purchase", "in_transit_total", "return_qty", "post_replenishment_stock", "post_replenishment_turnover_days", "day_over_day", "yesterday_sales", "week_sales", "last_week_sales", "month_sales", "stock_total", "stock_health", "broken_size_sku"]
+const DEFAULT_COLUMN_KEYS = ["year", "season", "platform", "category_l4", "first_order_date", "factory_sku", "factory_code", "factory_name", "color", "cost", "product_role", "product_type", "douyin_hot", "clearance", "remark", "total_order_count", "total_sales", "stock_plus_purchase", "in_transit_total", "return_qty", "post_replenishment_stock", "post_replenishment_turnover_days", "day_over_day", "yesterday_sales", "week_sales", "last_week_sales", "month_sales", "stock_total", "shortage_total", "stock_health", "broken_size_sku"]
 type ColumnGroup = "基础" | "经营" | "库存" | "销售" | "年度销量" | "月度销量" | "近14天每日销量" | "在仓库存" | "在途库存" | "库存合计" | "缺货库存" | "销售明细" | "补单明细" | "补单后尺码" | "日销量" | "周销量" | "月销量"
 type TableColumn = { key: string; label: string; group: ColumnGroup; width?: number; render: (row: ProductGoodsItem) => ReactNode }
 
@@ -108,6 +108,7 @@ function createColumns(data: ProductGoodsResponse): TableColumn[] {
     { key: "same_week_sales", label: "同期周销", group: "销售", render: (row) => metric(row, "same_week_sales") },
     { key: "same_week_non_douyin_sales", label: "同期非抖音周销", group: "销售", render: (row) => metric(row, "same_week_non_douyin_sales") },
     { key: "stock_total", label: "在仓合计", group: "库存", render: (row) => value(row.stock_total) },
+    { key: "shortage_total", label: "缺货合计", group: "库存", render: (row) => metric(row, "shortage_total") },
     { key: "stock_health", label: "库存健康度提醒", group: "库存", width: 130, render: (row) => metric(row, "stock_health") },
     { key: "broken_size_sku", label: "断码SKU", group: "库存", render: (row) => metric(row, "broken_size_sku") },
     { key: "sales_size_total", label: "销售明细合计", group: "销售", render: (row) => metric(row, "sales_size_total") },

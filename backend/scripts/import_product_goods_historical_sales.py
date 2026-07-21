@@ -55,10 +55,20 @@ def _decimal(value: object) -> Decimal | None:
 
 
 def _headers(values: tuple[object, ...]) -> dict[str, int]:
-    normalized = {str(value or "").strip().replace("\n", ""): index for index, value in enumerate(values)}
+    normalized = [str(value or "").strip().replace("\n", "") for value in values]
     result: dict[str, int] = {}
     for field, aliases in HEADER_ALIASES.items():
-        index = next((normalized[alias] for alias in aliases if alias in normalized), None)
+        if field == "channel":
+            channel_indexes = [index for index, value in enumerate(normalized) if value == "渠道"]
+            index = channel_indexes[-1] if channel_indexes else next(
+                (index for index, value in enumerate(normalized) if value == "销售渠道"),
+                None,
+            )
+        else:
+            index = next(
+                (index for index, value in enumerate(normalized) if value in aliases),
+                None,
+            )
         if index is None and field in {"channel", "sales_date", "style_code", "product_code", "sales_quantity"}:
             raise ValueError(f"未找到历史销量列: {aliases[0]}")
         if index is not None:

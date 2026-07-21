@@ -1,4 +1,4 @@
-from api.routes.product_goods import _resolve_jst_product_code
+from api.routes.product_goods import _full_stock_size, _platform_name, _resolve_jst_product_code, _stock_health_label
 from domain.product_goods_historical_sales_schema import product_goods_historical_sales_table_for_year
 
 
@@ -25,6 +25,26 @@ def test_size_suffixed_sales_code_maps_to_base_goods_code():
 def test_jst_sales_code_uses_style_only_when_it_is_unique():
     assert _resolve_jst_product_code("unmatched", "STYLE-1", ["SKU-1"], {"STYLE-1": "SKU-1"}) == "SKU-1"
     assert _resolve_jst_product_code("unmatched", "STYLE-1", ["SKU-1", "SKU-2"], {}) is None
+
+
+def test_full_stock_size_only_maps_unambiguous_sizes():
+    assert _full_stock_size("220") == "34"
+    assert _full_stock_size("250.0") == "40"
+    assert _full_stock_size("44") == "44"
+    assert _full_stock_size("235-240") is None
+
+
+def test_stock_health_uses_source_sale_days_and_shortage():
+    assert _stock_health_label(None, 2) == "缺货"
+    assert _stock_health_label(5, 0) == "低库存"
+    assert _stock_health_label(30, 0) == "正常"
+    assert _stock_health_label(90, 0) == "积压风险"
+
+
+def test_shop_channel_mapping_takes_priority_over_keyword_matching():
+    mappings = {"千百度女鞋-视频号女鞋旗舰店": "直播赛道"}
+    assert _platform_name("千百度女鞋-视频号女鞋旗舰店", mappings) == "直播赛道"
+    assert _platform_name("千百度女鞋-天猫旗舰店", mappings) == "天猫"
 
 
 def test_historical_sales_source_rows_are_immutable():

@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import re
-from zipfile import BadZipFile
+from collections.abc import Iterator
+from decimal import Decimal, InvalidOperation
+from xml.etree import ElementTree as ET
+from zipfile import BadZipFile, ZipFile
 from datetime import date, datetime
 from pathlib import Path
 
@@ -13,6 +16,7 @@ from sqlalchemy import create_engine, func as sa_func, text
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from domain.vip_schema import VIP_DAILY_TABLE, VIP_DAILY_SNAPSHOT_TABLE, VIP_OPS_TABLE, VIP_OPS_SNAPSHOT_TABLE, JST_PRICE_TABLE, VIP_REALTIME_TABLE, JST_MONTHLY_ORDERS_TABLE, JST_SIZE_STOCK_TABLE, JST_STOCK_SUMMARY_TABLE, JST_PURCHASE_DIFF_TABLE, JST_PRODUCT_PROFILE_TABLE, JST_AFTERSALE_RETURN_TABLE
+from domain.jst_full_stock_schema import JST_FULL_STOCK_TABLE
 from domain.jst_stock_snapshot_schema import JST_SIZE_STOCK_SNAPSHOT_TABLE, JST_STOCK_SUMMARY_SNAPSHOT_TABLE
 from domain.vip_sources import (
     VIP_DAILY_COLUMN_ALIASES,
@@ -56,6 +60,129 @@ def _json_serializer(value: object) -> str:
     return orjson.dumps(value).decode("utf-8")
 
 
+JST_FULL_STOCK_HEADER_TO_COLUMN = {
+    "图片": "image_url",
+    "款式编码": "style_code",
+    "商品编码": "product_code",
+    "商品名称": "product_name",
+    "颜色及规格": "color_spec",
+    "颜色": "color",
+    "规格": "size",
+    "商品标签": "product_tag",
+    "实际库存数": "actual_stock_qty",
+    "订单占有数": "order_occupy_qty",
+    "可用数": "available_qty",
+    "库存可售天数": "stock_sale_days",
+    "采购特征": "purchase_feature",
+    "建议采购数": "suggested_purchase_qty",
+    "采购在途数": "purchase_in_transit_qty",
+    "安全库存下限": "safety_stock_min_qty",
+    "安全库存上限": "safety_stock_max_qty",
+    "安全库存天数下限(交货周期)": "safety_stock_delivery_days_min",
+    "安全库存天数上限": "safety_stock_days_max",
+    "仓库待发数": "warehouse_pending_qty",
+    "销退仓库存": "return_warehouse_stock_qty",
+    "进货仓库存": "purchase_warehouse_stock_qty",
+    "异常仓": "exception_warehouse_qty",
+    "下架仓": "off_shelf_warehouse_qty",
+    "磨损仓": "worn_warehouse_qty",
+    "直播仓": "live_warehouse_qty",
+    "下架盘点仓": "off_shelf_inventory_qty",
+    "处理仓": "processing_warehouse_qty",
+    "并地堆暂存位": "temporary_location_qty",
+    "调拨在途数": "transfer_in_transit_qty",
+    "销退在途数": "return_in_transit_qty",
+    "库存同步": "inventory_sync_status",
+    "主仓位": "main_warehouse_location",
+    "昨天销量": "yesterday_sales_qty",
+    "7天销量": "sales_7d_qty",
+    "15天销量": "sales_15d_qty",
+    "昨天退货量": "yesterday_return_qty",
+    "7天退货量": "return_7d_qty",
+    "15天退货量": "return_15d_qty",
+    "库存更新时间": "inventory_updated_at",
+    "分仓名称": "warehouse_name",
+}
+JST_FULL_STOCK_INTEGER_COLUMNS = {
+    column
+    for column in JST_FULL_STOCK_HEADER_TO_COLUMN.values()
+    if column.endswith("_qty")
+}
+XLSX_NAMESPACE = "{http://schemas.openxmlformats.org/spreadsheetml/2006/main}"
+
+
+def _xlsx_column_index(reference: str) -> int:
+    index = 0
+    for character in reference:
+        if not character.isalpha():
+            break
+        index = index * 26 + ord(character.upper()) - ord("A") + 1
+    return index - 1
+
+
+def _xlsx_shared_strings(archive: ZipFile) -> list[str]:
+    try:
+        source = archive.open("xl/sharedStrings.xml")
+    except KeyError:
+        return []
+    with source:
+        root = ET.parse(source).getroot()
+    return ["".join(item.itertext()) for item in root.findall(f"{XLSX_NAMESPACE}si")]
+
+
+def _xlsx_sheet_rows(file_path: Path) -> Iterator[tuple[int, dict[int, str]]]:
+    """Read XLSX rows without relying on the worksheet dimension metadata."""
+    row_tag = f"{XLSX_NAMESPACE}row"
+    cell_tag = f"{XLSX_NAMESPACE}c"
+    value_tag = f"{XLSX_NAMESPACE}v"
+    with ZipFile(file_path) as archive:
+        shared_strings = _xlsx_shared_strings(archive)
+        with archive.open("xl/worksheets/sheet1.xml") as source:
+            for _, row in ET.iterparse(source, events=("end",)):
+                if row.tag != row_tag:
+                    continue
+                values: dict[int, str] = {}
+                for cell in row:
+                    if cell.tag != cell_tag:
+                        continue
+                    reference = cell.attrib.get("r", "")
+                    column_index = _xlsx_column_index(reference)
+                    if column_index < 0:
+                        continue
+                    cell_type = cell.attrib.get("t")
+                    if cell_type == "inlineStr":
+                        value = "".join(cell.itertext())
+                    else:
+                        node = cell.find(value_tag)
+                        value = node.text if node is not None and node.text is not None else ""
+                        if cell_type == "s" and value.isdigit():
+                            shared_string_index = int(value)
+                            value = shared_strings[shared_string_index] if shared_string_index < len(shared_strings) else ""
+                    values[column_index] = value.strip()
+                yield int(row.attrib.get("r", "0") or 0), values
+                row.clear()
+
+
+def _integer_value(value: object) -> int | None:
+    text_value = str(value or "").strip()
+    if not text_value:
+        return None
+    try:
+        return int(Decimal(text_value))
+    except (InvalidOperation, ValueError):
+        return None
+
+
+def _decimal_value(value: object) -> Decimal | None:
+    text_value = str(value or "").strip()
+    if not text_value:
+        return None
+    try:
+        return Decimal(text_value)
+    except InvalidOperation:
+        return None
+
+
 class VipRepository:
     def __init__(self, database_url: str):
         self.engine = create_engine(
@@ -63,6 +190,74 @@ class VipRepository:
             future=True,
             json_serializer=_json_serializer,
         )
+
+    # ── jst_full_stock (聚水潭库存全量明细) ────────────────────────
+
+    def import_full_stock(self, file_path: Path) -> dict[str, object]:
+        if not file_path.exists():
+            return {"imported": 0, "message": f"文件不存在: {file_path}"}
+
+        row_iterator = _xlsx_sheet_rows(file_path)
+        try:
+            _, header_values = next(row_iterator)
+        except StopIteration:
+            return {"imported": 0, "message": "无表头"}
+
+        column_map = {
+            index: JST_FULL_STOCK_HEADER_TO_COLUMN[header]
+            for index, header in header_values.items()
+            if header in JST_FULL_STOCK_HEADER_TO_COLUMN
+        }
+        required_columns = {"product_code", "size", "purchase_in_transit_qty"}
+        missing_columns = sorted(required_columns - set(column_map.values()))
+        if missing_columns:
+            return {"imported": 0, "message": f"缺少必要列: {', '.join(missing_columns)}"}
+
+        from sqlalchemy import delete as sa_delete
+
+        product_code_column = next(index for index, name in column_map.items() if name == "product_code")
+        sync_date = date.today()
+        imported = 0
+        batch: list[dict[str, object]] = []
+
+        # The full source has over 200,000 rows. Keep the replacement transactional while writing batches.
+        with self.engine.begin() as connection:
+            JST_FULL_STOCK_TABLE.create(connection, checkfirst=True)
+            connection.execute(sa_delete(JST_FULL_STOCK_TABLE))
+            for row_number, values in row_iterator:
+                product_code = values.get(product_code_column, "").strip()
+                if not product_code:
+                    continue
+                record: dict[str, object] = {
+                    "sync_date": sync_date,
+                    "source_workbook": file_path.stem,
+                    "source_sheet": "Sheet1",
+                    "source_row_number": str(row_number),
+                }
+                for column_index, database_column in column_map.items():
+                    value = values.get(column_index, "")
+                    if database_column in JST_FULL_STOCK_INTEGER_COLUMNS:
+                        record[database_column] = _integer_value(value)
+                    elif database_column == "stock_sale_days":
+                        record[database_column] = _decimal_value(value)
+                    else:
+                        record[database_column] = value or None
+                batch.append(record)
+                if len(batch) == 1_000:
+                    self._batch_insert(JST_FULL_STOCK_TABLE, batch, chunk_size=1_000, conn=connection)
+                    imported += len(batch)
+                    batch.clear()
+            if batch:
+                self._batch_insert(JST_FULL_STOCK_TABLE, batch, chunk_size=1_000, conn=connection)
+                imported += len(batch)
+
+        if not imported:
+            raise ValueError("无数据行")
+
+        return {
+            "imported": imported,
+            "message": f"{file_path.name}: 全量更新 {imported} 条",
+        }
 
     # ── vip_product_daily (环比/罗盘) ──────────────────────────────
 

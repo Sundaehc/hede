@@ -55,6 +55,8 @@ PRODUCT_FIELDS: tuple[FieldSpec, ...] = (
     FieldSpec("toe_shape", "鞋头", aliases=("鞋头款式",)),
     FieldSpec("closure_type", "闭合方式"),
     FieldSpec("shoe_box_spec", "鞋盒规格"),
+    FieldSpec("shoe_box_type", "鞋盒类型"),
+    FieldSpec("selling_points", "卖点", aliases=("商品卖点",)),
     FieldSpec("first_order_time", "首单时间"),
     FieldSpec("size_range", "尺码段", aliases=("码段",)),
     FieldSpec("product_model", "产品型号"),
