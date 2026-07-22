@@ -19,6 +19,9 @@ DEFAULT_CBANNER_WOMENS_PRODUCT_DETAIL_SOURCE = Path(
 DEFAULT_EBLAN_PRODUCT_DETAIL_SOURCE = Path(
     r"\\Hede\运营组资料\9商品组（卢嘉诚）\商品分析\商品运营货品表\伊伴\2026\2026-06"
 )
+DEFAULT_EBLAN_PRODUCT_GOODS_ORDER_SOURCE = Path(
+    r"\\192.168.10.229\运营组资料\9商品组（卢嘉诚）\商品分析\商品运营货品表\伊伴\2026\2026-07"
+)
 DEFAULT_JST_PRODUCT_PROFILE_ROOT = Path(
     r"\\192.168.10.229\商品组-财务组资料\聚水潭商品资料表"
 )
@@ -54,6 +57,7 @@ class Settings:
     cbanner_mens_group_source: Path | None = DEFAULT_CBANNER_MENS_GROUP_SOURCE
     cbanner_womens_product_detail_source: Path | None = DEFAULT_CBANNER_WOMENS_PRODUCT_DETAIL_SOURCE
     eblan_product_detail_source: Path | None = DEFAULT_EBLAN_PRODUCT_DETAIL_SOURCE
+    eblan_product_goods_order_source: Path | None = DEFAULT_EBLAN_PRODUCT_GOODS_ORDER_SOURCE
 
     @property
     def image_roots(self) -> dict[str, Path]:
@@ -157,6 +161,12 @@ def load_settings(require_database: bool = True) -> Settings:
         if eblan_product_detail_source_raw
         else DEFAULT_EBLAN_PRODUCT_DETAIL_SOURCE
     )
+    eblan_product_goods_order_source_raw = os.getenv("EBLAN_PRODUCT_GOODS_ORDER_SOURCE")
+    eblan_product_goods_order_source = (
+        Path(eblan_product_goods_order_source_raw)
+        if eblan_product_goods_order_source_raw
+        else DEFAULT_EBLAN_PRODUCT_GOODS_ORDER_SOURCE
+    )
 
     return Settings(
         database_url=database_url,
@@ -177,4 +187,5 @@ def load_settings(require_database: bool = True) -> Settings:
         cbanner_mens_group_source=cbanner_mens_group_source,
         cbanner_womens_product_detail_source=cbanner_womens_product_detail_source,
         eblan_product_detail_source=eblan_product_detail_source,
+        eblan_product_goods_order_source=eblan_product_goods_order_source,
     )

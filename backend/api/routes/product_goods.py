@@ -16,6 +16,7 @@ from api.routes.images import image_url_for
 from domain.product_goods_schema import PRODUCT_GOODS_OVERRIDES_TABLE
 from domain.product_goods_shop_channel_schema import PRODUCT_GOODS_SHOP_CHANNEL_MAPPINGS_TABLE
 from domain.product_goods_historical_sales_schema import HISTORICAL_SALES_YEARS, product_goods_historical_sales_table_for_year
+from domain.product_goods_historical_orders_schema import HISTORICAL_ORDER_START_YEAR, product_goods_historical_orders_table_for_year
 from domain.product_goods_sales_period_schema import PRODUCT_GOODS_SALES_PERIODS_TABLE
 from domain.schema import PRODUCT_TABLES
 from domain.vip_schema import JST_SIZE_STOCK_TABLE, JST_STOCK_SUMMARY_TABLE
@@ -31,7 +32,7 @@ SIZE_COLUMNS = ["34", "35", "36", "37", "38", "39", "40", "41", "42", "43", "44"
 PLATFORM_COLUMNS = ["唯品", "天猫", "得物", "拼多多", "京东", "商品卡", "直播赛道", "达播清仓", "拼多多清仓", "其他"]
 SIZE_TO_STOCK_CODE = {str(size): str(50 + size * 5) for size in range(34, 45)}
 STOCK_CODE_TO_SIZE = {value: key for key, value in SIZE_TO_STOCK_CODE.items()}
-SALES_PERIOD_START_YEAR = 2022
+SALES_PERIOD_START_YEAR = 2024
 LOW_STOCK_SALE_DAYS = 7
 HIGH_STOCK_SALE_DAYS = 90
 
@@ -277,6 +278,10 @@ def _platform_name(channel: object, shop_channel_mappings: dict[str, str] | None
     return "其他"
 
 
+def _is_clearance_channel(channel: object, platform: str) -> bool:
+    return "清仓" in str(channel or "") or platform in {"达播清仓", "拼多多清仓"}
+
+
 def _resolve_jst_product_code(
     product_code: object,
     style_code: object,
@@ -289,6 +294,55 @@ def _resolve_jst_product_code(
             if normalized_product_code.startswith(candidate):
                 return candidate
     return unique_style_codes.get(str(style_code or "").strip())
+
+
+def _historical_order_targets(
+    original_sku: object,
+    product_codes: list[str],
+    style_code_matches: dict[str, list[str]],
+) -> list[str]:
+    value = str(original_sku or "").strip()
+    for product_code in sorted(product_codes, key=len, reverse=True):
+        if value.startswith(product_code):
+            return [product_code]
+    return style_code_matches.get(value, [])
+
+
+def _historical_order_counts(
+    connection,
+    product_sales_codes: dict[str, str],
+    *,
+    brand: str,
+) -> dict[str, int]:
+    if brand not in {"cbanner_mens", "cbanner_womens", "eblan"} or not product_sales_codes:
+        return {}
+    product_codes = sorted(product_sales_codes, key=len, reverse=True)
+    style_code_matches: dict[str, list[str]] = defaultdict(list)
+    for product_code, style_code in product_sales_codes.items():
+        if style_code:
+            style_code_matches[style_code].append(product_code)
+    inspector = inspect(connection)
+    counts: dict[str, int] = defaultdict(int)
+    for order_year in range(HISTORICAL_ORDER_START_YEAR, date.today().year + 1):
+        table = product_goods_historical_orders_table_for_year(order_year)
+        if not inspector.has_table(table.name):
+            continue
+        conditions = [table.c.original_sku.startswith(product_code) for product_code in product_codes]
+        if style_code_matches:
+            conditions.append(table.c.original_sku.in_(style_code_matches))
+        rows = connection.execute(
+            select(
+                table.c.original_sku,
+                func.sum(table.c.order_quantity).label("order_quantity"),
+            )
+            .where(table.c.brand == brand)
+            .where(or_(*conditions))
+            .group_by(table.c.original_sku)
+        ).mappings()
+        for row in rows:
+            for code in _historical_order_targets(row["original_sku"], product_codes, style_code_matches):
+                counts[code] += int(row["order_quantity"] or 0)
+    return dict(counts)
 
 
 def _sales_matrix_payload(
@@ -346,7 +400,11 @@ def _sales_matrix_payload(
         "return_qty": 0,
         "yesterday_sales": None,
         "previous_day_sales": None,
+        "normal_shelf_sales": 0,
+        "clearance_sales": 0,
         "week_sales": 0,
+        "normal_shelf_week_sales": 0,
+        "clearance_week_sales": 0,
         "last_week_sales": 0,
         "sales_2024": 0,
         "sales_2025": 0,
@@ -364,6 +422,7 @@ def _sales_matrix_payload(
         order_count: int = 0,
         return_quantity: int = 0,
         platform: str,
+        is_clearance: bool = False,
         size: str | None = None,
     ) -> None:
         summary = summary_by_sku[code]
@@ -380,10 +439,14 @@ def _sales_matrix_payload(
             summary["month_sales"] = int(summary["month_sales"] or 0) + quantity
         if day >= week_start:
             summary["week_sales"] = int(summary["week_sales"] or 0) + quantity
+            shelf_week_key = "clearance_week_sales" if is_clearance else "normal_shelf_week_sales"
+            summary[shelf_week_key] = int(summary[shelf_week_key] or 0) + quantity
         elif day >= previous_week_start:
             summary["last_week_sales"] = int(summary["last_week_sales"] or 0) + quantity
         if day == latest:
             summary["yesterday_sales"] = int(summary["yesterday_sales"] or 0) + quantity
+            shelf_day_key = "clearance_sales" if is_clearance else "normal_shelf_sales"
+            summary[shelf_day_key] = int(summary[shelf_day_key] or 0) + quantity
         if day == latest - timedelta(days=1):
             summary["previous_day_sales"] = int(summary["previous_day_sales"] or 0) + quantity
         if day >= dates[0]:
@@ -456,6 +519,7 @@ def _sales_matrix_payload(
                 order_count=int(row["order_count"] or 0),
                 return_quantity=int(row["return_quantity"] or 0),
                 platform=platform,
+                is_clearance=_is_clearance_channel(row["channel"], platform),
                 size=_size_from_color_spec(row["color_spec"]),
             )
     for sales_year in HISTORICAL_SALES_YEARS:
@@ -489,11 +553,13 @@ def _sales_matrix_payload(
             sales_date = row["sales_date"]
             if code is None or not isinstance(sales_date, date):
                 continue
+            platform = _platform_name(row["channel"], shop_channel_mappings)
             add_sale(
                 code,
                 sales_date,
                 int(row["quantity"] or 0),
-                platform=_platform_name(row["channel"], shop_channel_mappings),
+                platform=platform,
+                is_clearance=_is_clearance_channel(row["channel"], platform),
                 size=_size_from_color_spec(row["size"]),
             )
     return [item.isoformat() for item in dates], daily_by_sku, platform_by_sku, sales_by_size, dict(summary_by_sku)
@@ -654,6 +720,7 @@ def list_product_goods(
             brand=brand,
             as_of_date=snapshot_date,
         )
+        historical_order_counts = _historical_order_counts(connection, product_sales_codes, brand=brand)
         annual_sales_columns, monthly_sales_columns, annual_sales, monthly_sales = _sales_period_payload(
             connection,
             repository.engine,
@@ -689,23 +756,24 @@ def list_product_goods(
         extra_fields = row.get("extra_fields") if isinstance(row.get("extra_fields"), dict) else {}
         replenishment_by_size = _manual_size_quantities(extra_fields.get("replenishment_by_size"))
         post_replenishment_by_size = _manual_size_quantities(extra_fields.get("post_replenishment_by_size"))
-        yesterday_sales = sales.get("yesterday_sales")
-        previous_day_sales = sales.get("previous_day_sales")
+        yesterday_sales = int(sales.get("yesterday_sales") or 0)
+        previous_day_sales = int(sales.get("previous_day_sales") or 0)
+        total_order_count = historical_order_counts.get(sku, sales.get("total_order_count"))
         metrics = {
-            "total_order_count": sales.get("total_order_count"),
+            "total_order_count": total_order_count,
             "total_sales": sales.get("total_sales"),
             "stock_plus_purchase": stock_total,
             "in_transit_total": in_transit_total,
             "return_qty": sales.get("return_qty"),
             "post_replenishment_stock": _manual_number(extra_fields.get("post_replenishment_stock")),
             "post_replenishment_turnover_days": _manual_number(extra_fields.get("post_replenishment_turnover_days")),
-            "day_over_day": (int(yesterday_sales) - int(previous_day_sales)) if yesterday_sales is not None and previous_day_sales is not None else None,
+            "day_over_day": yesterday_sales - previous_day_sales,
             "yesterday_sales": yesterday_sales,
-            "normal_shelf_sales": None,
-            "clearance_sales": None,
-            "week_sales": sales.get("week_sales"),
-            "normal_shelf_week_sales": None,
-            "clearance_week_sales": None,
+            "normal_shelf_sales": sales.get("normal_shelf_sales", 0),
+            "clearance_sales": sales.get("clearance_sales", 0),
+            "week_sales": sales.get("week_sales", 0),
+            "normal_shelf_week_sales": sales.get("normal_shelf_week_sales", 0),
+            "clearance_week_sales": sales.get("clearance_week_sales", 0),
             "last_week_sales": sales.get("last_week_sales"),
             "same_week_sales": None,
             "same_week_non_douyin_sales": None,

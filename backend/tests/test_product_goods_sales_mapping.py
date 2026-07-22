@@ -1,4 +1,4 @@
-from api.routes.product_goods import _full_stock_size, _platform_name, _resolve_jst_product_code, _stock_health_label
+from api.routes.product_goods import _full_stock_size, _historical_order_targets, _is_clearance_channel, _platform_name, _resolve_jst_product_code, _stock_health_label
 from domain.product_goods_historical_sales_schema import product_goods_historical_sales_table_for_year
 
 
@@ -45,6 +45,28 @@ def test_shop_channel_mapping_takes_priority_over_keyword_matching():
     mappings = {"千百度女鞋-视频号女鞋旗舰店": "直播赛道"}
     assert _platform_name("千百度女鞋-视频号女鞋旗舰店", mappings) == "直播赛道"
     assert _platform_name("千百度女鞋-天猫旗舰店", mappings) == "天猫"
+
+
+def test_clearance_channel_uses_the_raw_channel_name_and_clearance_platforms():
+    assert _is_clearance_channel("千百度女鞋-天猫清仓店", "天猫") is True
+    assert _is_clearance_channel("常规店铺", "拼多多清仓") is True
+    assert _is_clearance_channel("千百度女鞋-天猫旗舰店", "天猫") is False
+
+
+def test_historical_order_for_an_original_sku_applies_to_all_its_color_goods():
+    assert _historical_order_targets(
+        "STYLE-1",
+        ["STYLE-1A", "STYLE-1B"],
+        {"STYLE-1": ["STYLE-1A", "STYLE-1B"]},
+    ) == ["STYLE-1A", "STYLE-1B"]
+
+
+def test_historical_order_with_a_full_goods_code_prefers_that_goods_code():
+    assert _historical_order_targets(
+        "STYLE-1A230",
+        ["STYLE-1A", "STYLE-1B"],
+        {"STYLE-1": ["STYLE-1A", "STYLE-1B"]},
+    ) == ["STYLE-1A"]
 
 
 def test_historical_sales_source_rows_are_immutable():
