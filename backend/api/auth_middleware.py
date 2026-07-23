@@ -65,8 +65,8 @@ async def auth_middleware(request: Request, call_next):
     if path.startswith("/product-goods"):
         role_code = str(user.get("role_code") or "").strip()
         department_code = str(user.get("department_code") or "").strip()
-        if role_code != "super_admin" and department_code != "商品部":
-            return JSONResponse({"detail": "商品货品表仅限商品部和超级管理员访问"}, status_code=403)
+        if role_code != "super_admin" and department_code not in {"商品部", "开发部"}:
+            return JSONResponse({"detail": "商品货品表仅限商品部、开发部和超级管理员访问"}, status_code=403)
         request.state.current_user = user
         return await call_next(request)
 

@@ -114,7 +114,7 @@ function FineTableHeaderFilterButton({
     <button
       type="button"
       className={cn(
-        "shrink-0 rounded p-0.5 transition-colors hover:bg-muted",
+        "shrink-0 cursor-pointer rounded p-0.5 transition-colors hover:bg-muted",
         active ? "text-primary" : "text-muted-foreground/80",
       )}
       onClick={(event) => onOpen(field, label, event.currentTarget)}
@@ -1224,7 +1224,6 @@ const FineTableGrid = memo(function FineTableGrid({
             />
           )}
         </div>
-        <span className="mt-0.5 block text-[10px] font-normal text-muted-foreground">{column.group}</span>
       </th>,
     )
   }
