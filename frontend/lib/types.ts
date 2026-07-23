@@ -307,6 +307,9 @@ export type ProductGoodsItem = {
   stock_total: number
   in_transit_total: number
   inventory_total: number
+  recent_14_day_sales: number | null
+  recent_30_day_sales: number | null
+  recent_30_day_sales_by_size: Record<string, number>
   daily_sales_by_date: Record<string, number>
   annual_sales: Record<string, number>
   monthly_sales: Record<string, number>

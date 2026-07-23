@@ -9,15 +9,17 @@ from datetime import date, timedelta
 import json
 import re
 
-from sqlalchemy import Text, and_, cast, desc, false, func, inspect, or_, select
+from sqlalchemy import Text, and_, case, cast, desc, false, func, inspect, or_, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from api.product_goods_cache import (
     clear_product_goods_cache,
     get_product_goods_cache,
     get_product_goods_filter_options_cache,
+    get_product_goods_risk_codes_cache,
     set_product_goods_cache,
     set_product_goods_filter_options_cache,
+    set_product_goods_risk_codes_cache,
 )
 from api.routes.images import image_url_for
 from domain.product_goods_schema import PRODUCT_GOODS_OVERRIDES_TABLE
@@ -58,6 +60,7 @@ class ProductGoodsUpdateRequest(BaseModel):
     douyin_hot: str | None = None
     clearance: str | None = None
     remark: str | None = None
+    expected_replenishment_stock: int | None = None
     replenishment_by_size: dict[str, int] | None = None
     replenishment_total: int | None = None
     post_replenishment_by_size: dict[str, int] | None = None
@@ -76,6 +79,7 @@ PRODUCT_GOODS_STANDARD_OVERRIDE_FIELDS = {
     "remark",
 }
 PRODUCT_GOODS_REPLENISHMENT_FIELDS = {
+    "expected_replenishment_stock",
     "replenishment_by_size",
     "replenishment_total",
     "post_replenishment_by_size",
@@ -195,11 +199,28 @@ def _product_goods_filter_columns(product_table, override):
         "color": product_table.c.color,
         "cost": product_table.c.cost,
         "product_role": override.c.product_role,
-        "product_type": override.c.product_type,
+        "product_type": _product_type_column(product_table, override),
         "douyin_hot": override.c.douyin_hot,
         "clearance": override.c.clearance,
         "remark": override.c.remark,
     }
+
+
+def _product_type_column(product_table, override):
+    return func.coalesce(
+        func.nullif(func.trim(override.c.product_type), ""),
+        case(
+            (func.upper(func.trim(product_table.c.sku)).like("KT%"), "洞洞鞋"),
+            else_=None,
+        ),
+    )
+
+
+def _product_type_value(value: object, goods_code: object) -> str | None:
+    product_type = str(value or "").strip()
+    if product_type:
+        return product_type
+    return "洞洞鞋" if str(goods_code or "").strip().upper().startswith("KT") else None
 
 
 def _product_goods_conditions(
@@ -232,6 +253,45 @@ def _product_goods_conditions(
         )
     conditions.extend(or_(*field_conditions) for field_conditions in grouped_filters.values())
     return conditions
+
+
+def _shortage_risk_product_codes(connection, product_table, *, brand: str) -> set[str]:
+    cached_codes = get_product_goods_risk_codes_cache(brand)
+    if cached_codes is not None:
+        return set(cached_codes)
+    if not inspect(connection).has_table(JST_FULL_STOCK_TABLE.name):
+        return set()
+    product_codes = {
+        str(product_code).strip()
+        for product_code in connection.execute(select(product_table.c.sku)).scalars()
+        if str(product_code or "").strip()
+    }
+    if not product_codes:
+        return set()
+    code_lengths = sorted({len(product_code) for product_code in product_codes}, reverse=True)
+    risk_source_codes = connection.execute(
+        select(JST_FULL_STOCK_TABLE.c.product_code)
+        .distinct()
+        .where(
+            or_(
+                JST_FULL_STOCK_TABLE.c.available_qty < 0,
+                and_(
+                    JST_FULL_STOCK_TABLE.c.stock_sale_days.is_not(None),
+                    JST_FULL_STOCK_TABLE.c.stock_sale_days <= LOW_STOCK_SALE_DAYS,
+                ),
+            )
+        )
+    ).scalars()
+    matched_codes: set[str] = set()
+    for source_code in risk_source_codes:
+        normalized_source_code = str(source_code or "").strip()
+        for length in code_lengths:
+            candidate = normalized_source_code[:length]
+            if candidate in product_codes:
+                matched_codes.add(candidate)
+                break
+    set_product_goods_risk_codes_cache(brand, matched_codes)
+    return matched_codes
 
 
 def _style_summary_expression(product_table):
@@ -570,6 +630,65 @@ def _manual_number(value: object) -> int | float | None:
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         return None
     return value if value >= 0 else None
+
+
+def _allocate_replenishment_by_sales(
+    expected_replenishment_stock: int | float | None,
+    post_replenishment_total: int,
+    inventory_by_size: dict[str, int],
+    sales_by_size: dict[str, int],
+) -> dict[str, int]:
+    if expected_replenishment_stock is None:
+        return {}
+    weights = [
+        (size, int(quantity))
+        for size, quantity in sales_by_size.items()
+        if size in SIZE_COLUMNS and int(quantity) > 0
+    ]
+    total_sales = sum(quantity for _, quantity in weights)
+    if total_sales == 0:
+        return {}
+
+    target_by_size: dict[str, int] = {}
+    remainders: list[tuple[int, int, str]] = []
+    targeted = 0
+    for size, quantity in weights:
+        target_quantity, remainder = divmod(
+            post_replenishment_total * quantity,
+            total_sales,
+        )
+        target_by_size[size] = target_quantity
+        targeted += target_quantity
+        remainders.append((remainder, -int(size), size))
+    for _, _, size in sorted(remainders, reverse=True)[: post_replenishment_total - targeted]:
+        target_by_size[size] += 1
+    return {
+        size: target_by_size.get(size, 0) - int(inventory_by_size.get(size, 0))
+        for size in sorted(set(inventory_by_size) | set(target_by_size), key=int)
+    }
+
+
+def _post_replenishment_inventory_by_size(
+    inventory_by_size: dict[str, int],
+    replenishment_by_size: dict[str, int],
+) -> dict[str, int]:
+    return {
+        size: int(inventory_by_size.get(size, 0))
+        + int(replenishment_by_size.get(size, 0))
+        for size in sorted(
+            set(inventory_by_size) | set(replenishment_by_size),
+            key=lambda size: int(size),
+        )
+    }
+
+
+def _post_replenishment_turnover_days(
+    post_replenishment_total: int | None,
+    recent_14_day_sales: int | None,
+) -> float | None:
+    if post_replenishment_total is None or recent_14_day_sales is None or recent_14_day_sales <= 0:
+        return None
+    return round(post_replenishment_total * 14 / recent_14_day_sales, 1)
 
 
 def _snapshot_value(values: dict[str, object], key: str, fallback: object) -> object:
@@ -915,6 +1034,164 @@ def _sales_matrix_payload(
     return [item.isoformat() for item in dates], daily_by_sku, platform_by_sku, sales_by_size, dict(summary_by_sku)
 
 
+def _recent_sales_payload(
+    connection,
+    engine,
+    product_sales_codes: dict[str, str],
+    *,
+    brand: str,
+    as_of_date: date | None = None,
+) -> tuple[
+    dict[str, dict[str, int]],
+    dict[str, dict[str, int]],
+    dict[str, int],
+    dict[str, int],
+]:
+    if not product_sales_codes:
+        return {}, {}, {}, {}
+    product_codes = sorted(product_sales_codes, key=len, reverse=True)
+    style_code_matches: dict[str, list[str]] = defaultdict(list)
+    for product_code, style_code in product_sales_codes.items():
+        if style_code:
+            style_code_matches[style_code].append(product_code)
+    unique_style_codes = {
+        style_code: matches[0]
+        for style_code, matches in style_code_matches.items()
+        if len(matches) == 1
+    }
+    inspector = inspect(engine)
+    jst_tables = []
+    vip_tables = []
+    current_year = date.today().year
+    jst_table = jst_daily_sales_table_for_year(current_year)
+    vip_table = vip_daily_sales_table_for_year(current_year)
+    if inspector.has_table(jst_table.name):
+        jst_tables.append(jst_table)
+    if inspector.has_table(vip_table.name):
+        vip_tables.append(vip_table)
+    tables = [*jst_tables, *vip_tables]
+    if not tables:
+        return {}, {}, {}, {}
+    latest_candidates = [
+        connection.execute(
+            select(func.max(table.c.sales_date)).where(table.c.sales_date <= as_of_date)
+            if as_of_date is not None
+            else select(func.max(table.c.sales_date))
+        ).scalar()
+        for table in tables
+    ]
+    latest = as_of_date or max(
+        (item for item in latest_candidates if isinstance(item, date)),
+        default=None,
+    )
+    if not isinstance(latest, date):
+        return {}, {}, {}, {}
+    start_30_date = latest - timedelta(days=29)
+    start_14_date = latest - timedelta(days=13)
+    recent_14_day_sales_by_size: dict[str, dict[str, int]] = {}
+    recent_30_day_sales_by_size: dict[str, dict[str, int]] = {}
+    recent_14_day_sales: dict[str, int] = {}
+    recent_30_day_sales: dict[str, int] = {}
+    vip_product_dates: set[tuple[str, date]] = set()
+
+    def add_sale(code: str, sales_date: date, quantity: int, size: str | None) -> None:
+        recent_30_day_sales[code] = recent_30_day_sales.get(code, 0) + quantity
+        if size is not None:
+            values = recent_30_day_sales_by_size.setdefault(code, {})
+            values[size] = values.get(size, 0) + quantity
+        if sales_date < start_14_date:
+            return
+        recent_14_day_sales[code] = recent_14_day_sales.get(code, 0) + quantity
+        if size is not None:
+            values = recent_14_day_sales_by_size.setdefault(code, {})
+            values[size] = values.get(size, 0) + quantity
+
+    for table in vip_tables:
+        code_conditions = [table.c.goods_code.startswith(product_code) for product_code in product_codes]
+        if unique_style_codes:
+            code_conditions.append(table.c.style_code.in_(unique_style_codes))
+        rows = connection.execute(
+            select(
+                table.c.goods_code,
+                table.c.style_code,
+                table.c.sales_date,
+                table.c.size_name,
+                table.c.size_id,
+                func.sum(func.coalesce(table.c.sales_quantity, 0)).label("quantity"),
+            )
+            .where(or_(*code_conditions))
+            .where(table.c.sales_date.between(start_30_date, latest))
+            .group_by(
+                table.c.goods_code,
+                table.c.style_code,
+                table.c.sales_date,
+                table.c.size_name,
+                table.c.size_id,
+            )
+        ).mappings()
+        for row in rows:
+            code = _resolve_jst_product_code(
+                row["goods_code"],
+                row["style_code"],
+                product_codes,
+                unique_style_codes,
+            )
+            sales_date = row["sales_date"]
+            size = _size_from_color_spec(row["size_name"]) or _size_from_color_spec(row["size_id"])
+            if code is None or not isinstance(sales_date, date):
+                continue
+            vip_product_dates.add((code, sales_date))
+            add_sale(code, sales_date, int(row["quantity"] or 0), size)
+
+    shop_channel_mappings = _shop_channel_mapping_payload(connection, brand)
+    for table in jst_tables:
+        code_conditions = [table.c.product_code.startswith(product_code) for product_code in product_codes]
+        if unique_style_codes:
+            code_conditions.append(table.c.style_code.in_(unique_style_codes))
+        rows = connection.execute(
+            select(
+                table.c.product_code,
+                table.c.style_code,
+                table.c.sales_date,
+                table.c.channel,
+                table.c.color_spec,
+                func.sum(func.coalesce(table.c.net_sales_quantity, 0)).label("quantity"),
+            )
+            .where(or_(*code_conditions))
+            .where(table.c.sales_date.between(start_30_date, latest))
+            .group_by(
+                table.c.product_code,
+                table.c.style_code,
+                table.c.sales_date,
+                table.c.channel,
+                table.c.color_spec,
+            )
+        ).mappings()
+        for row in rows:
+            code = _resolve_jst_product_code(
+                row["product_code"],
+                row["style_code"],
+                product_codes,
+                unique_style_codes,
+            )
+            sales_date = row["sales_date"]
+            size = _size_from_color_spec(row["color_spec"])
+            if code is None or not isinstance(sales_date, date):
+                continue
+            if (
+                _platform_name(row["channel"], shop_channel_mappings) == "唯品"
+                and (code, sales_date) in vip_product_dates
+            ):
+                continue
+            add_sale(code, sales_date, int(row["quantity"] or 0), size)
+    return (
+        recent_14_day_sales_by_size,
+        recent_30_day_sales_by_size,
+        recent_14_day_sales,
+        recent_30_day_sales,
+    )
+
+
 def _sales_period_payload(
     connection,
     engine,
@@ -1028,6 +1305,7 @@ def list_product_goods_filter_options(
         return cached
     product_table = PRODUCT_TABLES[brand]
     override = PRODUCT_GOODS_OVERRIDES_TABLE
+    repository = request.app.state.repository
     conditions = _product_goods_conditions(
         product_table,
         override,
@@ -1072,7 +1350,7 @@ def list_product_goods_filter_options(
 def list_product_goods(
     request: Request,
     brand: str = Query(DEFAULT_BRAND),
-    view: Literal["goods", "style_summary"] = Query("goods"),
+    view: Literal["goods", "style_summary", "shortage_risk"] = Query("goods"),
     query: str | None = None,
     platform: str | None = None,
     year: str | None = None,
@@ -1092,7 +1370,7 @@ def list_product_goods(
     normalized_snapshot_date = snapshot_date.isoformat() if snapshot_date else ""
     parsed_filters = _parse_product_goods_filters(filters)
     normalized_filters = tuple(sorted((item.field, item.operator, item.value or "", tuple(sorted(item.values or []))) for item in parsed_filters))
-    cache_key = (brand, view, "style-summary-v2" if view == "style_summary" else "", normalized_query, normalized_platform, normalized_year, normalized_filters, normalized_snapshot_date, page, page_size)
+    cache_key = (brand, view, "style-summary-v2" if view == "style_summary" else "shortage-risk-v1" if view == "shortage_risk" else "", normalized_query, normalized_platform, normalized_year, normalized_filters, normalized_snapshot_date, page, page_size)
     if not cache_bust:
         cached = get_product_goods_cache(cache_key)
         if cached is not None:
@@ -1107,6 +1385,18 @@ def list_product_goods(
         year=normalized_year,
         filters=parsed_filters,
     )
+    if view == "shortage_risk":
+        with repository.engine.connect() as connection:
+            risk_product_codes = _shortage_risk_product_codes(
+                connection,
+                product_table,
+                brand=brand,
+            )
+        conditions.append(
+            product_table.c.sku.in_(risk_product_codes)
+            if risk_product_codes
+            else false()
+        )
     join = product_table.outerjoin(override, (override.c.brand == brand) & (override.c.product_id == product_table.c.id))
     style_codes: list[str] = []
     if view == "style_summary":
@@ -1137,7 +1427,6 @@ def list_product_goods(
         statement = statement.order_by(product_table.c.year.desc().nulls_last(), product_table.c.sku).offset((page - 1) * page_size).limit(page_size)
 
     settings = request.app.state.settings
-    repository = request.app.state.repository
     with repository.engine.connect() as connection:
         stock_snapshot_dates = [
             item
@@ -1188,21 +1477,55 @@ def list_product_goods(
             brand=brand,
             snapshot_date=snapshot_date,
         )
-        daily_dates, daily_sales, platform_sales, sales_by_size, sales_summary = _sales_matrix_payload(
-            connection,
-            repository.engine,
-            product_sales_codes,
-            brand=brand,
-            as_of_date=snapshot_date,
-        )
-        historical_order_counts = _historical_order_counts(connection, product_sales_codes, brand=brand)
-        annual_sales_columns, monthly_sales_columns, annual_sales, monthly_sales = _sales_period_payload(
-            connection,
-            repository.engine,
-            product_sales_codes,
-            brand=brand,
-            as_of_date=snapshot_date,
-        )
+        if view == "shortage_risk":
+            daily_dates = []
+            daily_sales = {}
+            platform_sales = {}
+            (
+                sales_by_size,
+                recent_30_day_sales_by_size,
+                recent_14_day_sales,
+                recent_30_day_sales,
+            ) = _recent_sales_payload(
+                connection,
+                repository.engine,
+                product_sales_codes,
+                brand=brand,
+                as_of_date=snapshot_date,
+            )
+            sales_summary = {}
+            historical_order_counts = {}
+            (
+                annual_sales_columns,
+                monthly_sales_columns,
+                annual_sales,
+                monthly_sales,
+            ) = _sales_period_payload(
+                connection,
+                repository.engine,
+                product_sales_codes,
+                brand=brand,
+                as_of_date=snapshot_date,
+            )
+        else:
+            daily_dates, daily_sales, platform_sales, sales_by_size, sales_summary = _sales_matrix_payload(
+                connection,
+                repository.engine,
+                product_sales_codes,
+                brand=brand,
+                as_of_date=snapshot_date,
+            )
+            historical_order_counts = _historical_order_counts(connection, product_sales_codes, brand=brand)
+            annual_sales_columns, monthly_sales_columns, annual_sales, monthly_sales = _sales_period_payload(
+                connection,
+                repository.engine,
+                product_sales_codes,
+                brand=brand,
+                as_of_date=snapshot_date,
+            )
+            recent_30_day_sales_by_size = {}
+            recent_14_day_sales = {}
+            recent_30_day_sales = {}
         supplier_names = sorted({str(row.get("supplier_name") or "").strip() for row in rows if str(row.get("supplier_name") or "").strip()})
         supplier_codes = {
             str(row["name"]): row["factory_code"]
@@ -1254,8 +1577,50 @@ def list_product_goods(
         inventory_total = int(_snapshot_value(snapshot_metrics, "inventory_total", stock_total + in_transit_total) or 0)
         sales = sales_summary.get(sku, {})
         extra_fields = row.get("extra_fields") if isinstance(row.get("extra_fields"), dict) else {}
-        replenishment_by_size = dict(detail_snapshot.get("replenishment_by_size") or _manual_size_quantities(extra_fields.get("replenishment_by_size")))
-        post_replenishment_by_size = dict(detail_snapshot.get("post_replenishment_by_size") or _manual_size_quantities(extra_fields.get("post_replenishment_by_size")))
+        sales_by_size_values = dict(detail_snapshot.get("sales_by_size") or sales_by_size.get(sku, {}))
+        recent_14_day_sales_value = int(
+            recent_14_day_sales.get(sku, sum(sales_by_size_values.values()))
+        )
+        recent_30_day_sales_value = int(recent_30_day_sales.get(sku, 0))
+        recent_30_day_sales_by_size_values = dict(
+            recent_30_day_sales_by_size.get(sku, {})
+        )
+        replenishment_sales_by_size = (
+            recent_30_day_sales_by_size_values
+            if view == "shortage_risk"
+            else sales_by_size_values
+        )
+        expected_replenishment_stock = _manual_number(
+            _snapshot_value(
+                snapshot_metrics,
+                "expected_replenishment_stock",
+                extra_fields.get("expected_replenishment_stock"),
+            )
+        )
+        if expected_replenishment_stock is None:
+            replenishment_by_size = dict(detail_snapshot.get("replenishment_by_size") or _manual_size_quantities(extra_fields.get("replenishment_by_size")))
+            post_replenishment_by_size = dict(detail_snapshot.get("post_replenishment_by_size") or _manual_size_quantities(extra_fields.get("post_replenishment_by_size")))
+            post_replenishment_stock = _manual_number(extra_fields.get("post_replenishment_stock"))
+            post_replenishment_total = _manual_number(extra_fields.get("post_replenishment_total"))
+            post_replenishment_turnover_days = _manual_number(extra_fields.get("post_replenishment_turnover_days"))
+        else:
+            expected_replenishment_stock = int(expected_replenishment_stock)
+            post_replenishment_stock = stock_total + expected_replenishment_stock
+            post_replenishment_total = inventory_total + expected_replenishment_stock
+            replenishment_by_size = _allocate_replenishment_by_sales(
+                expected_replenishment_stock,
+                post_replenishment_total,
+                inventory_by_size,
+                replenishment_sales_by_size,
+            )
+            post_replenishment_by_size = _post_replenishment_inventory_by_size(
+                inventory_by_size,
+                replenishment_by_size,
+            )
+            post_replenishment_turnover_days = _post_replenishment_turnover_days(
+                post_replenishment_total,
+                recent_14_day_sales_value,
+            )
         yesterday_sales = int(sales.get("yesterday_sales") or 0)
         previous_day_sales = int(sales.get("previous_day_sales") or 0)
         total_order_count = historical_order_counts.get(sku, sales.get("total_order_count"))
@@ -1265,8 +1630,9 @@ def list_product_goods(
             "stock_plus_purchase": stock_total,
             "in_transit_total": in_transit_total,
             "return_qty": sales.get("return_qty"),
-            "post_replenishment_stock": _manual_number(extra_fields.get("post_replenishment_stock")),
-            "post_replenishment_turnover_days": _manual_number(extra_fields.get("post_replenishment_turnover_days")),
+            "expected_replenishment_stock": expected_replenishment_stock,
+            "post_replenishment_stock": post_replenishment_stock,
+            "post_replenishment_turnover_days": post_replenishment_turnover_days,
             "day_over_day": yesterday_sales - previous_day_sales,
             "yesterday_sales": yesterday_sales,
             "normal_shelf_sales": sales.get("normal_shelf_sales", 0),
@@ -1280,9 +1646,11 @@ def list_product_goods(
             "shortage_total": shortage_total,
             "stock_health": _stock_health_label(full_stock["stock_sale_days"], shortage_total) if full_stock else None,
             "broken_size_sku": None,
-            "sales_size_total": sum(sales_by_size.get(sku, {}).values()) if sales_by_size.get(sku) else None,
-            "replenishment_total": _manual_number(extra_fields.get("replenishment_total")),
-            "post_replenishment_total": _manual_number(extra_fields.get("post_replenishment_total")),
+            "sales_size_total": recent_14_day_sales_value if view == "shortage_risk" else sum(sales_by_size_values.values()) if sales_by_size_values else None,
+            "recent_14_day_sales": recent_14_day_sales_value if view == "shortage_risk" else None,
+            "recent_30_day_sales": recent_30_day_sales_value if view == "shortage_risk" else None,
+            "replenishment_total": expected_replenishment_stock if expected_replenishment_stock is not None else _manual_number(extra_fields.get("replenishment_total")),
+            "post_replenishment_total": post_replenishment_total,
             "three_day_change": None,
             "sales_2024": sales.get("sales_2024"),
             "sales_2025": sales.get("sales_2025"),
@@ -1297,11 +1665,14 @@ def list_product_goods(
             "factory_code": detail_snapshot.get("factory_code") or supplier_codes.get(str(row.get("supplier_name") or "").strip()), "factory_name": detail_snapshot.get("factory_name") or row.get("supplier_name"), "style_code": detail_snapshot.get("style_code") or row.get("original_sku"), "goods_code": row.get("sku"),
             "color": detail_snapshot.get("color") or row.get("color"), "image_url": image_url_for(brand, row.get("image_path"), settings),
             "cost": detail_snapshot.get("cost") or (str(row["cost"]) if row.get("cost") is not None else None),
-            "product_role": detail_snapshot.get("product_role") or row.get("product_role"), "product_type": detail_snapshot.get("product_type") or row.get("product_type"),
+            "product_role": detail_snapshot.get("product_role") or row.get("product_role"), "product_type": _product_type_value(detail_snapshot.get("product_type") or row.get("product_type"), row.get("sku")),
             "douyin_hot": detail_snapshot.get("douyin_hot") or row.get("douyin_hot"), "clearance": detail_snapshot.get("clearance") or row.get("clearance"), "remark": detail_snapshot.get("remark") or row.get("remark"),
             "stock_by_size": stock_by_size, "stock_total": stock_total,
             "in_transit_total": in_transit_total,
             "inventory_total": inventory_total,
+            "recent_14_day_sales": recent_14_day_sales_value if view == "shortage_risk" else None,
+            "recent_30_day_sales": recent_30_day_sales_value if view == "shortage_risk" else None,
+            "recent_30_day_sales_by_size": recent_30_day_sales_by_size_values if view == "shortage_risk" else {},
             "daily_sales_by_date": detail_snapshot.get("daily_sales_by_date") or daily_sales.get(sku, {}),
             "annual_sales": detail_snapshot.get("annual_sales") or annual_sales.get(sku, {}),
             "monthly_sales": detail_snapshot.get("monthly_sales") or monthly_sales.get(sku, {}),
@@ -1310,7 +1681,7 @@ def list_product_goods(
             "weekly_platform_sales": detail_snapshot.get("weekly_platform_sales") or platform_sales.get(sku, {}).get("weekly", {}),
             "monthly_platform_sales": detail_snapshot.get("monthly_platform_sales") or platform_sales.get(sku, {}).get("monthly", {}),
             "in_transit_by_size": in_transit_by_size, "inventory_by_size": inventory_by_size, "shortage_by_size": shortage_by_size,
-            "sales_by_size": sales_by_size.get(sku, {}), "replenishment_by_size": replenishment_by_size, "post_replenishment_by_size": post_replenishment_by_size,
+            "sales_by_size": sales_by_size_values, "replenishment_by_size": replenishment_by_size, "post_replenishment_by_size": post_replenishment_by_size,
             "metrics": metrics,
         })
     if view == "style_summary":

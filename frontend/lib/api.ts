@@ -293,7 +293,7 @@ export type ProductGoodsFilterOptionsResponse = {
 
 export function listProductGoods(params: {
   brand?: BrandKey
-  view?: "goods" | "style_summary"
+  view?: "goods" | "style_summary" | "shortage_risk"
   query?: string
   platform?: string
   filters?: ProductGoodsFilter[]

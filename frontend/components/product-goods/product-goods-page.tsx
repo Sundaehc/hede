@@ -12,7 +12,10 @@ import {
   type ReactNode,
 } from "react"
 import {
+  ArrowDown,
+  ArrowDownUp,
   ArrowRight,
+  ArrowUp,
   CalendarDays,
   Check,
   ChevronLeft,
@@ -90,6 +93,7 @@ const DEFAULT_COLUMN_KEYS = [
   "total_sales",
   "stock_plus_purchase",
   "in_transit_total",
+  "expected_replenishment_stock",
   "return_qty",
   "post_replenishment_stock",
   "post_replenishment_turnover_days",
@@ -166,7 +170,8 @@ type ActiveColumnFilter = {
   top: number
   left: number
 }
-type ProductGoodsView = "goods" | "style_summary"
+type ProductGoodsView = "goods" | "style_summary" | "shortage_risk"
+type ProductGoodsSort = Array<{ key: string; direction: "asc" | "desc" }>
 type ProductGoodsPageContext = {
   brand: Exclude<BrandKey, "all">
   filters: ProductGoodsFilter[]
@@ -187,6 +192,11 @@ const productGoodsPageRequests = new Map<
   Promise<ProductGoodsResponse>
 >()
 const productGoodsColumnsCache = new Map<string, TableColumn[]>()
+const productGoodsSizeColumnsCache = new Map<string, string[]>()
+const productGoodsSortCollator = new Intl.Collator("zh-CN", {
+  numeric: true,
+  sensitivity: "base",
+})
 
 function value(value: unknown) {
   return value === null || value === undefined || value === ""
@@ -256,6 +266,222 @@ function manualTag(tag: unknown) {
   return tag === true ? "是" : tag === false ? "" : value(tag)
 }
 
+function sortValue(value: unknown): number | string | null {
+  if (typeof value === "number" && Number.isFinite(value)) return value
+  if (typeof value !== "string") return null
+  const normalized = value.trim()
+  if (!normalized) return null
+  const numericValue = Number(normalized)
+  return Number.isFinite(numericValue) ? numericValue : normalized
+}
+
+function productGoodsSortValue(
+  item: ProductGoodsItem,
+  key: string,
+  columns: TableColumn[]
+) {
+  if (key.startsWith("risk-sales:"))
+    return item.sales_by_size[key.slice("risk-sales:".length)]
+  if (key.startsWith("risk-inventory:"))
+    return item.inventory_by_size[key.slice("risk-inventory:".length)]
+  if (key.startsWith("risk-30-share:")) {
+    const total = item.recent_30_day_sales ?? 0
+    const quantity = item.recent_30_day_sales_by_size[
+      key.slice("risk-30-share:".length)
+    ] ?? 0
+    return total > 0 ? quantity / total : null
+  }
+  if (key.startsWith("risk-replenishment:"))
+    return item.replenishment_by_size[
+      key.slice("risk-replenishment:".length)
+    ]
+  if (key.startsWith("risk-post:"))
+    return item.post_replenishment_by_size[key.slice("risk-post:".length)]
+  if (key.startsWith("risk-post-share:")) {
+    const total = item.metrics?.post_replenishment_total
+    const quantity = item.post_replenishment_by_size[
+      key.slice("risk-post-share:".length)
+    ] ?? 0
+    return typeof total === "number" && total > 0 ? quantity / total : null
+  }
+  if (key.startsWith("risk-season:"))
+    return sameSeasonSales(
+      item,
+      Number(key.slice("risk-season:".length))
+    ).total
+
+  const directValue = item[key as keyof ProductGoodsItem]
+  if (typeof directValue === "number" || typeof directValue === "string")
+    return directValue
+  const metricValue = item.metrics?.[key]
+  if (typeof metricValue === "number" || typeof metricValue === "string")
+    return metricValue
+  return columns.find((column) => column.key === key)?.render(item)
+}
+
+function sortProductGoodsItems(
+  items: ProductGoodsItem[],
+  sort: ProductGoodsSort,
+  columns: TableColumn[]
+) {
+  if (!sort.length) return items
+  return [...items].sort((left, right) => {
+    for (const rule of sort) {
+      const leftValue = sortValue(productGoodsSortValue(left, rule.key, columns))
+      const rightValue = sortValue(productGoodsSortValue(right, rule.key, columns))
+      if (leftValue === null || rightValue === null) {
+        if (leftValue !== rightValue) return leftValue === null ? 1 : -1
+        continue
+      }
+      if (typeof leftValue === "number" && typeof rightValue === "number") {
+        const result = leftValue - rightValue
+        if (result) return result * (rule.direction === "asc" ? 1 : -1)
+        continue
+      }
+      const result = productGoodsSortCollator.compare(
+        String(leftValue),
+        String(rightValue)
+      )
+      if (result) return result * (rule.direction === "asc" ? 1 : -1)
+    }
+    return 0
+  })
+}
+
+function ProductGoodsSortButton({
+  field,
+  label,
+  onSort,
+  sort,
+}: {
+  field: string
+  label: string
+  onSort: (field: string) => void
+  sort: ProductGoodsSort
+}) {
+  const sortIndex = sort.findIndex((item) => item.key === field)
+  const direction = sortIndex >= 0 ? sort[sortIndex].direction : null
+  const Icon = direction === "asc" ? ArrowUp : direction === "desc" ? ArrowDown : ArrowDownUp
+  const nextDirection = direction === "asc" ? "降序" : direction === "desc" ? "取消" : "升序"
+
+  return (
+    <button
+      type="button"
+      className={cn(
+        "inline-flex shrink-0 cursor-pointer items-center rounded p-0.5 transition-colors hover:bg-muted",
+        direction ? "text-primary" : "text-muted-foreground/80"
+      )}
+      onClick={() => onSort(field)}
+      aria-label={`按${label}${nextDirection}排序`}
+      title={`${nextDirection}排序`}
+    >
+      <Icon className="h-3.5 w-3.5" />
+      {sortIndex >= 0 && (
+        <span className="ml-0.5 text-[9px] font-semibold leading-none">
+          {sortIndex + 1}
+        </span>
+      )}
+    </button>
+  )
+}
+
+const RISK_SIZE_GROUPS = [
+  {
+    key: "sales14",
+    label: "近14天各尺码销量拆分",
+    sortPrefix: "risk-sales",
+  },
+  {
+    key: "inventory",
+    label: "各尺码库存数量",
+    sortPrefix: "risk-inventory",
+  },
+  {
+    key: "sales30Share",
+    label: "近30天各尺码销量占比",
+    sortPrefix: "risk-30-share",
+  },
+  {
+    key: "replenishment",
+    label: "预计补单明细",
+    sortPrefix: "risk-replenishment",
+  },
+  {
+    key: "post",
+    label: "补单后各尺码库存",
+    sortPrefix: "risk-post",
+  },
+  {
+    key: "postShare",
+    label: "补单后各尺码占比",
+    sortPrefix: "risk-post-share",
+  },
+] as const
+
+const RISK_METRIC_COLUMNS = [
+  ["stock_total", "在仓库存"],
+  ["in_transit_total", "在途库存"],
+  ["inventory_total", "总库存"],
+  ["expected_replenishment_stock", "预计补单库存"],
+  ["post_replenishment_total", "补单后库存"],
+  ["post_replenishment_turnover_days", "补单后周转天数"],
+  ["recent_30_day_sales", "近30天销量"],
+  ["recent_14_day_sales", "近14天销量"],
+  ["risk-season:2024", "2024年同季销量"],
+  ["risk-season:2025", "2025年同季销量"],
+  ["risk-season:2026", "2026年同季销量"],
+  ["sales_size_total", "总销售数量"],
+] as const
+
+function sameSeasonSales(item: ProductGoodsItem, year: number) {
+  const currentMonth = new Date().getMonth()
+  const periods = [-1, 0, 1].map((offset) => {
+    const month = new Date(year, currentMonth + offset, 1)
+    return {
+      label: `${month.getMonth() + 1}月`,
+      key: `${String(month.getFullYear()).slice(-2)}-${month.getMonth() + 1}`,
+    }
+  })
+  const values = periods.map(({ key }) => item.monthly_sales[key])
+  const total = values.reduce((sum, value) => sum + (value ?? 0), 0)
+  return {
+    total,
+    label: periods
+      .map(({ label }, index) => `${label}:${values[index] ?? 0}`)
+      .join(" "),
+  }
+}
+
+function riskSizeValue(
+  item: ProductGoodsItem,
+  group: (typeof RISK_SIZE_GROUPS)[number]["key"],
+  size: string
+) {
+  if (group === "sales14") return item.sales_by_size[size]
+  if (group === "inventory") return item.inventory_by_size[size]
+  if (group === "sales30Share") {
+    const total = item.recent_30_day_sales ?? 0
+    const quantity = item.recent_30_day_sales_by_size[size] ?? 0
+    return total > 0 ? `${((quantity * 100) / total).toFixed(1)}%` : ""
+  }
+  if (group === "replenishment") return item.replenishment_by_size[size]
+  if (group === "post") return item.post_replenishment_by_size[size]
+  const total = item.metrics?.post_replenishment_total
+  const quantity = item.post_replenishment_by_size[size] ?? 0
+  return typeof total === "number" && total > 0
+    ? `${((quantity * 100) / total).toFixed(1)}%`
+    : ""
+}
+
+function riskMetricValue(item: ProductGoodsItem, key: string) {
+  if (key.startsWith("risk-season:"))
+    return sameSeasonSales(item, Number(key.slice("risk-season:".length))).label
+  const directValue = item[key as keyof ProductGoodsItem]
+  if (typeof directValue === "number" || typeof directValue === "string")
+    return directValue
+  return metric(item, key)
+}
+
 function normalizeProductGoodsResponse(
   response: ProductGoodsResponse
 ): ProductGoodsResponse {
@@ -271,6 +497,10 @@ function normalizeProductGoodsResponse(
       sales_by_size: item.sales_by_size ?? {},
       replenishment_by_size: item.replenishment_by_size ?? {},
       post_replenishment_by_size: item.post_replenishment_by_size ?? {},
+      recent_14_day_sales: item.recent_14_day_sales ?? null,
+      recent_30_day_sales: item.recent_30_day_sales ?? null,
+      recent_30_day_sales_by_size:
+        item.recent_30_day_sales_by_size ?? {},
       daily_sales_by_date: item.daily_sales_by_date ?? {},
       annual_sales: item.annual_sales ?? {},
       monthly_sales: item.monthly_sales ?? {},
@@ -493,9 +723,15 @@ function createColumns(data: ProductGoodsResponse): TableColumn[] {
     },
     {
       key: "return_qty",
-      label: "回单",
+      label: "退货数量",
       group: "库存",
       render: (row) => metric(row, "return_qty"),
+    },
+    {
+      key: "expected_replenishment_stock",
+      label: "预计补单库存",
+      group: "库存",
+      render: (row) => metric(row, "expected_replenishment_stock"),
     },
     {
       key: "post_replenishment_stock",
@@ -740,6 +976,15 @@ function getProductGoodsColumns(data: ProductGoodsResponse) {
   return columns
 }
 
+function getProductGoodsSizeColumns(sizes: string[]) {
+  const cacheKey = sizes.join("|")
+  const cachedSizes = productGoodsSizeColumnsCache.get(cacheKey)
+  if (cachedSizes) return cachedSizes
+  const stableSizes = [...sizes]
+  productGoodsSizeColumnsCache.set(cacheKey, stableSizes)
+  return stableSizes
+}
+
 function exportColumnValue(item: ProductGoodsItem, column: TableColumn) {
   const rendered = column.render(item)
   return typeof rendered === "string" || typeof rendered === "number"
@@ -873,6 +1118,8 @@ const ProductGoodsGrid = memo(function ProductGoodsGrid({
   onOpenColumnFilter,
   onPreviewImage,
   onSelectItem,
+  onSort,
+  sort,
   tableWidth,
   visibleColumns,
 }: {
@@ -888,6 +1135,8 @@ const ProductGoodsGrid = memo(function ProductGoodsGrid({
   ) => void
   onPreviewImage: (item: ProductGoodsItem) => void
   onSelectItem: (item: ProductGoodsItem) => void
+  onSort: (field: string) => void
+  sort: ProductGoodsSort
   tableWidth: number
   visibleColumns: TableColumn[]
 }) {
@@ -915,6 +1164,12 @@ const ProductGoodsGrid = memo(function ProductGoodsGrid({
             >
               <div className="flex items-center justify-between gap-1">
                 <span>{isStyleSummary ? "款号" : "货号"}</span>
+                <ProductGoodsSortButton
+                  field={isStyleSummary ? "style_code" : "goods_code"}
+                  label={isStyleSummary ? "款号" : "货号"}
+                  onSort={onSort}
+                  sort={sort}
+                />
                 <button
                   type="button"
                   className={cn(
@@ -946,6 +1201,12 @@ const ProductGoodsGrid = memo(function ProductGoodsGrid({
               >
                 <div className="flex items-center justify-between gap-1">
                   <span>款号</span>
+                  <ProductGoodsSortButton
+                    field="style_code"
+                    label="款号"
+                    onSort={onSort}
+                    sort={sort}
+                  />
                   <button
                     type="button"
                     className={cn(
@@ -994,6 +1255,12 @@ const ProductGoodsGrid = memo(function ProductGoodsGrid({
               >
                 <div className="flex items-center justify-center gap-0.5">
                   <span className="truncate">{column.label}</span>
+                  <ProductGoodsSortButton
+                    field={column.key}
+                    label={column.label}
+                    onSort={onSort}
+                    sort={sort}
+                  />
                   {column.filterField && (
                     <button
                       type="button"
@@ -1048,6 +1315,341 @@ const ProductGoodsGrid = memo(function ProductGoodsGrid({
       {loading && items.length > 0 && (
         <div className="pointer-events-none absolute top-3 right-3 z-[80] rounded-full border border-border bg-card/95 px-3 py-1.5 text-xs text-muted-foreground shadow-sm">
           正在更新商品货品表...
+        </div>
+      )}
+    </div>
+  )
+})
+
+const ExpectedReplenishmentInput = memo(function ExpectedReplenishmentInput({
+  item,
+  onSave,
+}: {
+  item: ProductGoodsItem
+  onSave: (item: ProductGoodsItem, value: number | null) => Promise<void>
+}) {
+  const [draft, setDraft] = useState(
+    value(item.metrics?.expected_replenishment_stock)
+  )
+  const [saving, setSaving] = useState(false)
+
+  useEffect(() => {
+    setDraft(value(item.metrics?.expected_replenishment_stock))
+  }, [item.id, item.metrics?.expected_replenishment_stock])
+
+  async function commit() {
+    const normalized = draft.trim()
+    const nextValue = normalized ? Number(normalized) : null
+    const currentValue = item.metrics?.expected_replenishment_stock
+    if (
+      (nextValue === null && (currentValue === null || currentValue === undefined)) ||
+      nextValue === currentValue
+    )
+      return
+    if (
+      nextValue !== null &&
+      (!Number.isFinite(nextValue) || nextValue < 0)
+    ) {
+      setDraft(value(currentValue))
+      return
+    }
+    setSaving(true)
+    try {
+      await onSave(item, nextValue === null ? null : Math.trunc(nextValue))
+    } catch {
+      setDraft(value(currentValue))
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <Input
+      type="number"
+      min="0"
+      step="1"
+      inputMode="numeric"
+      value={draft}
+      disabled={saving}
+      onChange={(event) => setDraft(event.target.value)}
+      onBlur={() => void commit()}
+      onKeyDown={(event) => {
+        if (event.key === "Enter") {
+          event.preventDefault()
+          event.currentTarget.blur()
+        }
+        if (event.key === "Escape") {
+          setDraft(value(item.metrics?.expected_replenishment_stock))
+          event.currentTarget.blur()
+        }
+      }}
+      className="h-7 min-w-[5.5rem] border-transparent bg-transparent px-1 text-center text-[13px] tabular-nums shadow-none hover:border-border focus:border-primary focus:bg-background focus-visible:ring-1"
+      aria-label={`${item.goods_code || "商品"}的预计补单库存`}
+    />
+  )
+})
+
+const ProductGoodsRiskRow = memo(function ProductGoodsRiskRow({
+  canEdit,
+  item,
+  onPreviewImage,
+  onSaveExpectedReplenishment,
+  onSelectItem,
+  sizes,
+}: {
+  canEdit: boolean
+  item: ProductGoodsItem
+  onPreviewImage: (item: ProductGoodsItem) => void
+  onSaveExpectedReplenishment: (
+    item: ProductGoodsItem,
+    value: number | null
+  ) => Promise<void>
+  onSelectItem: (item: ProductGoodsItem) => void
+  sizes: string[]
+}) {
+  return (
+    <tr className="group transition-colors hover:bg-muted/50">
+      <td className="sticky left-0 z-20 w-20 min-w-[5rem] max-w-[5rem] border-b border-border bg-card px-3 py-2 text-center group-hover:bg-muted">
+        <button
+          type="button"
+          className={cn(
+            "mx-auto inline-flex rounded-lg focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
+            item.image_url && "cursor-zoom-in"
+          )}
+          onClick={() => onPreviewImage(item)}
+          disabled={!item.image_url}
+          aria-label={item.image_url ? "查看原图" : "暂无图片"}
+        >
+          {item.image_url ? (
+            <img
+              src={`/api${item.image_url}`}
+              alt={item.goods_code || "商品图片"}
+              className="h-12 w-12 rounded-lg border border-border object-cover"
+              loading="lazy"
+              decoding="async"
+            />
+          ) : (
+            <ImageIcon className="h-4 w-4 text-muted-foreground/45" />
+          )}
+        </button>
+      </td>
+      <td className="sticky left-20 z-20 w-44 min-w-[11rem] max-w-[11rem] border-b border-border bg-card px-3 py-2 font-medium group-hover:bg-muted">
+        {value(item.goods_code)}
+      </td>
+      {RISK_METRIC_COLUMNS.map(([key]) => (
+        <td
+          key={key}
+          className="border-b border-border px-3 py-2 text-center tabular-nums"
+        >
+          {key === "expected_replenishment_stock" && canEdit ? (
+            <ExpectedReplenishmentInput
+              item={item}
+              onSave={onSaveExpectedReplenishment}
+            />
+          ) : (
+            value(riskMetricValue(item, key))
+          )}
+        </td>
+      ))}
+      {RISK_SIZE_GROUPS.flatMap((group) =>
+        sizes.map((size) => (
+          <td
+            key={`${group.key}-${size}`}
+            className="border-b border-border px-2 py-2 text-center tabular-nums"
+          >
+            {value(riskSizeValue(item, group.key, size))}
+          </td>
+        ))
+      )}
+      <td className="sticky right-0 z-20 w-20 border-b border-border bg-card px-3 py-2 text-center group-hover:bg-muted">
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={() => onSelectItem(item)}
+          aria-label="查看详情"
+        >
+          <ChevronRight className="h-4 w-4" />
+        </Button>
+      </td>
+    </tr>
+  )
+})
+
+const ProductGoodsRiskGrid = memo(function ProductGoodsRiskGrid({
+  activeFilterFields,
+  canEdit,
+  items,
+  loading,
+  onOpenColumnFilter,
+  onPreviewImage,
+  onSaveExpectedReplenishment,
+  onSelectItem,
+  onSort,
+  sizes,
+  sort,
+}: {
+  activeFilterFields: ReadonlySet<ProductGoodsFilter["field"]>
+  canEdit: boolean
+  items: ProductGoodsItem[]
+  loading: boolean
+  onOpenColumnFilter: (
+    field: ProductGoodsFilter["field"],
+    label: string,
+    target: HTMLElement
+  ) => void
+  onPreviewImage: (item: ProductGoodsItem) => void
+  onSaveExpectedReplenishment: (
+    item: ProductGoodsItem,
+    value: number | null
+  ) => Promise<void>
+  onSelectItem: (item: ProductGoodsItem) => void
+  onSort: (field: string) => void
+  sizes: string[]
+  sort: ProductGoodsSort
+}) {
+  const tableWidth =
+    420 +
+    RISK_METRIC_COLUMNS.length * 104 +
+    sizes.length * RISK_SIZE_GROUPS.length * 68
+
+  return (
+    <div className="relative max-h-[72svh] min-h-[360px] overflow-auto">
+      <table
+        style={{ minWidth: tableWidth }}
+        className={cn(
+          "w-full border-separate border-spacing-0 text-[13px] transition-opacity duration-150",
+          loading && items.length > 0 && "opacity-60"
+        )}
+        aria-busy={loading}
+      >
+        <thead className="sticky top-0 z-[60] bg-card">
+          <tr className="text-xs text-muted-foreground">
+            <th
+              rowSpan={2}
+              className="sticky left-0 z-[70] w-20 min-w-[5rem] max-w-[5rem] border-b border-border bg-card px-3 py-2.5 text-center font-medium"
+            >
+              图片
+            </th>
+            <th
+              rowSpan={2}
+              className="sticky left-20 z-[70] w-44 min-w-[11rem] max-w-[11rem] border-b border-border bg-card px-3 py-2.5 text-left font-medium"
+            >
+              <div className="flex items-center justify-between gap-1">
+                <span>货号</span>
+                <ProductGoodsSortButton
+                  field="goods_code"
+                  label="货号"
+                  onSort={onSort}
+                  sort={sort}
+                />
+                <button
+                  type="button"
+                  className={cn(
+                    "cursor-pointer rounded p-0.5 transition-colors hover:bg-muted",
+                    activeFilterFields.has("goods_code")
+                      ? "text-primary"
+                      : "text-muted-foreground/80"
+                  )}
+                  onClick={(event) =>
+                    onOpenColumnFilter(
+                      "goods_code",
+                      "货号",
+                      event.currentTarget
+                    )
+                  }
+                  aria-label="筛选货号"
+                  title="筛选货号"
+                >
+                  <Filter className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            </th>
+            {RISK_METRIC_COLUMNS.map(([key, label]) => (
+              <th
+                key={key}
+                rowSpan={2}
+                className="min-w-[6.5rem] border-b border-border bg-card px-2 py-2.5 text-center font-medium"
+              >
+                <div className="flex items-center justify-center gap-0.5 whitespace-nowrap">
+                  <span>{label}</span>
+                  <ProductGoodsSortButton
+                    field={key}
+                    label={label}
+                    onSort={onSort}
+                    sort={sort}
+                  />
+                </div>
+              </th>
+            ))}
+            {RISK_SIZE_GROUPS.map((group) => (
+              <th
+                key={group.key}
+                colSpan={sizes.length}
+                className="border-b border-border bg-card px-2 py-2.5 text-center font-medium"
+              >
+                {group.label}
+              </th>
+            ))}
+            <th
+              rowSpan={2}
+              className="sticky right-0 z-[70] w-20 border-b border-border bg-card px-3 py-2.5 text-center font-medium"
+            >
+              详情
+            </th>
+          </tr>
+          <tr className="text-xs text-muted-foreground">
+            {RISK_SIZE_GROUPS.flatMap((group) =>
+              sizes.map((size) => (
+                <th
+                  key={`${group.key}-${size}`}
+                  className="min-w-[4.25rem] border-b border-border bg-card px-2 py-2 text-center font-normal"
+                >
+                  <div className="flex items-center justify-center gap-0.5">
+                    <span>{size}</span>
+                    <ProductGoodsSortButton
+                      field={`${group.sortPrefix}:${size}`}
+                      label={`${group.label} ${size}`}
+                      onSort={onSort}
+                      sort={sort}
+                    />
+                  </div>
+                </th>
+              ))
+            )}
+          </tr>
+        </thead>
+        <tbody>
+          {items.length === 0 ? (
+            <tr>
+              <td
+                colSpan={
+                  RISK_METRIC_COLUMNS.length +
+                  sizes.length * RISK_SIZE_GROUPS.length +
+                  3
+                }
+                className="px-4 py-16 text-center text-muted-foreground"
+              >
+                {loading ? "正在加载缺货风险..." : "暂无缺货或低库存风险商品"}
+              </td>
+            </tr>
+          ) : (
+            items.map((item) => (
+              <ProductGoodsRiskRow
+                key={item.id}
+                canEdit={canEdit}
+                item={item}
+                onPreviewImage={onPreviewImage}
+                onSaveExpectedReplenishment={onSaveExpectedReplenishment}
+                onSelectItem={onSelectItem}
+                sizes={sizes}
+              />
+            ))
+          )}
+        </tbody>
+      </table>
+      {loading && items.length > 0 && (
+        <div className="pointer-events-none absolute top-3 right-3 z-[80] rounded-full border border-border bg-card/95 px-3 py-1.5 text-xs text-muted-foreground shadow-sm">
+          正在更新缺货风险...
         </div>
       )}
     </div>
@@ -1115,6 +1717,7 @@ export function ProductGoodsPage() {
   const [dataView, setDataView] = useState<ProductGoodsView>("goods")
   const [renderedDataView, setRenderedDataView] =
     useState<ProductGoodsView>("goods")
+  const [sort, setSort] = useState<ProductGoodsSort>([])
   const [columnMode, setColumnMode] = useState<"full" | "custom">("full")
   const [pickerOpen, setPickerOpen] = useState(false)
   const [customKeys, setCustomKeys] = useState<string[]>(DEFAULT_COLUMN_KEYS)
@@ -1201,6 +1804,11 @@ export function ProductGoodsPage() {
     )
     if (cachedEntry) {
       setData(cachedEntry.data)
+      setSelectedItem((current) =>
+        current
+          ? cachedEntry.data.items.find((item) => item.id === current.id) ?? current
+          : null
+      )
       setRenderedDataView(context.view)
       setLoading(false)
       const cachedTotalPages = Math.max(
@@ -1221,6 +1829,11 @@ export function ProductGoodsPage() {
         if (!isCurrentRequest()) return
         rememberProductGoodsPage(pageCacheRef.current, cacheKey, response)
         setData(response)
+        setSelectedItem((current) =>
+          current
+            ? response.items.find((item) => item.id === current.id) ?? current
+            : null
+        )
         setRenderedDataView(context.view)
         const loadedTotalPages = Math.max(
           1,
@@ -1392,6 +2005,14 @@ export function ProductGoodsPage() {
     () => new Set(filters.map((item) => item.field)),
     [filters]
   )
+  const sortedItems = useMemo(
+    () => sortProductGoodsItems(data.items, sort, columns),
+    [columns, data.items, sort]
+  )
+  const riskSizeColumns = useMemo(
+    () => getProductGoodsSizeColumns(data.size_columns),
+    [data.size_columns]
+  )
   const totalPages = Math.max(1, Math.ceil(data.total / pageSize))
   const canEdit = hasPermission("product.manage")
   useEffect(() => {
@@ -1554,10 +2175,21 @@ export function ProductGoodsPage() {
     setFilterError("")
     setPage(1)
   }
-  async function saveManualFields(
+  const toggleSort = useCallback((field: string) => {
+    setSort((current) => {
+      const index = current.findIndex((item) => item.key === field)
+      if (index < 0) return [...current, { key: field, direction: "asc" }]
+      if (current[index].direction === "asc")
+        return current.map((item, itemIndex) =>
+          itemIndex === index ? { ...item, direction: "desc" } : item
+        )
+      return current.filter((_, itemIndex) => itemIndex !== index)
+    })
+  }, [])
+  const saveManualFields = useCallback(async (
     item: ProductGoodsItem,
     fields: Partial<ProductGoodsManualFields>
-  ) {
+  ) => {
     const payload: Record<
       string,
       string | boolean | number | Record<string, number> | null
@@ -1568,12 +2200,7 @@ export function ProductGoodsPage() {
       else payload[field] = fieldValue ?? null
     }
     await updateProductGoods(brand, item.id, payload)
-    const metricFields = [
-      "replenishment_total",
-      "post_replenishment_stock",
-      "post_replenishment_total",
-      "post_replenishment_turnover_days",
-    ] as const
+    const metricFields = ["expected_replenishment_stock"] as const
     const updatedMetrics = { ...item.metrics }
     for (const field of metricFields)
       if (field in fields) updatedMetrics[field] = fields[field] ?? null
@@ -1588,7 +2215,13 @@ export function ProductGoodsPage() {
     productGoodsPageCache.clear()
     refreshNonceRef.current = String(Date.now())
     setReloadVersion((current) => current + 1)
-  }
+  }, [brand])
+  const saveExpectedReplenishment = useCallback((
+    item: ProductGoodsItem,
+    expectedReplenishmentStock: number | null
+  ) => saveManualFields(item, {
+    expected_replenishment_stock: expectedReplenishmentStock,
+  }), [saveManualFields])
   const previewProductImage = useCallback((item: ProductGoodsItem) => {
     if (!item.image_url) return
     setPreviewImage({
@@ -1609,14 +2242,16 @@ export function ProductGoodsPage() {
   const brandLabel =
     GOODS_BRANDS.find((item) => item.key === brand)?.label ?? "商品"
   function exportCurrentPage() {
+    if (dataView === "shortage_risk") return
     exportCsv(
-      data.items,
+      sortedItems,
       visibleColumns,
       `${brandLabel}_${dataView === "style_summary" ? "款号汇总" : "商品货品表"}_当前页_${timestampForFilename(new Date())}.csv`,
       dataView === "style_summary"
     )
   }
   async function exportAllRows() {
+    if (dataView === "shortage_risk") return
     if (isExporting) return
     setIsExporting(true)
     setExportProgress({ loaded: 0, total: data.total })
@@ -1696,10 +2331,12 @@ export function ProductGoodsPage() {
     if (nextView === dataView) return
     setSelectedItem(null)
     const nextPageSize =
-      nextView === "style_summary" ? SUMMARY_PAGE_SIZE : pageSize
+      nextView === "style_summary" ? SUMMARY_PAGE_SIZE : PAGE_SIZE
     startTransition(() => {
       setDataView(nextView)
+      setSort([])
       setPageSize(nextPageSize)
+      if (nextView === "shortage_risk") setSnapshotDate("")
       setPage(1)
     })
   }
@@ -1781,7 +2418,9 @@ export function ProductGoodsPage() {
                   数据{" "}
                   {renderedDataView === "style_summary"
                     ? "款号汇总"
-                    : "货号明细"}
+                    : renderedDataView === "shortage_risk"
+                      ? "缺货风险"
+                      : "货号明细"}
                 </span>
               </div>
             </div>
@@ -1818,6 +2457,7 @@ export function ProductGoodsPage() {
                     type="button"
                     aria-pressed={!!snapshotDate}
                     onClick={openHistoryDatePicker}
+                    disabled={dataView === "shortage_risk"}
                     className={cn(
                       "inline-flex h-7 min-w-[9.5rem] cursor-pointer items-center gap-1.5 rounded-md border px-2.5 text-xs font-semibold transition-colors",
                       snapshotDate
@@ -1872,22 +2512,24 @@ export function ProductGoodsPage() {
                 <History className="h-4 w-4" />
                 操作日志
               </Button>
-              <Button
-                variant="outline"
-                className="h-8 px-3 text-xs font-semibold"
-                onClick={exportAllRows}
-                disabled={isExporting || loading || data.total === 0}
-              >
-                <Download className="h-4 w-4" />
-                {isExporting && exportProgress
-                  ? `导出 ${Math.min(
-                      exportProgress.loaded,
-                      exportProgress.total
-                    ).toLocaleString(
-                      "zh-CN"
-                    )}/${exportProgress.total.toLocaleString("zh-CN")}`
-                  : "导出"}
-              </Button>
+              {dataView !== "shortage_risk" && (
+                <Button
+                  variant="outline"
+                  className="h-8 px-3 text-xs font-semibold"
+                  onClick={exportAllRows}
+                  disabled={isExporting || loading || data.total === 0}
+                >
+                  <Download className="h-4 w-4" />
+                  {isExporting && exportProgress
+                    ? `导出 ${Math.min(
+                        exportProgress.loaded,
+                        exportProgress.total
+                      ).toLocaleString(
+                        "zh-CN"
+                      )}/${exportProgress.total.toLocaleString("zh-CN")}`
+                    : "导出"}
+                </Button>
+              )}
             </div>
           </div>
         </div>
@@ -1906,6 +2548,7 @@ export function ProductGoodsPage() {
                   {[
                     ["goods", "货号明细"],
                     ["style_summary", "款号汇总"],
+                    ["shortage_risk", "缺货风险"],
                   ].map(([view, label]) => (
                     <button
                       key={view}
@@ -1928,43 +2571,49 @@ export function ProductGoodsPage() {
                   ))}
                 </div>
               </div>
-              <span
-                className="hidden h-5 w-px bg-border sm:block"
-                aria-hidden="true"
-              />
-              <div
-                className="flex items-center gap-2"
-                role="group"
-                aria-label="列视图"
-              >
-                <span className="shrink-0 text-xs font-medium text-muted-foreground">
-                  列
-                </span>
-                <div className="inline-flex h-9 items-center rounded-md border border-border bg-muted/35 p-0.5 shadow-sm">
-                  {[
-                    ["full", "完整视图"],
-                    ["custom", "自定义"],
-                  ].map(([mode, label]) => (
-                    <button
-                      key={mode}
-                      type="button"
-                      onClick={() => setColumnMode(mode as "full" | "custom")}
-                      className={cn(
-                        "h-8 cursor-pointer rounded px-3 text-sm font-medium transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
-                        columnMode === mode
-                          ? "bg-background text-foreground shadow-sm"
-                          : "text-muted-foreground hover:bg-background/70 hover:text-foreground"
-                      )}
-                      aria-pressed={columnMode === mode}
-                    >
-                      {label}
-                    </button>
-                  ))}
-                </div>
-              </div>
+              {dataView !== "shortage_risk" && (
+                <>
+                  <span
+                    className="hidden h-5 w-px bg-border sm:block"
+                    aria-hidden="true"
+                  />
+                  <div
+                    className="flex items-center gap-2"
+                    role="group"
+                    aria-label="列视图"
+                  >
+                    <span className="shrink-0 text-xs font-medium text-muted-foreground">
+                      列
+                    </span>
+                    <div className="inline-flex h-9 items-center rounded-md border border-border bg-muted/35 p-0.5 shadow-sm">
+                      {[
+                        ["full", "完整视图"],
+                        ["custom", "自定义"],
+                      ].map(([mode, label]) => (
+                        <button
+                          key={mode}
+                          type="button"
+                          onClick={() =>
+                            setColumnMode(mode as "full" | "custom")
+                          }
+                          className={cn(
+                            "h-8 cursor-pointer rounded px-3 text-sm font-medium transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
+                            columnMode === mode
+                              ? "bg-background text-foreground shadow-sm"
+                              : "text-muted-foreground hover:bg-background/70 hover:text-foreground"
+                          )}
+                          aria-pressed={columnMode === mode}
+                        >
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </>
+              )}
             </div>
             <div className="flex items-center gap-1">
-              {columnMode === "custom" && (
+              {dataView !== "shortage_risk" && columnMode === "custom" && (
                 <Button
                   variant="outline"
                   size="icon"
@@ -1976,17 +2625,19 @@ export function ProductGoodsPage() {
                   <SlidersHorizontal className="h-4 w-4" />
                 </Button>
               )}
-              <Button
-                variant="outline"
-                size="icon"
-                className="h-8 w-8"
-                onClick={exportCurrentPage}
-                disabled={!data.items.length || isExporting}
-                aria-label="导出当前页"
-                title="导出当前页"
-              >
-                <Download className="h-4 w-4" />
-              </Button>
+              {dataView !== "shortage_risk" && (
+                <Button
+                  variant="outline"
+                  size="icon"
+                  className="h-8 w-8"
+                  onClick={exportCurrentPage}
+                  disabled={!data.items.length || isExporting}
+                  aria-label="导出当前页"
+                  title="导出当前页"
+                >
+                  <Download className="h-4 w-4" />
+                </Button>
+              )}
             </div>
           </div>
         </div>
@@ -2184,18 +2835,36 @@ export function ProductGoodsPage() {
           </div>
         )}
         <div className="table-panel">
-          <ProductGoodsGrid
-            activeFilterFields={activeFilterFields}
-            groups={groups}
-            items={data.items}
-            isStyleSummary={renderedDataView === "style_summary"}
-            loading={loading}
-            onOpenColumnFilter={openColumnFilter}
-            onPreviewImage={previewProductImage}
-            onSelectItem={selectProductItem}
-            tableWidth={tableWidth}
-            visibleColumns={deferredVisibleColumns}
-          />
+          {renderedDataView === "shortage_risk" ? (
+            <ProductGoodsRiskGrid
+              activeFilterFields={activeFilterFields}
+              canEdit={canEdit}
+              items={sortedItems}
+              loading={loading}
+              onOpenColumnFilter={openColumnFilter}
+              onPreviewImage={previewProductImage}
+              onSaveExpectedReplenishment={saveExpectedReplenishment}
+              onSelectItem={selectProductItem}
+              onSort={toggleSort}
+              sizes={riskSizeColumns}
+              sort={sort}
+            />
+          ) : (
+            <ProductGoodsGrid
+              activeFilterFields={activeFilterFields}
+              groups={groups}
+              items={sortedItems}
+              isStyleSummary={renderedDataView === "style_summary"}
+              loading={loading}
+              onOpenColumnFilter={openColumnFilter}
+              onPreviewImage={previewProductImage}
+              onSelectItem={selectProductItem}
+              onSort={toggleSort}
+              sort={sort}
+              tableWidth={tableWidth}
+              visibleColumns={deferredVisibleColumns}
+            />
+          )}
           <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border px-4 py-3">
             <p className="text-sm text-muted-foreground">
               共 {data.total.toLocaleString("zh-CN")} 条 · 第{" "}
@@ -2679,7 +3348,7 @@ export function ProductGoodsPage() {
       <ProductGoodsDetailDrawer
         item={selectedItem}
         data={data}
-        canEdit={canEdit && renderedDataView === "goods"}
+        canEdit={canEdit && renderedDataView !== "style_summary"}
         onClose={() => setSelectedItem(null)}
         onSave={saveManualFields}
         onPreviewImage={(item) =>

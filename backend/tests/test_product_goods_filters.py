@@ -1,6 +1,11 @@
 from fastapi import HTTPException
 
-from api.routes.product_goods import _base_style_code, _parse_product_goods_filters, _style_summary_item
+from api.routes.product_goods import (
+    _base_style_code,
+    _parse_product_goods_filters,
+    _product_type_value,
+    _style_summary_item,
+)
 
 
 def test_product_goods_filters_accept_multiple_supported_conditions():
@@ -108,3 +113,9 @@ def test_style_summary_removes_the_two_character_color_suffix():
     assert _base_style_code("A6054521D01") == "A6054521D"
     assert _base_style_code("EB634763DA4") == "EB634763D"
     assert _base_style_code("KT-Q15036A2") == "KT-Q15036"
+
+
+def test_product_type_defaults_kt_goods_codes_to_clogs():
+    assert _product_type_value(None, " KT-Q15036A2 ") == "洞洞鞋"
+    assert _product_type_value("凉鞋", "KT-Q15036A2") == "凉鞋"
+    assert _product_type_value(None, "A6054521D01") is None

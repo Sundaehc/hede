@@ -14,6 +14,8 @@ _CACHE: OrderedDict[ProductGoodsCacheKey, tuple[float, dict[str, Any]]] = Ordere
 _FILTER_CACHE_MAX_ENTRIES = 80
 _FILTER_CACHE_TTL_SECONDS = 60
 _FILTER_CACHE: OrderedDict[ProductGoodsCacheKey, tuple[float, dict[str, Any]]] = OrderedDict()
+_RISK_CODES_CACHE_TTL_SECONDS = 300
+_RISK_CODES_CACHE: OrderedDict[str, tuple[float, tuple[str, ...]]] = OrderedDict()
 _LOCK = RLock()
 
 
@@ -59,7 +61,32 @@ def set_product_goods_filter_options_cache(key: ProductGoodsCacheKey, payload: d
             _FILTER_CACHE.popitem(last=False)
 
 
+def get_product_goods_risk_codes_cache(brand: str) -> tuple[str, ...] | None:
+    with _LOCK:
+        cached = _RISK_CODES_CACHE.get(brand)
+        if cached is None:
+            return None
+        expires_at, product_codes = cached
+        if expires_at <= monotonic():
+            _RISK_CODES_CACHE.pop(brand, None)
+            return None
+        _RISK_CODES_CACHE.move_to_end(brand)
+        return product_codes
+
+
+def set_product_goods_risk_codes_cache(brand: str, product_codes: set[str]) -> None:
+    with _LOCK:
+        _RISK_CODES_CACHE[brand] = (
+            monotonic() + _RISK_CODES_CACHE_TTL_SECONDS,
+            tuple(sorted(product_codes)),
+        )
+        _RISK_CODES_CACHE.move_to_end(brand)
+        while len(_RISK_CODES_CACHE) > 4:
+            _RISK_CODES_CACHE.popitem(last=False)
+
+
 def clear_product_goods_cache() -> None:
     with _LOCK:
         _CACHE.clear()
         _FILTER_CACHE.clear()
+        _RISK_CODES_CACHE.clear()

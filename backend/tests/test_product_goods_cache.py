@@ -1,4 +1,10 @@
-from api.product_goods_cache import clear_product_goods_cache, get_product_goods_cache, set_product_goods_cache
+from api.product_goods_cache import (
+    clear_product_goods_cache,
+    get_product_goods_cache,
+    get_product_goods_risk_codes_cache,
+    set_product_goods_cache,
+    set_product_goods_risk_codes_cache,
+)
 
 
 def test_product_goods_cache_returns_payload_for_same_key():
@@ -18,3 +24,14 @@ def test_product_goods_cache_clear_removes_payloads():
     clear_product_goods_cache()
 
     assert get_product_goods_cache(key) is None
+
+
+def test_product_goods_cache_clear_removes_risk_product_codes():
+    clear_product_goods_cache()
+    set_product_goods_risk_codes_cache("cbanner_mens", {"A100", "A101"})
+
+    assert get_product_goods_risk_codes_cache("cbanner_mens") == ("A100", "A101")
+
+    clear_product_goods_cache()
+
+    assert get_product_goods_risk_codes_cache("cbanner_mens") is None
