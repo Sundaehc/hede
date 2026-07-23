@@ -182,6 +182,11 @@ type ProductGoodsPageCacheEntry = {
 
 const productGoodsPageCache = new Map<string, ProductGoodsPageCacheEntry>()
 const productGoodsPagePrefetching = new Set<string>()
+const productGoodsPageRequests = new Map<
+  string,
+  Promise<ProductGoodsResponse>
+>()
+const productGoodsColumnsCache = new Map<string, TableColumn[]>()
 
 function value(value: unknown) {
   return value === null || value === undefined || value === ""
@@ -303,7 +308,11 @@ async function loadProductGoodsPage(
   page: number,
   cacheBust?: string
 ) {
-  const response = await listProductGoods({
+  const requestKey = `${productGoodsPageCacheKey(context, page)}:${cacheBust ?? ""}`
+  const existingRequest = productGoodsPageRequests.get(requestKey)
+  if (existingRequest) return existingRequest
+
+  const request = listProductGoods({
     brand: context.brand,
     query: context.query || undefined,
     filters: context.filters.length ? context.filters : undefined,
@@ -312,8 +321,19 @@ async function loadProductGoodsPage(
     page,
     pageSize: context.pageSize,
     cacheBust,
-  })
-  return normalizeProductGoodsResponse(response)
+  }).then(normalizeProductGoodsResponse)
+  productGoodsPageRequests.set(requestKey, request)
+  void request.then(
+    () => {
+      if (productGoodsPageRequests.get(requestKey) === request)
+        productGoodsPageRequests.delete(requestKey)
+    },
+    () => {
+      if (productGoodsPageRequests.get(requestKey) === request)
+        productGoodsPageRequests.delete(requestKey)
+    }
+  )
+  return request
 }
 
 function rememberProductGoodsPage(
@@ -695,6 +715,31 @@ function createColumns(data: ProductGoodsResponse): TableColumn[] {
   ]
 }
 
+function getProductGoodsColumns(data: ProductGoodsResponse) {
+  const schemaKey = JSON.stringify([
+    data.annual_sales_columns,
+    data.monthly_sales_columns,
+    data.daily_dates,
+    data.size_columns,
+    data.platform_columns,
+  ])
+  const cachedColumns = productGoodsColumnsCache.get(schemaKey)
+  if (cachedColumns) {
+    productGoodsColumnsCache.delete(schemaKey)
+    productGoodsColumnsCache.set(schemaKey, cachedColumns)
+    return cachedColumns
+  }
+
+  const columns = createColumns(data)
+  productGoodsColumnsCache.set(schemaKey, columns)
+  while (productGoodsColumnsCache.size > PRODUCT_GOODS_PAGE_CACHE_LIMIT) {
+    const oldestKey = productGoodsColumnsCache.keys().next().value
+    if (!oldestKey) break
+    productGoodsColumnsCache.delete(oldestKey)
+  }
+  return columns
+}
+
 function exportColumnValue(item: ProductGoodsItem, column: TableColumn) {
   const rendered = column.render(item)
   return typeof rendered === "string" || typeof rendered === "number"
@@ -749,6 +794,75 @@ function exportCsv(
   link.click()
   URL.revokeObjectURL(link.href)
 }
+
+const ProductGoodsGridRow = memo(function ProductGoodsGridRow({
+  item,
+  isStyleSummary,
+  onPreviewImage,
+  onSelectItem,
+  visibleColumns,
+}: {
+  item: ProductGoodsItem
+  isStyleSummary: boolean
+  onPreviewImage: (item: ProductGoodsItem) => void
+  onSelectItem: (item: ProductGoodsItem) => void
+  visibleColumns: TableColumn[]
+}) {
+  return (
+    <tr className="group transition-colors hover:bg-muted/50">
+      <td className="sticky left-0 z-20 w-20 max-w-[5rem] min-w-[5rem] border-b border-border bg-card px-3 py-2 text-center group-hover:bg-muted">
+        <button
+          type="button"
+          className={cn(
+            "mx-auto inline-flex rounded-lg focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
+            item.image_url && "cursor-zoom-in"
+          )}
+          onClick={() => onPreviewImage(item)}
+          disabled={!item.image_url}
+          aria-label={item.image_url ? "查看原图" : "暂无图片"}
+        >
+          {item.image_url ? (
+            <img
+              src={`/api${item.image_url}`}
+              alt={item.goods_code || "商品图片"}
+              className="h-12 w-12 rounded-lg border border-border object-cover"
+              loading="lazy"
+              decoding="async"
+            />
+          ) : (
+            <ImageIcon className="h-4 w-4 text-muted-foreground/45" />
+          )}
+        </button>
+      </td>
+      <td className="sticky left-20 z-20 w-40 max-w-[10rem] min-w-[10rem] border-b border-border bg-card px-3 py-2 font-medium group-hover:bg-muted">
+        {value(isStyleSummary ? item.style_code : item.goods_code)}
+      </td>
+      {!isStyleSummary && (
+        <td className="sticky left-60 z-20 w-40 max-w-[10rem] min-w-[10rem] border-b border-border bg-card px-3 py-2 group-hover:bg-muted">
+          {value(item.style_code)}
+        </td>
+      )}
+      {visibleColumns.map((column) => (
+        <td
+          key={column.key}
+          className="border-b border-border px-3 py-2 text-center align-middle tabular-nums"
+        >
+          {column.render(item)}
+        </td>
+      ))}
+      <td className="sticky right-0 z-20 w-20 border-b border-border bg-card px-3 py-2 text-center group-hover:bg-muted">
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={() => onSelectItem(item)}
+          aria-label="查看详情"
+        >
+          <ChevronRight className="h-4 w-4" />
+        </Button>
+      </td>
+    </tr>
+  )
+})
 
 const ProductGoodsGrid = memo(function ProductGoodsGrid({
   activeFilterFields,
@@ -919,61 +1033,14 @@ const ProductGoodsGrid = memo(function ProductGoodsGrid({
             </tr>
           ) : (
             items.map((item) => (
-              <tr
+              <ProductGoodsGridRow
                 key={item.id}
-                className="group transition-colors hover:bg-muted/50"
-              >
-                <td className="sticky left-0 z-20 w-20 max-w-[5rem] min-w-[5rem] border-b border-border bg-card px-3 py-2 text-center group-hover:bg-muted">
-                  <button
-                    type="button"
-                    className={cn(
-                      "mx-auto inline-flex rounded-lg focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
-                      item.image_url && "cursor-zoom-in"
-                    )}
-                    onClick={() => onPreviewImage(item)}
-                    disabled={!item.image_url}
-                    aria-label={item.image_url ? "查看原图" : "暂无图片"}
-                  >
-                    {item.image_url ? (
-                      <img
-                        src={`/api${item.image_url}`}
-                        alt={item.goods_code || "商品图片"}
-                        className="h-12 w-12 rounded-lg border border-border object-cover"
-                        loading="lazy"
-                        decoding="async"
-                      />
-                    ) : (
-                      <ImageIcon className="h-4 w-4 text-muted-foreground/45" />
-                    )}
-                  </button>
-                </td>
-                <td className="sticky left-20 z-20 w-40 max-w-[10rem] min-w-[10rem] border-b border-border bg-card px-3 py-2 font-medium group-hover:bg-muted">
-                  {value(isStyleSummary ? item.style_code : item.goods_code)}
-                </td>
-                {!isStyleSummary && (
-                  <td className="sticky left-60 z-20 w-40 max-w-[10rem] min-w-[10rem] border-b border-border bg-card px-3 py-2 group-hover:bg-muted">
-                    {value(item.style_code)}
-                  </td>
-                )}
-                {visibleColumns.map((column) => (
-                  <td
-                    key={column.key}
-                    className="border-b border-border px-3 py-2 text-center align-middle tabular-nums"
-                  >
-                    {column.render(item)}
-                  </td>
-                ))}
-                <td className="sticky right-0 z-20 w-20 border-b border-border bg-card px-3 py-2 text-center group-hover:bg-muted">
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    onClick={() => onSelectItem(item)}
-                    aria-label="查看详情"
-                  >
-                    <ChevronRight className="h-4 w-4" />
-                  </Button>
-                </td>
-              </tr>
+                item={item}
+                isStyleSummary={isStyleSummary}
+                onPreviewImage={onPreviewImage}
+                onSelectItem={onSelectItem}
+                visibleColumns={visibleColumns}
+              />
             ))
           )}
         </tbody>
@@ -1238,7 +1305,7 @@ export function ProductGoodsPage() {
       })
   }, [activeColumnFilter, brand, filters, query])
   const columns = useMemo(
-    () => createColumns(data),
+    () => getProductGoodsColumns(data),
     [
       data.annual_sales_columns,
       data.daily_dates,

@@ -12,7 +12,13 @@ import re
 from sqlalchemy import Text, and_, cast, desc, false, func, inspect, or_, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
-from api.product_goods_cache import clear_product_goods_cache, get_product_goods_cache, set_product_goods_cache
+from api.product_goods_cache import (
+    clear_product_goods_cache,
+    get_product_goods_cache,
+    get_product_goods_filter_options_cache,
+    set_product_goods_cache,
+    set_product_goods_filter_options_cache,
+)
 from api.routes.images import image_url_for
 from domain.product_goods_schema import PRODUCT_GOODS_OVERRIDES_TABLE
 from domain.product_goods_shop_channel_schema import PRODUCT_GOODS_SHOP_CHANNEL_MAPPINGS_TABLE
@@ -992,42 +998,74 @@ def list_product_goods_filter_options(
         raise HTTPException(status_code=400, detail=f"不支持按 {field or '该字段'} 筛选")
     parsed_filters = _parse_product_goods_filters(filters)
     other_field_filters = tuple(item for item in parsed_filters if item.field != field)
+    normalized_query = (query or "").strip()
+    normalized_search = (search or "").strip()
+    normalized_platform = (platform or "").strip()
+    normalized_year = (year or "").strip()
+    normalized_filters = tuple(
+        sorted(
+            (
+                item.field,
+                item.operator,
+                item.value or "",
+                tuple(sorted(item.values or [])),
+            )
+            for item in other_field_filters
+        )
+    )
+    cache_key = (
+        "filter-options-v1",
+        brand,
+        field,
+        normalized_query,
+        normalized_search,
+        normalized_platform,
+        normalized_year,
+        normalized_filters,
+    )
+    cached = get_product_goods_filter_options_cache(cache_key)
+    if cached is not None:
+        return cached
     product_table = PRODUCT_TABLES[brand]
     override = PRODUCT_GOODS_OVERRIDES_TABLE
     conditions = _product_goods_conditions(
         product_table,
         override,
-        query=(query or "").strip(),
-        platform=(platform or "").strip(),
-        year=(year or "").strip(),
+        query=normalized_query,
+        platform=normalized_platform,
+        year=normalized_year,
         filters=other_field_filters,
     )
     column = _product_goods_filter_columns(product_table, override)[field]
     value_expression = func.coalesce(func.trim(cast(column, Text)), "")
-    normalized_search = (search or "").strip()
     if normalized_search:
         escaped_query = normalized_search.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
         conditions.append(value_expression.ilike(f"%{escaped_query}%", escape="\\"))
     join = product_table.outerjoin(override, (override.c.brand == brand) & (override.c.product_id == product_table.c.id))
     statement = (
-        select(value_expression.label("value"), func.count().label("count"))
+        select(
+            value_expression.label("value"),
+            func.count().label("count"),
+            func.count().over().label("total"),
+        )
         .select_from(join)
         .where(*conditions)
         .group_by(value_expression)
         .order_by(desc(func.count()), value_expression)
         .limit(10_000)
     )
-    total_statement = select(func.count(func.distinct(value_expression))).select_from(join).where(*conditions)
     repository = request.app.state.repository
     with repository.engine.connect() as connection:
         rows = connection.execute(statement).mappings().all()
-        total = int(connection.execute(total_statement).scalar() or 0)
-    return {
+    total = int(rows[0]["total"] or 0) if rows else 0
+    payload = {
         "field": field,
         "total": total,
         "truncated": total > len(rows),
         "options": [{"value": str(row["value"] or ""), "count": int(row["count"] or 0)} for row in rows],
     }
+    set_product_goods_filter_options_cache(cache_key, payload)
+    return payload
 
 
 @router.get("/product-goods")
@@ -1053,7 +1091,7 @@ def list_product_goods(
     normalized_year = (year or "").strip()
     normalized_snapshot_date = snapshot_date.isoformat() if snapshot_date else ""
     parsed_filters = _parse_product_goods_filters(filters)
-    normalized_filters = tuple(sorted((item.field, item.operator, item.value or "", tuple(item.values or [])) for item in parsed_filters))
+    normalized_filters = tuple(sorted((item.field, item.operator, item.value or "", tuple(sorted(item.values or []))) for item in parsed_filters))
     cache_key = (brand, view, "style-summary-v2" if view == "style_summary" else "", normalized_query, normalized_platform, normalized_year, normalized_filters, normalized_snapshot_date, page, page_size)
     if not cache_bust:
         cached = get_product_goods_cache(cache_key)
