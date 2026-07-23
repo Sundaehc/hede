@@ -18,6 +18,10 @@ from domain.product_goods_shop_channel_schema import PRODUCT_GOODS_SHOP_CHANNEL_
 from domain.product_goods_historical_sales_schema import HISTORICAL_SALES_YEARS, product_goods_historical_sales_table_for_year
 from domain.product_goods_historical_orders_schema import HISTORICAL_ORDER_START_YEAR, product_goods_historical_orders_table_for_year
 from domain.product_goods_sales_period_schema import PRODUCT_GOODS_SALES_PERIODS_TABLE
+from domain.product_goods_detail_snapshot_schema import (
+    PRODUCT_GOODS_DETAIL_SNAPSHOT_BATCHES_TABLE,
+    product_goods_detail_snapshots_table_for_year,
+)
 from domain.schema import PRODUCT_TABLES
 from domain.vip_schema import JST_SIZE_STOCK_TABLE, JST_STOCK_SUMMARY_TABLE
 from domain.daily_sales_schema import jst_daily_sales_table_for_year, vip_daily_sales_table_for_year
@@ -126,6 +130,46 @@ def _stock_health_label(stock_sale_days: float | None, shortage_total: int) -> s
     return "正常"
 
 
+def _detail_snapshot_dates(connection, *, brand: str) -> list[date]:
+    if not inspect(connection).has_table(PRODUCT_GOODS_DETAIL_SNAPSHOT_BATCHES_TABLE.name):
+        return []
+    return [
+        item
+        for item in connection.execute(
+            select(PRODUCT_GOODS_DETAIL_SNAPSHOT_BATCHES_TABLE.c.snapshot_date)
+            .where(PRODUCT_GOODS_DETAIL_SNAPSHOT_BATCHES_TABLE.c.brand == brand)
+            .where(PRODUCT_GOODS_DETAIL_SNAPSHOT_BATCHES_TABLE.c.status == "success")
+            .distinct()
+            .order_by(desc(PRODUCT_GOODS_DETAIL_SNAPSHOT_BATCHES_TABLE.c.snapshot_date))
+        ).scalars()
+        if isinstance(item, date)
+    ]
+
+
+def _detail_snapshot_payload(
+    connection,
+    product_codes: list[str],
+    *,
+    brand: str,
+    snapshot_date: date | None,
+) -> dict[str, dict[str, object]]:
+    if snapshot_date is None or not product_codes:
+        return {}
+    table = product_goods_detail_snapshots_table_for_year(snapshot_date.year)
+    if not inspect(connection).has_table(table.name):
+        return {}
+    return {
+        str(row["goods_code"]): dict(row["data"] or {})
+        for row in connection.execute(
+            select(table.c.goods_code, table.c.data)
+            .where(table.c.brand == brand)
+            .where(table.c.snapshot_date == snapshot_date)
+            .where(table.c.goods_code.in_(product_codes))
+        ).mappings()
+        if str(row["goods_code"] or "").strip()
+    }
+
+
 def _current_full_stock_payload(
     connection,
     product_codes: list[str],
@@ -224,6 +268,10 @@ def _manual_number(value: object) -> int | float | None:
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         return None
     return value if value >= 0 else None
+
+
+def _snapshot_value(values: dict[str, object], key: str, fallback: object) -> object:
+    return values[key] if key in values and values[key] is not None else fallback
 
 
 def _size_from_color_spec(value: object) -> str | None:
@@ -677,7 +725,7 @@ def list_product_goods(
     settings = request.app.state.settings
     repository = request.app.state.repository
     with repository.engine.connect() as connection:
-        snapshot_dates = [
+        stock_snapshot_dates = [
             item
             for item in connection.execute(
                 select(JST_SIZE_STOCK_SNAPSHOT_TABLE.c.snapshot_date)
@@ -686,8 +734,10 @@ def list_product_goods(
             ).scalars()
             if isinstance(item, date)
         ]
+        detail_snapshot_dates = _detail_snapshot_dates(connection, brand=brand)
+        snapshot_dates = sorted({*stock_snapshot_dates, *detail_snapshot_dates}, reverse=True)
         if snapshot_date is not None and snapshot_date not in snapshot_dates:
-            raise HTTPException(status_code=404, detail=f"未找到 {snapshot_date.isoformat()} 的库存快照")
+            raise HTTPException(status_code=404, detail=f"未找到 {snapshot_date.isoformat()} 的货品表快照")
         total = int(connection.execute(count_statement).scalar() or 0)
         rows = connection.execute(statement).mappings().all()
         product_codes = sorted({str(row.get("sku") or "").strip() for row in rows if str(row.get("sku") or "").strip()})
@@ -713,6 +763,12 @@ def list_product_goods(
             for row in rows
             if str(row.get("sku") or "").strip()
         }
+        detail_snapshots = _detail_snapshot_payload(
+            connection,
+            product_codes,
+            brand=brand,
+            snapshot_date=snapshot_date,
+        )
         daily_dates, daily_sales, platform_sales, sales_by_size, sales_summary = _sales_matrix_payload(
             connection,
             repository.engine,
@@ -736,26 +792,51 @@ def list_product_goods(
             ).mappings()
         } if supplier_names else {}
 
+    if detail_snapshots:
+        daily_dates = sorted({
+            day
+            for snapshot in detail_snapshots.values()
+            for day in (snapshot.get("daily_sales_by_date") or {})
+            if isinstance(day, str)
+        })
+        annual_sales_columns = sorted({
+            period
+            for snapshot in detail_snapshots.values()
+            for period in (snapshot.get("annual_sales") or {})
+            if isinstance(period, str)
+        })
+        monthly_sales_columns = sorted(
+            {
+                period
+                for snapshot in detail_snapshots.values()
+                for period in (snapshot.get("monthly_sales") or {})
+                if isinstance(period, str)
+            },
+            key=lambda value: tuple(int(item) for item in value.split("-", 1)),
+        )
+
     items: list[dict[str, Any]] = []
     for row in rows:
         sku = str(row.get("sku") or "").strip()
+        detail_snapshot = detail_snapshots.get(sku, {})
+        snapshot_metrics = detail_snapshot.get("metrics") if isinstance(detail_snapshot.get("metrics"), dict) else {}
         full_stock = full_stocks.get(sku)
-        stock_by_size = dict(full_stock["stock_by_size"]) if full_stock else size_stocks.get(sku, {})
-        in_transit_by_size = dict(full_stock["in_transit_by_size"]) if full_stock else {}
-        shortage_by_size = dict(full_stock["shortage_by_size"]) if full_stock else {}
+        stock_by_size = dict(detail_snapshot.get("stock_by_size") or (full_stock["stock_by_size"] if full_stock else size_stocks.get(sku, {})))
+        in_transit_by_size = dict(detail_snapshot.get("in_transit_by_size") or (full_stock["in_transit_by_size"] if full_stock else {}))
+        shortage_by_size = dict(detail_snapshot.get("shortage_by_size") or (full_stock["shortage_by_size"] if full_stock else {}))
         shortage_total = int(full_stock["shortage_total"]) if full_stock else 0
-        stock_total = int(full_stock["stock_total"]) if full_stock else sum(stock_by_size.values())
+        stock_total = int(_snapshot_value(snapshot_metrics, "stock_total", full_stock["stock_total"] if full_stock else sum(stock_by_size.values())) or 0)
         summary = summaries.get(sku, {})
-        in_transit_total = int(full_stock["in_transit_total"]) if full_stock else int(summary.get("purchase_in_transit_qty") or 0)
-        inventory_by_size = {
+        in_transit_total = int(_snapshot_value(snapshot_metrics, "in_transit_total", full_stock["in_transit_total"] if full_stock else int(summary.get("purchase_in_transit_qty") or 0)) or 0)
+        inventory_by_size = dict(detail_snapshot.get("inventory_by_size") or {
             size: int(stock_by_size.get(size, 0)) + int(in_transit_by_size.get(size, 0))
             for size in sorted(set(stock_by_size) | set(in_transit_by_size), key=lambda value: int(value))
-        }
-        inventory_total = stock_total + in_transit_total
+        })
+        inventory_total = int(_snapshot_value(snapshot_metrics, "inventory_total", stock_total + in_transit_total) or 0)
         sales = sales_summary.get(sku, {})
         extra_fields = row.get("extra_fields") if isinstance(row.get("extra_fields"), dict) else {}
-        replenishment_by_size = _manual_size_quantities(extra_fields.get("replenishment_by_size"))
-        post_replenishment_by_size = _manual_size_quantities(extra_fields.get("post_replenishment_by_size"))
+        replenishment_by_size = dict(detail_snapshot.get("replenishment_by_size") or _manual_size_quantities(extra_fields.get("replenishment_by_size")))
+        post_replenishment_by_size = dict(detail_snapshot.get("post_replenishment_by_size") or _manual_size_quantities(extra_fields.get("post_replenishment_by_size")))
         yesterday_sales = int(sales.get("yesterday_sales") or 0)
         previous_day_sales = int(sales.get("previous_day_sales") or 0)
         total_order_count = historical_order_counts.get(sku, sales.get("total_order_count"))
@@ -789,25 +870,26 @@ def list_product_goods(
             "year_sales": sales.get("year_sales"),
             "month_sales": sales.get("month_sales"),
         }
+        metrics.update(snapshot_metrics)
         items.append({
-            "id": row["id"], "brand": brand, "year": row.get("year"), "season": row.get("season_category"),
-            "platform": row.get("platform"), "category_l4": row.get("category_l4"),
-            "first_order_date": row.get("first_order_time"), "factory_sku": row.get("factory_sku"),
-            "factory_code": supplier_codes.get(str(row.get("supplier_name") or "").strip()), "factory_name": row.get("supplier_name"), "style_code": row.get("original_sku"), "goods_code": row.get("sku"),
-            "color": row.get("color"), "image_url": image_url_for(brand, row.get("image_path"), settings),
-            "cost": str(row["cost"]) if row.get("cost") is not None else None,
-            "product_role": row.get("product_role"), "product_type": row.get("product_type"),
-            "douyin_hot": row.get("douyin_hot"), "clearance": row.get("clearance"), "remark": row.get("remark"),
+            "id": row["id"], "brand": brand, "year": detail_snapshot.get("year") or row.get("year"), "season": detail_snapshot.get("season") or row.get("season_category"),
+            "platform": detail_snapshot.get("platform") or row.get("platform"), "category_l4": detail_snapshot.get("category_l4") or row.get("category_l4"),
+            "first_order_date": detail_snapshot.get("first_order_date") or row.get("first_order_time"), "factory_sku": detail_snapshot.get("factory_sku") or row.get("factory_sku"),
+            "factory_code": detail_snapshot.get("factory_code") or supplier_codes.get(str(row.get("supplier_name") or "").strip()), "factory_name": detail_snapshot.get("factory_name") or row.get("supplier_name"), "style_code": detail_snapshot.get("style_code") or row.get("original_sku"), "goods_code": row.get("sku"),
+            "color": detail_snapshot.get("color") or row.get("color"), "image_url": image_url_for(brand, row.get("image_path"), settings),
+            "cost": detail_snapshot.get("cost") or (str(row["cost"]) if row.get("cost") is not None else None),
+            "product_role": detail_snapshot.get("product_role") or row.get("product_role"), "product_type": detail_snapshot.get("product_type") or row.get("product_type"),
+            "douyin_hot": detail_snapshot.get("douyin_hot") or row.get("douyin_hot"), "clearance": detail_snapshot.get("clearance") or row.get("clearance"), "remark": detail_snapshot.get("remark") or row.get("remark"),
             "stock_by_size": stock_by_size, "stock_total": stock_total,
             "in_transit_total": in_transit_total,
             "inventory_total": inventory_total,
-            "daily_sales_by_date": daily_sales.get(sku, {}),
-            "annual_sales": annual_sales.get(sku, {}),
-            "monthly_sales": monthly_sales.get(sku, {}),
+            "daily_sales_by_date": detail_snapshot.get("daily_sales_by_date") or daily_sales.get(sku, {}),
+            "annual_sales": detail_snapshot.get("annual_sales") or annual_sales.get(sku, {}),
+            "monthly_sales": detail_snapshot.get("monthly_sales") or monthly_sales.get(sku, {}),
             "platform_sales": platform_sales.get(sku, {}),
-            "daily_platform_sales": platform_sales.get(sku, {}).get("daily", {}),
-            "weekly_platform_sales": platform_sales.get(sku, {}).get("weekly", {}),
-            "monthly_platform_sales": platform_sales.get(sku, {}).get("monthly", {}),
+            "daily_platform_sales": detail_snapshot.get("daily_platform_sales") or platform_sales.get(sku, {}).get("daily", {}),
+            "weekly_platform_sales": detail_snapshot.get("weekly_platform_sales") or platform_sales.get(sku, {}).get("weekly", {}),
+            "monthly_platform_sales": detail_snapshot.get("monthly_platform_sales") or platform_sales.get(sku, {}).get("monthly", {}),
             "in_transit_by_size": in_transit_by_size, "inventory_by_size": inventory_by_size, "shortage_by_size": shortage_by_size,
             "sales_by_size": sales_by_size.get(sku, {}), "replenishment_by_size": replenishment_by_size, "post_replenishment_by_size": post_replenishment_by_size,
             "metrics": metrics,

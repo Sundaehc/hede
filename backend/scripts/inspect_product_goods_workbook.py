@@ -22,6 +22,7 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("path", type=Path)
     parser.add_argument("--rows", type=int, default=5)
+    parser.add_argument("--start-row", type=int, default=1)
     parser.add_argument("--max-columns", type=int, default=None)
     parser.add_argument("--list-sheets", action="store_true")
     parser.add_argument("--sheet", default=PRODUCT_SHEET_NAME)
@@ -38,7 +39,10 @@ def main() -> None:
                 if element.tag != f"{XML_NAMESPACE}row":
                     continue
                 row_number = int(element.attrib.get("r") or 0)
-                if row_number > args.rows:
+                if row_number < args.start_row:
+                    element.clear()
+                    continue
+                if row_number >= args.start_row + args.rows:
                     break
                 values = {
                     _column_index(cell.attrib.get("r", "")): _cell_value(cell, shared_strings)

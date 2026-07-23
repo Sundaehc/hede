@@ -17,6 +17,7 @@ from domain import smiley_schema  # noqa: F401 - register Smiley fine table on M
 from domain import color_barcode_schema  # noqa: F401 - register color barcode table on METADATA
 from domain import jst_stock_snapshot_schema  # noqa: F401 - register JST stock snapshot tables on METADATA
 from domain import product_goods_schema  # noqa: F401 - register product goods overrides on METADATA
+from domain import product_goods_detail_snapshot_schema  # noqa: F401 - register product goods detail snapshots on METADATA
 from domain import product_goods_historical_sales_schema  # noqa: F401 - register historical product-goods sales on METADATA
 
 
