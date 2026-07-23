@@ -1,14 +1,15 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal
 
 from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel, ConfigDict
 from collections import defaultdict
 from datetime import date, timedelta
+import json
 import re
 
-from sqlalchemy import desc, func, inspect, or_, select
+from sqlalchemy import Text, and_, cast, desc, false, func, inspect, or_, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from api.product_goods_cache import clear_product_goods_cache, get_product_goods_cache, set_product_goods_cache
@@ -76,6 +77,155 @@ PRODUCT_GOODS_REPLENISHMENT_FIELDS = {
     "post_replenishment_total",
     "post_replenishment_turnover_days",
 }
+
+
+ProductGoodsFilterOperator = Literal["contains", "equals", "empty", "not_empty", "in", "not_in"]
+PRODUCT_GOODS_FILTER_OPERATORS: set[str] = {"contains", "equals", "empty", "not_empty", "in", "not_in"}
+PRODUCT_GOODS_FILTER_FIELDS = {
+    "year",
+    "season",
+    "platform",
+    "category_l4",
+    "first_order_date",
+    "factory_sku",
+    "factory_code",
+    "factory_name",
+    "style_code",
+    "goods_code",
+    "color",
+    "cost",
+    "product_role",
+    "product_type",
+    "douyin_hot",
+    "clearance",
+    "remark",
+}
+
+
+class ProductGoodsFilter(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    field: str
+    operator: ProductGoodsFilterOperator
+    value: str | None = None
+    values: list[str] | None = None
+
+
+def _parse_product_goods_filters(raw_filters: str | None) -> tuple[ProductGoodsFilter, ...]:
+    if not raw_filters:
+        return ()
+    try:
+        payload = json.loads(raw_filters)
+    except json.JSONDecodeError as exc:
+        raise HTTPException(status_code=400, detail="筛选条件格式无效") from exc
+    if not isinstance(payload, list) or len(payload) > 20:
+        raise HTTPException(status_code=400, detail="筛选条件最多 20 条")
+    filters: list[ProductGoodsFilter] = []
+    for item in payload:
+        if not isinstance(item, dict):
+            raise HTTPException(status_code=400, detail="筛选条件格式无效")
+        try:
+            condition = ProductGoodsFilter.model_validate(item)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail="筛选条件格式无效") from exc
+        condition.field = condition.field.strip()
+        condition.value = condition.value.strip() if isinstance(condition.value, str) else None
+        condition.values = [item.strip() for item in condition.values] if condition.values is not None else None
+        if condition.field not in PRODUCT_GOODS_FILTER_FIELDS:
+            raise HTTPException(status_code=400, detail=f"不支持按 {condition.field or '该字段'} 筛选")
+        if condition.operator not in PRODUCT_GOODS_FILTER_OPERATORS:
+            raise HTTPException(status_code=400, detail="筛选方式无效")
+        if condition.operator in {"contains", "equals"} and not condition.value:
+            raise HTTPException(status_code=400, detail="请输入筛选值")
+        if condition.operator in {"in", "not_in"} and condition.values is None:
+            raise HTTPException(status_code=400, detail="请选择筛选值")
+        if condition.values is not None and len(condition.values) > 5_000:
+            raise HTTPException(status_code=400, detail="单个字段最多选择 5000 个值")
+        filters.append(condition)
+    return tuple(filters)
+
+
+def _product_goods_filter_condition(
+    column,
+    operator: ProductGoodsFilterOperator,
+    value: str | None,
+    values: list[str] | None = None,
+):
+    normalized = func.coalesce(func.trim(cast(column, Text)), "")
+    if operator == "empty":
+        return normalized == ""
+    if operator == "not_empty":
+        return normalized != ""
+    if operator == "in":
+        normalized_values = sorted({item.lower() for item in values or []})
+        return func.lower(normalized).in_(normalized_values) if normalized_values else false()
+    if operator == "not_in":
+        normalized_values = sorted({item.lower() for item in values or []})
+        return func.lower(normalized).not_in(normalized_values) if normalized_values else normalized == normalized
+    if operator == "equals":
+        return func.lower(normalized) == (value or "").lower()
+    escaped_value = (value or "").replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    return normalized.ilike(f"%{escaped_value}%", escape="\\")
+
+
+def _product_goods_filter_columns(product_table, override):
+    factory_code_column = (
+        select(SUPPLIER_TABLE.c.factory_code)
+        .where(SUPPLIER_TABLE.c.name == product_table.c.supplier_name)
+        .limit(1)
+        .scalar_subquery()
+    )
+    return {
+        "year": product_table.c.year,
+        "season": product_table.c.season_category,
+        "platform": override.c.platform,
+        "category_l4": override.c.category_l4,
+        "first_order_date": product_table.c.first_order_time,
+        "factory_sku": product_table.c.factory_sku,
+        "factory_code": factory_code_column,
+        "factory_name": product_table.c.supplier_name,
+        "style_code": product_table.c.original_sku,
+        "goods_code": product_table.c.sku,
+        "color": product_table.c.color,
+        "cost": product_table.c.cost,
+        "product_role": override.c.product_role,
+        "product_type": override.c.product_type,
+        "douyin_hot": override.c.douyin_hot,
+        "clearance": override.c.clearance,
+        "remark": override.c.remark,
+    }
+
+
+def _product_goods_conditions(
+    product_table,
+    override,
+    *,
+    query: str,
+    platform: str,
+    year: str,
+    filters: tuple[ProductGoodsFilter, ...],
+) -> list:
+    conditions = []
+    if query:
+        term = f"%{query}%"
+        conditions.append(or_(product_table.c.sku.ilike(term), product_table.c.original_sku.ilike(term), product_table.c.factory_sku.ilike(term), product_table.c.color.ilike(term)))
+    if year:
+        conditions.append(product_table.c.year.ilike(f"%{year}%"))
+    if platform:
+        conditions.append(override.c.platform == platform)
+    columns = _product_goods_filter_columns(product_table, override)
+    grouped_filters: dict[str, list] = defaultdict(list)
+    for product_filter in filters:
+        grouped_filters[product_filter.field].append(
+            _product_goods_filter_condition(
+                columns[product_filter.field],
+                product_filter.operator,
+                product_filter.value,
+                product_filter.values,
+            )
+        )
+    conditions.extend(or_(*field_conditions) for field_conditions in grouped_filters.values())
+    return conditions
 
 
 def _size_stock_payload(
@@ -679,6 +829,61 @@ def _sales_period_payload(
     return annual_columns, monthly_columns, annual_by_sku, monthly_by_sku
 
 
+@router.get("/product-goods/filter-options")
+def list_product_goods_filter_options(
+    request: Request,
+    field: str,
+    brand: str = Query(DEFAULT_BRAND),
+    filters: str | None = None,
+    query: str | None = None,
+    search: str | None = None,
+    platform: str | None = None,
+    year: str | None = None,
+):
+    if brand not in PRODUCT_TABLES:
+        raise HTTPException(status_code=400, detail=f"Invalid brand: {brand}")
+    if field not in PRODUCT_GOODS_FILTER_FIELDS:
+        raise HTTPException(status_code=400, detail=f"不支持按 {field or '该字段'} 筛选")
+    parsed_filters = _parse_product_goods_filters(filters)
+    other_field_filters = tuple(item for item in parsed_filters if item.field != field)
+    product_table = PRODUCT_TABLES[brand]
+    override = PRODUCT_GOODS_OVERRIDES_TABLE
+    conditions = _product_goods_conditions(
+        product_table,
+        override,
+        query=(query or "").strip(),
+        platform=(platform or "").strip(),
+        year=(year or "").strip(),
+        filters=other_field_filters,
+    )
+    column = _product_goods_filter_columns(product_table, override)[field]
+    value_expression = func.coalesce(func.trim(cast(column, Text)), "")
+    normalized_search = (search or "").strip()
+    if normalized_search:
+        escaped_query = normalized_search.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        conditions.append(value_expression.ilike(f"%{escaped_query}%", escape="\\"))
+    join = product_table.outerjoin(override, (override.c.brand == brand) & (override.c.product_id == product_table.c.id))
+    statement = (
+        select(value_expression.label("value"), func.count().label("count"))
+        .select_from(join)
+        .where(*conditions)
+        .group_by(value_expression)
+        .order_by(desc(func.count()), value_expression)
+        .limit(10_000)
+    )
+    total_statement = select(func.count(func.distinct(value_expression))).select_from(join).where(*conditions)
+    repository = request.app.state.repository
+    with repository.engine.connect() as connection:
+        rows = connection.execute(statement).mappings().all()
+        total = int(connection.execute(total_statement).scalar() or 0)
+    return {
+        "field": field,
+        "total": total,
+        "truncated": total > len(rows),
+        "options": [{"value": str(row["value"] or ""), "count": int(row["count"] or 0)} for row in rows],
+    }
+
+
 @router.get("/product-goods")
 def list_product_goods(
     request: Request,
@@ -686,6 +891,7 @@ def list_product_goods(
     query: str | None = None,
     platform: str | None = None,
     year: str | None = None,
+    filters: str | None = None,
     snapshot_date: date | None = None,
     cache_bust: str | None = None,
     page: int = 1,
@@ -699,21 +905,23 @@ def list_product_goods(
     normalized_platform = (platform or "").strip()
     normalized_year = (year or "").strip()
     normalized_snapshot_date = snapshot_date.isoformat() if snapshot_date else ""
-    cache_key = (brand, normalized_query, normalized_platform, normalized_year, normalized_snapshot_date, page, page_size)
+    parsed_filters = _parse_product_goods_filters(filters)
+    normalized_filters = tuple(sorted((item.field, item.operator, item.value or "", tuple(item.values or [])) for item in parsed_filters))
+    cache_key = (brand, normalized_query, normalized_platform, normalized_year, normalized_filters, normalized_snapshot_date, page, page_size)
     if not cache_bust:
         cached = get_product_goods_cache(cache_key)
         if cached is not None:
             return cached
     product_table = PRODUCT_TABLES[brand]
     override = PRODUCT_GOODS_OVERRIDES_TABLE
-    conditions = []
-    if normalized_query:
-        term = f"%{normalized_query}%"
-        conditions.append(or_(product_table.c.sku.ilike(term), product_table.c.original_sku.ilike(term), product_table.c.factory_sku.ilike(term), product_table.c.color.ilike(term)))
-    if normalized_year:
-        conditions.append(product_table.c.year.ilike(f"%{normalized_year}%"))
-    if normalized_platform:
-        conditions.append(override.c.platform == normalized_platform)
+    conditions = _product_goods_conditions(
+        product_table,
+        override,
+        query=normalized_query,
+        platform=normalized_platform,
+        year=normalized_year,
+        filters=parsed_filters,
+    )
     join = product_table.outerjoin(override, (override.c.brand == brand) & (override.c.product_id == product_table.c.id))
     statement = select(product_table, override).select_from(join)
     count_statement = select(func.count()).select_from(join)

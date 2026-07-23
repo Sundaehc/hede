@@ -13,6 +13,7 @@ import {
   ChevronsLeft,
   ChevronsRight,
   Download,
+  Filter,
   History,
   ImageIcon,
   Layers3,
@@ -37,7 +38,7 @@ import { OperationLogDialog } from "@/components/operation-log-dialog"
 import { Input } from "@/components/ui/input"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { BRANDS, type BrandKey } from "@/lib/brands"
-import { ApiError, getFineTableSnapshotByDate, listFineTable, logFineTableExport } from "@/lib/api"
+import { ApiError, getFineTableSnapshotByDate, listFineTable, listFineTableFilterOptions, logFineTableExport, type FineTableFilter, type FineTableFilterField, type FineTableFilterOptionsResponse } from "@/lib/api"
 import type { FineTableItem, FineTableResponse, FineTableSnapshotResponse, ProductListItem } from "@/lib/types"
 import { cn } from "@/lib/utils"
 
@@ -47,6 +48,9 @@ const EXPORT_CONCURRENCY = 3
 const FINE_TABLE_PAGE_CACHE_LIMIT = 80
 const FINE_TABLE_CLIENT_CACHE_TTL_MS = 5 * 60 * 1000
 const DAILY_SALES_DISPLAY_DAYS = 5
+const FINE_TABLE_FILTER_FIELDS = new Set<FineTableFilterField>([
+  "sku", "original_sku", "group_name", "product_level", "year", "season_category", "factory_code", "factory_name", "factory_sku", "upper_material", "lining_material", "outsole_material", "insole_material", "first_order_time", "cost",
+])
 
 type ViewKey = "all" | "missingImage" | "stockRisk"
 type ColumnMode = "full" | "custom"
@@ -61,6 +65,7 @@ type TableColumn = {
   dailyMetricLabel?: "销售" | "UV"
   align?: "left" | "right" | "center"
   className?: string
+  filterField?: FineTableFilterField
   defaultVisible?: boolean
   render: (row: FineTableItem) => ReactNode
   exportValue?: (row: FineTableItem) => string | number | null | undefined
@@ -77,6 +82,7 @@ type FineTablePageContext = {
   historyDate: string
   query: string
   skuPrefix: string
+  filters: FineTableFilter[]
   reloadToken: number
 }
 type FineTableLastState = {
@@ -88,7 +94,36 @@ type FineTableLastState = {
   skuPrefixInput: string
   view: ViewKey
   historyDate: string
+  filters: FineTableFilter[]
   reloadToken: number
+}
+type ActiveFineTableColumnFilter = { field: FineTableFilterField; label: string; top: number; left: number }
+
+function FineTableHeaderFilterButton({
+  field,
+  label,
+  active,
+  onOpen,
+}: {
+  field: FineTableFilterField
+  label: string
+  active: boolean
+  onOpen: (field: FineTableFilterField, label: string, target: HTMLElement) => void
+}) {
+  return (
+    <button
+      type="button"
+      className={cn(
+        "shrink-0 rounded p-0.5 transition-colors hover:bg-muted",
+        active ? "text-primary" : "text-muted-foreground/80",
+      )}
+      onClick={(event) => onOpen(field, label, event.currentTarget)}
+      aria-label={`筛选${label}`}
+      title={`筛选${label}`}
+    >
+      <Filter className="h-3 w-3" />
+    </button>
+  )
 }
 
 const viewTabs: { value: ViewKey; label: string }[] = [
@@ -110,6 +145,7 @@ let fineTableLastState: FineTableLastState = {
   skuPrefixInput: "",
   view: "all",
   historyDate: "",
+  filters: [],
   reloadToken: 0,
 }
 
@@ -605,7 +641,7 @@ function createTableColumns(dailyLabels: string[]): TableColumn[] {
     render: (row) => formatNumber(row.size_stock[label] ?? 0),
   }))
 
-  return [
+  const columns: TableColumn[] = [
     {
       key: "status",
       label: "上下线状态",
@@ -763,6 +799,12 @@ function createTableColumns(dailyLabels: string[]): TableColumn[] {
     ...dailyColumns,
     ...sizeColumns,
   ]
+  for (const column of columns) {
+    if (FINE_TABLE_FILTER_FIELDS.has(column.key as FineTableFilterField)) {
+      column.filterField = column.key as FineTableFilterField
+    }
+  }
+  return columns
 }
 
 function ProductThumb({ item, className }: { item: ProductListItem; className?: string }) {
@@ -1105,9 +1147,12 @@ function DetailDrawer({ row, onClose }: { row: FineTableItem | null; onClose: ()
 }
 
 const FineTableGrid = memo(function FineTableGrid({
+  activeFilters,
   error,
+  filtersEnabled,
   filteredRows,
   isLoading,
+  onOpenColumnFilter,
   onPageChange,
   onPreviewImage,
   onSelectRow,
@@ -1116,9 +1161,12 @@ const FineTableGrid = memo(function FineTableGrid({
   totalPages,
   visibleColumns,
 }: {
+  activeFilters: FineTableFilter[]
   error: string | null
+  filtersEnabled: boolean
   filteredRows: FineTableItem[]
   isLoading: boolean
+  onOpenColumnFilter: (field: FineTableFilterField, label: string, target: HTMLElement) => void
   onPageChange: (page: number) => void
   onPreviewImage: (row: FineTableItem) => void
   onSelectRow: (row: FineTableItem) => void
@@ -1128,6 +1176,7 @@ const FineTableGrid = memo(function FineTableGrid({
   visibleColumns: TableColumn[]
 }) {
   const hasDailyColumns = visibleColumns.some((column) => column.dailyMetricLabel)
+  const activeFilterFields = new Set(activeFilters.map((filter) => filter.field))
   const tableMinWidth = Math.max(
     1500,
     500 + visibleColumns.reduce((sum, column) => sum + (column.dailyMetricLabel ? 68 : 120), 0),
@@ -1164,7 +1213,17 @@ const FineTableGrid = memo(function FineTableGrid({
           column.className,
         )}
       >
-        <span className="block whitespace-nowrap">{column.label}</span>
+        <div className="flex items-center justify-center gap-0.5">
+          <span className="block whitespace-nowrap">{column.label}</span>
+          {filtersEnabled && column.filterField && (
+            <FineTableHeaderFilterButton
+              field={column.filterField}
+              label={column.label}
+              active={activeFilterFields.has(column.filterField)}
+              onOpen={onOpenColumnFilter}
+            />
+          )}
+        </div>
         <span className="mt-0.5 block text-[10px] font-normal text-muted-foreground">{column.group}</span>
       </th>,
     )
@@ -1180,8 +1239,8 @@ const FineTableGrid = memo(function FineTableGrid({
           <thead className="sticky top-0 z-[60] bg-card">
             <tr className="text-xs text-muted-foreground">
               <th rowSpan={hasDailyColumns ? 2 : 1} className="sticky left-0 z-[70] w-20 min-w-[5rem] max-w-[5rem] border-b border-border bg-card px-3 py-2.5 text-center font-medium">图片</th>
-              <th rowSpan={hasDailyColumns ? 2 : 1} className="sticky left-20 z-[70] w-40 min-w-[10rem] max-w-[10rem] border-b border-border bg-card px-3 py-2.5 text-left font-medium">货号</th>
-              <th rowSpan={hasDailyColumns ? 2 : 1} className="sticky left-60 z-[70] w-40 min-w-[10rem] max-w-[10rem] border-b border-border bg-card px-3 py-2.5 text-left font-medium">原始货号</th>
+              <th rowSpan={hasDailyColumns ? 2 : 1} className="sticky left-20 z-[70] w-40 min-w-[10rem] max-w-[10rem] border-b border-border bg-card px-3 py-2.5 text-left font-medium"><div className="flex items-center justify-between gap-1"><span>货号</span>{filtersEnabled && <FineTableHeaderFilterButton field="sku" label="货号" active={activeFilterFields.has("sku")} onOpen={onOpenColumnFilter} />}</div></th>
+              <th rowSpan={hasDailyColumns ? 2 : 1} className="sticky left-60 z-[70] w-40 min-w-[10rem] max-w-[10rem] border-b border-border bg-card px-3 py-2.5 text-left font-medium"><div className="flex items-center justify-between gap-1"><span>原始货号</span>{filtersEnabled && <FineTableHeaderFilterButton field="original_sku" label="原始货号" active={activeFilterFields.has("original_sku")} onOpen={onOpenColumnFilter} />}</div></th>
               {headerCells}
               <th rowSpan={hasDailyColumns ? 2 : 1} className="sticky right-0 z-[70] w-20 border-b border-border bg-card px-3 py-3 text-center font-medium">详情</th>
             </tr>
@@ -1290,7 +1349,7 @@ function getMaxHistoryDate() {
 }
 
 function fineTablePageCacheKey(context: FineTablePageContext, page: number) {
-  return JSON.stringify([context.brand, context.historyDate, context.query, context.skuPrefix, context.reloadToken, page])
+  return JSON.stringify([context.brand, context.historyDate, context.query, context.skuPrefix, context.filters, context.reloadToken, page])
 }
 
 function fineTableResponseToCacheEntry(response: FineTableResponse | FineTableSnapshotResponse): FineTablePageCacheEntry {
@@ -1329,6 +1388,7 @@ async function loadFineTablePage(context: FineTablePageContext, page: number) {
       pageSize: PAGE_SIZE,
       query: context.query || undefined,
       skuPrefix: context.skuPrefix || undefined,
+      filters: context.filters.length ? context.filters : undefined,
       cacheBust: context.reloadToken || undefined,
     })
 
@@ -1373,6 +1433,7 @@ export function FineTablePage() {
     historyDate: initialState.historyDate,
     query: initialState.query,
     skuPrefix: initialState.skuPrefix,
+    filters: initialState.filters,
     reloadToken: initialState.reloadToken,
   }, initialState.page))
   const [brand, setBrand] = useState<FineTableBrandKey>(initialState.brand)
@@ -1383,6 +1444,13 @@ export function FineTablePage() {
   const [query, setQuery] = useState(initialState.query)
   const [skuPrefixInput, setSkuPrefixInput] = useState(initialState.skuPrefixInput)
   const [skuPrefix, setSkuPrefix] = useState(initialState.skuPrefix)
+  const [filters, setFilters] = useState<FineTableFilter[]>(initialState.filters)
+  const [activeColumnFilter, setActiveColumnFilter] = useState<ActiveFineTableColumnFilter | null>(null)
+  const [columnFilterData, setColumnFilterData] = useState<FineTableFilterOptionsResponse | null>(null)
+  const [columnFilterSearch, setColumnFilterSearch] = useState("")
+  const [draftColumnValues, setDraftColumnValues] = useState<string[] | null>(null)
+  const [columnFilterLoading, setColumnFilterLoading] = useState(false)
+  const [columnFilterError, setColumnFilterError] = useState("")
   const [view, setView] = useState<ViewKey>(initialState.view)
   const [selectedRow, setSelectedRow] = useState<FineTableItem | null>(null)
   const [isLoading, setIsLoading] = useState(() => !initialCacheEntry)
@@ -1404,6 +1472,7 @@ export function FineTablePage() {
   const [snapshotLabel, setSnapshotLabel] = useState<string | null>(() => (initialCacheEntry?.snapshotLabel ?? initialState.historyDate) || null)
   const [, startPageTransition] = useTransition()
   const loadRequestIdRef = useRef(0)
+  const columnFilterRequestIdRef = useRef(0)
   const pageCacheRef = useRef(fineTablePageCache)
   const prefetchingPagesRef = useRef(fineTablePagePrefetching)
   const historyDateInputRef = useRef<HTMLInputElement>(null)
@@ -1422,7 +1491,7 @@ export function FineTablePage() {
     const requestId = loadRequestIdRef.current + 1
     loadRequestIdRef.current = requestId
     const isCurrentRequest = () => !cancelled && loadRequestIdRef.current === requestId
-    const context: FineTablePageContext = { brand, historyDate, query, skuPrefix, reloadToken }
+    const context: FineTablePageContext = { brand, historyDate, query, skuPrefix, filters, reloadToken }
     const cacheKey = fineTablePageCacheKey(context, page)
 
     function prefetchPage(pageToPrefetch: number, totalPageCount: number) {
@@ -1483,7 +1552,40 @@ export function FineTablePage() {
     return () => {
       cancelled = true
     }
-  }, [brand, historyDate, page, query, skuPrefix, reloadToken])
+  }, [brand, filters, historyDate, page, query, skuPrefix, reloadToken])
+
+  useEffect(() => {
+    if (!activeColumnFilter || historyDate) return
+    const requestId = ++columnFilterRequestIdRef.current
+    setColumnFilterLoading(true)
+    setColumnFilterError("")
+    void listFineTableFilterOptions({
+      brand,
+      field: activeColumnFilter.field,
+      filters,
+      query: query || undefined,
+      skuPrefix: skuPrefix || undefined,
+    }).then((response) => {
+      if (requestId !== columnFilterRequestIdRef.current) return
+      setColumnFilterData(response)
+      setDraftColumnValues((current) => {
+        if (current !== null) return current
+        const fieldFilters = filters.filter((item) => item.field === response.field)
+        const includeFilter = fieldFilters.find((item) => item.operator === "in")
+        if (includeFilter) return includeFilter.values
+        const excludeFilter = fieldFilters.find((item) => item.operator === "not_in")
+        if (excludeFilter) {
+          const excluded = new Set(excludeFilter.values)
+          return response.options.filter((item) => !excluded.has(item.value)).map((item) => item.value)
+        }
+        return response.options.map((item) => item.value)
+      })
+    }).catch((loadError: unknown) => {
+      if (requestId === columnFilterRequestIdRef.current) setColumnFilterError(getErrorMessage(loadError))
+    }).finally(() => {
+      if (requestId === columnFilterRequestIdRef.current) setColumnFilterLoading(false)
+    })
+  }, [activeColumnFilter, brand, filters, historyDate, query, skuPrefix])
 
   useEffect(() => {
     fineTableLastState = {
@@ -1495,9 +1597,10 @@ export function FineTablePage() {
       skuPrefixInput,
       view,
       historyDate,
+      filters,
       reloadToken,
     }
-  }, [brand, historyDate, page, query, queryInput, reloadToken, skuPrefix, skuPrefixInput, view])
+  }, [brand, filters, historyDate, page, query, queryInput, reloadToken, skuPrefix, skuPrefixInput, view])
 
   const deferredView = useDeferredValue(view)
   const filteredRows = useMemo(() => {
@@ -1529,6 +1632,22 @@ export function FineTablePage() {
   }, [columnMode, customColumnKeys, tableColumns])
   const deferredVisibleColumns = useDeferredValue(visibleColumns)
   const isColumnViewSettling = deferredVisibleColumns !== visibleColumns
+  const matchingColumnFilterOptions = useMemo(() => {
+    const keyword = columnFilterSearch.trim().toLocaleLowerCase()
+    if (!keyword) return columnFilterData?.options ?? []
+    return (columnFilterData?.options ?? []).filter((item) => item.value.toLocaleLowerCase().includes(keyword))
+  }, [columnFilterData, columnFilterSearch])
+  const visibleColumnFilterOptions = useMemo(
+    () => matchingColumnFilterOptions.slice(0, 300),
+    [matchingColumnFilterOptions],
+  )
+  const hasHiddenColumnFilterOptions = matchingColumnFilterOptions.length > visibleColumnFilterOptions.length
+  const selectedColumnValues = useMemo(
+    () => new Set(draftColumnValues ?? columnFilterData?.options.map((item) => item.value) ?? []),
+    [columnFilterData, draftColumnValues],
+  )
+  const allVisibleColumnOptionsSelected = visibleColumnFilterOptions.length > 0
+    && visibleColumnFilterOptions.every((item) => selectedColumnValues.has(item.value))
   const draftCustomColumnKeySet = useMemo(() => new Set(draftCustomColumnKeys), [draftCustomColumnKeys])
   const collapsedColumnGroupSet = useMemo(() => new Set(collapsedColumnGroups), [collapsedColumnGroups])
   const groupedColumns = useMemo(() => {
@@ -1552,6 +1671,71 @@ export function FineTablePage() {
   const currentBrandLabel = useMemo(() => {
     return FINE_TABLE_BRANDS.find((item) => item.key === brand)?.label ?? "商品"
   }, [brand])
+
+  function openFineTableColumnFilter(field: FineTableFilterField, label: string, target: HTMLElement) {
+    if (historyDate) return
+    const rect = target.getBoundingClientRect()
+    setActiveColumnFilter({
+      field,
+      label,
+      top: Math.min(rect.bottom + 6, Math.max(12, window.innerHeight - 560)),
+      left: Math.max(12, Math.min(rect.left, window.innerWidth - 388)),
+    })
+    setColumnFilterData(null)
+    setColumnFilterSearch("")
+    setDraftColumnValues(null)
+    setColumnFilterError("")
+  }
+
+  function closeFineTableColumnFilter() {
+    setActiveColumnFilter(null)
+    setColumnFilterData(null)
+    setColumnFilterError("")
+  }
+
+  function toggleFineTableColumnFilterValue(value: string) {
+    setDraftColumnValues((current) => {
+      const values = new Set(current ?? columnFilterData?.options.map((item) => item.value) ?? [])
+      if (values.has(value)) values.delete(value)
+      else values.add(value)
+      return [...values]
+    })
+  }
+
+  function toggleAllVisibleFineTableColumnFilterOptions() {
+    setDraftColumnValues((current) => {
+      const values = new Set(current ?? columnFilterData?.options.map((item) => item.value) ?? [])
+      if (allVisibleColumnOptionsSelected) visibleColumnFilterOptions.forEach((item) => values.delete(item.value))
+      else visibleColumnFilterOptions.forEach((item) => values.add(item.value))
+      return [...values]
+    })
+  }
+
+  function clearActiveFineTableColumnFilter() {
+    if (!activeColumnFilter) return
+    setFilters((current) => current.filter((item) => item.field !== activeColumnFilter.field))
+    setPage(1)
+    closeFineTableColumnFilter()
+  }
+
+  function applyFineTableColumnFilter() {
+    if (!activeColumnFilter || !columnFilterData) return
+    const allValues = columnFilterData.options.map((item) => item.value)
+    const selectedValues = allValues.filter((value) => selectedColumnValues.has(value))
+    const selectedValueSet = new Set(selectedValues)
+    const excludedValues = allValues.filter((value) => !selectedValueSet.has(value))
+    if (selectedValues.length !== allValues.length && Math.min(selectedValues.length, excludedValues.length) > 5_000) {
+      setColumnFilterError("请先搜索缩小范围，再进行大批量筛选")
+      return
+    }
+    setFilters((current) => {
+      const otherFilters = current.filter((item) => item.field !== activeColumnFilter.field)
+      if (selectedValues.length === allValues.length) return otherFilters
+      return [...otherFilters, selectedValues.length <= excludedValues.length ? { field: activeColumnFilter.field, operator: "in", values: selectedValues } : { field: activeColumnFilter.field, operator: "not_in", values: excludedValues }]
+    })
+    setPage(1)
+    closeFineTableColumnFilter()
+  }
 
   function openCustomColumnPicker() {
     setDraftCustomColumnKeys(customColumnKeys)
@@ -1624,7 +1808,7 @@ export function FineTablePage() {
 
   function prefetchBrandPage(nextBrand: FineTableBrandKey) {
     if (nextBrand === brand) return
-    const context = { brand: nextBrand, historyDate, query, skuPrefix, reloadToken }
+    const context = { brand: nextBrand, historyDate, query, skuPrefix, filters: [], reloadToken }
     const prefetchKey = fineTablePageCacheKey(context, 1)
     if (getCachedFineTablePage(pageCacheRef.current, prefetchKey) || prefetchingPagesRef.current.has(prefetchKey)) return
 
@@ -1644,8 +1828,9 @@ export function FineTablePage() {
   function handleBrandChange(nextBrand: FineTableBrandKey) {
     if (nextBrand === brand) return
     loadRequestIdRef.current += 1
-    const nextContext = { brand: nextBrand, historyDate, query, skuPrefix, reloadToken }
+    const nextContext = { brand: nextBrand, historyDate, query, skuPrefix, filters: [], reloadToken }
     setBrand(nextBrand)
+    setFilters([])
     setPage(1)
     setSelectedRow(null)
     setPreviewImage(null)
@@ -1654,7 +1839,7 @@ export function FineTablePage() {
 
   function clearHistoryDate() {
     if (!historyDate) return
-    const nextContext = { brand, historyDate: "", query, skuPrefix, reloadToken }
+    const nextContext = { brand, historyDate: "", query, skuPrefix, filters, reloadToken }
     setHistoryDate("")
     setPage(1)
     showCachedPageOrLoading(nextContext, 1, null)
@@ -1687,8 +1872,9 @@ export function FineTablePage() {
       setError("历史日期只能选择今天以前")
       return
     }
-    const nextContext = { brand, historyDate: nextDate, query, skuPrefix, reloadToken }
+    const nextContext = { brand, historyDate: nextDate, query, skuPrefix, filters: [], reloadToken }
     setHistoryDate(nextDate)
+    setFilters([])
     setPage(1)
     showCachedPageOrLoading(nextContext, 1, nextDate || null)
   }
@@ -1721,6 +1907,7 @@ export function FineTablePage() {
             pageSize: EXPORT_PAGE_SIZE,
             query: query || undefined,
             skuPrefix: skuPrefix || undefined,
+            filters: filters.length ? filters : undefined,
             cacheBust: reloadToken || undefined,
           })
       )
@@ -2048,9 +2235,12 @@ export function FineTablePage() {
 
           <TabsContent value={view} className="mt-0">
             <FineTableGrid
+              activeFilters={historyDate ? [] : filters}
               error={error}
+              filtersEnabled={!historyDate}
               filteredRows={filteredRows}
               isLoading={isLoading}
+              onOpenColumnFilter={openFineTableColumnFilter}
               onPageChange={handlePageChange}
               onPreviewImage={(row) => {
                 if (!row.image_url) return
@@ -2068,6 +2258,40 @@ export function FineTablePage() {
           </TabsContent>
         </Tabs>
       </div>
+      {activeColumnFilter && !historyDate && (
+        <div
+          className="fixed z-[100] flex w-[min(24rem,calc(100vw-1.5rem))] flex-col overflow-hidden border border-border bg-card shadow-xl"
+          style={{ top: activeColumnFilter.top, left: activeColumnFilter.left }}
+        >
+          <div className="flex items-center justify-between border-b border-border px-3 py-2">
+            <div>
+              <p className="text-sm font-medium">{activeColumnFilter.label}</p>
+              <p className="text-[11px] text-muted-foreground">{columnFilterData ? `${columnFilterData.total.toLocaleString("zh-CN")} 个筛选项` : "正在读取筛选项"}</p>
+            </div>
+            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={closeFineTableColumnFilter} aria-label="关闭字段筛选" title="关闭">
+              <X className="h-4 w-4" />
+            </Button>
+          </div>
+          <div className="border-b border-border px-3 py-2">
+            <div className="relative">
+              <Search className="absolute top-2.5 left-2.5 h-3.5 w-3.5 text-muted-foreground" />
+              <Input value={columnFilterSearch} onChange={(event) => setColumnFilterSearch(event.target.value)} className="h-8 pl-8 text-xs" placeholder="搜索筛选项" autoFocus />
+            </div>
+          </div>
+          <div className="flex items-center justify-between border-b border-border bg-muted/20 px-3 py-2 text-xs">
+            <label className="flex cursor-pointer items-center gap-2"><input type="checkbox" checked={allVisibleColumnOptionsSelected} onChange={toggleAllVisibleFineTableColumnFilterOptions} disabled={!visibleColumnFilterOptions.length || columnFilterLoading} /><span>全选/反选</span></label>
+            <span className="text-muted-foreground">已选 {selectedColumnValues.size}</span>
+          </div>
+          <div className="min-h-[15rem] max-h-[21rem] overflow-y-auto px-3 py-2">
+            {columnFilterLoading && <p className="px-1 py-8 text-center text-sm text-muted-foreground">正在加载筛选项...</p>}
+            {!columnFilterLoading && columnFilterError && <p className="px-1 py-8 text-center text-sm text-destructive">{columnFilterError}</p>}
+            {!columnFilterLoading && !columnFilterError && hasHiddenColumnFilterOptions && <p className="mb-2 border border-border bg-muted/40 px-2 py-1.5 text-xs text-muted-foreground">当前展示前 300 项，请输入货号搜索更多结果。</p>}
+            {!columnFilterLoading && !columnFilterError && !visibleColumnFilterOptions.length && <p className="px-1 py-8 text-center text-sm text-muted-foreground">没有匹配的筛选项</p>}
+            {!columnFilterLoading && !columnFilterError && visibleColumnFilterOptions.map((item) => <label key={item.value || "__empty"} className="flex h-7 cursor-pointer items-center justify-between gap-2 px-1 text-xs hover:bg-muted/70"><span className="flex min-w-0 items-center gap-2"><input type="checkbox" checked={selectedColumnValues.has(item.value)} onChange={() => toggleFineTableColumnFilterValue(item.value)} /><span className="truncate">{item.value || "(空白)"}</span></span><span className="shrink-0 text-muted-foreground">{item.count.toLocaleString("zh-CN")}</span></label>)}
+          </div>
+          <div className="flex items-center justify-between border-t border-border px-3 py-2"><Button variant="ghost" size="sm" onClick={clearActiveFineTableColumnFilter}>清除此列</Button><div className="flex gap-2"><Button variant="outline" size="sm" onClick={closeFineTableColumnFilter}>取消</Button><Button size="sm" onClick={applyFineTableColumnFilter} disabled={columnFilterLoading || !columnFilterData}>确定</Button></div></div>
+        </div>
+      )}
       <Dialog open={customColumnPickerOpen} onOpenChange={(open) => !open && setCustomColumnPickerOpen(false)}>
         <DialogContent className="flex max-h-[88svh] max-w-[min(96vw,1120px)] flex-col overflow-hidden p-0">
           <DialogHeader className="border-b border-border px-4 py-3 sm:px-5">

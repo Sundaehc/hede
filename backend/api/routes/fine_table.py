@@ -2,13 +2,14 @@ from __future__ import annotations
 
 from datetime import date, datetime, time, timedelta
 from decimal import Decimal
+import json
 from math import ceil
-from typing import Any
+from typing import Any, Literal
 
 from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.encoders import jsonable_encoder
 from pydantic import BaseModel
-from sqlalchemy import and_, delete, desc, func, insert, or_, select, update
+from sqlalchemy import Text, and_, cast, delete, desc, false, func, insert, or_, select, update
 
 from api.fine_table_cache import get_fine_table_cache, set_fine_table_cache
 from api.operation_log_utils import write_operation_log
@@ -76,6 +77,106 @@ class FineTableExportLogRequest(BaseModel):
     column_mode: str | None = None
     column_count: int | None = None
     filename: str | None = None
+
+
+FineTableFilterOperator = Literal["in", "not_in"]
+FINE_TABLE_FILTER_FIELDS = {
+    "sku",
+    "original_sku",
+    "group_name",
+    "product_level",
+    "year",
+    "season_category",
+    "factory_code",
+    "factory_name",
+    "factory_sku",
+    "upper_material",
+    "lining_material",
+    "outsole_material",
+    "insole_material",
+    "first_order_time",
+    "cost",
+}
+
+
+class FineTableFilter(BaseModel):
+    field: str
+    operator: FineTableFilterOperator
+    values: list[str]
+
+
+def _parse_fine_table_filters(raw_filters: str | None) -> tuple[FineTableFilter, ...]:
+    if not raw_filters:
+        return ()
+    try:
+        payload = json.loads(raw_filters)
+    except json.JSONDecodeError as exc:
+        raise HTTPException(status_code=400, detail="筛选条件格式无效") from exc
+    if not isinstance(payload, list) or len(payload) > 20:
+        raise HTTPException(status_code=400, detail="筛选条件最多 20 条")
+    filters: list[FineTableFilter] = []
+    for item in payload:
+        if not isinstance(item, dict):
+            raise HTTPException(status_code=400, detail="筛选条件格式无效")
+        try:
+            condition = FineTableFilter.model_validate(item)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail="筛选条件格式无效") from exc
+        condition.field = condition.field.strip()
+        condition.values = [value.strip() for value in condition.values]
+        if condition.field not in FINE_TABLE_FILTER_FIELDS:
+            raise HTTPException(status_code=400, detail=f"不支持按 {condition.field or '该字段'} 筛选")
+        if len(condition.values) > 5_000:
+            raise HTTPException(status_code=400, detail="单个字段最多选择 5000 个值")
+        filters.append(condition)
+    return tuple(filters)
+
+
+def _fine_table_filter_columns(product_table, brand: BrandKey):
+    factory_code_column = (
+        select(SUPPLIER_TABLE.c.factory_code)
+        .where(SUPPLIER_TABLE.c.name == product_table.c.supplier_name)
+        .where(SUPPLIER_TABLE.c.brand == brand)
+        .limit(1)
+        .scalar_subquery()
+    )
+    return {
+        "sku": product_table.c.sku,
+        "original_sku": product_table.c.original_sku,
+        "group_name": product_table.c.group_name,
+        "product_level": product_table.c.product_level,
+        "year": product_table.c.year,
+        "season_category": product_table.c.season_category,
+        "factory_code": factory_code_column,
+        "factory_name": product_table.c.supplier_name,
+        "factory_sku": product_table.c.factory_sku,
+        "upper_material": product_table.c.upper_material,
+        "lining_material": product_table.c.lining_material,
+        "outsole_material": product_table.c.outsole_material,
+        "insole_material": product_table.c.insole_material,
+        "first_order_time": product_table.c.first_order_time,
+        "cost": product_table.c.cost,
+    }
+
+
+def _fine_table_filter_condition(column, operator: FineTableFilterOperator, values: list[str]):
+    normalized = func.coalesce(func.trim(cast(column, Text)), "")
+    normalized_values = sorted({value.lower() for value in values})
+    if operator == "in":
+        return func.lower(normalized).in_(normalized_values) if normalized_values else false()
+    return func.lower(normalized).not_in(normalized_values) if normalized_values else normalized == normalized
+
+
+def _fine_table_filter_conditions(
+    product_table,
+    brand: BrandKey,
+    filters: tuple[FineTableFilter, ...],
+) -> list:
+    columns = _fine_table_filter_columns(product_table, brand)
+    return [
+        _fine_table_filter_condition(columns[item.field], item.operator, item.values)
+        for item in filters
+    ]
 
 
 def _ensure_snapshot_tables(engine) -> None:
@@ -657,6 +758,58 @@ def get_fine_table_snapshot(
     }
 
 
+@router.get("/fine-table/filter-options")
+def list_fine_table_filter_options(
+    request: Request,
+    field: str,
+    brand: BrandKey = Query(DEFAULT_BRAND),
+    filters: str | None = None,
+    query: str | None = None,
+    sku_prefix: str | None = None,
+):
+    if field not in FINE_TABLE_FILTER_FIELDS:
+        raise HTTPException(status_code=400, detail=f"不支持按 {field or '该字段'} 筛选")
+    product_table = PRODUCT_TABLES[brand]
+    terms = _normalized_terms(query)
+    prefix_terms = _normalized_terms(sku_prefix)
+    parsed_filters = _parse_fine_table_filters(filters)
+    conditions = [not_excluded_sku_condition(product_table.c.sku, product_table.c.original_sku)]
+    if terms:
+        search_conditions = []
+        for term in terms:
+            like = f"%{term}%"
+            search_conditions.extend([product_table.c.sku.ilike(like), product_table.c.original_sku.ilike(like)])
+        conditions.append(or_(*search_conditions))
+    if prefix_terms:
+        conditions.append(_prefix_search_condition(product_table, prefix_terms))
+    conditions.extend(_fine_table_filter_conditions(
+        product_table,
+        brand,
+        tuple(item for item in parsed_filters if item.field != field),
+    ))
+    column = _fine_table_filter_columns(product_table, brand)[field]
+    value_expression = func.coalesce(func.trim(cast(column, Text)), "")
+    statement = (
+        select(value_expression.label("value"), func.count().label("count"))
+        .select_from(product_table)
+        .where(and_(*conditions))
+        .group_by(value_expression)
+        .order_by(desc(func.count()), value_expression)
+        .limit(10_000)
+    )
+    total_statement = select(func.count(func.distinct(value_expression))).select_from(product_table).where(and_(*conditions))
+    repository = request.app.state.repository
+    with repository.engine.connect() as connection:
+        rows = connection.execute(statement).mappings().all()
+        total = int(connection.execute(total_statement).scalar() or 0)
+    return {
+        "field": field,
+        "total": total,
+        "truncated": total > len(rows),
+        "options": [{"value": str(row["value"] or ""), "count": int(row["count"] or 0)} for row in rows],
+    }
+
+
 @router.get("/fine-table")
 def list_fine_table(
     request: Request,
@@ -664,6 +817,7 @@ def list_fine_table(
     query: str | None = None,
     sku_prefix: str | None = None,
     season: str | None = None,
+    filters: str | None = None,
     cache_bust: str | None = None,
     page: int = Query(1, ge=1),
     page_size: int = Query(80, ge=1, le=200),
@@ -676,9 +830,11 @@ def list_fine_table(
     normalized_query = ",".join(terms)
     normalized_sku_prefix = ",".join(prefix_terms)
     normalized_season = season if season and season != "all" else "all"
+    parsed_filters = _parse_fine_table_filters(filters)
+    normalized_filters = tuple(sorted((item.field, item.operator, tuple(item.values)) for item in parsed_filters))
     bypass_cache = bool(cache_bust)
-    cache_key = (brand, normalized_query, normalized_sku_prefix, normalized_season, page, page_size)
-    total_cache_key = (brand, normalized_query, normalized_sku_prefix, normalized_season, 0, 0)
+    cache_key = (brand, normalized_query, normalized_sku_prefix, normalized_season, normalized_filters, page, page_size)
+    total_cache_key = (brand, normalized_query, normalized_sku_prefix, normalized_season, normalized_filters, 0, 0)
     cached = None if bypass_cache else get_fine_table_cache(cache_key)
     if cached is not None:
         return cached
@@ -734,6 +890,19 @@ def list_fine_table(
                             product_table.c.original_sku == GJ_MERGED_PRODUCT_INFO_TABLE.c.original_goods_code,
                         ))
                         .where(product_table.c.season_category == normalized_season)
+                        .exists()
+                    )
+                if parsed_filters:
+                    archive_filters = _fine_table_filter_conditions(product_table, brand, parsed_filters)
+                    gj_conditions.append(
+                        select(product_table.c.id)
+                        .where(or_(
+                            product_table.c.sku == GJ_MERGED_PRODUCT_INFO_TABLE.c.goods_code,
+                            product_table.c.sku == GJ_MERGED_PRODUCT_INFO_TABLE.c.original_goods_code,
+                            product_table.c.original_sku == GJ_MERGED_PRODUCT_INFO_TABLE.c.goods_code,
+                            product_table.c.original_sku == GJ_MERGED_PRODUCT_INFO_TABLE.c.original_goods_code,
+                        ))
+                        .where(and_(*archive_filters))
                         .exists()
                     )
                 gj_criterion = and_(*gj_conditions)
@@ -807,6 +976,7 @@ def list_fine_table(
                 conditions.append(_prefix_search_condition(product_table, prefix_terms))
             if normalized_season != "all":
                 conditions.append(product_table.c.season_category == normalized_season)
+            conditions.extend(_fine_table_filter_conditions(product_table, brand, parsed_filters))
 
             count_stmt = select(func.count()).select_from(product_table)
             items_base_stmt = select(product_table).order_by(desc(product_table.c.id))

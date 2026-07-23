@@ -152,10 +152,16 @@ export function listProducts(params: {
   return request<ProductListResponse>(`/products?${search.toString()}`)
 }
 
+export type FineTableFilterField = "sku" | "original_sku" | "group_name" | "product_level" | "year" | "season_category" | "factory_code" | "factory_name" | "factory_sku" | "upper_material" | "lining_material" | "outsole_material" | "insole_material" | "first_order_time" | "cost"
+export type FineTableFilter = { field: FineTableFilterField; operator: "in" | "not_in"; values: string[] }
+export type FineTableFilterOption = { value: string; count: number }
+export type FineTableFilterOptionsResponse = { field: FineTableFilterField; total: number; truncated: boolean; options: FineTableFilterOption[] }
+
 export function listFineTable(params: {
   brand: Exclude<BrandKey, "all">
   query?: string
   skuPrefix?: string
+  filters?: FineTableFilter[]
   page: number
   pageSize: number
   cacheBust?: number | string
@@ -167,17 +173,41 @@ export function listFineTable(params: {
   })
   if (params.query) search.set("query", params.query)
   if (params.skuPrefix) search.set("sku_prefix", params.skuPrefix)
+  if (params.filters?.length) search.set("filters", JSON.stringify(params.filters))
   if (params.cacheBust) search.set("cache_bust", String(params.cacheBust))
   return request<FineTableResponse>(`/fine-table?${search.toString()}`)
 }
 
-export function listProductGoods(params: { brand?: BrandKey; query?: string; platform?: string; snapshotDate?: string; page: number; pageSize: number; cacheBust?: number | string }) {
+export function listFineTableFilterOptions(params: { brand: Exclude<BrandKey, "all">; field: FineTableFilterField; filters?: FineTableFilter[]; query?: string; skuPrefix?: string }) {
+  const search = new URLSearchParams({ brand: params.brand, field: params.field })
+  if (params.filters?.length) search.set("filters", JSON.stringify(params.filters))
+  if (params.query) search.set("query", params.query)
+  if (params.skuPrefix) search.set("sku_prefix", params.skuPrefix)
+  return request<FineTableFilterOptionsResponse>(`/fine-table/filter-options?${search.toString()}`)
+}
+
+export type ProductGoodsFilterField = "year" | "season" | "platform" | "category_l4" | "first_order_date" | "factory_sku" | "factory_code" | "factory_name" | "style_code" | "goods_code" | "color" | "cost" | "product_role" | "product_type" | "douyin_hot" | "clearance" | "remark"
+export type ProductGoodsFilterOperator = "contains" | "equals" | "empty" | "not_empty" | "in" | "not_in"
+export type ProductGoodsFilter = { field: ProductGoodsFilterField; operator: ProductGoodsFilterOperator; value?: string; values?: string[] }
+export type ProductGoodsFilterOption = { value: string; count: number }
+export type ProductGoodsFilterOptionsResponse = { field: ProductGoodsFilterField; total: number; truncated: boolean; options: ProductGoodsFilterOption[] }
+
+export function listProductGoods(params: { brand?: BrandKey; query?: string; platform?: string; filters?: ProductGoodsFilter[]; snapshotDate?: string; page: number; pageSize: number; cacheBust?: number | string }) {
   const search = new URLSearchParams({ brand: params.brand ?? "cbanner_womens", page: String(params.page), page_size: String(params.pageSize) })
   if (params.query) search.set("query", params.query)
   if (params.platform) search.set("platform", params.platform)
+  if (params.filters?.length) search.set("filters", JSON.stringify(params.filters))
   if (params.snapshotDate) search.set("snapshot_date", params.snapshotDate)
   if (params.cacheBust) search.set("cache_bust", String(params.cacheBust))
   return request<ProductGoodsResponse>(`/product-goods?${search.toString()}`)
+}
+
+export function listProductGoodsFilterOptions(params: { brand?: BrandKey; field: ProductGoodsFilterField; filters?: ProductGoodsFilter[]; query?: string; search?: string }) {
+  const requestParams = new URLSearchParams({ brand: params.brand ?? "cbanner_womens", field: params.field })
+  if (params.filters?.length) requestParams.set("filters", JSON.stringify(params.filters))
+  if (params.query) requestParams.set("query", params.query)
+  if (params.search) requestParams.set("search", params.search)
+  return request<ProductGoodsFilterOptionsResponse>(`/product-goods/filter-options?${requestParams.toString()}`)
 }
 
 export function updateProductGoods(brand: BrandKey, id: number, payload: Record<string, string | boolean | number | Record<string, number> | null>) {
