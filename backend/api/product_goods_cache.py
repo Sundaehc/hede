@@ -6,7 +6,7 @@ from time import monotonic
 from typing import Any
 
 
-ProductGoodsCacheKey = tuple[str, str, str, str, str, int, int]
+ProductGoodsCacheKey = tuple[Any, ...]
 
 _MAX_ENTRIES = 160
 _TTL_SECONDS = 300

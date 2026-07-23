@@ -59,7 +59,8 @@ import type { ProductGoodsItem, ProductGoodsResponse } from "@/lib/types"
 import { cn } from "@/lib/utils"
 
 const PAGE_SIZE = 50
-const PAGE_SIZE_OPTIONS = [50, 100, 200]
+const SUMMARY_PAGE_SIZE = 20
+const PAGE_SIZE_OPTIONS = [20, 50, 100, 200]
 const EXPORT_PAGE_SIZE = 200
 const EXPORT_CONCURRENCY = 2
 const PRODUCT_GOODS_PAGE_CACHE_LIMIT = 12
@@ -165,12 +166,14 @@ type ActiveColumnFilter = {
   top: number
   left: number
 }
+type ProductGoodsView = "goods" | "style_summary"
 type ProductGoodsPageContext = {
   brand: Exclude<BrandKey, "all">
   filters: ProductGoodsFilter[]
   pageSize: number
   query: string
   snapshotDate: string
+  view: ProductGoodsView
 }
 type ProductGoodsPageCacheEntry = {
   data: ProductGoodsResponse
@@ -290,6 +293,7 @@ function productGoodsPageCacheKey(
     context.pageSize,
     context.query,
     context.snapshotDate,
+    context.view,
     page,
   ])
 }
@@ -303,6 +307,7 @@ async function loadProductGoodsPage(
     brand: context.brand,
     query: context.query || undefined,
     filters: context.filters.length ? context.filters : undefined,
+    view: context.view,
     snapshotDate: context.snapshotDate || undefined,
     page,
     pageSize: context.pageSize,
@@ -714,20 +719,21 @@ function timestampForFilename(now: Date) {
 function exportCsv(
   items: ProductGoodsItem[],
   columns: TableColumn[],
-  filename: string
+  filename: string,
+  isStyleSummary: boolean
 ) {
   const headers = [
     "图片链接",
-    "货号",
-    "款号",
+    ...(isStyleSummary ? ["款号"] : ["货号", "款号"]),
     ...columns.map((column) => `${column.group}-${column.label}`),
   ]
   const rows = items.map((item) => [
     item.image_url
       ? new URL(`/api${item.image_url}`, window.location.origin).toString()
       : "",
-    item.goods_code,
-    item.style_code,
+    ...(isStyleSummary
+      ? [item.style_code]
+      : [item.goods_code, item.style_code]),
     ...columns.map((column) => exportColumnValue(item, column)),
   ])
   const blob = new Blob(
@@ -748,6 +754,7 @@ const ProductGoodsGrid = memo(function ProductGoodsGrid({
   activeFilterFields,
   groups,
   items,
+  isStyleSummary,
   loading,
   onOpenColumnFilter,
   onPreviewImage,
@@ -758,6 +765,7 @@ const ProductGoodsGrid = memo(function ProductGoodsGrid({
   activeFilterFields: ReadonlySet<ProductGoodsFilter["field"]>
   groups: Array<{ name: ColumnGroup; columns: TableColumn[] }>
   items: ProductGoodsItem[]
+  isStyleSummary: boolean
   loading: boolean
   onOpenColumnFilter: (
     field: ProductGoodsFilter["field"],
@@ -792,57 +800,61 @@ const ProductGoodsGrid = memo(function ProductGoodsGrid({
               className="sticky left-20 z-[70] w-40 max-w-[10rem] min-w-[10rem] border-b border-border bg-card px-3 py-2.5 text-left font-medium"
             >
               <div className="flex items-center justify-between gap-1">
-                <span>货号</span>
+                <span>{isStyleSummary ? "款号" : "货号"}</span>
                 <button
                   type="button"
                   className={cn(
                     "rounded p-0.5 transition-colors hover:bg-muted",
-                    activeFilterFields.has("goods_code")
+                    activeFilterFields.has(
+                      isStyleSummary ? "style_code" : "goods_code"
+                    )
                       ? "text-primary"
                       : "text-muted-foreground/80"
                   )}
                   onClick={(event) =>
                     onOpenColumnFilter(
-                      "goods_code",
-                      "货号",
+                      isStyleSummary ? "style_code" : "goods_code",
+                      isStyleSummary ? "款号" : "货号",
                       event.currentTarget
                     )
                   }
-                  aria-label="筛选货号"
-                  title="筛选货号"
+                  aria-label={`筛选${isStyleSummary ? "款号" : "货号"}`}
+                  title={`筛选${isStyleSummary ? "款号" : "货号"}`}
                 >
                   <Filter className="h-3.5 w-3.5" />
                 </button>
               </div>
             </th>
-            <th
-              rowSpan={2}
-              className="sticky left-60 z-[70] w-40 max-w-[10rem] min-w-[10rem] border-b border-border bg-card px-3 py-2.5 text-left font-medium"
-            >
-              <div className="flex items-center justify-between gap-1">
-                <span>款号</span>
-                <button
-                  type="button"
-                  className={cn(
-                    "rounded p-0.5 transition-colors hover:bg-muted",
-                    activeFilterFields.has("style_code")
-                      ? "text-primary"
-                      : "text-muted-foreground/80"
-                  )}
-                  onClick={(event) =>
-                    onOpenColumnFilter(
-                      "style_code",
-                      "款号",
-                      event.currentTarget
-                    )
-                  }
-                  aria-label="筛选款号"
-                  title="筛选款号"
-                >
-                  <Filter className="h-3.5 w-3.5" />
-                </button>
-              </div>
-            </th>
+            {!isStyleSummary && (
+              <th
+                rowSpan={2}
+                className="sticky left-60 z-[70] w-40 max-w-[10rem] min-w-[10rem] border-b border-border bg-card px-3 py-2.5 text-left font-medium"
+              >
+                <div className="flex items-center justify-between gap-1">
+                  <span>款号</span>
+                  <button
+                    type="button"
+                    className={cn(
+                      "rounded p-0.5 transition-colors hover:bg-muted",
+                      activeFilterFields.has("style_code")
+                        ? "text-primary"
+                        : "text-muted-foreground/80"
+                    )}
+                    onClick={(event) =>
+                      onOpenColumnFilter(
+                        "style_code",
+                        "款号",
+                        event.currentTarget
+                      )
+                    }
+                    aria-label="筛选款号"
+                    title="筛选款号"
+                  >
+                    <Filter className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              </th>
+            )}
             {groups.map(({ name, columns: groupColumns }, groupIndex) => (
               <th
                 key={`${name}-${groupIndex}-${groupColumns[0]?.key ?? "empty"}`}
@@ -899,7 +911,7 @@ const ProductGoodsGrid = memo(function ProductGoodsGrid({
           {items.length === 0 ? (
             <tr>
               <td
-                colSpan={visibleColumns.length + 4}
+                colSpan={visibleColumns.length + (isStyleSummary ? 3 : 4)}
                 className="px-4 py-16 text-center text-muted-foreground"
               >
                 {loading ? "正在加载商品货品表..." : "暂无匹配商品"}
@@ -936,11 +948,13 @@ const ProductGoodsGrid = memo(function ProductGoodsGrid({
                   </button>
                 </td>
                 <td className="sticky left-20 z-20 w-40 max-w-[10rem] min-w-[10rem] border-b border-border bg-card px-3 py-2 font-medium group-hover:bg-muted">
-                  {value(item.goods_code)}
+                  {value(isStyleSummary ? item.style_code : item.goods_code)}
                 </td>
-                <td className="sticky left-60 z-20 w-40 max-w-[10rem] min-w-[10rem] border-b border-border bg-card px-3 py-2 group-hover:bg-muted">
-                  {value(item.style_code)}
-                </td>
+                {!isStyleSummary && (
+                  <td className="sticky left-60 z-20 w-40 max-w-[10rem] min-w-[10rem] border-b border-border bg-card px-3 py-2 group-hover:bg-muted">
+                    {value(item.style_code)}
+                  </td>
+                )}
                 {visibleColumns.map((column) => (
                   <td
                     key={column.key}
@@ -1031,11 +1045,48 @@ export function ProductGoodsPage() {
     total: number
   } | null>(null)
   const [, startTransition] = useTransition()
+  const [dataView, setDataView] = useState<ProductGoodsView>("goods")
+  const [renderedDataView, setRenderedDataView] =
+    useState<ProductGoodsView>("goods")
   const [columnMode, setColumnMode] = useState<"full" | "custom">("full")
   const [pickerOpen, setPickerOpen] = useState(false)
   const [customKeys, setCustomKeys] = useState<string[]>(DEFAULT_COLUMN_KEYS)
   const [draftKeys, setDraftKeys] = useState<string[]>(DEFAULT_COLUMN_KEYS)
   const [columnSearch, setColumnSearch] = useState("")
+  const prefetchDataView = useCallback(
+    (nextView: ProductGoodsView) => {
+      if (nextView === dataView) return
+      const nextPageSize =
+        nextView === "style_summary" ? SUMMARY_PAGE_SIZE : pageSize
+      const context: ProductGoodsPageContext = {
+        brand,
+        filters,
+        pageSize: nextPageSize,
+        query,
+        snapshotDate,
+        view: nextView,
+      }
+      const cacheKey = productGoodsPageCacheKey(context, 1)
+      if (
+        getCachedProductGoodsPage(pageCacheRef.current, cacheKey) ||
+        prefetchingPagesRef.current.has(cacheKey)
+      )
+        return
+
+      prefetchingPagesRef.current.add(cacheKey)
+      void loadProductGoodsPage(context, 1)
+        .then((response) => {
+          rememberProductGoodsPage(pageCacheRef.current, cacheKey, response)
+        })
+        .catch(() => {
+          // View prefetch is optional; the active request surfaces any failure.
+        })
+        .finally(() => {
+          prefetchingPagesRef.current.delete(cacheKey)
+        })
+    },
+    [brand, dataView, filters, pageSize, query, snapshotDate]
+  )
   useEffect(() => {
     let cancelled = false
     const requestId = loadRequestIdRef.current + 1
@@ -1048,6 +1099,7 @@ export function ProductGoodsPage() {
       pageSize,
       query,
       snapshotDate,
+      view: dataView,
     }
     const cacheBust = refreshNonceRef.current
     refreshNonceRef.current = undefined
@@ -1082,6 +1134,7 @@ export function ProductGoodsPage() {
     )
     if (cachedEntry) {
       setData(cachedEntry.data)
+      setRenderedDataView(context.view)
       setLoading(false)
       const cachedTotalPages = Math.max(
         1,
@@ -1101,6 +1154,7 @@ export function ProductGoodsPage() {
         if (!isCurrentRequest()) return
         rememberProductGoodsPage(pageCacheRef.current, cacheKey, response)
         setData(response)
+        setRenderedDataView(context.view)
         const loadedTotalPages = Math.max(
           1,
           Math.ceil(response.total / pageSize)
@@ -1118,7 +1172,16 @@ export function ProductGoodsPage() {
     return () => {
       cancelled = true
     }
-  }, [brand, filters, page, pageSize, query, reloadVersion, snapshotDate])
+  }, [
+    brand,
+    dataView,
+    filters,
+    page,
+    pageSize,
+    query,
+    reloadVersion,
+    snapshotDate,
+  ])
   useEffect(() => {
     if (!activeColumnFilter) return
     const requestId = ++columnFilterRequestIdRef.current
@@ -1184,13 +1247,15 @@ export function ProductGoodsPage() {
       data.size_columns,
     ]
   )
-  const visibleColumns = useMemo(
-    () =>
+  const visibleColumns = useMemo(() => {
+    const selected =
       columnMode === "full"
         ? columns
-        : columns.filter((column) => customKeys.includes(column.key)),
-    [columnMode, columns, customKeys]
-  )
+        : columns.filter((column) => customKeys.includes(column.key))
+    return renderedDataView === "style_summary"
+      ? selected.filter((column) => column.key !== "color")
+      : selected
+  }, [columnMode, columns, customKeys, renderedDataView])
   const deferredVisibleColumns = useDeferredValue(visibleColumns)
   const groups = useMemo(
     () =>
@@ -1468,7 +1533,7 @@ export function ProductGoodsPage() {
     setSelectedItem(item)
   }, [])
   const tableWidth =
-    445 +
+    (renderedDataView === "style_summary" ? 285 : 445) +
     deferredVisibleColumns.reduce(
       (total, column) => total + (column.width ?? 78),
       0
@@ -1480,7 +1545,8 @@ export function ProductGoodsPage() {
     exportCsv(
       data.items,
       visibleColumns,
-      `${brandLabel}_商品货品表_当前页_${timestampForFilename(new Date())}.csv`
+      `${brandLabel}_${dataView === "style_summary" ? "款号汇总" : "商品货品表"}_当前页_${timestampForFilename(new Date())}.csv`,
+      dataView === "style_summary"
     )
   }
   async function exportAllRows() {
@@ -1494,6 +1560,7 @@ export function ProductGoodsPage() {
             brand,
             query: query || undefined,
             filters: filters.length ? filters : undefined,
+            view: dataView,
             snapshotDate: snapshotDate || undefined,
             page: pageToLoad,
             pageSize: EXPORT_PAGE_SIZE,
@@ -1537,7 +1604,8 @@ export function ProductGoodsPage() {
       exportCsv(
         allRows,
         visibleColumns,
-        `${brandLabel}_商品货品表_${timestampForFilename(new Date())}.csv`
+        `${brandLabel}_${dataView === "style_summary" ? "款号汇总" : "商品货品表"}_${timestampForFilename(new Date())}.csv`,
+        dataView === "style_summary"
       )
     } catch (error) {
       window.alert(
@@ -1554,6 +1622,17 @@ export function ProductGoodsPage() {
     startTransition(() => {
       setBrand(nextBrand)
       setSnapshotDate("")
+      setPage(1)
+    })
+  }
+  function selectDataView(nextView: ProductGoodsView) {
+    if (nextView === dataView) return
+    setSelectedItem(null)
+    const nextPageSize =
+      nextView === "style_summary" ? SUMMARY_PAGE_SIZE : pageSize
+    startTransition(() => {
+      setDataView(nextView)
+      setPageSize(nextPageSize)
       setPage(1)
     })
   }
@@ -1630,6 +1709,12 @@ export function ProductGoodsPage() {
                 </span>
                 <span className="inline-flex h-7 items-center rounded-full border border-border bg-muted/40 px-3">
                   视图 {columnMode === "full" ? "完整" : "自定义"}
+                </span>
+                <span className="inline-flex h-7 items-center rounded-full border border-border bg-muted/40 px-3">
+                  数据{" "}
+                  {renderedDataView === "style_summary"
+                    ? "款号汇总"
+                    : "货号明细"}
                 </span>
               </div>
             </div>
@@ -1739,51 +1824,101 @@ export function ProductGoodsPage() {
             </div>
           </div>
         </div>
-        <div className="surface-panel p-4">
+        <div className="surface-panel p-3">
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <div
-              className="flex items-center gap-2"
-              role="group"
-              aria-label="列视图"
-            >
-              <span className="text-sm font-medium">列视图</span>
-              {[
-                ["full", "完整视图"],
-                ["custom", "自定义"],
-              ].map(([mode, label]) => (
-                <button
-                  key={mode}
-                  type="button"
-                  onClick={() => {
-                    setColumnMode(mode as "full" | "custom")
-                    if (mode === "custom") openPicker()
-                  }}
-                  className={cn(
-                    "h-9 rounded-full px-4 text-sm font-medium transition-colors",
-                    columnMode === mode
-                      ? "bg-primary text-primary-foreground"
-                      : "bg-muted text-muted-foreground hover:bg-muted/70 hover:text-foreground"
-                  )}
-                >
-                  {label}
-                </button>
-              ))}
+            <div className="flex flex-wrap items-center gap-3">
+              <div
+                className="flex items-center gap-2"
+                role="group"
+                aria-label="数据视图"
+              >
+                <span className="shrink-0 text-xs font-medium text-muted-foreground">
+                  数据
+                </span>
+                <div className="inline-flex h-9 items-center rounded-md border border-border bg-muted/35 p-0.5 shadow-sm">
+                  {[
+                    ["goods", "货号明细"],
+                    ["style_summary", "款号汇总"],
+                  ].map(([view, label]) => (
+                    <button
+                      key={view}
+                      type="button"
+                      onClick={() => selectDataView(view as ProductGoodsView)}
+                      onPointerEnter={() =>
+                        prefetchDataView(view as ProductGoodsView)
+                      }
+                      onFocus={() => prefetchDataView(view as ProductGoodsView)}
+                      className={cn(
+                        "h-8 cursor-pointer rounded px-3 text-sm font-medium transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
+                        dataView === view
+                          ? "bg-background text-foreground shadow-sm"
+                          : "text-muted-foreground hover:bg-background/70 hover:text-foreground"
+                      )}
+                      aria-pressed={dataView === view}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <span
+                className="hidden h-5 w-px bg-border sm:block"
+                aria-hidden="true"
+              />
+              <div
+                className="flex items-center gap-2"
+                role="group"
+                aria-label="列视图"
+              >
+                <span className="shrink-0 text-xs font-medium text-muted-foreground">
+                  列
+                </span>
+                <div className="inline-flex h-9 items-center rounded-md border border-border bg-muted/35 p-0.5 shadow-sm">
+                  {[
+                    ["full", "完整视图"],
+                    ["custom", "自定义"],
+                  ].map(([mode, label]) => (
+                    <button
+                      key={mode}
+                      type="button"
+                      onClick={() => setColumnMode(mode as "full" | "custom")}
+                      className={cn(
+                        "h-8 cursor-pointer rounded px-3 text-sm font-medium transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
+                        columnMode === mode
+                          ? "bg-background text-foreground shadow-sm"
+                          : "text-muted-foreground hover:bg-background/70 hover:text-foreground"
+                      )}
+                      aria-pressed={columnMode === mode}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              </div>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1">
               {columnMode === "custom" && (
-                <Button variant="outline" size="sm" onClick={openPicker}>
+                <Button
+                  variant="outline"
+                  size="icon"
+                  className="h-8 w-8"
+                  onClick={openPicker}
+                  aria-label="配置自定义列"
+                  title="配置自定义列"
+                >
                   <SlidersHorizontal className="h-4 w-4" />
-                  配置列
                 </Button>
               )}
               <Button
                 variant="outline"
-                size="sm"
+                size="icon"
+                className="h-8 w-8"
                 onClick={exportCurrentPage}
                 disabled={!data.items.length || isExporting}
+                aria-label="导出当前页"
+                title="导出当前页"
               >
                 <Download className="h-4 w-4" />
-                导出当前页
               </Button>
             </div>
           </div>
@@ -1986,6 +2121,7 @@ export function ProductGoodsPage() {
             activeFilterFields={activeFilterFields}
             groups={groups}
             items={data.items}
+            isStyleSummary={renderedDataView === "style_summary"}
             loading={loading}
             onOpenColumnFilter={openColumnFilter}
             onPreviewImage={previewProductImage}
@@ -2476,7 +2612,7 @@ export function ProductGoodsPage() {
       <ProductGoodsDetailDrawer
         item={selectedItem}
         data={data}
-        canEdit={canEdit}
+        canEdit={canEdit && renderedDataView === "goods"}
         onClose={() => setSelectedItem(null)}
         onSave={saveManualFields}
         onPreviewImage={(item) =>

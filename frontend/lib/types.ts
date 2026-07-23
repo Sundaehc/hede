@@ -39,7 +39,17 @@ export type OperationLogChange = {
 
 export type OperationLogItem = {
   id: number
-  module: "product" | "product_goods" | "fine_table" | "inventory" | "purchase" | "supplier" | "warehouse" | "account_subject" | "general_customer" | "user"
+  module:
+    | "product"
+    | "product_goods"
+    | "fine_table"
+    | "inventory"
+    | "purchase"
+    | "supplier"
+    | "warehouse"
+    | "account_subject"
+    | "general_customer"
+    | "user"
   action: string
   entity_type: string
   entity_id: string | null
@@ -251,12 +261,15 @@ export type ProductImageRefreshRun = {
   status: "running" | "completed" | "failed"
   scanned?: number
   updated?: number
-  results?: Record<string, {
-    scanned: number
-    matched: number
-    updated: number
-    missing: number
-  }>
+  results?: Record<
+    string,
+    {
+      scanned: number
+      matched: number
+      updated: number
+      missing: number
+    }
+  >
   error?: string
   message: string
 }
@@ -271,6 +284,7 @@ export type ProductImageRefreshStatus = {
 export type ProductGoodsItem = {
   id: number
   brand: BrandKey
+  is_style_summary?: boolean
   year: string | null
   season: string | null
   platform: string | null
@@ -344,12 +358,15 @@ export type RefreshProductImagesResult = {
 export type CompletedRefreshProductImagesResult = {
   updated: number
   scanned: number
-  results: Record<string, {
-    scanned: number
-    matched: number
-    updated: number
-    missing: number
-  }>
+  results: Record<
+    string,
+    {
+      scanned: number
+      matched: number
+      updated: number
+      missing: number
+    }
+  >
   message: string
 }
 
@@ -432,7 +449,6 @@ export type ImageLookupStatusState = {
   status: "idle" | "loading" | "success" | "warning" | "error"
   message: string | null
 }
-
 
 export type GeneralCustomerShopItem = {
   id: number

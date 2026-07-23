@@ -26,7 +26,7 @@ const API_PREFIX = "/api"
 export class ApiError extends Error {
   constructor(
     public readonly status: number,
-    message: string,
+    message: string
   ) {
     super(message)
     this.name = "ApiError"
@@ -73,7 +73,12 @@ export function login(payload: { username: string; password: string }) {
   })
 }
 
-export function register(payload: { username: string; password: string; display_name: string; department_code: string }) {
+export function register(payload: {
+  username: string
+  password: string
+  display_name: string
+  department_code: string
+}) {
   return request<{ user: AuthUser; message: string }>("/auth/register", {
     method: "POST",
     body: JSON.stringify(payload),
@@ -91,22 +96,44 @@ export function getCurrentUser() {
 }
 
 export function getAuthOptions() {
-  return request<{ departments: AuthDepartment[]; roles: AuthRole[]; has_users: boolean }>("/auth/options")
+  return request<{
+    departments: AuthDepartment[]
+    roles: AuthRole[]
+    has_users: boolean
+  }>("/auth/options")
 }
 
 export function listAdminUsers() {
   return request<{ items: AuthUser[] }>("/auth/admin/users")
 }
 
-export function updateAdminUser(id: number, payload: Partial<Pick<AuthUser, "display_name" | "department_code" | "role_code" | "status">> & { password?: string }) {
-  return request<{ item: AuthUser; message: string }>(`/auth/admin/users/${id}`, {
-    method: "PATCH",
-    body: JSON.stringify(payload),
-  })
+export function updateAdminUser(
+  id: number,
+  payload: Partial<
+    Pick<AuthUser, "display_name" | "department_code" | "role_code" | "status">
+  > & { password?: string }
+) {
+  return request<{ item: AuthUser; message: string }>(
+    `/auth/admin/users/${id}`,
+    {
+      method: "PATCH",
+      body: JSON.stringify(payload),
+    }
+  )
 }
 
 export function listOperationLogs(params: {
-  module: "product" | "product_goods" | "fine_table" | "inventory" | "purchase" | "supplier" | "warehouse" | "account_subject" | "general_customer" | "user"
+  module:
+    | "product"
+    | "product_goods"
+    | "fine_table"
+    | "inventory"
+    | "purchase"
+    | "supplier"
+    | "warehouse"
+    | "account_subject"
+    | "general_customer"
+    | "user"
   query?: string
   page: number
   pageSize: number
@@ -126,7 +153,9 @@ export function getProductYears(brand: BrandKey) {
 
 export function listProductColorBarcodes(brand: Exclude<BrandKey, "all">) {
   const search = new URLSearchParams({ brand })
-  return request<ProductColorBarcodeListResponse>(`/products/color-barcodes?${search.toString()}`)
+  return request<ProductColorBarcodeListResponse>(
+    `/products/color-barcodes?${search.toString()}`
+  )
 }
 
 export function listProducts(params: {
@@ -152,10 +181,34 @@ export function listProducts(params: {
   return request<ProductListResponse>(`/products?${search.toString()}`)
 }
 
-export type FineTableFilterField = "sku" | "original_sku" | "group_name" | "product_level" | "year" | "season_category" | "factory_code" | "factory_name" | "factory_sku" | "upper_material" | "lining_material" | "outsole_material" | "insole_material" | "first_order_time" | "cost"
-export type FineTableFilter = { field: FineTableFilterField; operator: "in" | "not_in"; values: string[] }
+export type FineTableFilterField =
+  | "sku"
+  | "original_sku"
+  | "group_name"
+  | "product_level"
+  | "year"
+  | "season_category"
+  | "factory_code"
+  | "factory_name"
+  | "factory_sku"
+  | "upper_material"
+  | "lining_material"
+  | "outsole_material"
+  | "insole_material"
+  | "first_order_time"
+  | "cost"
+export type FineTableFilter = {
+  field: FineTableFilterField
+  operator: "in" | "not_in"
+  values: string[]
+}
 export type FineTableFilterOption = { value: string; count: number }
-export type FineTableFilterOptionsResponse = { field: FineTableFilterField; total: number; truncated: boolean; options: FineTableFilterOption[] }
+export type FineTableFilterOptionsResponse = {
+  field: FineTableFilterField
+  total: number
+  truncated: boolean
+  options: FineTableFilterOption[]
+}
 
 export function listFineTable(params: {
   brand: Exclude<BrandKey, "all">
@@ -173,45 +226,129 @@ export function listFineTable(params: {
   })
   if (params.query) search.set("query", params.query)
   if (params.skuPrefix) search.set("sku_prefix", params.skuPrefix)
-  if (params.filters?.length) search.set("filters", JSON.stringify(params.filters))
+  if (params.filters?.length)
+    search.set("filters", JSON.stringify(params.filters))
   if (params.cacheBust) search.set("cache_bust", String(params.cacheBust))
   return request<FineTableResponse>(`/fine-table?${search.toString()}`)
 }
 
-export function listFineTableFilterOptions(params: { brand: Exclude<BrandKey, "all">; field: FineTableFilterField; filters?: FineTableFilter[]; query?: string; skuPrefix?: string }) {
-  const search = new URLSearchParams({ brand: params.brand, field: params.field })
-  if (params.filters?.length) search.set("filters", JSON.stringify(params.filters))
+export function listFineTableFilterOptions(params: {
+  brand: Exclude<BrandKey, "all">
+  field: FineTableFilterField
+  filters?: FineTableFilter[]
+  query?: string
+  skuPrefix?: string
+}) {
+  const search = new URLSearchParams({
+    brand: params.brand,
+    field: params.field,
+  })
+  if (params.filters?.length)
+    search.set("filters", JSON.stringify(params.filters))
   if (params.query) search.set("query", params.query)
   if (params.skuPrefix) search.set("sku_prefix", params.skuPrefix)
-  return request<FineTableFilterOptionsResponse>(`/fine-table/filter-options?${search.toString()}`)
+  return request<FineTableFilterOptionsResponse>(
+    `/fine-table/filter-options?${search.toString()}`
+  )
 }
 
-export type ProductGoodsFilterField = "year" | "season" | "platform" | "category_l4" | "first_order_date" | "factory_sku" | "factory_code" | "factory_name" | "style_code" | "goods_code" | "color" | "cost" | "product_role" | "product_type" | "douyin_hot" | "clearance" | "remark"
-export type ProductGoodsFilterOperator = "contains" | "equals" | "empty" | "not_empty" | "in" | "not_in"
-export type ProductGoodsFilter = { field: ProductGoodsFilterField; operator: ProductGoodsFilterOperator; value?: string; values?: string[] }
+export type ProductGoodsFilterField =
+  | "year"
+  | "season"
+  | "platform"
+  | "category_l4"
+  | "first_order_date"
+  | "factory_sku"
+  | "factory_code"
+  | "factory_name"
+  | "style_code"
+  | "goods_code"
+  | "color"
+  | "cost"
+  | "product_role"
+  | "product_type"
+  | "douyin_hot"
+  | "clearance"
+  | "remark"
+export type ProductGoodsFilterOperator =
+  | "contains"
+  | "equals"
+  | "empty"
+  | "not_empty"
+  | "in"
+  | "not_in"
+export type ProductGoodsFilter = {
+  field: ProductGoodsFilterField
+  operator: ProductGoodsFilterOperator
+  value?: string
+  values?: string[]
+}
 export type ProductGoodsFilterOption = { value: string; count: number }
-export type ProductGoodsFilterOptionsResponse = { field: ProductGoodsFilterField; total: number; truncated: boolean; options: ProductGoodsFilterOption[] }
+export type ProductGoodsFilterOptionsResponse = {
+  field: ProductGoodsFilterField
+  total: number
+  truncated: boolean
+  options: ProductGoodsFilterOption[]
+}
 
-export function listProductGoods(params: { brand?: BrandKey; query?: string; platform?: string; filters?: ProductGoodsFilter[]; snapshotDate?: string; page: number; pageSize: number; cacheBust?: number | string }) {
-  const search = new URLSearchParams({ brand: params.brand ?? "cbanner_womens", page: String(params.page), page_size: String(params.pageSize) })
+export function listProductGoods(params: {
+  brand?: BrandKey
+  view?: "goods" | "style_summary"
+  query?: string
+  platform?: string
+  filters?: ProductGoodsFilter[]
+  snapshotDate?: string
+  page: number
+  pageSize: number
+  cacheBust?: number | string
+}) {
+  const search = new URLSearchParams({
+    brand: params.brand ?? "cbanner_womens",
+    page: String(params.page),
+    page_size: String(params.pageSize),
+  })
+  if (params.view && params.view !== "goods") search.set("view", params.view)
   if (params.query) search.set("query", params.query)
   if (params.platform) search.set("platform", params.platform)
-  if (params.filters?.length) search.set("filters", JSON.stringify(params.filters))
+  if (params.filters?.length)
+    search.set("filters", JSON.stringify(params.filters))
   if (params.snapshotDate) search.set("snapshot_date", params.snapshotDate)
   if (params.cacheBust) search.set("cache_bust", String(params.cacheBust))
   return request<ProductGoodsResponse>(`/product-goods?${search.toString()}`)
 }
 
-export function listProductGoodsFilterOptions(params: { brand?: BrandKey; field: ProductGoodsFilterField; filters?: ProductGoodsFilter[]; query?: string; search?: string }) {
-  const requestParams = new URLSearchParams({ brand: params.brand ?? "cbanner_womens", field: params.field })
-  if (params.filters?.length) requestParams.set("filters", JSON.stringify(params.filters))
+export function listProductGoodsFilterOptions(params: {
+  brand?: BrandKey
+  field: ProductGoodsFilterField
+  filters?: ProductGoodsFilter[]
+  query?: string
+  search?: string
+}) {
+  const requestParams = new URLSearchParams({
+    brand: params.brand ?? "cbanner_womens",
+    field: params.field,
+  })
+  if (params.filters?.length)
+    requestParams.set("filters", JSON.stringify(params.filters))
   if (params.query) requestParams.set("query", params.query)
   if (params.search) requestParams.set("search", params.search)
-  return request<ProductGoodsFilterOptionsResponse>(`/product-goods/filter-options?${requestParams.toString()}`)
+  return request<ProductGoodsFilterOptionsResponse>(
+    `/product-goods/filter-options?${requestParams.toString()}`
+  )
 }
 
-export function updateProductGoods(brand: BrandKey, id: number, payload: Record<string, string | boolean | number | Record<string, number> | null>) {
-  return request<{ message: string }>(`/product-goods/${id}?brand=${brand}`, { method: "PATCH", body: JSON.stringify(payload) })
+export function updateProductGoods(
+  brand: BrandKey,
+  id: number,
+  payload: Record<
+    string,
+    string | boolean | number | Record<string, number> | null
+  >
+) {
+  return request<{ message: string }>(`/product-goods/${id}?brand=${brand}`, {
+    method: "PATCH",
+    body: JSON.stringify(payload),
+  })
 }
 
 export function logFineTableExport(payload: {
@@ -243,7 +380,9 @@ export function listFineTableSnapshots(params: {
     page: String(params.page),
     page_size: String(params.pageSize),
   })
-  return request<FineTableSnapshotListResponse>(`/fine-table/snapshots?${search.toString()}`)
+  return request<FineTableSnapshotListResponse>(
+    `/fine-table/snapshots?${search.toString()}`
+  )
 }
 
 export function getFineTableSnapshot(params: {
@@ -259,7 +398,9 @@ export function getFineTableSnapshot(params: {
   })
   if (params.query) search.set("query", params.query)
   if (params.skuPrefix) search.set("sku_prefix", params.skuPrefix)
-  return request<FineTableSnapshotResponse>(`/fine-table/snapshots/${params.id}?${search.toString()}`)
+  return request<FineTableSnapshotResponse>(
+    `/fine-table/snapshots/${params.id}?${search.toString()}`
+  )
 }
 
 export function getFineTableSnapshotByDate(params: {
@@ -278,25 +419,37 @@ export function getFineTableSnapshotByDate(params: {
   })
   if (params.query) search.set("query", params.query)
   if (params.skuPrefix) search.set("sku_prefix", params.skuPrefix)
-  return request<FineTableSnapshotResponse>(`/fine-table/snapshots/by-date?${search.toString()}`)
+  return request<FineTableSnapshotResponse>(
+    `/fine-table/snapshots/by-date?${search.toString()}`
+  )
 }
 
 export function getProduct(brand: BrandKey, id: number) {
   return request<ProductListItem>(`/products/${brand}/${id}`)
 }
 
-export function createProduct(brand: BrandKey, payload: ProductMutationPayload) {
+export function createProduct(
+  brand: BrandKey,
+  payload: ProductMutationPayload
+) {
   return request<{ item: ProductListItem; message: string }>("/products", {
     method: "POST",
     body: JSON.stringify({ brand, payload }),
   })
 }
 
-export function updateProduct(brand: BrandKey, id: number, payload: ProductMutationPayload) {
-  return request<{ item: ProductListItem; message: string }>(`/products/${brand}/${id}`, {
-    method: "PUT",
-    body: JSON.stringify({ brand, payload }),
-  })
+export function updateProduct(
+  brand: BrandKey,
+  id: number,
+  payload: ProductMutationPayload
+) {
+  return request<{ item: ProductListItem; message: string }>(
+    `/products/${brand}/${id}`,
+    {
+      method: "PUT",
+      body: JSON.stringify({ brand, payload }),
+    }
+  )
 }
 
 export function deleteProduct(brand: BrandKey, id: number) {
@@ -338,16 +491,25 @@ export function refreshProductImages(brand: BrandKey | "all") {
     search.set("brand", brand)
   }
   const suffix = search.toString() ? `?${search.toString()}` : ""
-  return request<RefreshProductImagesResult>(`/images/refresh-product-images${suffix}`, {
-    method: "POST",
-  })
+  return request<RefreshProductImagesResult>(
+    `/images/refresh-product-images${suffix}`,
+    {
+      method: "POST",
+    }
+  )
 }
 
 export function getProductImageRefreshStatus() {
-  return request<ProductImageRefreshStatus>("/images/refresh-product-images/status")
+  return request<ProductImageRefreshStatus>(
+    "/images/refresh-product-images/status"
+  )
 }
 
-export function buildProductExportUrl(brand: BrandKey, ids?: number[], mode?: "with_sizes") {
+export function buildProductExportUrl(
+  brand: BrandKey,
+  ids?: number[],
+  mode?: "with_sizes"
+) {
   const params = new URLSearchParams({ brand })
   if (brand !== "all" && ids && ids.length > 0) {
     params.set("ids", ids.join(","))
@@ -365,7 +527,10 @@ export type ProductExportProgress = {
   percent: number | null
 }
 
-function filenameFromContentDisposition(header: string | null, fallback: string) {
+function filenameFromContentDisposition(
+  header: string | null,
+  fallback: string
+) {
   if (!header) return fallback
   const encodedMatch = /filename\*=UTF-8''([^;]+)/i.exec(header)
   if (encodedMatch?.[1]) {
@@ -395,7 +560,7 @@ export async function downloadProductExport(
   brand: BrandKey,
   ids?: number[],
   mode?: "with_sizes",
-  onProgress?: (progress: ProductExportProgress) => void,
+  onProgress?: (progress: ProductExportProgress) => void
 ) {
   onProgress?.({ phase: "preparing", loaded: 0, total: null, percent: null })
   const response = await fetch(buildProductExportUrl(brand, ids, mode), {
@@ -406,12 +571,25 @@ export async function downloadProductExport(
   }
 
   const totalHeader = response.headers.get("content-length")
-  const parsedTotal = totalHeader ? Number.parseInt(totalHeader, 10) : Number.NaN
-  const total = Number.isFinite(parsedTotal) && parsedTotal > 0 ? parsedTotal : null
-  const contentType = response.headers.get("content-type") || "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-  const filename = filenameFromContentDisposition(response.headers.get("content-disposition"), "商品信息档案.xlsx")
+  const parsedTotal = totalHeader
+    ? Number.parseInt(totalHeader, 10)
+    : Number.NaN
+  const total =
+    Number.isFinite(parsedTotal) && parsedTotal > 0 ? parsedTotal : null
+  const contentType =
+    response.headers.get("content-type") ||
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+  const filename = filenameFromContentDisposition(
+    response.headers.get("content-disposition"),
+    "商品信息档案.xlsx"
+  )
 
-  onProgress?.({ phase: "downloading", loaded: 0, total, percent: total ? 0 : null })
+  onProgress?.({
+    phase: "downloading",
+    loaded: 0,
+    total,
+    percent: total ? 0 : null,
+  })
 
   if (!response.body) {
     const blob = await response.blob()
@@ -455,7 +633,11 @@ export async function downloadProductExport(
   return { filename, size: loaded }
 }
 
-export async function assertProductExportAllowed(brand: BrandKey, ids?: number[], mode?: "with_sizes") {
+export async function assertProductExportAllowed(
+  brand: BrandKey,
+  ids?: number[],
+  mode?: "with_sizes"
+) {
   const response = await fetch(buildProductExportUrl(brand, ids, mode), {
     credentials: "include",
     method: "HEAD",
@@ -465,7 +647,11 @@ export async function assertProductExportAllowed(brand: BrandKey, ids?: number[]
   }
 }
 
-export function exportProducts(brand: BrandKey, ids?: number[], mode?: "with_sizes") {
+export function exportProducts(
+  brand: BrandKey,
+  ids?: number[],
+  mode?: "with_sizes"
+) {
   return fetch(buildProductExportUrl(brand, ids, mode), {
     credentials: "include",
   }).then(async (response) => {
@@ -645,7 +831,10 @@ export type InventoryAccountSubject = {
   updated_at: string | null
 }
 
-export type PurchaseOrderRequirementBrand = Exclude<BrandKey, "all"> | "smiley" | "ni"
+export type PurchaseOrderRequirementBrand =
+  | Exclude<BrandKey, "all">
+  | "smiley"
+  | "ni"
 
 export type PurchaseOrderRequirementTemplate = {
   brand: PurchaseOrderRequirementBrand
@@ -680,12 +869,14 @@ export function listInventory(params: {
   if (params.supplier) search.set("supplier", params.supplier)
   if (params.warehouse) search.set("warehouse", params.warehouse)
   if (params.document_type) search.set("document_type", params.document_type)
-  if (params.exclude_document_type) search.set("exclude_document_type", params.exclude_document_type)
+  if (params.exclude_document_type)
+    search.set("exclude_document_type", params.exclude_document_type)
   if (params.summary) search.set("summary", params.summary)
   if (params.original_sku) search.set("original_sku", params.original_sku)
   if (params.product_code) search.set("product_code", params.product_code)
   if (params.handler) search.set("handler", params.handler)
-  if (params.completion_status) search.set("completion_status", params.completion_status)
+  if (params.completion_status)
+    search.set("completion_status", params.completion_status)
   return request<InventoryListResponse>(`/inventory?${search.toString()}`)
 }
 
@@ -696,11 +887,17 @@ export function createInventoryRecord(payload: Record<string, unknown>) {
   })
 }
 
-export function updateInventoryRecord(id: number, payload: Record<string, unknown>) {
-  return request<{ item: InventoryRecord; message: string }>(`/inventory/${id}`, {
-    method: "PUT",
-    body: JSON.stringify(payload),
-  })
+export function updateInventoryRecord(
+  id: number,
+  payload: Record<string, unknown>
+) {
+  return request<{ item: InventoryRecord; message: string }>(
+    `/inventory/${id}`,
+    {
+      method: "PUT",
+      body: JSON.stringify(payload),
+    }
+  )
 }
 
 export function deleteInventoryRecord(id: number) {
@@ -720,8 +917,11 @@ export function listInventoryRecycleBin(params: {
     page_size: String(params.pageSize),
   })
   if (params.document_type) search.set("document_type", params.document_type)
-  if (params.exclude_document_type) search.set("exclude_document_type", params.exclude_document_type)
-  return request<InventoryListResponse>(`/inventory/recycle-bin?${search.toString()}`)
+  if (params.exclude_document_type)
+    search.set("exclude_document_type", params.exclude_document_type)
+  return request<InventoryListResponse>(
+    `/inventory/recycle-bin?${search.toString()}`
+  )
 }
 
 export function listCounterpartyLedger(params: {
@@ -736,27 +936,38 @@ export function listCounterpartyLedger(params: {
   })
   if (params.dateStart) search.set("date_start", params.dateStart)
   if (params.dateEnd) search.set("date_end", params.dateEnd)
-  return request<CounterpartyLedgerResponse>(`/inventory/counterparty-ledger?${search.toString()}`)
+  return request<CounterpartyLedgerResponse>(
+    `/inventory/counterparty-ledger?${search.toString()}`
+  )
 }
 
 export function restoreInventoryRecord(id: number) {
-  return request<{ item: InventoryRecord; message: string }>(`/inventory/${id}/restore`, {
-    method: "POST",
-  })
+  return request<{ item: InventoryRecord; message: string }>(
+    `/inventory/${id}/restore`,
+    {
+      method: "POST",
+    }
+  )
 }
 
 export function batchRestoreInventory(ids: number[]) {
-  return request<{ restored: number; message: string }>("/inventory/batch-restore", {
-    method: "POST",
-    body: JSON.stringify({ ids }),
-  })
+  return request<{ restored: number; message: string }>(
+    "/inventory/batch-restore",
+    {
+      method: "POST",
+      body: JSON.stringify({ ids }),
+    }
+  )
 }
 
 export function batchPermanentlyDeleteInventory(ids: number[]) {
-  return request<{ deleted: number; message: string }>("/inventory/recycle-bin/batch-delete", {
-    method: "POST",
-    body: JSON.stringify({ ids }),
-  })
+  return request<{ deleted: number; message: string }>(
+    "/inventory/recycle-bin/batch-delete",
+    {
+      method: "POST",
+      body: JSON.stringify({ ids }),
+    }
+  )
 }
 
 export type BatchUpdateInventoryCostsResult = {
@@ -771,17 +982,23 @@ export function batchUpdateInventoryCosts(payload: {
   date_end?: string
   updates: Record<string, string>
 }) {
-  return request<BatchUpdateInventoryCostsResult>("/inventory/batch-update-costs", {
-    method: "POST",
-    body: JSON.stringify(payload),
-  })
+  return request<BatchUpdateInventoryCostsResult>(
+    "/inventory/batch-update-costs",
+    {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }
+  )
 }
 
 export function batchDeleteInventory(ids: number[]) {
-  return request<{ deleted: number; message: string }>("/inventory/batch-delete", {
-    method: "POST",
-    body: JSON.stringify({ ids }),
-  })
+  return request<{ deleted: number; message: string }>(
+    "/inventory/batch-delete",
+    {
+      method: "POST",
+      body: JSON.stringify({ ids }),
+    }
+  )
 }
 
 export type InventoryImportResult = {
@@ -809,35 +1026,41 @@ export function importInventory(file: File) {
   })
 }
 
-export function buildInventoryExportUrl(params: {
-  ids?: number[]
-  date_start?: string
-  date_end?: string
-  supplier?: string
-  warehouse?: string
-  document_type?: string
-  exclude_document_type?: string
-  summary?: string
-  original_sku?: string
-  product_code?: string
-  handler?: string
-  completion_status?: string
-  purchase_export_mode?: "summary" | "size_rows" | "production_order"
-} = {}) {
+export function buildInventoryExportUrl(
+  params: {
+    ids?: number[]
+    date_start?: string
+    date_end?: string
+    supplier?: string
+    warehouse?: string
+    document_type?: string
+    exclude_document_type?: string
+    summary?: string
+    original_sku?: string
+    product_code?: string
+    handler?: string
+    completion_status?: string
+    purchase_export_mode?: "summary" | "size_rows" | "production_order"
+  } = {}
+) {
   const search = new URLSearchParams()
-  if (params.ids && params.ids.length > 0) search.set("ids", params.ids.join(","))
+  if (params.ids && params.ids.length > 0)
+    search.set("ids", params.ids.join(","))
   if (params.date_start) search.set("date_start", params.date_start)
   if (params.date_end) search.set("date_end", params.date_end)
   if (params.supplier) search.set("supplier", params.supplier)
   if (params.warehouse) search.set("warehouse", params.warehouse)
   if (params.document_type) search.set("document_type", params.document_type)
-  if (params.exclude_document_type) search.set("exclude_document_type", params.exclude_document_type)
+  if (params.exclude_document_type)
+    search.set("exclude_document_type", params.exclude_document_type)
   if (params.summary) search.set("summary", params.summary)
   if (params.original_sku) search.set("original_sku", params.original_sku)
   if (params.product_code) search.set("product_code", params.product_code)
   if (params.handler) search.set("handler", params.handler)
-  if (params.completion_status) search.set("completion_status", params.completion_status)
-  if (params.purchase_export_mode) search.set("purchase_export_mode", params.purchase_export_mode)
+  if (params.completion_status)
+    search.set("completion_status", params.completion_status)
+  if (params.purchase_export_mode)
+    search.set("purchase_export_mode", params.purchase_export_mode)
   const suffix = search.toString() ? `?${search.toString()}` : ""
   return `${API_PREFIX}/inventory/export${suffix}`
 }
@@ -846,21 +1069,23 @@ export function buildPurchaseImportTemplateUrl() {
   return `${API_PREFIX}/inventory/import-purchase/template`
 }
 
-export function exportInventory(params: {
-  ids?: number[]
-  date_start?: string
-  date_end?: string
-  supplier?: string
-  warehouse?: string
-  document_type?: string
-  exclude_document_type?: string
-  summary?: string
-  original_sku?: string
-  product_code?: string
-  handler?: string
-  completion_status?: string
-  purchase_export_mode?: "summary" | "size_rows" | "production_order"
-} = {}) {
+export function exportInventory(
+  params: {
+    ids?: number[]
+    date_start?: string
+    date_end?: string
+    supplier?: string
+    warehouse?: string
+    document_type?: string
+    exclude_document_type?: string
+    summary?: string
+    original_sku?: string
+    product_code?: string
+    handler?: string
+    completion_status?: string
+    purchase_export_mode?: "summary" | "size_rows" | "production_order"
+  } = {}
+) {
   return fetch(buildInventoryExportUrl(params), {
     credentials: "include",
   }).then(async (response) => {
@@ -872,7 +1097,9 @@ export function exportInventory(params: {
 }
 
 export function listGeneralCustomerShops() {
-  return request<GeneralCustomerShopListResponse>("/inventory/general-customer-shops")
+  return request<GeneralCustomerShopListResponse>(
+    "/inventory/general-customer-shops"
+  )
 }
 
 export function importPurchaseInventory(payload: {
@@ -914,7 +1141,10 @@ export function importPurchaseInventory(payload: {
     })
     .catch((error) => {
       if (error instanceof DOMException && error.name === "AbortError") {
-        throw new ApiError(408, "导入超过 2 分钟未返回，请检查 Excel 行数或稍后刷新确认是否已导入")
+        throw new ApiError(
+          408,
+          "导入超过 2 分钟未返回，请检查 Excel 行数或稍后刷新确认是否已导入"
+        )
       }
       throw error
     })
@@ -922,29 +1152,46 @@ export function importPurchaseInventory(payload: {
 }
 
 export function listGeneralCustomerBrands() {
-  return request<GeneralCustomerBrandListResponse>("/inventory/general-customer-brands")
+  return request<GeneralCustomerBrandListResponse>(
+    "/inventory/general-customer-brands"
+  )
 }
 
 export function listInventoryAccountSubjects() {
-  return request<{ items: InventoryAccountSubject[] }>("/inventory/account-subjects")
+  return request<{ items: InventoryAccountSubject[] }>(
+    "/inventory/account-subjects"
+  )
 }
 
 export function listPurchaseOrderRequirements() {
-  return request<{ items: PurchaseOrderRequirementTemplate[] }>("/inventory/purchase-order-requirements")
+  return request<{ items: PurchaseOrderRequirementTemplate[] }>(
+    "/inventory/purchase-order-requirements"
+  )
 }
 
-export function updatePurchaseOrderRequirement(brand: PurchaseOrderRequirementBrand, content: string) {
-  return request<{ item: PurchaseOrderRequirementTemplate; message: string }>(`/inventory/purchase-order-requirements/${brand}`, {
-    method: "PUT",
-    body: JSON.stringify({ content }),
-  })
+export function updatePurchaseOrderRequirement(
+  brand: PurchaseOrderRequirementBrand,
+  content: string
+) {
+  return request<{ item: PurchaseOrderRequirementTemplate; message: string }>(
+    `/inventory/purchase-order-requirements/${brand}`,
+    {
+      method: "PUT",
+      body: JSON.stringify({ content }),
+    }
+  )
 }
 
-export function createInventoryAccountSubject(payload: Record<string, unknown>) {
-  return request<{ item: InventoryAccountSubject; message: string }>("/inventory/account-subjects", {
-    method: "POST",
-    body: JSON.stringify(payload),
-  })
+export function createInventoryAccountSubject(
+  payload: Record<string, unknown>
+) {
+  return request<{ item: InventoryAccountSubject; message: string }>(
+    "/inventory/account-subjects",
+    {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }
+  )
 }
 
 export function deleteInventoryAccountSubject(id: number) {
@@ -954,46 +1201,73 @@ export function deleteInventoryAccountSubject(id: number) {
 }
 
 export function createGeneralCustomerBrand(payload: Record<string, unknown>) {
-  return request<{ item: GeneralCustomerBrandItem; message: string }>("/inventory/general-customer-brands", {
-    method: "POST",
-    body: JSON.stringify(payload),
-  })
+  return request<{ item: GeneralCustomerBrandItem; message: string }>(
+    "/inventory/general-customer-brands",
+    {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }
+  )
 }
 
-export function updateGeneralCustomerBrand(id: number, payload: Record<string, unknown>) {
-  return request<{ item: GeneralCustomerBrandItem; message: string }>(`/inventory/general-customer-brands/${id}`, {
-    method: "PUT",
-    body: JSON.stringify(payload),
-  })
+export function updateGeneralCustomerBrand(
+  id: number,
+  payload: Record<string, unknown>
+) {
+  return request<{ item: GeneralCustomerBrandItem; message: string }>(
+    `/inventory/general-customer-brands/${id}`,
+    {
+      method: "PUT",
+      body: JSON.stringify(payload),
+    }
+  )
 }
 
 export function deleteGeneralCustomerBrand(id: number) {
-  return request<{ message: string }>(`/inventory/general-customer-brands/${id}`, {
-    method: "DELETE",
-  })
+  return request<{ message: string }>(
+    `/inventory/general-customer-brands/${id}`,
+    {
+      method: "DELETE",
+    }
+  )
 }
 
 export function createGeneralCustomerShop(payload: Record<string, unknown>) {
-  return request<{ item: GeneralCustomerShopItem; message: string }>("/inventory/general-customer-shops", {
-    method: "POST",
-    body: JSON.stringify(payload),
-  })
+  return request<{ item: GeneralCustomerShopItem; message: string }>(
+    "/inventory/general-customer-shops",
+    {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }
+  )
 }
 
-export function updateGeneralCustomerShop(id: number, payload: Record<string, unknown>) {
-  return request<{ item: GeneralCustomerShopItem; message: string }>(`/inventory/general-customer-shops/${id}`, {
-    method: "PUT",
-    body: JSON.stringify(payload),
-  })
+export function updateGeneralCustomerShop(
+  id: number,
+  payload: Record<string, unknown>
+) {
+  return request<{ item: GeneralCustomerShopItem; message: string }>(
+    `/inventory/general-customer-shops/${id}`,
+    {
+      method: "PUT",
+      body: JSON.stringify(payload),
+    }
+  )
 }
 
 export function deleteGeneralCustomerShop(id: number) {
-  return request<{ message: string }>(`/inventory/general-customer-shops/${id}`, {
-    method: "DELETE" })
+  return request<{ message: string }>(
+    `/inventory/general-customer-shops/${id}`,
+    {
+      method: "DELETE",
+    }
+  )
 }
 
 export function listDetails(documentId: number) {
-  return request<{ items: InventoryDetail[] }>(`/inventory/${documentId}/details`)
+  return request<{ items: InventoryDetail[] }>(
+    `/inventory/${documentId}/details`
+  )
 }
 
 export function replaceDetailsFromExcel(payload: {
@@ -1006,66 +1280,107 @@ export function replaceDetailsFromExcel(payload: {
   formData.append("brand", payload.brand ?? "")
   const controller = new AbortController()
   const timeout = window.setTimeout(() => controller.abort(), 120_000)
-  return fetch(`${API_PREFIX}/inventory/${payload.documentId}/details/import-replace`, {
-    method: "POST",
-    body: formData,
-    signal: controller.signal,
-    credentials: "include",
-  })
+  return fetch(
+    `${API_PREFIX}/inventory/${payload.documentId}/details/import-replace`,
+    {
+      method: "POST",
+      body: formData,
+      signal: controller.signal,
+      credentials: "include",
+    }
+  )
     .then(async (response) => {
       if (!response.ok) {
         throw new ApiError(response.status, await response.text())
       }
-      return (await response.json()) as { updated: number; details: number; message: string }
+      return (await response.json()) as {
+        updated: number
+        details: number
+        message: string
+      }
     })
     .catch((error) => {
       if (error instanceof DOMException && error.name === "AbortError") {
-        throw new ApiError(408, "导入超过 2 分钟未返回，请检查 Excel 行数或稍后刷新确认是否已导入")
+        throw new ApiError(
+          408,
+          "导入超过 2 分钟未返回，请检查 Excel 行数或稍后刷新确认是否已导入"
+        )
       }
       throw error
     })
     .finally(() => window.clearTimeout(timeout))
 }
 
-export function lookupInventoryDetail(params: { productCode: string; quantity?: string; brand?: string }) {
+export function lookupInventoryDetail(params: {
+  productCode: string
+  quantity?: string
+  brand?: string
+}) {
   const search = new URLSearchParams({ product_code: params.productCode })
   if (params.quantity) search.set("quantity", params.quantity)
   if (params.brand) search.set("brand", params.brand)
-  return request<{ item: InventoryDetailLookupResult }>(`/inventory/detail-lookup?${search.toString()}`)
+  return request<{ item: InventoryDetailLookupResult }>(
+    `/inventory/detail-lookup?${search.toString()}`
+  )
 }
 
-export function listInventoryDetailCandidates(params: { query: string; brand?: string; limit?: number }) {
+export function listInventoryDetailCandidates(params: {
+  query: string
+  brand?: string
+  limit?: number
+}) {
   const search = new URLSearchParams({ query: params.query })
   if (params.brand) search.set("brand", params.brand)
   if (params.limit) search.set("limit", String(params.limit))
-  return request<{ items: InventoryDetailCandidate[] }>(`/inventory/detail-candidates?${search.toString()}`)
+  return request<{ items: InventoryDetailCandidate[] }>(
+    `/inventory/detail-candidates?${search.toString()}`
+  )
 }
 
-export function createDetail(documentId: number, payload: Record<string, unknown>) {
-  return request<{ item: InventoryDetail; message: string }>(`/inventory/${documentId}/details`, {
-    method: "POST",
-    body: JSON.stringify(payload),
-  })
+export function createDetail(
+  documentId: number,
+  payload: Record<string, unknown>
+) {
+  return request<{ item: InventoryDetail; message: string }>(
+    `/inventory/${documentId}/details`,
+    {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }
+  )
 }
 
-export function updateDetail(documentId: number, detailId: number, payload: Record<string, unknown>) {
-  return request<{ item: InventoryDetail; message: string }>(`/inventory/${documentId}/details/${detailId}`, {
-    method: "PUT",
-    body: JSON.stringify(payload),
-  })
+export function updateDetail(
+  documentId: number,
+  detailId: number,
+  payload: Record<string, unknown>
+) {
+  return request<{ item: InventoryDetail; message: string }>(
+    `/inventory/${documentId}/details/${detailId}`,
+    {
+      method: "PUT",
+      body: JSON.stringify(payload),
+    }
+  )
 }
 
 export function deleteDetail(documentId: number, detailId: number) {
-  return request<{ message: string }>(`/inventory/${documentId}/details/${detailId}`, {
-    method: "DELETE",
-  })
+  return request<{ message: string }>(
+    `/inventory/${documentId}/details/${detailId}`,
+    {
+      method: "DELETE",
+    }
+  )
 }
 
 export function batchDeleteDetails(documentId: number, ids: number[]) {
-  return request<{ deleted: number; message: string }>(`/inventory/${documentId}/details/batch-delete`, {
-    method: "POST",
-    body: JSON.stringify({ ids }),
-  })
+  return request<{ deleted: number; message: string }>(
+    `/inventory/${documentId}/details/batch-delete`,
+    {
+      method: "POST",
+      body: JSON.stringify({ ids }),
+    }
+  )
 }
 
 // ── Ending Inventory ──────────────────────────────────────────────
@@ -1120,9 +1435,12 @@ export type PurchaseInboundDetailResponse = {
 
 export function importJstStock(stockDate?: string) {
   const search = stockDate ? `?stock_date=${stockDate}` : ""
-  return request<{ imported: number; message: string }>(`/inventory/import-jst-stock${search}`, {
-    method: "POST",
-  })
+  return request<{ imported: number; message: string }>(
+    `/inventory/import-jst-stock${search}`,
+    {
+      method: "POST",
+    }
+  )
 }
 
 export function listEndingInventory(params: {
@@ -1141,7 +1459,9 @@ export function listEndingInventory(params: {
   if (params.date_start) search.set("date_start", params.date_start)
   if (params.date_end) search.set("date_end", params.date_end)
   if (params.product_code) search.set("product_code", params.product_code)
-  return request<EndingInventoryResponse>(`/inventory/ending-balance?${search.toString()}`)
+  return request<EndingInventoryResponse>(
+    `/inventory/ending-balance?${search.toString()}`
+  )
 }
 
 export function listPurchaseInboundDetails(params: {
@@ -1170,12 +1490,20 @@ export function listPurchaseInboundDetails(params: {
   if (params.product_name) search.set("product_name", params.product_name)
   if (params.color_name) search.set("color_name", params.color_name)
   if (params.size_name) search.set("size_name", params.size_name)
-  return request<PurchaseInboundDetailResponse>(`/inventory-reports/purchase-inbound-details?${search.toString()}`)
+  return request<PurchaseInboundDetailResponse>(
+    `/inventory-reports/purchase-inbound-details?${search.toString()}`
+  )
 }
 
 // ── Suppliers ────────────────────────────────────────────────────
 
-export function listSuppliers(params?: { page?: number; pageSize?: number; query?: string; brand?: BrandKey | "smiley" | "ni"; sort?: "grade_asc" | "grade_desc" | "" }) {
+export function listSuppliers(params?: {
+  page?: number
+  pageSize?: number
+  query?: string
+  brand?: BrandKey | "smiley" | "ni"
+  sort?: "grade_asc" | "grade_desc" | ""
+}) {
   if (!params) {
     return request<SupplierListResponse>("/suppliers")
   }
@@ -1223,10 +1551,13 @@ export function createWarehouse(payload: Record<string, unknown>) {
 }
 
 export function updateWarehouse(id: number, payload: Record<string, unknown>) {
-  return request<{ item: WarehouseItem; message: string }>(`/warehouses/${id}`, {
-    method: "PUT",
-    body: JSON.stringify(payload),
-  })
+  return request<{ item: WarehouseItem; message: string }>(
+    `/warehouses/${id}`,
+    {
+      method: "PUT",
+      body: JSON.stringify(payload),
+    }
+  )
 }
 
 export function deleteWarehouse(id: number) {

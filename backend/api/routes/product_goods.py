@@ -228,6 +228,152 @@ def _product_goods_conditions(
     return conditions
 
 
+def _style_summary_expression(product_table):
+    style_code = func.coalesce(
+        func.nullif(func.trim(cast(product_table.c.original_sku, Text)), ""),
+        func.nullif(func.trim(cast(product_table.c.sku, Text)), ""),
+        "",
+    )
+    return func.regexp_replace(style_code, r".{2}$", "")
+
+
+def _base_style_code(value: object) -> str:
+    style_code = str(value or "").strip()
+    return style_code[:-2] if len(style_code) > 2 else style_code
+
+
+def _style_summary_key(row: dict[str, Any]) -> str:
+    return _base_style_code(row.get("style_code") or row.get("goods_code"))
+
+
+def _sum_mapping_values(items: list[dict[str, Any]], field: str) -> dict[str, int]:
+    totals: dict[str, int] = {}
+    for item in items:
+        values = item.get(field)
+        if not isinstance(values, dict):
+            continue
+        for key, raw_value in values.items():
+            try:
+                numeric_value = int(raw_value or 0)
+            except (TypeError, ValueError):
+                continue
+            totals[str(key)] = totals.get(str(key), 0) + numeric_value
+    return totals
+
+
+def _sum_metric_values(items: list[dict[str, Any]], key: str) -> int | float | None:
+    values: list[int | float] = []
+    for item in items:
+        raw_value = (item.get("metrics") or {}).get(key)
+        if isinstance(raw_value, bool) or not isinstance(raw_value, (int, float)):
+            continue
+        values.append(raw_value)
+    return sum(values) if values else None
+
+
+def _first_distinct_value(items: list[dict[str, Any]], field: str) -> Any:
+    values = []
+    for item in items:
+        value = item.get(field)
+        if value is None or value == "":
+            continue
+        if value not in values:
+            values.append(value)
+    if not values:
+        return None
+    return values[0] if len(values) == 1 else "、".join(str(value) for value in values)
+
+
+def _style_summary_item(style_code: str, items: list[dict[str, Any]]) -> dict[str, Any]:
+    representative = items[0]
+    metrics = dict(representative.get("metrics") or {})
+    metric_keys = set().union(*(set((item.get("metrics") or {}).keys()) for item in items))
+    summed_metric_keys = {
+        "total_order_count",
+        "total_sales",
+        "stock_plus_purchase",
+        "in_transit_total",
+        "return_qty",
+        "post_replenishment_stock",
+        "day_over_day",
+        "yesterday_sales",
+        "normal_shelf_sales",
+        "clearance_sales",
+        "week_sales",
+        "normal_shelf_week_sales",
+        "clearance_week_sales",
+        "last_week_sales",
+        "same_week_sales",
+        "same_week_non_douyin_sales",
+        "shortage_total",
+        "sales_size_total",
+        "replenishment_total",
+        "post_replenishment_total",
+        "three_day_change",
+        "sales_2024",
+        "sales_2025",
+        "year_sales",
+        "month_sales",
+    }
+    for key in metric_keys.intersection(summed_metric_keys):
+        metrics[key] = _sum_metric_values(items, key)
+
+    stock_total = sum(int(item.get("stock_total") or 0) for item in items)
+    in_transit_total = sum(int(item.get("in_transit_total") or 0) for item in items)
+    inventory_total = sum(int(item.get("inventory_total") or 0) for item in items)
+    shortage_total = int(metrics.get("shortage_total") or 0)
+    metrics["stock_plus_purchase"] = stock_total
+    metrics["in_transit_total"] = in_transit_total
+    metrics["shortage_total"] = shortage_total
+    metrics["post_replenishment_turnover_days"] = None
+    metrics["stock_health"] = _stock_health_label(
+        None,
+        shortage_total,
+    )
+    metrics["broken_size_sku"] = None
+
+    return {
+        **representative,
+        "id": representative["id"],
+        "is_style_summary": True,
+        "style_code": style_code,
+        "goods_code": style_code,
+        "color": None,
+        "year": _first_distinct_value(items, "year"),
+        "season": _first_distinct_value(items, "season"),
+        "platform": _first_distinct_value(items, "platform"),
+        "category_l4": _first_distinct_value(items, "category_l4"),
+        "first_order_date": _first_distinct_value(items, "first_order_date"),
+        "factory_sku": _first_distinct_value(items, "factory_sku"),
+        "factory_code": _first_distinct_value(items, "factory_code"),
+        "factory_name": _first_distinct_value(items, "factory_name"),
+        "cost": _first_distinct_value(items, "cost"),
+        "product_role": _first_distinct_value(items, "product_role"),
+        "product_type": _first_distinct_value(items, "product_type"),
+        "douyin_hot": _first_distinct_value(items, "douyin_hot"),
+        "clearance": _first_distinct_value(items, "clearance"),
+        "remark": _first_distinct_value(items, "remark"),
+        "stock_by_size": _sum_mapping_values(items, "stock_by_size"),
+        "stock_total": stock_total,
+        "in_transit_total": in_transit_total,
+        "inventory_total": inventory_total,
+        "daily_sales_by_date": _sum_mapping_values(items, "daily_sales_by_date"),
+        "annual_sales": _sum_mapping_values(items, "annual_sales"),
+        "monthly_sales": _sum_mapping_values(items, "monthly_sales"),
+        "platform_sales": _sum_mapping_values(items, "platform_sales"),
+        "daily_platform_sales": _sum_mapping_values(items, "daily_platform_sales"),
+        "weekly_platform_sales": _sum_mapping_values(items, "weekly_platform_sales"),
+        "monthly_platform_sales": _sum_mapping_values(items, "monthly_platform_sales"),
+        "in_transit_by_size": _sum_mapping_values(items, "in_transit_by_size"),
+        "inventory_by_size": _sum_mapping_values(items, "inventory_by_size"),
+        "shortage_by_size": _sum_mapping_values(items, "shortage_by_size"),
+        "sales_by_size": _sum_mapping_values(items, "sales_by_size"),
+        "replenishment_by_size": _sum_mapping_values(items, "replenishment_by_size"),
+        "post_replenishment_by_size": _sum_mapping_values(items, "post_replenishment_by_size"),
+        "metrics": metrics,
+    }
+
+
 def _size_stock_payload(
     connection,
     product_codes: list[str],
@@ -888,6 +1034,7 @@ def list_product_goods_filter_options(
 def list_product_goods(
     request: Request,
     brand: str = Query(DEFAULT_BRAND),
+    view: Literal["goods", "style_summary"] = Query("goods"),
     query: str | None = None,
     platform: str | None = None,
     year: str | None = None,
@@ -907,7 +1054,7 @@ def list_product_goods(
     normalized_snapshot_date = snapshot_date.isoformat() if snapshot_date else ""
     parsed_filters = _parse_product_goods_filters(filters)
     normalized_filters = tuple(sorted((item.field, item.operator, item.value or "", tuple(item.values or [])) for item in parsed_filters))
-    cache_key = (brand, normalized_query, normalized_platform, normalized_year, normalized_filters, normalized_snapshot_date, page, page_size)
+    cache_key = (brand, view, "style-summary-v2" if view == "style_summary" else "", normalized_query, normalized_platform, normalized_year, normalized_filters, normalized_snapshot_date, page, page_size)
     if not cache_bust:
         cached = get_product_goods_cache(cache_key)
         if cached is not None:
@@ -923,12 +1070,33 @@ def list_product_goods(
         filters=parsed_filters,
     )
     join = product_table.outerjoin(override, (override.c.brand == brand) & (override.c.product_id == product_table.c.id))
-    statement = select(product_table, override).select_from(join)
-    count_statement = select(func.count()).select_from(join)
-    for condition in conditions:
-        statement = statement.where(condition)
-        count_statement = count_statement.where(condition)
-    statement = statement.order_by(product_table.c.year.desc().nulls_last(), product_table.c.sku).offset((page - 1) * page_size).limit(page_size)
+    style_codes: list[str] = []
+    if view == "style_summary":
+        style_expression = _style_summary_expression(product_table)
+        style_statement = select(style_expression.label("style_code")).select_from(join)
+        count_statement = select(func.count(func.distinct(style_expression))).select_from(join)
+        for condition in conditions:
+            style_statement = style_statement.where(condition)
+            count_statement = count_statement.where(condition)
+        style_statement = (
+            style_statement
+            .group_by(style_expression)
+            .order_by(style_expression)
+            .offset((page - 1) * page_size)
+            .limit(page_size)
+        )
+        statement = select(product_table, override).select_from(join)
+        for condition in conditions:
+            statement = statement.where(condition)
+        statement = statement.where(style_expression.in_(select(style_statement.subquery().c.style_code)))
+        statement = statement.order_by(product_table.c.year.desc().nulls_last(), product_table.c.sku)
+    else:
+        statement = select(product_table, override).select_from(join)
+        count_statement = select(func.count()).select_from(join)
+        for condition in conditions:
+            statement = statement.where(condition)
+            count_statement = count_statement.where(condition)
+        statement = statement.order_by(product_table.c.year.desc().nulls_last(), product_table.c.sku).offset((page - 1) * page_size).limit(page_size)
 
     settings = request.app.state.settings
     repository = request.app.state.repository
@@ -947,6 +1115,11 @@ def list_product_goods(
         if snapshot_date is not None and snapshot_date not in snapshot_dates:
             raise HTTPException(status_code=404, detail=f"未找到 {snapshot_date.isoformat()} 的货品表快照")
         total = int(connection.execute(count_statement).scalar() or 0)
+        if view == "style_summary":
+            style_codes = [
+                str(item or "").strip()
+                for item in connection.execute(style_statement).scalars()
+            ]
         rows = connection.execute(statement).mappings().all()
         product_codes = sorted({str(row.get("sku") or "").strip() for row in rows if str(row.get("sku") or "").strip()})
         if snapshot_date is None:
@@ -1102,6 +1275,16 @@ def list_product_goods(
             "sales_by_size": sales_by_size.get(sku, {}), "replenishment_by_size": replenishment_by_size, "post_replenishment_by_size": post_replenishment_by_size,
             "metrics": metrics,
         })
+    if view == "style_summary":
+        items_by_style: dict[str, list[dict[str, Any]]] = defaultdict(list)
+        for row, item in zip(rows, items):
+            items_by_style[_base_style_code(row.get("original_sku") or row.get("sku"))].append(item)
+        items = [
+            _style_summary_item(style_code, items_by_style[style_code])
+            for style_code in style_codes
+            if items_by_style.get(style_code)
+        ]
+
     payload = {
         "items": items,
         "total": total,
