@@ -63,6 +63,7 @@ import { cn } from "@/lib/utils"
 
 const PAGE_SIZE = 50
 const SUMMARY_PAGE_SIZE = 20
+const RISK_PAGE_SIZE = 20
 const PAGE_SIZE_OPTIONS = [20, 50, 100, 200]
 const EXPORT_PAGE_SIZE = 200
 const EXPORT_CONCURRENCY = 2
@@ -1816,7 +1817,11 @@ export function ProductGoodsPage() {
     (nextView: ProductGoodsView) => {
       if (nextView === dataView) return
       const nextPageSize =
-        nextView === "style_summary" ? SUMMARY_PAGE_SIZE : pageSize
+        nextView === "style_summary"
+          ? SUMMARY_PAGE_SIZE
+          : nextView === "shortage_risk"
+            ? RISK_PAGE_SIZE
+            : pageSize
       const context: ProductGoodsPageContext = {
         brand,
         filters,
@@ -2443,7 +2448,11 @@ export function ProductGoodsPage() {
     if (nextView === dataView) return
     setSelectedItem(null)
     const nextPageSize =
-      nextView === "style_summary" ? SUMMARY_PAGE_SIZE : PAGE_SIZE
+      nextView === "style_summary"
+        ? SUMMARY_PAGE_SIZE
+        : nextView === "shortage_risk"
+          ? RISK_PAGE_SIZE
+          : PAGE_SIZE
     startTransition(() => {
       setDataView(nextView)
       setSort([])
@@ -2705,9 +2714,11 @@ export function ProductGoodsPage() {
                         <button
                           key={mode}
                           type="button"
-                          onClick={() =>
-                            setColumnMode(mode as "full" | "custom")
-                          }
+                          onClick={() => {
+                            const nextMode = mode as "full" | "custom"
+                            setColumnMode(nextMode)
+                            if (nextMode === "custom") openPicker()
+                          }}
                           className={cn(
                             "h-8 cursor-pointer rounded px-3 text-sm font-medium transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
                             columnMode === mode

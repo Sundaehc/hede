@@ -50,6 +50,8 @@ SIZE_TO_STOCK_CODE = {str(size): str(50 + size * 5) for size in range(34, 45)}
 STOCK_CODE_TO_SIZE = {value: key for key, value in SIZE_TO_STOCK_CODE.items()}
 SALES_PERIOD_START_YEAR = 2024
 LOW_STOCK_SALE_DAYS = 7
+SHORTAGE_RISK_SALE_DAYS = 30
+URGENT_SHORTAGE_RISK_SALE_DAYS = 20
 HIGH_STOCK_SALE_DAYS = 90
 
 
@@ -272,27 +274,66 @@ def _shortage_risk_product_codes(connection, product_table, *, brand: str) -> se
     if not product_codes:
         return set()
     code_lengths = sorted({len(product_code) for product_code in product_codes}, reverse=True)
-    risk_source_codes = connection.execute(
-        select(JST_FULL_STOCK_TABLE.c.product_code)
-        .distinct()
-        .where(
-            or_(
-                JST_FULL_STOCK_TABLE.c.available_qty < 0,
-                and_(
-                    JST_FULL_STOCK_TABLE.c.stock_sale_days.is_not(None),
-                    JST_FULL_STOCK_TABLE.c.stock_sale_days <= LOW_STOCK_SALE_DAYS,
-                ),
-            )
+    source_rows = connection.execute(
+        select(
+            JST_FULL_STOCK_TABLE.c.product_code,
+            JST_FULL_STOCK_TABLE.c.size,
+            JST_FULL_STOCK_TABLE.c.available_qty,
+            JST_FULL_STOCK_TABLE.c.stock_sale_days,
+            JST_FULL_STOCK_TABLE.c.actual_stock_qty,
+            JST_FULL_STOCK_TABLE.c.purchase_warehouse_stock_qty,
+            JST_FULL_STOCK_TABLE.c.purchase_in_transit_qty,
+            JST_FULL_STOCK_TABLE.c.transfer_in_transit_qty,
+            JST_FULL_STOCK_TABLE.c.return_in_transit_qty,
         )
-    ).scalars()
-    matched_codes: set[str] = set()
-    for source_code in risk_source_codes:
+    ).mappings()
+    attributes: dict[str, dict[str, Any]] = {}
+    for row in source_rows:
+        source_code = row["product_code"]
         normalized_source_code = str(source_code or "").strip()
+        matched_code = None
         for length in code_lengths:
             candidate = normalized_source_code[:length]
             if candidate in product_codes:
-                matched_codes.add(candidate)
+                matched_code = candidate
                 break
+        if matched_code is None:
+            continue
+        attribute = attributes.setdefault(
+            matched_code,
+            {
+                "has_shortage": False,
+                "stock_sale_days": [],
+                "inventory_by_size": {},
+            },
+        )
+        if int(row["available_qty"] or 0) < 0:
+            attribute["has_shortage"] = True
+        if row["stock_sale_days"] is not None:
+            attribute["stock_sale_days"].append(float(row["stock_sale_days"]))
+        size = _full_stock_size(row["size"])
+        if size is not None:
+            inventory_quantity = (
+                int(row["actual_stock_qty"] or 0)
+                + int(row["purchase_warehouse_stock_qty"] or 0)
+                + int(row["purchase_in_transit_qty"] or 0)
+                + int(row["transfer_in_transit_qty"] or 0)
+                + int(row["return_in_transit_qty"] or 0)
+            )
+            inventory_by_size = attribute["inventory_by_size"]
+            inventory_by_size[size] = inventory_by_size.get(size, 0) + inventory_quantity
+
+    matched_codes: set[str] = set()
+    for product_code, attribute in attributes.items():
+        stock_sale_days = attribute["stock_sale_days"]
+        broken_size, biased_size = _size_inventory_risk_flags(attribute["inventory_by_size"])
+        if (
+            attribute["has_shortage"]
+            or (stock_sale_days and min(stock_sale_days) <= SHORTAGE_RISK_SALE_DAYS)
+            or broken_size
+            or biased_size
+        ):
+            matched_codes.add(product_code)
     set_product_goods_risk_codes_cache(brand, matched_codes)
     return matched_codes
 
@@ -482,16 +523,54 @@ def _full_stock_size(value: object) -> str | None:
     return STOCK_CODE_TO_SIZE.get(normalized) or _size_from_color_spec(normalized)
 
 
-def _stock_health_label(stock_sale_days: float | None, shortage_total: int) -> str | None:
+def _stock_health_label(
+    stock_sale_days: float | None,
+    shortage_total: int,
+    broken_size: bool = False,
+    biased_size: bool = False,
+) -> str | None:
+    labels: list[str] = []
     if shortage_total > 0:
-        return "缺货"
+        labels.append("缺货")
+    if broken_size:
+        labels.append("断码")
+    if biased_size:
+        labels.append("偏码")
+    if stock_sale_days is not None:
+        if stock_sale_days <= URGENT_SHORTAGE_RISK_SALE_DAYS:
+            labels.append("周转≤20天")
+        elif stock_sale_days <= SHORTAGE_RISK_SALE_DAYS:
+            labels.append("周转≤30天")
+    if labels:
+        return "、".join(labels)
     if stock_sale_days is None:
         return None
-    if stock_sale_days <= LOW_STOCK_SALE_DAYS:
-        return "低库存"
     if stock_sale_days >= HIGH_STOCK_SALE_DAYS:
         return "积压风险"
     return "正常"
+
+
+def _size_inventory_risk_flags(
+    inventory_by_size: dict[str, int],
+) -> tuple[bool, bool]:
+    values = [
+        int(quantity or 0)
+        for size, quantity in sorted(
+            inventory_by_size.items(),
+            key=lambda item: SIZE_COLUMN_ORDER.get(item[0], len(SIZE_COLUMNS)),
+        )
+        if size in SIZE_COLUMNS
+    ]
+    if not values:
+        return False, False
+    broken_size = any(quantity < 2 for quantity in values)
+    total = sum(values)
+    if total <= 0:
+        return broken_size, False
+    first_three = sum(values[:3])
+    last_three = sum(values[-3:])
+    biased_size = first_three / total > 0.7 or last_three / total > 0.7
+    return broken_size, biased_size
 
 
 def _detail_snapshot_dates(connection, *, brand: str) -> list[date]:
@@ -1273,6 +1352,70 @@ def _sales_period_payload(
     return annual_columns, monthly_columns, annual_by_sku, monthly_by_sku
 
 
+def _risk_same_season_monthly_sales_payload(
+    connection,
+    engine,
+    product_sales_codes: dict[str, str],
+    *,
+    brand: str,
+    as_of_date: date | None = None,
+) -> dict[str, dict[str, int]]:
+    if not product_sales_codes or not inspect(engine).has_table(PRODUCT_GOODS_SALES_PERIODS_TABLE.name):
+        return {}
+    product_codes = sorted(product_sales_codes, key=len, reverse=True)
+    style_code_matches: dict[str, list[str]] = defaultdict(list)
+    for product_code, style_code in product_sales_codes.items():
+        if style_code:
+            style_code_matches[style_code].append(product_code)
+    unique_style_codes = {
+        style_code: matches[0]
+        for style_code, matches in style_code_matches.items()
+        if len(matches) == 1
+    }
+    current_month = date.today().month
+    target_periods = {
+        date(year + (current_month + offset - 1) // 12, (current_month + offset - 1) % 12 + 1, 1)
+        for year in (2024, 2025, 2026)
+        for offset in (-1, 0, 1)
+    }
+    conditions = [PRODUCT_GOODS_SALES_PERIODS_TABLE.c.product_code.startswith(product_code) for product_code in product_codes]
+    if unique_style_codes:
+        conditions.append(PRODUCT_GOODS_SALES_PERIODS_TABLE.c.style_code.in_(unique_style_codes))
+    statement = (
+        select(
+            PRODUCT_GOODS_SALES_PERIODS_TABLE.c.product_code,
+            PRODUCT_GOODS_SALES_PERIODS_TABLE.c.style_code,
+            PRODUCT_GOODS_SALES_PERIODS_TABLE.c.period_start,
+            PRODUCT_GOODS_SALES_PERIODS_TABLE.c.sales_quantity,
+        )
+        .where(PRODUCT_GOODS_SALES_PERIODS_TABLE.c.brand == brand)
+        .where(PRODUCT_GOODS_SALES_PERIODS_TABLE.c.period_type == "month")
+        .where(PRODUCT_GOODS_SALES_PERIODS_TABLE.c.period_start.in_(target_periods))
+        .where(or_(*conditions))
+    )
+    if as_of_date is not None:
+        statement = statement.where(
+            or_(
+                PRODUCT_GOODS_SALES_PERIODS_TABLE.c.source_as_of_date.is_(None),
+                PRODUCT_GOODS_SALES_PERIODS_TABLE.c.source_as_of_date <= as_of_date,
+            )
+        )
+    monthly_by_sku: dict[str, dict[str, int]] = {}
+    for row in connection.execute(statement).mappings():
+        code = _resolve_jst_product_code(
+            row["product_code"],
+            row["style_code"],
+            product_codes,
+            unique_style_codes,
+        )
+        period_start = row["period_start"]
+        if code is None or not isinstance(period_start, date):
+            continue
+        key = f"{period_start.year % 100:02d}-{period_start.month}"
+        monthly_by_sku.setdefault(code, {})[key] = int(row["sales_quantity"] or 0)
+    return monthly_by_sku
+
+
 @router.get("/product-goods/filter-options")
 def list_product_goods_filter_options(
     request: Request,
@@ -1377,6 +1520,7 @@ def list_product_goods(
 ):
     if brand not in PRODUCT_TABLES:
         raise HTTPException(status_code=400, detail=f"Invalid brand: {brand}")
+    repository = request.app.state.repository
     page = max(page, 1)
     page_size = min(max(page_size, 1), 500)
     normalized_query = (query or "").strip()
@@ -1385,7 +1529,7 @@ def list_product_goods(
     normalized_snapshot_date = snapshot_date.isoformat() if snapshot_date else ""
     parsed_filters = _parse_product_goods_filters(filters)
     normalized_filters = tuple(sorted((item.field, item.operator, item.value or "", tuple(sorted(item.values or []))) for item in parsed_filters))
-    cache_key = (brand, view, "style-summary-v2" if view == "style_summary" else "shortage-risk-v1" if view == "shortage_risk" else "", normalized_query, normalized_platform, normalized_year, normalized_filters, normalized_snapshot_date, page, page_size)
+    cache_key = (brand, view, "style-summary-v2" if view == "style_summary" else "shortage-risk-v2" if view == "shortage_risk" else "", normalized_query, normalized_platform, normalized_year, normalized_filters, normalized_snapshot_date, page, page_size)
     if not cache_bust:
         cached = get_product_goods_cache(cache_key)
         if cached is not None:
@@ -1510,12 +1654,10 @@ def list_product_goods(
             )
             sales_summary = {}
             historical_order_counts = {}
-            (
-                annual_sales_columns,
-                monthly_sales_columns,
-                annual_sales,
-                monthly_sales,
-            ) = _sales_period_payload(
+            annual_sales_columns = []
+            monthly_sales_columns = []
+            annual_sales = {}
+            monthly_sales = _risk_same_season_monthly_sales_payload(
                 connection,
                 repository.engine,
                 product_sales_codes,
@@ -1587,9 +1729,13 @@ def list_product_goods(
         in_transit_total = int(_snapshot_value(snapshot_metrics, "in_transit_total", full_stock["in_transit_total"] if full_stock else int(summary.get("purchase_in_transit_qty") or 0)) or 0)
         inventory_by_size = dict(detail_snapshot.get("inventory_by_size") or {
             size: int(stock_by_size.get(size, 0)) + int(in_transit_by_size.get(size, 0))
-            for size in sorted(set(stock_by_size) | set(in_transit_by_size), key=lambda value: int(value))
+            for size in sorted(
+                set(stock_by_size) | set(in_transit_by_size),
+                key=lambda value: SIZE_COLUMN_ORDER.get(value, len(SIZE_COLUMNS)),
+            )
         })
         inventory_total = int(_snapshot_value(snapshot_metrics, "inventory_total", stock_total + in_transit_total) or 0)
+        broken_size, biased_size = _size_inventory_risk_flags(inventory_by_size)
         sales = sales_summary.get(sku, {})
         extra_fields = row.get("extra_fields") if isinstance(row.get("extra_fields"), dict) else {}
         sales_by_size_values = dict(detail_snapshot.get("sales_by_size") or sales_by_size.get(sku, {}))
@@ -1678,8 +1824,8 @@ def list_product_goods(
             "same_week_sales": None,
             "same_week_non_douyin_sales": None,
             "shortage_total": shortage_total,
-            "stock_health": _stock_health_label(full_stock["stock_sale_days"], shortage_total) if full_stock else None,
-            "broken_size_sku": None,
+            "stock_health": _stock_health_label(full_stock["stock_sale_days"], shortage_total, broken_size, biased_size) if full_stock else _stock_health_label(None, shortage_total, broken_size, biased_size),
+            "broken_size_sku": "是" if broken_size else None,
             "sales_size_total": recent_14_day_sales_value if view == "shortage_risk" else sum(sales_by_size_values.values()) if sales_by_size_values else None,
             "recent_14_day_sales": recent_14_day_sales_value if view == "shortage_risk" else None,
             "recent_30_day_sales": recent_30_day_sales_value if view == "shortage_risk" else None,

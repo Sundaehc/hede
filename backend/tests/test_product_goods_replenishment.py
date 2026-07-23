@@ -3,7 +3,9 @@ from api.routes.product_goods import (
     _manual_size_quantities,
     _post_replenishment_inventory_by_size,
     _post_replenishment_turnover_days,
+    _size_inventory_risk_flags,
     _size_from_color_spec,
+    _stock_health_label,
 )
 
 
@@ -44,3 +46,14 @@ def test_clog_sizes_are_parsed_and_supported_for_manual_replenishment():
         {"225-230": 4, "230-235": -1},
         allow_negative=True,
     ) == {"225-230": 4, "230-235": -1}
+
+
+def test_size_inventory_flags_detect_broken_and_biased_stock():
+    assert _size_inventory_risk_flags(
+        {"34": 1, "35": 8, "36": 1, "37": 0, "38": 0}
+    ) == (True, True)
+    assert _size_inventory_risk_flags(
+        {"34": 3, "35": 3, "36": 3, "37": 1, "38": 1, "39": 3}
+    ) == (True, False)
+    assert _stock_health_label(18, 0, False, False) == "周转≤20天"
+    assert _stock_health_label(28, 0, False, False) == "周转≤30天"
