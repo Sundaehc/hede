@@ -1389,11 +1389,80 @@ const ExpectedReplenishmentInput = memo(function ExpectedReplenishmentInput({
   )
 })
 
+const ReplenishmentBySizeInput = memo(function ReplenishmentBySizeInput({
+  item,
+  onSave,
+  size,
+}: {
+  item: ProductGoodsItem
+  onSave: (
+    item: ProductGoodsItem,
+    size: string,
+    value: number | null
+  ) => Promise<void>
+  size: string
+}) {
+  const [draft, setDraft] = useState(value(item.replenishment_by_size[size]))
+  const [saving, setSaving] = useState(false)
+  const currentValue = item.replenishment_by_size[size]
+
+  useEffect(() => {
+    setDraft(value(item.replenishment_by_size[size]))
+  }, [item.id, item.replenishment_by_size, size])
+
+  async function commit() {
+    const normalized = draft.trim()
+    const nextValue = normalized ? Number(normalized) : null
+    if (
+      (nextValue === null && currentValue === undefined) ||
+      nextValue === currentValue
+    )
+      return
+    if (nextValue !== null && !Number.isFinite(nextValue)) {
+      setDraft(value(currentValue))
+      return
+    }
+    setSaving(true)
+    try {
+      await onSave(item, size, nextValue === null ? null : Math.trunc(nextValue))
+    } catch {
+      setDraft(value(currentValue))
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <Input
+      type="number"
+      step="1"
+      inputMode="numeric"
+      value={draft}
+      disabled={saving}
+      onChange={(event) => setDraft(event.target.value)}
+      onBlur={() => void commit()}
+      onKeyDown={(event) => {
+        if (event.key === "Enter") {
+          event.preventDefault()
+          event.currentTarget.blur()
+        }
+        if (event.key === "Escape") {
+          setDraft(value(currentValue))
+          event.currentTarget.blur()
+        }
+      }}
+      className="h-7 min-w-[4.25rem] border-transparent bg-transparent px-1 text-center text-[13px] tabular-nums shadow-none hover:border-border focus:border-primary focus:bg-background focus-visible:ring-1"
+      aria-label={`${item.goods_code || "商品"}的${size}预计补单明细`}
+    />
+  )
+})
+
 const ProductGoodsRiskRow = memo(function ProductGoodsRiskRow({
   canEdit,
   item,
   onPreviewImage,
   onSaveExpectedReplenishment,
+  onSaveReplenishmentBySize,
   onSelectItem,
   sizes,
 }: {
@@ -1402,6 +1471,11 @@ const ProductGoodsRiskRow = memo(function ProductGoodsRiskRow({
   onPreviewImage: (item: ProductGoodsItem) => void
   onSaveExpectedReplenishment: (
     item: ProductGoodsItem,
+    value: number | null
+  ) => Promise<void>
+  onSaveReplenishmentBySize: (
+    item: ProductGoodsItem,
+    size: string,
     value: number | null
   ) => Promise<void>
   onSelectItem: (item: ProductGoodsItem) => void
@@ -1457,7 +1531,15 @@ const ProductGoodsRiskRow = memo(function ProductGoodsRiskRow({
             key={`${group.key}-${size}`}
             className="border-b border-border px-2 py-2 text-center tabular-nums"
           >
-            {value(riskSizeValue(item, group.key, size))}
+            {group.key === "replenishment" && canEdit ? (
+              <ReplenishmentBySizeInput
+                item={item}
+                size={size}
+                onSave={onSaveReplenishmentBySize}
+              />
+            ) : (
+              value(riskSizeValue(item, group.key, size))
+            )}
           </td>
         ))
       )}
@@ -1483,6 +1565,7 @@ const ProductGoodsRiskGrid = memo(function ProductGoodsRiskGrid({
   onOpenColumnFilter,
   onPreviewImage,
   onSaveExpectedReplenishment,
+  onSaveReplenishmentBySize,
   onSelectItem,
   onSort,
   sizes,
@@ -1500,6 +1583,11 @@ const ProductGoodsRiskGrid = memo(function ProductGoodsRiskGrid({
   onPreviewImage: (item: ProductGoodsItem) => void
   onSaveExpectedReplenishment: (
     item: ProductGoodsItem,
+    value: number | null
+  ) => Promise<void>
+  onSaveReplenishmentBySize: (
+    item: ProductGoodsItem,
+    size: string,
     value: number | null
   ) => Promise<void>
   onSelectItem: (item: ProductGoodsItem) => void
@@ -1640,6 +1728,7 @@ const ProductGoodsRiskGrid = memo(function ProductGoodsRiskGrid({
                 item={item}
                 onPreviewImage={onPreviewImage}
                 onSaveExpectedReplenishment={onSaveExpectedReplenishment}
+                onSaveReplenishmentBySize={onSaveReplenishmentBySize}
                 onSelectItem={onSelectItem}
                 sizes={sizes}
               />
@@ -2204,7 +2293,15 @@ export function ProductGoodsPage() {
     const updatedMetrics = { ...item.metrics }
     for (const field of metricFields)
       if (field in fields) updatedMetrics[field] = fields[field] ?? null
-    const updatedItem = { ...item, ...fields, metrics: updatedMetrics }
+    const updatedItem = {
+      ...item,
+      ...fields,
+      replenishment_by_size:
+        "replenishment_by_size" in fields
+          ? fields.replenishment_by_size ?? {}
+          : item.replenishment_by_size,
+      metrics: updatedMetrics,
+    }
     setSelectedItem(updatedItem)
     setData((current) => ({
       ...current,
@@ -2221,7 +2318,22 @@ export function ProductGoodsPage() {
     expectedReplenishmentStock: number | null
   ) => saveManualFields(item, {
     expected_replenishment_stock: expectedReplenishmentStock,
+    replenishment_by_size: null,
   }), [saveManualFields])
+  const saveReplenishmentBySize = useCallback((
+    item: ProductGoodsItem,
+    size: string,
+    replenishmentQuantity: number | null
+  ) => {
+    const replenishmentBySize = { ...item.replenishment_by_size }
+    if (replenishmentQuantity === null) delete replenishmentBySize[size]
+    else replenishmentBySize[size] = replenishmentQuantity
+    return saveManualFields(item, {
+      replenishment_by_size: Object.keys(replenishmentBySize).length
+        ? replenishmentBySize
+        : null,
+    })
+  }, [saveManualFields])
   const previewProductImage = useCallback((item: ProductGoodsItem) => {
     if (!item.image_url) return
     setPreviewImage({
@@ -2844,6 +2956,7 @@ export function ProductGoodsPage() {
               onOpenColumnFilter={openColumnFilter}
               onPreviewImage={previewProductImage}
               onSaveExpectedReplenishment={saveExpectedReplenishment}
+              onSaveReplenishmentBySize={saveReplenishmentBySize}
               onSelectItem={selectProductItem}
               onSort={toggleSort}
               sizes={riskSizeColumns}

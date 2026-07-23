@@ -41,7 +41,10 @@ from domain.jst_stock_snapshot_schema import JST_SIZE_STOCK_SNAPSHOT_TABLE, JST_
 
 router = APIRouter()
 DEFAULT_BRAND = "cbanner_womens"
-SIZE_COLUMNS = ["34", "35", "36", "37", "38", "39", "40", "41", "42", "43", "44"]
+STANDARD_SIZE_COLUMNS = ["34", "35", "36", "37", "38", "39", "40", "41", "42", "43", "44"]
+CLOG_SIZE_COLUMNS = ["225-230", "230-235", "235-240", "240-245", "245-250", "250-255"]
+SIZE_COLUMNS = [*STANDARD_SIZE_COLUMNS, *CLOG_SIZE_COLUMNS]
+SIZE_COLUMN_ORDER = {size: index for index, size in enumerate(SIZE_COLUMNS)}
 PLATFORM_COLUMNS = ["唯品", "天猫", "得物", "拼多多", "京东", "商品卡", "直播赛道", "达播清仓", "拼多多清仓", "其他"]
 SIZE_TO_STOCK_CODE = {str(size): str(50 + size * 5) for size in range(34, 45)}
 STOCK_CODE_TO_SIZE = {value: key for key, value in SIZE_TO_STOCK_CODE.items()}
@@ -464,7 +467,8 @@ def _size_stock_payload(
     result: dict[str, dict[str, int]] = {}
     for row in rows:
         code = str(row["product_code"] or "").strip()
-        size = STOCK_CODE_TO_SIZE.get(str(row["size"] or "").strip(), str(row["size"] or "").strip())
+        raw_size = str(row["size"] or "").strip()
+        size = STOCK_CODE_TO_SIZE.get(raw_size) or _size_from_color_spec(raw_size) or raw_size
         if code and size:
             result.setdefault(code, {})[size] = int(row["quantity"] or 0)
     return result
@@ -475,9 +479,7 @@ def _full_stock_size(value: object) -> str | None:
     normalized = str(value or "").strip()
     if normalized.endswith(".0") and normalized[:-2].isdigit():
         normalized = normalized[:-2]
-    if normalized in SIZE_COLUMNS:
-        return normalized
-    return STOCK_CODE_TO_SIZE.get(normalized)
+    return STOCK_CODE_TO_SIZE.get(normalized) or _size_from_color_spec(normalized)
 
 
 def _stock_health_label(stock_sale_days: float | None, shortage_total: int) -> str | None:
@@ -609,7 +611,11 @@ def _current_full_stock_payload(
     return result
 
 
-def _manual_size_quantities(value: object) -> dict[str, int]:
+def _manual_size_quantities(
+    value: object,
+    *,
+    allow_negative: bool = False,
+) -> dict[str, int]:
     if not isinstance(value, dict):
         return {}
     quantities: dict[str, int] = {}
@@ -621,7 +627,7 @@ def _manual_size_quantities(value: object) -> dict[str, int]:
             normalized_quantity = int(quantity)
         except (TypeError, ValueError):
             continue
-        if normalized_quantity >= 0:
+        if allow_negative or normalized_quantity >= 0:
             quantities[normalized_size] = normalized_quantity
     return quantities
 
@@ -659,12 +665,15 @@ def _allocate_replenishment_by_sales(
         )
         target_by_size[size] = target_quantity
         targeted += target_quantity
-        remainders.append((remainder, -int(size), size))
+        remainders.append((remainder, -SIZE_COLUMN_ORDER[size], size))
     for _, _, size in sorted(remainders, reverse=True)[: post_replenishment_total - targeted]:
         target_by_size[size] += 1
     return {
         size: target_by_size.get(size, 0) - int(inventory_by_size.get(size, 0))
-        for size in sorted(set(inventory_by_size) | set(target_by_size), key=int)
+        for size in sorted(
+            set(inventory_by_size) | set(target_by_size),
+            key=lambda size: SIZE_COLUMN_ORDER.get(size, len(SIZE_COLUMNS)),
+        )
     }
 
 
@@ -677,7 +686,7 @@ def _post_replenishment_inventory_by_size(
         + int(replenishment_by_size.get(size, 0))
         for size in sorted(
             set(inventory_by_size) | set(replenishment_by_size),
-            key=lambda size: int(size),
+            key=lambda size: SIZE_COLUMN_ORDER.get(size, len(SIZE_COLUMNS)),
         )
     }
 
@@ -698,7 +707,13 @@ def _snapshot_value(values: dict[str, object], key: str, fallback: object) -> ob
 def _size_from_color_spec(value: object) -> str | None:
     text = str(value or "")
     matched = re.search(r"(?<!\d)(3[4-9]|4[0-4])(?!\d)", text)
-    return matched.group(1) if matched else None
+    if matched:
+        return matched.group(1)
+    normalized = re.sub(r"[\s~\u301c\u2014\u2013/\u81f3]+", "-", text)
+    for size in CLOG_SIZE_COLUMNS:
+        if re.search(rf"(?<!\d){re.escape(size)}(?!\d)", normalized):
+            return size
+    return None
 
 
 def _shop_channel_key(value: object) -> str:
@@ -1590,6 +1605,12 @@ def list_product_goods(
             if view == "shortage_risk"
             else sales_by_size_values
         )
+        manual_replenishment_value = extra_fields.get("replenishment_by_size")
+        has_manual_replenishment = isinstance(manual_replenishment_value, dict)
+        manual_replenishment_by_size = _manual_size_quantities(
+            manual_replenishment_value,
+            allow_negative=True,
+        )
         expected_replenishment_stock = _manual_number(
             _snapshot_value(
                 snapshot_metrics,
@@ -1597,7 +1618,20 @@ def list_product_goods(
                 extra_fields.get("expected_replenishment_stock"),
             )
         )
-        if expected_replenishment_stock is None:
+        if has_manual_replenishment:
+            replenishment_by_size = manual_replenishment_by_size
+            expected_replenishment_stock = sum(replenishment_by_size.values())
+            post_replenishment_stock = stock_total + expected_replenishment_stock
+            post_replenishment_total = inventory_total + expected_replenishment_stock
+            post_replenishment_by_size = _post_replenishment_inventory_by_size(
+                inventory_by_size,
+                replenishment_by_size,
+            )
+            post_replenishment_turnover_days = _post_replenishment_turnover_days(
+                post_replenishment_total,
+                recent_14_day_sales_value,
+            )
+        elif expected_replenishment_stock is None:
             replenishment_by_size = dict(detail_snapshot.get("replenishment_by_size") or _manual_size_quantities(extra_fields.get("replenishment_by_size")))
             post_replenishment_by_size = dict(detail_snapshot.get("post_replenishment_by_size") or _manual_size_quantities(extra_fields.get("post_replenishment_by_size")))
             post_replenishment_stock = _manual_number(extra_fields.get("post_replenishment_stock"))
@@ -1742,6 +1776,11 @@ def update_product_goods(request: Request, product_id: int, body: ProductGoodsUp
                 extra_fields.pop(field, None)
             else:
                 extra_fields[field] = field_value
+        if (
+            "expected_replenishment_stock" in manual_replenishment_fields
+            and "replenishment_by_size" not in manual_replenishment_fields
+        ):
+            extra_fields.pop("replenishment_by_size", None)
         values = {"brand": brand, "product_id": product_id, **standard_values}
         if manual_replenishment_fields:
             values["extra_fields"] = extra_fields or None

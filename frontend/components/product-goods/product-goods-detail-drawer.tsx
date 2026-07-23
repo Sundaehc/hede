@@ -13,7 +13,9 @@ type ProductGoodsOperationFields = Pick<ProductGoodsItem, "platform" | "category
 type ProductGoodsReplenishmentFields = Pick<
   ProductGoodsItem["metrics"],
   "expected_replenishment_stock"
->
+> & {
+  replenishment_by_size: Record<string, number> | null
+}
 
 export type ProductGoodsManualFields = ProductGoodsOperationFields & ProductGoodsReplenishmentFields
 

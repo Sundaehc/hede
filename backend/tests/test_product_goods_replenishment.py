@@ -1,7 +1,9 @@
 from api.routes.product_goods import (
     _allocate_replenishment_by_sales,
+    _manual_size_quantities,
     _post_replenishment_inventory_by_size,
     _post_replenishment_turnover_days,
+    _size_from_color_spec,
 )
 
 
@@ -33,3 +35,12 @@ def test_post_replenishment_inventory_and_turnover_use_allocated_quantities():
         "35": 8,
     }
     assert _post_replenishment_turnover_days(30, 5) == 84.0
+
+
+def test_clog_sizes_are_parsed_and_supported_for_manual_replenishment():
+    assert _size_from_color_spec("KT-白色 225-230") == "225-230"
+    assert _size_from_color_spec("240~245") == "240-245"
+    assert _manual_size_quantities(
+        {"225-230": 4, "230-235": -1},
+        allow_negative=True,
+    ) == {"225-230": 4, "230-235": -1}
