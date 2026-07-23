@@ -100,7 +100,7 @@ const NAV_ITEMS = [
 export function SidebarNav() {
   const pathname = usePathname()
   const { hasPermission, logout, user } = useAuth()
-  const canAccessProductGoods = user?.role_code === "super_admin" || user?.department_code === "商品部"
+  const canAccessProductGoods = user?.role_code === "super_admin" || ["商品部", "开发部"].includes(user?.department_code ?? "")
   const visibleGroups = NAV_ITEMS.map((group) => ({
     ...group,
     items: group.items.filter((item) => (

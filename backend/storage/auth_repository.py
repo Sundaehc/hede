@@ -19,6 +19,7 @@ DEPARTMENTS = [
     {"code": "运营部", "name": "运营部"},
     {"code": "开发部", "name": "开发部"},
     {"code": "美工部", "name": "美工部"},
+    {"code": "客服部", "name": "客服部"},
 ]
 
 LEGACY_DEPARTMENT_CODE_MAP = {
@@ -37,6 +38,7 @@ DEFAULT_ROLE_BY_DEPARTMENT = {
     "运营部": "operation_user",
     "开发部": "developer_user",
     "美工部": "design_viewer",
+    "客服部": "customer_service_viewer",
 }
 
 DEFAULT_ROLES = [
@@ -79,6 +81,13 @@ DEFAULT_ROLES = [
         "code": "design_viewer",
         "name": "美工部只读",
         "department_code": "美工部",
+        "description": "只允许查看商品信息档案",
+        "permissions": "product.view",
+    },
+    {
+        "code": "customer_service_viewer",
+        "name": "客服部只读",
+        "department_code": "客服部",
         "description": "只允许查看商品信息档案",
         "permissions": "product.view",
     },
