@@ -1,8 +1,8 @@
-"""Create fine-table snapshots.
+"""Persist the calculated current product-goods view as daily snapshots.
 
 Run:
-    python -m scripts.snapshot_fine_table
-    python -m scripts.snapshot_fine_table --brand cbanner_mens
+    python -m scripts.snapshot_product_goods
+    python -m scripts.snapshot_product_goods --brand cbanner_womens
 """
 
 from __future__ import annotations
@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from datetime import date, timedelta
 from typing import Any
 
-from api.routes.fine_table import create_fine_table_snapshot
+from api.routes.product_goods import create_product_goods_calculated_snapshot
 from config import load_settings
 from domain.sources import TABLE_NAMES
 from storage.product_repository import ProductRepository
@@ -35,7 +35,7 @@ class _Request:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Create daily fine-table snapshots")
+    parser = argparse.ArgumentParser(description="Create calculated daily product-goods snapshots")
     parser.add_argument("--brand", choices=sorted(TABLE_NAMES), default=None)
     date_group = parser.add_mutually_exclusive_group()
     date_group.add_argument("--snapshot-date", type=date.fromisoformat, default=None)
@@ -44,20 +44,30 @@ def main() -> None:
 
     settings = load_settings(require_database=True)
     assert settings.database_url is not None
-    request = _Request(app=_App(state=_AppState(settings=settings, repository=ProductRepository(settings.database_url))))
+    request = _Request(
+        app=_App(
+            state=_AppState(
+                settings=settings,
+                repository=ProductRepository(settings.database_url),
+            )
+        )
+    )
     brands = [args.brand] if args.brand else sorted(TABLE_NAMES)
     snapshot_date = args.snapshot_date or (date.today() - timedelta(days=1) if args.previous_day else None)
-
+    failed = False
     for brand in brands:
-        result = create_fine_table_snapshot(
-            request,  # type: ignore[arg-type]
-            brand=brand,
-            snapshot_date=snapshot_date,
-        )
-        print(
-            f"[{brand}] date={result['item']['snapshot_date']} "
-            f"rows={result['rows']} replaced={result['replaced']} message={result['message']}"
-        )
+        try:
+            result = create_product_goods_calculated_snapshot(
+                request,  # type: ignore[arg-type]
+                brand=brand,
+                snapshot_date=snapshot_date,
+            )
+            print(f"[OK] {result}")
+        except Exception as exc:  # pragma: no cover - task logging is exercised in production
+            failed = True
+            print(f"[FAILED] {brand}: {type(exc).__name__}: {exc}")
+    if failed:
+        raise SystemExit(1)
 
 
 if __name__ == "__main__":

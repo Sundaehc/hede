@@ -443,7 +443,6 @@ def import_brand(
                 select(PRODUCT_GOODS_DETAIL_SNAPSHOT_BATCHES_TABLE.c.snapshot_date).where(
                     (PRODUCT_GOODS_DETAIL_SNAPSHOT_BATCHES_TABLE.c.brand == brand)
                     & (PRODUCT_GOODS_DETAIL_SNAPSHOT_BATCHES_TABLE.c.status == "success")
-                    & (PRODUCT_GOODS_DETAIL_SNAPSHOT_BATCHES_TABLE.c.message == SNAPSHOT_FORMAT)
                 )
             ).mappings()
             if isinstance(row["snapshot_date"], date)

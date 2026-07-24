@@ -3,13 +3,14 @@ from __future__ import annotations
 from typing import Any, Literal
 
 from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi.encoders import jsonable_encoder
 from pydantic import BaseModel, ConfigDict
 from collections import defaultdict
 from datetime import date, timedelta
 import json
 import re
 
-from sqlalchemy import Text, and_, case, cast, desc, false, func, inspect, or_, select
+from sqlalchemy import Text, and_, case, cast, delete, desc, false, func, inspect, or_, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from api.product_goods_cache import (
@@ -29,6 +30,7 @@ from domain.product_goods_historical_orders_schema import HISTORICAL_ORDER_START
 from domain.product_goods_sales_period_schema import PRODUCT_GOODS_SALES_PERIODS_TABLE
 from domain.product_goods_detail_snapshot_schema import (
     PRODUCT_GOODS_DETAIL_SNAPSHOT_BATCHES_TABLE,
+    ensure_product_goods_detail_snapshot_tables,
     product_goods_detail_snapshots_table_for_year,
 )
 from domain.schema import PRODUCT_TABLES
@@ -53,6 +55,10 @@ LOW_STOCK_SALE_DAYS = 7
 SHORTAGE_RISK_SALE_DAYS = 30
 URGENT_SHORTAGE_RISK_SALE_DAYS = 20
 HIGH_STOCK_SALE_DAYS = 90
+CALCULATED_SNAPSHOT_FORMAT = "product_goods_calculated_snapshot_v1"
+CALCULATED_SNAPSHOT_SOURCE_PATH = "database://product-goods/current"
+CALCULATED_SNAPSHOT_SOURCE_WORKBOOK = "database_calculated_product_goods"
+CALCULATED_SNAPSHOT_SOURCE_SHEET = "goods"
 
 
 class ProductGoodsUpdateRequest(BaseModel):
@@ -1719,6 +1725,7 @@ def list_product_goods(
         sku = str(row.get("sku") or "").strip()
         detail_snapshot = detail_snapshots.get(sku, {})
         snapshot_metrics = detail_snapshot.get("metrics") if isinstance(detail_snapshot.get("metrics"), dict) else {}
+        is_calculated_snapshot = detail_snapshot.get("snapshot_format") == CALCULATED_SNAPSHOT_FORMAT
         full_stock = full_stocks.get(sku)
         stock_by_size = dict(detail_snapshot.get("stock_by_size") or (full_stock["stock_by_size"] if full_stock else size_stocks.get(sku, {})))
         in_transit_by_size = dict(detail_snapshot.get("in_transit_by_size") or (full_stock["in_transit_by_size"] if full_stock else {}))
@@ -1751,12 +1758,6 @@ def list_product_goods(
             if view == "shortage_risk"
             else sales_by_size_values
         )
-        manual_replenishment_value = extra_fields.get("replenishment_by_size")
-        has_manual_replenishment = isinstance(manual_replenishment_value, dict)
-        manual_replenishment_by_size = _manual_size_quantities(
-            manual_replenishment_value,
-            allow_negative=True,
-        )
         expected_replenishment_stock = _manual_number(
             _snapshot_value(
                 snapshot_metrics,
@@ -1764,43 +1765,56 @@ def list_product_goods(
                 extra_fields.get("expected_replenishment_stock"),
             )
         )
-        if has_manual_replenishment:
-            replenishment_by_size = manual_replenishment_by_size
-            expected_replenishment_stock = sum(replenishment_by_size.values())
-            post_replenishment_stock = stock_total + expected_replenishment_stock
-            post_replenishment_total = inventory_total + expected_replenishment_stock
-            post_replenishment_by_size = _post_replenishment_inventory_by_size(
-                inventory_by_size,
-                replenishment_by_size,
-            )
-            post_replenishment_turnover_days = _post_replenishment_turnover_days(
-                post_replenishment_total,
-                recent_14_day_sales_value,
-            )
-        elif expected_replenishment_stock is None:
-            replenishment_by_size = dict(detail_snapshot.get("replenishment_by_size") or _manual_size_quantities(extra_fields.get("replenishment_by_size")))
-            post_replenishment_by_size = dict(detail_snapshot.get("post_replenishment_by_size") or _manual_size_quantities(extra_fields.get("post_replenishment_by_size")))
-            post_replenishment_stock = _manual_number(extra_fields.get("post_replenishment_stock"))
-            post_replenishment_total = _manual_number(extra_fields.get("post_replenishment_total"))
-            post_replenishment_turnover_days = _manual_number(extra_fields.get("post_replenishment_turnover_days"))
+        if is_calculated_snapshot:
+            replenishment_by_size = dict(detail_snapshot.get("replenishment_by_size") or {})
+            post_replenishment_by_size = dict(detail_snapshot.get("post_replenishment_by_size") or {})
+            post_replenishment_stock = _manual_number(snapshot_metrics.get("post_replenishment_stock"))
+            post_replenishment_total = _manual_number(snapshot_metrics.get("post_replenishment_total"))
+            post_replenishment_turnover_days = _manual_number(snapshot_metrics.get("post_replenishment_turnover_days"))
         else:
-            expected_replenishment_stock = int(expected_replenishment_stock)
-            post_replenishment_stock = stock_total + expected_replenishment_stock
-            post_replenishment_total = inventory_total + expected_replenishment_stock
-            replenishment_by_size = _allocate_replenishment_by_sales(
-                expected_replenishment_stock,
-                post_replenishment_total,
-                inventory_by_size,
-                replenishment_sales_by_size,
+            manual_replenishment_value = extra_fields.get("replenishment_by_size")
+            has_manual_replenishment = isinstance(manual_replenishment_value, dict)
+            manual_replenishment_by_size = _manual_size_quantities(
+                manual_replenishment_value,
+                allow_negative=True,
             )
-            post_replenishment_by_size = _post_replenishment_inventory_by_size(
-                inventory_by_size,
-                replenishment_by_size,
-            )
-            post_replenishment_turnover_days = _post_replenishment_turnover_days(
-                post_replenishment_total,
-                recent_14_day_sales_value,
-            )
+            if has_manual_replenishment:
+                replenishment_by_size = manual_replenishment_by_size
+                expected_replenishment_stock = sum(replenishment_by_size.values())
+                post_replenishment_stock = stock_total + expected_replenishment_stock
+                post_replenishment_total = inventory_total + expected_replenishment_stock
+                post_replenishment_by_size = _post_replenishment_inventory_by_size(
+                    inventory_by_size,
+                    replenishment_by_size,
+                )
+                post_replenishment_turnover_days = _post_replenishment_turnover_days(
+                    post_replenishment_total,
+                    recent_14_day_sales_value,
+                )
+            elif expected_replenishment_stock is None:
+                replenishment_by_size = dict(detail_snapshot.get("replenishment_by_size") or _manual_size_quantities(extra_fields.get("replenishment_by_size")))
+                post_replenishment_by_size = dict(detail_snapshot.get("post_replenishment_by_size") or _manual_size_quantities(extra_fields.get("post_replenishment_by_size")))
+                post_replenishment_stock = _manual_number(extra_fields.get("post_replenishment_stock"))
+                post_replenishment_total = _manual_number(extra_fields.get("post_replenishment_total"))
+                post_replenishment_turnover_days = _manual_number(extra_fields.get("post_replenishment_turnover_days"))
+            else:
+                expected_replenishment_stock = int(expected_replenishment_stock)
+                post_replenishment_stock = stock_total + expected_replenishment_stock
+                post_replenishment_total = inventory_total + expected_replenishment_stock
+                replenishment_by_size = _allocate_replenishment_by_sales(
+                    expected_replenishment_stock,
+                    post_replenishment_total,
+                    inventory_by_size,
+                    replenishment_sales_by_size,
+                )
+                post_replenishment_by_size = _post_replenishment_inventory_by_size(
+                    inventory_by_size,
+                    replenishment_by_size,
+                )
+                post_replenishment_turnover_days = _post_replenishment_turnover_days(
+                    post_replenishment_total,
+                    recent_14_day_sales_value,
+                )
         yesterday_sales = int(sales.get("yesterday_sales") or 0)
         previous_day_sales = int(sales.get("previous_day_sales") or 0)
         total_order_count = historical_order_counts.get(sku, sales.get("total_order_count"))
@@ -1843,7 +1857,7 @@ def list_product_goods(
             "platform": detail_snapshot.get("platform") or row.get("platform"), "category_l4": detail_snapshot.get("category_l4") or row.get("category_l4"),
             "first_order_date": detail_snapshot.get("first_order_date") or row.get("first_order_time"), "factory_sku": detail_snapshot.get("factory_sku") or row.get("factory_sku"),
             "factory_code": detail_snapshot.get("factory_code") or supplier_codes.get(str(row.get("supplier_name") or "").strip()), "factory_name": detail_snapshot.get("factory_name") or row.get("supplier_name"), "style_code": detail_snapshot.get("style_code") or row.get("original_sku"), "goods_code": row.get("sku"),
-            "color": detail_snapshot.get("color") or row.get("color"), "image_url": image_url_for(brand, row.get("image_path"), settings),
+            "color": detail_snapshot.get("color") or row.get("color"), "image_url": detail_snapshot.get("image_url") or image_url_for(brand, row.get("image_path"), settings),
             "cost": detail_snapshot.get("cost") or (str(row["cost"]) if row.get("cost") is not None else None),
             "product_role": detail_snapshot.get("product_role") or row.get("product_role"), "product_type": _product_type_value(detail_snapshot.get("product_type") or row.get("product_type"), row.get("sku")),
             "douyin_hot": detail_snapshot.get("douyin_hot") or row.get("douyin_hot"), "clearance": detail_snapshot.get("clearance") or row.get("clearance"), "remark": detail_snapshot.get("remark") or row.get("remark"),
@@ -1889,6 +1903,168 @@ def list_product_goods(
     }
     set_product_goods_cache(cache_key, payload)
     return payload
+
+
+def _calculated_snapshot_data(item: dict[str, Any]) -> dict[str, object]:
+    metrics = dict(item.get("metrics") or {})
+    metrics.update(
+        {
+            "stock_total": item.get("stock_total"),
+            "in_transit_total": item.get("in_transit_total"),
+            "inventory_total": item.get("inventory_total"),
+        }
+    )
+    return jsonable_encoder(
+        {
+            "snapshot_format": CALCULATED_SNAPSHOT_FORMAT,
+            "year": item.get("year"),
+            "season": item.get("season"),
+            "platform": item.get("platform"),
+            "category_l4": item.get("category_l4"),
+            "first_order_date": item.get("first_order_date"),
+            "factory_sku": item.get("factory_sku"),
+            "factory_code": item.get("factory_code"),
+            "factory_name": item.get("factory_name"),
+            "style_code": item.get("style_code"),
+            "color": item.get("color"),
+            "image_url": item.get("image_url"),
+            "cost": item.get("cost"),
+            "product_role": item.get("product_role"),
+            "product_type": item.get("product_type"),
+            "douyin_hot": item.get("douyin_hot"),
+            "clearance": item.get("clearance"),
+            "remark": item.get("remark"),
+            "metrics": metrics,
+            "stock_by_size": item.get("stock_by_size") or {},
+            "in_transit_by_size": item.get("in_transit_by_size") or {},
+            "inventory_by_size": item.get("inventory_by_size") or {},
+            "shortage_by_size": item.get("shortage_by_size") or {},
+            "sales_by_size": item.get("sales_by_size") or {},
+            "replenishment_by_size": item.get("replenishment_by_size") or {},
+            "post_replenishment_by_size": item.get("post_replenishment_by_size") or {},
+            "daily_sales_by_date": item.get("daily_sales_by_date") or {},
+            "annual_sales": item.get("annual_sales") or {},
+            "monthly_sales": item.get("monthly_sales") or {},
+            "daily_platform_sales": item.get("daily_platform_sales") or {},
+            "weekly_platform_sales": item.get("weekly_platform_sales") or {},
+            "monthly_platform_sales": item.get("monthly_platform_sales") or {},
+        }
+    )
+
+
+def create_product_goods_calculated_snapshot(
+    request: Request,
+    *,
+    brand: str,
+    snapshot_date: date | None = None,
+) -> dict[str, object]:
+    """Persist the current product-goods calculation as one immutable daily view."""
+    if brand not in PRODUCT_TABLES:
+        raise ValueError(f"Invalid brand: {brand}")
+
+    target_date = snapshot_date or date.today()
+    page = 1
+    page_size = 500
+    items: list[dict[str, Any]] = []
+    total: int | None = None
+    while total is None or len(items) < total:
+        payload = list_product_goods(
+            request,
+            brand=brand,
+            view="goods",
+            cache_bust=f"calculated-snapshot-{target_date.isoformat()}-{brand}-{page}",
+            page=page,
+            page_size=page_size,
+        )
+        page_items = payload["items"]
+        if not isinstance(page_items, list):
+            raise ValueError(f"Invalid product-goods payload for {brand}")
+        if total is None:
+            total = int(payload["total"])
+        if not page_items and len(items) < total:
+            raise ValueError(f"Incomplete product-goods payload for {brand}: expected {total}, got {len(items)}")
+        items.extend(page_items)
+        page += 1
+
+    if not items:
+        raise ValueError(f"No product-goods rows available for {brand}")
+
+    repository = request.app.state.repository
+    table = ensure_product_goods_detail_snapshot_tables(repository.engine, target_date.year)
+    records = [
+        {
+            "brand": brand,
+            "snapshot_date": target_date,
+            "goods_code": str(item["goods_code"]),
+            "style_code": str(item.get("style_code") or "") or None,
+            "source_workbook": CALCULATED_SNAPSHOT_SOURCE_WORKBOOK,
+            "source_sheet": CALCULATED_SNAPSHOT_SOURCE_SHEET,
+            "source_row_number": index,
+            "data": _calculated_snapshot_data(item),
+        }
+        for index, item in enumerate(items, start=1)
+    ]
+    batch_values = {
+        "brand": brand,
+        "snapshot_date": target_date,
+        "source_path": CALCULATED_SNAPSHOT_SOURCE_PATH,
+        "source_workbook": CALCULATED_SNAPSHOT_SOURCE_WORKBOOK,
+        "status": "running",
+        "row_count": None,
+        "message": None,
+    }
+    try:
+        with repository.engine.begin() as connection:
+            statement = pg_insert(PRODUCT_GOODS_DETAIL_SNAPSHOT_BATCHES_TABLE).values(batch_values)
+            connection.execute(
+                statement.on_conflict_do_update(
+                    index_elements=["brand", "snapshot_date"],
+                    set_={key: value for key, value in batch_values.items() if key not in {"brand", "snapshot_date"}},
+                )
+            )
+            connection.execute(
+                delete(table).where(
+                    (table.c.brand == brand)
+                    & (table.c.snapshot_date == target_date)
+                )
+            )
+            for start in range(0, len(records), 1_000):
+                connection.execute(table.insert(), records[start:start + 1_000])
+            connection.execute(
+                PRODUCT_GOODS_DETAIL_SNAPSHOT_BATCHES_TABLE.update()
+                .where(
+                    (PRODUCT_GOODS_DETAIL_SNAPSHOT_BATCHES_TABLE.c.brand == brand)
+                    & (PRODUCT_GOODS_DETAIL_SNAPSHOT_BATCHES_TABLE.c.snapshot_date == target_date)
+                )
+                .values(
+                    status="success",
+                    row_count=len(records),
+                    message=CALCULATED_SNAPSHOT_FORMAT,
+                )
+            )
+    except Exception as exc:
+        failed_values = {
+            **batch_values,
+            "status": "failed",
+            "message": f"{type(exc).__name__}: {exc}",
+        }
+        with repository.engine.begin() as connection:
+            statement = pg_insert(PRODUCT_GOODS_DETAIL_SNAPSHOT_BATCHES_TABLE).values(failed_values)
+            connection.execute(
+                statement.on_conflict_do_update(
+                    index_elements=["brand", "snapshot_date"],
+                    set_={key: value for key, value in failed_values.items() if key not in {"brand", "snapshot_date"}},
+                )
+            )
+        raise
+
+    clear_product_goods_cache()
+    return {
+        "brand": brand,
+        "snapshot_date": target_date.isoformat(),
+        "rows": len(records),
+        "message": CALCULATED_SNAPSHOT_FORMAT,
+    }
 
 
 @router.patch("/product-goods/{product_id}")
