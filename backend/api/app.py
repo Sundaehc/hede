@@ -1,6 +1,10 @@
 from __future__ import annotations
 
+from contextlib import asynccontextmanager
 from copy import deepcopy
+import logging
+from threading import Thread
+from types import SimpleNamespace
 
 from fastapi import FastAPI
 from fastapi.openapi.docs import get_redoc_html, get_swagger_ui_html
@@ -15,7 +19,10 @@ from api.routes.import_export import router as import_export_router
 from api.routes.inventory import router as inventory_router
 from api.routes.operation_logs import router as operation_logs_router
 from api.routes.products import router as products_router
-from api.routes.product_goods import router as product_goods_router
+from api.routes.product_goods import (
+    list_product_goods,
+    router as product_goods_router,
+)
 from api.routes.suppliers import router as suppliers_router
 from api.routes.warehouses import router as warehouses_router
 from storage.auth_repository import AuthRepository
@@ -40,6 +47,32 @@ PUBLIC_DOC_EXCLUDED_KEYWORDS = (
     "recycle-bin",
     "refresh-product-images",
 )
+logger = logging.getLogger(__name__)
+
+
+def _warm_default_product_goods_page(app: FastAPI) -> None:
+    """Populate the default goods-detail page cache without delaying startup."""
+    try:
+        list_product_goods(
+            SimpleNamespace(app=app),
+            brand="cbanner_mens",
+            view="goods",
+            page=1,
+            page_size=50,
+        )
+    except Exception:
+        logger.exception("Failed to warm the default product-goods page cache")
+
+
+@asynccontextmanager
+async def _app_lifespan(app: FastAPI):
+    Thread(
+        target=_warm_default_product_goods_page,
+        args=(app,),
+        name="product-goods-cache-warmup",
+        daemon=True,
+    ).start()
+    yield
 
 
 def _is_public_read_path(path: str) -> bool:
@@ -108,7 +141,7 @@ def create_app(*, settings, repository=None, image_matchers=None, inventory_repo
     resolved_operation_log_repository = operation_log_repository or OperationLogRepository(settings.database_url)
     resolved_matchers = image_matchers if image_matchers is not None else {}
 
-    app = FastAPI(title="Hede Product Admin API")
+    app = FastAPI(title="Hede Product Admin API", lifespan=_app_lifespan)
     app.middleware("http")(auth_middleware)
     app.add_middleware(
         CORSMiddleware,
@@ -127,6 +160,7 @@ def create_app(*, settings, repository=None, image_matchers=None, inventory_repo
     resolved_auth_repository.create_tables()
     resolved_operation_log_repository.create_tables()
     app.state.image_matchers = resolved_matchers
+
     app.include_router(auth_router)
     app.include_router(products_router)
     app.include_router(product_goods_router)

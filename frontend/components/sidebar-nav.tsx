@@ -3,6 +3,7 @@
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { cn } from "@/lib/utils"
+import { listProductGoods } from "@/lib/api"
 import { useAuth } from "@/components/auth/auth-provider"
 import { Button } from "@/components/ui/button"
 import { ThemeToggle } from "@/components/theme-toggle"
@@ -97,6 +98,21 @@ const NAV_ITEMS = [
   },
 ]
 
+let productGoodsPrefetchStarted = false
+
+function prefetchDefaultProductGoodsPage() {
+  if (productGoodsPrefetchStarted) return
+  productGoodsPrefetchStarted = true
+  void listProductGoods({
+    brand: "cbanner_mens",
+    page: 1,
+    pageSize: 50,
+  }).catch(() => {
+    // A later page request remains available when this optional warm-up fails.
+    productGoodsPrefetchStarted = false
+  })
+}
+
 export function SidebarNav() {
   const pathname = usePathname()
   const { hasPermission, logout, user } = useAuth()
@@ -133,6 +149,14 @@ export function SidebarNav() {
                   <li key={item.href}>
                     <Link
                       href={item.href}
+                      onMouseEnter={() => {
+                        if (item.href === "/product-goods")
+                          prefetchDefaultProductGoodsPage()
+                      }}
+                      onFocus={() => {
+                        if (item.href === "/product-goods")
+                          prefetchDefaultProductGoodsPage()
+                      }}
                       className={cn(
                         "group relative flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-all duration-150",
                         isActive

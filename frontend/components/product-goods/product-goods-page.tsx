@@ -1853,6 +1853,7 @@ export function ProductGoodsPage() {
   )
   useEffect(() => {
     let cancelled = false
+    const prefetchTimers = new Set<number>()
     const requestId = loadRequestIdRef.current + 1
     loadRequestIdRef.current = requestId
     const isCurrentRequest = () =>
@@ -1879,17 +1880,22 @@ export function ProductGoodsPage() {
       )
         return
 
-      prefetchingPagesRef.current.add(prefetchKey)
-      void loadProductGoodsPage(context, pageToPrefetch)
-        .then((response) => {
-          rememberProductGoodsPage(pageCacheRef.current, prefetchKey, response)
-        })
-        .catch(() => {
-          // Prefetch is only a speed-up; the active request remains authoritative.
-        })
-        .finally(() => {
-          prefetchingPagesRef.current.delete(prefetchKey)
-        })
+      const timer = window.setTimeout(() => {
+        prefetchTimers.delete(timer)
+        if (cancelled) return
+        prefetchingPagesRef.current.add(prefetchKey)
+        void loadProductGoodsPage(context, pageToPrefetch)
+          .then((response) => {
+            rememberProductGoodsPage(pageCacheRef.current, prefetchKey, response)
+          })
+          .catch(() => {
+            // Prefetch is only a speed-up; the active request remains authoritative.
+          })
+          .finally(() => {
+            prefetchingPagesRef.current.delete(prefetchKey)
+          })
+      }, 750)
+      prefetchTimers.add(timer)
     }
 
     const cachedEntry = getCachedProductGoodsPage(
@@ -1913,6 +1919,7 @@ export function ProductGoodsPage() {
       prefetchPage(page + 1, cachedTotalPages)
       return () => {
         cancelled = true
+        prefetchTimers.forEach((timer) => window.clearTimeout(timer))
       }
     }
 
@@ -1922,13 +1929,15 @@ export function ProductGoodsPage() {
         const response = await loadProductGoodsPage(context, page, cacheBust)
         if (!isCurrentRequest()) return
         rememberProductGoodsPage(pageCacheRef.current, cacheKey, response)
-        setData(response)
-        setSelectedItem((current) =>
-          current
-            ? response.items.find((item) => item.id === current.id) ?? current
-            : null
-        )
-        setRenderedDataView(context.view)
+        startTransition(() => {
+          setData(response)
+          setSelectedItem((current) =>
+            current
+              ? response.items.find((item) => item.id === current.id) ?? current
+              : null
+          )
+          setRenderedDataView(context.view)
+        })
         const loadedTotalPages = Math.max(
           1,
           Math.ceil(response.total / pageSize)
@@ -1945,6 +1954,7 @@ export function ProductGoodsPage() {
     void loadData()
     return () => {
       cancelled = true
+      prefetchTimers.forEach((timer) => window.clearTimeout(timer))
     }
   }, [
     brand,
