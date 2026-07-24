@@ -1174,7 +1174,7 @@ const ProductGoodsGrid = memo(function ProductGoodsGrid({
                 <button
                   type="button"
                   className={cn(
-                    "rounded p-0.5 transition-colors hover:bg-muted",
+                    "cursor-pointer rounded p-0.5 transition-colors hover:bg-muted",
                     activeFilterFields.has(
                       isStyleSummary ? "style_code" : "goods_code"
                     )
@@ -1211,7 +1211,7 @@ const ProductGoodsGrid = memo(function ProductGoodsGrid({
                   <button
                     type="button"
                     className={cn(
-                      "rounded p-0.5 transition-colors hover:bg-muted",
+                      "cursor-pointer rounded p-0.5 transition-colors hover:bg-muted",
                       activeFilterFields.has("style_code")
                         ? "text-primary"
                         : "text-muted-foreground/80"
@@ -1266,7 +1266,7 @@ const ProductGoodsGrid = memo(function ProductGoodsGrid({
                     <button
                       type="button"
                       className={cn(
-                        "shrink-0 rounded p-0.5 transition-colors hover:bg-muted",
+                        "shrink-0 cursor-pointer rounded p-0.5 transition-colors hover:bg-muted",
                         activeFilterFields.has(column.filterField)
                           ? "text-primary"
                           : "text-muted-foreground/80"
@@ -3343,7 +3343,7 @@ export function ProductGoodsPage() {
                         </div>
                         <div className="flex gap-1">
                           <button
-                            className="px-2 text-xs text-muted-foreground hover:text-foreground"
+                            className="cursor-pointer px-2 text-xs text-muted-foreground hover:text-foreground"
                             onClick={() =>
                               setDraftKeys((current) =>
                                 Array.from(
@@ -3358,7 +3358,7 @@ export function ProductGoodsPage() {
                             全选
                           </button>
                           <button
-                            className="px-2 text-xs text-muted-foreground hover:text-foreground"
+                            className="cursor-pointer px-2 text-xs text-muted-foreground hover:text-foreground"
                             onClick={() =>
                               setDraftKeys((current) =>
                                 current.filter(

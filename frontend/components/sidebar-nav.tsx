@@ -117,6 +117,8 @@ export function SidebarNav() {
   const pathname = usePathname()
   const { hasPermission, logout, user } = useAuth()
   const canAccessProductGoods = user?.role_code === "super_admin" || ["商品部", "开发部"].includes(user?.department_code ?? "")
+  const userName = user?.display_name || user?.username || "未登录用户"
+  const userInitial = userName.trim().slice(0, 1).toUpperCase() || "U"
   const visibleGroups = NAV_ITEMS.map((group) => ({
     ...group,
     items: group.items.filter((item) => (
@@ -183,24 +185,31 @@ export function SidebarNav() {
         ))}
       </nav>
 
-      <div className="space-y-3 border-t border-sidebar-border px-4 py-3">
-        <div className="rounded-xl border border-sidebar-border bg-sidebar-accent/45 px-3 py-2">
-          <p className="truncate text-xs font-medium text-sidebar-foreground">{user?.display_name || user?.username}</p>
-          <p className="mt-0.5 truncate text-[11px] text-sidebar-foreground/55">{user?.department_name}</p>
+      <div className="border-t border-sidebar-border/80 bg-sidebar/80 px-3 py-3">
+        <div className="flex min-w-0 items-center gap-2 px-1">
+          <div className="relative flex size-8 shrink-0 items-center justify-center rounded-lg border border-sidebar-border bg-sidebar-accent text-xs font-semibold text-sidebar-foreground shadow-sm">
+            {userInitial}
+            <span className="absolute -right-0.5 -bottom-0.5 size-2 rounded-full border-2 border-sidebar bg-emerald-400" />
+          </div>
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-xs font-semibold text-sidebar-foreground">{userName}</p>
+            <p className="mt-0.5 truncate text-[11px] text-sidebar-foreground/55">{user?.department_name || "未分配部门"}</p>
+          </div>
           <Button
             type="button"
             variant="ghost"
-            size="sm"
-            className="mt-2 h-7 w-full justify-start px-2 text-sidebar-foreground/70 hover:bg-sidebar-accent"
+            size="icon-sm"
+            className="text-sidebar-foreground/55 hover:bg-destructive/15 hover:text-destructive"
             onClick={() => void logout()}
+            title="退出登录"
+            aria-label="退出登录"
           >
-            <LogOut className="h-3.5 w-3.5" />
-            退出登录
+            <LogOut className="size-3.5" />
           </Button>
         </div>
-        <div className="flex items-center justify-between rounded-xl border border-sidebar-border bg-sidebar-accent/45 px-3 py-2">
-          <span className="text-xs text-sidebar-foreground/60">主题</span>
-          <ThemeToggle />
+        <div className="mt-3 flex h-9 items-center justify-between border-t border-sidebar-border/70 pt-2">
+          <span className="text-[11px] font-medium text-sidebar-foreground/55">界面主题</span>
+          <ThemeToggle className="size-7 rounded-md border-sidebar-border bg-sidebar-accent text-sidebar-foreground shadow-none hover:bg-sidebar-primary hover:text-sidebar-primary-foreground" />
         </div>
       </div>
     </aside>
