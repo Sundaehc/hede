@@ -106,10 +106,19 @@ function ChannelBar({ item }: { item: FactoryChannelDashboardItem }) {
           />
         ))}
       </div>
-      <div className="mt-2 grid grid-cols-3 gap-1 text-xs tabular-nums">
-        <span className="truncate text-blue-700 dark:text-blue-300" title={`传统赛道 ${number(item.traditional_sales)}，占比 ${ratio(item.traditional_ratio)}`}>传 {ratio(item.traditional_ratio)}</span>
-        <span className="truncate text-violet-700 dark:text-violet-300" title={`直播赛道 ${number(item.live_sales)}，占比 ${ratio(item.live_ratio)}`}>播 {ratio(item.live_ratio)}</span>
-        <span className="truncate text-orange-700 dark:text-orange-300" title={`清仓 ${number(item.clearance_sales)}，占比 ${ratio(item.clearance_ratio)}`}>清 {ratio(item.clearance_ratio)}</span>
+      <div className="mt-2 space-y-1 text-xs tabular-nums">
+        <div className="flex items-center justify-between gap-2 text-blue-700 dark:text-blue-300">
+          <span>传统</span>
+          <span>{number(item.traditional_sales)} · {ratio(item.traditional_ratio)}</span>
+        </div>
+        <div className="flex items-center justify-between gap-2 text-violet-700 dark:text-violet-300">
+          <span>直播</span>
+          <span>{number(item.live_sales)} · {ratio(item.live_ratio)}</span>
+        </div>
+        <div className="flex items-center justify-between gap-2 text-orange-700 dark:text-orange-300">
+          <span>清仓</span>
+          <span>{number(item.clearance_sales)} · {ratio(item.clearance_ratio)}</span>
+        </div>
       </div>
     </div>
   )
@@ -153,22 +162,16 @@ function SeasonTable({
       <div className="overflow-hidden">
         <table className="w-full table-fixed border-collapse text-sm">
           <colgroup>
-            <col className="w-[44%] 2xl:w-auto" />
-            <col className="w-[8%] 2xl:w-auto" />
-            <col className="w-[13%] 2xl:w-auto" />
-            <col className="hidden 2xl:table-column" />
-            <col className="hidden 2xl:table-column" />
-            <col className="hidden 2xl:table-column" />
-            <col className="w-[35%] 2xl:w-[250px]" />
+            <col className="w-[47%]" />
+            <col className="w-[9%]" />
+            <col className="w-[15%]" />
+            <col className="w-[29%]" />
           </colgroup>
           <thead className="bg-muted/55 text-xs text-muted-foreground">
             <tr className="border-b border-border">
               <th className="px-5 py-3 text-left font-medium">工厂</th>
               <th className="px-3 py-3 text-center font-medium">款数</th>
               <th className="px-3 py-3 text-right font-medium">销量汇总</th>
-              <th className="hidden px-3 py-3 text-right font-medium 2xl:table-cell">传统赛道</th>
-              <th className="hidden px-3 py-3 text-right font-medium 2xl:table-cell">直播赛道</th>
-              <th className="hidden px-3 py-3 text-right font-medium 2xl:table-cell">清仓</th>
               <th className="px-3 py-3 text-left font-medium sm:px-5">渠道占比</th>
             </tr>
           </thead>
@@ -181,15 +184,12 @@ function SeasonTable({
                 </td>
                 <td className="px-3 py-3 text-center tabular-nums text-foreground">{number(item.style_count)}</td>
                 <td className="px-3 py-3 text-right font-medium tabular-nums text-foreground">{number(item.total_sales)}</td>
-                <td className="hidden px-3 py-3 text-right tabular-nums text-blue-700 dark:text-blue-300 2xl:table-cell">{number(item.traditional_sales)}</td>
-                <td className="hidden px-3 py-3 text-right tabular-nums text-violet-700 dark:text-violet-300 2xl:table-cell">{number(item.live_sales)}</td>
-                <td className="hidden px-3 py-3 text-right tabular-nums text-orange-700 dark:text-orange-300 2xl:table-cell">{number(item.clearance_sales)}</td>
                 <td className="px-3 py-3 sm:px-5"><ChannelBar item={item} /></td>
               </tr>
             ))}
             {!items.length && (
               <tr>
-                <td colSpan={7} className="px-5 py-10 text-center text-sm text-muted-foreground">
+                <td colSpan={4} className="px-5 py-10 text-center text-sm text-muted-foreground">
                   当前筛选条件下暂无数据
                 </td>
               </tr>
