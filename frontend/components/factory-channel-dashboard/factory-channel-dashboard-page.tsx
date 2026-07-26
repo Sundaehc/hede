@@ -70,7 +70,7 @@ function MetricCard({
   }[tone]
 
   return (
-    <div className="min-w-0 border border-border bg-card px-4 py-4 shadow-sm">
+    <div className="min-w-0 rounded-lg border border-border bg-card px-4 py-4 shadow-sm">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <p className="text-xs font-medium text-muted-foreground">{label}</p>
@@ -147,7 +147,7 @@ function SeasonTable({
   )
 
   return (
-    <section className="border border-border bg-card shadow-sm">
+    <section className="overflow-hidden rounded-lg border border-border bg-card shadow-sm">
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border px-5 py-4">
         <div>
           <h2 className="text-base font-semibold text-foreground">{title}</h2>
@@ -204,7 +204,6 @@ function SeasonTable({
 export function FactoryChannelDashboardPage() {
   const [brand, setBrand] = useState<DashboardBrand>(DEFAULT_BRAND)
   const [salesYear, setSalesYear] = useState("")
-  const [productYear, setProductYear] = useState("")
   const [factoryQuery, setFactoryQuery] = useState("")
   const [dateStart, setDateStart] = useState("")
   const [dateEnd, setDateEnd] = useState("")
@@ -220,7 +219,6 @@ export function FactoryChannelDashboardPage() {
       const response = await getFactoryChannelDashboard({
         brand,
         salesYear: salesYear ? Number(salesYear) : undefined,
-        productYear: productYear || undefined,
         dateStart: dateStart || undefined,
         dateEnd: dateEnd || undefined,
       })
@@ -232,7 +230,7 @@ export function FactoryChannelDashboardPage() {
     } finally {
       setLoading(false)
     }
-  }, [brand, dateEnd, dateStart, productYear, salesYear])
+  }, [brand, dateEnd, dateStart, salesYear])
 
   useEffect(() => {
     void loadDashboard()
@@ -240,7 +238,6 @@ export function FactoryChannelDashboardPage() {
 
   function resetFilters() {
     setSalesYear("")
-    setProductYear("")
     setFactoryQuery("")
     setDateStart("")
     setDateEnd("")
@@ -306,12 +303,12 @@ export function FactoryChannelDashboardPage() {
           </div>
         </header>
 
-        <section className="mt-5 border border-border bg-card p-4 shadow-sm">
+        <section className="mt-5 rounded-lg border border-border bg-card p-4 shadow-sm">
           <div className="flex flex-col gap-3 xl:flex-row xl:items-end">
-            <div className="grid flex-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-6">
+            <div className="grid flex-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-5">
               <label className="grid gap-1.5 text-xs font-medium text-muted-foreground">
                 品牌
-                <Select value={brand} onChange={(event) => { setBrand(event.target.value as DashboardBrand); setProductYear("") }}>
+                <Select value={brand} onChange={(event) => setBrand(event.target.value as DashboardBrand)}>
                   {DASHBOARD_BRANDS.map((item) => <option key={item.key} value={item.key}>{item.label}</option>)}
                 </Select>
               </label>
@@ -320,13 +317,6 @@ export function FactoryChannelDashboardPage() {
                 <Select value={salesYear} onChange={(event) => setSalesYear(event.target.value)}>
                   {!salesYear && <option value="">自动选择最新</option>}
                   {(data?.available_sales_years ?? []).map((year) => <option key={year} value={year}>{year} 年</option>)}
-                </Select>
-              </label>
-              <label className="grid gap-1.5 text-xs font-medium text-muted-foreground">
-                商品年份
-                <Select value={productYear} onChange={(event) => setProductYear(event.target.value)}>
-                  <option value="">全部年份</option>
-                  {(data?.available_product_years ?? []).map((year) => <option key={year} value={year}>{year}</option>)}
                 </Select>
               </label>
               <label className="grid gap-1.5 text-xs font-medium text-muted-foreground">
@@ -361,7 +351,7 @@ export function FactoryChannelDashboardPage() {
         </section>
 
         {error && (
-          <div className="mt-5 flex items-start gap-3 border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive">
+          <div className="mt-5 flex items-start gap-3 rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive">
             <TriangleAlert className="mt-0.5 size-4 shrink-0" />
             <span>{error}</span>
           </div>
@@ -369,7 +359,7 @@ export function FactoryChannelDashboardPage() {
 
         {loading && !data ? (
           <div className="mt-5 grid gap-4 md:grid-cols-3 xl:grid-cols-5">
-            {Array.from({ length: 5 }, (_, index) => <div key={index} className="h-32 animate-pulse border border-border bg-muted/45" />)}
+            {Array.from({ length: 5 }, (_, index) => <div key={index} className="h-32 animate-pulse rounded-lg border border-border bg-muted/45" />)}
           </div>
         ) : data && summary ? (
           <>
