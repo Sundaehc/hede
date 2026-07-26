@@ -340,6 +340,46 @@ export type ProductGoodsResponse = {
   snapshot_dates: string[]
 }
 
+export type FactoryChannelDashboardItem = {
+  factory_name: string
+  factory_code: string | null
+  style_count: number
+  total_sales: number
+  traditional_sales: number
+  live_sales: number
+  clearance_sales: number
+  traditional_ratio: number
+  live_ratio: number
+  clearance_ratio: number
+}
+
+export type FactoryChannelDashboardResponse = {
+  brand: Exclude<BrandKey, "all">
+  sales_year: number
+  product_year: string | null
+  date_start: string | null
+  date_end: string | null
+  latest_sales_date: string | null
+  available_sales_years: number[]
+  available_product_years: string[]
+  summary: {
+    factory_count: number
+    style_count: number
+    total_sales: number
+    traditional_sales: number
+    live_sales: number
+    clearance_sales: number
+    unmatched_sales: number
+    unclassified_style_count: number
+    unclassified_sales: number
+  }
+  seasons: Array<{
+    key: "spring_summer" | "autumn_winter"
+    label: string
+    items: FactoryChannelDashboardItem[]
+  }>
+}
+
 export type ProductColorBarcodeItem = {
   brand: string
   color_code: string

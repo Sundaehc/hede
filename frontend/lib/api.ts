@@ -4,6 +4,7 @@ import type {
   ProductListItem,
   ProductListResponse,
   ProductGoodsResponse,
+  FactoryChannelDashboardResponse,
   ProductMutationPayload,
   ProductColorBarcodeListResponse,
   ProductImageRefreshStatus,
@@ -334,6 +335,23 @@ export function listProductGoodsFilterOptions(params: {
   if (params.search) requestParams.set("search", params.search)
   return request<ProductGoodsFilterOptionsResponse>(
     `/product-goods/filter-options?${requestParams.toString()}`
+  )
+}
+
+export function getFactoryChannelDashboard(params: {
+  brand: Exclude<BrandKey, "all">
+  salesYear?: number
+  productYear?: string
+  dateStart?: string
+  dateEnd?: string
+}) {
+  const search = new URLSearchParams({ brand: params.brand })
+  if (params.salesYear) search.set("sales_year", String(params.salesYear))
+  if (params.productYear) search.set("product_year", params.productYear)
+  if (params.dateStart) search.set("date_start", params.dateStart)
+  if (params.dateEnd) search.set("date_end", params.dateEnd)
+  return request<FactoryChannelDashboardResponse>(
+    `/product-goods/factory-channel-dashboard?${search.toString()}`
   )
 }
 
