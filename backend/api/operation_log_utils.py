@@ -76,8 +76,6 @@ SUPPLIER_FIELD_LABELS = {
     "contact": "联系人",
     "wechat": "微信号",
     "cooperation_status": "合作状态",
-    "factory_grade": "工厂等级",
-    "factory_suggestion": "系统建议",
     "address": "地址",
     "notes": "备注",
 }

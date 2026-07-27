@@ -821,8 +821,6 @@ export type SupplierItem = {
   contact: string | null
   wechat: string | null
   cooperation_status: string | null
-  factory_grade: "A" | "B" | "C" | "D" | null
-  factory_suggestion: string | null
   address: string | null
   notes: string | null
 }
@@ -1520,7 +1518,6 @@ export function listSuppliers(params?: {
   pageSize?: number
   query?: string
   brand?: BrandKey | "smiley" | "ni"
-  sort?: "grade_asc" | "grade_desc" | ""
 }) {
   if (!params) {
     return request<SupplierListResponse>("/suppliers")
@@ -1531,7 +1528,6 @@ export function listSuppliers(params?: {
   })
   if (params.query) search.set("query", params.query)
   if (params.brand) search.set("brand", params.brand)
-  if (params.sort) search.set("sort", params.sort)
   return request<SupplierListResponse>(`/suppliers?${search.toString()}`)
 }
 

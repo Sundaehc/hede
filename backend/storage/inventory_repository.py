@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from datetime import date, datetime, timedelta
+from datetime import date
 from decimal import Decimal
 
 from pathlib import Path
@@ -15,7 +15,6 @@ from domain.gj_schema import GJ_MERGED_PRODUCT_INFO_TABLE
 from domain.inventory_schema import GENERAL_CUSTOMER_BRAND_TABLE, GENERAL_CUSTOMER_SHOP_TABLE, INVENTORY_ACCOUNT_SUBJECT_TABLE, INVENTORY_DETAIL_TABLE, INVENTORY_TABLE, JST_STOCK_TABLE, PURCHASE_ORDER_REQUIREMENT_TABLE, SUPPLIER_TABLE, WAREHOUSE_TABLE
 from domain.inventory_sources import ACCOUNTING_DOCUMENT_TYPES
 from domain.gj_brand import CBANNER_MENS_BRAND, GJ_FINE_TABLE_BRANDS, SUPPLIER_BRANDS, infer_supplier_brand_from_name
-from domain.vip_schema import JST_AFTERSALE_RETURN_TABLE, JST_MONTHLY_ORDERS_TABLE, JST_SIZE_STOCK_TABLE, VIP_DAILY_TABLE
 from domain import jst_stock_snapshot_schema  # noqa: F401 - register JST stock snapshot tables on METADATA
 from domain import product_goods_schema  # noqa: F401 - register goods table overrides on METADATA
 from domain.jst_stock_snapshot_schema import JST_SIZE_STOCK_SNAPSHOT_TABLE, JST_STOCK_SUMMARY_SNAPSHOT_TABLE
@@ -39,10 +38,6 @@ DOCUMENT_NUMBER_PREFIXES = {
     "应收款增加": "YSKZJ",
 }
 DEFAULT_DOCUMENT_NUMBER_PREFIX = "DJ"
-SUPPLIER_RATING_CACHE_TTL_SECONDS = 600
-SUPPLIER_RETURN_RATE_WINDOW_DAYS = 30
-SUPPLIER_RETURN_RATE_EXCLUDED_ORDER_STATUSES = {"取消", "异常", "被拆分", "已付款待审核"}
-
 SUPPLIER_LEDGER_INCREASE_TYPES = ("进货单", "应付款增加")
 SUPPLIER_LEDGER_DECREASE_TYPES = ("进货退货单", "应付款减少")
 SUPPLIER_LEDGER_NEUTRAL_TYPES = ("同价调拨单",)
@@ -63,7 +58,6 @@ class InventoryRepository:
             future=True,
             json_serializer=_json_serializer,
         )
-        self._supplier_rating_metrics_cache: dict[str, tuple[datetime, dict[str, dict[str, object]]]] = {}
         self.create_tables()
 
     # ── Inventory Records ──────────────────────────────────────────
@@ -689,30 +683,14 @@ class InventoryRepository:
         page_size: int,
         query: str | None = None,
         brand: str | None = None,
-        sort: str | None = None,
     ) -> dict[str, object]:
         count_statement = select(func.count()).select_from(SUPPLIER_TABLE)
-        sort = (sort or "").strip()
-        items_statement = select(SUPPLIER_TABLE).order_by(SUPPLIER_TABLE.c.id)
-        sort_by_grade = sort in {"grade_asc", "grade_desc"}
-        if sort_by_grade:
-            grade_order = ("A", "B", "C", "D") if sort == "grade_asc" else ("D", "C", "B", "A")
-            grade_order_expr = case(
-                *(
-                    (SUPPLIER_TABLE.c.factory_grade == grade, index)
-                    for index, grade in enumerate(grade_order)
-                ),
-                else_=99,
-            )
-            items_statement = (
-                items_statement
-                .order_by(None)
-                .order_by(grade_order_expr, SUPPLIER_TABLE.c.name, SUPPLIER_TABLE.c.id)
-                .offset((page - 1) * page_size)
-                .limit(page_size)
-            )
-        else:
-            items_statement = items_statement.offset((page - 1) * page_size).limit(page_size)
+        items_statement = (
+            select(SUPPLIER_TABLE)
+            .order_by(SUPPLIER_TABLE.c.id)
+            .offset((page - 1) * page_size)
+            .limit(page_size)
+        )
         conditions = []
         if brand:
             conditions.append(SUPPLIER_TABLE.c.brand == brand)
@@ -738,519 +716,6 @@ class InventoryRepository:
             "page": page,
             "page_size": page_size,
         }
-
-    def refresh_supplier_ratings(self, *, brand: str | None = None) -> dict[str, object]:
-        statement = select(SUPPLIER_TABLE).order_by(SUPPLIER_TABLE.c.brand, SUPPLIER_TABLE.c.id)
-        if brand:
-            statement = statement.where(SUPPLIER_TABLE.c.brand == brand)
-        with self.engine.begin() as connection:
-            items = [dict(row) for row in connection.execute(statement).mappings()]
-            self._attach_supplier_ratings(connection, items)
-        return {"updated": len(items), "brand": brand}
-
-    def _attach_supplier_ratings(self, connection, items: list[dict[str, object]], *, use_cache: bool = False) -> None:
-        supplier_names = [str(item.get("name") or "").strip() for item in items if str(item.get("name") or "").strip()]
-        if not supplier_names or not inspect(connection).has_table(GJ_MERGED_PRODUCT_INFO_TABLE.name):
-            for item in items:
-                grade, suggestion = InventoryRepository._supplier_grade_and_suggestion(item, {})
-                item["factory_grade"] = grade
-                item["factory_suggestion"] = suggestion
-            self._persist_supplier_ratings(connection, items)
-            return
-
-        cache_key = "\n".join(sorted(set(supplier_names)))
-        if use_cache:
-            cached = self._supplier_rating_metrics_cache.get(cache_key)
-            if cached is not None:
-                cached_at, cached_metrics = cached
-                if (datetime.now() - cached_at).total_seconds() < SUPPLIER_RATING_CACHE_TTL_SECONDS:
-                    for item in items:
-                        supplier = str(item.get("name") or "").strip()
-                        metrics = dict(cached_metrics.get(supplier, {}))
-                        if metrics.get("reject_rate") is None and not metrics.get("has_aftersale_returns"):
-                            rates = metrics.get("reject_rate_values") or []
-                            metrics["reject_rate"] = sum(rates) / len(rates) if rates else None
-                        grade, suggestion = InventoryRepository._supplier_grade_and_suggestion(item, metrics)
-                        item["factory_grade"] = grade
-                        item["factory_suggestion"] = suggestion
-                    self._persist_supplier_ratings(connection, items)
-                    return
-
-        latest_gj_date = connection.execute(select(func.max(GJ_MERGED_PRODUCT_INFO_TABLE.c.source_date_value))).scalar()
-        gj_conditions = [
-            GJ_MERGED_PRODUCT_INFO_TABLE.c.primary_supplier.in_(supplier_names),
-            GJ_MERGED_PRODUCT_INFO_TABLE.c.goods_code.isnot(None),
-            GJ_MERGED_PRODUCT_INFO_TABLE.c.goods_code != "",
-        ]
-        if latest_gj_date is not None:
-            gj_conditions.append(GJ_MERGED_PRODUCT_INFO_TABLE.c.source_date_value == latest_gj_date)
-
-        product_rows = list(connection.execute(
-            select(
-                GJ_MERGED_PRODUCT_INFO_TABLE.c.primary_supplier,
-                GJ_MERGED_PRODUCT_INFO_TABLE.c.goods_code,
-                GJ_MERGED_PRODUCT_INFO_TABLE.c.original_goods_code,
-            )
-            .where(and_(*gj_conditions))
-        ).mappings())
-
-        def new_supplier_metrics() -> dict[str, object]:
-            return {
-                "product_codes": set(),
-                "original_codes": set(),
-                "style_count": 0,
-                "sales_30d": 0,
-                "stock_qty": 0,
-                "reject_count": 0,
-                "reject_rate_values": [],
-                "aftersale_returned_qty": 0,
-                "aftersale_sold_qty": 0,
-                "has_aftersale_returns": False,
-            }
-
-        metrics_by_supplier: dict[str, dict[str, object]] = {
-            name: new_supplier_metrics()
-            for name in supplier_names
-        }
-        supplier_by_code: dict[str, set[str]] = {}
-        for row in product_rows:
-            supplier = str(row.get("primary_supplier") or "").strip()
-            code = str(row.get("goods_code") or "").strip()
-            original_code = str(row.get("original_goods_code") or "").strip()
-            if not supplier or not code:
-                continue
-            bucket = metrics_by_supplier.setdefault(supplier, new_supplier_metrics())
-            bucket["product_codes"].add(code)
-            if original_code:
-                bucket["original_codes"].add(original_code)
-            supplier_by_code.setdefault(code, set()).add(supplier)
-
-        for bucket in metrics_by_supplier.values():
-            bucket["style_count"] = len(bucket["original_codes"] or bucket["product_codes"])
-
-        product_codes = sorted(supplier_by_code)
-        if product_codes:
-            if inspect(connection).has_table(VIP_DAILY_TABLE.name):
-                daily_rows = connection.execute(
-                    select(
-                        VIP_DAILY_TABLE.c.goods_code,
-                        func.max(VIP_DAILY_TABLE.c.sales_volume).label("sales_volume"),
-                        func.max(VIP_DAILY_TABLE.c.reject_count).label("reject_count"),
-                        func.max(VIP_DAILY_TABLE.c.reject_rate).label("reject_rate"),
-                    )
-                    .where(VIP_DAILY_TABLE.c.goods_code.in_(product_codes))
-                    .where(VIP_DAILY_TABLE.c.period == "30d")
-                    .group_by(VIP_DAILY_TABLE.c.goods_code)
-                ).mappings()
-                for row in daily_rows:
-                    code = str(row.get("goods_code") or "").strip()
-                    for supplier in supplier_by_code.get(code, ()):
-                        bucket = metrics_by_supplier[supplier]
-                        bucket["sales_30d"] = int(bucket["sales_30d"]) + InventoryRepository._to_int(row.get("sales_volume"))
-                        bucket["reject_count"] = int(bucket["reject_count"]) + InventoryRepository._to_int(row.get("reject_count"))
-                        reject_rate = InventoryRepository._percent_to_float(row.get("reject_rate"))
-                        if reject_rate is not None:
-                            bucket["reject_rate_values"].append(reject_rate)
-
-            if inspect(connection).has_table(JST_MONTHLY_ORDERS_TABLE.name):
-                max_order_time = connection.execute(select(func.max(JST_MONTHLY_ORDERS_TABLE.c.order_time_at))).scalar()
-                if max_order_time is not None:
-                    start_time = max_order_time - timedelta(days=30)
-                    order_rows = connection.execute(
-                        select(
-                            JST_MONTHLY_ORDERS_TABLE.c.style_code,
-                            func.sum(JST_MONTHLY_ORDERS_TABLE.c.quantity).label("quantity"),
-                        )
-                        .where(JST_MONTHLY_ORDERS_TABLE.c.style_code.in_(product_codes))
-                        .where(JST_MONTHLY_ORDERS_TABLE.c.order_time_at >= start_time)
-                        .where(JST_MONTHLY_ORDERS_TABLE.c.order_time_at <= max_order_time)
-                        .where(or_(
-                            JST_MONTHLY_ORDERS_TABLE.c.status.is_(None),
-                            ~JST_MONTHLY_ORDERS_TABLE.c.status.in_(SUPPLIER_RETURN_RATE_EXCLUDED_ORDER_STATUSES),
-                        ))
-                        .group_by(JST_MONTHLY_ORDERS_TABLE.c.style_code)
-                    ).mappings()
-                    for row in order_rows:
-                        code = str(row.get("style_code") or "").strip()
-                        for supplier in supplier_by_code.get(code, ()):
-                            bucket = metrics_by_supplier[supplier]
-                            bucket["sales_30d"] = int(bucket["sales_30d"]) + InventoryRepository._to_int(row.get("quantity"))
-
-            if inspect(connection).has_table(JST_SIZE_STOCK_TABLE.name):
-                stock_rows = connection.execute(
-                    select(
-                        JST_SIZE_STOCK_TABLE.c.product_code,
-                        func.sum(JST_SIZE_STOCK_TABLE.c.stock_qty).label("stock_qty"),
-                    )
-                    .where(JST_SIZE_STOCK_TABLE.c.product_code.in_(product_codes))
-                    .group_by(JST_SIZE_STOCK_TABLE.c.product_code)
-                ).mappings()
-                for row in stock_rows:
-                    code = str(row.get("product_code") or "").strip()
-                    for supplier in supplier_by_code.get(code, ()):
-                        bucket = metrics_by_supplier[supplier]
-                        bucket["stock_qty"] = int(bucket["stock_qty"]) + InventoryRepository._to_int(row.get("stock_qty"))
-
-        if inspect(connection).has_table(JST_AFTERSALE_RETURN_TABLE.name):
-            self._ensure_aftersale_return_schema(connection)
-            historical_supplier_rows = list(connection.execute(
-                select(
-                    GJ_MERGED_PRODUCT_INFO_TABLE.c.id,
-                    GJ_MERGED_PRODUCT_INFO_TABLE.c.primary_supplier,
-                    GJ_MERGED_PRODUCT_INFO_TABLE.c.original_goods_code,
-                    GJ_MERGED_PRODUCT_INFO_TABLE.c.source_date_value,
-                )
-                .where(GJ_MERGED_PRODUCT_INFO_TABLE.c.primary_supplier.in_(supplier_names))
-                .where(GJ_MERGED_PRODUCT_INFO_TABLE.c.original_goods_code.isnot(None))
-                .where(GJ_MERGED_PRODUCT_INFO_TABLE.c.original_goods_code != "")
-            ).mappings())
-            historical_original_codes = sorted({
-                str(row.get("original_goods_code") or "").strip()
-                for row in historical_supplier_rows
-                if str(row.get("original_goods_code") or "").strip()
-            })
-            if historical_original_codes:
-                event_date_expr = func.coalesce(
-                    JST_AFTERSALE_RETURN_TABLE.c.order_date_value,
-                    JST_AFTERSALE_RETURN_TABLE.c.order_time_value,
-                )
-                max_aftersale_date = connection.execute(
-                    select(func.max(event_date_expr))
-                    .where(JST_AFTERSALE_RETURN_TABLE.c.original_goods_code.in_(historical_original_codes))
-                ).scalar()
-                if max_aftersale_date is not None:
-                    aftersale_start_date = max_aftersale_date - timedelta(days=SUPPLIER_RETURN_RATE_WINDOW_DAYS)
-                    returned_rows = list(connection.execute(
-                        select(
-                            JST_AFTERSALE_RETURN_TABLE.c.original_goods_code,
-                            JST_AFTERSALE_RETURN_TABLE.c.returned_qty,
-                            JST_AFTERSALE_RETURN_TABLE.c.order_date_value,
-                            JST_AFTERSALE_RETURN_TABLE.c.order_time_value,
-                            JST_AFTERSALE_RETURN_TABLE.c.platform_site,
-                            JST_AFTERSALE_RETURN_TABLE.c.shop_name,
-                        )
-                        .where(JST_AFTERSALE_RETURN_TABLE.c.original_goods_code.in_(historical_original_codes))
-                        .where(event_date_expr >= aftersale_start_date)
-                        .where(event_date_expr <= max_aftersale_date)
-                    ).mappings())
-
-                    returned_original_codes = sorted({
-                        str(row.get("original_goods_code") or "").strip()
-                        for row in returned_rows
-                        if str(row.get("original_goods_code") or "").strip()
-                    })
-                    history_by_original: dict[str, list[dict[str, object]]] = {}
-                    if returned_original_codes:
-                        all_history_rows = connection.execute(
-                            select(
-                                GJ_MERGED_PRODUCT_INFO_TABLE.c.id,
-                                GJ_MERGED_PRODUCT_INFO_TABLE.c.primary_supplier,
-                                GJ_MERGED_PRODUCT_INFO_TABLE.c.original_goods_code,
-                                GJ_MERGED_PRODUCT_INFO_TABLE.c.source_date_value,
-                            )
-                            .where(GJ_MERGED_PRODUCT_INFO_TABLE.c.original_goods_code.in_(returned_original_codes))
-                            .where(GJ_MERGED_PRODUCT_INFO_TABLE.c.primary_supplier.isnot(None))
-                            .where(GJ_MERGED_PRODUCT_INFO_TABLE.c.primary_supplier != "")
-                            .order_by(
-                                GJ_MERGED_PRODUCT_INFO_TABLE.c.original_goods_code,
-                                GJ_MERGED_PRODUCT_INFO_TABLE.c.source_date_value,
-                                GJ_MERGED_PRODUCT_INFO_TABLE.c.id,
-                            )
-                        ).mappings()
-                        for row in all_history_rows:
-                            original_code = str(row.get("original_goods_code") or "").strip()
-                            if original_code:
-                                history_by_original.setdefault(original_code, []).append(dict(row))
-
-                    supplier_name_set = set(supplier_names)
-
-                    def normalize_text(value: object) -> str | None:
-                        text_value = str(value or "").strip()
-                        return text_value or None
-
-                    def row_date(value: object) -> date | None:
-                        if isinstance(value, datetime):
-                            return value.date()
-                        if isinstance(value, date):
-                            return value
-                        return parse_date(value)
-
-                    def supplier_for_original_at(original_code: str, target_date: date | None) -> str | None:
-                        rows = history_by_original.get(original_code) or []
-                        if not rows:
-                            return None
-                        selected: dict[str, object] | None = None
-                        if target_date is not None:
-                            for candidate in rows:
-                                source_date = row_date(candidate.get("source_date_value"))
-                                if source_date is not None and source_date <= target_date:
-                                    selected = candidate
-                        if selected is None:
-                            dated_rows = [candidate for candidate in rows if row_date(candidate.get("source_date_value")) is not None]
-                            selected = dated_rows[-1] if dated_rows else rows[-1]
-                        supplier = normalize_text(selected.get("primary_supplier"))
-                        return supplier if supplier in supplier_name_set else None
-
-                    return_groups: dict[tuple[str, str, str | None, str | None], int] = {}
-                    order_time_values: list[date] = []
-                    has_missing_order_time = False
-                    for row in returned_rows:
-                        original_code = normalize_text(row.get("original_goods_code"))
-                        if not original_code:
-                            continue
-                        order_time_value = row_date(row.get("order_time_value"))
-                        event_date_value = row_date(row.get("order_date_value")) or order_time_value
-                        if order_time_value is not None:
-                            order_time_values.append(order_time_value)
-                        else:
-                            has_missing_order_time = True
-                        supplier = supplier_for_original_at(original_code, order_time_value or event_date_value)
-                        if not supplier:
-                            continue
-                        returned_qty = InventoryRepository._to_int(row.get("returned_qty"))
-                        if returned_qty <= 0:
-                            continue
-                        bucket = metrics_by_supplier[supplier]
-                        bucket["has_aftersale_returns"] = True
-                        key = (
-                            supplier,
-                            original_code,
-                            normalize_text(row.get("shop_name")),
-                            normalize_text(row.get("platform_site")),
-                        )
-                        return_groups[key] = return_groups.get(key, 0) + returned_qty
-
-                    if order_time_values and not has_missing_order_time:
-                        sales_start_date = min(order_time_values)
-                        sales_end_date = max(order_time_values)
-                    elif order_time_values:
-                        sales_start_date = min(min(order_time_values), aftersale_start_date - timedelta(days=SUPPLIER_RETURN_RATE_WINDOW_DAYS))
-                        sales_end_date = max(max(order_time_values), max_aftersale_date)
-                    else:
-                        sales_start_date = aftersale_start_date - timedelta(days=SUPPLIER_RETURN_RATE_WINDOW_DAYS)
-                        sales_end_date = max_aftersale_date
-
-                    sold_by_all: dict[tuple[str, str], int] = {}
-                    sold_by_shop: dict[tuple[str, str, str], int] = {}
-                    sold_by_platform: dict[tuple[str, str, str], int] = {}
-                    sold_by_shop_platform: dict[tuple[str, str, str, str], int] = {}
-                    if return_groups and inspect(connection).has_table(JST_MONTHLY_ORDERS_TABLE.name):
-                        order_day = func.date(JST_MONTHLY_ORDERS_TABLE.c.order_time_at).label("order_day")
-                        sold_rows = connection.execute(
-                            select(
-                                JST_MONTHLY_ORDERS_TABLE.c.style_code,
-                                JST_MONTHLY_ORDERS_TABLE.c.shop_name,
-                                JST_MONTHLY_ORDERS_TABLE.c.platform_site,
-                                order_day,
-                                func.sum(JST_MONTHLY_ORDERS_TABLE.c.quantity).label("sold_qty"),
-                            )
-                            .where(JST_MONTHLY_ORDERS_TABLE.c.style_code.in_(returned_original_codes))
-                            .where(JST_MONTHLY_ORDERS_TABLE.c.order_time_at >= datetime.combine(sales_start_date, datetime.min.time()))
-                            .where(JST_MONTHLY_ORDERS_TABLE.c.order_time_at <= datetime.combine(sales_end_date, datetime.max.time()))
-                            .where(or_(
-                                JST_MONTHLY_ORDERS_TABLE.c.status.is_(None),
-                                ~JST_MONTHLY_ORDERS_TABLE.c.status.in_(SUPPLIER_RETURN_RATE_EXCLUDED_ORDER_STATUSES),
-                            ))
-                            .group_by(
-                                JST_MONTHLY_ORDERS_TABLE.c.style_code,
-                                JST_MONTHLY_ORDERS_TABLE.c.shop_name,
-                                JST_MONTHLY_ORDERS_TABLE.c.platform_site,
-                                order_day,
-                            )
-                        ).mappings()
-                        for row in sold_rows:
-                            original_code = normalize_text(row.get("style_code"))
-                            if not original_code:
-                                continue
-                            supplier = supplier_for_original_at(original_code, row_date(row.get("order_day")))
-                            if not supplier:
-                                continue
-                            sold_qty = InventoryRepository._to_int(row.get("sold_qty"))
-                            if sold_qty <= 0:
-                                continue
-                            shop_name = normalize_text(row.get("shop_name"))
-                            platform_site = normalize_text(row.get("platform_site"))
-                            all_key = (supplier, original_code)
-                            sold_by_all[all_key] = sold_by_all.get(all_key, 0) + sold_qty
-                            if shop_name:
-                                shop_key = (supplier, original_code, shop_name)
-                                sold_by_shop[shop_key] = sold_by_shop.get(shop_key, 0) + sold_qty
-                            if platform_site:
-                                platform_key = (supplier, original_code, platform_site)
-                                sold_by_platform[platform_key] = sold_by_platform.get(platform_key, 0) + sold_qty
-                            if shop_name and platform_site:
-                                shop_platform_key = (supplier, original_code, shop_name, platform_site)
-                                sold_by_shop_platform[shop_platform_key] = sold_by_shop_platform.get(shop_platform_key, 0) + sold_qty
-
-                    for (supplier, original_code, shop_name, platform_site), _returned_qty in return_groups.items():
-                        if shop_name and platform_site:
-                            sold_qty = sold_by_shop_platform.get((supplier, original_code, shop_name, platform_site), 0)
-                        elif shop_name:
-                            sold_qty = sold_by_shop.get((supplier, original_code, shop_name), 0)
-                        elif platform_site:
-                            sold_qty = sold_by_platform.get((supplier, original_code, platform_site), 0)
-                        else:
-                            sold_qty = sold_by_all.get((supplier, original_code), 0)
-                        if sold_qty <= 0:
-                            continue
-                        bucket = metrics_by_supplier[supplier]
-                        bucket["aftersale_returned_qty"] = int(bucket.get("aftersale_returned_qty") or 0) + int(_returned_qty or 0)
-                        bucket["aftersale_sold_qty"] = int(bucket.get("aftersale_sold_qty") or 0) + sold_qty
-
-                    for bucket in metrics_by_supplier.values():
-                        returned_qty = int(bucket.get("aftersale_returned_qty") or 0)
-                        sold_qty = int(bucket.get("aftersale_sold_qty") or 0)
-                        if returned_qty > 0 and sold_qty > 0:
-                            bucket["aftersale_return_rate"] = returned_qty / sold_qty
-                            bucket["reject_rate"] = bucket["aftersale_return_rate"]
-
-        for item in items:
-            supplier = str(item.get("name") or "").strip()
-            metrics = metrics_by_supplier.get(supplier, {})
-            if metrics.get("reject_rate") is None and not metrics.get("has_aftersale_returns"):
-                rates = metrics.get("reject_rate_values") or []
-                metrics["reject_rate"] = sum(rates) / len(rates) if rates else None
-            grade, suggestion = InventoryRepository._supplier_grade_and_suggestion(item, metrics)
-            item["factory_grade"] = grade
-            item["factory_suggestion"] = suggestion
-
-        self._persist_supplier_ratings(connection, items)
-
-        if use_cache:
-            self._supplier_rating_metrics_cache[cache_key] = (datetime.now(), metrics_by_supplier)
-
-    @staticmethod
-    def _persist_supplier_ratings(connection, items: list[dict[str, object]]) -> None:
-        for item in items:
-            supplier_id = item.get("id")
-            grade = item.get("factory_grade")
-            suggestion = item.get("factory_suggestion")
-            if not supplier_id:
-                continue
-            connection.execute(
-                update(SUPPLIER_TABLE)
-                .where(SUPPLIER_TABLE.c.id == supplier_id)
-                .where(or_(
-                    SUPPLIER_TABLE.c.factory_grade.is_distinct_from(grade),
-                    SUPPLIER_TABLE.c.factory_suggestion.is_distinct_from(suggestion),
-                ))
-                .values(factory_grade=grade, factory_suggestion=suggestion)
-            )
-
-    @staticmethod
-    def _ensure_aftersale_return_schema(connection) -> None:
-        connection.execute(text("ALTER TABLE jst_aftersale_returns ADD COLUMN IF NOT EXISTS order_time TEXT"))
-        connection.execute(text("ALTER TABLE jst_aftersale_returns ADD COLUMN IF NOT EXISTS platform_site TEXT"))
-        connection.execute(text("ALTER TABLE jst_aftersale_returns ADD COLUMN IF NOT EXISTS shop_name TEXT"))
-        connection.execute(text("ALTER TABLE jst_aftersale_returns ADD COLUMN IF NOT EXISTS online_order_id TEXT"))
-        connection.execute(text("ALTER TABLE jst_aftersale_returns ADD COLUMN IF NOT EXISTS order_time_value DATE"))
-        connection.execute(text("CREATE INDEX IF NOT EXISTS idx_jst_aftersale_returns_order_time ON jst_aftersale_returns (order_time_value)"))
-
-    @staticmethod
-    def _supplier_grade_and_suggestion(item: Mapping[str, object], metrics: Mapping[str, object]) -> tuple[str, str]:
-        status = str(item.get("cooperation_status") or "").strip()
-        if status in {"淘汰", "暂停"}:
-            return "D", "暂停合作，停止开发新款。"
-
-        style_count = InventoryRepository._to_int(metrics.get("style_count"))
-        sales_30d = InventoryRepository._to_int(metrics.get("sales_30d"))
-        stock_qty = InventoryRepository._to_int(metrics.get("stock_qty"))
-        reject_rate_raw = metrics.get("reject_rate")
-        reject_rate = float(reject_rate_raw) if reject_rate_raw is not None else None
-        sell_through = sales_30d / (sales_30d + stock_qty) if sales_30d + stock_qty > 0 else 0
-        score = 0
-
-        if sales_30d >= 800:
-            score += 30
-        elif sales_30d >= 500:
-            score += 26
-        elif sales_30d >= 300:
-            score += 22
-        elif sales_30d >= 100:
-            score += 15
-        elif sales_30d >= 30:
-            score += 8
-        elif sales_30d > 0:
-            score += 3
-
-        if sell_through >= 0.45:
-            score += 25
-        elif sell_through >= 0.35:
-            score += 22
-        elif sell_through >= 0.25:
-            score += 18
-        elif sell_through >= 0.15:
-            score += 12
-        elif sell_through >= 0.08:
-            score += 6
-        elif sales_30d > 0:
-            score += 2
-
-        if reject_rate is None:
-            score += 10
-        elif reject_rate < 0.05:
-            score += 20
-        elif reject_rate < 0.08:
-            score += 17
-        elif reject_rate < 0.12:
-            score += 13
-        elif reject_rate < 0.15:
-            score += 8
-        elif reject_rate < 0.18:
-            score += 3
-        elif reject_rate < 0.25:
-            score -= 8
-        else:
-            score -= 18
-
-        if style_count >= 20:
-            score += 10
-        elif style_count >= 10:
-            score += 8
-        elif style_count > 0:
-            score += 5
-
-        if stock_qty >= 300 and sales_30d <= 0:
-            score -= 30
-        elif stock_qty >= 1000 and sell_through < 0.1:
-            score -= 25
-        elif stock_qty <= 100:
-            score += 15
-        elif stock_qty <= 300:
-            score += 10
-        elif stock_qty <= 600:
-            score += 5
-
-        score = max(0, min(100, score))
-        if score >= 80:
-            return "A", f"综合评分 {score} 分，重点合作，优先开发，优先下单。"
-        if score >= 60:
-            return "B", f"综合评分 {score} 分，保持合作，继续观察。"
-        if score >= 25:
-            return "C", f"综合评分 {score} 分，销售、动销或退货表现一般，建议控制节奏。"
-        return "D", f"综合评分 {score} 分，风险偏高，建议暂停新款开发。"
-
-    @staticmethod
-    def _to_int(value: object) -> int:
-        if value in (None, ""):
-            return 0
-        try:
-            return int(float(str(value)))
-        except (TypeError, ValueError):
-            return 0
-
-    @staticmethod
-    def _percent_to_float(value: object) -> float | None:
-        if value in (None, ""):
-            return None
-        text_value = str(value).strip().replace(",", "")
-        try:
-            if text_value.endswith("%"):
-                return float(text_value[:-1]) / 100
-            parsed = float(text_value)
-            return parsed / 100 if parsed > 1 else parsed
-        except ValueError:
-            return None
 
     def create_supplier(self, data: Mapping[str, object]) -> dict[str, object]:
         statement = insert(SUPPLIER_TABLE).values(**self._prepare_supplier(data)).returning(SUPPLIER_TABLE)
@@ -2205,8 +1670,6 @@ class InventoryRepository:
         connection.execute(text("ALTER TABLE IF EXISTS suppliers ADD COLUMN IF NOT EXISTS brand TEXT"))
         connection.execute(text("ALTER TABLE IF EXISTS suppliers ADD COLUMN IF NOT EXISTS wechat TEXT"))
         connection.execute(text("ALTER TABLE IF EXISTS suppliers ADD COLUMN IF NOT EXISTS cooperation_status TEXT"))
-        connection.execute(text("ALTER TABLE IF EXISTS suppliers ADD COLUMN IF NOT EXISTS factory_grade TEXT"))
-        connection.execute(text("ALTER TABLE IF EXISTS suppliers ADD COLUMN IF NOT EXISTS factory_suggestion TEXT"))
         connection.execute(
             text(
                 """
@@ -2287,7 +1750,6 @@ class InventoryRepository:
         connection.execute(text("ALTER TABLE IF EXISTS suppliers ALTER COLUMN brand SET NOT NULL"))
         connection.execute(text("DROP INDEX IF EXISTS idx_suppliers_brand"))
         connection.execute(text("CREATE INDEX IF NOT EXISTS idx_suppliers_brand ON suppliers (brand)"))
-        connection.execute(text("CREATE INDEX IF NOT EXISTS idx_suppliers_factory_grade ON suppliers (factory_grade)"))
         connection.execute(
             text(
                 """
@@ -2521,10 +1983,6 @@ class InventoryRepository:
             "address": str(data.get("address") or "").strip() or None,
             "notes": str(data.get("notes") or "").strip() or None,
         }
-        if "factory_grade" in data:
-            payload["factory_grade"] = str(data.get("factory_grade") or "").strip() or None
-        if "factory_suggestion" in data:
-            payload["factory_suggestion"] = str(data.get("factory_suggestion") or "").strip() or None
         if payload["brand"] not in SUPPLIER_BRANDS:
             payload["brand"] = CBANNER_MENS_BRAND
         return payload

@@ -29,7 +29,6 @@ def list_suppliers(
     page_size: int | None = Query(None, ge=1, le=200),
     query: str | None = None,
     brand: str | None = None,
-    sort: str | None = None,
 ):
     repository = request.app.state.inventory_repository
     normalized_brand = _normalize_brand(brand)
@@ -41,7 +40,7 @@ def list_suppliers(
             "page": 1,
             "page_size": len(items),
         }
-    return repository.list_suppliers_page(page=page or 1, page_size=page_size or 30, query=query, brand=normalized_brand, sort=sort)
+    return repository.list_suppliers_page(page=page or 1, page_size=page_size or 30, query=query, brand=normalized_brand)
 
 
 @router.post("/suppliers")

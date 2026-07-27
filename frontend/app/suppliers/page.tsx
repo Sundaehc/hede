@@ -1,7 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useState } from "react"
-import { ArrowUpDown, ChevronLeft, ChevronRight, Edit, History, Plus, Search, Trash2, X } from "lucide-react"
+import { ChevronLeft, ChevronRight, Edit, History, Plus, Search, Trash2, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -29,7 +29,6 @@ import { BRANDS, type BrandKey } from "@/lib/brands"
 const PAGE_SIZE = 30
 type PageToken = number | "start-ellipsis" | "end-ellipsis"
 type SupplierBrand = Exclude<BrandKey, "all"> | "smiley" | "ni"
-type SupplierSort = "" | "grade_asc" | "grade_desc"
 
 const SUPPLIER_BRANDS: ReadonlyArray<{ key: SupplierBrand; label: string }> = [
   { key: "cbanner_mens", label: "千百度男鞋" },
@@ -54,14 +53,6 @@ function getErrorMessage(error: unknown) {
 
 function formatNumber(value: number) {
   return new Intl.NumberFormat("zh-CN").format(value)
-}
-
-function gradeClassName(grade: SupplierItem["factory_grade"]) {
-  if (grade === "A") return "border-emerald-200 bg-emerald-50 text-emerald-700"
-  if (grade === "B") return "border-blue-200 bg-blue-50 text-blue-700"
-  if (grade === "C") return "border-amber-200 bg-amber-50 text-amber-700"
-  if (grade === "D") return "border-red-200 bg-red-50 text-red-700"
-  return "border-border bg-muted text-muted-foreground"
 }
 
 function getPageTokens(currentPage: number, totalPages: number): PageToken[] {
@@ -100,7 +91,6 @@ export default function SuppliersPage() {
   const [brand, setBrand] = useState<SupplierBrand | "all">(DEFAULT_SUPPLIER_BRAND)
   const [queryInput, setQueryInput] = useState("")
   const [query, setQuery] = useState("")
-  const [sort, setSort] = useState<SupplierSort>("")
   const [isLoading, setIsLoading] = useState(true)
 
   const [formOpen, setFormOpen] = useState(false)
@@ -137,7 +127,7 @@ export default function SuppliersPage() {
   const load = useCallback(async () => {
     setIsLoading(true)
     try {
-      const res = await listSuppliers({ page, pageSize: PAGE_SIZE, query, brand, sort })
+      const res = await listSuppliers({ page, pageSize: PAGE_SIZE, query, brand })
       const nextTotalPages = Math.max(1, Math.ceil(res.total / PAGE_SIZE))
       if (page > nextTotalPages) {
         setPage(nextTotalPages)
@@ -151,7 +141,7 @@ export default function SuppliersPage() {
     } finally {
       setIsLoading(false)
     }
-  }, [brand, page, query, sort])
+  }, [brand, page, query])
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -324,17 +314,15 @@ export default function SuppliersPage() {
             </div>
           )}
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[1320px] table-fixed text-sm">
+            <table className="w-full min-w-[1120px] table-fixed text-sm">
               <colgroup>
+                <col className="w-[23%]" />
+                <col className="w-[11%]" />
+                <col className="w-[11%]" />
+                <col className="w-[13%]" />
+                <col className="w-[10%]" />
                 <col className="w-[20%]" />
-                <col className="w-[9%]" />
-                <col className="w-[9%]" />
-                <col className="w-[11%]" />
-                <col className="w-[8%]" />
-                <col className="w-[7%]" />
-                <col className="w-[17%]" />
-                <col className="w-[11%]" />
-                <col className="w-[8%]" />
+                <col className="w-[12%]" />
               </colgroup>
               <thead>
                 <tr className="table-head-row">
@@ -343,21 +331,6 @@ export default function SuppliersPage() {
                   <th className="px-4 py-3 font-medium">联系人</th>
                   <th className="px-4 py-3 font-medium">微信号</th>
                   <th className="px-4 py-3 font-medium">合作状态</th>
-                  <th className="px-4 py-3 font-medium">
-                    <button
-                      type="button"
-                      className="inline-flex cursor-pointer items-center gap-1.5 rounded-md px-1 py-0.5 transition-colors hover:bg-muted"
-                      onClick={() => {
-                        setSort((current) => current === "grade_asc" ? "grade_desc" : "grade_asc")
-                        setPage(1)
-                      }}
-                      title={sort === "grade_asc" ? "当前：等级 A-D" : sort === "grade_desc" ? "当前：等级 D-A" : "按等级排序"}
-                    >
-                      <span>等级</span>
-                      <ArrowUpDown className={`h-3.5 w-3.5 ${sort ? "text-foreground" : "text-muted-foreground"}`} />
-                    </button>
-                  </th>
-                  <th className="px-4 py-3 font-medium">系统建议</th>
                   <th className="px-4 py-3 font-medium">地址</th>
                   <th className="px-4 py-3 w-32 font-medium">操作</th>
                 </tr>
@@ -365,12 +338,12 @@ export default function SuppliersPage() {
               <tbody className={`divide-y divide-border transition-opacity ${isLoading && hasRows ? "opacity-55" : "opacity-100"}`}>
                 {isLoading && !hasRows && (
                   <tr>
-                    <td colSpan={9} className="px-4 py-12 text-center text-muted-foreground">加载中...</td>
+                    <td colSpan={7} className="px-4 py-12 text-center text-muted-foreground">加载中...</td>
                   </tr>
                 )}
                 {!isLoading && !hasRows && (
                   <tr>
-                    <td colSpan={9} className="px-4 py-12 text-center text-muted-foreground">
+                    <td colSpan={7} className="px-4 py-12 text-center text-muted-foreground">
                       {query ? "暂无匹配供应商" : "暂无供应商数据"}
                     </td>
                   </tr>
@@ -387,12 +360,6 @@ export default function SuppliersPage() {
                     <td className="truncate px-4 py-2.5" title={item.contact || ""}>{item.contact || "-"}</td>
                     <td className="truncate px-4 py-2.5" title={item.wechat || ""}>{item.wechat || "-"}</td>
                     <td className="truncate px-4 py-2.5" title={item.cooperation_status || ""}>{item.cooperation_status || "-"}</td>
-                    <td className="px-4 py-2.5">
-                      <span className={`inline-flex h-6 min-w-8 items-center justify-center rounded-full border px-2 text-xs font-semibold ${gradeClassName(item.factory_grade)}`}>
-                        {item.factory_grade || "-"}
-                      </span>
-                    </td>
-                    <td className="truncate px-4 py-2.5" title={item.factory_suggestion || ""}>{item.factory_suggestion || "-"}</td>
                     <td className="truncate px-4 py-2.5" title={item.address || ""}>{item.address || "-"}</td>
                     <td className="px-4 py-2.5">
                       <div className="flex items-center gap-0.5">
