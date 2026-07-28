@@ -92,7 +92,10 @@ function ProductImage({ item, onPreviewImage }: { item: ProductListItem; onPrevi
     <button
       type="button"
       className="inline-flex h-32 w-32 shrink-0 cursor-zoom-in items-center justify-center rounded-lg focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-      onClick={() => onPreviewImage?.(item)}
+      onClick={(event) => {
+        event.stopPropagation()
+        onPreviewImage?.(item)
+      }}
       aria-label={`查看原图 ${alt}`}
     >
       <img
@@ -115,13 +118,27 @@ function ProductCard({ item, selectable, selectedIds, onToggleSelect, onEdit, on
   onPreviewImage?: (item: ProductListItem) => void
 }) {
   const checked = selectedIds.has(item.id)
+  const canEdit = Boolean(onEdit)
 
   return (
-    <div className="surface-panel flex items-center gap-4 p-4 transition-all hover:-translate-y-0.5 hover:shadow-md">
+    <div
+      className={`surface-panel flex items-center gap-4 p-4 transition-all hover:-translate-y-0.5 hover:shadow-md${canEdit ? " cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2" : ""}`}
+      role={canEdit ? "button" : undefined}
+      tabIndex={canEdit ? 0 : undefined}
+      onClick={canEdit ? () => onEdit?.(item) : undefined}
+      onKeyDown={canEdit ? (event) => {
+        if (event.target !== event.currentTarget) return
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault()
+          onEdit?.(item)
+        }
+      } : undefined}
+    >
       {selectable ? (
         <input
           type="checkbox"
           checked={checked}
+          onClick={(event) => event.stopPropagation()}
           onChange={() => onToggleSelect(item.id)}
           aria-label={`选择商品 ${item.sku || item.original_sku || item.id}`}
           className="h-4 w-4 shrink-0 cursor-pointer rounded border border-input accent-primary"
@@ -142,13 +159,19 @@ function ProductCard({ item, selectable, selectedIds, onToggleSelect, onEdit, on
           {(onEdit || onDelete) ? (
             <div className="flex gap-2">
               {onEdit ? (
-                <Button type="button" variant="outline" size="sm" onClick={() => onEdit(item)} className="cursor-pointer">
+                <Button type="button" variant="outline" size="sm" onClick={(event) => {
+                  event.stopPropagation()
+                  onEdit(item)
+                }} className="cursor-pointer">
                   <Edit className="h-3.5 w-3.5" />
                   编辑
                 </Button>
               ) : null}
               {onDelete ? (
-                <Button type="button" variant="outline" size="sm" className="text-destructive hover:text-destructive cursor-pointer" onClick={() => onDelete(item)} >
+                <Button type="button" variant="outline" size="sm" className="text-destructive hover:text-destructive cursor-pointer" onClick={(event) => {
+                  event.stopPropagation()
+                  onDelete(item)
+                }} >
                   <Trash2 className="h-3.5 w-3.5" />
                   删除
                 </Button>
