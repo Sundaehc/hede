@@ -197,7 +197,6 @@ VIP_OPS_FIELDS: tuple[FieldSpec, ...] = (
 JST_PRICE_FIELDS: tuple[FieldSpec, ...] = (
     FieldSpec("goods_code", "货号"),
     FieldSpec("goods_full_name", "商品全名"),
-    FieldSpec("stock_qty", "库存数量", "integer"),
     FieldSpec("latest_purchase_price", "最近进价", "numeric"),
     FieldSpec("cost_unit_price", "成本单价", "numeric"),
     FieldSpec("member_price", "会员价", "numeric"),
