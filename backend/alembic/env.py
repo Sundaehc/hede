@@ -6,7 +6,15 @@ from alembic import context
 from sqlalchemy import engine_from_config, pool
 
 from config import load_settings
-from domain import fine_table_snapshot_schema, gj_schema, inventory_schema, task_status_schema, vip_schema  # noqa: F401 - register tables on METADATA
+from domain import (  # noqa: F401 - register tables on METADATA
+    data_governance_schema,
+    fine_table_snapshot_schema,
+    gj_schema,
+    inventory_schema,
+    master_data_schema,
+    task_status_schema,
+    vip_schema,
+)
 from domain.schema import METADATA
 
 

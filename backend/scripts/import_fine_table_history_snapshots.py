@@ -594,6 +594,7 @@ def write_snapshot(
         rows = [
             {
                 "batch_id": batch_id,
+                "snapshot_date": snapshot_date,
                 "sku": str(payload.get("sku") or "").strip() or None,
                 "original_sku": str(payload.get("original_sku") or "").strip() or None,
                 "row_index": index,

@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 from datetime import date
+import re
 
-from sqlalchemy import BigInteger, Column, Date, DateTime, ForeignKey, Identity, Index, Integer, JSON, Table, Text, UniqueConstraint, func, inspect
+from sqlalchemy import BigInteger, Column, Date, DateTime, ForeignKey, Identity, Index, Integer, JSON, Table, Text, UniqueConstraint, func, inspect, text
 
+from domain.legacy_partitioning import LegacyPartitionTarget, attach_partition_if_parent_exists, partition_parent_exists
 from domain.schema import METADATA
 
 
@@ -24,6 +26,8 @@ FINE_TABLE_SNAPSHOT_BATCH_TABLE = Table(
     ),
     UniqueConstraint("brand", "snapshot_date", name="uq_fine_table_snapshot_batches_brand_date"),
 )
+_FINE_TABLE_SNAPSHOT_YEAR_TABLE_PATTERN = re.compile(r"^fine_table_snapshot_rows_(\d{4})$")
+FINE_TABLE_SNAPSHOT_PARENT_NAME = "fine_table_snapshot_rows"
 
 
 def fine_table_snapshot_row_table_name(snapshot_date: date) -> str:
@@ -45,6 +49,7 @@ def fine_table_snapshot_row_table_for_date(snapshot_date: date) -> Table:
             ForeignKey("fine_table_snapshot_batches.id", ondelete="CASCADE"),
             nullable=False,
         ),
+        Column("snapshot_date", Date, nullable=False),
         Column("sku", Text, nullable=True),
         Column("original_sku", Text, nullable=True),
         Column("row_index", Integer, nullable=False),
@@ -76,4 +81,73 @@ def fine_table_snapshot_year_table_exists(engine, snapshot_date: date) -> bool:
 def ensure_fine_table_snapshot_row_table(engine, snapshot_date: date) -> Table:
     table = fine_table_snapshot_row_table_for_date(snapshot_date)
     table.create(engine, checkfirst=True)
+    attach_partition_if_parent_exists(
+        engine,
+        LegacyPartitionTarget(
+            parent_name=FINE_TABLE_SNAPSHOT_PARENT_NAME,
+            child_name=table.name,
+            partition_key="snapshot_date",
+            lower_bound=f"{snapshot_date.year:04d}-01-01",
+            upper_bound=f"{snapshot_date.year + 1:04d}-01-01",
+        ),
+    )
+    refresh_fine_table_snapshot_compatibility_view(engine)
     return table
+
+
+def refresh_fine_table_snapshot_compatibility_view(engine) -> None:
+    if partition_parent_exists(engine, FINE_TABLE_SNAPSHOT_PARENT_NAME):
+        _replace_fine_snapshot_view(
+            engine,
+            f"""
+            SELECT
+                batches.brand,
+                batches.snapshot_date,
+                rows.id,
+                rows.batch_id,
+                rows.sku,
+                rows.original_sku,
+                rows.row_index,
+                rows.payload,
+                rows.created_at
+            FROM public.{FINE_TABLE_SNAPSHOT_PARENT_NAME} AS rows
+            JOIN public.fine_table_snapshot_batches AS batches ON batches.id = rows.batch_id
+            """,
+        )
+        return
+
+    table_names: list[tuple[int, str]] = []
+    for table_name in inspect(engine).get_table_names():
+        matched = _FINE_TABLE_SNAPSHOT_YEAR_TABLE_PATTERN.fullmatch(table_name)
+        if matched:
+            table_names.append((int(matched.group(1)), table_name))
+    if not table_names:
+        return
+
+    selects = []
+    for year, table_name in sorted(table_names):
+        selects.append(
+            f"""
+            SELECT
+                batches.brand,
+                batches.snapshot_date,
+                rows.id,
+                rows.batch_id,
+                rows.sku,
+                rows.original_sku,
+                rows.row_index,
+                rows.payload,
+                rows.created_at
+            FROM public.{table_name} AS rows
+            JOIN public.fine_table_snapshot_batches AS batches ON batches.id = rows.batch_id
+            WHERE batches.snapshot_date >= DATE '{year:04d}-01-01'
+              AND batches.snapshot_date < DATE '{year + 1:04d}-01-01'
+            """
+        )
+    view_sql = "\nUNION ALL\n".join(selects)
+    _replace_fine_snapshot_view(engine, view_sql)
+
+
+def _replace_fine_snapshot_view(engine, view_sql: str) -> None:
+    with engine.begin() as connection:
+        connection.execute(text(f"CREATE OR REPLACE VIEW public.v_fine_table_snapshot_rows AS {view_sql}"))

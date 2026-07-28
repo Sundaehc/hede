@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from sqlalchemy import BigInteger, Column, Date, DateTime, Identity, Index, Integer, JSON, Numeric, Table, Text, UniqueConstraint, func
 
+from domain.legacy_partitioning import LegacyPartitionTarget, attach_partition_if_parent_exists
 from domain.schema import METADATA
 
 
@@ -90,10 +91,25 @@ def vip_daily_sales_table_for_year(year: int) -> Table:
 def ensure_jst_daily_sales_table(engine, year: int) -> Table:
     table = jst_daily_sales_table_for_year(year)
     table.create(engine, checkfirst=True)
+    _attach_year_partition_if_enabled(engine, "jst_daily_sales", table.name, year)
     return table
 
 
 def ensure_vip_daily_sales_table(engine, year: int) -> Table:
     table = vip_daily_sales_table_for_year(year)
     table.create(engine, checkfirst=True)
+    _attach_year_partition_if_enabled(engine, "vip_daily_sales", table.name, year)
     return table
+
+
+def _attach_year_partition_if_enabled(engine, parent_name: str, child_name: str, year: int) -> None:
+    attach_partition_if_parent_exists(
+        engine,
+        LegacyPartitionTarget(
+            parent_name=parent_name,
+            child_name=child_name,
+            partition_key="sales_date",
+            lower_bound=f"{year:04d}-01-01",
+            upper_bound=f"{year + 1:04d}-01-01",
+        ),
+    )

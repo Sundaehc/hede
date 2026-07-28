@@ -735,7 +735,7 @@ function createTableColumns(dailyLabels: string[]): TableColumn[] {
     { key: "vip_7d_uv_change_rate", label: "7天UV环比", group: "销售", align: "right", render: (row) => <ChangeRateText value={row.vip_7d_uv_change_rate} /> },
     { key: "vip_7d_ctr_change_rate", label: "7天CTR环比", group: "销售", align: "right", render: (row) => <ChangeRateText value={row.vip_7d_ctr_change_rate} /> },
     { key: "vip_7d_conversion_change_rate", label: "7天转化环比", group: "销售", align: "right", render: (row) => <ChangeRateText value={row.vip_7d_conversion_change_rate} /> },
-    { key: "vip_30d_reject_count", label: "30天拒退", group: "销售", align: "right", render: (row) => formatNumber(row.vip_30d_reject_count) },
+    { key: "vip_30d_reject_count", label: "30天拒退", group: "销售", align: "right", render: (row) => row.vip_30d_reject_count == null ? "-" : formatNumber(row.vip_30d_reject_count) },
     { key: "vip_30d_reject_rate", label: "30天拒退率", group: "销售", align: "right", render: (row) => row.vip_30d_reject_rate || "-" },
 
     { key: "stock_qty", label: "聚水潭库存", group: "库存", align: "right", defaultVisible: true, render: (row) => formatNumber(row.stock_qty) },

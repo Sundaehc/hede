@@ -19,6 +19,8 @@ from domain import jst_stock_snapshot_schema  # noqa: F401 - register JST stock 
 from domain import product_goods_schema  # noqa: F401 - register product goods overrides on METADATA
 from domain import product_goods_detail_snapshot_schema  # noqa: F401 - register product goods detail snapshots on METADATA
 from domain import product_goods_historical_sales_schema  # noqa: F401 - register historical product-goods sales on METADATA
+from domain import master_data_schema  # noqa: F401 - register master-data tables on METADATA
+from domain import data_governance_schema  # noqa: F401 - register data-governance tables on METADATA
 
 
 def _json_serializer(value):

@@ -176,7 +176,7 @@ export type FineTableItem = ProductListItem & {
   vip_7d_uv_change_rate: number | null
   vip_7d_ctr_change_rate: number | null
   vip_7d_conversion_change_rate: number | null
-  vip_30d_reject_count: number
+  vip_30d_reject_count: number | null
   vip_30d_reject_rate: string | null
   vip_daily_average_sales: number
   other_3d_sales: number

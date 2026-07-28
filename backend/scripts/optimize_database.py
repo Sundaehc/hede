@@ -14,6 +14,8 @@ from domain import vip_schema  # noqa: F401 - register VIP/JST analytics tables
 from domain import inventory_schema  # noqa: F401 - register inventory tables
 from domain import jst_stock_snapshot_schema  # noqa: F401 - register JST stock snapshot tables
 from domain import product_goods_schema  # noqa: F401 - register goods table overrides
+from domain import master_data_schema  # noqa: F401 - register master-data tables
+from domain import data_governance_schema  # noqa: F401 - register data-governance tables
 from storage.migrations import apply_core_database_optimizations
 
 

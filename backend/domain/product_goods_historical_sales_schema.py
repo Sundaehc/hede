@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from sqlalchemy import BigInteger, Column, Date, DateTime, Identity, Index, Integer, Numeric, Table, Text, UniqueConstraint, func
 
+from domain.legacy_partitioning import LegacyPartitionTarget, attach_partition_if_parent_exists
 from domain.schema import METADATA
 
 
@@ -45,4 +46,14 @@ def product_goods_historical_sales_table_for_year(year: int) -> Table:
 def ensure_product_goods_historical_sales_table(engine, year: int) -> Table:
     table = product_goods_historical_sales_table_for_year(year)
     table.create(engine, checkfirst=True)
+    attach_partition_if_parent_exists(
+        engine,
+        LegacyPartitionTarget(
+            parent_name="product_goods_historical_sales",
+            child_name=table.name,
+            partition_key="sales_date",
+            lower_bound=f"{year:04d}-01-01",
+            upper_bound=f"{year + 1:04d}-01-01",
+        ),
+    )
     return table

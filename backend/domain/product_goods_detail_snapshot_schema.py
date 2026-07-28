@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from sqlalchemy import BigInteger, Column, Date, DateTime, Identity, Index, Integer, JSON, Table, Text, UniqueConstraint, func
 
+from domain.legacy_partitioning import LegacyPartitionTarget, attach_partition_if_parent_exists
 from domain.schema import METADATA
 
 
@@ -58,4 +59,14 @@ def ensure_product_goods_detail_snapshot_tables(engine, year: int) -> Table:
     PRODUCT_GOODS_DETAIL_SNAPSHOT_BATCHES_TABLE.create(engine, checkfirst=True)
     table = product_goods_detail_snapshots_table_for_year(year)
     table.create(engine, checkfirst=True)
+    attach_partition_if_parent_exists(
+        engine,
+        LegacyPartitionTarget(
+            parent_name="product_goods_detail_snapshots",
+            child_name=table.name,
+            partition_key="snapshot_date",
+            lower_bound=f"{year:04d}-01-01",
+            upper_bound=f"{year + 1:04d}-01-01",
+        ),
+    )
     return table

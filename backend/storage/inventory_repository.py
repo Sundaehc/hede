@@ -17,6 +17,8 @@ from domain.inventory_sources import ACCOUNTING_DOCUMENT_TYPES
 from domain.gj_brand import CBANNER_MENS_BRAND, GJ_FINE_TABLE_BRANDS, SUPPLIER_BRANDS, infer_supplier_brand_from_name
 from domain import jst_stock_snapshot_schema  # noqa: F401 - register JST stock snapshot tables on METADATA
 from domain import product_goods_schema  # noqa: F401 - register goods table overrides on METADATA
+from domain import master_data_schema  # noqa: F401 - register master-data tables on METADATA
+from domain import data_governance_schema  # noqa: F401 - register data-governance tables on METADATA
 from domain.jst_stock_snapshot_schema import JST_SIZE_STOCK_SNAPSHOT_TABLE, JST_STOCK_SUMMARY_SNAPSHOT_TABLE
 from domain.product_goods_schema import PRODUCT_GOODS_OVERRIDES_TABLE
 from domain.product_goods_historical_sales_schema import HISTORICAL_SALES_YEARS, ensure_product_goods_historical_sales_table

@@ -296,6 +296,18 @@ def _daily_report_metric(daily: dict[tuple[str, str], dict[str, Any]], report_ty
     return row.get(field)
 
 
+def _daily_metric_with_original_fallback(
+    daily: dict[tuple[str, str], dict[str, Any]],
+    original_daily: dict[tuple[str, str], dict[str, Any]],
+    period: str,
+    field: str,
+) -> Any:
+    value = _daily_metric(daily, period, field)
+    if value not in (None, ""):
+        return value
+    return _daily_metric(original_daily, period, field)
+
+
 def _compass_metric(daily: dict[tuple[str, str], dict[str, Any]], field: str) -> Any:
     for period in ("1d", "3d", "7d", "30d"):
         value = _daily_report_metric(daily, "罗盘", period, field)
@@ -607,7 +619,14 @@ def create_fine_table_snapshot(
             ).mappings().one()
 
         for start in range(0, len(row_payloads), 1000):
-            chunk = [{**row, "batch_id": batch_id} for row in row_payloads[start:start + 1000]]
+            chunk = [
+                {
+                    **row,
+                    "batch_id": batch_id,
+                    "snapshot_date": resolved_snapshot_date,
+                }
+                for row in row_payloads[start:start + 1000]
+            ]
             if chunk:
                 connection.execute(insert(snapshot_row_table), chunk)
 
@@ -1081,9 +1100,10 @@ def list_fine_table(
             price_by_sku.setdefault(str(row["goods_code"]), dict(row))
 
         daily_by_sku: dict[str, dict[tuple[str, str], dict[str, Any]]] = {sku: {} for sku in skus}
+        daily_lookup_codes = sorted({*skus, *original_skus})
         for row in conn.execute(
             select(VIP_DAILY_TABLE)
-            .where(VIP_DAILY_TABLE.c.goods_code.in_(skus))
+            .where(VIP_DAILY_TABLE.c.goods_code.in_(daily_lookup_codes))
             .order_by(desc(VIP_DAILY_TABLE.c.report_end_date), desc(VIP_DAILY_TABLE.c.updated_at), desc(VIP_DAILY_TABLE.c.id))
         ).mappings():
             sku = str(row["goods_code"])
@@ -1291,6 +1311,19 @@ def list_fine_table(
         gj_info = gj_info_by_sku.get(sku, {})
         orders = orders_by_sku.get(sku, {})
         original_sku = str(product.get("original_sku") or "").strip()
+        original_daily = daily_by_sku.get(original_sku, {})
+        vip_30d_reject_count = _daily_metric_with_original_fallback(
+            daily,
+            original_daily,
+            "30d",
+            "reject_count",
+        )
+        vip_30d_reject_rate = _daily_metric_with_original_fallback(
+            daily,
+            original_daily,
+            "30d",
+            "reject_rate",
+        )
         supplier_name = str(product.get("supplier_name") or "").strip()
         original_orders = original_orders_by_code.get(original_sku, {})
         size_stock = {label: size_stock_by_sku.get(sku, {}).get(label, 0) for label in SIZE_LABELS.values()}
@@ -1403,8 +1436,8 @@ def list_fine_table(
             "vip_7d_uv_change_rate": vip_7d_uv_change_rate,
             "vip_7d_ctr_change_rate": vip_7d_ctr_change_rate,
             "vip_7d_conversion_change_rate": vip_7d_conversion_change_rate,
-            "vip_30d_reject_count": _to_int(_daily_metric(daily, "30d", "reject_count")),
-            "vip_30d_reject_rate": _daily_metric(daily, "30d", "reject_rate"),
+            "vip_30d_reject_count": _to_int(vip_30d_reject_count) if vip_30d_reject_count not in (None, "") else None,
+            "vip_30d_reject_rate": vip_30d_reject_rate,
             "vip_daily_average_sales": vip_daily_average,
             "other_3d_sales": _to_int(orders.get("other_3")),
             "other_7d_sales": _to_int(orders.get("other_7")),
