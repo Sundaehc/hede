@@ -333,11 +333,11 @@ export function FactoryChannelDashboardPage() {
               </label>
               <label className="grid gap-1.5 text-xs font-medium text-muted-foreground">
                 开始日期
-                <Input type="date" value={dateStart} onChange={(event) => setDateStart(event.target.value)} />
+                <Input className="cursor-pointer [&::-webkit-calendar-picker-indicator]:cursor-pointer" type="date" value={dateStart} onChange={(event) => setDateStart(event.target.value)} />
               </label>
               <label className="grid gap-1.5 text-xs font-medium text-muted-foreground">
                 结束日期
-                <Input type="date" value={dateEnd} onChange={(event) => setDateEnd(event.target.value)} />
+                <Input className="cursor-pointer [&::-webkit-calendar-picker-indicator]:cursor-pointer" type="date" value={dateEnd} onChange={(event) => setDateEnd(event.target.value)} />
               </label>
             </div>
             <div className="flex shrink-0 gap-2">
