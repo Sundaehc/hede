@@ -19,7 +19,7 @@ from fileio.excel_reader import read_workbook_rows
 from fileio.image_matcher import ImageMatcher
 from storage.date_normalization import parse_date
 from storage.db import Database
-from transform.rows import build_canonical_row, filter_extra_fields
+from transform.rows import build_canonical_row, filter_extra_fields, normalize_upper_material
 from sqlalchemy import func, select
 
 
@@ -120,7 +120,7 @@ def _gj_row_to_product_row(
         "sku": goods_code,
         "original_sku": original_goods_code,
         "factory_sku": row.get("factory_code"),
-        "upper_material": row.get("upper_material"),
+        "upper_material": normalize_upper_material(row.get("upper_material")),
         "lining_material": row.get("lining_material"),
         "outsole_material": row.get("outsole_material"),
         "insole_material": row.get("insole_material"),

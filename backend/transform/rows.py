@@ -53,6 +53,27 @@ def normalize_cell(value: object) -> object:
     return text or None
 
 
+UPPER_MATERIAL_REPLACEMENTS = {
+    "复合材料-1": "上层合成革/下层牛剖层革",
+    "复合材料-": "上层合成革/下层牛剖层革",
+    "复合材料-2": "上层合成革/下层羊剖层革",
+}
+
+
+def normalize_upper_material(value: object) -> str | None:
+    normalized = normalize_cell(value)
+    if normalized is None:
+        return None
+    material = str(normalized)
+    for source, replacement in (
+        ("复合材料-2", UPPER_MATERIAL_REPLACEMENTS["复合材料-2"]),
+        ("复合材料-1", UPPER_MATERIAL_REPLACEMENTS["复合材料-1"]),
+        ("复合材料-", UPPER_MATERIAL_REPLACEMENTS["复合材料-"]),
+    ):
+        material = material.replace(source, replacement)
+    return material
+
+
 def filter_extra_fields(value: object) -> dict[str, object] | None:
     if not isinstance(value, dict):
         return None
@@ -178,6 +199,8 @@ ADMIN_FIELD_NORMALIZERS = {
 
 
 def normalize_admin_field(field_name: str, value: object) -> object:
+    if field_name == "upper_material":
+        return normalize_upper_material(value)
     field_normalizer = ADMIN_FIELD_NORMALIZERS.get(field_name, normalize_cell)
     return field_normalizer(value)
 
@@ -242,6 +265,8 @@ def build_canonical_row(
         if not target_key:
             continue
         canonical[target_key] = normalize_cell(value)
+
+    canonical["upper_material"] = normalize_upper_material(canonical["upper_material"])
 
     if not canonical["sku"]:
         canonical["sku"] = canonical["original_sku"]

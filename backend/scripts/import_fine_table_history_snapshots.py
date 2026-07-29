@@ -18,6 +18,7 @@ from domain.fine_table_snapshot_schema import (
     ensure_fine_table_snapshot_row_table,
 )
 from storage.inventory_repository import InventoryRepository
+from transform.rows import normalize_upper_material
 
 
 sys.stdout.reconfigure(encoding="utf-8")
@@ -441,7 +442,7 @@ def build_payload(
             "insole_material": normalize_text(row_value(row, indexes["insole_material"])) or None,
             "outsole_material": normalize_text(row_value(row, indexes["outsole_material"])) or None,
             "lining_material": normalize_text(row_value(row, indexes["lining_material"])) or None,
-            "upper_material": normalize_text(row_value(row, indexes["upper_material"])) or None,
+            "upper_material": normalize_upper_material(row_value(row, indexes["upper_material"])),
             "shoe_box_spec": normalize_text(row_value(row, indexes["shoe_box_spec"])) or None,
             "cost": normalize_text(row_value(row, indexes["cost"])) or None,
             "product_name": normalize_text(row_value(row, indexes["product_name"])) or None,

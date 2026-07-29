@@ -9,6 +9,7 @@ from transform.rows import (
     build_admin_record,
     build_canonical_row,
     normalize_admin_payload,
+    normalize_upper_material,
 )
 
 
@@ -17,6 +18,15 @@ def test_admin_normalization_helpers_cover_only_special_admin_fields():
     assert set(ADMIN_FIELD_NORMALIZERS) == {"cost", "first_order_time", "launch_date"}
     assert set(ADMIN_FIELD_NORMALIZERS).issubset(ADMIN_EDITABLE_COLUMNS)
     assert {"image_path", "first_order_time", "launch_date"}.issubset(ADMIN_EDITABLE_COLUMNS)
+
+
+def test_normalize_upper_material_replaces_composite_material_labels():
+    assert normalize_upper_material("复合材料-1") == "上层合成革/下层牛剖层革"
+    assert normalize_upper_material("复合材料-1+合成革") == "上层合成革/下层牛剖层革+合成革"
+    assert normalize_upper_material("复合材料-") == "上层合成革/下层牛剖层革"
+    assert normalize_upper_material("复合材料-2") == "上层合成革/下层羊剖层革"
+    assert normalize_upper_material("牛皮+复合材料-2") == "牛皮+上层合成革/下层羊剖层革"
+    assert normalize_upper_material("牛皮") == "牛皮"
 
 
 

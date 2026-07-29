@@ -15,7 +15,7 @@ from domain.fields import GJ_MERGED_PRODUCT_INFO_FIELDS, alias_map
 from domain.gj_brand import infer_gj_fine_table_brand
 from domain.gj_schema import GJ_MERGED_PRODUCT_INFO_TABLE
 from storage.date_normalization import parse_date
-from transform.rows import normalize_cell, normalize_header
+from transform.rows import normalize_cell, normalize_header, normalize_upper_material
 
 
 SOURCE_FILE_KEYWORD = "男女鞋合并商品信息"
@@ -99,6 +99,8 @@ def _read_rows(file_path: Path, source_date: str) -> list[dict[str, Any]]:
                 record[target] = _to_int(value)
             elif target == "launch_date":
                 record[target] = _to_date_text(value)
+            elif target == "upper_material":
+                record[target] = normalize_upper_material(value)
             else:
                 record[target] = normalize_cell(value)
 

@@ -34,6 +34,7 @@ from scripts.import_fine_table_history_snapshots import (
     to_int,
     to_json_value,
 )
+from transform.rows import normalize_upper_material
 from storage.inventory_repository import InventoryRepository
 
 
@@ -196,7 +197,7 @@ def build_payload(
             "insole_material": normalize_text(row_value(row, indexes["insole_material"])) or None,
             "outsole_material": normalize_text(row_value(row, indexes["outsole_material"])) or None,
             "lining_material": normalize_text(row_value(row, indexes["lining_material"])) or None,
-            "upper_material": normalize_text(row_value(row, indexes["upper_material"])) or None,
+            "upper_material": normalize_upper_material(row_value(row, indexes["upper_material"])),
             "shoe_box_spec": normalize_text(row_value(row, indexes["shoe_box_spec"])) or None,
             "accessories": normalize_text(row_value(row, indexes["accessories"])) or None,
             "first_order_time": normalize_date_text(row_value(row, indexes["first_order_time"])),
