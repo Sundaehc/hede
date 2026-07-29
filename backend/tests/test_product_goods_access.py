@@ -27,6 +27,7 @@ def _request() -> Request:
     [
         ("super_admin", "开发部"),
         ("product_user", "商品部"),
+        ("operation_user", "运营部"),
         ("developer_user", "开发部"),
     ],
 )

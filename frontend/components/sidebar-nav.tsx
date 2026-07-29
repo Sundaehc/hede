@@ -122,7 +122,7 @@ function prefetchDefaultProductGoodsPage() {
 export function SidebarNav() {
   const pathname = usePathname()
   const { hasPermission, logout, user } = useAuth()
-  const canAccessProductGoods = user?.role_code === "super_admin" || ["商品部", "开发部"].includes(user?.department_code ?? "")
+  const canAccessProductGoods = user?.role_code === "super_admin" || ["商品部", "开发部", "运营部"].includes(user?.department_code ?? "")
   const userName = user?.display_name || user?.username || "未登录用户"
   const userInitial = userName.trim().slice(0, 1).toUpperCase() || "U"
   const visibleGroups = NAV_ITEMS.map((group) => ({
