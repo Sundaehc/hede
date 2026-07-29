@@ -993,6 +993,12 @@ function exportColumnValue(item: ProductGoodsItem, column: TableColumn) {
     : ""
 }
 
+function exportColumnLabel(column: TableColumn) {
+  return ["基础", "经营"].includes(column.group)
+    ? column.label
+    : `${column.group}-${column.label}`
+}
+
 function timestampForFilename(now: Date) {
   const date = [
     now.getFullYear(),
@@ -1014,14 +1020,10 @@ function exportCsv(
   isStyleSummary: boolean
 ) {
   const headers = [
-    "图片链接",
     ...(isStyleSummary ? ["款号"] : ["货号", "款号"]),
-    ...columns.map((column) => `${column.group}-${column.label}`),
+    ...columns.map(exportColumnLabel),
   ]
   const rows = items.map((item) => [
-    item.image_url
-      ? new URL(`/api${item.image_url}`, window.location.origin).toString()
-      : "",
     ...(isStyleSummary
       ? [item.style_code]
       : [item.goods_code, item.style_code]),
