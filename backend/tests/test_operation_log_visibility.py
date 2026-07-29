@@ -52,3 +52,61 @@ def test_non_admin_cannot_view_super_admin_operation_logs(test_app_client: TestC
     admin_response = test_app_client.get("/operation-logs", params={"module": "product"})
     assert admin_response.status_code == 200
     assert {item["summary"] for item in admin_response.json()["items"]} == {"admin change", "member change"}
+
+
+def test_super_admin_product_goods_export_is_written_to_operation_logs(
+    test_app_client: TestClient,
+):
+    auth_repository = test_app_client.app.state.auth_repository
+    auth_repository.create_user(
+        {
+            "username": "admin",
+            "password": "admin-password",
+            "display_name": "Admin",
+            "department_code": "开发部",
+        },
+        first_user_is_admin=True,
+    )
+
+    _login(test_app_client, "admin", "admin-password")
+    export_response = test_app_client.post(
+        "/product-goods/export-log",
+        json={
+            "brand": "cbanner_mens",
+            "brand_label": "千百度男鞋",
+            "exported_rows": 25,
+            "total_rows": 86,
+            "view": "goods",
+            "query": "QA123",
+            "filters": 2,
+            "history_date": "2026-07-29",
+            "column_count": 34,
+            "filename": "千百度男鞋_商品货品表.csv",
+        },
+    )
+
+    assert export_response.status_code == 200
+
+    logs_response = test_app_client.get(
+        "/operation-logs", params={"module": "product_goods"}
+    )
+    assert logs_response.status_code == 200
+    assert logs_response.json()["total"] == 1
+    log = logs_response.json()["items"][0]
+    assert log["action"] == "export"
+    assert log["entity_type"] == "product_goods"
+    assert log["entity_id"] == "cbanner_mens"
+    assert log["role_code"] == "super_admin"
+    assert log["username"] == "admin"
+    assert log["after_data"] == {
+        "brand": "cbanner_mens",
+        "brand_label": "千百度男鞋",
+        "exported_rows": 25,
+        "total_rows": 86,
+        "view": "goods",
+        "query": "QA123",
+        "filters": 2,
+        "history_date": "2026-07-29",
+        "column_count": 34,
+        "filename": "千百度男鞋_商品货品表.csv",
+    }

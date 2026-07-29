@@ -53,6 +53,7 @@ import {
 import {
   listProductGoods,
   listProductGoodsFilterOptions,
+  logProductGoodsExport,
   updateProductGoods,
   type ProductGoodsFilter,
   type ProductGoodsFilterOptionsResponse,
@@ -2370,14 +2371,30 @@ export function ProductGoodsPage() {
     76
   const brandLabel =
     GOODS_BRANDS.find((item) => item.key === brand)?.label ?? "商品"
+  function logExport(exportedRows: number, totalRows: number, filename: string) {
+    void logProductGoodsExport({
+      brand,
+      brand_label: brandLabel,
+      exported_rows: exportedRows,
+      total_rows: totalRows,
+      view: dataView === "style_summary" ? "style_summary" : "goods",
+      query: query || undefined,
+      filters: filters.length,
+      history_date: snapshotDate || undefined,
+      column_count: visibleColumns.length,
+      filename,
+    })
+  }
   function exportCurrentPage() {
     if (dataView === "shortage_risk") return
+    const filename = `${brandLabel}_${dataView === "style_summary" ? "款号汇总" : "商品货品表"}_当前页_${timestampForFilename(new Date())}.csv`
     exportCsv(
       sortedItems,
       visibleColumns,
-      `${brandLabel}_${dataView === "style_summary" ? "款号汇总" : "商品货品表"}_当前页_${timestampForFilename(new Date())}.csv`,
+      filename,
       dataView === "style_summary"
     )
+    logExport(sortedItems.length, data.total, filename)
   }
   async function exportAllRows() {
     if (dataView === "shortage_risk") return
@@ -2432,12 +2449,14 @@ export function ProductGoodsPage() {
         { length: pageCount },
         (_, index) => rowsByPage.get(index + 1) ?? []
       ).flat()
+      const filename = `${brandLabel}_${dataView === "style_summary" ? "款号汇总" : "商品货品表"}_${timestampForFilename(new Date())}.csv`
       exportCsv(
         allRows,
         visibleColumns,
-        `${brandLabel}_${dataView === "style_summary" ? "款号汇总" : "商品货品表"}_${timestampForFilename(new Date())}.csv`,
+        filename,
         dataView === "style_summary"
       )
+      logExport(allRows.length, expectedTotal, filename)
     } catch (error) {
       window.alert(
         error instanceof Error ? error.message : "商品货品表导出失败"

@@ -22,6 +22,7 @@ from api.product_goods_cache import (
     set_product_goods_filter_options_cache,
     set_product_goods_risk_codes_cache,
 )
+from api.operation_log_utils import write_operation_log
 from api.routes.images import image_url_for
 from domain.product_goods_schema import PRODUCT_GOODS_OVERRIDES_TABLE
 from domain.product_goods_shop_channel_schema import PRODUCT_GOODS_SHOP_CHANNEL_MAPPINGS_TABLE
@@ -78,6 +79,19 @@ class ProductGoodsUpdateRequest(BaseModel):
     post_replenishment_stock: int | None = None
     post_replenishment_total: int | None = None
     post_replenishment_turnover_days: float | None = None
+
+
+class ProductGoodsExportLogRequest(BaseModel):
+    brand: str
+    brand_label: str | None = None
+    exported_rows: int = 0
+    total_rows: int | None = None
+    view: Literal["goods", "style_summary"] = "goods"
+    query: str | None = None
+    filters: int = 0
+    history_date: str | None = None
+    column_count: int | None = None
+    filename: str | None = None
 
 
 PRODUCT_GOODS_STANDARD_OVERRIDE_FIELDS = {
@@ -2497,8 +2511,6 @@ def update_product_goods(request: Request, product_id: int, body: ProductGoodsUp
         )
         connection.execute(statement)
     clear_product_goods_cache()
-    from api.operation_log_utils import write_operation_log
-
     write_operation_log(
         request,
         module="product_goods",
@@ -2514,3 +2526,45 @@ def update_product_goods(request: Request, product_id: int, body: ProductGoodsUp
         },
     )
     return {"message": "Product goods fields updated"}
+
+
+@router.post("/product-goods/export-log")
+def log_product_goods_export(request: Request, body: ProductGoodsExportLogRequest):
+    if body.brand not in PRODUCT_TABLES:
+        raise HTTPException(status_code=400, detail=f"Invalid brand: {body.brand}")
+
+    brand_label = (body.brand_label or body.brand).strip()
+    exported_rows = max(0, int(body.exported_rows or 0))
+    total_rows = max(0, int(body.total_rows or 0)) if body.total_rows is not None else None
+    view_label = "款号汇总" if body.view == "style_summary" else "货号明细"
+    filters = [f"视图：{view_label}"]
+    if body.query:
+        filters.append(f"包含搜索：{body.query.strip()}")
+    if body.filters:
+        filters.append(f"筛选条件：{max(0, int(body.filters))} 项")
+    if body.history_date:
+        filters.append(f"历史日期：{body.history_date.strip()}")
+
+    total_text = f"，当前条件共 {total_rows} 行" if total_rows is not None else ""
+    write_operation_log(
+        request,
+        module="product_goods",
+        action="export",
+        entity_type="product_goods",
+        entity_id=body.brand,
+        entity_label=brand_label,
+        summary=f"导出商品货品表 {brand_label}，导出 {exported_rows} 行{total_text}（{'；'.join(filters)}）",
+        after_data={
+            "brand": body.brand,
+            "brand_label": brand_label,
+            "exported_rows": exported_rows,
+            "total_rows": total_rows,
+            "view": body.view,
+            "query": body.query,
+            "filters": max(0, int(body.filters)),
+            "history_date": body.history_date,
+            "column_count": body.column_count,
+            "filename": body.filename,
+        },
+    )
+    return {"message": "操作日志已记录"}

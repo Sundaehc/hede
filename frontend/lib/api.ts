@@ -369,6 +369,24 @@ export function updateProductGoods(
   })
 }
 
+export function logProductGoodsExport(payload: {
+  brand: Exclude<BrandKey, "all">
+  brand_label?: string
+  exported_rows: number
+  total_rows?: number
+  view: "goods" | "style_summary"
+  query?: string
+  filters?: number
+  history_date?: string
+  column_count?: number
+  filename?: string
+}) {
+  return request<{ message: string }>("/product-goods/export-log", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  })
+}
+
 export function logFineTableExport(payload: {
   brand: Exclude<BrandKey, "all">
   brand_label?: string
