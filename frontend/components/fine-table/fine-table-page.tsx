@@ -247,6 +247,12 @@ function tableAlignClass(align: TableColumn["align"] = "left") {
   return "text-left"
 }
 
+function tableHeaderContentAlignClass(align: TableColumn["align"] = "left") {
+  if (align === "right") return "justify-end"
+  if (align === "center") return "justify-center"
+  return "justify-start"
+}
+
 function csvCell(value: string | number | null | undefined) {
   const text = value == null ? "" : String(value)
   return `"${text.replace(/"/g, '""')}"`
@@ -1213,7 +1219,7 @@ const FineTableGrid = memo(function FineTableGrid({
           column.className,
         )}
       >
-        <div className="flex items-center justify-center gap-0.5">
+        <div className={cn("flex items-center gap-0.5", tableHeaderContentAlignClass(column.align))}>
           <span className="block whitespace-nowrap">{column.label}</span>
           {filtersEnabled && column.filterField && (
             <FineTableHeaderFilterButton
