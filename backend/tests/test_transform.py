@@ -172,6 +172,42 @@ def test_build_canonical_row_uses_full_year_from_sheet_name():
     assert canonical["year"] == "2026"
 
 
+def test_build_canonical_row_replaces_non_year_value_with_sheet_year():
+    row = {
+        "货号": "C5861129D01",
+        "年份": "C5861129D01",
+    }
+
+    canonical = build_canonical_row(
+        row,
+        workbook_key="cbanner_mens_26",
+        sheet_name="26年春季款",
+        row_number=194,
+        image_path=None,
+    )
+
+    assert canonical is not None
+    assert canonical["year"] == "2026"
+
+
+def test_build_canonical_row_preserves_seasonal_year_label():
+    row = {
+        "货号": "C5861129D02",
+        "年份": "21年冬款",
+    }
+
+    canonical = build_canonical_row(
+        row,
+        workbook_key="cbanner_mens_26",
+        sheet_name="26年春季款",
+        row_number=195,
+        image_path=None,
+    )
+
+    assert canonical is not None
+    assert canonical["year"] == "21年冬款"
+
+
 
 def test_build_canonical_row_skips_when_both_sku_fields_empty():
     row = {

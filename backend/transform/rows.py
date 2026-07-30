@@ -130,6 +130,11 @@ def derive_year_from_sheet(sheet_name: str) -> str | None:
 
 
 
+def is_product_year(value: object) -> bool:
+    text = str(value or "").strip()
+    return bool(re.search(r"20\d{2}|\d{2}年", text))
+
+
 def derive_season_category(sheet_name: str) -> str | None:
     if "春" in sheet_name:
         return "春季"
@@ -280,7 +285,7 @@ def build_canonical_row(
     if not canonical["season_category"]:
         canonical["season_category"] = derive_season_category(sheet_name)
 
-    if not canonical["year"]:
+    if not is_product_year(canonical["year"]):
         canonical["year"] = derive_year_from_sheet(sheet_name)
 
     canonical["cost"] = coerce_cost(canonical["cost"])
