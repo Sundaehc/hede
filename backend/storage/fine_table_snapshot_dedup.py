@@ -58,6 +58,7 @@ DYNAMIC_KEYS = frozenset({
     "other_30d_sales",
     "original_other_3d_sales",
     "original_other_7d_sales",
+    "original_all_7d_sales",
     "original_other_15d_sales",
     "original_other_30d_sales",
     "shop_30d_sales",

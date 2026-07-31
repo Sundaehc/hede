@@ -1373,6 +1373,12 @@ def list_fine_table(
         vip_price = _to_float(ops.get("vip_price"))
         vip_3 = _to_int(_daily_metric(daily, "3d", "sales_volume"))
         vip_7 = _to_int(_daily_metric(daily, "7d", "sales_volume"))
+        original_vip_7 = _to_int(_daily_metric_with_original_fallback(
+            original_daily,
+            daily,
+            "7d",
+            "sales_volume",
+        ))
         vip_15 = _to_int(_daily_metric(daily, "15d", "sales_volume"))
         vip_30 = _to_int(_daily_metric(daily, "30d", "sales_volume"))
         vip_3d_sales_change_rate = _change_rate(
@@ -1408,6 +1414,7 @@ def list_fine_table(
             _daily_report_metric(daily, "环比", "7d", "purchase_conversion"),
         )
         other_30 = _to_int(orders.get("other_30"))
+        original_other_7 = _to_int(original_orders.get("other_7"))
         vip_daily_average = vip_3 / 3 if vip_3 else 0
         daily_average = vip_daily_average
         projected_15 = stock_qty + inbound_qty - round(daily_average * 15)
@@ -1476,7 +1483,8 @@ def list_fine_table(
             "other_15d_sales": _to_int(orders.get("other_15")),
             "other_30d_sales": other_30,
             "original_other_3d_sales": _to_int(original_orders.get("other_3")),
-            "original_other_7d_sales": _to_int(original_orders.get("other_7")),
+            "original_other_7d_sales": original_other_7,
+            "original_all_7d_sales": original_vip_7 + original_other_7,
             "original_other_15d_sales": _to_int(original_orders.get("other_15")),
             "original_other_30d_sales": _to_int(original_orders.get("other_30")),
             "shop_30d_sales": [

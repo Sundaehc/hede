@@ -126,6 +126,7 @@ KNOWN_COLUMNS: tuple[tuple[str, str], ...] = (
     ("other_projected_15d_sales", "其他15天预计"),
     ("original_other_3d_sales", "其他原始3天"),
     ("original_other_7d_sales", "其他原始7天"),
+    ("original_all_7d_sales", "所有平台7天原始汇总"),
     ("original_other_15d_sales", "其他原始15天"),
     ("original_other_30d_sales", "其他原始30天"),
     ("shop_30d_sales", "其他平台30天店铺拆分"),

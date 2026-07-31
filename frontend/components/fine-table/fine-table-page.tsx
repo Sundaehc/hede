@@ -720,6 +720,7 @@ function createTableColumns(dailyLabels: string[]): TableColumn[] {
     { key: "other_projected_15d_sales", label: "其他15天预计", group: "销售", align: "right", defaultVisible: true, render: (row) => nullableInteger(otherProjected15dSales(row)) },
     { key: "original_other_3d_sales", label: "其他原始3天", group: "销售", align: "right", defaultVisible: true, render: (row) => formatNumber(row.original_other_3d_sales) },
     { key: "original_other_7d_sales", label: "其他原始7天", group: "销售", align: "right", defaultVisible: true, render: (row) => formatNumber(row.original_other_7d_sales) },
+    { key: "original_all_7d_sales", label: "所有平台7天原始汇总", group: "销售", align: "right", defaultVisible: true, render: (row) => formatNumber(row.original_all_7d_sales) },
     { key: "original_other_15d_sales", label: "其他原始15天", group: "销售", align: "right", defaultVisible: true, render: (row) => formatNumber(row.original_other_15d_sales) },
     { key: "original_other_30d_sales", label: "其他原始30天", group: "销售", align: "right", defaultVisible: true, render: (row) => formatNumber(row.original_other_30d_sales) },
     { key: "vip_3d_uv", label: "3天UV", group: "销售", align: "right", render: (row) => formatNumber(row.vip_3d_uv) },

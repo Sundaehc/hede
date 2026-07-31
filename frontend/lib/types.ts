@@ -185,6 +185,7 @@ export type FineTableItem = ProductListItem & {
   other_30d_sales: number
   original_other_3d_sales: number
   original_other_7d_sales: number
+  original_all_7d_sales: number
   original_other_15d_sales: number
   original_other_30d_sales: number
   shop_30d_sales: FineTableShopSale[]
