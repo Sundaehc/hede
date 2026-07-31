@@ -37,6 +37,8 @@ def test_fine_snapshot_dedup_tables_keep_payloads_and_references_separate():
     assert {
         "idx_fine_table_snapshot_refs_2026_sku_trgm",
         "idx_fine_table_snapshot_refs_2026_original_sku_trgm",
+        "idx_fine_table_snapshot_refs_2026_payload_id",
+        "idx_fine_table_snapshot_refs_2026_metrics_id",
     } <= {index.name for index in ref_table.indexes}
     assert {"brand", "content_hash", "payload"} <= set(FINE_TABLE_SNAPSHOT_PAYLOADS_TABLE.c.keys())
     assert {"brand", "content_hash", "payload"} <= set(FINE_TABLE_SNAPSHOT_METRICS_TABLE.c.keys())

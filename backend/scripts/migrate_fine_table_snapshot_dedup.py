@@ -10,13 +10,15 @@ import argparse
 from datetime import date
 import json
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, select
 
 from config import load_settings
 from domain.fine_table_snapshot_schema import (
     FINE_TABLE_SNAPSHOT_BATCH_TABLE,
     ensure_fine_table_snapshot_ref_table,
     fine_table_snapshot_row_table_for_date,
+    fine_table_snapshot_ref_table_for_date,
+    fine_table_snapshot_ref_table_exists,
     fine_table_snapshot_year_table_exists,
 )
 from storage.fine_table_snapshot_dedup import write_optimized_snapshot_rows
@@ -50,6 +52,42 @@ def migrate_date(repository: ProductRepository, snapshot_date: date, delete_lega
                 .order_by(FINE_TABLE_SNAPSHOT_BATCH_TABLE.c.id)
             ).mappings()
         )
+        legacy_rows = int(
+            connection.execute(
+                select(func.count()).select_from(table).where(
+                    table.c.batch_id.in_([int(batch["id"]) for batch in batches])
+                )
+            ).scalar_one()
+        ) if batches else 0
+        if fine_table_snapshot_ref_table_exists(repository.engine, snapshot_date):
+            ref_table = fine_table_snapshot_ref_table_for_date(snapshot_date)
+            optimized_rows = int(
+                connection.execute(
+                    select(func.count()).select_from(ref_table).where(
+                        ref_table.c.batch_id.in_([int(batch["id"]) for batch in batches])
+                    )
+                ).scalar_one()
+            ) if batches else 0
+            if optimized_rows == legacy_rows:
+                if delete_legacy and legacy_rows:
+                    with repository.engine.begin() as delete_connection:
+                        delete_connection.execute(
+                            delete(table).where(
+                                table.c.batch_id.in_([int(batch["id"]) for batch in batches])
+                            )
+                        )
+                    return {
+                        "date": snapshot_date.isoformat(),
+                        "batches": len(batches),
+                        "rows": legacy_rows,
+                        "status": "legacy_deleted",
+                    }
+                return {
+                    "date": snapshot_date.isoformat(),
+                    "batches": len(batches),
+                    "rows": legacy_rows,
+                    "status": "already_migrated",
+                }
         for batch in batches:
             rows = connection.execute(
                 select(table.c.payload)
@@ -97,7 +135,8 @@ def main() -> None:
     settings = load_settings(require_database=True)
     repository = ProductRepository(settings.database_url)
     for snapshot_date in _dates(repository, args.snapshot_date):
-        print(migrate_date(repository, snapshot_date, args.delete_legacy))
+        result = migrate_date(repository, snapshot_date, args.delete_legacy)
+        print(result, flush=True)
 
 
 if __name__ == "__main__":

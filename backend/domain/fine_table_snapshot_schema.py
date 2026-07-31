@@ -87,6 +87,8 @@ def fine_table_snapshot_ref_table_for_date(snapshot_date: date) -> Table:
     Index(f"idx_{table_name}_batch_row_index", table.c.batch_id, table.c.row_index)
     Index(f"idx_{table_name}_batch_sku", table.c.batch_id, table.c.sku)
     Index(f"idx_{table_name}_batch_original_sku", table.c.batch_id, table.c.original_sku)
+    Index(f"idx_{table_name}_payload_id", table.c.payload_id)
+    Index(f"idx_{table_name}_metrics_id", table.c.metrics_id)
     Index(
         f"idx_{table_name}_sku_trgm",
         table.c.sku,

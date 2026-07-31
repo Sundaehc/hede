@@ -4,7 +4,7 @@ from hashlib import sha256
 import json
 from typing import Any
 
-from sqlalchemy import delete, func, insert, or_, select, union_all
+from sqlalchemy import and_, delete, exists, func, insert, or_, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.engine import Connection, Engine
 
@@ -276,17 +276,29 @@ def cleanup_orphaned_snapshot_content(engine: Engine, *, execute: bool = False) 
             "metrics_deleted": 0,
         }
 
-    payload_references = union_all(
-        *(select(table.c.payload_id.label("content_id")) for table in ref_tables)
-    ).subquery()
-    metrics_references = union_all(
-        *(select(table.c.metrics_id.label("content_id")) for table in ref_tables)
-    ).subquery()
     payload_candidates = select(FINE_TABLE_SNAPSHOT_PAYLOADS_TABLE.c.id).where(
-        ~FINE_TABLE_SNAPSHOT_PAYLOADS_TABLE.c.id.in_(select(payload_references.c.content_id))
+        and_(
+            *(
+                ~exists(
+                    select(1).select_from(table).where(
+                        table.c.payload_id == FINE_TABLE_SNAPSHOT_PAYLOADS_TABLE.c.id
+                    )
+                )
+                for table in ref_tables
+            )
+        )
     )
     metrics_candidates = select(FINE_TABLE_SNAPSHOT_METRICS_TABLE.c.id).where(
-        ~FINE_TABLE_SNAPSHOT_METRICS_TABLE.c.id.in_(select(metrics_references.c.content_id))
+        and_(
+            *(
+                ~exists(
+                    select(1).select_from(table).where(
+                        table.c.metrics_id == FINE_TABLE_SNAPSHOT_METRICS_TABLE.c.id
+                    )
+                )
+                for table in ref_tables
+            )
+        )
     )
 
     with engine.begin() as connection:

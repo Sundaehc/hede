@@ -14,9 +14,6 @@ from storage.task_status_repository import ScheduledTaskStatusRepository
 
 TASK_NAME = "database_maintenance"
 ANALYZE_TABLES = (
-    "fine_table_snapshot_rows_2024",
-    "fine_table_snapshot_rows_2025",
-    "fine_table_snapshot_rows_2026",
     "product_goods_detail_snapshots_2024",
     "product_goods_detail_snapshots_2025",
     "product_goods_detail_snapshots_2026",

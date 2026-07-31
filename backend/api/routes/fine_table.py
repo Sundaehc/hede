@@ -750,7 +750,7 @@ def get_fine_table_snapshot(
                 )
             return {
                 "items": items,
-                "total": total if normalized_query or prefix_terms else int(batch["total_rows"] or total),
+                "total": total,
                 "page": page,
                 "page_size": page_size,
                 "snapshot": _snapshot_batch_payload(dict(batch)),
@@ -764,7 +764,6 @@ def get_fine_table_snapshot(
             if term.strip()
         )
         prefix_terms = _normalized_terms(sku_prefix)
-        normalized_sku_prefix = ",".join(prefix_terms)
         if normalized_query:
             search_conditions = []
             for term in normalized_query.split(","):
@@ -783,12 +782,9 @@ def get_fine_table_snapshot(
             )
         )
         criterion = and_(*conditions)
-        if normalized_query or normalized_sku_prefix:
-            total = connection.execute(
-                select(func.count()).select_from(snapshot_row_table).where(criterion)
-            ).scalar_one()
-        else:
-            total = int(batch["total_rows"] or 0)
+        total = connection.execute(
+            select(func.count()).select_from(snapshot_row_table).where(criterion)
+        ).scalar_one()
         rows = connection.execute(
             select(snapshot_row_table.c.payload)
             .where(criterion)
