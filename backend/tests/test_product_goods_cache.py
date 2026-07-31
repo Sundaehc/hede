@@ -2,8 +2,10 @@ from api.product_goods_cache import (
     clear_product_goods_cache,
     get_product_goods_cache,
     get_product_goods_risk_codes_cache,
+    get_product_goods_snapshot_dates_cache,
     set_product_goods_cache,
     set_product_goods_risk_codes_cache,
+    set_product_goods_snapshot_dates_cache,
 )
 
 
@@ -35,3 +37,14 @@ def test_product_goods_cache_clear_removes_risk_product_codes():
     clear_product_goods_cache()
 
     assert get_product_goods_risk_codes_cache("cbanner_mens") is None
+
+
+def test_product_goods_cache_clear_removes_snapshot_dates():
+    clear_product_goods_cache()
+    set_product_goods_snapshot_dates_cache("cbanner_mens", ["2026-07-31", "2026-07-30"])
+
+    assert get_product_goods_snapshot_dates_cache("cbanner_mens") == ("2026-07-31", "2026-07-30")
+
+    clear_product_goods_cache()
+
+    assert get_product_goods_snapshot_dates_cache("cbanner_mens") is None

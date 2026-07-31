@@ -37,9 +37,22 @@ def product_goods_historical_sales_table_for_year(year: int) -> Table:
         UniqueConstraint("source_workbook", "source_sheet", "source_row_number", name=f"uq_{table_name}_source_row"),
     )
     Index(f"idx_{table_name}_date", table.c.sales_date)
-    Index(f"idx_{table_name}_product", table.c.product_code)
-    Index(f"idx_{table_name}_original", table.c.original_sku)
-    Index(f"idx_{table_name}_brand_product", table.c.brand, table.c.product_code)
+    Index(
+        f"idx_{table_name}_product",
+        table.c.product_code,
+        postgresql_ops={"product_code": "text_pattern_ops"},
+    )
+    Index(
+        f"idx_{table_name}_original",
+        table.c.original_sku,
+        postgresql_ops={"original_sku": "text_pattern_ops"},
+    )
+    Index(
+        f"idx_{table_name}_brand_product",
+        table.c.brand,
+        table.c.product_code,
+        postgresql_ops={"product_code": "text_pattern_ops"},
+    )
     return table
 
 

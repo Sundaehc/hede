@@ -27,6 +27,20 @@ def _table_for_year(prefix: str, year: int, columns: list[Column], unique_column
         UniqueConstraint("sales_date", *unique_columns, name=f"uq_{table_name}_business_key"),
     )
     Index(f"idx_{table_name}_sales_date", table.c.sales_date)
+    if prefix == "jst_daily_sales":
+        Index(
+            f"idx_{table_name}_product_code_pattern",
+            table.c.product_code,
+            postgresql_ops={"product_code": "text_pattern_ops"},
+        )
+        Index(f"idx_{table_name}_style_code", table.c.style_code)
+    elif prefix == "vip_daily_sales":
+        Index(
+            f"idx_{table_name}_goods_code_pattern",
+            table.c.goods_code,
+            postgresql_ops={"goods_code": "text_pattern_ops"},
+        )
+        Index(f"idx_{table_name}_style_code", table.c.style_code)
     return table
 
 

@@ -50,7 +50,6 @@ def product_goods_detail_snapshots_table_for_year(year: int) -> Table:
         Column("updated_at", DateTime(timezone=True), server_default=func.date_trunc("minute", func.now()), onupdate=func.date_trunc("minute", func.now())),
         UniqueConstraint("brand", "snapshot_date", "goods_code", name=f"uq_{table_name}_brand_date_goods"),
     )
-    Index(f"idx_{table_name}_brand_date_goods", table.c.brand, table.c.snapshot_date, table.c.goods_code)
     Index(f"idx_{table_name}_brand_style", table.c.brand, table.c.style_code)
     return table
 

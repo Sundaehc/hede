@@ -58,6 +58,10 @@ JST_FULL_STOCK_TABLE = Table(
     Column("updated_at", DateTime(timezone=True), server_default=func.date_trunc("minute", func.now()), onupdate=func.date_trunc("minute", func.now())),
 )
 
-Index("idx_jst_full_stock_product_code", JST_FULL_STOCK_TABLE.c.product_code)
+Index(
+    "idx_jst_full_stock_product_code",
+    JST_FULL_STOCK_TABLE.c.product_code,
+    postgresql_ops={"product_code": "text_pattern_ops"},
+)
 Index("idx_jst_full_stock_product_size", JST_FULL_STOCK_TABLE.c.product_code, JST_FULL_STOCK_TABLE.c.size)
 Index("idx_jst_full_stock_style_code", JST_FULL_STOCK_TABLE.c.style_code)

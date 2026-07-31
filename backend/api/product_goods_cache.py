@@ -16,6 +16,8 @@ _FILTER_CACHE_TTL_SECONDS = 60
 _FILTER_CACHE: OrderedDict[ProductGoodsCacheKey, tuple[float, dict[str, Any]]] = OrderedDict()
 _RISK_CODES_CACHE_TTL_SECONDS = 300
 _RISK_CODES_CACHE: OrderedDict[str, tuple[float, tuple[str, ...]]] = OrderedDict()
+_SNAPSHOT_DATES_CACHE_TTL_SECONDS = 300
+_SNAPSHOT_DATES_CACHE: OrderedDict[str, tuple[float, tuple[str, ...]]] = OrderedDict()
 _LOCK = RLock()
 
 
@@ -85,8 +87,30 @@ def set_product_goods_risk_codes_cache(brand: str, product_codes: set[str]) -> N
             _RISK_CODES_CACHE.popitem(last=False)
 
 
+def get_product_goods_snapshot_dates_cache(brand: str) -> tuple[str, ...] | None:
+    with _LOCK:
+        cached = _SNAPSHOT_DATES_CACHE.get(brand)
+        if cached is None:
+            return None
+        expires_at, snapshot_dates = cached
+        if expires_at <= monotonic():
+            _SNAPSHOT_DATES_CACHE.pop(brand, None)
+            return None
+        _SNAPSHOT_DATES_CACHE.move_to_end(brand)
+        return snapshot_dates
+
+
+def set_product_goods_snapshot_dates_cache(brand: str, snapshot_dates: list[str]) -> None:
+    with _LOCK:
+        _SNAPSHOT_DATES_CACHE[brand] = (monotonic() + _SNAPSHOT_DATES_CACHE_TTL_SECONDS, tuple(snapshot_dates))
+        _SNAPSHOT_DATES_CACHE.move_to_end(brand)
+        while len(_SNAPSHOT_DATES_CACHE) > 4:
+            _SNAPSHOT_DATES_CACHE.popitem(last=False)
+
+
 def clear_product_goods_cache() -> None:
     with _LOCK:
         _CACHE.clear()
         _FILTER_CACHE.clear()
         _RISK_CODES_CACHE.clear()
+        _SNAPSHOT_DATES_CACHE.clear()

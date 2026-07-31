@@ -18,9 +18,11 @@ from api.product_goods_cache import (
     get_product_goods_cache,
     get_product_goods_filter_options_cache,
     get_product_goods_risk_codes_cache,
+    get_product_goods_snapshot_dates_cache,
     set_product_goods_cache,
     set_product_goods_filter_options_cache,
     set_product_goods_risk_codes_cache,
+    set_product_goods_snapshot_dates_cache,
 )
 from api.operation_log_utils import write_operation_log
 from api.routes.images import image_url_for
@@ -607,6 +609,25 @@ def _detail_snapshot_dates(connection, *, brand: str) -> list[date]:
         ).scalars()
         if isinstance(item, date)
     ]
+
+
+def _product_goods_snapshot_dates(connection, *, brand: str) -> list[date]:
+    cached = get_product_goods_snapshot_dates_cache(brand)
+    if cached is not None:
+        return [date.fromisoformat(item) for item in cached]
+
+    stock_snapshot_dates = [
+        item
+        for item in connection.execute(
+            select(JST_SIZE_STOCK_SNAPSHOT_TABLE.c.snapshot_date)
+            .distinct()
+            .order_by(desc(JST_SIZE_STOCK_SNAPSHOT_TABLE.c.snapshot_date))
+        ).scalars()
+        if isinstance(item, date)
+    ]
+    snapshot_dates = sorted({*stock_snapshot_dates, *_detail_snapshot_dates(connection, brand=brand)}, reverse=True)
+    set_product_goods_snapshot_dates_cache(brand, [item.isoformat() for item in snapshot_dates])
+    return snapshot_dates
 
 
 def _detail_snapshot_payload(
@@ -1989,17 +2010,7 @@ def list_product_goods(
 
     settings = request.app.state.settings
     with repository.engine.connect() as connection:
-        stock_snapshot_dates = [
-            item
-            for item in connection.execute(
-                select(JST_SIZE_STOCK_SNAPSHOT_TABLE.c.snapshot_date)
-                .distinct()
-                .order_by(desc(JST_SIZE_STOCK_SNAPSHOT_TABLE.c.snapshot_date))
-            ).scalars()
-            if isinstance(item, date)
-        ]
-        detail_snapshot_dates = _detail_snapshot_dates(connection, brand=brand)
-        snapshot_dates = sorted({*stock_snapshot_dates, *detail_snapshot_dates}, reverse=True)
+        snapshot_dates = _product_goods_snapshot_dates(connection, brand=brand)
         if snapshot_date is not None and snapshot_date not in snapshot_dates:
             raise HTTPException(status_code=404, detail=f"未找到 {snapshot_date.isoformat()} 的货品表快照")
         total = int(connection.execute(count_statement).scalar() or 0)
