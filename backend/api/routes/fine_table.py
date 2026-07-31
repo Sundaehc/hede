@@ -19,8 +19,13 @@ from domain.excluded_skus import is_excluded_sku, not_excluded_sku_condition
 from domain.fields import PRODUCT_FIELDS
 from domain.fine_table_snapshot_schema import (
     FINE_TABLE_SNAPSHOT_BATCH_TABLE,
+    FINE_TABLE_SNAPSHOT_METRICS_TABLE,
+    FINE_TABLE_SNAPSHOT_PAYLOADS_TABLE,
     ensure_fine_table_snapshot_row_table,
+    ensure_fine_table_snapshot_ref_table,
     fine_table_snapshot_row_table_for_date,
+    fine_table_snapshot_ref_table_for_date,
+    fine_table_snapshot_ref_table_exists,
     fine_table_snapshot_year_table_exists,
 )
 from domain.gj_brand import CBANNER_MENS_BRAND, CBANNER_WOMENS_BRAND
@@ -37,6 +42,11 @@ from domain.vip_schema import (
     VIP_DAILY_TABLE,
     VIP_OPS_TABLE,
     JST_MONTHLY_ORDERS_TABLE,
+)
+from storage.fine_table_snapshot_dedup import (
+    load_optimized_snapshot_rows,
+    optimized_snapshot_available,
+    write_optimized_snapshot_rows,
 )
 
 
@@ -181,6 +191,8 @@ def _fine_table_filter_conditions(
 
 def _ensure_snapshot_tables(engine) -> None:
     FINE_TABLE_SNAPSHOT_BATCH_TABLE.create(engine, checkfirst=True)
+    FINE_TABLE_SNAPSHOT_PAYLOADS_TABLE.create(engine, checkfirst=True)
+    FINE_TABLE_SNAPSHOT_METRICS_TABLE.create(engine, checkfirst=True)
 
 
 def _snapshot_batch_payload(row: dict[str, Any]) -> dict[str, Any]:
@@ -545,7 +557,7 @@ def create_fine_table_snapshot(
     repository = request.app.state.repository
     _ensure_snapshot_tables(repository.engine)
     resolved_snapshot_date = snapshot_date or date.today()
-    snapshot_row_table = ensure_fine_table_snapshot_row_table(repository.engine, resolved_snapshot_date)
+    ensure_fine_table_snapshot_ref_table(repository.engine, resolved_snapshot_date)
 
     first_payload = list_fine_table(
         request,
@@ -571,15 +583,7 @@ def create_fine_table_snapshot(
         )
         items.extend(page_payload.get("items") or [])
 
-    row_payloads = [
-        {
-            "sku": str(item.get("sku") or "").strip() or None,
-            "original_sku": str(item.get("original_sku") or "").strip() or None,
-            "row_index": index,
-            "payload": _json_payload(item),
-        }
-        for index, item in enumerate(items, start=1)
-    ]
+    row_payloads = [_json_payload(item) for item in items]
 
     with repository.engine.begin() as connection:
         existing = connection.execute(
@@ -603,10 +607,6 @@ def create_fine_table_snapshot(
             batch_id = batch["id"]
         else:
             batch_id = existing["id"]
-            connection.execute(
-                delete(snapshot_row_table)
-                .where(snapshot_row_table.c.batch_id == batch_id)
-            )
             batch = connection.execute(
                 update(FINE_TABLE_SNAPSHOT_BATCH_TABLE)
                 .where(FINE_TABLE_SNAPSHOT_BATCH_TABLE.c.id == batch_id)
@@ -617,18 +617,13 @@ def create_fine_table_snapshot(
                 )
                 .returning(FINE_TABLE_SNAPSHOT_BATCH_TABLE)
             ).mappings().one()
-
-        for start in range(0, len(row_payloads), 1000):
-            chunk = [
-                {
-                    **row,
-                    "batch_id": batch_id,
-                    "snapshot_date": resolved_snapshot_date,
-                }
-                for row in row_payloads[start:start + 1000]
-            ]
-            if chunk:
-                connection.execute(insert(snapshot_row_table), chunk)
+        write_optimized_snapshot_rows(
+            connection,
+            brand=brand,
+            snapshot_date=resolved_snapshot_date,
+            batch_id=int(batch_id),
+            payloads=row_payloads,
+        )
 
     return {
         "item": _snapshot_batch_payload(dict(batch)),
@@ -718,8 +713,49 @@ def get_fine_table_snapshot(
         snapshot_date = batch["snapshot_date"]
         if not isinstance(snapshot_date, date):
             raise HTTPException(status_code=500, detail="Invalid snapshot date")
-        if not fine_table_snapshot_year_table_exists(repository.engine, snapshot_date):
+        if not fine_table_snapshot_year_table_exists(repository.engine, snapshot_date) and not fine_table_snapshot_ref_table_exists(repository.engine, snapshot_date):
             raise HTTPException(status_code=500, detail="Snapshot row table not found")
+        if optimized_snapshot_available(repository.engine, snapshot_date, int(batch["id"])):
+            ref_table = fine_table_snapshot_ref_table_for_date(snapshot_date)
+            conditions = [ref_table.c.batch_id == batch_id]
+            normalized_query = ",".join(
+                term.strip()
+                for term in (query or "").replace("\n", ",").split(",")
+                if term.strip()
+            )
+            prefix_terms = _normalized_terms(sku_prefix)
+            if normalized_query:
+                search_conditions = []
+                for term in normalized_query.split(","):
+                    like = f"%{term}%"
+                    search_conditions.extend([ref_table.c.sku.ilike(like), ref_table.c.original_sku.ilike(like)])
+                conditions.append(or_(*search_conditions))
+            if prefix_terms:
+                conditions.append(_prefix_search_condition(ref_table, prefix_terms))
+            conditions.append(not_excluded_sku_condition(ref_table.c.sku, ref_table.c.original_sku))
+            items, total = load_optimized_snapshot_rows(
+                repository.engine,
+                snapshot_date,
+                int(batch_id),
+                conditions=conditions[1:],
+                page=page,
+                page_size=page_size,
+            )
+            with repository.engine.connect() as connection:
+                _hydrate_snapshot_image_urls(
+                    connection=connection,
+                    items=items,
+                    brand=batch["brand"],
+                    settings=settings,
+                )
+            return {
+                "items": items,
+                "total": total if normalized_query or prefix_terms else int(batch["total_rows"] or total),
+                "page": page,
+                "page_size": page_size,
+                "snapshot": _snapshot_batch_payload(dict(batch)),
+            }
+
         snapshot_row_table = fine_table_snapshot_row_table_for_date(snapshot_date)
         conditions = [snapshot_row_table.c.batch_id == batch_id]
         normalized_query = ",".join(

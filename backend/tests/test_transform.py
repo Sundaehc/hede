@@ -244,6 +244,37 @@ def test_build_canonical_row_maps_toe_shape_aliases():
     assert canonical["toe_shape"] == "方头"
 
 
+def test_build_canonical_row_uses_selling_points_column_only():
+    row = {
+        "货号": "ER763410D28",
+        "卖点": "甜酷感、朋克风、小众",
+        "商品卖点": "不应作为商品档案卖点",
+    }
+
+    canonical = build_canonical_row(
+        row,
+        workbook_key="eblan",
+        sheet_name="2026",
+        row_number=2,
+        image_path=None,
+    )
+
+    assert canonical is not None
+    assert canonical["selling_points"] == "甜酷感、朋克风、小众"
+
+
+def test_normalize_admin_payload_allows_shoe_box_type_and_selling_points():
+    payload = normalize_admin_payload({
+        "shoe_box_type": "新版",
+        "selling_points": "轻盈、舒适",
+    })
+
+    assert payload == {
+        "shoe_box_type": "新版",
+        "selling_points": "轻盈、舒适",
+    }
+
+
 
 def test_build_canonical_row_maps_execution_standard_alias():
     row = {

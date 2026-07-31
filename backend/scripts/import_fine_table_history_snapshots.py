@@ -10,13 +10,13 @@ from pathlib import Path
 from typing import Any
 
 from openpyxl import load_workbook
-from sqlalchemy import delete, insert, select, update
+from sqlalchemy import delete, insert, select
 
 from config import load_settings
 from domain.fine_table_snapshot_schema import (
     FINE_TABLE_SNAPSHOT_BATCH_TABLE,
-    ensure_fine_table_snapshot_row_table,
 )
+from storage.fine_table_snapshot_dedup import write_optimized_snapshot_rows
 from storage.inventory_repository import InventoryRepository
 from transform.rows import normalize_upper_material
 
@@ -29,7 +29,6 @@ DEFAULT_ROOTS = (
     Path(r"\\192.168.10.229\运营组资料\影刀\伊伴精细表"),
 )
 SHEET_NAME = "精细表"
-ROW_CHUNK_SIZE = 1000
 BRAND_MENS = "cbanner_mens"
 BRAND_WOMENS = "cbanner_womens"
 BRAND_YANDOU = "yandou"
@@ -567,16 +566,11 @@ def write_snapshot(
 ) -> str:
     if not payloads:
         return "empty"
-    snapshot_row_table = ensure_fine_table_snapshot_row_table(repository.engine, snapshot_date)
     with repository.engine.begin() as connection:
         existing_ids = existing_batch_ids(connection, brand, snapshot_date)
         if existing_ids and not replace:
             return "skipped_existing"
         if existing_ids and replace:
-            connection.execute(
-                delete(snapshot_row_table)
-                .where(snapshot_row_table.c.batch_id.in_(existing_ids))
-            )
             connection.execute(
                 delete(FINE_TABLE_SNAPSHOT_BATCH_TABLE)
                 .where(FINE_TABLE_SNAPSHOT_BATCH_TABLE.c.id.in_(existing_ids))
@@ -592,23 +586,12 @@ def write_snapshot(
             .returning(FINE_TABLE_SNAPSHOT_BATCH_TABLE.c.id)
         ).mappings().one()
         batch_id = int(batch["id"])
-        rows = [
-            {
-                "batch_id": batch_id,
-                "snapshot_date": snapshot_date,
-                "sku": str(payload.get("sku") or "").strip() or None,
-                "original_sku": str(payload.get("original_sku") or "").strip() or None,
-                "row_index": index,
-                "payload": payload,
-            }
-            for index, payload in enumerate(payloads, start=1)
-        ]
-        for start in range(0, len(rows), ROW_CHUNK_SIZE):
-            connection.execute(insert(snapshot_row_table), rows[start:start + ROW_CHUNK_SIZE])
-        connection.execute(
-            update(FINE_TABLE_SNAPSHOT_BATCH_TABLE)
-            .where(FINE_TABLE_SNAPSHOT_BATCH_TABLE.c.id == batch_id)
-            .values(total_rows=len(rows))
+        write_optimized_snapshot_rows(
+            connection,
+            brand=brand,
+            snapshot_date=snapshot_date,
+            batch_id=batch_id,
+            payloads=payloads,
         )
     return "imported"
 

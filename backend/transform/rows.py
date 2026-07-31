@@ -174,6 +174,8 @@ ADMIN_EDITABLE_COLUMNS = (
     "toe_shape",
     "closure_type",
     "shoe_box_spec",
+    "shoe_box_type",
+    "selling_points",
     "first_order_time",
     "size_range",
     "product_model",
@@ -269,7 +271,12 @@ def build_canonical_row(
         target_key = COLUMN_ALIASES.get(normalized_key)
         if not target_key:
             continue
-        canonical[target_key] = normalize_cell(value)
+        normalized_value = normalize_cell(value)
+        # Some workbooks contain both the canonical header and an empty alias.
+        # Keep the populated value instead of allowing the trailing empty column
+        # to erase it.
+        if normalized_value is not None or canonical[target_key] is None:
+            canonical[target_key] = normalized_value
 
     canonical["upper_material"] = normalize_upper_material(canonical["upper_material"])
 

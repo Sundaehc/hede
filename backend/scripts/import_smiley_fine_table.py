@@ -20,6 +20,8 @@ from config import load_settings
 from domain.fine_table_snapshot_schema import (
     FINE_TABLE_SNAPSHOT_BATCH_TABLE,
     fine_table_snapshot_row_table_for_date,
+    fine_table_snapshot_ref_table_for_date,
+    fine_table_snapshot_ref_table_exists,
     fine_table_snapshot_year_table_exists,
 )
 from domain.smiley_schema import SMILEY_FINE_TABLE
@@ -356,10 +358,13 @@ def write_smiley_table(
 
 
 def delete_legacy_snapshot(repository: InventoryRepository, *, brand: str, snapshot_date: date) -> int:
-    if not fine_table_snapshot_year_table_exists(repository.engine, snapshot_date):
+    has_legacy_rows = fine_table_snapshot_year_table_exists(repository.engine, snapshot_date)
+    has_optimized_rows = fine_table_snapshot_ref_table_exists(repository.engine, snapshot_date)
+    if not has_legacy_rows and not has_optimized_rows:
         return 0
 
-    snapshot_row_table = fine_table_snapshot_row_table_for_date(snapshot_date)
+    snapshot_row_table = fine_table_snapshot_row_table_for_date(snapshot_date) if has_legacy_rows else None
+    snapshot_ref_table = fine_table_snapshot_ref_table_for_date(snapshot_date) if has_optimized_rows else None
     with repository.engine.begin() as connection:
         batch_ids = [
             int(row["id"])
@@ -371,10 +376,12 @@ def delete_legacy_snapshot(repository: InventoryRepository, *, brand: str, snaps
         ]
         if not batch_ids:
             return 0
-        connection.execute(
-            delete(snapshot_row_table)
-            .where(snapshot_row_table.c.batch_id.in_(batch_ids))
-        )
+        if snapshot_row_table is not None:
+            connection.execute(delete(snapshot_row_table).where(snapshot_row_table.c.batch_id.in_(batch_ids)))
+        if snapshot_ref_table is not None:
+            connection.execute(
+                delete(snapshot_ref_table).where(snapshot_ref_table.c.batch_id.in_(batch_ids))
+            )
         connection.execute(
             delete(FINE_TABLE_SNAPSHOT_BATCH_TABLE)
             .where(FINE_TABLE_SNAPSHOT_BATCH_TABLE.c.id.in_(batch_ids))

@@ -27,6 +27,7 @@ from domain.fine_table_snapshot_schema import (
     fine_table_snapshot_year_table_exists,
 )
 from domain.sources import TABLE_NAMES
+from storage.fine_table_snapshot_dedup import load_all_optimized_snapshot_rows, optimized_snapshot_available
 from storage.product_repository import ProductRepository
 
 
@@ -458,8 +459,11 @@ def _ensure_snapshot(
 ) -> dict[str, Any]:
     repository = request.app.state.repository
     batch = _find_snapshot_batch(repository, brand, snapshot_date)
-    has_row_table = fine_table_snapshot_year_table_exists(repository.engine, snapshot_date)
-    if refresh_snapshot or batch is None or not has_row_table:
+    has_rows = batch is not None and (
+        optimized_snapshot_available(repository.engine, snapshot_date, int(batch["id"]))
+        or fine_table_snapshot_year_table_exists(repository.engine, snapshot_date)
+    )
+    if refresh_snapshot or batch is None or not has_rows:
         if not create_missing_snapshot:
             raise RuntimeError(f"[{brand}] snapshot not found for {snapshot_date.isoformat()}")
         result = create_fine_table_snapshot(
@@ -481,6 +485,8 @@ def _load_snapshot_rows(repository: ProductRepository, batch: dict[str, Any]) ->
     snapshot_date = batch.get("snapshot_date")
     if not isinstance(snapshot_date, date):
         raise RuntimeError(f"Invalid snapshot_date: {snapshot_date!r}")
+    if optimized_snapshot_available(repository.engine, snapshot_date, int(batch["id"])):
+        return load_all_optimized_snapshot_rows(repository.engine, snapshot_date, int(batch["id"]))
     snapshot_row_table = fine_table_snapshot_row_table_for_date(snapshot_date)
     with repository.engine.connect() as connection:
         rows = connection.execute(

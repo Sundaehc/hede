@@ -4,6 +4,7 @@ from datetime import date
 import re
 
 from sqlalchemy import BigInteger, Column, Date, DateTime, ForeignKey, Identity, Index, Integer, JSON, Table, Text, UniqueConstraint, func, inspect, text
+from sqlalchemy.dialects.postgresql import JSONB
 
 from domain.legacy_partitioning import LegacyPartitionTarget, attach_partition_if_parent_exists, partition_parent_exists
 from domain.schema import METADATA
@@ -27,11 +28,78 @@ FINE_TABLE_SNAPSHOT_BATCH_TABLE = Table(
     UniqueConstraint("brand", "snapshot_date", name="uq_fine_table_snapshot_batches_brand_date"),
 )
 _FINE_TABLE_SNAPSHOT_YEAR_TABLE_PATTERN = re.compile(r"^fine_table_snapshot_rows_(\d{4})$")
+_FINE_TABLE_SNAPSHOT_REF_YEAR_TABLE_PATTERN = re.compile(r"^fine_table_snapshot_refs_(\d{4})$")
 FINE_TABLE_SNAPSHOT_PARENT_NAME = "fine_table_snapshot_rows"
+FINE_TABLE_SNAPSHOT_PAYLOADS_TABLE = Table(
+    "fine_table_snapshot_payloads",
+    METADATA,
+    Column("id", BigInteger, Identity(always=False), primary_key=True),
+    Column("brand", Text, nullable=False),
+    Column("content_hash", Text, nullable=False),
+    Column("payload", JSONB, nullable=False),
+    Column("created_at", DateTime(timezone=True), server_default=func.date_trunc("minute", func.now())),
+    UniqueConstraint("brand", "content_hash", name="uq_fine_table_snapshot_payloads_brand_hash"),
+)
+FINE_TABLE_SNAPSHOT_METRICS_TABLE = Table(
+    "fine_table_snapshot_metrics",
+    METADATA,
+    Column("id", BigInteger, Identity(always=False), primary_key=True),
+    Column("brand", Text, nullable=False),
+    Column("content_hash", Text, nullable=False),
+    Column("payload", JSONB, nullable=False),
+    Column("created_at", DateTime(timezone=True), server_default=func.date_trunc("minute", func.now())),
+    UniqueConstraint("brand", "content_hash", name="uq_fine_table_snapshot_metrics_brand_hash"),
+)
 
 
 def fine_table_snapshot_row_table_name(snapshot_date: date) -> str:
     return f"fine_table_snapshot_rows_{snapshot_date.year:04d}"
+
+
+def fine_table_snapshot_ref_table_name(snapshot_date: date) -> str:
+    return f"fine_table_snapshot_refs_{snapshot_date.year:04d}"
+
+
+def fine_table_snapshot_ref_table_for_date(snapshot_date: date) -> Table:
+    table_name = fine_table_snapshot_ref_table_name(snapshot_date)
+    if table_name in METADATA.tables:
+        return METADATA.tables[table_name]
+
+    table = Table(
+        table_name,
+        METADATA,
+        Column("id", BigInteger, Identity(always=False), primary_key=True),
+        Column(
+            "batch_id",
+            BigInteger,
+            ForeignKey("fine_table_snapshot_batches.id", ondelete="CASCADE"),
+            nullable=False,
+        ),
+        Column("snapshot_date", Date, nullable=False),
+        Column("sku", Text, nullable=True),
+        Column("original_sku", Text, nullable=True),
+        Column("row_index", Integer, nullable=False),
+        Column("payload_id", BigInteger, ForeignKey("fine_table_snapshot_payloads.id"), nullable=False),
+        Column("metrics_id", BigInteger, ForeignKey("fine_table_snapshot_metrics.id"), nullable=False),
+        Column("created_at", DateTime(timezone=True), server_default=func.date_trunc("minute", func.now())),
+        UniqueConstraint("batch_id", "row_index", name=f"uq_{table_name}_batch_row_index"),
+    )
+    Index(f"idx_{table_name}_batch_row_index", table.c.batch_id, table.c.row_index)
+    Index(f"idx_{table_name}_batch_sku", table.c.batch_id, table.c.sku)
+    Index(f"idx_{table_name}_batch_original_sku", table.c.batch_id, table.c.original_sku)
+    Index(
+        f"idx_{table_name}_sku_trgm",
+        table.c.sku,
+        postgresql_using="gin",
+        postgresql_ops={"sku": "gin_trgm_ops"},
+    )
+    Index(
+        f"idx_{table_name}_original_sku_trgm",
+        table.c.original_sku,
+        postgresql_using="gin",
+        postgresql_ops={"original_sku": "gin_trgm_ops"},
+    )
+    return table
 
 
 def fine_table_snapshot_row_table_for_date(snapshot_date: date) -> Table:
@@ -78,6 +146,19 @@ def fine_table_snapshot_year_table_exists(engine, snapshot_date: date) -> bool:
     return inspect(engine).has_table(fine_table_snapshot_row_table_name(snapshot_date))
 
 
+def fine_table_snapshot_ref_table_exists(engine, snapshot_date: date) -> bool:
+    return inspect(engine).has_table(fine_table_snapshot_ref_table_name(snapshot_date))
+
+
+def list_fine_table_snapshot_ref_tables(engine) -> list[Table]:
+    years = sorted(
+        int(matched.group(1))
+        for table_name in inspect(engine).get_table_names()
+        if (matched := _FINE_TABLE_SNAPSHOT_REF_YEAR_TABLE_PATTERN.fullmatch(table_name))
+    )
+    return [fine_table_snapshot_ref_table_for_date(date(year, 1, 1)) for year in years]
+
+
 def ensure_fine_table_snapshot_row_table(engine, snapshot_date: date) -> Table:
     table = fine_table_snapshot_row_table_for_date(snapshot_date)
     table.create(engine, checkfirst=True)
@@ -92,6 +173,14 @@ def ensure_fine_table_snapshot_row_table(engine, snapshot_date: date) -> Table:
         ),
     )
     refresh_fine_table_snapshot_compatibility_view(engine)
+    return table
+
+
+def ensure_fine_table_snapshot_ref_table(engine, snapshot_date: date) -> Table:
+    table = fine_table_snapshot_ref_table_for_date(snapshot_date)
+    table.create(engine, checkfirst=True)
+    for index in table.indexes:
+        index.create(engine, checkfirst=True)
     return table
 
 
