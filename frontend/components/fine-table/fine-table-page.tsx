@@ -708,6 +708,7 @@ function createTableColumns(dailyLabels: string[]): TableColumn[] {
     },
     { key: "vip_1d_sales", label: "唯品1天", group: "销售", align: "right", render: (row) => formatNumber(row.vip_1d_sales) },
     { key: "vip_3d_sales", label: "唯品3天", group: "销售", align: "right", render: (row) => formatNumber(row.vip_3d_sales) },
+    { key: "vip_7d_sales", label: "唯品7天", group: "销售", align: "right", render: (row) => formatNumber(row.vip_7d_sales) },
     { key: "vip_15d_sales", label: "唯品15天", group: "销售", align: "right", render: (row) => formatNumber(row.vip_15d_sales) },
     { key: "vip_30d_sales", label: "唯品30天", group: "销售", align: "right", render: (row) => formatNumber(row.vip_30d_sales) },
     { key: "vip_daily_average_sales", label: "唯品日均", group: "销售", align: "right", defaultVisible: true, render: (row) => nullableInteger(row.vip_daily_average_sales) },
