@@ -1,10 +1,10 @@
-import { BRANDS } from "@/lib/brands"
+import { PRODUCT_ARCHIVE_BRANDS } from "@/lib/brands"
 import { TabsList, TabsTrigger } from "@/components/ui/tabs"
 
 export function ProductTabs() {
   return (
     <TabsList className="h-auto w-full flex-wrap justify-start bg-transparent p-0 gap-1">
-      {BRANDS.map((item) => (
+      {PRODUCT_ARCHIVE_BRANDS.map((item) => (
         <TabsTrigger
           key={item.key}
           value={item.key}

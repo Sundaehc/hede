@@ -14,13 +14,16 @@ from api.fine_table_cache import clear_fine_table_cache
 from api.product_goods_cache import clear_product_goods_cache
 from api.schemas import BatchDeleteRequest, BrandKey, ProductWriteRequest
 
-from sqlalchemy import distinct as sa_distinct, select as sa_select
+from sqlalchemy import distinct as sa_distinct, func as sa_func, or_ as sa_or, select as sa_select
 
 from domain.color_barcode_schema import COLOR_BARCODE_TABLE
 from domain.excluded_skus import is_excluded_sku
 from domain.schema import PRODUCT_TABLES
+from domain.size_group_schema import SIZE_GROUPS_TABLE
+from domain.smiley_schema import SMILEY_FINE_TABLE
 
 ALL_BRAND_KEYS = ["cbanner_mens", "cbanner_womens", "yandou", "eblan"]
+SMILEY_PRODUCT_ARCHIVE_BRAND = "smiley"
 PRODUCT_COLOR_BARCODE_BRANDS = {
     "cbanner_mens": "cbanner_mens",
     "cbanner_womens": "cbanner_womens",
@@ -38,6 +41,167 @@ def _with_brand_and_image(item: dict, brand: str, settings) -> dict:
         **item,
         "brand": brand,
         "image_url": image_url_for(brand, item.get("image_path"), settings),
+    }
+
+
+def _validate_size_group(request: Request, size_range: object) -> None:
+    normalized_size_group = str(size_range or "").strip()
+    if not normalized_size_group:
+        return
+    repository = request.app.state.repository
+    with repository.engine.connect() as connection:
+        exists = connection.execute(
+            sa_select(SIZE_GROUPS_TABLE.c.id)
+            .where(SIZE_GROUPS_TABLE.c.name == normalized_size_group)
+            .limit(1)
+        ).scalar()
+    if exists is None:
+        raise HTTPException(status_code=400, detail=f"尺码组 {normalized_size_group} 不存在或已被删除")
+
+
+def _smiley_product_base_item(item: dict, settings) -> dict:
+    return {
+        "id": item["id"],
+        "brand": SMILEY_PRODUCT_ARCHIVE_BRAND,
+        "image_path": item.get("image_path"),
+        "image_url": image_url_for(SMILEY_PRODUCT_ARCHIVE_BRAND, item.get("image_path"), settings),
+        "sku": item.get("sku"),
+        "original_sku": item.get("original_sku"),
+        "group_name": None,
+        "product_level": None,
+        "cost": item.get("cost"),
+        "factory_sku": item.get("factory_sku") or item.get("factory_code"),
+        "factory_code": item.get("factory_code"),
+        "market_price": item.get("market_price"),
+        "barcode": item.get("barcode"),
+        "accessories": item.get("accessories"),
+        "color": None,
+        "season_category": item.get("season_category"),
+        "year": None,
+        "upper_material": item.get("upper_material"),
+        "lining_material": item.get("lining_material"),
+        "outsole_material": item.get("outsole_material"),
+        "insole_material": item.get("insole_material"),
+        "execution_standard": item.get("execution_standard"),
+        "heel_height": None,
+        "shoe_width": None,
+        "shoe_length": None,
+        "shaft_circumference": None,
+        "shaft_height": None,
+        "internal_height_increase": None,
+        "internal_height_note": None,
+        "upper_height": None,
+        "toe_shape": None,
+        "closure_type": None,
+        "shoe_box_spec": item.get("shoe_box_spec"),
+        "shoe_box_type": None,
+        "selling_points": None,
+        "first_order_time": item.get("first_order_date"),
+        "size_range": None,
+        "product_model": item.get("product_name"),
+        "supplier_name": None,
+        "color_code": None,
+        "launch_date": None,
+        "source_workbook": item.get("source_workbook") or "",
+        "source_sheet": item.get("source_sheet") or "",
+        "source_row_number": str(item.get("source_row_number") or ""),
+    }
+
+
+def _list_smiley_product_base_info(
+    request: Request,
+    *,
+    query: str | None,
+    page: int,
+    page_size: int,
+) -> dict:
+    settings = request.app.state.settings
+    repository = request.app.state.repository
+    page = max(page, 1)
+    page_size = min(max(page_size, 1), 100)
+    normalized_query = (query or "").strip()
+
+    with repository.engine.connect() as connection:
+        snapshot_date = connection.execute(
+            sa_select(sa_func.max(SMILEY_FINE_TABLE.c.snapshot_date))
+        ).scalar()
+        if snapshot_date is None:
+            return {"items": [], "total": 0, "page": page, "page_size": page_size, "snapshot_date": None}
+
+        # Preserve the newest version of every SKU across all imported snapshots.
+        latest_rows = sa_select(
+            SMILEY_FINE_TABLE.c.id,
+            sa_func.row_number()
+            .over(
+                partition_by=SMILEY_FINE_TABLE.c.sku,
+                order_by=(
+                    SMILEY_FINE_TABLE.c.snapshot_date.desc(),
+                    SMILEY_FINE_TABLE.c.updated_at.desc().nulls_last(),
+                    SMILEY_FINE_TABLE.c.id.desc(),
+                ),
+            )
+            .label("row_rank"),
+        ).subquery("smiley_latest_rows")
+        source = SMILEY_FINE_TABLE.join(
+            latest_rows,
+            SMILEY_FINE_TABLE.c.id == latest_rows.c.id,
+        )
+        conditions = [latest_rows.c.row_rank == 1]
+        if normalized_query:
+            term = f"%{normalized_query}%"
+            conditions.append(sa_or(
+                SMILEY_FINE_TABLE.c.sku.ilike(term),
+                SMILEY_FINE_TABLE.c.original_sku.ilike(term),
+                SMILEY_FINE_TABLE.c.factory_code.ilike(term),
+                SMILEY_FINE_TABLE.c.factory_sku.ilike(term),
+                SMILEY_FINE_TABLE.c.product_name.ilike(term),
+                SMILEY_FINE_TABLE.c.barcode.ilike(term),
+            ))
+
+        total = int(connection.execute(
+            sa_select(sa_func.count()).select_from(source).where(*conditions)
+        ).scalar() or 0)
+        rows = [
+            dict(row)
+            for row in connection.execute(
+                sa_select(
+                    SMILEY_FINE_TABLE.c.id,
+                    SMILEY_FINE_TABLE.c.source_workbook,
+                    SMILEY_FINE_TABLE.c.source_sheet,
+                    SMILEY_FINE_TABLE.c.source_row_number,
+                    SMILEY_FINE_TABLE.c.image_path,
+                    SMILEY_FINE_TABLE.c.sku,
+                    SMILEY_FINE_TABLE.c.original_sku,
+                    SMILEY_FINE_TABLE.c.factory_code,
+                    SMILEY_FINE_TABLE.c.factory_sku,
+                    SMILEY_FINE_TABLE.c.market_price,
+                    SMILEY_FINE_TABLE.c.cost,
+                    SMILEY_FINE_TABLE.c.product_name,
+                    SMILEY_FINE_TABLE.c.barcode,
+                    SMILEY_FINE_TABLE.c.execution_standard,
+                    SMILEY_FINE_TABLE.c.insole_material,
+                    SMILEY_FINE_TABLE.c.outsole_material,
+                    SMILEY_FINE_TABLE.c.lining_material,
+                    SMILEY_FINE_TABLE.c.upper_material,
+                    SMILEY_FINE_TABLE.c.shoe_box_spec,
+                    SMILEY_FINE_TABLE.c.accessories,
+                    SMILEY_FINE_TABLE.c.first_order_date,
+                    SMILEY_FINE_TABLE.c.season_category,
+                )
+                .select_from(source)
+                .where(*conditions)
+                .order_by(SMILEY_FINE_TABLE.c.sku)
+                .offset((page - 1) * page_size)
+                .limit(page_size)
+            ).mappings()
+        ]
+
+    return {
+        "items": [_smiley_product_base_item(item, settings) for item in rows],
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+        "snapshot_date": snapshot_date.isoformat(),
     }
 
 
@@ -60,6 +224,14 @@ def list_products(
             "items": [_with_brand_and_image(item, item["brand"], settings) for item in payload["items"]],
         }
 
+    if brand == SMILEY_PRODUCT_ARCHIVE_BRAND:
+        return _list_smiley_product_base_info(
+            request,
+            query=query,
+            page=page,
+            page_size=page_size,
+        )
+
     if brand not in ALL_BRAND_KEYS:
         from fastapi import HTTPException
         raise HTTPException(status_code=400, detail=f"Invalid brand: {brand}")
@@ -73,6 +245,8 @@ def list_products(
 
 @router.get("/products/{brand}/years")
 def get_product_years(request: Request, brand: str):
+    if brand == SMILEY_PRODUCT_ARCHIVE_BRAND:
+        return {"years": []}
     if brand == "all" or brand not in ALL_BRAND_KEYS:
         return {"years": []}
     repository = request.app.state.repository
@@ -145,6 +319,7 @@ def get_product(request: Request, brand: BrandKey, product_id: int):
 @router.post("/products")
 def create_product(request: Request, body: ProductWriteRequest):
     record = build_admin_record(body.brand, body.payload.model_dump(exclude_none=False))
+    _validate_size_group(request, record.get("size_range"))
     if is_excluded_sku(record.get("sku"), record.get("original_sku")):
         raise HTTPException(status_code=400, detail="该货号已在永久排除清单中")
     item = request.app.state.repository.create_product(body.brand, record)
@@ -182,6 +357,7 @@ def update_product(request: Request, brand: BrandKey, product_id: int, body: Pro
             "source_row_number": existing["source_row_number"],
         },
     )
+    _validate_size_group(request, record.get("size_range"))
     record["extra_fields"] = filter_extra_fields(existing.get("extra_fields"))
     if is_excluded_sku(record.get("sku"), record.get("original_sku")):
         raise HTTPException(status_code=400, detail="该货号已在永久排除清单中")

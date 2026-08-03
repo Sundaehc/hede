@@ -7,7 +7,7 @@ import { listProductGoods } from "@/lib/api"
 import { useAuth } from "@/components/auth/auth-provider"
 import { Button } from "@/components/ui/button"
 import { ThemeToggle } from "@/components/theme-toggle"
-import { Package, ClipboardList, Truck, Warehouse, Store, Box, BadgeDollarSign, TableProperties, ShoppingCart, UserCog, LogOut, Rows3, ChartNoAxesCombined } from "lucide-react"
+import { Package, ClipboardList, Truck, Warehouse, Store, Box, BadgeDollarSign, TableProperties, ShoppingCart, UserCog, LogOut, Rows3, ChartNoAxesCombined, Ruler } from "lucide-react"
 
 const NAV_ITEMS = [
   {
@@ -100,6 +100,12 @@ const NAV_ITEMS = [
         icon: UserCog,
         permission: "system.admin",
       },
+      {
+        href: "/size-groups",
+        label: "尺码组管理",
+        icon: Ruler,
+        permission: "product.view",
+      },
     ],
   },
 ]
@@ -123,12 +129,15 @@ export function SidebarNav() {
   const pathname = usePathname()
   const { hasPermission, logout, user } = useAuth()
   const canAccessProductGoods = user?.role_code === "super_admin" || ["商品部", "开发部", "运营部"].includes(user?.department_code ?? "")
+  const canAccessSizeGroups = user?.role_code === "super_admin" || ["商品部", "开发部"].includes(user?.department_code ?? "")
   const userName = user?.display_name || user?.username || "未登录用户"
   const userInitial = userName.trim().slice(0, 1).toUpperCase() || "U"
   const visibleGroups = NAV_ITEMS.map((group) => ({
     ...group,
     items: group.items.filter((item) => (
-      hasPermission(item.permission) && (!["/product-goods", "/factory-channel-dashboard"].includes(item.href) || canAccessProductGoods)
+      hasPermission(item.permission)
+      && (!["/product-goods", "/factory-channel-dashboard"].includes(item.href) || canAccessProductGoods)
+      && (item.href !== "/size-groups" || canAccessSizeGroups)
     )),
   })).filter((group) => group.items.length > 0)
 
@@ -144,7 +153,7 @@ export function SidebarNav() {
         </div>
       </div>
 
-      <nav className="flex-1 space-y-5 overflow-y-auto px-3 py-5">
+      <nav className="sidebar-scroll-area flex-1 space-y-5 overflow-y-auto px-3 py-5">
         {visibleGroups.map((group) => (
           <div key={group.section}>
             <h3 className="mb-2 px-2 text-[11px] font-semibold tracking-wide text-sidebar-foreground/45">

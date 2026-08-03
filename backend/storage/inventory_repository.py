@@ -19,9 +19,11 @@ from domain import jst_stock_snapshot_schema  # noqa: F401 - register JST stock 
 from domain import product_goods_schema  # noqa: F401 - register goods table overrides on METADATA
 from domain import master_data_schema  # noqa: F401 - register master-data tables on METADATA
 from domain import data_governance_schema  # noqa: F401 - register data-governance tables on METADATA
+from domain import size_group_schema  # noqa: F401 - register size group tables on METADATA
 from domain.jst_stock_snapshot_schema import JST_SIZE_STOCK_SNAPSHOT_TABLE, JST_STOCK_SUMMARY_SNAPSHOT_TABLE
 from domain.product_goods_schema import PRODUCT_GOODS_OVERRIDES_TABLE
 from domain.product_goods_historical_sales_schema import HISTORICAL_SALES_YEARS, ensure_product_goods_historical_sales_table
+from domain.size_group_schema import SIZE_GROUP_ITEMS_TABLE, SIZE_GROUPS_TABLE
 from storage.date_normalization import parse_date, parse_month_day
 
 
@@ -1556,6 +1558,8 @@ class InventoryRepository:
             JST_SIZE_STOCK_SNAPSHOT_TABLE.create(connection, checkfirst=True)
             JST_STOCK_SUMMARY_SNAPSHOT_TABLE.create(connection, checkfirst=True)
             PRODUCT_GOODS_OVERRIDES_TABLE.create(connection, checkfirst=True)
+            SIZE_GROUPS_TABLE.create(connection, checkfirst=True)
+            SIZE_GROUP_ITEMS_TABLE.create(connection, checkfirst=True)
             for sales_year in HISTORICAL_SALES_YEARS:
                 ensure_product_goods_historical_sales_table(connection, sales_year)
             connection.execute(

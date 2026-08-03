@@ -14,14 +14,15 @@ import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Tabs, TabsContent } from "@/components/ui/tabs"
 
-import { BRANDS, type BrandKey } from "@/lib/brands"
+import { PRODUCT_ARCHIVE_BRANDS, type BrandKey, type ProductArchiveBrandKey } from "@/lib/brands"
 import { ApiError, batchDeleteProducts, deleteProduct, getProductYears, listProducts } from "@/lib/api"
 import type { ProductListItem } from "@/lib/types"
 
-const DEFAULT_BRAND = BRANDS.find((item) => item.key !== "all")?.key ?? BRANDS[0].key
+const DEFAULT_BRAND = PRODUCT_ARCHIVE_BRANDS.find((item) => item.key !== "all")?.key ?? PRODUCT_ARCHIVE_BRANDS[0].key
 const PAGE_SIZES = [10, 50, 100]
 
-const isAllBrand = (b: BrandKey) => b === "all"
+const isAllBrand = (b: ProductArchiveBrandKey) => b === "all"
+const isSmileyBrand = (b: ProductArchiveBrandKey) => b === "smiley"
 
 function getErrorMessage(error: unknown) {
   if (error instanceof ApiError) {
@@ -37,7 +38,7 @@ function getErrorMessage(error: unknown) {
 
 export function ProductAdminPage() {
   const { hasPermission } = useAuth()
-  const [brand, setBrand] = useState<BrandKey>(DEFAULT_BRAND)
+  const [brand, setBrand] = useState<ProductArchiveBrandKey>(DEFAULT_BRAND)
   const [year, setYear] = useState("")
   const [availableYears, setAvailableYears] = useState<string[]>([])
   const [searchInput, setSearchInput] = useState("")
@@ -47,6 +48,7 @@ export function ProductAdminPage() {
   const [reloadToken, setReloadToken] = useState(0)
   const [items, setItems] = useState<ProductListItem[]>([])
   const [total, setTotal] = useState(0)
+  const [snapshotDate, setSnapshotDate] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [isDialogOpen, setIsDialogOpen] = useState(false)
@@ -77,7 +79,7 @@ export function ProductAdminPage() {
     }
     async function loadYears() {
       try {
-        const res = await getProductYears(brand as BrandKey)
+        const res = await getProductYears(brand)
         setAvailableYears(res.years)
       } catch {
         setAvailableYears([])
@@ -108,6 +110,7 @@ export function ProductAdminPage() {
 
         setItems(response.items)
         setTotal(response.total)
+        setSnapshotDate(response.snapshot_date ?? null)
       } catch (loadError) {
         if (cancelled) {
           return
@@ -115,6 +118,7 @@ export function ProductAdminPage() {
 
         setItems([])
         setTotal(0)
+        setSnapshotDate(null)
         setError(getErrorMessage(loadError))
       } finally {
         if (!cancelled) {
@@ -148,7 +152,7 @@ export function ProductAdminPage() {
 
     setIsDeleting(true)
     try {
-      await deleteProduct(deleteTarget.brand, deleteTarget.id)
+      await deleteProduct(deleteTarget.brand as BrandKey, deleteTarget.id)
       setSelectedIds((prev) => {
         const next = new Set(prev)
         next.delete(deleteTarget.id)
@@ -218,11 +222,12 @@ export function ProductAdminPage() {
     setMessageOpen(true)
   }, [])
 
-  const showBatchDelete = !isAllBrand(brand) && selectedIds.size > 0
+  const isSmiley = isSmileyBrand(brand)
+  const showBatchDelete = !isAllBrand(brand) && !isSmiley && selectedIds.size > 0
   const canManageProducts = hasPermission("product.manage")
   const canExportProducts = hasPermission("product.export")
   const canImportProducts = hasPermission("product.import")
-  const canSelectProducts = canManageProducts || canExportProducts
+  const canSelectProducts = !isSmiley && (canManageProducts || canExportProducts)
 
   return (
     <div className="app-page">
@@ -230,7 +235,11 @@ export function ProductAdminPage() {
         <div className="page-header">
           <div>
             <h1 className="page-title">商品信息档案</h1>
-            <p className="page-subtitle">管理品牌商品基础资料、图片匹配和批量导入导出</p>
+            <p className="page-subtitle">
+              {isSmiley
+                ? `笑脸商品基础资料，汇集全部精细表快照并按货号去重${snapshotDate ? `（最新快照：${snapshotDate}）` : ""}`
+                : "管理品牌商品基础资料、图片匹配和批量导入导出"}
+            </p>
           </div>
           <div className="flex h-9 items-center rounded-full border border-border bg-muted/45 px-3 text-sm text-muted-foreground">
             共 {total} 条
@@ -241,7 +250,7 @@ export function ProductAdminPage() {
           value={brand}
           defaultValue={DEFAULT_BRAND}
           onValueChange={(value) => {
-            setBrand(value as BrandKey)
+            setBrand(value as ProductArchiveBrandKey)
             setYear("")
             setPage(1)
           }}
@@ -251,7 +260,7 @@ export function ProductAdminPage() {
           </div>
 
           <TabsContent value={brand} className="mt-4 space-y-4">
-            {!isAllBrand(brand) && (
+            {!isAllBrand(brand) && !isSmiley && (
               <div className="flex items-center gap-1.5">
                 {availableYears.length > 0 && (
                   <div className="flex flex-wrap items-center gap-1.5">
@@ -273,13 +282,13 @@ export function ProductAdminPage() {
             )}
 
             <ProductToolbar
-              brand={brand}
+              brand={brand as BrandKey}
               value={searchInput}
               isLoading={isLoading}
               selectedIds={selectedIds}
-              canExport={canExportProducts}
-              canImport={canImportProducts}
-              canRefreshImages={canManageProducts}
+              canExport={canExportProducts && !isSmiley}
+              canImport={canImportProducts && !isSmiley}
+              canRefreshImages={canManageProducts && !isSmiley}
               onValueChange={setSearchInput}
               onSearch={() => {
                 setPage(1)
@@ -293,14 +302,14 @@ export function ProductAdminPage() {
               onRefresh={() => {
                 setReloadToken((current) => current + 1)
               }}
-              onOpenLogs={() => setOperationLogOpen(true)}
+              onOpenLogs={isSmiley ? undefined : () => setOperationLogOpen(true)}
               onImportComplete={(skus: string[]) => {
                 const query = skus.join(",")
                 setSearchInput(query)
                 setSubmittedQuery(query)
                 setPage(1)
               }}
-              onCreate={isAllBrand(brand) || !canManageProducts ? undefined : () => {
+              onCreate={isAllBrand(brand) || isSmiley || !canManageProducts ? undefined : () => {
                 setDialogMode("create")
                 setSelectedItem(null)
                 setIsDialogOpen(true)
@@ -321,12 +330,12 @@ export function ProductAdminPage() {
               onToggleSelect={handleToggleSelect}
               onToggleSelectAll={handleToggleSelectAll}
               onBatchDelete={showBatchDelete && canManageProducts ? handleBatchDeleteRequest : undefined}
-              onEdit={isAllBrand(brand) || !canManageProducts ? undefined : (item) => {
+              onEdit={isAllBrand(brand) || isSmiley || !canManageProducts ? undefined : (item) => {
                 setDialogMode("edit")
                 setSelectedItem(item)
                 setIsDialogOpen(true)
               }}
-              onDelete={isAllBrand(brand) || !canManageProducts ? undefined : handleDeleteRequest}
+              onDelete={isAllBrand(brand) || isSmiley || !canManageProducts ? undefined : handleDeleteRequest}
               onPreviewImage={(item) => {
                 if (!item.image_url) return
                 setPreviewImage({

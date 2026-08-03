@@ -1,4 +1,4 @@
-import type { BrandKey } from "@/lib/brands"
+import type { BrandKey, ProductArchiveBrandKey } from "@/lib/brands"
 
 export type AuthUser = {
   id: number
@@ -74,7 +74,7 @@ export type OperationLogResponse = {
 
 export type ProductListItem = {
   id: number
-  brand: BrandKey
+  brand: ProductArchiveBrandKey
   image_path: string | null
   image_url: string | null
   sku: string | null
@@ -110,6 +110,10 @@ export type ProductListItem = {
   supplier_name: string | null
   color_code: string | null
   launch_date: string | null
+  factory_code?: string | null
+  market_price?: string | number | null
+  barcode?: string | null
+  accessories?: string | null
   source_workbook: string
   source_sheet: string
   source_row_number: string
@@ -120,6 +124,7 @@ export type ProductListResponse = {
   total: number
   page: number
   page_size: number
+  snapshot_date?: string | null
 }
 
 export type FineTableShopSale = {
@@ -390,6 +395,25 @@ export type ProductColorBarcodeItem = {
 export type ProductColorBarcodeListResponse = {
   items: ProductColorBarcodeItem[]
   source_brand: string
+}
+
+export type SizeGroupItem = {
+  id: number
+  size_name: string
+  barcode: string
+  sort_order: number
+}
+
+export type SizeGroup = {
+  id: number
+  name: string
+  product_count: number
+  items: SizeGroupItem[]
+}
+
+export type SizeGroupWritePayload = {
+  name: string
+  items: Array<Pick<SizeGroupItem, "size_name" | "barcode">>
 }
 
 export type RefreshProductImagesResult = {

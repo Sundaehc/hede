@@ -15,10 +15,10 @@ import {
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select } from "@/components/ui/select"
-import { ApiError, createProduct, listProductColorBarcodes, lookupImage, updateProduct } from "@/lib/api"
+import { ApiError, createProduct, listProductColorBarcodes, listSizeGroups, lookupImage, updateProduct } from "@/lib/api"
 import { BRANDS, type BrandKey } from "@/lib/brands"
 import { ALL_PRODUCT_FIELDS, FIELD_GROUPS, FIELD_LABELS, SEASON_OPTIONS } from "@/lib/fields"
-import type { ImageLookupStatusState, ProductColorBarcodeItem, ProductFormValues, ProductListItem, ProductMutationPayload } from "@/lib/types"
+import type { ImageLookupStatusState, ProductColorBarcodeItem, ProductFormValues, ProductListItem, ProductMutationPayload, SizeGroup } from "@/lib/types"
 import { cn } from "@/lib/utils"
 
 type ProductFormDialogProps = {
@@ -203,7 +203,7 @@ function toFormValues(item?: ProductListItem | null): ProductFormValues {
   )
 
   return {
-    brand: item.brand,
+    brand: item.brand as BrandKey,
     ...base,
   } as ProductFormValues
 }
@@ -236,6 +236,8 @@ export function ProductFormDialog({ item, mode, onOpenChange, onSaved, open }: P
   const [lookupStatus, setLookupStatus] = useState<ImageLookupStatusState>({ status: "idle", message: null })
   const [colorBarcodeOptions, setColorBarcodeOptions] = useState<ProductColorBarcodeItem[]>([])
   const [isLoadingColorBarcodes, setIsLoadingColorBarcodes] = useState(false)
+  const [sizeGroups, setSizeGroups] = useState<SizeGroup[]>([])
+  const [isLoadingSizeGroups, setIsLoadingSizeGroups] = useState(false)
 
   const title = mode === "create" ? "新增商品" : "编辑商品"
   const lookupDisabled = useMemo(() => {
@@ -278,6 +280,33 @@ export function ProductFormDialog({ item, mode, onOpenChange, onSaved, open }: P
       cancelled = true
     }
   }, [open, values.brand])
+
+  useEffect(() => {
+    if (!open) return
+
+    let cancelled = false
+    setIsLoadingSizeGroups(true)
+    listSizeGroups()
+      .then((response) => {
+        if (!cancelled) {
+          setSizeGroups(response.items)
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setSizeGroups([])
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setIsLoadingSizeGroups(false)
+        }
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [open])
 
   const handleFieldChange = (field: keyof ProductFormValues, nextValue: string) => {
     setValues((current) => ({ ...current, [field]: nextValue }))
@@ -368,7 +397,7 @@ export function ProductFormDialog({ item, mode, onOpenChange, onSaved, open }: P
       if (mode === "create") {
         await createProduct(values.brand, payload)
       } else if (item) {
-        await updateProduct(item.brand, item.id, payload)
+        await updateProduct(item.brand as BrandKey, item.id, payload)
       }
 
       await onSaved()
@@ -491,6 +520,22 @@ export function ProductFormDialog({ item, mode, onOpenChange, onSaved, open }: P
                                 <option value="">请选择</option>
                                 {SEASON_OPTIONS.map((opt) => (
                                   <option key={opt} value={opt}>{opt}</option>
+                                ))}
+                              </Select>
+                            ) : field === "size_range" ? (
+                              <Select
+                                id={`product-form-${field}`}
+                                value={values.size_range}
+                                disabled={isLoadingSizeGroups}
+                                onChange={(event) => handleFieldChange("size_range", event.target.value)}
+                                autoComplete="off"
+                              >
+                                <option value="">{isLoadingSizeGroups ? "尺码组加载中..." : "请选择尺码组"}</option>
+                                {values.size_range && !sizeGroups.some((group) => group.name === values.size_range) ? (
+                                  <option value={values.size_range}>{values.size_range}</option>
+                                ) : null}
+                                {sizeGroups.map((group) => (
+                                  <option key={group.id} value={group.name}>{group.name}</option>
                                 ))}
                               </Select>
                             ) : field === "first_order_time" || field === "launch_date" ? (

@@ -19,6 +19,7 @@ IMAGE_BRAND_KEYS = {
     "cbanner_womens": "cbanner",
     "yandou": "yandou",
     "eblan": "eblan",
+    "smiley": "smiley",
 }
 
 

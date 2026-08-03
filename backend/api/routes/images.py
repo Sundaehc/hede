@@ -28,6 +28,24 @@ MIME_MAP = {
 }
 
 
+def _relative_image_path(image_path: str, root: Path) -> Path | None:
+    source_path = Path(image_path)
+    try:
+        return source_path.relative_to(root)
+    except ValueError:
+        # Historical imports may use a different UNC alias for the same image
+        # share, such as \\Hede instead of the configured IP address.
+        root_name = root.name.casefold()
+        source_parts = source_path.parts
+        for index in range(len(source_parts) - 1, -1, -1):
+            if source_parts[index].casefold() != root_name:
+                continue
+            candidate = Path(*source_parts[index + 1:])
+            if candidate.parts and all(part not in {".", ".."} for part in candidate.parts):
+                return candidate
+        return None
+
+
 def image_url_for(brand: str, image_path: str | None, settings) -> str | None:
     if not image_path:
         return None
@@ -36,11 +54,8 @@ def image_url_for(brand: str, image_path: str | None, settings) -> str | None:
     root = settings.image_roots.get(brand_key)
     if not root:
         return None
-    try:
-        rel = Path(image_path).relative_to(root)
-        return f"/images/serve/{brand}/{rel.as_posix()}"
-    except ValueError:
-        return None
+    relative_path = _relative_image_path(image_path, root)
+    return f"/images/serve/{brand}/{relative_path.as_posix()}" if relative_path else None
 
 
 def get_image_matcher(request: Request, brand: str) -> ImageMatcher | None:

@@ -35,6 +35,9 @@ DEFAULT_DAILY_SALES_REPORT_ROOT = Path(
     r"\\Hede\运营组资料\影刀\商品库存"
 )
 DEFAULT_JST_FULL_STOCK_FILE = DEFAULT_DAILY_SALES_REPORT_ROOT / "聚水潭库存.xlsx"
+DEFAULT_SMILEY_IMAGE_ROOT = Path(
+    r"\\192.168.10.229\图片\产品45主图随时更新\45主图\笑脸45度图"
+)
 
 
 @dataclass(frozen=True)
@@ -45,6 +48,7 @@ class Settings:
     cbanner_image_root: Path
     yandou_image_root: Path
     eblan_image_root: Path
+    smiley_image_root: Path | None = DEFAULT_SMILEY_IMAGE_ROOT
     jst_stock_root: Path | None = None
     vip_data_root: Path | None = None
     yandou_vip_data_root: Path | None = None
@@ -61,11 +65,14 @@ class Settings:
 
     @property
     def image_roots(self) -> dict[str, Path]:
-        return {
+        roots = {
             "cbanner": self.cbanner_image_root,
             "yandou": self.yandou_image_root,
             "eblan": self.eblan_image_root,
         }
+        if self.smiley_image_root is not None:
+            roots["smiley"] = self.smiley_image_root
+        return roots
 
     @property
     def vip_data_roots(self) -> list[Path]:
@@ -175,6 +182,7 @@ def load_settings(require_database: bool = True) -> Settings:
         cbanner_image_root=_path_from_env("CBANNER_IMAGE_ROOT"),
         yandou_image_root=_path_from_env("YANDOU_IMAGE_ROOT"),
         eblan_image_root=_path_from_env("EBLAN_IMAGE_ROOT"),
+        smiley_image_root=_path_from_env_with_default("SMILEY_IMAGE_ROOT", DEFAULT_SMILEY_IMAGE_ROOT),
         jst_stock_root=jst_stock_root,
         vip_data_root=vip_data_root,
         yandou_vip_data_root=yandou_vip_data_root,

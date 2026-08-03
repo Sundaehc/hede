@@ -1,4 +1,4 @@
-import type { BrandKey } from "@/lib/brands"
+import type { BrandKey, ProductArchiveBrandKey } from "@/lib/brands"
 import type {
   ImageLookupResult,
   ProductListItem,
@@ -7,6 +7,8 @@ import type {
   FactoryChannelDashboardResponse,
   ProductMutationPayload,
   ProductColorBarcodeListResponse,
+  SizeGroup,
+  SizeGroupWritePayload,
   ProductImageRefreshStatus,
   RefreshProductImagesResult,
   AuthDepartment,
@@ -126,6 +128,7 @@ export function updateAdminUser(
 export function listOperationLogs(params: {
   module:
     | "product"
+    | "size_group"
     | "product_goods"
     | "fine_table"
     | "inventory"
@@ -148,7 +151,7 @@ export function listOperationLogs(params: {
   return request<OperationLogResponse>(`/operation-logs?${search.toString()}`)
 }
 
-export function getProductYears(brand: BrandKey) {
+export function getProductYears(brand: ProductArchiveBrandKey) {
   return request<{ years: string[] }>(`/products/${brand}/years`)
 }
 
@@ -159,8 +162,32 @@ export function listProductColorBarcodes(brand: Exclude<BrandKey, "all">) {
   )
 }
 
+export function listSizeGroups() {
+  return request<{ items: SizeGroup[] }>("/size-groups")
+}
+
+export function createSizeGroup(payload: SizeGroupWritePayload) {
+  return request<{ item: SizeGroup; message: string }>("/size-groups", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  })
+}
+
+export function updateSizeGroup(id: number, payload: SizeGroupWritePayload) {
+  return request<{ item: SizeGroup; message: string }>(`/size-groups/${id}`, {
+    method: "PUT",
+    body: JSON.stringify(payload),
+  })
+}
+
+export function deleteSizeGroup(id: number) {
+  return request<{ message: string }>(`/size-groups/${id}`, {
+    method: "DELETE",
+  })
+}
+
 export function listProducts(params: {
-  brand: BrandKey | "all"
+  brand: ProductArchiveBrandKey
   query?: string
   year?: string
   page: number

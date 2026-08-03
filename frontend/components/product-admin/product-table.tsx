@@ -119,6 +119,14 @@ function ProductCard({ item, selectable, selectedIds, onToggleSelect, onEdit, on
 }) {
   const checked = selectedIds.has(item.id)
   const canEdit = Boolean(onEdit)
+  const smileyExtraFields = item.brand === "smiley"
+    ? [
+        { label: "工厂代码", value: item.factory_code },
+        { label: "市场价", value: item.market_price },
+        { label: "商品条码", value: item.barcode },
+        { label: "配件", value: item.accessories },
+      ].filter((field) => field.value !== null && field.value !== undefined && field.value !== "")
+    : []
 
   return (
     <div
@@ -188,6 +196,16 @@ function ProductCard({ item, selectable, selectedIds, onToggleSelect, onEdit, on
           {item.cost ? <span><span className="text-muted-foreground">成本:</span> {Number(item.cost).toFixed(1)}</span> : null}
           {item.size_range ? <span><span className="text-muted-foreground">尺码段:</span> {item.size_range}</span> : null}
         </div>
+
+        {smileyExtraFields.length > 0 ? (
+          <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs">
+            {smileyExtraFields.map((field) => (
+              <span key={field.label}>
+                <span className="text-muted-foreground">{field.label}:</span> {field.value}
+              </span>
+            ))}
+          </div>
+        ) : null}
 
         {/* Grouped fields */}
         <div className="space-y-2 border-t border-border pt-2">

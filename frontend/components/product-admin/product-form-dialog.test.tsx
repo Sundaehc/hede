@@ -6,8 +6,9 @@ import { ProductFormDialog } from "@/components/product-admin/product-form-dialo
 import { ApiError } from "@/lib/api"
 import type { ProductListItem } from "@/lib/types"
 
-const { mockCreateProduct, mockLookupImage, mockUpdateProduct } = vi.hoisted(() => ({
+const { mockCreateProduct, mockListSizeGroups, mockLookupImage, mockUpdateProduct } = vi.hoisted(() => ({
   mockCreateProduct: vi.fn(),
+  mockListSizeGroups: vi.fn(),
   mockLookupImage: vi.fn(),
   mockUpdateProduct: vi.fn(),
 }))
@@ -18,6 +19,7 @@ vi.mock("@/lib/api", async () => {
   return {
     ...actual,
     createProduct: mockCreateProduct,
+    listSizeGroups: mockListSizeGroups,
     lookupImage: mockLookupImage,
     updateProduct: mockUpdateProduct,
   }
@@ -111,9 +113,11 @@ const nullPayload = Object.fromEntries(
 describe("ProductFormDialog", () => {
   beforeEach(() => {
     mockCreateProduct.mockReset()
+    mockListSizeGroups.mockReset()
     mockLookupImage.mockReset()
     mockUpdateProduct.mockReset()
     mockCreateProduct.mockResolvedValue({ item: sampleItem, message: "created" })
+    mockListSizeGroups.mockResolvedValue({ items: [] })
     mockUpdateProduct.mockResolvedValue({ item: sampleItem, message: "updated" })
   })
 

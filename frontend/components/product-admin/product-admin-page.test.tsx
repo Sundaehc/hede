@@ -22,6 +22,10 @@ vi.mock("@/lib/api", async () => {
   }
 })
 
+vi.mock("@/components/auth/auth-provider", () => ({
+  useAuth: () => ({ hasPermission: () => true }),
+}))
+
 const NULL_FIELDS = {
   image_path: null,
   image_url: null,
@@ -185,6 +189,29 @@ describe("ProductAdminPage", () => {
         year: undefined,
       })
     })
+  })
+
+  it("switching to smiley loads the read-only product base-info tab", async () => {
+    const user = userEvent.setup()
+
+    render(<ProductAdminPage />)
+
+    await screen.findByTestId("card-title-1")
+    await user.click(screen.getByRole("tab", { name: "笑脸" }))
+
+    await waitFor(() => {
+      expect(mockListProducts).toHaveBeenLastCalledWith({
+        brand: "smiley",
+        page: 1,
+        pageSize: 10,
+        query: undefined,
+        year: undefined,
+      })
+    })
+
+    expect(screen.getByRole("tab", { name: "笑脸", selected: true })).toBeInTheDocument()
+    expect(screen.queryByRole("button", { name: "新增商品" })).not.toBeInTheDocument()
+    expect(screen.queryByRole("button", { name: "导入 Excel" })).not.toBeInTheDocument()
   })
 
   it("keyboard tab changes reset pagination to page 1 for the newly selected brand", async () => {

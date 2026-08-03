@@ -7,3 +7,10 @@ export const BRANDS = [
 ] as const
 
 export type BrandKey = (typeof BRANDS)[number]["key"]
+
+export const PRODUCT_ARCHIVE_BRANDS = [
+  ...BRANDS,
+  { key: "smiley", label: "笑脸" },
+] as const
+
+export type ProductArchiveBrandKey = (typeof PRODUCT_ARCHIVE_BRANDS)[number]["key"]
