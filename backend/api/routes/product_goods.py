@@ -36,6 +36,7 @@ from domain.product_goods_detail_snapshot_schema import (
     ensure_product_goods_detail_snapshot_tables,
     product_goods_detail_snapshots_table_for_year,
 )
+from domain.gj_schema import GJ_MERGED_PRODUCT_INFO_TABLE
 from domain.schema import PRODUCT_TABLES
 from domain.vip_schema import JST_SIZE_STOCK_TABLE, JST_STOCK_SUMMARY_TABLE
 from domain.daily_sales_schema import jst_daily_sales_table_for_year, vip_daily_sales_table_for_year
@@ -62,6 +63,22 @@ CALCULATED_SNAPSHOT_FORMAT = "product_goods_calculated_snapshot_v1"
 CALCULATED_SNAPSHOT_SOURCE_PATH = "database://product-goods/current"
 CALCULATED_SNAPSHOT_SOURCE_WORKBOOK = "database_calculated_product_goods"
 CALCULATED_SNAPSHOT_SOURCE_SHEET = "goods"
+GJ_PRODUCT_GOODS_BRANDS = frozenset({"cbanner_mens", "cbanner_womens"})
+GJ_PRODUCT_GOODS_FIELDS = (
+    "goods_code",
+    "original_goods_code",
+    "factory_code",
+    "product_name",
+    "execution_standard",
+    "launch_date",
+    "insole_material",
+    "outsole_material",
+    "lining_material",
+    "upper_material",
+    "shoe_box_spec",
+    "primary_supplier",
+    "extra_fields",
+)
 
 
 class ProductGoodsUpdateRequest(BaseModel):
@@ -205,39 +222,83 @@ def _product_goods_filter_condition(
     return normalized.ilike(f"%{escaped_value}%", escape="\\")
 
 
-def _product_goods_filter_columns(product_table, override):
+def _uses_gj_product_goods_source(brand: str, snapshot_date: date | None) -> bool:
+    return snapshot_date is None and brand in GJ_PRODUCT_GOODS_BRANDS
+
+
+def _first_non_empty_expression(*columns):
+    normalized_columns = [
+        func.nullif(func.trim(cast(column, Text)), "")
+        for column in columns
+        if column is not None
+    ]
+    return func.coalesce(*normalized_columns, "")
+
+
+def _product_goods_source_columns(product_table, gj_table=None) -> dict[str, Any]:
+    if gj_table is None:
+        return {
+            "sku": product_table.c.sku,
+            "original_sku": product_table.c.original_sku,
+            "factory_sku": product_table.c.factory_sku,
+            "supplier_name": product_table.c.supplier_name,
+            "year": product_table.c.year,
+            "season_category": product_table.c.season_category,
+            "first_order_time": product_table.c.first_order_time,
+            "color": product_table.c.color,
+        }
+    return {
+        "sku": _first_non_empty_expression(gj_table.c.goods_code, product_table.c.sku),
+        "original_sku": _first_non_empty_expression(
+            gj_table.c.original_goods_code,
+            gj_table.c.goods_code,
+            product_table.c.original_sku,
+            product_table.c.sku,
+        ),
+        "factory_sku": _first_non_empty_expression(gj_table.c.factory_code, product_table.c.factory_sku),
+        "supplier_name": _first_non_empty_expression(gj_table.c.primary_supplier, product_table.c.supplier_name),
+        "year": product_table.c.year,
+        "season_category": product_table.c.season_category,
+        "first_order_time": product_table.c.first_order_time,
+        "color": product_table.c.color,
+    }
+
+
+def _product_goods_filter_columns(product_table, override, *, source_columns: dict[str, Any] | None = None):
+    source = source_columns or _product_goods_source_columns(product_table)
     factory_code_column = (
         select(SUPPLIER_TABLE.c.factory_code)
-        .where(SUPPLIER_TABLE.c.name == product_table.c.supplier_name)
+        .where(SUPPLIER_TABLE.c.name == source["supplier_name"])
         .limit(1)
         .scalar_subquery()
     )
     return {
-        "year": product_table.c.year,
-        "season": product_table.c.season_category,
+        "year": source["year"],
+        "season": source["season_category"],
         "platform": override.c.platform,
         "category_l4": override.c.category_l4,
-        "first_order_date": product_table.c.first_order_time,
-        "factory_sku": product_table.c.factory_sku,
+        "first_order_date": source["first_order_time"],
+        "factory_sku": source["factory_sku"],
         "factory_code": factory_code_column,
-        "factory_name": product_table.c.supplier_name,
-        "style_code": product_table.c.original_sku,
-        "goods_code": product_table.c.sku,
-        "color": product_table.c.color,
+        "factory_name": source["supplier_name"],
+        "style_code": source["original_sku"],
+        "goods_code": source["sku"],
+        "color": source["color"],
         "cost": product_table.c.cost,
         "product_role": override.c.product_role,
-        "product_type": _product_type_column(product_table, override),
+        "product_type": _product_type_column(product_table, override, goods_code=source["sku"]),
         "douyin_hot": override.c.douyin_hot,
         "clearance": override.c.clearance,
         "remark": override.c.remark,
     }
 
 
-def _product_type_column(product_table, override):
+def _product_type_column(product_table, override, *, goods_code=None):
+    product_code = goods_code if goods_code is not None else product_table.c.sku
     return func.coalesce(
         func.nullif(func.trim(override.c.product_type), ""),
         case(
-            (func.upper(func.trim(product_table.c.sku)).like("KT%"), "洞洞鞋"),
+            (func.upper(func.trim(cast(product_code, Text))).like("KT%"), "洞洞鞋"),
             else_=None,
         ),
     )
@@ -258,16 +319,23 @@ def _product_goods_conditions(
     platform: str,
     year: str,
     filters: tuple[ProductGoodsFilter, ...],
+    source_columns: dict[str, Any] | None = None,
 ) -> list:
+    source = source_columns or _product_goods_source_columns(product_table)
     conditions = []
     if query:
         term = f"%{query}%"
-        conditions.append(or_(product_table.c.sku.ilike(term), product_table.c.original_sku.ilike(term), product_table.c.factory_sku.ilike(term), product_table.c.color.ilike(term)))
+        conditions.append(or_(
+            cast(source["sku"], Text).ilike(term),
+            cast(source["original_sku"], Text).ilike(term),
+            cast(source["factory_sku"], Text).ilike(term),
+            cast(source["color"], Text).ilike(term),
+        ))
     if year:
-        conditions.append(product_table.c.year.ilike(f"%{year}%"))
+        conditions.append(cast(source["year"], Text).ilike(f"%{year}%"))
     if platform:
         conditions.append(override.c.platform == platform)
-    columns = _product_goods_filter_columns(product_table, override)
+    columns = _product_goods_filter_columns(product_table, override, source_columns=source)
     grouped_filters: dict[str, list] = defaultdict(list)
     for product_filter in filters:
         grouped_filters[product_filter.field].append(
@@ -360,13 +428,47 @@ def _shortage_risk_product_codes(connection, product_table, *, brand: str) -> se
     return matched_codes
 
 
-def _style_summary_expression(product_table):
-    style_code = func.coalesce(
-        func.nullif(func.trim(cast(product_table.c.original_sku, Text)), ""),
-        func.nullif(func.trim(cast(product_table.c.sku, Text)), ""),
-        "",
-    )
+def _style_summary_expression(product_table, *, source_columns: dict[str, Any] | None = None):
+    source = source_columns or _product_goods_source_columns(product_table)
+    style_code = _first_non_empty_expression(source["original_sku"], source["sku"])
     return func.regexp_replace(style_code, r".{2}$", "")
+
+
+def _gj_product_goods_select_columns():
+    return [
+        GJ_MERGED_PRODUCT_INFO_TABLE.c[field].label(f"_gj_{field}")
+        for field in GJ_PRODUCT_GOODS_FIELDS
+    ]
+
+
+def _merge_gj_product_goods_row(row: dict[str, Any]) -> dict[str, Any]:
+    merged = dict(row)
+
+    def gj_value(field: str) -> Any:
+        value = merged.get(f"_gj_{field}")
+        return value if value not in (None, "") else None
+
+    goods_code = gj_value("goods_code")
+    original_goods_code = gj_value("original_goods_code") or goods_code
+    field_mapping = {
+        "sku": goods_code,
+        "original_sku": original_goods_code,
+        "factory_sku": gj_value("factory_code"),
+        "product_model": gj_value("product_name"),
+        "execution_standard": gj_value("execution_standard"),
+        "launch_date": gj_value("launch_date"),
+        "insole_material": gj_value("insole_material"),
+        "outsole_material": gj_value("outsole_material"),
+        "lining_material": gj_value("lining_material"),
+        "upper_material": gj_value("upper_material"),
+        "shoe_box_spec": gj_value("shoe_box_spec"),
+        "supplier_name": gj_value("primary_supplier"),
+        "extra_fields": gj_value("extra_fields"),
+    }
+    for field, value in field_mapping.items():
+        if value is not None:
+            merged[field] = value
+    return merged
 
 
 def _base_style_code(value: object) -> str:
@@ -1872,7 +1974,7 @@ def list_product_goods_filter_options(
         )
     )
     cache_key = (
-        "filter-options-v1",
+        "filter-options-v2",
         brand,
         field,
         normalized_query,
@@ -1887,34 +1989,62 @@ def list_product_goods_filter_options(
     product_table = PRODUCT_TABLES[brand]
     override = PRODUCT_GOODS_OVERRIDES_TABLE
     repository = request.app.state.repository
-    conditions = _product_goods_conditions(
-        product_table,
-        override,
-        query=normalized_query,
-        platform=normalized_platform,
-        year=normalized_year,
-        filters=other_field_filters,
-    )
-    column = _product_goods_filter_columns(product_table, override)[field]
-    value_expression = func.coalesce(func.trim(cast(column, Text)), "")
-    if normalized_search:
-        escaped_query = normalized_search.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
-        conditions.append(value_expression.ilike(f"%{escaped_query}%", escape="\\"))
-    join = product_table.outerjoin(override, (override.c.brand == brand) & (override.c.product_id == product_table.c.id))
-    statement = (
-        select(
-            value_expression.label("value"),
-            func.count().label("count"),
-            func.count().over().label("total"),
-        )
-        .select_from(join)
-        .where(*conditions)
-        .group_by(value_expression)
-        .order_by(desc(func.count()), value_expression)
-        .limit(10_000)
-    )
-    repository = request.app.state.repository
     with repository.engine.connect() as connection:
+        gj_table = None
+        latest_gj_product_info_date = None
+        if _uses_gj_product_goods_source(brand, None):
+            latest_gj_product_info_date = connection.execute(
+                select(func.max(GJ_MERGED_PRODUCT_INFO_TABLE.c.source_date_value))
+            ).scalar()
+            if latest_gj_product_info_date is not None:
+                gj_table = GJ_MERGED_PRODUCT_INFO_TABLE
+
+        source_columns = _product_goods_source_columns(product_table, gj_table)
+        conditions = _product_goods_conditions(
+            product_table,
+            override,
+            query=normalized_query,
+            platform=normalized_platform,
+            year=normalized_year,
+            filters=other_field_filters,
+            source_columns=source_columns,
+        )
+        if gj_table is not None:
+            conditions.extend([
+                gj_table.c.source_date_value == latest_gj_product_info_date,
+                gj_table.c.fine_table_brand == brand,
+            ])
+            join = gj_table.join(product_table, product_table.c.sku == gj_table.c.goods_code).outerjoin(
+                override,
+                (override.c.brand == brand) & (override.c.product_id == product_table.c.id),
+            )
+        else:
+            join = product_table.outerjoin(
+                override,
+                (override.c.brand == brand) & (override.c.product_id == product_table.c.id),
+            )
+
+        column = _product_goods_filter_columns(
+            product_table,
+            override,
+            source_columns=source_columns,
+        )[field]
+        value_expression = func.coalesce(func.trim(cast(column, Text)), "")
+        if normalized_search:
+            escaped_query = normalized_search.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+            conditions.append(value_expression.ilike(f"%{escaped_query}%", escape="\\"))
+        statement = (
+            select(
+                value_expression.label("value"),
+                func.count().label("count"),
+                func.count().over().label("total"),
+            )
+            .select_from(join)
+            .where(*conditions)
+            .group_by(value_expression)
+            .order_by(desc(func.count()), value_expression)
+            .limit(10_000)
+        )
         rows = connection.execute(statement).mappings().all()
     total = int(rows[0]["total"] or 0) if rows else 0
     payload = {
@@ -1952,74 +2082,110 @@ def list_product_goods(
     normalized_snapshot_date = snapshot_date.isoformat() if snapshot_date else ""
     parsed_filters = _parse_product_goods_filters(filters)
     normalized_filters = tuple(sorted((item.field, item.operator, item.value or "", tuple(sorted(item.values or []))) for item in parsed_filters))
-    cache_key = (brand, view, "style-summary-v2" if view == "style_summary" else "shortage-risk-v2" if view == "shortage_risk" else "", normalized_query, normalized_platform, normalized_year, normalized_filters, normalized_snapshot_date, page, page_size)
+    cache_key = (brand, view, "style-summary-v3" if view == "style_summary" else "shortage-risk-v3" if view == "shortage_risk" else "goods-v2", normalized_query, normalized_platform, normalized_year, normalized_filters, normalized_snapshot_date, page, page_size)
     if not cache_bust:
         cached = get_product_goods_cache(cache_key)
         if cached is not None:
             return cached
     product_table = PRODUCT_TABLES[brand]
     override = PRODUCT_GOODS_OVERRIDES_TABLE
-    conditions = _product_goods_conditions(
-        product_table,
-        override,
-        query=normalized_query,
-        platform=normalized_platform,
-        year=normalized_year,
-        filters=parsed_filters,
-    )
-    if view == "shortage_risk":
-        with repository.engine.connect() as connection:
-            risk_product_codes = _shortage_risk_product_codes(
-                connection,
-                product_table,
-                brand=brand,
-            )
-        conditions.append(
-            product_table.c.sku.in_(risk_product_codes)
-            if risk_product_codes
-            else false()
-        )
-    join = product_table.outerjoin(override, (override.c.brand == brand) & (override.c.product_id == product_table.c.id))
     style_codes: list[str] = []
-    if view == "style_summary":
-        style_expression = _style_summary_expression(product_table)
-        style_statement = select(style_expression.label("style_code")).select_from(join)
-        count_statement = select(func.count(func.distinct(style_expression))).select_from(join)
-        for condition in conditions:
-            style_statement = style_statement.where(condition)
-            count_statement = count_statement.where(condition)
-        style_statement = (
-            style_statement
-            .group_by(style_expression)
-            .order_by(style_expression)
-            .offset((page - 1) * page_size)
-            .limit(page_size)
-        )
-        statement = select(product_table, override).select_from(join)
-        for condition in conditions:
-            statement = statement.where(condition)
-        statement = statement.where(style_expression.in_(select(style_statement.subquery().c.style_code)))
-        statement = statement.order_by(product_table.c.year.desc().nulls_last(), product_table.c.sku)
-    else:
-        statement = select(product_table, override).select_from(join)
-        count_statement = select(func.count()).select_from(join)
-        for condition in conditions:
-            statement = statement.where(condition)
-            count_statement = count_statement.where(condition)
-        statement = statement.order_by(product_table.c.year.desc().nulls_last(), product_table.c.sku).offset((page - 1) * page_size).limit(page_size)
-
     settings = request.app.state.settings
     with repository.engine.connect() as connection:
         snapshot_dates = _product_goods_snapshot_dates(connection, brand=brand)
         if snapshot_date is not None and snapshot_date not in snapshot_dates:
             raise HTTPException(status_code=404, detail=f"未找到 {snapshot_date.isoformat()} 的货品表快照")
+
+        gj_table = None
+        latest_gj_product_info_date = None
+        if _uses_gj_product_goods_source(brand, snapshot_date):
+            latest_gj_product_info_date = connection.execute(
+                select(func.max(GJ_MERGED_PRODUCT_INFO_TABLE.c.source_date_value))
+            ).scalar()
+            if latest_gj_product_info_date is not None:
+                gj_table = GJ_MERGED_PRODUCT_INFO_TABLE
+
+        source_columns = _product_goods_source_columns(product_table, gj_table)
+        conditions = _product_goods_conditions(
+            product_table,
+            override,
+            query=normalized_query,
+            platform=normalized_platform,
+            year=normalized_year,
+            filters=parsed_filters,
+            source_columns=source_columns,
+        )
+        if view == "shortage_risk":
+            risk_product_codes = _shortage_risk_product_codes(
+                connection,
+                product_table,
+                brand=brand,
+            )
+            conditions.append(
+                cast(source_columns["sku"], Text).in_(risk_product_codes)
+                if risk_product_codes
+                else false()
+            )
+
+        if gj_table is not None:
+            conditions.extend([
+                gj_table.c.source_date_value == latest_gj_product_info_date,
+                gj_table.c.fine_table_brand == brand,
+            ])
+            join = gj_table.join(product_table, product_table.c.sku == gj_table.c.goods_code).outerjoin(
+                override,
+                (override.c.brand == brand) & (override.c.product_id == product_table.c.id),
+            )
+            selected_columns = [product_table, override, *_gj_product_goods_select_columns()]
+        else:
+            join = product_table.outerjoin(
+                override,
+                (override.c.brand == brand) & (override.c.product_id == product_table.c.id),
+            )
+            selected_columns = [product_table, override]
+
+        if view == "style_summary":
+            style_expression = _style_summary_expression(product_table, source_columns=source_columns)
+            style_statement = select(style_expression.label("style_code")).select_from(join)
+            count_statement = select(func.count(func.distinct(style_expression))).select_from(join)
+            for condition in conditions:
+                style_statement = style_statement.where(condition)
+                count_statement = count_statement.where(condition)
+            style_statement = (
+                style_statement
+                .group_by(style_expression)
+                .order_by(style_expression)
+                .offset((page - 1) * page_size)
+                .limit(page_size)
+            )
+            statement = select(*selected_columns).select_from(join)
+            for condition in conditions:
+                statement = statement.where(condition)
+            statement = statement.where(style_expression.in_(select(style_statement.subquery().c.style_code)))
+            statement = statement.order_by(
+                cast(source_columns["year"], Text).desc().nulls_last(),
+                cast(source_columns["sku"], Text),
+            )
+        else:
+            statement = select(*selected_columns).select_from(join)
+            count_statement = select(func.count()).select_from(join)
+            for condition in conditions:
+                statement = statement.where(condition)
+                count_statement = count_statement.where(condition)
+            statement = statement.order_by(
+                cast(source_columns["year"], Text).desc().nulls_last(),
+                cast(source_columns["sku"], Text),
+            ).offset((page - 1) * page_size).limit(page_size)
+
         total = int(connection.execute(count_statement).scalar() or 0)
         if view == "style_summary":
             style_codes = [
                 str(item or "").strip()
                 for item in connection.execute(style_statement).scalars()
             ]
-        rows = connection.execute(statement).mappings().all()
+        rows = [dict(row) for row in connection.execute(statement).mappings()]
+        if gj_table is not None:
+            rows = [_merge_gj_product_goods_row(row) for row in rows]
         product_codes = sorted({str(row.get("sku") or "").strip() for row in rows if str(row.get("sku") or "").strip()})
         if snapshot_date is None:
             full_stocks = _current_full_stock_payload(connection, product_codes)

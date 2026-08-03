@@ -2,9 +2,11 @@ from fastapi import HTTPException
 
 from api.routes.product_goods import (
     _base_style_code,
+    _merge_gj_product_goods_row,
     _parse_product_goods_filters,
     _product_type_value,
     _style_summary_item,
+    _uses_gj_product_goods_source,
 )
 
 
@@ -119,3 +121,38 @@ def test_product_type_defaults_kt_goods_codes_to_clogs():
     assert _product_type_value(None, " KT-Q15036A2 ") == "洞洞鞋"
     assert _product_type_value("凉鞋", "KT-Q15036A2") == "凉鞋"
     assert _product_type_value(None, "A6054521D01") is None
+
+
+def test_current_cbanner_product_goods_uses_the_gj_source_only():
+    assert _uses_gj_product_goods_source("cbanner_mens", None)
+    assert _uses_gj_product_goods_source("cbanner_womens", None)
+    assert not _uses_gj_product_goods_source("yandou", None)
+    assert not _uses_gj_product_goods_source("cbanner_mens", object())
+
+
+def test_gj_product_fields_take_priority_without_losing_archive_id():
+    row = {
+        "id": 42,
+        "sku": "ARCHIVE-01",
+        "original_sku": "ARCHIVE-STYLE",
+        "factory_sku": "ARCHIVE-FACTORY",
+        "supplier_name": "档案供应商",
+        "upper_material": "档案材质",
+        "extra_fields": {"archive": True},
+        "_gj_goods_code": "GJ-01",
+        "_gj_original_goods_code": "GJ-STYLE",
+        "_gj_factory_code": "GJ-FACTORY",
+        "_gj_primary_supplier": "管家婆供应商",
+        "_gj_upper_material": "管家婆材质",
+        "_gj_extra_fields": {"gj": True},
+    }
+
+    merged = _merge_gj_product_goods_row(row)
+
+    assert merged["id"] == 42
+    assert merged["sku"] == "GJ-01"
+    assert merged["original_sku"] == "GJ-STYLE"
+    assert merged["factory_sku"] == "GJ-FACTORY"
+    assert merged["supplier_name"] == "管家婆供应商"
+    assert merged["upper_material"] == "管家婆材质"
+    assert merged["extra_fields"] == {"gj": True}
