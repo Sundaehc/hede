@@ -144,16 +144,22 @@
 
 批次表：`fine_table_snapshot_batches`
 
-按年分表：
+去重载荷表：
 
-- `fine_table_snapshot_rows_2024`
-- `fine_table_snapshot_rows_2025`
-- `fine_table_snapshot_rows_2026`
+- `fine_table_snapshot_payloads`：不随日期频繁变化的商品基础资料。
+- `fine_table_snapshot_metrics`：销量、库存、价格等动态经营指标。
+
+按年引用表：
+
+- `fine_table_snapshot_refs_2024`
+- `fine_table_snapshot_refs_2025`
+- `fine_table_snapshot_refs_2026`
 
 用途：
 
 - 保存精细表每日/定期快照。
 - 用于历史追溯、按日期查看精细表。
+- 通过稳定载荷和动态指标去重，降低快照存储量。
 
 批次表核心字段：
 
@@ -162,25 +168,28 @@
 - `total_rows`
 - `latest_order_date`
 
-行表核心字段：
+引用表核心字段：
 
 - `batch_id`
 - `sku`
 - `original_sku`
 - `row_index`
-- `payload`
+- `payload_id`
+- `metrics_id`
 
 主要约束和索引：
 
 - 批次表：`UNIQUE(brand, snapshot_date)`
-- 行表：`UNIQUE(batch_id, row_index)`
-- 行表按 `batch_id + sku`、`batch_id + original_sku` 建索引
+- 引用表：`UNIQUE(batch_id, row_index)`
+- 引用表按 `batch_id + sku`、`batch_id + original_sku` 建索引
 - `sku`、`original_sku` 建 trigram 索引用于模糊搜索
+- 去重载荷表按 `brand + content_hash` 唯一约束去重
 
 规范：
 
-- 新年份快照行表按 `fine_table_snapshot_rows_YYYY` 命名。
-- 快照行内容应以 `payload` 保存完整结果，避免历史展示受后续字段变更影响。
+- 新年份引用表按 `fine_table_snapshot_refs_YYYY` 命名。
+- 历史查询由 `v_fine_table_snapshot_rows` 兼容视图或快照接口拼装完整行。
+- 旧表 `fine_table_snapshot_rows` 及旧按年行表已退役，不再创建或读取。
 
 ### 2.4 笑脸精细表
 

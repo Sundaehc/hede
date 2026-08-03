@@ -187,29 +187,9 @@ def ensure_fine_table_snapshot_ref_table(engine, snapshot_date: date) -> Table:
 
 
 def refresh_fine_table_snapshot_compatibility_view(engine) -> None:
-    if partition_parent_exists(engine, FINE_TABLE_SNAPSHOT_PARENT_NAME):
-        _replace_fine_snapshot_view(
-            engine,
-            f"""
-            SELECT
-                batches.brand,
-                batches.snapshot_date,
-                rows.id,
-                rows.batch_id,
-                rows.sku,
-                rows.original_sku,
-                rows.row_index,
-                rows.payload,
-                rows.created_at
-            FROM public.{FINE_TABLE_SNAPSHOT_PARENT_NAME} AS rows
-            JOIN public.fine_table_snapshot_batches AS batches ON batches.id = rows.batch_id
-            """,
-        )
-        return
-
     table_names: list[tuple[int, str]] = []
     for table_name in inspect(engine).get_table_names():
-        matched = _FINE_TABLE_SNAPSHOT_YEAR_TABLE_PATTERN.fullmatch(table_name)
+        matched = _FINE_TABLE_SNAPSHOT_REF_YEAR_TABLE_PATTERN.fullmatch(table_name)
         if matched:
             table_names.append((int(matched.group(1)), table_name))
     if not table_names:
@@ -222,15 +202,17 @@ def refresh_fine_table_snapshot_compatibility_view(engine) -> None:
             SELECT
                 batches.brand,
                 batches.snapshot_date,
-                rows.id,
-                rows.batch_id,
-                rows.sku,
-                rows.original_sku,
-                rows.row_index,
-                rows.payload,
-                rows.created_at
-            FROM public.{table_name} AS rows
-            JOIN public.fine_table_snapshot_batches AS batches ON batches.id = rows.batch_id
+                refs.id,
+                refs.batch_id,
+                refs.sku,
+                refs.original_sku,
+                refs.row_index,
+                (payloads.payload || metrics.payload)::json AS payload,
+                refs.created_at
+            FROM public.{table_name} AS refs
+            JOIN public.fine_table_snapshot_batches AS batches ON batches.id = refs.batch_id
+            JOIN public.fine_table_snapshot_payloads AS payloads ON payloads.id = refs.payload_id
+            JOIN public.fine_table_snapshot_metrics AS metrics ON metrics.id = refs.metrics_id
             WHERE batches.snapshot_date >= DATE '{year:04d}-01-01'
               AND batches.snapshot_date < DATE '{year + 1:04d}-01-01'
             """
