@@ -1224,7 +1224,7 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
   })()
   const counterpartySearchOptions = isPurchaseOrderTab ? supplierSelectOptions : counterpartyFilterOptions
   const formCounterpartyHierarchicalOptions = isFormTransfer ? warehouseHierarchicalOptions : (isFormWholesale || isFormReceivable) ? customerHierarchicalOptions : supplierHierarchicalOptions
-  const importCounterpartyOptions = isImportTransfer ? warehouseSelectOptions : isImportWholesale ? customerCounterpartySelectOptions : supplierSelectOptions
+  const importCounterpartyHierarchicalOptions = isImportTransfer ? warehouseHierarchicalOptions : isImportWholesale ? customerHierarchicalOptions : supplierHierarchicalOptions
   const documentTypeOptions = INVENTORY_DOCUMENT_TYPES
   const detailImportDocumentTypeOptions = DETAIL_IMPORT_DOCUMENT_TYPES
   const currentRequirementContent = requirementDrafts[selectedRequirementBrand] ?? ""
@@ -1846,23 +1846,23 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
                 {!isImportStockAdjustment && (
                   <div className="space-y-1.5">
                     <Label>{isImportTransfer ? "出货仓库" : isImportWholesale ? "收货客户" : "供货单位"}</Label>
-                    <SearchableSelect
+                    <HierarchicalSelect
                       value={importFormData.supplier}
-                      options={importCounterpartyOptions}
+                      options={importCounterpartyHierarchicalOptions}
                       onChange={(nextValue) => setImportFormData((prev) => ({ ...prev, supplier: nextValue }))}
                       onTouched={() => setImportError("")}
-                      placeholder={isImportTransfer ? "搜索出货仓库" : isImportWholesale ? "搜索收货客户" : "搜索供货单位"}
+                      placeholder={isImportTransfer ? "选择品牌后选出货仓库" : isImportWholesale ? "选择品牌后选收货客户" : "选择品牌后选供货单位"}
                     />
                   </div>
                 )}
                 <div className="space-y-1.5">
                   <Label>{isImportStockAdjustment ? "仓库" : isImportTransfer ? "入货仓库" : isImportWholesale ? "发货仓库" : "收货仓库"}</Label>
-                  <SearchableSelect
+                  <HierarchicalSelect
                     value={importFormData.warehouse}
-                    options={warehouseSelectOptions}
+                    options={warehouseHierarchicalOptions}
                     onChange={(nextValue) => setImportFormData((prev) => ({ ...prev, warehouse: nextValue }))}
                     onTouched={() => setImportError("")}
-                    placeholder={isImportStockAdjustment ? "搜索仓库" : isImportTransfer ? "搜索入货仓库" : isImportWholesale ? "搜索发货仓库" : "搜索收货仓库"}
+                    placeholder={isImportStockAdjustment ? "选择品牌后选仓库" : isImportTransfer ? "选择品牌后选入货仓库" : isImportWholesale ? "选择品牌后选发货仓库" : "选择品牌后选收货仓库"}
                   />
                 </div>
                 <div className="space-y-1.5">
