@@ -117,6 +117,7 @@ PURCHASE_IMPORT_DOC_FIELD_ALIASES = {
     "delivery_date": {"协议到货日期", "交货日期", "到货日期", "要求交货日期"},
     "warehouse": {"收货仓库", "仓库", "入货仓库"},
     "handler": {"经办人", "经手人"},
+    "additional_note": {"附加说明"},
 }
 PURCHASE_ORDER_IMPORT_REQUIRED_DOC_FIELDS = ("supplier", "summary", "date", "delivery_date", "warehouse", "handler")
 PURCHASE_ORDER_IMPORT_FIELD_LABELS = {
@@ -128,7 +129,6 @@ PURCHASE_ORDER_IMPORT_FIELD_LABELS = {
     "handler": "经办人",
 }
 PURCHASE_ORDER_IMPORT_CODE_HEADERS = {"商品编码", "货品编码", "商品编号", "商品货号", "货号"}
-PURCHASE_DETAIL_REMARK_HEADERS = {"附加说明", "商品备注", "明细备注", "备注"}
 PURCHASE_DETAIL_REMARK_LIMIT = 20
 PURCHASE_PRODUCTION_ORDER_EXPORT_MODE = "production_order"
 PURCHASE_EXPORT_MODES = {"summary", "size_rows", PURCHASE_PRODUCTION_ORDER_EXPORT_MODE}
@@ -558,6 +558,7 @@ def _purchase_record_export_context(
         "document_type": _cell_text(record.get("document_type")),
         "document_number": _first_text(record.get("document_number"), record.get("id")),
         "summary": _cell_text(record.get("summary")),
+        "additional_note": _cell_text(record.get("additional_note")),
         "brand": brand,
         "date": _cell_text(record.get("date")),
         "delivery_date": _first_text(extra_fields.get("delivery_date"), extra_fields.get("到货日期")),
@@ -597,7 +598,6 @@ def _append_purchase_summary_export(
                 "original_code": _first_text(detail_extra_fields.get("image_code"), product_code),
                 "factory_code": _cell_text(detail_extra_fields.get("factory_code")),
                 "product_name": _first_text(detail.get("product_name"), product_code),
-                "detail_remark": _cell_text(detail.get("remark")),
                 "size_quantities": defaultdict(Decimal),
                 "quantity": Decimal("0"),
                 "amount": Decimal("0"),
@@ -613,8 +613,6 @@ def _append_purchase_summary_export(
         detail_extra_fields = _dict_or_empty(detail.get("extra_fields"))
         if not group["factory_code"]:
             group["factory_code"] = _cell_text(detail_extra_fields.get("factory_code"))
-        if not group["detail_remark"]:
-            group["detail_remark"] = _cell_text(detail.get("remark"))
         size_quantities = _dict_or_empty(detail.get("size_quantities"))
         quantity = _purchase_detail_quantity(detail, size_quantities)
         amount = _purchase_detail_amount(detail, quantity)
@@ -667,7 +665,7 @@ def _append_purchase_summary_export(
             group["product_name"],
             record_context["document_number"],
             record_context["summary"],
-            group["detail_remark"],
+            record_context["additional_note"],
             record_context["date"],
             record_context["delivery_date"],
             record_context["warehouse_name"],
@@ -1308,7 +1306,6 @@ def _read_purchase_import_rows(content: bytes) -> tuple[list[dict[str, object]],
         code_index = None
         qty_index = None
         unit_price_index = None
-        remark_index = None
         size_indexes: dict[int, str] = {}
         extra_indexes: dict[int, str] = {}
         doc_field_indexes: dict[int, str] = {}
@@ -1318,7 +1315,6 @@ def _read_purchase_import_rows(content: bytes) -> tuple[list[dict[str, object]],
             code_index = next((index for index, value in enumerate(headers) if value in PURCHASE_ORDER_IMPORT_CODE_HEADERS), None)
             qty_index = next((index for index, value in enumerate(headers) if value == "数量"), None)
             unit_price_index = next((index for index, value in enumerate(headers) if value == "单价"), None)
-            remark_index = next((index for index, value in enumerate(headers) if value in PURCHASE_DETAIL_REMARK_HEADERS), None)
             doc_field_indexes = _purchase_import_doc_field_indexes(headers)
             extra_indexes = {
                 index: key
@@ -1345,9 +1341,7 @@ def _read_purchase_import_rows(content: bytes) -> tuple[list[dict[str, object]],
             product_code = _cell_text(row[code_index] if code_index < len(row) else None)
             quantity = _cell_text(row[qty_index] if qty_index is not None and qty_index < len(row) else None)
             unit_price = _cell_text(row[unit_price_index] if unit_price_index is not None and unit_price_index < len(row) else None)
-            remark = _cell_text(row[remark_index] if remark_index is not None and remark_index < len(row) else None)
-            if len(remark) > PURCHASE_DETAIL_REMARK_LIMIT:
-                raise HTTPException(status_code=400, detail=f"商品备注最多 {PURCHASE_DETAIL_REMARK_LIMIT} 个字")
+            remark = ""
             size_quantities = {
                 size: _cell_text(row[index] if index < len(row) else None)
                 for index, size in size_indexes.items()
@@ -1393,7 +1387,6 @@ def _read_purchase_import_rows_xls(content: bytes) -> tuple[list[dict[str, objec
     code_index = None
     qty_index = None
     unit_price_index = None
-    remark_index = None
     size_indexes: dict[int, str] = {}
     extra_indexes: dict[int, str] = {}
     doc_field_indexes: dict[int, str] = {}
@@ -1403,7 +1396,6 @@ def _read_purchase_import_rows_xls(content: bytes) -> tuple[list[dict[str, objec
         code_index = next((index for index, value in enumerate(headers) if value in PURCHASE_ORDER_IMPORT_CODE_HEADERS), None)
         qty_index = next((index for index, value in enumerate(headers) if value == "数量"), None)
         unit_price_index = next((index for index, value in enumerate(headers) if value == "单价"), None)
-        remark_index = next((index for index, value in enumerate(headers) if value in PURCHASE_DETAIL_REMARK_HEADERS), None)
         doc_field_indexes = _purchase_import_doc_field_indexes(headers)
         extra_indexes = {
             index: key
@@ -1429,9 +1421,7 @@ def _read_purchase_import_rows_xls(content: bytes) -> tuple[list[dict[str, objec
         product_code = _cell_text(values[code_index] if code_index < len(values) else None)
         quantity = _cell_text(values[qty_index] if qty_index is not None and qty_index < len(values) else None)
         unit_price = _cell_text(values[unit_price_index] if unit_price_index is not None and unit_price_index < len(values) else None)
-        remark = _cell_text(values[remark_index] if remark_index is not None and remark_index < len(values) else None)
-        if len(remark) > PURCHASE_DETAIL_REMARK_LIMIT:
-            raise HTTPException(status_code=400, detail=f"商品备注最多 {PURCHASE_DETAIL_REMARK_LIMIT} 个字")
+        remark = ""
         size_quantities = {
             size: _cell_text(values[index] if index < len(values) else None)
             for index, size in size_indexes.items()
@@ -2711,6 +2701,7 @@ async def import_purchase_inventory(request: Request, file: UploadFile = None):
         group_supplier = _cell_text(fields.get("supplier")) if is_purchase_order_import else _first_text(fields.get("supplier"), supplier)
         group_warehouse = _cell_text(fields.get("warehouse")) if is_purchase_order_import else _first_text(fields.get("warehouse"), warehouse)
         group_handler = _cell_text(fields.get("handler")) if is_purchase_order_import else _first_text(fields.get("handler"), handler)
+        group_additional_note = _cell_text(fields.get("additional_note")) if is_purchase_order_import else ""
         group_date = (
             _normalize_date(fields.get("date"))
             if is_purchase_order_import
@@ -2752,6 +2743,7 @@ async def import_purchase_inventory(request: Request, file: UploadFile = None):
             "supplier": group_supplier,
             "warehouse": group_warehouse,
             "handler": group_handler,
+            "additional_note": group_additional_note,
             "date": group_date,
             "delivery_date": group_delivery_date,
             "brand": group_brand,
@@ -2800,6 +2792,7 @@ async def import_purchase_inventory(request: Request, file: UploadFile = None):
             "document_type": document_type,
             "handler": plan["handler"],
             "summary": plan["summary"],
+            "additional_note": plan["additional_note"],
             "total_count": _fmt_decimal(total_count),
             "amount": _fmt_decimal(total_amount) if total_amount else None,
             "source_workbook": file.filename or "",

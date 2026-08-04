@@ -18,7 +18,7 @@ from api.routes.inventory import (
 def _sample_purchase_workbook() -> bytes:
     workbook = Workbook()
     worksheet = workbook.active
-    worksheet.append(["供应商", "商品编码", "数量", "采购单备注", "采购日期", "协议到货日期", "收货仓库", "经办人", "商品备注"])
+    worksheet.append(["供应商", "商品编码", "数量", "采购单备注", "采购日期", "协议到货日期", "收货仓库", "经办人", "附加说明"])
     worksheet.append([
         "友宝保罗（千百度）",
         "C5563406D8080240",
@@ -28,7 +28,7 @@ def _sample_purchase_workbook() -> bytes:
         "2026/7/15",
         "赫德仙岩仓",
         "陈希华",
-        "首批",
+        "工厂需确认交期",
     ])
     worksheet.append([
         "友宝保罗（千百度）",
@@ -80,10 +80,12 @@ def test_purchase_import_rows_include_document_fields_and_group_by_summary() -> 
     assert rows[0]["warehouse"] == "赫德仙岩仓"
     assert rows[0]["handler"] == "陈希华"
     assert rows[0]["summary"] == "26.06.29友宝保罗（千百度）新款下单160双 未打"
-    assert rows[0]["remark"] == "首批"
+    assert rows[0]["remark"] == ""
+    assert rows[0]["additional_note"] == "工厂需确认交期"
 
     assert len(groups) == 1
     assert groups[0]["fields"]["summary"] == "26.06.29友宝保罗（千百度）新款下单160双 未打"
+    assert groups[0]["fields"]["additional_note"] == "工厂需确认交期"
     assert len(groups[0]["rows"]) == 2
 
 

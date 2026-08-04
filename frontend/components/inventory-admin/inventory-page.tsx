@@ -143,6 +143,15 @@ const EMPTY_IMPORT_FORM: Record<string, string> = {
   summary: "",
 }
 
+type InventoryEntryDefaults = Pick<Record<string, string>, "date" | "document_type" | "warehouse" | "handler">
+
+const EMPTY_INVENTORY_ENTRY_DEFAULTS: InventoryEntryDefaults = {
+  date: "",
+  document_type: "",
+  warehouse: "",
+  handler: "",
+}
+
 const EMPTY_COST_FORM: Record<string, string> = {
   date_start: "",
   date_end: "",
@@ -526,6 +535,7 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
   const [formOpen, setFormOpen] = useState(false)
   const [formMode, setFormMode] = useState<"create" | "edit">("create")
   const [formData, setFormData] = useState<Record<string, string>>({ ...EMPTY_FORM })
+  const [lastInventoryEntryDefaults, setLastInventoryEntryDefaults] = useState<InventoryEntryDefaults>(EMPTY_INVENTORY_ENTRY_DEFAULTS)
   const [editingId, setEditingId] = useState<number | null>(null)
   const [isSaving, setIsSaving] = useState(false)
 
@@ -707,8 +717,10 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
     setFormMode("create")
     setFormData({
       ...EMPTY_FORM,
-      date: todayInputValue(),
-      document_type: isPurchaseOrderTab ? PURCHASE_ORDER_DOCUMENT_TYPE : "",
+      date: isPurchasePage ? todayInputValue() : (lastInventoryEntryDefaults.date || todayInputValue()),
+      document_type: isPurchasePage ? PURCHASE_ORDER_DOCUMENT_TYPE : lastInventoryEntryDefaults.document_type,
+      warehouse: isPurchasePage ? "" : lastInventoryEntryDefaults.warehouse,
+      handler: isPurchasePage ? "" : lastInventoryEntryDefaults.handler,
     })
     setEditingId(null)
     void listInventoryAccountSubjects()
@@ -725,9 +737,10 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
     if (fileInputRef.current) fileInputRef.current.value = ""
     setImportFormData((prev) => ({
       ...EMPTY_IMPORT_FORM,
-      date: todayInputValue(),
-      document_type: isPurchaseOrderTab ? PURCHASE_ORDER_DOCUMENT_TYPE : "",
-      handler: prev.handler || "",
+      date: isPurchasePage ? todayInputValue() : (lastInventoryEntryDefaults.date || todayInputValue()),
+      document_type: isPurchasePage ? PURCHASE_ORDER_DOCUMENT_TYPE : lastInventoryEntryDefaults.document_type,
+      warehouse: isPurchasePage ? "" : lastInventoryEntryDefaults.warehouse,
+      handler: isPurchasePage ? prev.handler || "" : lastInventoryEntryDefaults.handler,
     }))
     setImportDialogOpen(true)
   }
@@ -779,6 +792,14 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
         }
       } else if (editingId !== null) {
         await updateInventoryRecord(editingId, payload)
+      }
+      if (!isPurchasePage && formMode === "create") {
+        setLastInventoryEntryDefaults({
+          date: formData.date || todayInputValue(),
+          document_type: formData.document_type || "",
+          warehouse: formData.warehouse || "",
+          handler: formData.handler || "",
+        })
       }
       setFormOpen(false)
       setReloadToken((t) => t + 1)
@@ -957,6 +978,14 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
         return
       }
       showMessage("导入完成", result.message)
+      if (!isPurchasePage) {
+        setLastInventoryEntryDefaults({
+          date: importFormData.date || todayInputValue(),
+          document_type: importFormData.document_type || "",
+          warehouse: importFormData.warehouse || "",
+          handler: importFormData.handler || "",
+        })
+      }
       setImportDialogOpen(false)
       setImportFile(null)
       setImportOverwriteConfirmOpen(false)

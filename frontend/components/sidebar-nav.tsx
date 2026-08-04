@@ -130,6 +130,7 @@ export function SidebarNav() {
   const { hasPermission, logout, user } = useAuth()
   const canAccessProductGoods = user?.role_code === "super_admin" || ["商品部", "开发部", "运营部"].includes(user?.department_code ?? "")
   const canAccessSizeGroups = user?.role_code === "super_admin" || ["商品部", "开发部"].includes(user?.department_code ?? "")
+  const isProductDepartment = user?.role_code !== "super_admin" && user?.department_code === "商品部"
   const userName = user?.display_name || user?.username || "未登录用户"
   const userInitial = userName.trim().slice(0, 1).toUpperCase() || "U"
   const visibleGroups = NAV_ITEMS.map((group) => ({
@@ -138,6 +139,7 @@ export function SidebarNav() {
       hasPermission(item.permission)
       && (!["/product-goods", "/factory-channel-dashboard"].includes(item.href) || canAccessProductGoods)
       && (item.href !== "/size-groups" || canAccessSizeGroups)
+      && (!isProductDepartment || !["/inventory", "/inventory-purchase-details", "/warehouses", "/general-customer-shops", "/account-subjects"].includes(item.href))
     )),
   })).filter((group) => group.items.length > 0)
 
