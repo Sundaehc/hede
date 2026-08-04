@@ -14,6 +14,7 @@ from datetime import date, datetime, time as day_time, timedelta
 from pathlib import Path
 
 from config import load_settings
+from storage.product_repository import ProductRepository
 from storage.task_status_repository import ScheduledTaskStatusRepository
 from storage.vip_repository import VipRepository
 
@@ -223,6 +224,14 @@ def main() -> int:
         sleep_seconds = min(max(args.retry_interval_seconds, 1), max(int((retry_until - datetime.now()).total_seconds()), 1))
         print(f"[RETRY] target date not ready, sleep {sleep_seconds}s")
         time.sleep(sleep_seconds)
+
+    if exit_code == 0:
+        cost_result = ProductRepository(cfg.database_url).sync_costs_from_latest_combined_footwear_price()
+        print(
+            "[PRODUCT COST] "
+            f"source={cost_result['source']} updated={cost_result['updated']} "
+            f"brands={cost_result['brands']}"
+        )
 
     return exit_code
 

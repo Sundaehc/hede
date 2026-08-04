@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+from datetime import date
 from decimal import Decimal
 
 import pytest
 
+from domain.vip_schema import JST_PRICE_TABLE
 from storage.product_repository import ProductRepository
 from transform.rows import build_admin_record
 
@@ -94,6 +96,58 @@ def test_get_product_returns_row_or_none(repository: ProductRepository):
 
     assert repository.get_product("yandou", created["id"]) == created
     assert repository.get_product("yandou", created["id"] + 1) is None
+
+
+def test_sync_costs_uses_latest_combined_footwear_price(repository: ProductRepository):
+    product = repository.create_product(
+        "cbanner_mens",
+        build_admin_record(
+            "cbanner_mens",
+            {"sku": "COST-001", "original_sku": "COST-001", "cost": "30.00"},
+        ),
+    )
+    with repository.engine.begin() as connection:
+        connection.execute(
+            JST_PRICE_TABLE.insert(),
+            [
+                {
+                    "source_date": "2026-08-01",
+                    "source_date_value": date(2026, 8, 1),
+                    "source_workbook": "男女鞋合并物价信息",
+                    "source_sheet": "Sheet1",
+                    "source_row_number": "5",
+                    "goods_code": "COST-001",
+                    "goods_full_name": "测试商品",
+                    "cost_unit_price": Decimal("31.00"),
+                },
+                {
+                    "source_date": "2026-08-04",
+                    "source_date_value": date(2026, 8, 4),
+                    "source_workbook": "男女鞋合并物价信息",
+                    "source_sheet": "Sheet1",
+                    "source_row_number": "5",
+                    "goods_code": "COST-001",
+                    "goods_full_name": "测试商品",
+                    "cost_unit_price": Decimal("32.50"),
+                },
+                {
+                    "source_date": "2026-08-05",
+                    "source_date_value": date(2026, 8, 5),
+                    "source_workbook": "男鞋物价信息",
+                    "source_sheet": "Sheet1",
+                    "source_row_number": "5",
+                    "goods_code": "COST-001",
+                    "goods_full_name": "测试商品",
+                    "cost_unit_price": Decimal("99.00"),
+                },
+            ],
+        )
+
+    result = repository.sync_costs_from_latest_combined_footwear_price()
+
+    assert result["updated"] == 1
+    assert result["brands"]["cbanner_mens"] == {"matched": 1, "updated": 1}
+    assert repository.get_product("cbanner_mens", product["id"])["cost"] == Decimal("32.50")
 
 
 def test_create_product_persists_and_returns_created_row(repository: ProductRepository):

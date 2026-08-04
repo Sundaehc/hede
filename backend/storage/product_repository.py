@@ -27,6 +27,7 @@ PRODUCT_COLOR_BARCODE_SOURCE_BRANDS = {
     "yandou": "cbanner_mens",
     "eblan": "cbanner_mens",
 }
+COMBINED_FOOTWEAR_PRICE_SOURCE_MARKER = "男女鞋合并物价"
 
 
 def _normalize_code(value: object) -> str:
@@ -59,11 +60,11 @@ def _unique_color_codes(rows: list[Mapping[str, object]]) -> dict[str, str]:
     }
 
 
-def _load_jst_product_costs(engine, codes: set[str]) -> dict[str, object | None]:
+def _load_jst_product_costs(engine, codes: set[str]) -> dict[str, object]:
     if not codes:
         return {}
 
-    costs: dict[str, object | None] = {}
+    costs: dict[str, object] = {}
     with engine.connect() as connection:
         for chunk in _chunk_codes(codes):
             statement = (
@@ -72,6 +73,8 @@ def _load_jst_product_costs(engine, codes: set[str]) -> dict[str, object | None]
                     JST_PRICE_TABLE.c.cost_unit_price,
                 )
                 .where(JST_PRICE_TABLE.c.goods_code.in_(chunk))
+                .where(JST_PRICE_TABLE.c.source_workbook.ilike(f"%{COMBINED_FOOTWEAR_PRICE_SOURCE_MARKER}%"))
+                .where(JST_PRICE_TABLE.c.cost_unit_price.isnot(None))
                 .order_by(
                     JST_PRICE_TABLE.c.goods_code,
                     JST_PRICE_TABLE.c.source_date_value.desc().nulls_last(),
@@ -83,10 +86,7 @@ def _load_jst_product_costs(engine, codes: set[str]) -> dict[str, object | None]
                 code = _normalize_code(row.get("goods_code"))
                 if not code or code in costs:
                     continue
-                cost = row.get("cost_unit_price")
-                if isinstance(cost, str) and not cost.strip():
-                    cost = None
-                costs[code] = cost
+                costs[code] = row["cost_unit_price"]
     return costs
 
 
@@ -111,6 +111,15 @@ def apply_jst_product_costs(engine, items: list[dict[str, object]]) -> list[dict
     return items
 
 
+def _same_cost(left: object, right: object) -> bool:
+    if left is None or right is None:
+        return left is right
+    try:
+        return Decimal(str(left)) == Decimal(str(right))
+    except (ArithmeticError, ValueError):
+        return left == right
+
+
 class ProductRepository:
     def __init__(self, database_url: str):
         self.engine = create_engine(
@@ -131,6 +140,60 @@ class ProductRepository:
                     f"CREATE INDEX IF NOT EXISTS idx_{table.name}_last_imported_at "
                     f"ON {table.name} (last_imported_at)"
                 ))
+
+    def sync_costs_from_latest_combined_footwear_price(self) -> dict[str, object]:
+        """Persist latest 男女鞋合并物价信息成本单价 into product archives."""
+        rows_by_brand: dict[str, list[dict[str, object]]] = {}
+        codes: set[str] = set()
+        with self.engine.connect() as connection:
+            for brand, table in PRODUCT_TABLES.items():
+                rows = [
+                    dict(row)
+                    for row in connection.execute(
+                        select(table.c.id, table.c.sku, table.c.original_sku, table.c.cost)
+                    ).mappings()
+                ]
+                rows_by_brand[brand] = rows
+                for row in rows:
+                    for code in (_normalize_code(row.get("sku")), _normalize_code(row.get("original_sku"))):
+                        if code:
+                            codes.add(code)
+
+        source_costs = _load_jst_product_costs(self.engine, codes)
+        summary: dict[str, dict[str, int]] = {}
+        with self.engine.begin() as connection:
+            for brand, rows in rows_by_brand.items():
+                updates: list[dict[str, object]] = []
+                matched = 0
+                for row in rows:
+                    sku = _normalize_code(row.get("sku"))
+                    original_sku = _normalize_code(row.get("original_sku"))
+                    cost = source_costs.get(sku)
+                    if cost is None:
+                        cost = source_costs.get(original_sku)
+                    if cost is None:
+                        continue
+                    matched += 1
+                    if not _same_cost(row.get("cost"), cost):
+                        updates.append({"product_id": row["id"], "new_cost": cost})
+
+                if updates:
+                    connection.execute(
+                        update(PRODUCT_TABLES[brand])
+                        .where(PRODUCT_TABLES[brand].c.id == bindparam("product_id"))
+                        .values(cost=bindparam("new_cost")),
+                        updates,
+                    )
+                summary[brand] = {
+                    "matched": matched,
+                    "updated": len(updates),
+                }
+
+        return {
+            "source": COMBINED_FOOTWEAR_PRICE_SOURCE_MARKER,
+            "updated": sum(item["updated"] for item in summary.values()),
+            "brands": summary,
+        }
 
     def _color_codes_for_brand(self, brand: str) -> dict[str, str]:
         source_brand = PRODUCT_COLOR_BARCODE_SOURCE_BRANDS.get(brand)
