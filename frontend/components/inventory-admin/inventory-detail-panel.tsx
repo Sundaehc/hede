@@ -678,7 +678,7 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
                   onClick={() => replaceInputRef.current?.click()}
                   disabled={isReplacing}
                   className="cursor-pointer"
-                  title="用 Excel 重新导入并覆盖当前单据明细"
+                  title="用 Excel 重新导入当前单据明细，不会删除未包含的原明细"
                 >
                   <Upload className="h-4 w-4" />
                   <span className="ml-1.5">重新导入明细</span>
@@ -1280,10 +1280,9 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
 
       <ConfirmDialog
         open={replaceFile !== null}
-        title="确认覆盖明细"
-        description={`确定用 ${replaceFile?.name || "这个 Excel"} 覆盖当前单据的全部明细？原明细会先删除，再写入新 Excel 解析出的明细。`}
-        confirmLabel={isReplacing ? "导入中..." : "覆盖导入"}
-        variant="destructive"
+        title="确认重新导入明细"
+        description={`确定导入 ${replaceFile?.name || "这个 Excel"}？同款色明细会更新，不在 Excel 中的原明细会保留。`}
+        confirmLabel={isReplacing ? "导入中..." : "确认导入"}
         onConfirm={handleReplaceImport}
         onCancel={() => {
           if (isReplacing) return

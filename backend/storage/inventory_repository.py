@@ -1136,6 +1136,77 @@ class InventoryRepository:
             return 0
         return result.rowcount if result.rowcount and result.rowcount > 0 else len(payload)
 
+    def merge_imported_details(self, document_id: object, rows: list[Mapping[str, object]]) -> dict[str, int]:
+        """Merge Excel-imported details without removing existing detail rows.
+
+        The import parser has already grouped rows by product and color.  Matching
+        rows refresh the corresponding detail, while rows absent from the workbook
+        remain untouched so re-importing a partial workbook cannot remove them.
+        """
+        table = INVENTORY_DETAIL_TABLE
+        payloads = []
+        for row in rows:
+            payload = self._filter_table_payload(table, self._coerce_empty(row))
+            payload["document_id"] = document_id
+            payloads.append(payload)
+
+        def match_key(row: Mapping[str, object]) -> tuple[str, str]:
+            product_code = str(row.get("product_code") or "").strip()
+            color_key = str(
+                row.get("color_barcode")
+                or row.get("color_name")
+                or row.get("color_spec")
+                or ""
+            ).strip()
+            return product_code, color_key
+
+        added = 0
+        updated = 0
+        with self.engine.begin() as connection:
+            existing_rows = connection.execute(
+                select(table).where(table.c.document_id == document_id).order_by(table.c.id)
+            ).mappings()
+            existing_by_key: dict[tuple[str, str], int] = {}
+            existing_by_product: dict[str, list[int]] = {}
+            for existing in existing_rows:
+                existing_id = int(existing["id"])
+                key = match_key(existing)
+                existing_by_key.setdefault(key, existing_id)
+                if key[0]:
+                    existing_by_product.setdefault(key[0], []).append(existing_id)
+
+            for payload in payloads:
+                key = match_key(payload)
+                existing_id = existing_by_key.get(key)
+                # A blank color can safely match only when the document has one
+                # existing row for that product code.
+                if existing_id is None and not key[1]:
+                    candidates = existing_by_product.get(key[0], [])
+                    if len(candidates) == 1:
+                        existing_id = candidates[0]
+
+                if existing_id is None:
+                    existing_id = int(
+                        connection.execute(
+                            insert(table).values(**payload).returning(table.c.id)
+                        ).scalar_one()
+                    )
+                    added += 1
+                    existing_by_key.setdefault(key, existing_id)
+                    if key[0]:
+                        existing_by_product.setdefault(key[0], []).append(existing_id)
+                    continue
+
+                update_payload = dict(payload)
+                update_payload.pop("document_id", None)
+                connection.execute(
+                    update(table).where(table.c.id == existing_id).values(**update_payload)
+                )
+                updated += 1
+
+        self.recalculate_totals(document_id)
+        return {"added": added, "updated": updated, "total": len(payloads)}
+
     def update_detail(self, detail_id: int, data: Mapping[str, object]) -> dict[str, object] | None:
         table = INVENTORY_DETAIL_TABLE
         payload = self._filter_table_payload(table, self._coerce_empty(data))

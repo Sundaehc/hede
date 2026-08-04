@@ -36,6 +36,7 @@ const ACTION_LABELS: Record<string, string> = {
   detail_delete: "删除明细",
   detail_batch_delete: "批量删除明细",
   replace_details_import: "覆盖明细",
+  merge_details_import: "重新导入明细",
   batch_update_costs: "批量改价",
   update_requirement: "订单要求",
   refresh_images: "刷新图片",

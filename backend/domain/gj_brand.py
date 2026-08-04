@@ -53,7 +53,7 @@ def infer_supplier_brand_from_name(name: object) -> str | None:
         return EBLAN_BRAND
     if "千百度品牌方" in supplier:
         return None
-    if "千百度女鞋" in supplier:
+    if "千百度女鞋" in supplier or ("千百度" in supplier and "女鞋" in supplier):
         return CBANNER_WOMENS_BRAND
     if "千百度" not in supplier:
         return None

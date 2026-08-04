@@ -3315,7 +3315,7 @@ def list_inventory_details(request: Request, record_id: int):
 
 
 @router.post("/inventory/{record_id}/details/import-replace")
-async def replace_inventory_details_from_excel(request: Request, record_id: int, file: UploadFile = None):
+async def reimport_inventory_details_from_excel(request: Request, record_id: int, file: UploadFile = None):
     if file is None:
         raise HTTPException(status_code=400, detail="No file uploaded")
     repository = request.app.state.inventory_repository
@@ -3341,7 +3341,7 @@ async def replace_inventory_details_from_excel(request: Request, record_id: int,
         item = dict(detail)
         item["document_id"] = record_id
         detail_payloads.append(item)
-    repository.replace_details(record_id, detail_payloads)
+    import_result = repository.merge_imported_details(record_id, detail_payloads)
     repository.update_record(record_id, {
         "source_workbook": file.filename or record.get("source_workbook") or "",
         "source_sheet": sheet_name or record.get("source_sheet") or "",
@@ -3350,18 +3350,23 @@ async def replace_inventory_details_from_excel(request: Request, record_id: int,
     write_operation_log(
         request,
         module=inventory_module_for_record(record),
-        action="replace_details_import",
+        action="merge_details_import",
         entity_type="inventory_detail",
         entity_id=record_id,
         entity_label=inventory_entity_label(record),
-        summary=f"重新导入并覆盖 {inventory_entity_label(record)} 的明细：{len(before_details)} 条 -> {len(details)} 条",
+        summary=(
+            f"重新导入 {inventory_entity_label(record)} 的明细："
+            f"新增 {import_result['added']} 条，更新 {import_result['updated']} 条，"
+            f"保留 {len(before_details)} 条原有明细"
+        ),
         before_data={"details": before_details[:200], "count": len(before_details)},
         after_data={"details": detail_payloads[:200], "count": len(details), "filename": file.filename},
     )
     return {
-        "updated": 1,
+        "updated": import_result["updated"],
+        "added": import_result["added"],
         "details": len(details),
-        "message": f"已重新导入并覆盖 {len(details)} 条明细",
+        "message": f"已重新导入：新增 {import_result['added']} 条，更新 {import_result['updated']} 条；未包含的原明细已保留",
     }
 
 
