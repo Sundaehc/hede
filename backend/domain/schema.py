@@ -31,10 +31,12 @@ def build_product_tables() -> dict[str, Table]:
         columns.append(Column("extra_fields", JSON, nullable=True))
         columns.append(Column("created_at", DateTime(timezone=True), server_default=func.date_trunc('minute', func.now())))
         columns.append(Column("updated_at", DateTime(timezone=True), server_default=func.date_trunc('minute', func.now()), onupdate=func.date_trunc('minute', func.now())))
+        columns.append(Column("last_imported_at", DateTime(timezone=True), nullable=True))
         columns.append(UniqueConstraint("sku", name=f"uq_{table_name}_sku"))
         table = Table(table_name, METADATA, *columns)
         Index(f"idx_{table_name}_year", table.c.year)
         Index(f"idx_{table_name}_original_sku", table.c.original_sku)
+        Index(f"idx_{table_name}_last_imported_at", table.c.last_imported_at)
         tables[brand_group] = table
     return tables
 

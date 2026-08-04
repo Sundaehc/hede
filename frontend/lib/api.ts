@@ -571,7 +571,8 @@ export function getProductImageRefreshStatus() {
 export function buildProductExportUrl(
   brand: BrandKey,
   ids?: number[],
-  mode?: "with_sizes"
+  mode?: "with_sizes",
+  activityDate?: string
 ) {
   const params = new URLSearchParams({ brand })
   if (brand !== "all" && ids && ids.length > 0) {
@@ -579,6 +580,9 @@ export function buildProductExportUrl(
   }
   if (mode) {
     params.set("mode", mode)
+  }
+  if (activityDate) {
+    params.set("activity_date", activityDate)
   }
   return `${API_PREFIX}/export?${params.toString()}`
 }
@@ -623,10 +627,11 @@ export async function downloadProductExport(
   brand: BrandKey,
   ids?: number[],
   mode?: "with_sizes",
-  onProgress?: (progress: ProductExportProgress) => void
+  onProgress?: (progress: ProductExportProgress) => void,
+  activityDate?: string
 ) {
   onProgress?.({ phase: "preparing", loaded: 0, total: null, percent: null })
-  const response = await fetch(buildProductExportUrl(brand, ids, mode), {
+  const response = await fetch(buildProductExportUrl(brand, ids, mode, activityDate), {
     credentials: "include",
   })
   if (!response.ok) {
@@ -699,9 +704,10 @@ export async function downloadProductExport(
 export async function assertProductExportAllowed(
   brand: BrandKey,
   ids?: number[],
-  mode?: "with_sizes"
+  mode?: "with_sizes",
+  activityDate?: string
 ) {
-  const response = await fetch(buildProductExportUrl(brand, ids, mode), {
+  const response = await fetch(buildProductExportUrl(brand, ids, mode, activityDate), {
     credentials: "include",
     method: "HEAD",
   })
@@ -713,9 +719,10 @@ export async function assertProductExportAllowed(
 export function exportProducts(
   brand: BrandKey,
   ids?: number[],
-  mode?: "with_sizes"
+  mode?: "with_sizes",
+  activityDate?: string
 ) {
-  return fetch(buildProductExportUrl(brand, ids, mode), {
+  return fetch(buildProductExportUrl(brand, ids, mode, activityDate), {
     credentials: "include",
   }).then(async (response) => {
     if (!response.ok) {
@@ -808,6 +815,8 @@ export type InventoryDetailLookupResult = {
   color_spec: string | null
   color_barcode: string | null
   color_name: string | null
+  size_range: string | null
+  size_labels: string[]
   quantity: string | null
   unit_price: string | null
   amount: string | null

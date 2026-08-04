@@ -6,8 +6,9 @@ import { ProductFormDialog } from "@/components/product-admin/product-form-dialo
 import { ApiError } from "@/lib/api"
 import type { ProductListItem } from "@/lib/types"
 
-const { mockCreateProduct, mockListSizeGroups, mockLookupImage, mockUpdateProduct } = vi.hoisted(() => ({
+const { mockCreateProduct, mockListProductColorBarcodes, mockListSizeGroups, mockLookupImage, mockUpdateProduct } = vi.hoisted(() => ({
   mockCreateProduct: vi.fn(),
+  mockListProductColorBarcodes: vi.fn(),
   mockListSizeGroups: vi.fn(),
   mockLookupImage: vi.fn(),
   mockUpdateProduct: vi.fn(),
@@ -19,6 +20,7 @@ vi.mock("@/lib/api", async () => {
   return {
     ...actual,
     createProduct: mockCreateProduct,
+    listProductColorBarcodes: mockListProductColorBarcodes,
     listSizeGroups: mockListSizeGroups,
     lookupImage: mockLookupImage,
     updateProduct: mockUpdateProduct,
@@ -30,6 +32,7 @@ const NULL_FIELDS = {
   image_url: null,
   sku: null,
   original_sku: null,
+  product_name: null,
   group_name: null,
   product_level: null,
   cost: null,
@@ -60,6 +63,7 @@ const NULL_FIELDS = {
   product_model: null,
   supplier_name: null,
   color_code: null,
+  barcode_build_rule: null,
   launch_date: null,
 }
 
@@ -70,6 +74,7 @@ const sampleItem: ProductListItem = {
   image_url: "/images/serve/cbanner_mens/original.jpg",
   sku: "SKU-007",
   original_sku: "ORIG-007",
+  product_name: null,
   group_name: null,
   product_level: null,
   cost: null,
@@ -100,6 +105,7 @@ const sampleItem: ProductListItem = {
   product_model: null,
   supplier_name: null,
   color_code: null,
+  barcode_build_rule: null,
   launch_date: null,
   source_workbook: "book.xlsx",
   source_sheet: "sheet1",
@@ -113,10 +119,12 @@ const nullPayload = Object.fromEntries(
 describe("ProductFormDialog", () => {
   beforeEach(() => {
     mockCreateProduct.mockReset()
+    mockListProductColorBarcodes.mockReset()
     mockListSizeGroups.mockReset()
     mockLookupImage.mockReset()
     mockUpdateProduct.mockReset()
     mockCreateProduct.mockResolvedValue({ item: sampleItem, message: "created" })
+    mockListProductColorBarcodes.mockResolvedValue({ items: [] })
     mockListSizeGroups.mockResolvedValue({ items: [] })
     mockUpdateProduct.mockResolvedValue({ item: sampleItem, message: "updated" })
   })
@@ -242,5 +250,36 @@ describe("ProductFormDialog", () => {
     })
 
     expect(onSaved).toHaveBeenCalledTimes(1)
+  })
+
+  it("saves the selected barcode build rule", async () => {
+    const user = userEvent.setup()
+
+    render(<ProductFormDialog open mode="edit" item={sampleItem} onOpenChange={vi.fn()} onSaved={vi.fn()} />)
+
+    await user.selectOptions(screen.getByLabelText("条码构成逻辑"), "货号+颜色代码+尺码")
+    await user.click(screen.getByRole("button", { name: "保存" }))
+
+    await waitFor(() => {
+      expect(mockUpdateProduct).toHaveBeenCalledWith("cbanner_mens", 7, expect.objectContaining({
+        barcode_build_rule: "货号+颜色代码+尺码",
+      }))
+    })
+  })
+
+  it("auto-fills a unique color code after entering a color", async () => {
+    const user = userEvent.setup()
+    mockListProductColorBarcodes.mockResolvedValue({
+      items: [{ brand: "cbanner_mens", color_code: "01", color_name: "黑色" }],
+    })
+
+    render(<ProductFormDialog open mode="create" onOpenChange={vi.fn()} onSaved={vi.fn()} />)
+
+    await user.selectOptions(screen.getByLabelText("品牌"), "cbanner_mens")
+    await user.type(screen.getByLabelText("颜色"), "黑色")
+
+    await waitFor(() => {
+      expect(screen.getByLabelText("颜色代码")).toHaveValue("01 - 黑色")
+    })
   })
 })

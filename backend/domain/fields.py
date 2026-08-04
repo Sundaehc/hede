@@ -32,6 +32,7 @@ PRODUCT_FIELDS: tuple[FieldSpec, ...] = (
     FieldSpec("image_path", "图片"),
     FieldSpec("sku", "货号"),
     FieldSpec("original_sku", "原始货号"),
+    FieldSpec("product_name", "品名"),
     FieldSpec("group_name", "组别"),
     FieldSpec("product_level", "商品等级", aliases=("等级", "货品等级")),
     FieldSpec("cost", "成本", "numeric"),
@@ -62,6 +63,7 @@ PRODUCT_FIELDS: tuple[FieldSpec, ...] = (
     FieldSpec("product_model", "产品型号"),
     FieldSpec("supplier_name", "供应商名", aliases=("供应商",)),
     FieldSpec("color_code", "颜色代码"),
+    FieldSpec("barcode_build_rule", "条码构成逻辑"),
     FieldSpec("launch_date", "上市时间"),
 )
 

@@ -27,6 +27,17 @@ type ProductToolbarProps = {
   onMessage: (title: string, description: string) => void
 }
 
+function currentShanghaiDateValue() {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "Asia/Shanghai",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(new Date())
+  const values = Object.fromEntries(parts.map((part) => [part.type, part.value]))
+  return `${values.year}-${values.month}-${values.day}`
+}
+
 export function ProductToolbar({
   brand,
   value,
@@ -49,7 +60,8 @@ export function ProductToolbar({
   const [importing, setImporting] = useState(false)
   const [refreshingImages, setRefreshingImages] = useState(false)
   const [exporting, setExporting] = useState(false)
-  const [exportingMode, setExportingMode] = useState<"default" | "with_sizes" | null>(null)
+  const [exportingMode, setExportingMode] = useState<"default" | "with_sizes" | "today" | "today_with_sizes" | null>(null)
+  const [activityDate, setActivityDate] = useState(currentShanghaiDateValue)
   const [exportProgress, setExportProgress] = useState<ProductExportProgress | null>(null)
   const [awaitingImageRefresh, setAwaitingImageRefresh] = useState(false)
   const [imageRefreshStatus, setImageRefreshStatus] = useState<ProductImageRefreshStatus | null>(null)
@@ -104,14 +116,15 @@ export function ProductToolbar({
     }
   }, [awaitingImageRefresh, imageRefreshStatus, onMessage, onRefresh])
 
-  const handleExport = async (mode?: "with_sizes") => {
-    const ids = brand !== "all" && selectedIds && selectedIds.size > 0 ? Array.from(selectedIds) : undefined
+  const handleExport = async (mode?: "with_sizes", exportActivityDate?: string) => {
+    const isActivityExport = Boolean(exportActivityDate)
+    const ids = !isActivityExport && brand !== "all" && selectedIds && selectedIds.size > 0 ? Array.from(selectedIds) : undefined
     setExporting(true)
-    setExportingMode(mode ?? "default")
+    setExportingMode(isActivityExport ? (mode ? "today_with_sizes" : "today") : (mode ?? "default"))
     setExportProgress({ phase: "preparing", loaded: 0, total: null, percent: null })
     try {
-      await assertProductExportAllowed(brand, ids, mode)
-      await downloadProductExport(brand, ids, mode, setExportProgress)
+      await assertProductExportAllowed(brand, ids, mode, exportActivityDate)
+      await downloadProductExport(brand, ids, mode, setExportProgress, exportActivityDate)
     } catch (error) {
       onMessage("导出失败", error instanceof Error ? error.message : "导出 Excel 时发生错误，请重试")
     } finally {
@@ -177,6 +190,8 @@ export function ProductToolbar({
     ? exportStatusText
     : hasSelection ? `导出选中 (${selectedIds!.size})` : "导出 Excel"
   const sizeExportLabel = exportingMode === "with_sizes" && exportStatusText ? exportStatusText : "带尺码导出"
+  const activityExportLabel = exportingMode === "today" && exportStatusText ? exportStatusText : "导出当日导入/新增"
+  const activitySizeExportLabel = exportingMode === "today_with_sizes" && exportStatusText ? exportStatusText : "当日导入/新增带尺码"
   const lastImageRun = imageRefreshStatus?.last_run
   const imageStatusText = imageRefreshStatus?.in_progress
     ? "图片刷新任务正在后台运行"
@@ -241,18 +256,39 @@ export function ProductToolbar({
       <p className="text-xs text-muted-foreground">{imageStatusText}</p>
 
       {showActions ? (
-      <div className="flex items-center gap-2 border-t border-border pt-3">
+      <div className="flex flex-wrap items-center gap-2 border-t border-border pt-3">
         {canExport ? (
-          <Button type="button" variant="outline" size="sm" onClick={() => void handleExport()} disabled={isLoading || exporting} className="cursor-pointer">
-            {defaultExportLabel}
-          </Button>
+          <>
+            <Button type="button" variant="outline" size="sm" onClick={() => void handleExport()} disabled={isLoading || exporting} className="cursor-pointer">
+              {defaultExportLabel}
+            </Button>
+            <div className="flex items-center gap-1.5">
+              <Label htmlFor="product-activity-export-date" className="whitespace-nowrap text-xs text-muted-foreground">导出日期</Label>
+              <input
+                id="product-activity-export-date"
+                type="date"
+                value={activityDate}
+                onChange={(event) => setActivityDate(event.target.value)}
+                disabled={isLoading || exporting}
+                className="h-8 cursor-pointer rounded-md border border-input bg-card px-2 text-xs shadow-xs outline-none transition-colors focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/35 disabled:cursor-not-allowed disabled:opacity-50"
+              />
+              <Button type="button" variant="outline" size="sm" onClick={() => void handleExport(undefined, activityDate)} disabled={isLoading || exporting || !activityDate} className="cursor-pointer">
+                {activityExportLabel}
+              </Button>
+            </div>
+          </>
         ) : null}
         {onCreate ? (
           <>
             {canExport ? (
-              <Button type="button" variant="outline" size="sm" onClick={() => void handleExport("with_sizes")} disabled={isLoading || exporting} className="cursor-pointer">
-                {sizeExportLabel}
-              </Button>
+              <>
+                <Button type="button" variant="outline" size="sm" onClick={() => void handleExport("with_sizes")} disabled={isLoading || exporting} className="cursor-pointer">
+                  {sizeExportLabel}
+                </Button>
+                <Button type="button" variant="outline" size="sm" onClick={() => void handleExport("with_sizes", activityDate)} disabled={isLoading || exporting || !activityDate} className="cursor-pointer">
+                  {activitySizeExportLabel}
+                </Button>
+              </>
             ) : null}
             {canImport ? (
               <>

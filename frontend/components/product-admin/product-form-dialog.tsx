@@ -17,7 +17,7 @@ import { Label } from "@/components/ui/label"
 import { Select } from "@/components/ui/select"
 import { ApiError, createProduct, listProductColorBarcodes, listSizeGroups, lookupImage, updateProduct } from "@/lib/api"
 import { BRANDS, type BrandKey } from "@/lib/brands"
-import { ALL_PRODUCT_FIELDS, FIELD_GROUPS, FIELD_LABELS, SEASON_OPTIONS } from "@/lib/fields"
+import { ALL_PRODUCT_FIELDS, BARCODE_BUILD_RULE_OPTIONS, FIELD_GROUPS, FIELD_LABELS, SEASON_OPTIONS } from "@/lib/fields"
 import type { ImageLookupStatusState, ProductColorBarcodeItem, ProductFormValues, ProductListItem, ProductMutationPayload, SizeGroup } from "@/lib/types"
 import { cn } from "@/lib/utils"
 
@@ -36,6 +36,17 @@ function makeEmptyForm(): Record<string, string> {
 }
 
 const EMPTY_FORM: ProductFormValues = { brand: "", ...makeEmptyForm() } as ProductFormValues
+
+function findUniqueColorCode(colorName: string, options: ProductColorBarcodeItem[]) {
+  const normalizedName = colorName.trim()
+  if (!normalizedName) return ""
+  const codes = new Set(
+    options
+      .filter((option) => option.color_name.trim() === normalizedName)
+      .map((option) => option.color_code),
+  )
+  return codes.size === 1 ? Array.from(codes)[0] : ""
+}
 
 type ColorCodeSearchSelectProps = {
   disabled: boolean
@@ -236,6 +247,7 @@ export function ProductFormDialog({ item, mode, onOpenChange, onSaved, open }: P
   const [lookupStatus, setLookupStatus] = useState<ImageLookupStatusState>({ status: "idle", message: null })
   const [colorBarcodeOptions, setColorBarcodeOptions] = useState<ProductColorBarcodeItem[]>([])
   const [isLoadingColorBarcodes, setIsLoadingColorBarcodes] = useState(false)
+  const autoMatchedColorCodeRef = useRef("")
   const [sizeGroups, setSizeGroups] = useState<SizeGroup[]>([])
   const [isLoadingSizeGroups, setIsLoadingSizeGroups] = useState(false)
 
@@ -246,6 +258,7 @@ export function ProductFormDialog({ item, mode, onOpenChange, onSaved, open }: P
 
   useEffect(() => {
     setValues(initialValues)
+    autoMatchedColorCodeRef.current = ""
     setLookupStatus({ status: "idle", message: null })
     setSubmitError(null)
     setBrandError(null)
@@ -282,6 +295,18 @@ export function ProductFormDialog({ item, mode, onOpenChange, onSaved, open }: P
   }, [open, values.brand])
 
   useEffect(() => {
+    if (!open || values.color_code.trim()) return
+    const colorCode = findUniqueColorCode(values.color, colorBarcodeOptions)
+    if (!colorCode) return
+    autoMatchedColorCodeRef.current = colorCode
+    setValues((current) => (
+      current.color_code.trim() || current.color.trim() !== values.color.trim()
+        ? current
+        : { ...current, color_code: colorCode }
+    ))
+  }, [colorBarcodeOptions, open, values.color, values.color_code])
+
+  useEffect(() => {
     if (!open) return
 
     let cancelled = false
@@ -309,11 +334,32 @@ export function ProductFormDialog({ item, mode, onOpenChange, onSaved, open }: P
   }, [open])
 
   const handleFieldChange = (field: keyof ProductFormValues, nextValue: string) => {
-    setValues((current) => ({ ...current, [field]: nextValue }))
+    if (field === "color") {
+      const currentColorCode = values.color_code.trim()
+      const canReplaceColorCode = !currentColorCode || currentColorCode === autoMatchedColorCodeRef.current
+      const matchedColorCode = canReplaceColorCode ? findUniqueColorCode(nextValue, colorBarcodeOptions) : currentColorCode
+      autoMatchedColorCodeRef.current = canReplaceColorCode ? matchedColorCode : ""
+      setValues((current) => ({
+        ...current,
+        color: nextValue,
+        ...(canReplaceColorCode ? { color_code: matchedColorCode } : {}),
+      }))
+      return
+    }
 
     if (field === "brand") {
+      const shouldClearAutoMatchedCode = values.color_code.trim() === autoMatchedColorCodeRef.current
+      autoMatchedColorCodeRef.current = ""
+      setValues((current) => ({
+        ...current,
+        brand: nextValue as BrandKey | "",
+        ...(shouldClearAutoMatchedCode ? { color_code: "" } : {}),
+      }))
       setBrandError(null)
+      return
     }
+
+    setValues((current) => ({ ...current, [field]: nextValue }))
 
     if (field === "original_sku" || field === "sku") {
       setLookupStatus({ status: "idle", message: null })
@@ -322,6 +368,7 @@ export function ProductFormDialog({ item, mode, onOpenChange, onSaved, open }: P
 
   const handleColorCodeChange = (nextValue: string) => {
     const selected = colorBarcodeOptions.find((option) => option.color_code === nextValue)
+    autoMatchedColorCodeRef.current = ""
     setValues((current) => ({
       ...current,
       color_code: nextValue,
@@ -520,6 +567,18 @@ export function ProductFormDialog({ item, mode, onOpenChange, onSaved, open }: P
                                 <option value="">请选择</option>
                                 {SEASON_OPTIONS.map((opt) => (
                                   <option key={opt} value={opt}>{opt}</option>
+                                ))}
+                              </Select>
+                            ) : field === "barcode_build_rule" ? (
+                              <Select
+                                id={`product-form-${field}`}
+                                value={values.barcode_build_rule}
+                                onChange={(event) => handleFieldChange("barcode_build_rule", event.target.value)}
+                                autoComplete="off"
+                              >
+                                <option value="">请选择</option>
+                                {BARCODE_BUILD_RULE_OPTIONS.map((option) => (
+                                  <option key={option} value={option}>{option}</option>
                                 ))}
                               </Select>
                             ) : field === "size_range" ? (

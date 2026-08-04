@@ -15,6 +15,7 @@ class ProductPayload(BaseModel):
     image_path: str | None = None
     sku: str | None = None
     original_sku: str | None = None
+    product_name: str | None = None
     group_name: str | None = None
     product_level: str | None = None
     cost: str | None = None
@@ -45,6 +46,7 @@ class ProductPayload(BaseModel):
     product_model: str | None = None
     supplier_name: str | None = None
     color_code: str | None = None
+    barcode_build_rule: str | None = None
     launch_date: str | None = None
 
     @model_validator(mode="after")

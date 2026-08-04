@@ -79,6 +79,7 @@ export type ProductListItem = {
   image_url: string | null
   sku: string | null
   original_sku: string | null
+  product_name: string | null
   group_name: string | null
   product_level: string | null
   cost: string | null
@@ -109,6 +110,7 @@ export type ProductListItem = {
   product_model: string | null
   supplier_name: string | null
   color_code: string | null
+  barcode_build_rule: string | null
   launch_date: string | null
   factory_code?: string | null
   market_price?: string | number | null
@@ -443,6 +445,7 @@ export type ProductFormValues = {
   image_path: string
   sku: string
   original_sku: string
+  product_name: string
   group_name: string
   product_level: string
   cost: string
@@ -473,6 +476,7 @@ export type ProductFormValues = {
   product_model: string
   supplier_name: string
   color_code: string
+  barcode_build_rule: string
   launch_date: string
 }
 
@@ -480,6 +484,7 @@ export type ProductMutationPayload = Record<string, unknown> & {
   image_path?: string | null
   sku?: string | null
   original_sku?: string | null
+  product_name?: string | null
   group_name?: string | null
   product_level?: string | null
   cost?: string | null
@@ -510,6 +515,7 @@ export type ProductMutationPayload = Record<string, unknown> & {
   product_model?: string | null
   supplier_name?: string | null
   color_code?: string | null
+  barcode_build_rule?: string | null
   launch_date?: string | null
 }
 

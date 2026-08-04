@@ -1,9 +1,11 @@
 export const SEASON_OPTIONS = ["春季", "夏季", "秋季", "冬季", "春夏", "春秋", "秋冬"] as const
+export const BARCODE_BUILD_RULE_OPTIONS = ["货号+颜色代码+尺码", "货号+尺码"] as const
 
 export const FIELD_LABELS: Record<string, string> = {
   image_path: "图片路径",
   sku: "商品货号",
   original_sku: "原始货号",
+  product_name: "品名",
   group_name: "组别",
   product_level: "商品等级",
   cost: "成本",
@@ -34,13 +36,14 @@ export const FIELD_LABELS: Record<string, string> = {
   product_model: "产品型号",
   supplier_name: "供应商名",
   color_code: "颜色代码",
+  barcode_build_rule: "条码构成逻辑",
   launch_date: "上市时间",
 }
 
 export const FIELD_GROUPS = [
   {
     label: "基础信息",
-    fields: ["original_sku", "sku", "group_name", "product_level", "factory_sku", "cost", "color", "color_code", "season_category", "year"],
+    fields: ["original_sku", "sku", "product_name", "group_name", "product_level", "factory_sku", "cost", "color", "color_code", "barcode_build_rule", "season_category", "year"],
   },
   {
     label: "材质信息",

@@ -4,6 +4,9 @@ import io
 import urllib.parse
 import unicodedata
 from collections.abc import Iterator
+from datetime import date as date_type
+from datetime import datetime, time, timedelta
+from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, HTTPException, Query, Request, Response, UploadFile
 from fastapi.responses import StreamingResponse
@@ -12,7 +15,7 @@ from openpyxl.cell import WriteOnlyCell
 from openpyxl.cell.cell import ILLEGAL_CHARACTERS_RE
 from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
-from sqlalchemy import desc, or_, select
+from sqlalchemy import and_, desc, or_, select
 
 from api.excel_export import DEFAULT_WIDTH_BY_HEADER, style_excel_worksheet
 from api.fine_table_cache import clear_fine_table_cache
@@ -20,49 +23,20 @@ from api.product_goods_cache import clear_product_goods_cache
 from api.operation_log_utils import write_operation_log
 from api.routes.images import get_image_matcher, image_url_for
 from domain.excluded_skus import is_excluded_sku, not_excluded_sku_condition
+from domain.fields import PRODUCT_FIELDS
 from domain.gj_schema import GJ_MERGED_PRODUCT_INFO_TABLE
 from domain.sources import CANONICAL_COLUMNS, COLUMN_ALIASES, TABLE_NAMES
 from domain.schema import PRODUCT_TABLES
+from domain.size_group_schema import SIZE_GROUP_ITEMS_TABLE, SIZE_GROUPS_TABLE
 from domain.vip_schema import JST_PRODUCT_PROFILE_TABLE
 from storage.product_repository import apply_jst_product_costs
 from transform.rows import EXCLUDED_EXTRA_FIELD_KEYS, build_admin_record, filter_extra_fields, normalize_admin_field
 
 router = APIRouter()
 
-EXPORT_LABELS = {
-    "image_path": "图片",
-    "sku": "货号",
-    "original_sku": "原始货号",
-    "group_name": "组别",
-    "product_level": "商品等级",
-    "cost": "成本",
-    "factory_sku": "工厂货号",
-    "color": "颜色",
-    "season_category": "季节分类",
-    "year": "年份",
-    "upper_material": "鞋面材质",
-    "lining_material": "内里材质",
-    "outsole_material": "大底材质",
-    "insole_material": "鞋垫材质",
-    "execution_standard": "执行标准",
-    "heel_height": "跟高",
-    "shoe_width": "鞋宽",
-    "shoe_length": "鞋长",
-    "shaft_circumference": "筒围",
-    "shaft_height": "筒高",
-    "internal_height_increase": "内增高",
-    "internal_height_note": "内增高备注",
-    "upper_height": "鞋帮",
-    "toe_shape": "鞋头款式",
-    "closure_type": "闭合方式",
-    "shoe_box_spec": "鞋盒规格",
-    "first_order_time": "首单时间",
-    "size_range": "尺码段",
-    "product_model": "产品型号",
-    "supplier_name": "供应商名",
-    "color_code": "颜色代码",
-    "launch_date": "上市时间",
-}
+EXPORT_LABELS = {field.name: field.label for field in PRODUCT_FIELDS}
+# Keep the existing export wording for this field while using the canonical field labels elsewhere.
+EXPORT_LABELS["toe_shape"] = "鞋头款式"
 
 EXPORT_COLUMNS = [c for c in CANONICAL_COLUMNS if c != "image_path"]
 CN_TO_FIELD = {cn: en for cn, en in COLUMN_ALIASES.items() if en in EXPORT_COLUMNS}
@@ -82,6 +56,7 @@ SIZE_EXPORT_HEADERS = [
     "鞋垫材质",
     "原始货号",
     "供应商商品款号",
+    "供应商名",
     "品牌",
     "颜色及规格",
     "分类",
@@ -89,6 +64,7 @@ SIZE_EXPORT_HEADERS = [
     "LOGO",
 ]
 LOOKUP_CHUNK_SIZE = 2000
+SHANGHAI_TIME_ZONE = ZoneInfo("Asia/Shanghai")
 SIZE_EXPORT_MAX_WIDTH = 42
 SIZE_EXPORT_MIN_WIDTH = 10
 SIZE_EXPORT_WIDTH_BY_HEADER = {
@@ -106,6 +82,7 @@ SIZE_EXPORT_WIDTH_BY_HEADER = {
     "鞋垫材质": 16,
     "原始货号": 20,
     "供应商商品款号": 20,
+    "供应商名": 20,
     "品牌": 14,
     "颜色及规格": 18,
     "分类": 18,
@@ -138,15 +115,31 @@ BRAND_LABELS = {
 }
 
 
-def _iter_all_export_rows(repository) -> Iterator[tuple[str, list[object]]]:
+def _activity_date_export_condition(table, activity_date: date_type):
+    start = datetime.combine(activity_date, time.min, tzinfo=SHANGHAI_TIME_ZONE)
+    end = start + timedelta(days=1)
+    return or_(
+        and_(table.c.created_at >= start, table.c.created_at < end),
+        and_(table.c.last_imported_at >= start, table.c.last_imported_at < end),
+    )
+
+
+def _activity_export_label(activity_date: date_type | None) -> str:
+    return f"{activity_date.isoformat()}导入新增" if activity_date else "总览"
+
+
+def _iter_all_export_rows(
+    repository,
+    *,
+    activity_date: date_type | None = None,
+) -> Iterator[tuple[str, list[object]]]:
     with repository.engine.connect() as connection:
         for brand in TABLE_NAMES:
             table = PRODUCT_TABLES[brand]
-            statement = (
-                select(*(table.c[column] for column in EXPORT_COLUMNS))
-                .where(not_excluded_sku_condition(table.c.sku, table.c.original_sku))
-                .order_by(desc(table.c.id))
-            )
+            conditions = [not_excluded_sku_condition(table.c.sku, table.c.original_sku)]
+            if activity_date:
+                conditions.append(_activity_date_export_condition(table, activity_date))
+            statement = select(*(table.c[column] for column in EXPORT_COLUMNS)).where(*conditions).order_by(desc(table.c.id))
             rows = connection.execution_options(stream_results=True).execute(statement)
             batch: list[dict[str, object]] = []
             for row in rows.mappings():
@@ -195,10 +188,16 @@ def _excel_streaming_response(buf: io.BytesIO, filename: str) -> StreamingRespon
     )
 
 
-def _export_all_products(request: Request, repository) -> StreamingResponse:
+def _export_all_products(
+    request: Request,
+    repository,
+    *,
+    activity_date: date_type | None = None,
+) -> StreamingResponse:
     headers = ["品牌"] + [EXPORT_LABELS.get(c, c) for c in EXPORT_COLUMNS]
     wb = Workbook(write_only=True)
-    ws = wb.create_sheet(title="总览")
+    export_label = _activity_export_label(activity_date)
+    ws = wb.create_sheet(title=export_label)
     header_font = Font(name="宋体", size=10, bold=True)
     header_fill = PatternFill("solid", fgColor="F2F2F2")
     header_alignment = Alignment(horizontal="center", vertical="center", wrap_text=False)
@@ -216,7 +215,7 @@ def _export_all_products(request: Request, repository) -> StreamingResponse:
     ws.append(header_cells)
 
     row_count = 1
-    for brand, values in _iter_all_export_rows(repository):
+    for brand, values in _iter_all_export_rows(repository, activity_date=activity_date):
         row = [BRAND_LABELS.get(brand, brand)] + [_excel_cell_value(value) for value in values]
         for index, value in enumerate(row):
             column_widths[index] = max(column_widths[index], min(_display_width(value) + 2, max_width))
@@ -238,16 +237,17 @@ def _export_all_products(request: Request, repository) -> StreamingResponse:
         module="product",
         action="export",
         entity_type="product_export",
-        entity_label="总览",
-        summary=f"导出商品信息档案总览：{exported_rows} 条",
+        entity_label=export_label,
+        summary=f"导出商品信息档案{export_label}：{exported_rows} 条",
         after_data={
             "brand": "all",
-            "brand_label": "总览",
+            "brand_label": export_label,
+            "activity_date": activity_date.isoformat() if activity_date else None,
             "exported_rows": exported_rows,
-            "filename": "总览.xlsx",
+            "filename": f"{export_label}商品信息档案.xlsx",
         },
     )
-    return _excel_streaming_response(buf, "总览.xlsx")
+    return _excel_streaming_response(buf, f"{export_label}商品信息档案.xlsx")
 
 
 def _dict_or_empty(value: object) -> dict[str, object]:
@@ -286,23 +286,35 @@ def _validate_product_export_request(brand: str, mode: str | None = None) -> Non
         raise HTTPException(status_code=400, detail="无效品牌")
 
 
-def _load_size_export_source_codes(repository, brand: str, ids: str | None) -> set[str]:
+def _load_size_export_source_items(
+    repository,
+    brand: str,
+    ids: str | None,
+    *,
+    activity_date: date_type | None = None,
+) -> list[dict[str, object]]:
     table = PRODUCT_TABLES[brand]
     statement = (
-        select(table.c.sku, table.c.original_sku)
+        select(table)
         .where(not_excluded_sku_condition(table.c.sku, table.c.original_sku))
     )
     id_list = _parse_id_list(ids)
     if id_list:
         statement = statement.where(table.c.id.in_(id_list))
+    if activity_date:
+        statement = statement.where(_activity_date_export_condition(table, activity_date))
 
-    selected_codes: set[str] = set()
     with repository.engine.connect() as connection:
-        for row in connection.execute(statement).mappings():
-            for key in ("sku", "original_sku"):
-                code = _cell_text(row.get(key))
-                if code:
-                    selected_codes.add(code)
+        return [dict(row) for row in connection.execute(statement).mappings()]
+
+
+def _size_export_source_codes(items: list[dict[str, object]]) -> set[str]:
+    selected_codes: set[str] = set()
+    for item in items:
+        for key in ("sku", "original_sku"):
+            code = _cell_text(item.get(key))
+            if code:
+                selected_codes.add(code)
     return selected_codes
 
 
@@ -412,6 +424,149 @@ def _load_product_profile_rows(connection, codes: set[str]) -> list[dict[str, ob
     return profiles
 
 
+def _parse_size_range_labels(value: object) -> list[dict[str, str]]:
+    import re
+
+    text = _cell_text(value)
+    if not text:
+        return []
+    range_match = re.fullmatch(r"(\d+)\s*[-~至]\s*(\d+)", text)
+    if range_match:
+        start, end = (int(part) for part in range_match.groups())
+        if start <= end:
+            step = 5 if end >= 100 else 1
+            return [{"size_name": str(size), "barcode": str(size)} for size in range(start, end + 1, step)]
+    return [
+        {"size_name": size, "barcode": size}
+        for size in re.split(r"[,，、/／|\s]+", text)
+        if size
+    ]
+
+
+def _load_size_group_items(connection, source_items: list[dict[str, object]]) -> dict[str, list[dict[str, str]]]:
+    size_group_names = {
+        size_range
+        for item in source_items
+        if (size_range := _cell_text(item.get("size_range")))
+    }
+    if not size_group_names:
+        return {}
+    rows = connection.execute(
+        select(
+            SIZE_GROUPS_TABLE.c.name,
+            SIZE_GROUP_ITEMS_TABLE.c.size_name,
+            SIZE_GROUP_ITEMS_TABLE.c.barcode,
+        )
+        .select_from(
+            SIZE_GROUPS_TABLE.join(
+                SIZE_GROUP_ITEMS_TABLE,
+                SIZE_GROUP_ITEMS_TABLE.c.size_group_id == SIZE_GROUPS_TABLE.c.id,
+            )
+        )
+        .where(SIZE_GROUPS_TABLE.c.name.in_(size_group_names))
+        .order_by(SIZE_GROUPS_TABLE.c.name, SIZE_GROUP_ITEMS_TABLE.c.sort_order, SIZE_GROUP_ITEMS_TABLE.c.id)
+    ).mappings()
+    items_by_group: dict[str, list[dict[str, str]]] = {}
+    for row in rows:
+        size_group = _cell_text(row.get("name"))
+        size_name = _cell_text(row.get("size_name"))
+        size_barcode = _first_text(row.get("barcode"), size_name)
+        if size_group and size_name and size_barcode:
+            items_by_group.setdefault(size_group, []).append({
+                "size_name": size_name,
+                "barcode": size_barcode,
+            })
+    for size_group in size_group_names:
+        if size_group not in items_by_group:
+            parsed_items = _parse_size_range_labels(size_group)
+            if parsed_items:
+                items_by_group[size_group] = parsed_items
+    return items_by_group
+
+
+def _build_size_export_product_code(item: dict[str, object], size_barcode: str) -> str:
+    goods_code = _first_text(item.get("sku"), item.get("original_sku"))
+    if not goods_code:
+        return ""
+    rule = _cell_text(item.get("barcode_build_rule"))
+    color_code = _cell_text(item.get("color_code"))
+    if rule != "货号+尺码" and color_code:
+        return f"{goods_code}{color_code}{size_barcode}"
+    return f"{goods_code}{size_barcode}"
+
+
+def _size_export_product_name(style_code: str, color_name: str, product_code: str) -> str:
+    name = f"{style_code}{color_name}"
+    return name or product_code
+
+
+def _size_export_profiles_from_size_groups(
+    source_items: list[dict[str, object]],
+    size_group_items: dict[str, list[dict[str, str]]],
+) -> tuple[list[dict[str, object]], set[str]]:
+    profiles: list[dict[str, object]] = []
+    source_codes_with_size_groups: set[str] = set()
+    for item in source_items:
+        size_range = _cell_text(item.get("size_range"))
+        size_items = size_group_items.get(size_range, [])
+        if not size_items:
+            continue
+        source_codes_with_size_groups.update(
+            code
+            for code in (_cell_text(item.get("sku")), _cell_text(item.get("original_sku")))
+            if code
+        )
+        style_code = _first_text(item.get("original_sku"), item.get("sku"))
+        for size_item in size_items:
+            size_barcode = _first_text(size_item.get("barcode"), size_item.get("size_name"))
+            product_code = _build_size_export_product_code(item, size_barcode)
+            if not product_code:
+                continue
+            profiles.append({
+                "id": f"archive-{item.get('id')}-{size_item['size_name']}",
+                "product_code": product_code,
+                "style_code": style_code,
+                "color_name": _cell_text(item.get("color")),
+                "size_barcode": size_barcode,
+                "raw_payload": _dict_or_empty(item.get("raw_payload")),
+            })
+    return profiles, source_codes_with_size_groups
+
+
+def _size_export_fallback_profiles(
+    source_items: list[dict[str, object]],
+    profiles: list[dict[str, object]],
+) -> list[dict[str, object]]:
+    profile_codes = {
+        code
+        for profile in profiles
+        for code in (_cell_text(profile.get("product_code")), _cell_text(profile.get("style_code")))
+        if code
+    }
+    fallback_profiles: list[dict[str, object]] = []
+    for item in source_items:
+        source_codes = {
+            code
+            for code in (_cell_text(item.get("sku")), _cell_text(item.get("original_sku")))
+            if code
+        }
+        if source_codes & profile_codes:
+            continue
+        product_code = _first_text(item.get("sku"), item.get("original_sku"))
+        style_code = _first_text(item.get("original_sku"), item.get("sku"))
+        if not product_code and not style_code:
+            continue
+        fallback_profiles.append({
+            "id": f"archive-{item.get('id')}",
+            "product_code": product_code,
+            "style_code": style_code,
+            "color_name": _cell_text(item.get("color")),
+            "size_barcode": "",
+            "raw_payload": _dict_or_empty(item.get("raw_payload")),
+        })
+    return fallback_profiles
+
+
 def _write_only_header_cells(worksheet, headers: list[str]) -> list[WriteOnlyCell]:
     header_font = Font(name="宋体", size=10, bold=True)
     header_fill = PatternFill("solid", fgColor="F2F2F2")
@@ -436,11 +591,11 @@ def _size_export_style_context(
     gj = gj_rows.get(style_code) or gj_rows.get(product_code) or {}
     archive_extra = _dict_or_empty(archive.get("extra_fields"))
     return {
-        "product_name": _first_text(gj.get("goods_full_name")),
+        "product_name": _first_text(gj.get("goods_full_name"), archive.get("product_name")),
         "category": _first_text(archive.get("group_name")),
         "logo": _first_text(gj.get("brand")),
         "upper_material": _first_text(gj.get("upper_material"), archive.get("upper_material")),
-        "product_item_name": _first_text(archive_extra.get("品名"), gj.get("product_name")),
+        "product_item_name": _first_text(archive.get("product_name"), archive_extra.get("品名"), gj.get("product_name")),
         "execution_standard": _first_text(gj.get("execution_standard"), archive.get("execution_standard")),
         "product_model": _first_text(archive.get("product_model")),
         "lining_material": _first_text(gj.get("lining_material"), archive.get("lining_material")),
@@ -448,14 +603,30 @@ def _size_export_style_context(
         "insole_material": _first_text(gj.get("insole_material"), archive.get("insole_material")),
         "original_sku": _first_text(gj.get("original_goods_code"), archive.get("original_sku")),
         "factory_code": _first_text(archive.get("factory_sku"), gj.get("factory_code")),
+        "supplier_name": _first_text(archive.get("supplier_name")),
         "brand": _first_text(gj.get("brand")),
         "cost": _first_text(archive.get("cost")),
     }
 
 
-def _export_products_with_sizes(request: Request, repository, brand: str, ids: str | None) -> StreamingResponse:
+def _export_products_with_sizes(
+    request: Request,
+    repository,
+    brand: str,
+    ids: str | None,
+    *,
+    activity_date: date_type | None = None,
+) -> StreamingResponse:
     _validate_product_export_request(brand, SIZE_EXPORT_MODE)
-    selected_codes = _load_size_export_source_codes(repository, brand, ids)
+    source_items = _load_size_export_source_items(
+        repository,
+        brand,
+        None if activity_date else ids,
+        activity_date=activity_date,
+    )
+    if ids and not source_items:
+        raise HTTPException(status_code=404, detail="未找到可导出的选中商品")
+    selected_codes = _size_export_source_codes(source_items)
 
     wb = Workbook(write_only=True)
     brand_label = BRAND_LABELS.get(brand, brand)
@@ -474,10 +645,30 @@ def _export_products_with_sizes(request: Request, repository, brand: str, ids: s
 
     with repository.engine.connect() as connection:
         profiles = _load_product_profile_rows(connection, selected_codes)
+        size_group_items = _load_size_group_items(connection, source_items)
+        size_group_profiles, source_codes_with_size_groups = _size_export_profiles_from_size_groups(source_items, size_group_items)
+        profiles = [
+            profile
+            for profile in profiles
+            if not {
+                _cell_text(profile.get("product_code")),
+                _cell_text(profile.get("style_code")),
+            } & source_codes_with_size_groups
+        ]
+        source_items_without_size_groups = [
+            item
+            for item in source_items
+            if not {
+                _cell_text(item.get("sku")),
+                _cell_text(item.get("original_sku")),
+            } & source_codes_with_size_groups
+        ]
+        fallback_profiles = _size_export_fallback_profiles(source_items_without_size_groups, profiles)
+        export_profiles = [*size_group_profiles, *profiles, *fallback_profiles]
 
         profile_style_codes = {
             code
-            for profile in profiles
+            for profile in export_profiles
             for code in (_cell_text(profile.get("style_code")),)
             if code
         }
@@ -490,7 +681,7 @@ def _export_products_with_sizes(request: Request, repository, brand: str, ids: s
 
     row_count = 1
     style_contexts: dict[str, dict[str, str]] = {}
-    for profile in profiles:
+    for profile in export_profiles:
         raw_payload = _dict_or_empty(profile.get("raw_payload"))
         product_code = _cell_text(profile.get("product_code"))
         style_code = _cell_text(profile.get("style_code"))
@@ -502,7 +693,7 @@ def _export_products_with_sizes(request: Request, repository, brand: str, ids: s
             context = _size_export_style_context(style_code, product_code, archive_rows, gj_rows)
             style_contexts[context_key] = context
 
-        product_name = _first_text(context["product_name"], raw_payload.get("商品名"), raw_payload.get("商品名称"), product_code)
+        product_name = _size_export_product_name(style_code, color_name, product_code)
         category = _first_text(context["category"], raw_payload.get("分类"))
         logo = _first_text(context["logo"], raw_payload.get("LOGO"), raw_payload.get("品牌"))
         row = [
@@ -520,6 +711,7 @@ def _export_products_with_sizes(request: Request, repository, brand: str, ids: s
             _first_text(context["insole_material"], raw_payload.get("鞋垫材质")),
             _first_text(context["original_sku"], raw_payload.get("原始货号")),
             _first_text(raw_payload.get("供应商商品款号"), context["factory_code"]),
+            _first_text(context["supplier_name"], raw_payload.get("供应商名"), raw_payload.get("供应商")),
             _first_text(raw_payload.get("品牌"), context["brand"]),
             f"{color_name};{size_barcode}" if color_name or size_barcode else "",
             category,
@@ -536,20 +728,24 @@ def _export_products_with_sizes(request: Request, repository, brand: str, ids: s
     wb.save(buf)
     buf.seek(0)
 
-    raw_filename = f"{brand_label}带尺码商品档案.xlsx"
+    export_label = f"{brand_label}{_activity_export_label(activity_date) if activity_date else ''}带尺码"
+    raw_filename = f"{export_label}商品档案.xlsx"
     write_operation_log(
         request,
         module="product",
         action="export",
         entity_type="product_export",
-        entity_label=f"{brand_label}带尺码",
-        summary=f"导出商品信息档案带尺码：{brand_label}，{len(profiles)} 条",
+        entity_label=export_label,
+        summary=f"导出商品信息档案带尺码：{export_label}，{len(export_profiles)} 条",
         after_data={
             "brand": brand,
             "brand_label": brand_label,
             "mode": SIZE_EXPORT_MODE,
-            "ids": ids,
-            "exported_rows": len(profiles),
+            "ids": None if activity_date else ids,
+            "activity_date": activity_date.isoformat() if activity_date else None,
+            "exported_rows": len(export_profiles),
+            "size_profile_rows": len(size_group_profiles),
+            "fallback_rows": len(fallback_profiles),
             "filename": raw_filename,
         },
     )
@@ -562,19 +758,36 @@ def export_products(
     brand: str = Query(...),
     ids: str | None = Query(None),
     mode: str | None = Query(None),
+    activity_date: date_type | None = Query(None),
+    today_only: bool = Query(False),
 ):
     repository = request.app.state.repository
     _validate_product_export_request(brand, mode)
     if request.method == "HEAD":
         return Response(status_code=200)
 
+    export_date = activity_date or (datetime.now(SHANGHAI_TIME_ZONE).date() if today_only else None)
+
     if mode == SIZE_EXPORT_MODE:
-        return _export_products_with_sizes(request, repository, brand, ids)
+        return _export_products_with_sizes(request, repository, brand, ids, activity_date=export_date)
 
     if brand == "all":
-        return _export_all_products(request, repository)
+        return _export_all_products(request, repository, activity_date=export_date)
 
-    if ids:
+    if export_date:
+        table = PRODUCT_TABLES[brand]
+        with repository.engine.connect() as connection:
+            items = [
+                dict(row)
+                for row in connection.execute(
+                    select(table)
+                    .where(not_excluded_sku_condition(table.c.sku, table.c.original_sku))
+                    .where(_activity_date_export_condition(table, export_date))
+                    .order_by(desc(table.c.id))
+                ).mappings()
+            ]
+        apply_jst_product_costs(repository.engine, items)
+    elif ids:
         id_list = [int(i.strip()) for i in ids.split(",") if i.strip()]
         items = repository.get_products_by_ids(brand, id_list)
     else:
@@ -599,18 +812,20 @@ def export_products(
     buf.seek(0)
 
     brand_label = BRAND_LABELS.get(brand, brand)
-    raw_filename = f"{brand_label}.xlsx"
+    export_label = f"{brand_label}{_activity_export_label(export_date) if export_date else ''}"
+    raw_filename = f"{export_label}.xlsx"
     write_operation_log(
         request,
         module="product",
         action="export",
         entity_type="product_export",
-        entity_label=brand_label,
-        summary=f"导出商品信息档案：{brand_label}，{len(items)} 条",
+        entity_label=export_label,
+        summary=f"导出商品信息档案：{export_label}，{len(items)} 条",
         after_data={
             "brand": brand,
             "brand_label": brand_label,
-            "ids": ids,
+            "ids": None if export_date else ids,
+            "activity_date": export_date.isoformat() if export_date else None,
             "exported_rows": len(items),
             "filename": raw_filename,
         },
@@ -663,6 +878,7 @@ async def import_products(
     created = 0
     updated = 0
     imported_skus: list[str] = []
+    imported_product_ids: list[int] = []
 
     for row in iterator:
         row_dict = {}
@@ -756,14 +972,18 @@ async def import_products(
                 "source_sheet": existing["source_sheet"],
                 "source_row_number": existing["source_row_number"],
             })
-            repository.update_product(brand, existing["id"], record)
+            saved_item = repository.update_product(brand, existing["id"], record)
+            if saved_item is not None:
+                imported_product_ids.append(int(saved_item["id"]))
             updated += 1
         else:
             record = build_admin_record(brand, payload)
-            repository.create_product(brand, record)
+            saved_item = repository.create_product(brand, record)
+            imported_product_ids.append(int(saved_item["id"]))
             created += 1
 
     wb.close()
+    repository.mark_products_imported(brand, imported_product_ids)
     clear_fine_table_cache()
     clear_product_goods_cache()
     write_operation_log(

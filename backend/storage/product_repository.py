@@ -1,12 +1,14 @@
 from __future__ import annotations
 
+from collections import defaultdict
 from collections.abc import Mapping
 from decimal import Decimal
 from typing import Callable
 
 import orjson
-from sqlalchemy import and_, create_engine, delete, desc, func, insert, literal, or_, select, union_all, update
+from sqlalchemy import and_, bindparam, create_engine, delete, desc, func, insert, literal, or_, select, text, union_all, update
 
+from domain.color_barcode_schema import COLOR_BARCODE_TABLE
 from domain.excluded_skus import not_excluded_sku_condition
 from domain.product_defaults import apply_product_defaults
 from domain.schema import PRODUCT_TABLES
@@ -18,6 +20,13 @@ def _json_serializer(value: object) -> bytes:
 
 
 PRICE_LOOKUP_CHUNK_SIZE = 2000
+IMPORT_MARK_CHUNK_SIZE = 2000
+PRODUCT_COLOR_BARCODE_SOURCE_BRANDS = {
+    "cbanner_mens": "cbanner_mens",
+    "cbanner_womens": "cbanner_womens",
+    "yandou": "cbanner_mens",
+    "eblan": "cbanner_mens",
+}
 
 
 def _normalize_code(value: object) -> str:
@@ -34,6 +43,20 @@ def _chunk_codes(codes: set[str]) -> list[list[str]]:
         ordered[index:index + PRICE_LOOKUP_CHUNK_SIZE]
         for index in range(0, len(ordered), PRICE_LOOKUP_CHUNK_SIZE)
     ]
+
+
+def _unique_color_codes(rows: list[Mapping[str, object]]) -> dict[str, str]:
+    codes_by_name: dict[str, set[str]] = defaultdict(set)
+    for row in rows:
+        color_name = _normalize_code(row.get("color_name"))
+        color_code = _normalize_code(row.get("color_barcode"))
+        if color_name and color_code:
+            codes_by_name[color_name].add(color_code)
+    return {
+        color_name: next(iter(codes))
+        for color_name, codes in codes_by_name.items()
+        if len(codes) == 1
+    }
 
 
 def _load_jst_product_costs(engine, codes: set[str]) -> dict[str, object | None]:
@@ -95,6 +118,74 @@ class ProductRepository:
             future=True,
             json_serializer=_json_serializer,
         )
+        self._color_code_cache: dict[str, dict[str, str]] = {}
+
+    def create_tables(self) -> None:
+        """Apply lightweight, backwards-compatible product archive schema additions."""
+        with self.engine.begin() as connection:
+            for table in PRODUCT_TABLES.values():
+                connection.execute(text(
+                    f"ALTER TABLE {table.name} ADD COLUMN IF NOT EXISTS last_imported_at TIMESTAMPTZ"
+                ))
+                connection.execute(text(
+                    f"CREATE INDEX IF NOT EXISTS idx_{table.name}_last_imported_at "
+                    f"ON {table.name} (last_imported_at)"
+                ))
+
+    def _color_codes_for_brand(self, brand: str) -> dict[str, str]:
+        source_brand = PRODUCT_COLOR_BARCODE_SOURCE_BRANDS.get(brand)
+        if source_brand is None:
+            return {}
+        cached = self._color_code_cache.get(source_brand)
+        if cached is not None:
+            return cached
+        with self.engine.connect() as connection:
+            rows = list(connection.execute(
+                select(
+                    COLOR_BARCODE_TABLE.c.color_name,
+                    COLOR_BARCODE_TABLE.c.color_barcode,
+                ).where(COLOR_BARCODE_TABLE.c.brand == source_brand)
+            ).mappings())
+        codes = _unique_color_codes(rows)
+        self._color_code_cache[source_brand] = codes
+        return codes
+
+    def backfill_missing_color_codes(self) -> dict[str, int]:
+        updated_by_brand: dict[str, int] = {}
+        with self.engine.begin() as connection:
+            color_codes_by_source = {
+                source_brand: _unique_color_codes(list(connection.execute(
+                    select(
+                        COLOR_BARCODE_TABLE.c.color_name,
+                        COLOR_BARCODE_TABLE.c.color_barcode,
+                    ).where(COLOR_BARCODE_TABLE.c.brand == source_brand)
+                ).mappings()))
+                for source_brand in set(PRODUCT_COLOR_BARCODE_SOURCE_BRANDS.values())
+            }
+            self._color_code_cache.update(color_codes_by_source)
+
+            for brand, table in PRODUCT_TABLES.items():
+                color_codes = color_codes_by_source[PRODUCT_COLOR_BARCODE_SOURCE_BRANDS[brand]]
+                rows = connection.execute(
+                    select(table.c.id, table.c.color)
+                    .where(table.c.color.is_not(None))
+                    .where(table.c.color != "")
+                    .where(or_(table.c.color_code.is_(None), table.c.color_code == ""))
+                ).mappings()
+                updates = [
+                    {"product_id": row["id"], "new_color_code": color_codes[color_name]}
+                    for row in rows
+                    if (color_name := _normalize_code(row.get("color"))) in color_codes
+                ]
+                if updates:
+                    connection.execute(
+                        update(table)
+                        .where(table.c.id == bindparam("product_id"))
+                        .values(color_code=bindparam("new_color_code")),
+                        updates,
+                    )
+                updated_by_brand[brand] = len(updates)
+        return updated_by_brand
 
     def list_products(
         self,
@@ -213,6 +304,19 @@ class ProductRepository:
         with self.engine.connect() as connection:
             items = [dict(row) for row in connection.execute(statement).mappings()]
         return apply_jst_product_costs(self.engine, items)
+
+    def mark_products_imported(self, brand: str, product_ids: list[int]) -> None:
+        ids = sorted({int(product_id) for product_id in product_ids})
+        if not ids:
+            return
+        table = PRODUCT_TABLES[brand]
+        with self.engine.begin() as connection:
+            for index in range(0, len(ids), IMPORT_MARK_CHUNK_SIZE):
+                connection.execute(
+                    update(table)
+                    .where(table.c.id.in_(ids[index:index + IMPORT_MARK_CHUNK_SIZE]))
+                    .values(last_imported_at=func.now())
+                )
 
     def find_by_sku(self, brand: str, sku: object) -> dict[str, object] | None:
         table = PRODUCT_TABLES[brand]
@@ -349,11 +453,16 @@ class ProductRepository:
             "missing": missing,
         }
 
-    @staticmethod
-    def _prepare_record(record: Mapping[str, object], *, brand: str | None = None) -> dict[str, object]:
+    def _prepare_record(self, record: Mapping[str, object], *, brand: str | None = None) -> dict[str, object]:
         payload = dict(record)
         if brand is not None:
             payload = dict(apply_product_defaults(brand, payload))
+            color_name = _normalize_code(payload.get("color"))
+            color_code = _normalize_code(payload.get("color_code"))
+            if color_name and not color_code:
+                resolved_color_code = self._color_codes_for_brand(brand).get(color_name)
+                if resolved_color_code:
+                    payload["color_code"] = resolved_color_code
         raw_payload = payload.get("raw_payload")
         if isinstance(raw_payload, Mapping):
             payload["raw_payload"] = {

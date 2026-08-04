@@ -11,6 +11,7 @@ PRODUCT_FIELD_LABELS = {
     "image_path": "图片",
     "sku": "货号",
     "original_sku": "原始货号",
+    "product_name": "品名",
     "group_name": "组别",
     "product_level": "商品等级",
     "cost": "成本",
@@ -39,6 +40,7 @@ PRODUCT_FIELD_LABELS = {
     "product_model": "产品型号",
     "supplier_name": "供应商名",
     "color_code": "颜色代码",
+    "barcode_build_rule": "条码构成逻辑",
     "launch_date": "上市时间",
 }
 

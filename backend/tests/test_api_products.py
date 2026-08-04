@@ -47,7 +47,9 @@ def test_post_products_creates_product_via_build_admin_record(test_app_client: T
             "payload": {
                 "sku": "A1001",
                 "original_sku": "OA1001",
+                "product_name": "女士皮鞋",
                 "color": "黑色",
+                "barcode_build_rule": "货号+颜色代码+尺码",
             },
         },
     )
@@ -58,6 +60,8 @@ def test_post_products_creates_product_via_build_admin_record(test_app_client: T
     assert body["item"]["brand"] == "cbanner_mens"
     assert body["item"]["source_workbook"] == "manual_admin"
     assert body["item"]["raw_payload"]["sku"] == "A1001"
+    assert body["item"]["product_name"] == "女士皮鞋"
+    assert body["item"]["barcode_build_rule"] == "货号+颜色代码+尺码"
 
 
 def test_put_products_preserves_existing_metadata(test_app_client: TestClient, repository):

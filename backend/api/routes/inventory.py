@@ -43,6 +43,7 @@ from domain.inventory_sources import (
     INVENTORY_EXPORT_LABELS,
 )
 from domain.schema import PRODUCT_TABLES
+from domain.size_group_schema import SIZE_GROUP_ITEMS_TABLE, SIZE_GROUPS_TABLE
 from domain.vip_schema import JST_PRICE_TABLE
 
 router = APIRouter()
@@ -1539,6 +1540,56 @@ def _merge_product_info(target: dict[str, object], values: dict[str, object]) ->
             target[key] = value
 
 
+def _parse_purchase_size_range_labels(size_range: object) -> tuple[str, ...]:
+    import re
+
+    text = _cell_text(size_range)
+    if not text:
+        return ()
+
+    range_match = re.search(r"(\d+(?:\.\d+)?)\s*[-~至]\s*(\d+(?:\.\d+)?)", text)
+    if range_match:
+        start_text, end_text = range_match.groups()
+        start = Decimal(start_text)
+        end = Decimal(end_text)
+        if start <= end:
+            step = Decimal("5") if end >= 100 else Decimal("1")
+            values: list[str] = []
+            current = start
+            while current <= end:
+                values.append(_fmt_decimal(current))
+                current += step
+            if values and Decimal(values[-1]) == end:
+                return tuple(values)
+
+    tokens = [
+        token.strip()
+        for token in re.split(r"[,，、/／|\s]+", text)
+        if token.strip()
+    ]
+    return tuple(dict.fromkeys(tokens))
+
+
+def _purchase_size_labels_for_range(connection, size_range: object) -> tuple[str, ...]:
+    normalized_range = _cell_text(size_range)
+    if not normalized_range:
+        return ()
+
+    rows = connection.execute(
+        sa_select(SIZE_GROUP_ITEMS_TABLE.c.size_name)
+        .select_from(
+            SIZE_GROUP_ITEMS_TABLE.join(
+                SIZE_GROUPS_TABLE,
+                SIZE_GROUP_ITEMS_TABLE.c.size_group_id == SIZE_GROUPS_TABLE.c.id,
+            )
+        )
+        .where(SIZE_GROUPS_TABLE.c.name == normalized_range)
+        .order_by(SIZE_GROUP_ITEMS_TABLE.c.sort_order, SIZE_GROUP_ITEMS_TABLE.c.id)
+    ).scalars()
+    labels = tuple(_cell_text(value) for value in rows if _cell_text(value))
+    return labels or _parse_purchase_size_range_labels(normalized_range)
+
+
 def _extract_color_name_from_text(*values: object) -> str:
     for value in values:
         text = _cell_text(value)
@@ -1656,6 +1707,7 @@ def _load_purchase_product_lookup(connection, brand: str, product_codes: set[str
                 product_table.c.outsole_material,
                 product_table.c.insole_material,
                 product_table.c.shoe_box_spec,
+                product_table.c.size_range,
             )
             .where(or_(
                 product_table.c.sku.in_(codes),
@@ -1685,6 +1737,7 @@ def _load_purchase_product_lookup(connection, brand: str, product_codes: set[str
                     "outsole_material": _cell_text(row.get("outsole_material")),
                     "insole_material": _cell_text(row.get("insole_material")),
                     "shoe_box_spec": _cell_text(row.get("shoe_box_spec")),
+                    "size_range": _cell_text(row.get("size_range")),
                 }
                 _merge_product_info(lookup[code], fallback_fields)
     if brand == "smiley":
@@ -1939,6 +1992,12 @@ def _build_purchase_detail_lookup_for_brand(connection, product_code: str, quant
 
     size_quantities = {size: _fmt_decimal(quantity)} if size and quantity else {}
     extra_fields = _purchase_detail_extra_fields(product_info, detail_code)
+    size_range = _cell_text(product_info.get("size_range"))
+    size_labels = _purchase_size_labels_for_range(connection, size_range)
+    if size_range:
+        extra_fields["size_range"] = size_range
+    if size_labels:
+        extra_fields["size_labels"] = "|".join(size_labels)
     return {
         "product_code": detail_code,
         "product_name": product_name,
@@ -1950,23 +2009,35 @@ def _build_purchase_detail_lookup_for_brand(connection, product_code: str, quant
         "unit_price": _fmt_decimal(unit_price) if unit_price else None,
         "amount": _fmt_decimal(amount) if amount else None,
         "size_quantities": size_quantities,
+        "size_range": size_range or None,
+        "size_labels": list(size_labels),
         "_matched_product": bool(product_info),
     }
 
 
 def _build_purchase_detail_lookup(connection, product_code: str, quantity: Decimal, brand: str | None = None) -> dict[str, object]:
-    brands = [brand] if brand else ["cbanner_mens", "cbanner_womens"]
+    preferred_brand = _cell_text(brand).lower()
+    if preferred_brand == "nike":
+        preferred_brand = "ni"
+    brands = list(dict.fromkeys([
+        *([preferred_brand] if preferred_brand else []),
+        *PRODUCT_TABLES.keys(),
+    ]))
     fallback: dict[str, object] | None = None
+    matched_fallback: dict[str, object] | None = None
     for candidate in brands:
         if not candidate:
             continue
         item = _build_purchase_detail_lookup_for_brand(connection, product_code, quantity, candidate)
-        if _lookup_has_product_data(item):
-            item.pop("_matched_product", None)
-            return item
         if fallback is None:
             fallback = item
-    item = fallback or _build_purchase_detail_lookup_for_brand(connection, product_code, quantity, "cbanner_mens")
+        if _lookup_has_product_data(item):
+            if matched_fallback is None:
+                matched_fallback = item
+            if item.get("size_labels") or item.get("size_range"):
+                item.pop("_matched_product", None)
+                return item
+    item = matched_fallback or fallback or _build_purchase_detail_lookup_for_brand(connection, product_code, quantity, "cbanner_mens")
     item.pop("_matched_product", None)
     return item
 
