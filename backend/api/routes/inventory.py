@@ -19,6 +19,7 @@ from api.operation_log_utils import (
     DETAIL_FIELD_LABELS,
     GENERAL_CUSTOMER_BRAND_FIELD_LABELS,
     GENERAL_CUSTOMER_SHOP_FIELD_LABELS,
+    GENERAL_CUSTOMER_UNIT_FIELD_LABELS,
     INVENTORY_FIELD_LABELS,
     build_changed_fields,
     detail_entity_label,
@@ -127,7 +128,7 @@ PURCHASE_ORDER_IMPORT_FIELD_LABELS = {
     "handler": "经办人",
 }
 PURCHASE_ORDER_IMPORT_CODE_HEADERS = {"商品编码", "货品编码", "商品编号", "商品货号", "货号"}
-PURCHASE_DETAIL_REMARK_HEADERS = {"商品备注", "明细备注", "备注"}
+PURCHASE_DETAIL_REMARK_HEADERS = {"附加说明", "商品备注", "明细备注", "备注"}
 PURCHASE_DETAIL_REMARK_LIMIT = 20
 PURCHASE_PRODUCTION_ORDER_EXPORT_MODE = "production_order"
 PURCHASE_EXPORT_MODES = {"summary", "size_rows", PURCHASE_PRODUCTION_ORDER_EXPORT_MODE}
@@ -135,9 +136,11 @@ PURCHASE_SUMMARY_EXPORT_HEADERS = [
     "单据类型",
     "货号",
     "原始货号",
+    "工厂货号",
     "商品全名",
     "单据编号",
     "摘要",
+    "附加说明",
     "录单日期",
     "到货日期",
     "仓库全名",
@@ -592,7 +595,9 @@ def _append_purchase_summary_export(
                 "record_context": _purchase_record_export_context(record, supplier_lookup),
                 "product_code": product_code,
                 "original_code": _first_text(detail_extra_fields.get("image_code"), product_code),
+                "factory_code": _cell_text(detail_extra_fields.get("factory_code")),
                 "product_name": _first_text(detail.get("product_name"), product_code),
+                "detail_remark": _cell_text(detail.get("remark")),
                 "size_quantities": defaultdict(Decimal),
                 "quantity": Decimal("0"),
                 "amount": Decimal("0"),
@@ -606,6 +611,10 @@ def _append_purchase_summary_export(
 
         group = groups[key]
         detail_extra_fields = _dict_or_empty(detail.get("extra_fields"))
+        if not group["factory_code"]:
+            group["factory_code"] = _cell_text(detail_extra_fields.get("factory_code"))
+        if not group["detail_remark"]:
+            group["detail_remark"] = _cell_text(detail.get("remark"))
         size_quantities = _dict_or_empty(detail.get("size_quantities"))
         quantity = _purchase_detail_quantity(detail, size_quantities)
         amount = _purchase_detail_amount(detail, quantity)
@@ -654,9 +663,11 @@ def _append_purchase_summary_export(
             record_context["document_type"],
             group["product_code"],
             group["original_code"],
+            group["factory_code"],
             group["product_name"],
             record_context["document_number"],
             record_context["summary"],
+            group["detail_remark"],
             record_context["date"],
             record_context["delivery_date"],
             record_context["warehouse_name"],
@@ -1192,7 +1203,7 @@ def _build_purchase_order_import_template() -> Workbook:
         "协议到货日期",
         "收货仓库",
         "经办人",
-        "商品备注",
+        "附加说明",
     ]
     worksheet.append(headers)
     worksheet.append([
@@ -1218,7 +1229,7 @@ def _build_purchase_order_import_template() -> Workbook:
             "协议到货日期": 14,
             "收货仓库": 18,
             "经办人": 12,
-            "商品备注": 18,
+            "附加说明": 18,
         },
         freeze_panes="A2",
         auto_filter=False,
@@ -2353,6 +2364,99 @@ def list_purchase_inbound_details(
     )
 
 
+@router.get("/inventory-reports/purchase-inbound-details/export")
+def export_purchase_inbound_details(
+    request: Request,
+    date_start: str | None = None,
+    date_end: str | None = None,
+    document_type: str | None = None,
+    supplier: str | None = None,
+    warehouse: str | None = None,
+    product_code: str | None = None,
+    product_name: str | None = None,
+    color_name: str | None = None,
+    size_name: str | None = None,
+):
+    repository = request.app.state.inventory_repository
+    normalized_document_type = normalize_document_type(document_type) if document_type else None
+    if normalized_document_type and normalized_document_type not in {"进货单", "进货退货单"}:
+        raise HTTPException(status_code=400, detail="单据类型仅支持进货单或进货退货单")
+    result = repository.list_purchase_inbound_details(
+        date_start=date_start,
+        date_end=date_end,
+        document_type=normalized_document_type,
+        supplier=supplier,
+        warehouse=warehouse,
+        product_code=product_code,
+        product_name=product_name,
+        color_name=color_name,
+        size_name=size_name,
+        page=1,
+        page_size=100_000,
+    )
+    items = result["items"]
+    workbook = Workbook()
+    worksheet = workbook.active
+    worksheet.title = "商品进货明细"
+    worksheet.append([
+        "行号",
+        "货号",
+        "商品全名",
+        "颜色名称",
+        "尺码明细",
+        "单据类型",
+        "单据编号",
+        "日期",
+        "进货数量",
+        "进货金额",
+        "零售金额",
+        "单位编号",
+        "单位全名",
+        "仓库全名",
+    ])
+    for item in items:
+        size_quantities = item.get("size_quantities")
+        size_text = "；".join(
+            f"{size}:{quantity}"
+            for size, quantity in (size_quantities.items() if isinstance(size_quantities, dict) else [])
+            if quantity not in (None, "", 0, "0")
+        )
+        worksheet.append([
+            item.get("row_number"),
+            item.get("product_code") or "",
+            item.get("product_name") or "",
+            item.get("color_name") or "",
+            size_text,
+            item.get("document_type") or "",
+            item.get("document_number") or "",
+            item.get("date") or "",
+            item.get("purchase_quantity") or "",
+            item.get("purchase_amount") or "",
+            item.get("retail_amount") or "",
+            item.get("unit_code") or "",
+            item.get("unit_name") or "",
+            item.get("warehouse_name") or "",
+        ])
+    style_excel_workbook(workbook)
+    filters = [
+        f"日期 {date_start or '不限'} 至 {date_end or '不限'}",
+        f"单据类型 {normalized_document_type or '全部'}",
+        f"供应商 {supplier or '全部'}",
+        f"仓库 {warehouse or '全部'}",
+        f"货号 {product_code or '全部'}",
+    ]
+    write_operation_log(
+        request,
+        module="purchase_inbound_detail",
+        action="export",
+        entity_type="purchase_inbound_detail",
+        entity_label="商品进货明细",
+        summary=f"导出商品进货明细 {len(items)} 条（{'；'.join(filters)}）",
+        after_data={"exported_rows": len(items), "filters": filters},
+    )
+    return _stream_excel_workbook(workbook, "商品进货明细.xlsx")
+
+
 @router.get("/inventory/recycle-bin")
 def list_inventory_recycle_bin(
     request: Request,
@@ -2928,9 +3032,7 @@ def create_general_customer_brand(request: Request, payload: dict):
         raise HTTPException(status_code=400, detail="品牌名称不能为空")
     if repository.get_general_customer_brand_by_name(name):
         raise HTTPException(status_code=400, detail=f"品牌 '{name}' 已存在")
-    item = repository.create_general_customer_brand({
-        "name": name,
-    })
+    item = repository.create_general_customer_brand({"name": name})
     label = str(item.get("name") or item.get("id") or "").strip()
     write_operation_log(
         request,
@@ -2961,9 +3063,7 @@ def update_general_customer_brand(request: Request, brand_id: int, payload: dict
     before = repository.get_general_customer_brand(brand_id)
     if before is None:
         raise HTTPException(status_code=404, detail="Brand not found")
-    record = repository.update_general_customer_brand(brand_id, {
-        "name": name,
-    })
+    record = repository.update_general_customer_brand(brand_id, {"name": name})
     if record is None:
         raise HTTPException(status_code=404, detail="Brand not found")
     label = str(record.get("name") or before.get("name") or brand_id).strip()
@@ -3086,6 +3186,99 @@ def delete_general_customer_shop(request: Request, shop_id: int):
         entity_id=shop_id,
         entity_label=label,
         summary=f"删除一般客户店铺 {label}".strip(),
+        before_data=before,
+        after_data=None,
+    )
+    return {"message": "删除成功"}
+
+
+@router.get("/inventory/general-customer-units")
+def list_general_customer_units(request: Request):
+    repository = request.app.state.inventory_repository
+    return {"items": repository.list_general_customer_units()}
+
+
+@router.post("/inventory/general-customer-units")
+def create_general_customer_unit(request: Request, payload: dict):
+    repository = request.app.state.inventory_repository
+    shop_id = int(payload.get("shop_id") or 0)
+    unit_name = str(payload.get("unit_name") or "").strip()
+    shop = repository.get_general_customer_shop(shop_id)
+    if shop is None:
+        raise HTTPException(status_code=400, detail="所属店铺不存在")
+    if not unit_name:
+        raise HTTPException(status_code=400, detail="单位名称不能为空")
+    if repository.get_general_customer_unit_by_name(shop_id, unit_name):
+        raise HTTPException(status_code=400, detail=f"单位 '{unit_name}' 已存在")
+    item = repository.create_general_customer_unit({"shop_id": shop_id, "unit_name": unit_name})
+    label = f"{shop.get('customer_name') or ''} / {shop.get('shop_name') or ''} / {unit_name}".strip()
+    write_operation_log(
+        request,
+        module="general_customer",
+        action="create",
+        entity_type="general_customer_unit",
+        entity_id=item.get("id"),
+        entity_label=label,
+        summary=f"新增一般客户单位 {label}",
+        before_data=None,
+        after_data=item,
+    )
+    return {"item": item, "message": "创建成功"}
+
+
+@router.put("/inventory/general-customer-units/{unit_id}")
+def update_general_customer_unit(request: Request, unit_id: int, payload: dict):
+    repository = request.app.state.inventory_repository
+    shop_id = int(payload.get("shop_id") or 0)
+    unit_name = str(payload.get("unit_name") or "").strip()
+    before = repository.get_general_customer_unit(unit_id)
+    if before is None:
+        raise HTTPException(status_code=404, detail="Unit not found")
+    shop = repository.get_general_customer_shop(shop_id)
+    if shop is None:
+        raise HTTPException(status_code=400, detail="所属店铺不存在")
+    if not unit_name:
+        raise HTTPException(status_code=400, detail="单位名称不能为空")
+    duplicate = repository.get_general_customer_unit_by_name(shop_id, unit_name)
+    if duplicate and int(duplicate.get("id") or 0) != unit_id:
+        raise HTTPException(status_code=400, detail=f"单位 '{unit_name}' 已存在")
+    item = repository.update_general_customer_unit(unit_id, {"shop_id": shop_id, "unit_name": unit_name})
+    if item is None:
+        raise HTTPException(status_code=404, detail="Unit not found")
+    label = f"{item.get('customer_name') or ''} / {item.get('shop_name') or ''} / {unit_name}".strip()
+    changes = build_changed_fields(before, item, GENERAL_CUSTOMER_UNIT_FIELD_LABELS)
+    write_operation_log(
+        request,
+        module="general_customer",
+        action="update",
+        entity_type="general_customer_unit",
+        entity_id=unit_id,
+        entity_label=label,
+        summary=summarize_changes("编辑一般客户单位", label, changes),
+        changed_fields=changes,
+        before_data=before,
+        after_data=item,
+    )
+    return {"item": item, "message": "更新成功"}
+
+
+@router.delete("/inventory/general-customer-units/{unit_id}")
+def delete_general_customer_unit(request: Request, unit_id: int):
+    repository = request.app.state.inventory_repository
+    before = repository.get_general_customer_unit(unit_id)
+    if before is None:
+        raise HTTPException(status_code=404, detail="Unit not found")
+    if not repository.delete_general_customer_unit(unit_id):
+        raise HTTPException(status_code=404, detail="Unit not found")
+    label = f"{before.get('customer_name') or ''} / {before.get('shop_name') or ''} / {before.get('unit_name') or ''}".strip()
+    write_operation_log(
+        request,
+        module="general_customer",
+        action="delete",
+        entity_type="general_customer_unit",
+        entity_id=unit_id,
+        entity_label=label,
+        summary=f"删除一般客户单位 {label}",
         before_data=before,
         after_data=None,
     )

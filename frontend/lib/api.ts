@@ -21,6 +21,8 @@ import type {
   GeneralCustomerBrandListResponse,
   GeneralCustomerShopItem,
   GeneralCustomerShopListResponse,
+  GeneralCustomerUnitItem,
+  GeneralCustomerUnitListResponse,
   OperationLogResponse,
 } from "@/lib/types"
 
@@ -133,6 +135,7 @@ export function listOperationLogs(params: {
     | "fine_table"
     | "inventory"
     | "purchase"
+    | "purchase_inbound_detail"
     | "supplier"
     | "warehouse"
     | "account_subject"
@@ -888,9 +891,18 @@ export type SupplierListResponse = {
 
 export type WarehouseItem = {
   id: number
+  brand: string | null
   name: string
   address: string | null
   notes: string | null
+}
+
+export type WarehouseBrandItem = {
+  id: number
+  name: string
+  warehouse_count: number
+  created_at: string | null
+  updated_at: string | null
 }
 
 export type InventoryAccountSubject = {
@@ -1334,6 +1346,32 @@ export function deleteGeneralCustomerShop(id: number) {
   )
 }
 
+export function listGeneralCustomerUnits() {
+  return request<GeneralCustomerUnitListResponse>(
+    "/inventory/general-customer-units"
+  )
+}
+
+export function createGeneralCustomerUnit(payload: { shop_id: number; unit_name: string }) {
+  return request<{ item: GeneralCustomerUnitItem; message: string }>(
+    "/inventory/general-customer-units",
+    { method: "POST", body: JSON.stringify(payload) },
+  )
+}
+
+export function updateGeneralCustomerUnit(id: number, payload: { shop_id: number; unit_name: string }) {
+  return request<{ item: GeneralCustomerUnitItem; message: string }>(
+    `/inventory/general-customer-units/${id}`,
+    { method: "PUT", body: JSON.stringify(payload) },
+  )
+}
+
+export function deleteGeneralCustomerUnit(id: number) {
+  return request<{ message: string }>(`/inventory/general-customer-units/${id}`, {
+    method: "DELETE",
+  })
+}
+
 export function listDetails(documentId: number) {
   return request<{ items: InventoryDetail[] }>(
     `/inventory/${documentId}/details`
@@ -1563,6 +1601,55 @@ export function listPurchaseInboundDetails(params: {
   return request<PurchaseInboundDetailResponse>(
     `/inventory-reports/purchase-inbound-details?${search.toString()}`
   )
+}
+
+export function listWarehouseBrands() {
+  return request<{ items: WarehouseBrandItem[] }>("/warehouse-brands")
+}
+
+export function createWarehouseBrand(payload: { name: string }) {
+  return request<{ item: WarehouseBrandItem; message: string }>("/warehouse-brands", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  })
+}
+
+export function updateWarehouseBrand(id: number, payload: { name: string }) {
+  return request<{ item: WarehouseBrandItem; message: string }>(`/warehouse-brands/${id}`, {
+    method: "PUT",
+    body: JSON.stringify(payload),
+  })
+}
+
+export function deleteWarehouseBrand(id: number) {
+  return request<{ message: string }>(`/warehouse-brands/${id}`, {
+    method: "DELETE",
+  })
+}
+
+export function buildPurchaseInboundDetailExportUrl(params: {
+  date_start?: string
+  date_end?: string
+  document_type?: string
+  supplier?: string
+  warehouse?: string
+  product_code?: string
+  product_name?: string
+  color_name?: string
+  size_name?: string
+} = {}) {
+  const search = new URLSearchParams()
+  if (params.date_start) search.set("date_start", params.date_start)
+  if (params.date_end) search.set("date_end", params.date_end)
+  if (params.document_type) search.set("document_type", params.document_type)
+  if (params.supplier) search.set("supplier", params.supplier)
+  if (params.warehouse) search.set("warehouse", params.warehouse)
+  if (params.product_code) search.set("product_code", params.product_code)
+  if (params.product_name) search.set("product_name", params.product_name)
+  if (params.color_name) search.set("color_name", params.color_name)
+  if (params.size_name) search.set("size_name", params.size_name)
+  const suffix = search.toString() ? `?${search.toString()}` : ""
+  return `${API_PREFIX}/inventory-reports/purchase-inbound-details/export${suffix}`
 }
 
 // ── Suppliers ────────────────────────────────────────────────────

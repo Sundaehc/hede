@@ -12,7 +12,7 @@ from sqlalchemy import Text, and_, case, create_engine, delete, desc, func, inse
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from domain.gj_schema import GJ_MERGED_PRODUCT_INFO_TABLE
-from domain.inventory_schema import GENERAL_CUSTOMER_BRAND_TABLE, GENERAL_CUSTOMER_SHOP_TABLE, INVENTORY_ACCOUNT_SUBJECT_TABLE, INVENTORY_DETAIL_TABLE, INVENTORY_TABLE, JST_STOCK_TABLE, PURCHASE_ORDER_REQUIREMENT_TABLE, SUPPLIER_TABLE, WAREHOUSE_TABLE
+from domain.inventory_schema import GENERAL_CUSTOMER_BRAND_TABLE, GENERAL_CUSTOMER_SHOP_TABLE, GENERAL_CUSTOMER_UNIT_TABLE, INVENTORY_ACCOUNT_SUBJECT_TABLE, INVENTORY_DETAIL_TABLE, INVENTORY_TABLE, JST_STOCK_TABLE, PURCHASE_ORDER_REQUIREMENT_TABLE, SUPPLIER_TABLE, WAREHOUSE_BRAND_TABLE, WAREHOUSE_TABLE
 from domain.inventory_sources import ACCOUNTING_DOCUMENT_TYPES
 from domain.gj_brand import CBANNER_MENS_BRAND, GJ_FINE_TABLE_BRANDS, SUPPLIER_BRANDS, infer_supplier_brand_from_name
 from domain import jst_stock_snapshot_schema  # noqa: F401 - register JST stock snapshot tables on METADATA
@@ -305,6 +305,7 @@ class InventoryRepository:
                 detail.c.product_name,
                 detail.c.color_name,
                 detail.c.color_spec,
+                detail.c.size_quantities,
                 detail.c.quantity,
                 detail.c.amount,
                 detail.c.extra_fields,
@@ -370,6 +371,7 @@ class InventoryRepository:
                 "unit_name": row.get("supplier"),
                 "warehouse_name": row.get("warehouse"),
                 "color_name": row.get("color_name") or row.get("color_spec") or "",
+                "size_quantities": row.get("size_quantities") if isinstance(row.get("size_quantities"), dict) else {},
             })
 
         quantity_total = Decimal(str(totals.get("quantity_total") or "0"))
@@ -781,7 +783,9 @@ class InventoryRepository:
             return [dict(row) for row in connection.execute(statement).mappings()]
 
     def create_general_customer_brand(self, data: Mapping[str, object]) -> dict[str, object]:
-        payload = {"name": str(data.get("name") or "").strip()}
+        payload = {
+            "name": str(data.get("name") or "").strip(),
+        }
         statement = (
             insert(GENERAL_CUSTOMER_BRAND_TABLE)
             .values(**payload)
@@ -817,7 +821,9 @@ class InventoryRepository:
         return None if row is None else dict(row)
 
     def update_general_customer_brand(self, brand_id: int, data: Mapping[str, object]) -> dict[str, object] | None:
-        payload = {"name": str(data.get("name") or "").strip()}
+        payload = {
+            "name": str(data.get("name") or "").strip(),
+        }
         with self.engine.begin() as connection:
             existing = connection.execute(
                 select(GENERAL_CUSTOMER_BRAND_TABLE.c.name).where(GENERAL_CUSTOMER_BRAND_TABLE.c.id == brand_id)
@@ -878,6 +884,14 @@ class InventoryRepository:
         return None if row is None else dict(row)
 
     def list_general_customer_shops(self) -> list[dict[str, object]]:
+        unit_count = (
+            select(
+                GENERAL_CUSTOMER_UNIT_TABLE.c.shop_id,
+                func.count(GENERAL_CUSTOMER_UNIT_TABLE.c.id).label("unit_count"),
+            )
+            .group_by(GENERAL_CUSTOMER_UNIT_TABLE.c.shop_id)
+            .subquery()
+        )
         statement = (
             select(
                 GENERAL_CUSTOMER_SHOP_TABLE.c.id,
@@ -885,7 +899,9 @@ class InventoryRepository:
                 GENERAL_CUSTOMER_SHOP_TABLE.c.shop_name,
                 GENERAL_CUSTOMER_SHOP_TABLE.c.created_at,
                 GENERAL_CUSTOMER_SHOP_TABLE.c.updated_at,
+                func.coalesce(unit_count.c.unit_count, 0).label("unit_count"),
             )
+            .outerjoin(unit_count, unit_count.c.shop_id == GENERAL_CUSTOMER_SHOP_TABLE.c.id)
             .order_by(
                 GENERAL_CUSTOMER_SHOP_TABLE.c.customer_name,
                 GENERAL_CUSTOMER_SHOP_TABLE.c.shop_name,
@@ -914,15 +930,24 @@ class InventoryRepository:
         with self.engine.begin() as connection:
             self._ensure_general_customer_brand(connection, payload["customer_name"])
             row = connection.execute(statement).mappings().one()
-        return dict(row)
+        item = dict(row)
+        item["unit_count"] = 0
+        return item
 
     def get_general_customer_shop(self, shop_id: int) -> dict[str, object] | None:
+        unit_count = (
+            select(func.count())
+            .select_from(GENERAL_CUSTOMER_UNIT_TABLE)
+            .where(GENERAL_CUSTOMER_UNIT_TABLE.c.shop_id == GENERAL_CUSTOMER_SHOP_TABLE.c.id)
+            .scalar_subquery()
+        )
         statement = select(
             GENERAL_CUSTOMER_SHOP_TABLE.c.id,
             GENERAL_CUSTOMER_SHOP_TABLE.c.customer_name,
             GENERAL_CUSTOMER_SHOP_TABLE.c.shop_name,
             GENERAL_CUSTOMER_SHOP_TABLE.c.created_at,
             GENERAL_CUSTOMER_SHOP_TABLE.c.updated_at,
+            unit_count.label("unit_count"),
         ).where(GENERAL_CUSTOMER_SHOP_TABLE.c.id == shop_id)
         with self.engine.connect() as connection:
             row = connection.execute(statement).mappings().first()
@@ -948,7 +973,16 @@ class InventoryRepository:
         with self.engine.begin() as connection:
             self._ensure_general_customer_brand(connection, payload["customer_name"])
             row = connection.execute(statement).mappings().first()
-        return None if row is None else dict(row)
+            unit_count = 0 if row is None else connection.execute(
+                select(func.count()).select_from(GENERAL_CUSTOMER_UNIT_TABLE).where(
+                    GENERAL_CUSTOMER_UNIT_TABLE.c.shop_id == shop_id
+                )
+            ).scalar_one()
+        if row is None:
+            return None
+        item = dict(row)
+        item["unit_count"] = unit_count
+        return item
 
     def delete_general_customer_shop(self, shop_id: int) -> bool:
         statement = delete(GENERAL_CUSTOMER_SHOP_TABLE).where(GENERAL_CUSTOMER_SHOP_TABLE.c.id == shop_id)
@@ -970,6 +1004,99 @@ class InventoryRepository:
         with self.engine.connect() as connection:
             row = connection.execute(statement).mappings().first()
         return None if row is None else dict(row)
+
+    def list_general_customer_units(self) -> list[dict[str, object]]:
+        statement = (
+            select(
+                GENERAL_CUSTOMER_UNIT_TABLE.c.id,
+                GENERAL_CUSTOMER_UNIT_TABLE.c.shop_id,
+                GENERAL_CUSTOMER_UNIT_TABLE.c.unit_name,
+                GENERAL_CUSTOMER_UNIT_TABLE.c.created_at,
+                GENERAL_CUSTOMER_UNIT_TABLE.c.updated_at,
+                GENERAL_CUSTOMER_SHOP_TABLE.c.customer_name,
+                GENERAL_CUSTOMER_SHOP_TABLE.c.shop_name,
+            )
+            .join(GENERAL_CUSTOMER_SHOP_TABLE, GENERAL_CUSTOMER_UNIT_TABLE.c.shop_id == GENERAL_CUSTOMER_SHOP_TABLE.c.id)
+            .order_by(
+                GENERAL_CUSTOMER_SHOP_TABLE.c.customer_name,
+                GENERAL_CUSTOMER_SHOP_TABLE.c.shop_name,
+                GENERAL_CUSTOMER_UNIT_TABLE.c.unit_name,
+            )
+        )
+        with self.engine.connect() as connection:
+            return [dict(row) for row in connection.execute(statement).mappings()]
+
+    def create_general_customer_unit(self, data: Mapping[str, object]) -> dict[str, object]:
+        payload = {
+            "shop_id": int(data.get("shop_id") or 0),
+            "unit_name": str(data.get("unit_name") or "").strip(),
+        }
+        statement = insert(GENERAL_CUSTOMER_UNIT_TABLE).values(**payload).returning(GENERAL_CUSTOMER_UNIT_TABLE)
+        with self.engine.begin() as connection:
+            row = connection.execute(statement).mappings().one()
+            shop = connection.execute(
+                select(GENERAL_CUSTOMER_SHOP_TABLE.c.customer_name, GENERAL_CUSTOMER_SHOP_TABLE.c.shop_name)
+                .where(GENERAL_CUSTOMER_SHOP_TABLE.c.id == payload["shop_id"])
+            ).mappings().one()
+        item = dict(row)
+        item.update(shop)
+        return item
+
+    def get_general_customer_unit(self, unit_id: int) -> dict[str, object] | None:
+        statement = (
+            select(
+                GENERAL_CUSTOMER_UNIT_TABLE.c.id,
+                GENERAL_CUSTOMER_UNIT_TABLE.c.shop_id,
+                GENERAL_CUSTOMER_UNIT_TABLE.c.unit_name,
+                GENERAL_CUSTOMER_UNIT_TABLE.c.created_at,
+                GENERAL_CUSTOMER_UNIT_TABLE.c.updated_at,
+                GENERAL_CUSTOMER_SHOP_TABLE.c.customer_name,
+                GENERAL_CUSTOMER_SHOP_TABLE.c.shop_name,
+            )
+            .join(GENERAL_CUSTOMER_SHOP_TABLE, GENERAL_CUSTOMER_UNIT_TABLE.c.shop_id == GENERAL_CUSTOMER_SHOP_TABLE.c.id)
+            .where(GENERAL_CUSTOMER_UNIT_TABLE.c.id == unit_id)
+        )
+        with self.engine.connect() as connection:
+            row = connection.execute(statement).mappings().first()
+        return None if row is None else dict(row)
+
+    def get_general_customer_unit_by_name(self, shop_id: int, unit_name: str) -> dict[str, object] | None:
+        statement = select(GENERAL_CUSTOMER_UNIT_TABLE).where(
+            GENERAL_CUSTOMER_UNIT_TABLE.c.shop_id == shop_id,
+            GENERAL_CUSTOMER_UNIT_TABLE.c.unit_name == unit_name,
+        )
+        with self.engine.connect() as connection:
+            row = connection.execute(statement).mappings().first()
+        return None if row is None else dict(row)
+
+    def update_general_customer_unit(self, unit_id: int, data: Mapping[str, object]) -> dict[str, object] | None:
+        payload = {
+            "shop_id": int(data.get("shop_id") or 0),
+            "unit_name": str(data.get("unit_name") or "").strip(),
+        }
+        statement = (
+            update(GENERAL_CUSTOMER_UNIT_TABLE)
+            .where(GENERAL_CUSTOMER_UNIT_TABLE.c.id == unit_id)
+            .values(**payload)
+            .returning(GENERAL_CUSTOMER_UNIT_TABLE)
+        )
+        with self.engine.begin() as connection:
+            row = connection.execute(statement).mappings().first()
+            if row is None:
+                return None
+            shop = connection.execute(
+                select(GENERAL_CUSTOMER_SHOP_TABLE.c.customer_name, GENERAL_CUSTOMER_SHOP_TABLE.c.shop_name)
+                .where(GENERAL_CUSTOMER_SHOP_TABLE.c.id == payload["shop_id"])
+            ).mappings().one()
+        item = dict(row)
+        item.update(shop)
+        return item
+
+    def delete_general_customer_unit(self, unit_id: int) -> bool:
+        statement = delete(GENERAL_CUSTOMER_UNIT_TABLE).where(GENERAL_CUSTOMER_UNIT_TABLE.c.id == unit_id)
+        with self.engine.begin() as connection:
+            result = connection.execute(statement)
+        return result.rowcount > 0
 
     # ── Inventory Account Subjects ─────────────────────────────────
 
@@ -1043,8 +1170,126 @@ class InventoryRepository:
         with self.engine.connect() as connection:
             return [dict(row) for row in connection.execute(statement).mappings()]
 
+    def list_warehouse_brands(self) -> list[dict[str, object]]:
+        warehouse_count = (
+            select(
+                WAREHOUSE_TABLE.c.brand.label("brand_name"),
+                func.count().label("warehouse_count"),
+            )
+            .group_by(WAREHOUSE_TABLE.c.brand)
+            .subquery()
+        )
+        statement = (
+            select(
+                WAREHOUSE_BRAND_TABLE.c.id,
+                WAREHOUSE_BRAND_TABLE.c.name,
+                WAREHOUSE_BRAND_TABLE.c.created_at,
+                WAREHOUSE_BRAND_TABLE.c.updated_at,
+                func.coalesce(warehouse_count.c.warehouse_count, 0).label("warehouse_count"),
+            )
+            .outerjoin(warehouse_count, warehouse_count.c.brand_name == WAREHOUSE_BRAND_TABLE.c.name)
+            .order_by(WAREHOUSE_BRAND_TABLE.c.name)
+        )
+        with self.engine.connect() as connection:
+            return [dict(row) for row in connection.execute(statement).mappings()]
+
+    def create_warehouse_brand(self, data: Mapping[str, object]) -> dict[str, object]:
+        payload = {"name": str(data.get("name") or "").strip()}
+        statement = (
+            insert(WAREHOUSE_BRAND_TABLE)
+            .values(**payload)
+            .returning(
+                WAREHOUSE_BRAND_TABLE.c.id,
+                WAREHOUSE_BRAND_TABLE.c.name,
+                WAREHOUSE_BRAND_TABLE.c.created_at,
+                WAREHOUSE_BRAND_TABLE.c.updated_at,
+            )
+        )
+        with self.engine.begin() as connection:
+            row = connection.execute(statement).mappings().one()
+        record = dict(row)
+        record["warehouse_count"] = 0
+        return record
+
+    def get_warehouse_brand(self, brand_id: int) -> dict[str, object] | None:
+        warehouse_count = (
+            select(func.count())
+            .select_from(WAREHOUSE_TABLE)
+            .where(WAREHOUSE_TABLE.c.brand == WAREHOUSE_BRAND_TABLE.c.name)
+            .scalar_subquery()
+        )
+        statement = select(
+            WAREHOUSE_BRAND_TABLE.c.id,
+            WAREHOUSE_BRAND_TABLE.c.name,
+            WAREHOUSE_BRAND_TABLE.c.created_at,
+            WAREHOUSE_BRAND_TABLE.c.updated_at,
+            warehouse_count.label("warehouse_count"),
+        ).where(WAREHOUSE_BRAND_TABLE.c.id == brand_id)
+        with self.engine.connect() as connection:
+            row = connection.execute(statement).mappings().first()
+        return None if row is None else dict(row)
+
+    def get_warehouse_brand_by_name(self, name: str) -> dict[str, object] | None:
+        statement = select(WAREHOUSE_BRAND_TABLE).where(WAREHOUSE_BRAND_TABLE.c.name == name)
+        with self.engine.connect() as connection:
+            row = connection.execute(statement).mappings().first()
+        return None if row is None else dict(row)
+
+    def update_warehouse_brand(self, brand_id: int, data: Mapping[str, object]) -> dict[str, object] | None:
+        payload = {"name": str(data.get("name") or "").strip()}
+        with self.engine.begin() as connection:
+            previous = connection.execute(
+                select(WAREHOUSE_BRAND_TABLE.c.name).where(WAREHOUSE_BRAND_TABLE.c.id == brand_id)
+            ).mappings().first()
+            if previous is None:
+                return None
+            row = connection.execute(
+                update(WAREHOUSE_BRAND_TABLE)
+                .where(WAREHOUSE_BRAND_TABLE.c.id == brand_id)
+                .values(**payload)
+                .returning(
+                    WAREHOUSE_BRAND_TABLE.c.id,
+                    WAREHOUSE_BRAND_TABLE.c.name,
+                    WAREHOUSE_BRAND_TABLE.c.created_at,
+                    WAREHOUSE_BRAND_TABLE.c.updated_at,
+                )
+            ).mappings().first()
+            if row is None:
+                return None
+            old_name = str(previous["name"] or "")
+            if old_name != payload["name"]:
+                connection.execute(
+                    update(WAREHOUSE_TABLE)
+                    .where(WAREHOUSE_TABLE.c.brand == old_name)
+                    .values(brand=payload["name"])
+                )
+            warehouse_count = connection.execute(
+                select(func.count()).select_from(WAREHOUSE_TABLE).where(WAREHOUSE_TABLE.c.brand == payload["name"])
+            ).scalar_one()
+        record = dict(row)
+        record["warehouse_count"] = warehouse_count
+        return record
+
+    def delete_warehouse_brand(self, brand_id: int) -> str | None:
+        with self.engine.begin() as connection:
+            row = connection.execute(
+                select(WAREHOUSE_BRAND_TABLE.c.name).where(WAREHOUSE_BRAND_TABLE.c.id == brand_id)
+            ).first()
+            if row is None:
+                return "not_found"
+            brand_name = str(row[0] or "")
+            has_warehouses = connection.execute(
+                select(WAREHOUSE_TABLE.c.id).where(WAREHOUSE_TABLE.c.brand == brand_name).limit(1)
+            ).first()
+            if has_warehouses is not None:
+                return "in_use"
+            result = connection.execute(delete(WAREHOUSE_BRAND_TABLE).where(WAREHOUSE_BRAND_TABLE.c.id == brand_id))
+        return None if result.rowcount > 0 else "not_found"
+
     def create_warehouse(self, data: Mapping[str, object]) -> dict[str, object]:
-        statement = insert(WAREHOUSE_TABLE).values(**dict(data)).returning(WAREHOUSE_TABLE)
+        payload = dict(data)
+        payload["brand"] = str(payload.get("brand") or "通用").strip() or "通用"
+        statement = insert(WAREHOUSE_TABLE).values(**payload).returning(WAREHOUSE_TABLE)
         with self.engine.begin() as connection:
             row = connection.execute(statement).mappings().one()
         return dict(row)
@@ -1717,10 +1962,14 @@ class InventoryRepository:
             PURCHASE_ORDER_REQUIREMENT_TABLE.create(connection, checkfirst=True)
             SUPPLIER_TABLE.create(connection, checkfirst=True)
             WAREHOUSE_TABLE.create(connection, checkfirst=True)
+            WAREHOUSE_BRAND_TABLE.create(connection, checkfirst=True)
+            self._ensure_warehouse_schema(connection)
             self._ensure_supplier_schema(connection)
             self._sync_suppliers_from_gj(connection)
             GENERAL_CUSTOMER_BRAND_TABLE.create(connection, checkfirst=True)
             GENERAL_CUSTOMER_SHOP_TABLE.create(connection, checkfirst=True)
+            GENERAL_CUSTOMER_UNIT_TABLE.create(connection, checkfirst=True)
+            self._ensure_general_customer_schema(connection)
             self._seed_general_customer_shops(connection)
             connection.execute(text("UPDATE inventory_records SET total_count = NULL, amount = NULL, warehouse = NULL WHERE document_type IN ('应付款减少', '应付款增加', '应收款减少', '应收款增加') AND (total_count IS NOT NULL OR amount IS NOT NULL OR warehouse IS NOT NULL)"))
             connection.execute(text("UPDATE inventory_records SET total_count = -abs(total_count) WHERE document_type = '进货退货单' AND total_count IS NOT NULL AND total_count > 0"))
@@ -1741,6 +1990,28 @@ class InventoryRepository:
             ).first()
             if exists is None:
                 connection.execute(insert(INVENTORY_ACCOUNT_SUBJECT_TABLE).values(**row))
+
+    @staticmethod
+    def _ensure_warehouse_schema(connection) -> None:
+        connection.execute(text("ALTER TABLE IF EXISTS warehouses ADD COLUMN IF NOT EXISTS brand TEXT"))
+        connection.execute(
+            text(
+                """
+                INSERT INTO warehouse_brands (name)
+                VALUES ('通用')
+                ON CONFLICT (name) DO NOTHING
+                """
+            )
+        )
+        connection.execute(
+            text(
+                """
+                UPDATE warehouses
+                SET brand = '通用'
+                WHERE brand IS NULL OR btrim(brand) = ''
+                """
+            )
+        )
 
     @staticmethod
     def _ensure_supplier_schema(connection) -> None:
@@ -1911,6 +2182,10 @@ class InventoryRepository:
             self._ensure_general_customer_brand(connection, row[0])
 
     @staticmethod
+    def _ensure_general_customer_schema(connection) -> None:
+        return None
+
+    @staticmethod
     def _ensure_general_customer_brand(connection, name: str) -> None:
         if not name:
             return
@@ -2029,22 +2304,34 @@ class InventoryRepository:
                 INVENTORY_TABLE.c.id,
             )
         ).mappings())
+        occupied_numbers = {
+            str(row.get("document_number") or "").strip()
+            for row in rows
+            if str(row.get("document_number") or "").strip()
+        }
         counters: dict[tuple[str, str], int] = {}
         for row in rows:
+            existing_number = str(row.get("document_number") or "").strip()
+            if existing_number:
+                continue
             date_value = row.get("date_value") or row.get("date")
             document_type = row.get("document_type")
             prefix = InventoryRepository._document_number_prefix(document_type)
             date_text = InventoryRepository._document_number_date_text(date_value)
             key = (prefix, date_text)
-            counters[key] = counters.get(key, 0) + 1
-            document_number = InventoryRepository._format_document_number(document_type, date_value, counters[key])
-            if row.get("document_number") == document_number:
-                continue
+            sequence = counters.get(key, 0)
+            while True:
+                sequence += 1
+                document_number = InventoryRepository._format_document_number(document_type, date_value, sequence)
+                if document_number not in occupied_numbers:
+                    break
+            counters[key] = sequence
             connection.execute(
                 update(INVENTORY_TABLE)
                 .where(INVENTORY_TABLE.c.id == row["id"])
                 .values(document_number=document_number)
             )
+            occupied_numbers.add(document_number)
 
     @staticmethod
     def _prepare_supplier(data: Mapping[str, object]) -> dict[str, object]:

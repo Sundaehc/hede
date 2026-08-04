@@ -83,9 +83,15 @@ SUPPLIER_FIELD_LABELS = {
 }
 
 WAREHOUSE_FIELD_LABELS = {
+    "brand": "品牌",
     "name": "仓库名称",
     "address": "地址",
     "notes": "备注",
+}
+
+WAREHOUSE_BRAND_FIELD_LABELS = {
+    "name": "品牌名称",
+    "warehouse_count": "仓库数量",
 }
 
 ACCOUNT_SUBJECT_FIELD_LABELS = {
@@ -101,6 +107,12 @@ GENERAL_CUSTOMER_BRAND_FIELD_LABELS = {
 GENERAL_CUSTOMER_SHOP_FIELD_LABELS = {
     "customer_name": "品牌名称",
     "shop_name": "店铺名称",
+    "unit_count": "单位数量",
+}
+
+GENERAL_CUSTOMER_UNIT_FIELD_LABELS = {
+    "shop_id": "店铺",
+    "unit_name": "单位名称",
 }
 
 USER_FIELD_LABELS = {

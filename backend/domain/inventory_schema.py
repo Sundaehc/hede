@@ -19,25 +19,31 @@ from sqlalchemy import (
 
 from domain.inventory_sources import (
     GENERAL_CUSTOMER_BRAND_TABLE_NAME,
+    GENERAL_CUSTOMER_CATEGORY_TABLE_NAME,
     INVENTORY_ACCOUNT_SUBJECT_TABLE_NAME,
     INVENTORY_DETAIL_TABLE_NAME,
     INVENTORY_TABLE_NAME,
     JST_STOCK_TABLE_NAME,
     PURCHASE_ORDER_REQUIREMENT_TABLE_NAME,
     SUPPLIER_TABLE_NAME,
+    WAREHOUSE_BRAND_TABLE_NAME,
     WAREHOUSE_TABLE_NAME,
     GENERAL_CUSTOMER_SHOP_TABLE_NAME,
+    GENERAL_CUSTOMER_UNIT_TABLE_NAME,
 )
 from domain.fields import (
     FieldSpec,
     GENERAL_CUSTOMER_BRAND_FIELDS,
+    GENERAL_CUSTOMER_CATEGORY_FIELDS,
     INVENTORY_DETAIL_FIELDS,
     INVENTORY_ACCOUNT_SUBJECT_FIELDS,
     INVENTORY_FIELDS,
     JST_STOCK_FIELDS,
     SUPPLIER_FIELDS,
+    WAREHOUSE_BRAND_FIELDS,
     WAREHOUSE_FIELDS,
     GENERAL_CUSTOMER_SHOP_FIELDS,
+    GENERAL_CUSTOMER_UNIT_FIELDS,
 )
 from domain.schema import METADATA
 
@@ -149,6 +155,20 @@ def build_warehouse_table() -> Table:
     return Table(WAREHOUSE_TABLE_NAME, METADATA, *columns)
 
 
+def build_warehouse_brand_table() -> Table:
+    columns: list = [
+        Column("id", BigInteger, Identity(always=False), primary_key=True),
+        *[
+            Column(field.name, _column_type(field), nullable=field.name != "name")
+            for field in WAREHOUSE_BRAND_FIELDS
+        ],
+        Column("created_at", DateTime(timezone=True), server_default=func.date_trunc('minute', func.now())),
+        Column("updated_at", DateTime(timezone=True), server_default=func.date_trunc('minute', func.now()), onupdate=func.date_trunc('minute', func.now())),
+        UniqueConstraint("name", name="uq_warehouse_brands_name"),
+    ]
+    return Table(WAREHOUSE_BRAND_TABLE_NAME, METADATA, *columns)
+
+
 def build_general_customer_brand_table() -> Table:
     columns: list = [
         Column("id", BigInteger, Identity(always=False), primary_key=True),
@@ -161,6 +181,20 @@ def build_general_customer_brand_table() -> Table:
         UniqueConstraint("name", name="uq_general_customer_brands_name"),
     ]
     return Table(GENERAL_CUSTOMER_BRAND_TABLE_NAME, METADATA, *columns)
+
+
+def build_general_customer_category_table() -> Table:
+    columns: list = [
+        Column("id", BigInteger, Identity(always=False), primary_key=True),
+        *[
+            Column(field.name, _column_type(field), nullable=field.name != "name")
+            for field in GENERAL_CUSTOMER_CATEGORY_FIELDS
+        ],
+        Column("created_at", DateTime(timezone=True), server_default=func.date_trunc('minute', func.now())),
+        Column("updated_at", DateTime(timezone=True), server_default=func.date_trunc('minute', func.now()), onupdate=func.date_trunc('minute', func.now())),
+        UniqueConstraint("name", name="uq_general_customer_categories_name"),
+    ]
+    return Table(GENERAL_CUSTOMER_CATEGORY_TABLE_NAME, METADATA, *columns)
 
 
 def build_general_customer_shop_table() -> Table:
@@ -180,14 +214,32 @@ def build_general_customer_shop_table() -> Table:
     return table
 
 
+def build_general_customer_unit_table() -> Table:
+    columns: list = [
+        Column("id", BigInteger, Identity(always=False), primary_key=True),
+        Column("shop_id", BigInteger, ForeignKey(f"{GENERAL_CUSTOMER_SHOP_TABLE_NAME}.id", ondelete="CASCADE"), nullable=False),
+        Column("unit_name", Text, nullable=False),
+        Column("created_at", DateTime(timezone=True), server_default=func.date_trunc('minute', func.now())),
+        Column("updated_at", DateTime(timezone=True), server_default=func.date_trunc('minute', func.now()), onupdate=func.date_trunc('minute', func.now())),
+        UniqueConstraint("shop_id", "unit_name", name="uq_general_customer_units_shop_unit"),
+    ]
+    table = Table(GENERAL_CUSTOMER_UNIT_TABLE_NAME, METADATA, *columns)
+    Index("idx_general_customer_units_shop_id", table.c.shop_id)
+    Index("idx_general_customer_units_unit_name", table.c.unit_name)
+    return table
+
+
 INVENTORY_TABLE = build_inventory_table()
 INVENTORY_DETAIL_TABLE = build_inventory_detail_table()
 INVENTORY_ACCOUNT_SUBJECT_TABLE = build_inventory_account_subject_table()
 PURCHASE_ORDER_REQUIREMENT_TABLE = build_purchase_order_requirement_table()
 SUPPLIER_TABLE = build_supplier_table()
 WAREHOUSE_TABLE = build_warehouse_table()
+WAREHOUSE_BRAND_TABLE = build_warehouse_brand_table()
+GENERAL_CUSTOMER_CATEGORY_TABLE = build_general_customer_category_table()
 GENERAL_CUSTOMER_BRAND_TABLE = build_general_customer_brand_table()
 GENERAL_CUSTOMER_SHOP_TABLE = build_general_customer_shop_table()
+GENERAL_CUSTOMER_UNIT_TABLE = build_general_customer_unit_table()
 
 
 def build_jst_stock_table() -> Table:

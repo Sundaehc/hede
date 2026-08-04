@@ -1,7 +1,7 @@
 "use client"
 
-import { useCallback, useEffect, useRef, useState } from "react"
-import { Plus, Download, Upload, Trash2, Edit, Search, X, RefreshCw, List, BadgeDollarSign, FileText, History } from "lucide-react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { Plus, Download, Upload, Trash2, Edit, Search, X, RefreshCw, List, BadgeDollarSign, FileText, History, ChevronLeft, ChevronRight } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -27,6 +27,7 @@ import { ConfirmDialog, MessageDialog } from "@/components/confirm-dialog"
 import { InventoryDetailPanel } from "@/components/inventory-admin/inventory-detail-panel"
 import { EndingInventoryTab } from "@/components/inventory-admin/ending-inventory-tab"
 import { OperationLogDialog } from "@/components/operation-log-dialog"
+import { SearchableFilterInput, type SearchableFilterOption } from "@/components/inventory-admin/searchable-filter-input"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import {
   listInventory,
@@ -47,6 +48,7 @@ import {
   buildPurchaseImportTemplateUrl,
   listInventoryAccountSubjects,
   listGeneralCustomerShops,
+  listGeneralCustomerUnits,
   listSuppliers,
   listWarehouses,
   ApiError,
@@ -56,7 +58,7 @@ import {
   type SupplierItem,
   type WarehouseItem,
 } from "@/lib/api"
-import type { GeneralCustomerShopItem } from "@/lib/types"
+import type { GeneralCustomerShopItem, GeneralCustomerUnitItem } from "@/lib/types"
 
 const PAGE_SIZES = [10, 50, 100]
 
@@ -84,12 +86,29 @@ const PURCHASE_REQUIREMENT_BRAND_OPTIONS: Array<{ value: PurchaseOrderRequiremen
   { value: "smiley", label: "笑脸" },
   { value: "ni", label: "NI" },
 ]
+const INVENTORY_BRAND_LABELS: Record<string, string> = {
+  cbanner_mens: "千百度男鞋",
+  cbanner_womens: "千百度女鞋",
+  yandou: "烟斗",
+  eblan: "伊伴",
+  smiley: "笑脸",
+  ni: "NI",
+  通用: "通用",
+}
 type CompletionStatus = (typeof COMPLETION_TABS)[number]["value"]
 type PurchaseExportMode = "summary" | "size_rows" | "production_order"
 type SearchableOption = {
   value: string
   label: string
   keywords?: string
+}
+
+type HierarchicalOption = {
+  id: string
+  label: string
+  value?: string
+  keywords?: string
+  children?: HierarchicalOption[]
 }
 
 function todayInputValue() {
@@ -136,6 +155,11 @@ function getErrorMessage(error: unknown) {
   if (error instanceof ApiError) return error.message || `请求失败（${error.status}）`
   if (error instanceof Error) return error.message
   return "发生未知错误"
+}
+
+function inventoryBrandLabel(brand: string | null | undefined) {
+  const normalizedBrand = String(brand || "").trim() || "通用"
+  return INVENTORY_BRAND_LABELS[normalizedBrand] || normalizedBrand
 }
 
 function formatImportSummaryPreview(summaries: string[]) {
@@ -290,6 +314,167 @@ function SearchableSelect({
   )
 }
 
+function findHierarchicalOption(
+  options: HierarchicalOption[],
+  value: string,
+  path: string[] = [],
+): { option: HierarchicalOption; path: string[] } | null {
+  for (const option of options) {
+    const nextPath = [...path, option.label]
+    if (option.value === value) return { option, path: nextPath }
+    const found = option.children ? findHierarchicalOption(option.children, value, nextPath) : null
+    if (found) return found
+  }
+  return null
+}
+
+function findHierarchicalNode(options: HierarchicalOption[], id: string): HierarchicalOption | null {
+  for (const option of options) {
+    if (option.id === id) return option
+    const found = option.children ? findHierarchicalNode(option.children, id) : null
+    if (found) return found
+  }
+  return null
+}
+
+function flattenHierarchicalOptions(
+  options: HierarchicalOption[],
+  path: string[] = [],
+): Array<{ option: HierarchicalOption; path: string[] }> {
+  return options.flatMap((option) => {
+    const nextPath = [...path, option.label]
+    const current = option.value ? [{ option, path: nextPath }] : []
+    return [...current, ...(option.children ? flattenHierarchicalOptions(option.children, nextPath) : [])]
+  })
+}
+
+function HierarchicalSelect({
+  value,
+  options,
+  onChange,
+  placeholder = "请选择品牌",
+  emptyText = "没有可选项",
+  onTouched,
+}: {
+  value: string
+  options: HierarchicalOption[]
+  onChange: (value: string) => void
+  placeholder?: string
+  emptyText?: string
+  onTouched?: () => void
+}) {
+  const rootRef = useRef<HTMLDivElement>(null)
+  const inputRef = useRef<HTMLInputElement>(null)
+  const [open, setOpen] = useState(false)
+  const [query, setQuery] = useState("")
+  const [pathIds, setPathIds] = useState<string[]>([])
+  const selected = value ? findHierarchicalOption(options, value) : null
+  const activeNode = pathIds.length > 0 ? findHierarchicalNode(options, pathIds[pathIds.length - 1]) : null
+  const activeOptions = activeNode?.children ?? options
+  const allSelectableOptions = flattenHierarchicalOptions(options)
+  const searchTerm = query.trim().toLowerCase()
+  const searchResults = searchTerm
+    ? allSelectableOptions.filter(({ option, path }) => (
+      `${path.join(" ")} ${option.value || ""} ${option.keywords || ""}`.toLowerCase().includes(searchTerm)
+    )).slice(0, 80)
+    : []
+
+  useEffect(() => {
+    function handlePointerDown(event: MouseEvent) {
+      if (!rootRef.current?.contains(event.target as Node)) {
+        setOpen(false)
+        setQuery("")
+        setPathIds([])
+      }
+    }
+    document.addEventListener("mousedown", handlePointerDown)
+    return () => document.removeEventListener("mousedown", handlePointerDown)
+  }, [])
+
+  const selectOption = (option: HierarchicalOption) => {
+    if (option.value === undefined) return
+    onTouched?.()
+    onChange(option.value)
+    setOpen(false)
+    setQuery("")
+    setPathIds([])
+  }
+  const enterOption = (option: HierarchicalOption) => {
+    if (!option.children?.length) return
+    setPathIds((current) => [...current, option.id])
+  }
+  const resetToRoot = () => {
+    setPathIds([])
+    setQuery("")
+  }
+
+  return (
+    <div ref={rootRef} className="relative">
+      <div className="relative">
+        <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+        <input
+          ref={inputRef}
+          value={open ? query : selected?.path.join(" / ") || value}
+          onFocus={() => { setOpen(true); resetToRoot() }}
+          onChange={(event) => { onTouched?.(); setQuery(event.target.value); setOpen(true); setPathIds([]) }}
+          onKeyDown={(event) => {
+            if (event.key === "Enter" && searchResults[0]) {
+              event.preventDefault()
+              selectOption(searchResults[0].option)
+            }
+            if (event.key === "Escape") {
+              setOpen(false)
+              resetToRoot()
+            }
+          }}
+          placeholder={placeholder}
+          className="flex h-9 w-full cursor-pointer rounded-lg border border-input bg-card py-2 pl-9 pr-9 text-sm shadow-xs outline-none transition-colors placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/35"
+        />
+        {value && (
+          <button type="button" aria-label="清空" onClick={() => selectOption({ id: "clear", label: "", value: "" })} className="absolute right-2 top-1/2 inline-flex h-6 w-6 -translate-y-1/2 cursor-pointer items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground">
+            <X className="h-3.5 w-3.5" />
+          </button>
+        )}
+      </div>
+      {open && (
+        <div className="absolute z-50 mt-1 max-h-72 w-full overflow-y-auto rounded-lg border border-border bg-popover py-1 shadow-lg">
+          {searchTerm ? (
+            searchResults.length === 0 ? <div className="px-3 py-6 text-center text-sm text-muted-foreground">{emptyText}</div> : searchResults.map(({ option, path }) => (
+              <button key={option.id} type="button" onClick={() => selectOption(option)} className="flex w-full cursor-pointer items-center px-3 py-2 text-left text-sm hover:bg-muted">
+                <span className="min-w-0 flex-1 truncate">{path.join(" / ")}</span>
+              </button>
+            ))
+          ) : (
+            <>
+              {pathIds.length > 0 && (
+                <button type="button" onClick={() => setPathIds((current) => current.slice(0, -1))} className="flex w-full cursor-pointer items-center gap-1 border-b border-border px-3 py-2 text-left text-xs text-muted-foreground hover:bg-muted">
+                  <ChevronLeft className="h-3.5 w-3.5" /> 返回上一级
+                </button>
+              )}
+              <div className="border-b border-border px-3 py-2 text-xs text-muted-foreground">{activeNode ? `选择 ${activeNode.label} 下的项目` : "选择品牌"}</div>
+              {activeOptions.length === 0 ? <div className="px-3 py-6 text-center text-sm text-muted-foreground">{emptyText}</div> : activeOptions.map((option) => {
+                const canEnter = Boolean(option.children?.length)
+                return (
+                  <div key={option.id} className="flex items-center hover:bg-muted">
+                    <button type="button" onClick={() => option.value ? selectOption(option) : enterOption(option)} className="flex min-w-0 flex-1 cursor-pointer items-center px-3 py-2 text-left text-sm">
+                      <span className="truncate">{option.label}</span>
+                    </button>
+                    {canEnter && (
+                      <button type="button" aria-label={`查看 ${option.label} 下级`} onClick={() => enterOption(option)} className="mr-1 inline-flex h-8 w-8 cursor-pointer items-center justify-center rounded-md text-muted-foreground hover:bg-background hover:text-foreground">
+                        <ChevronRight className="h-4 w-4" />
+                      </button>
+                    )}
+                  </div>
+                )
+              })}
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
 type InventoryPageProps = {
   mode?: "inventory" | "purchase-orders"
 }
@@ -310,6 +495,7 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
   const [supplierOptions, setSupplierOptions] = useState<SupplierItem[]>([])
   const [warehouseOptions, setWarehouseOptions] = useState<WarehouseItem[]>([])
   const [customerShopOptions, setCustomerShopOptions] = useState<GeneralCustomerShopItem[]>([])
+  const [customerUnitOptions, setCustomerUnitOptions] = useState<GeneralCustomerUnitItem[]>([])
   const [accountSubjectOptions, setAccountSubjectOptions] = useState<InventoryAccountSubject[]>([])
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(PAGE_SIZES[0])
@@ -373,15 +559,17 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
   useEffect(() => {
     async function loadOptions() {
       try {
-        const [suppliersRes, warehousesRes, customerShopsRes, accountSubjectsRes] = await Promise.all([
+        const [suppliersRes, warehousesRes, customerShopsRes, customerUnitsRes, accountSubjectsRes] = await Promise.all([
           listSuppliers(),
           listWarehouses(),
           listGeneralCustomerShops(),
+          listGeneralCustomerUnits(),
           listInventoryAccountSubjects(),
         ])
         setSupplierOptions(suppliersRes.items)
         setWarehouseOptions(warehousesRes.items)
         setCustomerShopOptions(customerShopsRes.items)
+        setCustomerUnitOptions(customerUnitsRes.items)
         setAccountSubjectOptions(accountSubjectsRes.items)
       } catch { /* ignore */ }
     }
@@ -958,8 +1146,85 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
     label: `${shop.customer_name} / ${shop.shop_name}`,
     keywords: shop.customer_name,
   }))
-  const formCounterpartyOptions = isFormTransfer ? warehouseSelectOptions : (isFormWholesale || isFormReceivable) ? customerShopSelectOptions : supplierSelectOptions
-  const importCounterpartyOptions = isImportTransfer ? warehouseSelectOptions : isImportWholesale ? customerShopSelectOptions : supplierSelectOptions
+  const customerUnitSelectOptions = customerUnitOptions.map((unit) => ({
+    value: unit.unit_name,
+    label: `${unit.customer_name} / ${unit.shop_name} / ${unit.unit_name}`,
+    keywords: `${unit.customer_name} ${unit.shop_name}`,
+  }))
+  const customerCounterpartySelectOptions = [...customerShopSelectOptions, ...customerUnitSelectOptions]
+  const supplierHierarchicalOptions = useMemo<HierarchicalOption[]>(() => {
+    const suppliersByBrand = new Map<string, SupplierItem[]>()
+    for (const supplier of supplierOptions) {
+      const brand = String(supplier.brand || "").trim() || "通用"
+      const group = suppliersByBrand.get(brand) ?? []
+      group.push(supplier)
+      suppliersByBrand.set(brand, group)
+    }
+    return Array.from(suppliersByBrand.entries()).sort(([left], [right]) => inventoryBrandLabel(left).localeCompare(inventoryBrandLabel(right), "zh-CN")).map(([brand, suppliers]) => ({
+      id: `supplier-brand:${brand}`,
+      label: inventoryBrandLabel(brand),
+      children: suppliers.sort((left, right) => left.name.localeCompare(right.name, "zh-CN")).map((supplier) => ({
+        id: `supplier:${supplier.id}`,
+        label: supplier.name,
+        value: supplier.name,
+        keywords: [supplier.factory_code, supplier.contact, supplier.address].filter(Boolean).join(" "),
+      })),
+    }))
+  }, [supplierOptions])
+  const warehouseHierarchicalOptions = useMemo<HierarchicalOption[]>(() => {
+    const warehousesByBrand = new Map<string, WarehouseItem[]>()
+    for (const warehouse of warehouseOptions) {
+      const brand = String(warehouse.brand || "").trim() || "通用"
+      const group = warehousesByBrand.get(brand) ?? []
+      group.push(warehouse)
+      warehousesByBrand.set(brand, group)
+    }
+    return Array.from(warehousesByBrand.entries()).sort(([left], [right]) => inventoryBrandLabel(left).localeCompare(inventoryBrandLabel(right), "zh-CN")).map(([brand, warehouses]) => ({
+      id: `warehouse-brand:${brand}`,
+      label: inventoryBrandLabel(brand),
+      children: warehouses.sort((left, right) => left.name.localeCompare(right.name, "zh-CN")).map((warehouse) => ({
+        id: `warehouse:${warehouse.id}`,
+        label: warehouse.name,
+        value: warehouse.name,
+        keywords: [warehouse.address, warehouse.notes].filter(Boolean).join(" "),
+      })),
+    }))
+  }, [warehouseOptions])
+  const customerHierarchicalOptions = useMemo<HierarchicalOption[]>(() => {
+    const shopsByCustomer = new Map<string, GeneralCustomerShopItem[]>()
+    for (const shop of customerShopOptions) {
+      const group = shopsByCustomer.get(shop.customer_name) ?? []
+      group.push(shop)
+      shopsByCustomer.set(shop.customer_name, group)
+    }
+    return Array.from(shopsByCustomer.entries()).sort(([left], [right]) => left.localeCompare(right, "zh-CN")).map(([customerName, shops]) => ({
+      id: `customer-brand:${customerName}`,
+      label: customerName,
+      children: shops.sort((left, right) => left.shop_name.localeCompare(right.shop_name, "zh-CN")).map((shop) => ({
+        id: `customer-shop:${shop.id}`,
+        label: shop.shop_name,
+        value: shop.shop_name,
+        children: customerUnitOptions.filter((unit) => unit.shop_id === shop.id).sort((left, right) => left.unit_name.localeCompare(right.unit_name, "zh-CN")).map((unit) => ({
+          id: `customer-unit:${unit.id}`,
+          label: unit.unit_name,
+          value: unit.unit_name,
+        })),
+      })),
+    }))
+  }, [customerShopOptions, customerUnitOptions])
+  const counterpartyFilterOptions: SearchableFilterOption[] = (() => {
+    const uniqueOptions = new Map<string, SearchableFilterOption>()
+    for (const option of supplierSelectOptions) {
+      uniqueOptions.set(option.value, option)
+    }
+    for (const option of customerCounterpartySelectOptions) {
+      uniqueOptions.set(option.value, option)
+    }
+    return Array.from(uniqueOptions.values())
+  })()
+  const counterpartySearchOptions = isPurchaseOrderTab ? supplierSelectOptions : counterpartyFilterOptions
+  const formCounterpartyHierarchicalOptions = isFormTransfer ? warehouseHierarchicalOptions : (isFormWholesale || isFormReceivable) ? customerHierarchicalOptions : supplierHierarchicalOptions
+  const importCounterpartyOptions = isImportTransfer ? warehouseSelectOptions : isImportWholesale ? customerCounterpartySelectOptions : supplierSelectOptions
   const documentTypeOptions = INVENTORY_DOCUMENT_TYPES
   const detailImportDocumentTypeOptions = DETAIL_IMPORT_DOCUMENT_TYPES
   const currentRequirementContent = requirementDrafts[selectedRequirementBrand] ?? ""
@@ -1101,7 +1366,13 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
                     </div>
                     <div className="space-y-1.5 lg:col-span-3 xl:col-span-3">
                       <Label className="text-xs text-muted-foreground">客户/供应商</Label>
-                      <Input value={searchSupplier} onChange={(e) => setSearchSupplier(e.target.value)} placeholder="客户/供应商" className="h-9" />
+                      <SearchableFilterInput
+                        value={searchSupplier}
+                        options={counterpartySearchOptions}
+                        onChange={setSearchSupplier}
+                        onSubmit={search}
+                        placeholder="输入客户或供应商"
+                      />
                     </div>
                     <div className="space-y-1.5 lg:col-span-3 xl:col-span-2">
                       <Label className="text-xs text-muted-foreground">经手人</Label>
@@ -1423,11 +1694,11 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
             {!isFormStockAdjustment && (
               <div className="space-y-1.5">
                 <Label htmlFor="form-supplier">{isFormAccounting ? "单位全名" : isFormTransfer ? "出货仓库" : isFormWholesale ? "收货客户" : "供应商"}</Label>
-                <SearchableSelect
+                <HierarchicalSelect
                   value={formData.supplier || ""}
-                  options={formCounterpartyOptions}
+                  options={formCounterpartyHierarchicalOptions}
                   onChange={(nextValue) => setFormData((prev) => ({ ...prev, supplier: nextValue }))}
-                  placeholder={isFormAccounting ? (isFormPayable ? "搜索供应商" : "搜索一般客户") : isFormTransfer ? "搜索出货仓库" : isFormWholesale ? "搜索收货客户" : "搜索供应商"}
+                  placeholder={isFormAccounting ? (isFormPayable ? "选择品牌后选供应商" : "选择品牌后选一般客户") : isFormTransfer ? "选择品牌后选出货仓库" : isFormWholesale ? "选择品牌后选收货客户" : "选择品牌后选供应商"}
                 />
               </div>
             )}
@@ -1435,11 +1706,11 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
             {!isFormAccounting && (
               <div className="space-y-1.5">
                 <Label htmlFor="form-warehouse">{isFormStockAdjustment ? "仓库" : isFormTransfer ? "入货仓库" : isFormWholesale ? "发货仓库" : "仓库"}</Label>
-                <SearchableSelect
+                <HierarchicalSelect
                   value={formData.warehouse || ""}
-                  options={warehouseSelectOptions}
+                  options={warehouseHierarchicalOptions}
                   onChange={(nextValue) => setFormData((prev) => ({ ...prev, warehouse: nextValue }))}
-                  placeholder={isFormStockAdjustment ? "搜索仓库" : isFormTransfer ? "搜索入货仓库" : isFormWholesale ? "搜索发货仓库" : "搜索仓库"}
+                  placeholder={isFormStockAdjustment ? "选择品牌后选仓库" : isFormTransfer ? "选择品牌后选入货仓库" : isFormWholesale ? "选择品牌后选发货仓库" : "选择品牌后选仓库"}
                 />
               </div>
             )}

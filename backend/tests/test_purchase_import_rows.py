@@ -120,7 +120,7 @@ def test_purchase_order_import_template_does_not_require_unit_price() -> None:
         "协议到货日期",
         "收货仓库",
         "经办人",
-        "商品备注",
+        "附加说明",
     ]
     assert "单价" not in headers
 
@@ -133,3 +133,5 @@ def test_purchase_size_row_export_does_not_include_duplicate_note_columns() -> N
 
 def test_purchase_summary_export_does_not_include_row_number() -> None:
     assert "行号" not in PURCHASE_SUMMARY_EXPORT_HEADERS
+    assert "附加说明" in PURCHASE_SUMMARY_EXPORT_HEADERS
+    assert "工厂货号" in PURCHASE_SUMMARY_EXPORT_HEADERS

@@ -2,29 +2,35 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { ChevronRight, Edit, History, Plus, Search, Trash2, X } from "lucide-react"
+
+import { ConfirmDialog, MessageDialog } from "@/components/confirm-dialog"
+import { OperationLogDialog } from "@/components/operation-log-dialog"
 import { Button } from "@/components/ui/button"
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
-import { ConfirmDialog, MessageDialog } from "@/components/confirm-dialog"
-import { CounterpartyLedgerDialog } from "@/components/inventory-admin/counterparty-ledger-dialog"
-import { OperationLogDialog } from "@/components/operation-log-dialog"
 import {
   ApiError,
   createGeneralCustomerBrand,
   createGeneralCustomerShop,
+  createGeneralCustomerUnit,
   deleteGeneralCustomerBrand,
   deleteGeneralCustomerShop,
+  deleteGeneralCustomerUnit,
   listGeneralCustomerBrands,
   listGeneralCustomerShops,
+  listGeneralCustomerUnits,
   updateGeneralCustomerBrand,
   updateGeneralCustomerShop,
+  updateGeneralCustomerUnit,
 } from "@/lib/api"
-import type { GeneralCustomerBrandItem, GeneralCustomerShopItem } from "@/lib/types"
+import type {
+  GeneralCustomerBrandItem,
+  GeneralCustomerShopItem,
+  GeneralCustomerUnitItem,
+} from "@/lib/types"
 
-type GeneralCustomerShopsTabProps = {
-  standalone?: boolean
-}
+type GeneralCustomerShopsTabProps = { standalone?: boolean }
 
 function getErrorMessage(error: unknown) {
   if (error instanceof ApiError) return error.message || `请求失败（${error.status}）`
@@ -32,12 +38,10 @@ function getErrorMessage(error: unknown) {
   return "发生未知错误"
 }
 
-const EMPTY_BRAND_FORM = { name: "" }
-const EMPTY_SHOP_FORM = { customer_name: "", shop_name: "" }
-
 export function GeneralCustomerShopsTab({ standalone = false }: GeneralCustomerShopsTabProps) {
   const [brands, setBrands] = useState<GeneralCustomerBrandItem[]>([])
   const [shops, setShops] = useState<GeneralCustomerShopItem[]>([])
+  const [units, setUnits] = useState<GeneralCustomerUnitItem[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [queryInput, setQueryInput] = useState("")
   const [query, setQuery] = useState("")
@@ -45,7 +49,7 @@ export function GeneralCustomerShopsTab({ standalone = false }: GeneralCustomerS
 
   const [brandFormOpen, setBrandFormOpen] = useState(false)
   const [brandFormMode, setBrandFormMode] = useState<"create" | "edit">("create")
-  const [brandFormData, setBrandFormData] = useState({ ...EMPTY_BRAND_FORM })
+  const [brandName, setBrandName] = useState("")
   const [editingBrandId, setEditingBrandId] = useState<number | null>(null)
   const [isSavingBrand, setIsSavingBrand] = useState(false)
   const [deleteBrandTarget, setDeleteBrandTarget] = useState<GeneralCustomerBrandItem | null>(null)
@@ -53,26 +57,39 @@ export function GeneralCustomerShopsTab({ standalone = false }: GeneralCustomerS
 
   const [shopFormOpen, setShopFormOpen] = useState(false)
   const [shopFormMode, setShopFormMode] = useState<"create" | "edit">("create")
-  const [shopFormData, setShopFormData] = useState({ ...EMPTY_SHOP_FORM })
+  const [shopForm, setShopForm] = useState({ customer_name: "", shop_name: "" })
   const [editingShopId, setEditingShopId] = useState<number | null>(null)
   const [isSavingShop, setIsSavingShop] = useState(false)
   const [deleteShopTarget, setDeleteShopTarget] = useState<GeneralCustomerShopItem | null>(null)
   const [isDeletingShop, setIsDeletingShop] = useState(false)
-  const [ledgerTarget, setLedgerTarget] = useState<GeneralCustomerShopItem | null>(null)
-  const [operationLogOpen, setOperationLogOpen] = useState(false)
 
+  const [unitFormOpen, setUnitFormOpen] = useState(false)
+  const [unitFormMode, setUnitFormMode] = useState<"create" | "edit">("create")
+  const [unitForm, setUnitForm] = useState({ shop_id: 0, unit_name: "" })
+  const [editingUnitId, setEditingUnitId] = useState<number | null>(null)
+  const [isSavingUnit, setIsSavingUnit] = useState(false)
+  const [deleteUnitTarget, setDeleteUnitTarget] = useState<GeneralCustomerUnitItem | null>(null)
+  const [isDeletingUnit, setIsDeletingUnit] = useState(false)
+
+  const [operationLogOpen, setOperationLogOpen] = useState(false)
   const [messageOpen, setMessageOpen] = useState(false)
   const [messageContent, setMessageContent] = useState({ title: "", description: "" })
 
   const load = useCallback(async () => {
     setIsLoading(true)
     try {
-      const [brandResponse, shopResponse] = await Promise.all([listGeneralCustomerBrands(), listGeneralCustomerShops()])
+      const [brandResponse, shopResponse, unitResponse] = await Promise.all([
+        listGeneralCustomerBrands(),
+        listGeneralCustomerShops(),
+        listGeneralCustomerUnits(),
+      ])
       setBrands(brandResponse.items)
       setShops(shopResponse.items)
+      setUnits(unitResponse.items)
     } catch (error) {
       setBrands([])
       setShops([])
+      setUnits([])
       setMessageContent({ title: "加载失败", description: getErrorMessage(error) })
       setMessageOpen(true)
     } finally {
@@ -80,464 +97,85 @@ export function GeneralCustomerShopsTab({ standalone = false }: GeneralCustomerS
     }
   }, [])
 
-  useEffect(() => {
-    void load()
-  }, [load])
+  useEffect(() => { void load() }, [load])
 
   const filteredBrands = useMemo(() => {
     const term = query.trim().toLowerCase()
     if (!term) return brands
     return brands.filter((brand) => {
       const brandShops = shops.filter((shop) => shop.customer_name === brand.name)
-      return [brand.name, ...brandShops.map((shop) => shop.shop_name)].some((value) =>
-        value.toLowerCase().includes(term),
-      )
+      const brandUnits = brandShops.flatMap((shop) => units.filter((unit) => unit.shop_id === shop.id))
+      return [brand.name, ...brandShops.map((shop) => shop.shop_name), ...brandUnits.map((unit) => unit.unit_name)]
+        .some((value) => value.toLowerCase().includes(term))
     })
-  }, [brands, shops, query])
-
-  const activeBrand = useMemo(() => {
-    if (filteredBrands.length === 0) return null
-    if (selectedBrandId !== null) {
-      return filteredBrands.find((brand) => brand.id === selectedBrandId) ?? filteredBrands[0]
-    }
-    return filteredBrands[0]
-  }, [filteredBrands, selectedBrandId])
+  }, [brands, query, shops, units])
+  const activeBrand = useMemo(() => (
+    filteredBrands.find((brand) => brand.id === selectedBrandId) ?? filteredBrands[0] ?? null
+  ), [filteredBrands, selectedBrandId])
+  const visibleShops = useMemo(() => (
+    activeBrand ? shops.filter((shop) => shop.customer_name === activeBrand.name) : []
+  ), [activeBrand, shops])
 
   useEffect(() => {
-    if (filteredBrands.length === 0) {
-      if (selectedBrandId !== null) setSelectedBrandId(null)
-      return
-    }
-    if (selectedBrandId === null || !filteredBrands.some((brand) => brand.id === selectedBrandId)) {
-      setSelectedBrandId(filteredBrands[0].id)
-    }
-  }, [filteredBrands, selectedBrandId])
-
-  const visibleShops = useMemo(() => {
-    if (!activeBrand) return []
-    return shops.filter((shop) => shop.customer_name === activeBrand.name)
-  }, [activeBrand, shops])
+    if (activeBrand && activeBrand.id !== selectedBrandId) setSelectedBrandId(activeBrand.id)
+    if (!activeBrand && selectedBrandId !== null) setSelectedBrandId(null)
+  }, [activeBrand, selectedBrandId])
 
   const showMessage = (title: string, description: string) => {
     setMessageContent({ title, description })
     setMessageOpen(true)
   }
-
-  const openCreateBrand = () => {
-    setBrandFormMode("create")
-    setBrandFormData({ ...EMPTY_BRAND_FORM })
-    setEditingBrandId(null)
+  const save = async (action: () => Promise<void>, setSaving: (value: boolean) => void, close: () => void) => {
+    setSaving(true)
+    try { await action(); close(); await load() } catch (error) { showMessage("保存失败", getErrorMessage(error)) } finally { setSaving(false) }
+  }
+  const openBrand = (item?: GeneralCustomerBrandItem) => {
+    setBrandFormMode(item ? "edit" : "create")
+    setBrandName(item?.name || "")
+    setEditingBrandId(item?.id ?? null)
     setBrandFormOpen(true)
   }
-
-  const openEditBrand = (brand: GeneralCustomerBrandItem) => {
-    setBrandFormMode("edit")
-    setBrandFormData({ name: brand.name })
-    setEditingBrandId(brand.id)
-    setBrandFormOpen(true)
-  }
-
-  const openCreateShop = () => {
-    setShopFormMode("create")
-    setShopFormData({ customer_name: activeBrand?.name || "", shop_name: "" })
-    setEditingShopId(null)
+  const openShop = (item?: GeneralCustomerShopItem) => {
+    setShopFormMode(item ? "edit" : "create")
+    setShopForm({ customer_name: item?.customer_name || activeBrand?.name || "", shop_name: item?.shop_name || "" })
+    setEditingShopId(item?.id ?? null)
     setShopFormOpen(true)
   }
-
-  const openEditShop = (shop: GeneralCustomerShopItem) => {
-    setShopFormMode("edit")
-    setEditingShopId(shop.id)
-    setShopFormData({ customer_name: shop.customer_name, shop_name: shop.shop_name })
-    setShopFormOpen(true)
+  const openUnit = (shop: GeneralCustomerShopItem, item?: GeneralCustomerUnitItem) => {
+    setUnitFormMode(item ? "edit" : "create")
+    setUnitForm({ shop_id: item?.shop_id || shop.id, unit_name: item?.unit_name || "" })
+    setEditingUnitId(item?.id ?? null)
+    setUnitFormOpen(true)
   }
 
-  const handleSaveBrand = async () => {
-    const name = brandFormData.name.trim()
-    if (!name) return showMessage("保存失败", "品牌名称不能为空")
-    setIsSavingBrand(true)
-    try {
-      if (brandFormMode === "create") {
-        const result = await createGeneralCustomerBrand({ name })
-        setSelectedBrandId(result.item.id)
-      } else if (editingBrandId !== null) {
-        const result = await updateGeneralCustomerBrand(editingBrandId, { name })
-        setSelectedBrandId(result.item.id)
-      }
-      setBrandFormOpen(false)
-      await load()
-    } catch (error) {
-      showMessage("保存失败", getErrorMessage(error))
-    } finally {
-      setIsSavingBrand(false)
-    }
-  }
-
-  const handleSaveShop = async () => {
-    const customer_name = shopFormData.customer_name.trim()
-    const shop_name = shopFormData.shop_name.trim()
-    if (!customer_name) return showMessage("保存失败", "品牌名称不能为空")
-    if (!shop_name) return showMessage("保存失败", "店铺名称不能为空")
-    setIsSavingShop(true)
-    try {
-      if (shopFormMode === "create") {
-        await createGeneralCustomerShop({ customer_name, shop_name })
-      } else if (editingShopId !== null) {
-        await updateGeneralCustomerShop(editingShopId, { customer_name, shop_name })
-      }
-      setShopFormOpen(false)
-      await load()
-    } catch (error) {
-      showMessage("保存失败", getErrorMessage(error))
-    } finally {
-      setIsSavingShop(false)
-    }
-  }
-
-  const handleDeleteBrand = async () => {
-    if (!deleteBrandTarget) return
-    setIsDeletingBrand(true)
-    try {
-      await deleteGeneralCustomerBrand(deleteBrandTarget.id)
-      setDeleteBrandTarget(null)
-      await load()
-    } catch (error) {
-      showMessage("删除失败", getErrorMessage(error))
-    } finally {
-      setIsDeletingBrand(false)
-    }
-  }
-
-  const handleDeleteShop = async () => {
-    if (!deleteShopTarget) return
-    setIsDeletingShop(true)
-    try {
-      await deleteGeneralCustomerShop(deleteShopTarget.id)
-      setDeleteShopTarget(null)
-      await load()
-    } catch (error) {
-      showMessage("删除失败", getErrorMessage(error))
-    } finally {
-      setIsDeletingShop(false)
-    }
-  }
-
-  const searchBar = (
-    <form
-      className="flex flex-col gap-2 sm:flex-row sm:items-center"
-      onSubmit={(event) => {
-        event.preventDefault()
-        setQuery(queryInput.trim())
-      }}
-    >
-      <div className="relative min-w-0 flex-1">
-        <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-        <Input
-          value={queryInput}
-          onChange={(event) => setQueryInput(event.target.value)}
-          placeholder="搜索品牌或店铺"
-          className="pl-9"
-          aria-label="搜索品牌店铺"
-        />
-      </div>
-      <div className="flex items-center gap-2">
-        <Button type="submit" disabled={isLoading} className="cursor-pointer">查询</Button>
-        {(queryInput || query) && (
-          <Button
-            type="button"
-            variant="outline"
-            size="icon"
-            disabled={isLoading}
-            onClick={() => {
-              setQueryInput("")
-              setQuery("")
-            }}
-            aria-label="清空搜索"
-            className="cursor-pointer"
-          >
-            <X className="h-4 w-4" />
-          </Button>
-        )}
-      </div>
-    </form>
-  )
-
-  const brandList = (
-    <div className="surface-panel p-4">
-      <div className="flex items-center justify-between gap-3">
-        <p className="text-sm font-medium text-foreground">品牌</p>
-        <Button size="sm" onClick={openCreateBrand} className="cursor-pointer">
-          <Plus className="h-4 w-4" />
-          <span className="ml-1.5">新增品牌</span>
-        </Button>
-      </div>
-      <div className="mt-3">{searchBar}</div>
-      <div className="mt-3 space-y-1.5">
-        {isLoading && <div className="rounded-xl border border-border bg-card px-3 py-10 text-center text-sm text-muted-foreground">加载中...</div>}
-        {!isLoading && filteredBrands.length === 0 && (
-          <div className="rounded-xl border border-border bg-card px-3 py-10 text-center text-sm text-muted-foreground">
-            {query ? "暂无匹配品牌" : "暂无品牌数据"}
-          </div>
-        )}
-        {!isLoading && filteredBrands.map((brand) => {
-          const selected = brand.id === activeBrand?.id
-          return (
-            <div
-              key={brand.id}
-              className={`group relative flex items-center gap-1 overflow-hidden rounded-xl border px-2 py-2 shadow-xs transition-all duration-150 ${selected
-                  ? "border-foreground bg-muted/70 shadow-sm ring-1 ring-foreground/10"
-                  : "border-border bg-card hover:-translate-y-px hover:border-foreground/25 hover:bg-muted/45 hover:shadow-sm"
-                }`}
-            >
-              <span
-                aria-hidden="true"
-                className={`absolute inset-y-2 left-0 w-1 rounded-r-full bg-foreground transition-all duration-150 ${selected ? "opacity-100" : "opacity-0 group-hover:opacity-25"
-                  }`}
-              />
-              <button
-                type="button"
-                aria-pressed={selected}
-                onClick={() => setSelectedBrandId(brand.id)}
-                className="relative flex min-h-8 min-w-0 flex-1 cursor-pointer items-center justify-between gap-2 rounded-lg px-1.5 text-left text-sm outline-none transition-all active:translate-y-px focus-visible:ring-3 focus-visible:ring-ring/35"
-              >
-                <span className="truncate font-medium text-foreground">{brand.name}</span>
-                <span className={`flex shrink-0 items-center gap-1.5 rounded-full px-1.5 py-0.5 text-xs transition-colors ${selected ? "bg-background text-foreground shadow-xs" : "text-muted-foreground"
-                  }`}>
-                  <span>{brand.shop_count} 家</span>
-                  <ChevronRight className={`h-4 w-4 transition-all ${selected ? "translate-x-0.5 opacity-100" : "opacity-40 group-hover:translate-x-0.5 group-hover:opacity-70"}`} />
-                </span>
-              </button>
-              <Button variant="ghost" size="icon" onClick={() => openEditBrand(brand)} className="relative h-8 w-8 cursor-pointer" aria-label={`编辑品牌 ${brand.name}`}>
-                <Edit className="h-4 w-4" />
-              </Button>
-              <Button variant="ghost" size="icon" onClick={() => setDeleteBrandTarget(brand)} className="relative h-8 w-8 cursor-pointer" aria-label={`删除品牌 ${brand.name}`}>
-                <Trash2 className="h-4 w-4 text-destructive" />
-              </Button>
-            </div>
-          )
-        })}
-      </div>
-    </div>
-  )
-
-  const brandDetail = (
-    <div className="surface-panel p-4">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-        <div>
-          <div className="flex items-center gap-2">
-            <p className="text-sm font-medium text-foreground">{activeBrand?.name || "请选择品牌"}</p>
-            {activeBrand && (
-              <span className="rounded-full border border-border bg-muted/45 px-2.5 py-0.5 text-xs text-muted-foreground tabular-nums">
-                {visibleShops.length} 家店铺
-              </span>
-            )}
-          </div>
-          <p className="mt-1 text-xs text-muted-foreground">先选择品牌，再维护旗下店铺</p>
+  return (
+    <div className={standalone ? "app-page" : "surface-panel p-4"}>
+      <div className={standalone ? "app-content" : ""}>
+        <div className={standalone ? "page-header" : "mb-4 flex items-center justify-between gap-3"}>
+          <div className="flex items-center gap-3"><h1 className={standalone ? "page-title" : "text-sm font-medium text-foreground"}>一般客户</h1><span className="rounded-full border border-border bg-muted/45 px-3 py-1 text-sm text-muted-foreground tabular-nums">{units.length} 个单位</span></div>
+          <Button size="sm" variant="outline" onClick={() => setOperationLogOpen(true)} className="cursor-pointer"><History className="h-4 w-4" /><span className="ml-1.5">操作日志</span></Button>
         </div>
-        <Button size="sm" onClick={openCreateShop} disabled={!activeBrand} className="cursor-pointer">
-          <Plus className="h-4 w-4" />
-          <span className="ml-1.5">新增店铺</span>
-        </Button>
-      </div>
-
-      <div className="mt-3 table-panel overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="table-head-row">
-                <th className="px-4 py-3 font-medium">店铺名称</th>
-                <th className="px-4 py-3 w-32 font-medium">操作</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-border">
-              {isLoading && (
-                <tr>
-                  <td colSpan={2} className="px-4 py-12 text-center text-muted-foreground">加载中...</td>
-                </tr>
-              )}
-              {!isLoading && !activeBrand && (
-                <tr>
-                  <td colSpan={2} className="px-4 py-12 text-center text-muted-foreground">请先新增或选择品牌</td>
-                </tr>
-              )}
-              {!isLoading && activeBrand && visibleShops.length === 0 && (
-                <tr>
-                  <td colSpan={2} className="px-4 py-12 text-center text-muted-foreground">该品牌暂无店铺</td>
-                </tr>
-              )}
-              {!isLoading && visibleShops.map((shop) => (
-                <tr
-                  key={shop.id}
-                  className="table-row cursor-pointer"
-                  onClick={() => setLedgerTarget(shop)}
-                  title="点击查看单据"
-                >
-                  <td className="px-4 py-2.5 font-medium">{shop.shop_name}</td>
-                  <td className="px-4 py-2.5">
-                    <div className="flex items-center gap-0.5">
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={(event) => {
-                          event.stopPropagation()
-                          openEditShop(shop)
-                        }}
-                        className="cursor-pointer"
-                        aria-label={`编辑 ${shop.customer_name} / ${shop.shop_name}`}
-                      >
-                        <Edit className="h-4 w-4" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={(event) => {
-                          event.stopPropagation()
-                          setDeleteShopTarget(shop)
-                        }}
-                        className="cursor-pointer"
-                        aria-label={`删除 ${shop.customer_name} / ${shop.shop_name}`}
-                      >
-                        <Trash2 className="h-4 w-4 text-destructive" />
-                      </Button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+        <div className="grid gap-4 xl:grid-cols-[280px_minmax(0,1fr)]">
+          <section className="surface-panel p-4">
+            <div className="flex items-center justify-between gap-2"><p className="text-sm font-medium">品牌</p><Button size="sm" onClick={() => openBrand()} className="cursor-pointer"><Plus className="h-4 w-4" /><span className="ml-1">新增</span></Button></div>
+            <form className="mt-3 flex gap-2" onSubmit={(event) => { event.preventDefault(); setQuery(queryInput.trim()) }}><div className="relative min-w-0 flex-1"><Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" /><Input value={queryInput} onChange={(event) => setQueryInput(event.target.value)} placeholder="搜索品牌、店铺或单位" className="pl-9" /></div>{(query || queryInput) && <Button type="button" variant="outline" size="icon" className="cursor-pointer" onClick={() => { setQuery(""); setQueryInput("") }}><X className="h-4 w-4" /></Button>}</form>
+            <div className="mt-3 space-y-1.5">{isLoading && <div className="py-10 text-center text-sm text-muted-foreground">加载中...</div>}{!isLoading && filteredBrands.length === 0 && <div className="py-10 text-center text-sm text-muted-foreground">暂无品牌</div>}{filteredBrands.map((brand) => <div key={brand.id} className={`group flex items-center gap-1 rounded-xl border p-2 ${brand.id === activeBrand?.id ? "border-foreground bg-muted/70" : "border-border bg-card"}`}><button type="button" onClick={() => setSelectedBrandId(brand.id)} className="flex min-w-0 flex-1 cursor-pointer items-center justify-between gap-2 text-left text-sm"><span className="truncate font-medium">{brand.name}</span><span className="flex items-center gap-1 text-xs text-muted-foreground">{brand.shop_count}<ChevronRight className="h-4 w-4" /></span></button><Button size="icon" variant="ghost" className="h-8 w-8 cursor-pointer" onClick={() => openBrand(brand)}><Edit className="h-4 w-4" /></Button><Button size="icon" variant="ghost" className="h-8 w-8 cursor-pointer" onClick={() => setDeleteBrandTarget(brand)}><Trash2 className="h-4 w-4 text-destructive" /></Button></div>)}</div>
+          </section>
+          <section className="surface-panel p-4">
+            <div className="flex items-start justify-between gap-3"><div><p className="text-sm font-medium">{activeBrand?.name || "店铺与单位"}</p><p className="mt-1 text-xs text-muted-foreground">店铺下可维护实际往来单位</p></div><Button size="sm" disabled={!activeBrand} onClick={() => openShop()} className="cursor-pointer"><Plus className="h-4 w-4" /><span className="ml-1.5">新增店铺</span></Button></div>
+            <div className="mt-3 space-y-3">{!isLoading && !activeBrand && <div className="py-10 text-center text-sm text-muted-foreground">请选择品牌</div>}{!isLoading && activeBrand && visibleShops.length === 0 && <div className="py-10 text-center text-sm text-muted-foreground">该品牌暂无店铺</div>}{visibleShops.map((shop) => { const shopUnits = units.filter((unit) => unit.shop_id === shop.id); return <div key={shop.id} className="rounded-lg border border-border bg-card"><div className="flex items-center gap-2 border-b border-border px-3 py-2.5"><div className="min-w-0 flex-1"><p className="truncate text-sm font-medium">{shop.shop_name}</p><p className="mt-0.5 text-xs text-muted-foreground">{shopUnits.length} 个单位</p></div><Button size="sm" variant="outline" onClick={() => openUnit(shop)} className="cursor-pointer"><Plus className="h-3.5 w-3.5" /><span className="ml-1">新增单位</span></Button><Button size="icon" variant="ghost" className="h-8 w-8 cursor-pointer" onClick={() => openShop(shop)}><Edit className="h-4 w-4" /></Button><Button size="icon" variant="ghost" className="h-8 w-8 cursor-pointer" onClick={() => setDeleteShopTarget(shop)}><Trash2 className="h-4 w-4 text-destructive" /></Button></div><div className="divide-y divide-border">{shopUnits.length === 0 ? <p className="px-3 py-4 text-sm text-muted-foreground">暂无单位</p> : shopUnits.map((unit) => <div key={unit.id} className="flex items-center gap-2 px-3 py-2"><span className="min-w-0 flex-1 truncate text-sm">{unit.unit_name}</span><Button size="icon" variant="ghost" className="h-8 w-8 cursor-pointer" onClick={() => openUnit(shop, unit)}><Edit className="h-4 w-4" /></Button><Button size="icon" variant="ghost" className="h-8 w-8 cursor-pointer" onClick={() => setDeleteUnitTarget(unit)}><Trash2 className="h-4 w-4 text-destructive" /></Button></div>)}</div></div> })}</div>
+          </section>
         </div>
       </div>
-    </div>
-  )
 
-  const dialogs = (
-    <>
-      <Dialog open={brandFormOpen} onOpenChange={setBrandFormOpen}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>{brandFormMode === "create" ? "新增品牌" : "编辑品牌"}</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4 py-2">
-            <div className="space-y-1.5">
-              <Label htmlFor="brand-name">品牌 *</Label>
-              <Input id="brand-name" value={brandFormData.name} onChange={(e) => setBrandFormData((prev) => ({ ...prev, name: e.target.value }))} placeholder="例如：烟斗" />
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setBrandFormOpen(false)} disabled={isSavingBrand} className="cursor-pointer">取消</Button>
-            <Button onClick={handleSaveBrand} disabled={isSavingBrand} className="cursor-pointer">{isSavingBrand ? "保存中..." : "保存"}</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      <Dialog open={shopFormOpen} onOpenChange={setShopFormOpen}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>{shopFormMode === "create" ? "新增店铺" : "编辑店铺"}</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4 py-2">
-            <div className="space-y-1.5">
-              <Label htmlFor="shop-brand-name">品牌 *</Label>
-              <Input id="shop-brand-name" value={shopFormData.customer_name} disabled={standalone && shopFormMode === "create"} onChange={(e) => setShopFormData((prev) => ({ ...prev, customer_name: e.target.value }))} placeholder="例如：烟斗" />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="shop-name">店铺名称 *</Label>
-              <Input id="shop-name" value={shopFormData.shop_name} onChange={(e) => setShopFormData((prev) => ({ ...prev, shop_name: e.target.value }))} placeholder="例如：烟斗唯品会店铺" />
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setShopFormOpen(false)} disabled={isSavingShop} className="cursor-pointer">取消</Button>
-            <Button onClick={handleSaveShop} disabled={isSavingShop} className="cursor-pointer">{isSavingShop ? "保存中..." : "保存"}</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      <ConfirmDialog
-        open={deleteBrandTarget !== null}
-        title="确认删除"
-        description={`确定删除品牌 ${deleteBrandTarget?.name}？该品牌下的店铺会一起删除。`}
-        confirmLabel={isDeletingBrand ? "删除中..." : "删除"}
-        variant="destructive"
-        onConfirm={handleDeleteBrand}
-        onCancel={() => setDeleteBrandTarget(null)}
-      />
-
-      <ConfirmDialog
-        open={deleteShopTarget !== null}
-        title="确认删除"
-        description={`确定删除店铺 ${deleteShopTarget?.customer_name} / ${deleteShopTarget?.shop_name}？此操作不可撤销。`}
-        confirmLabel={isDeletingShop ? "删除中..." : "删除"}
-        variant="destructive"
-        onConfirm={handleDeleteShop}
-        onCancel={() => setDeleteShopTarget(null)}
-      />
-
+      <Dialog open={brandFormOpen} onOpenChange={setBrandFormOpen}><DialogContent className="max-w-md"><DialogHeader><DialogTitle>{brandFormMode === "create" ? "新增品牌" : "编辑品牌"}</DialogTitle></DialogHeader><div className="space-y-1.5 py-2"><Label>品牌名称 *</Label><Input value={brandName} onChange={(event) => setBrandName(event.target.value)} /></div><DialogFooter><Button variant="outline" className="cursor-pointer" onClick={() => setBrandFormOpen(false)} disabled={isSavingBrand}>取消</Button><Button className="cursor-pointer" disabled={isSavingBrand} onClick={() => { const name = brandName.trim(); if (!name) return showMessage("保存失败", "品牌名称不能为空"); void save(async () => { if (brandFormMode === "create") await createGeneralCustomerBrand({ name }); else if (editingBrandId !== null) await updateGeneralCustomerBrand(editingBrandId, { name }) }, setIsSavingBrand, () => setBrandFormOpen(false)) }}>{isSavingBrand ? "保存中..." : "保存"}</Button></DialogFooter></DialogContent></Dialog>
+      <Dialog open={shopFormOpen} onOpenChange={setShopFormOpen}><DialogContent className="max-w-md"><DialogHeader><DialogTitle>{shopFormMode === "create" ? "新增店铺" : "编辑店铺"}</DialogTitle></DialogHeader><div className="space-y-4 py-2"><div className="space-y-1.5"><Label>所属品牌 *</Label><Input value={shopForm.customer_name} disabled /></div><div className="space-y-1.5"><Label>店铺名称 *</Label><Input value={shopForm.shop_name} onChange={(event) => setShopForm((current) => ({ ...current, shop_name: event.target.value }))} /></div></div><DialogFooter><Button variant="outline" className="cursor-pointer" onClick={() => setShopFormOpen(false)} disabled={isSavingShop}>取消</Button><Button className="cursor-pointer" disabled={isSavingShop} onClick={() => { const shop_name = shopForm.shop_name.trim(); if (!shop_name) return showMessage("保存失败", "店铺名称不能为空"); void save(async () => { const payload = { ...shopForm, shop_name }; if (shopFormMode === "create") await createGeneralCustomerShop(payload); else if (editingShopId !== null) await updateGeneralCustomerShop(editingShopId, payload) }, setIsSavingShop, () => setShopFormOpen(false)) }}>{isSavingShop ? "保存中..." : "保存"}</Button></DialogFooter></DialogContent></Dialog>
+      <Dialog open={unitFormOpen} onOpenChange={setUnitFormOpen}><DialogContent className="max-w-md"><DialogHeader><DialogTitle>{unitFormMode === "create" ? "新增单位" : "编辑单位"}</DialogTitle></DialogHeader><div className="space-y-4 py-2"><div className="space-y-1.5"><Label>单位名称 *</Label><Input value={unitForm.unit_name} onChange={(event) => setUnitForm((current) => ({ ...current, unit_name: event.target.value }))} /></div></div><DialogFooter><Button variant="outline" className="cursor-pointer" onClick={() => setUnitFormOpen(false)} disabled={isSavingUnit}>取消</Button><Button className="cursor-pointer" disabled={isSavingUnit} onClick={() => { const unit_name = unitForm.unit_name.trim(); if (!unit_name) return showMessage("保存失败", "单位名称不能为空"); void save(async () => { const payload = { ...unitForm, unit_name }; if (unitFormMode === "create") await createGeneralCustomerUnit(payload); else if (editingUnitId !== null) await updateGeneralCustomerUnit(editingUnitId, payload) }, setIsSavingUnit, () => setUnitFormOpen(false)) }}>{isSavingUnit ? "保存中..." : "保存"}</Button></DialogFooter></DialogContent></Dialog>
+      <ConfirmDialog open={deleteBrandTarget !== null} title="确认删除" description={`确定删除品牌 ${deleteBrandTarget?.name}？`} confirmLabel={isDeletingBrand ? "删除中..." : "删除"} variant="destructive" onConfirm={() => { if (!deleteBrandTarget) return; setIsDeletingBrand(true); void deleteGeneralCustomerBrand(deleteBrandTarget.id).then(load).then(() => setDeleteBrandTarget(null)).catch((error) => showMessage("删除失败", getErrorMessage(error))).finally(() => setIsDeletingBrand(false)) }} onCancel={() => setDeleteBrandTarget(null)} />
+      <ConfirmDialog open={deleteShopTarget !== null} title="确认删除" description={`确定删除店铺 ${deleteShopTarget?.shop_name}？其下单位会一起删除。`} confirmLabel={isDeletingShop ? "删除中..." : "删除"} variant="destructive" onConfirm={() => { if (!deleteShopTarget) return; setIsDeletingShop(true); void deleteGeneralCustomerShop(deleteShopTarget.id).then(load).then(() => setDeleteShopTarget(null)).catch((error) => showMessage("删除失败", getErrorMessage(error))).finally(() => setIsDeletingShop(false)) }} onCancel={() => setDeleteShopTarget(null)} />
+      <ConfirmDialog open={deleteUnitTarget !== null} title="确认删除" description={`确定删除单位 ${deleteUnitTarget?.unit_name}？此操作不可撤销。`} confirmLabel={isDeletingUnit ? "删除中..." : "删除"} variant="destructive" onConfirm={() => { if (!deleteUnitTarget) return; setIsDeletingUnit(true); void deleteGeneralCustomerUnit(deleteUnitTarget.id).then(load).then(() => setDeleteUnitTarget(null)).catch((error) => showMessage("删除失败", getErrorMessage(error))).finally(() => setIsDeletingUnit(false)) }} onCancel={() => setDeleteUnitTarget(null)} />
       <MessageDialog open={messageOpen} title={messageContent.title} description={messageContent.description} onClose={() => setMessageOpen(false)} />
-
-      <CounterpartyLedgerDialog
-        open={ledgerTarget !== null}
-        counterpartyType="customer"
-        name={ledgerTarget?.shop_name || ""}
-        onOpenChange={(open) => {
-          if (!open) setLedgerTarget(null)
-        }}
-      />
-
-      <OperationLogDialog
-        module="general_customer"
-        title="一般客户操作日志"
-        open={operationLogOpen}
-        onOpenChange={setOperationLogOpen}
-      />
-    </>
-  )
-
-  return standalone ? (
-    <div className="app-page">
-      <div className="app-content">
-        <div className="page-header">
-          <div className="flex items-center gap-3">
-            <div>
-              <h1 className="page-title">品牌店铺</h1>
-            </div>
-            <span className="rounded-full border border-border bg-muted/45 px-3 py-1 text-sm text-muted-foreground tabular-nums">{brands.length} 个品牌</span>
-          </div>
-          <Button size="sm" variant="outline" onClick={() => setOperationLogOpen(true)} className="cursor-pointer">
-            <History className="h-4 w-4" />
-            <span className="ml-1.5">操作日志</span>
-          </Button>
-        </div>
-
-        <div className="grid gap-4 lg:grid-cols-[320px_minmax(0,1fr)]">
-          {brandList}
-          {brandDetail}
-        </div>
-      </div>
-
-      {dialogs}
-    </div>
-  ) : (
-    <div className="surface-panel p-4">
-      <div className="flex flex-col gap-3">
-        <div className="flex items-center justify-between gap-3">
-          <p className="text-sm font-medium text-foreground">品牌店铺管理</p>
-          <div className="flex items-center gap-2">
-            <Button size="sm" variant="outline" onClick={() => setOperationLogOpen(true)} className="cursor-pointer">
-              <History className="h-4 w-4" />
-              <span className="ml-1.5">操作日志</span>
-            </Button>
-            <Button size="sm" onClick={openCreateBrand} className="cursor-pointer">
-              <Plus className="h-4 w-4" />
-              <span className="ml-1.5">新增品牌</span>
-            </Button>
-          </div>
-        </div>
-        <div className="grid gap-4 lg:grid-cols-[320px_minmax(0,1fr)]">
-          {brandList}
-          {brandDetail}
-        </div>
-      </div>
-
-      {dialogs}
+      <OperationLogDialog module="general_customer" title="一般客户操作日志" open={operationLogOpen} onOpenChange={setOperationLogOpen} />
     </div>
   )
 }

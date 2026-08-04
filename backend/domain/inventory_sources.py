@@ -5,12 +5,15 @@ from pathlib import Path
 
 from domain.fields import (
     GENERAL_CUSTOMER_BRAND_FIELDS,
+    GENERAL_CUSTOMER_CATEGORY_FIELDS,
     GENERAL_CUSTOMER_SHOP_FIELDS,
+    GENERAL_CUSTOMER_UNIT_FIELDS,
     INVENTORY_ACCOUNT_SUBJECT_FIELDS,
     INVENTORY_DETAIL_FIELDS,
     INVENTORY_FIELDS,
     JST_STOCK_FIELDS,
     SUPPLIER_FIELDS,
+    WAREHOUSE_BRAND_FIELDS,
     WAREHOUSE_FIELDS,
     alias_map,
     field_names,
@@ -19,8 +22,11 @@ from domain.fields import (
 INVENTORY_TABLE_NAME = "inventory_records"
 SUPPLIER_TABLE_NAME = "suppliers"
 WAREHOUSE_TABLE_NAME = "warehouses"
+WAREHOUSE_BRAND_TABLE_NAME = "warehouse_brands"
+GENERAL_CUSTOMER_CATEGORY_TABLE_NAME = "general_customer_categories"
 GENERAL_CUSTOMER_BRAND_TABLE_NAME = "general_customer_brands"
 GENERAL_CUSTOMER_SHOP_TABLE_NAME = "general_customer_shops"
+GENERAL_CUSTOMER_UNIT_TABLE_NAME = "general_customer_units"
 INVENTORY_DETAIL_TABLE_NAME = "inventory_details"
 INVENTORY_ACCOUNT_SUBJECT_TABLE_NAME = "inventory_account_subjects"
 JST_STOCK_TABLE_NAME = "jst_daily_stock"
@@ -76,9 +82,15 @@ SUPPLIER_COLUMNS: list[str] = field_names(SUPPLIER_FIELDS)
 
 WAREHOUSE_COLUMNS: list[str] = field_names(WAREHOUSE_FIELDS)
 
+WAREHOUSE_BRAND_COLUMNS: list[str] = field_names(WAREHOUSE_BRAND_FIELDS)
+
+GENERAL_CUSTOMER_CATEGORY_COLUMNS: list[str] = field_names(GENERAL_CUSTOMER_CATEGORY_FIELDS)
+
 GENERAL_CUSTOMER_BRAND_COLUMNS: list[str] = field_names(GENERAL_CUSTOMER_BRAND_FIELDS)
 
 GENERAL_CUSTOMER_SHOP_COLUMNS: list[str] = field_names(GENERAL_CUSTOMER_SHOP_FIELDS)
+
+GENERAL_CUSTOMER_UNIT_COLUMNS: list[str] = field_names(GENERAL_CUSTOMER_UNIT_FIELDS)
 
 # Excel export labels (Chinese)
 INVENTORY_EXPORT_LABELS: dict[str, str] = {

@@ -45,6 +45,7 @@ export type OperationLogItem = {
     | "fine_table"
     | "inventory"
     | "purchase"
+    | "purchase_inbound_detail"
     | "supplier"
     | "warehouse"
     | "account_subject"
@@ -528,6 +529,7 @@ export type GeneralCustomerShopItem = {
   id: number
   customer_name: string
   shop_name: string
+  unit_count: number
   created_at: string | null
   updated_at: string | null
 }
@@ -546,4 +548,18 @@ export type GeneralCustomerBrandItem = {
 
 export type GeneralCustomerBrandListResponse = {
   items: GeneralCustomerBrandItem[]
+}
+
+export type GeneralCustomerUnitItem = {
+  id: number
+  shop_id: number
+  unit_name: string
+  customer_name: string
+  shop_name: string
+  created_at: string | null
+  updated_at: string | null
+}
+
+export type GeneralCustomerUnitListResponse = {
+  items: GeneralCustomerUnitItem[]
 }

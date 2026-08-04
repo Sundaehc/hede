@@ -110,18 +110,33 @@ SUPPLIER_FIELDS: tuple[FieldSpec, ...] = (
 )
 
 WAREHOUSE_FIELDS: tuple[FieldSpec, ...] = (
+    FieldSpec("brand", "品牌"),
     FieldSpec("name", "名称"),
     FieldSpec("address", "地址"),
     FieldSpec("notes", "备注"),
 )
 
+WAREHOUSE_BRAND_FIELDS: tuple[FieldSpec, ...] = (
+    FieldSpec("name", "品牌"),
+)
+
+GENERAL_CUSTOMER_CATEGORY_FIELDS: tuple[FieldSpec, ...] = (
+    FieldSpec("name", "分类"),
+)
+
 GENERAL_CUSTOMER_BRAND_FIELDS: tuple[FieldSpec, ...] = (
+    FieldSpec("category_name", "分类"),
     FieldSpec("name", "品牌"),
 )
 
 GENERAL_CUSTOMER_SHOP_FIELDS: tuple[FieldSpec, ...] = (
     FieldSpec("customer_name", "品牌"),
     FieldSpec("shop_name", "店铺名称"),
+)
+
+GENERAL_CUSTOMER_UNIT_FIELDS: tuple[FieldSpec, ...] = (
+    FieldSpec("shop_id", "店铺"),
+    FieldSpec("unit_name", "单位名称"),
 )
 
 JST_STOCK_FIELDS: tuple[FieldSpec, ...] = (

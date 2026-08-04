@@ -1,10 +1,12 @@
 "use client"
 
 import { useEffect, useMemo, useState } from "react"
-import { Search, X } from "lucide-react"
+import { Download, History, Search, X } from "lucide-react"
 
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
+import { OperationLogDialog } from "@/components/operation-log-dialog"
+import { SearchableFilterInput, type SearchableFilterOption } from "@/components/inventory-admin/searchable-filter-input"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import {
@@ -26,7 +28,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
-import { ApiError, listPurchaseInboundDetails, type PurchaseInboundDetailItem } from "@/lib/api"
+import { ApiError, buildPurchaseInboundDetailExportUrl, listPurchaseInboundDetails, listSuppliers, type PurchaseInboundDetailItem, type SupplierItem } from "@/lib/api"
 import { cn } from "@/lib/utils"
 
 const PAGE_SIZES = [50, 100, 200]
@@ -81,6 +83,7 @@ export function PurchaseInboundDetailPage() {
   const [dateEnd, setDateEnd] = useState("")
   const [documentType, setDocumentType] = useState("")
   const [supplier, setSupplier] = useState("")
+  const [supplierOptions, setSupplierOptions] = useState<SupplierItem[]>([])
   const [warehouse, setWarehouse] = useState("")
   const [productCode, setProductCode] = useState("")
   const [productName, setProductName] = useState("")
@@ -94,6 +97,25 @@ export function PurchaseInboundDetailPage() {
   const [totals, setTotals] = useState({ purchase_quantity: "0", purchase_amount: "0", retail_amount: "" })
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [operationLogOpen, setOperationLogOpen] = useState(false)
+
+  useEffect(() => {
+    let cancelled = false
+
+    async function loadSuppliers() {
+      try {
+        const response = await listSuppliers()
+        if (!cancelled) setSupplierOptions(response.items)
+      } catch {
+        if (!cancelled) setSupplierOptions([])
+      }
+    }
+
+    void loadSuppliers()
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   useEffect(() => {
     let cancelled = false
@@ -131,6 +153,13 @@ export function PurchaseInboundDetailPage() {
 
   const totalPages = Math.max(1, Math.ceil(total / pageSize))
   const pageRange = useMemo(() => buildPageRange(page, totalPages), [page, totalPages])
+  const supplierFilterOptions = useMemo<SearchableFilterOption[]>(() => (
+    supplierOptions.map((item) => ({
+      value: item.name,
+      label: item.name,
+      keywords: [item.factory_code, item.contact, item.address].filter(Boolean).join(" "),
+    }))
+  ), [supplierOptions])
 
   const submitSearch = () => {
     setPage(1)
@@ -164,6 +193,13 @@ export function PurchaseInboundDetailPage() {
   const firstRow = total === 0 ? 0 : (page - 1) * pageSize + 1
   const lastRow = Math.min(page * pageSize, total)
 
+  const handleExport = () => {
+    const link = document.createElement("a")
+    link.href = buildPurchaseInboundDetailExportUrl(submittedFilters)
+    link.rel = "noopener"
+    link.click()
+  }
+
   return (
     <div className="min-h-svh bg-background px-6 py-5">
       <div className="mx-auto flex max-w-[1600px] flex-col gap-4">
@@ -172,6 +208,14 @@ export function PurchaseInboundDetailPage() {
             <h1 className="page-title">商品进货明细</h1>
           </div>
           <div className="flex items-center gap-2 text-sm text-muted-foreground">
+            <Button variant="outline" size="sm" onClick={handleExport} disabled={total === 0 || isLoading} className="cursor-pointer">
+              <Download className="h-4 w-4" />
+              <span className="ml-1.5 hidden sm:inline">导出Excel</span>
+            </Button>
+            <Button variant="outline" size="sm" onClick={() => setOperationLogOpen(true)} className="cursor-pointer">
+              <History className="h-4 w-4" />
+              <span className="ml-1.5 hidden sm:inline">操作日志</span>
+            </Button>
             <span>共 {total} 条</span>
             <Select value={String(pageSize)} onChange={(event) => { setPageSize(Number(event.target.value)); setPage(1) }} className="w-24">
               {PAGE_SIZES.map((size) => (
@@ -209,7 +253,14 @@ export function PurchaseInboundDetailPage() {
             </div>
             <div className={FILTER_FIELD_CLASS_NAME}>
               <Label className={FILTER_LABEL_CLASS_NAME}>单位全名</Label>
-              <Input className={FILTER_CONTROL_CLASS_NAME} value={supplier} onChange={(event) => setSupplier(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") submitSearch() }} />
+              <SearchableFilterInput
+                value={supplier}
+                options={supplierFilterOptions}
+                onChange={setSupplier}
+                onSubmit={submitSearch}
+                placeholder="输入供应商"
+                className={FILTER_CONTROL_CLASS_NAME}
+              />
             </div>
             <div className={FILTER_FIELD_CLASS_NAME}>
               <Label className={FILTER_LABEL_CLASS_NAME}>颜色名称</Label>
@@ -350,6 +401,12 @@ export function PurchaseInboundDetailPage() {
           ) : null}
         </div>
       </div>
+      <OperationLogDialog
+        module="purchase_inbound_detail"
+        title="商品进货明细操作日志"
+        open={operationLogOpen}
+        onOpenChange={setOperationLogOpen}
+      />
     </div>
   )
 }
