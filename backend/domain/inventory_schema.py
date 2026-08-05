@@ -148,11 +148,14 @@ def build_warehouse_table() -> Table:
             Column(field.name, _column_type(field), nullable=field.name != "name")
             for field in WAREHOUSE_FIELDS
         ],
+        Column("sort_order", Integer, nullable=False, server_default="0"),
         Column("created_at", DateTime(timezone=True), server_default=func.date_trunc('minute', func.now())),
         Column("updated_at", DateTime(timezone=True), server_default=func.date_trunc('minute', func.now()), onupdate=func.date_trunc('minute', func.now())),
         UniqueConstraint("name", name="uq_warehouse_name"),
     ]
-    return Table(WAREHOUSE_TABLE_NAME, METADATA, *columns)
+    table = Table(WAREHOUSE_TABLE_NAME, METADATA, *columns)
+    Index("idx_warehouses_brand_sort", table.c.brand, table.c.sort_order)
+    return table
 
 
 def build_warehouse_brand_table() -> Table:
@@ -162,11 +165,14 @@ def build_warehouse_brand_table() -> Table:
             Column(field.name, _column_type(field), nullable=field.name != "name")
             for field in WAREHOUSE_BRAND_FIELDS
         ],
+        Column("sort_order", Integer, nullable=False, server_default="0"),
         Column("created_at", DateTime(timezone=True), server_default=func.date_trunc('minute', func.now())),
         Column("updated_at", DateTime(timezone=True), server_default=func.date_trunc('minute', func.now()), onupdate=func.date_trunc('minute', func.now())),
         UniqueConstraint("name", name="uq_warehouse_brands_name"),
     ]
-    return Table(WAREHOUSE_BRAND_TABLE_NAME, METADATA, *columns)
+    table = Table(WAREHOUSE_BRAND_TABLE_NAME, METADATA, *columns)
+    Index("idx_warehouse_brands_sort", table.c.sort_order)
+    return table
 
 
 def build_general_customer_brand_table() -> Table:
@@ -176,11 +182,14 @@ def build_general_customer_brand_table() -> Table:
             Column(field.name, _column_type(field), nullable=field.name != "name")
             for field in GENERAL_CUSTOMER_BRAND_FIELDS
         ],
+        Column("sort_order", Integer, nullable=False, server_default="0"),
         Column("created_at", DateTime(timezone=True), server_default=func.date_trunc('minute', func.now())),
         Column("updated_at", DateTime(timezone=True), server_default=func.date_trunc('minute', func.now()), onupdate=func.date_trunc('minute', func.now())),
         UniqueConstraint("name", name="uq_general_customer_brands_name"),
     ]
-    return Table(GENERAL_CUSTOMER_BRAND_TABLE_NAME, METADATA, *columns)
+    table = Table(GENERAL_CUSTOMER_BRAND_TABLE_NAME, METADATA, *columns)
+    Index("idx_general_customer_brands_sort", table.c.sort_order)
+    return table
 
 
 def build_general_customer_category_table() -> Table:
@@ -204,6 +213,7 @@ def build_general_customer_shop_table() -> Table:
             Column(field.name, _column_type(field), nullable=field.name != "customer_name")
             for field in GENERAL_CUSTOMER_SHOP_FIELDS
         ],
+        Column("sort_order", Integer, nullable=False, server_default="0"),
         Column("created_at", DateTime(timezone=True), server_default=func.date_trunc('minute', func.now())),
         Column("updated_at", DateTime(timezone=True), server_default=func.date_trunc('minute', func.now()), onupdate=func.date_trunc('minute', func.now())),
         UniqueConstraint("customer_name", "shop_name", name="uq_general_customer_shops_customer_shop"),
@@ -211,6 +221,7 @@ def build_general_customer_shop_table() -> Table:
     table = Table(GENERAL_CUSTOMER_SHOP_TABLE_NAME, METADATA, *columns)
     Index("idx_general_customer_shops_customer_name", table.c.customer_name)
     Index("idx_general_customer_shops_shop_name", table.c.shop_name)
+    Index("idx_general_customer_shops_customer_sort", table.c.customer_name, table.c.sort_order)
     return table
 
 
@@ -219,6 +230,7 @@ def build_general_customer_unit_table() -> Table:
         Column("id", BigInteger, Identity(always=False), primary_key=True),
         Column("shop_id", BigInteger, ForeignKey(f"{GENERAL_CUSTOMER_SHOP_TABLE_NAME}.id", ondelete="CASCADE"), nullable=False),
         Column("unit_name", Text, nullable=False),
+        Column("sort_order", Integer, nullable=False, server_default="0"),
         Column("created_at", DateTime(timezone=True), server_default=func.date_trunc('minute', func.now())),
         Column("updated_at", DateTime(timezone=True), server_default=func.date_trunc('minute', func.now()), onupdate=func.date_trunc('minute', func.now())),
         UniqueConstraint("shop_id", "unit_name", name="uq_general_customer_units_shop_unit"),
@@ -226,6 +238,7 @@ def build_general_customer_unit_table() -> Table:
     table = Table(GENERAL_CUSTOMER_UNIT_TABLE_NAME, METADATA, *columns)
     Index("idx_general_customer_units_shop_id", table.c.shop_id)
     Index("idx_general_customer_units_unit_name", table.c.unit_name)
+    Index("idx_general_customer_units_shop_sort", table.c.shop_id, table.c.sort_order)
     return table
 
 

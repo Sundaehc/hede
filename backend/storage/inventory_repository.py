@@ -757,6 +757,31 @@ class InventoryRepository:
             row = connection.execute(statement).mappings().first()
         return None if row is None else dict(row)
 
+    @staticmethod
+    def _next_sort_order(connection, table, where_clause=None) -> int:
+        statement = select(func.coalesce(func.max(table.c.sort_order), 0))
+        if where_clause is not None:
+            statement = statement.where(where_clause)
+        return int(connection.execute(statement).scalar_one() or 0) + 1
+
+    def _replace_sort_order(self, table, ordered_ids: list[int], where_clause=None) -> bool:
+        if len(ordered_ids) != len(set(ordered_ids)):
+            return False
+        statement = select(table.c.id)
+        if where_clause is not None:
+            statement = statement.where(where_clause)
+        with self.engine.begin() as connection:
+            existing_ids = [int(row[0]) for row in connection.execute(statement).all()]
+            if set(existing_ids) != set(ordered_ids):
+                return False
+            for sort_order, item_id in enumerate(ordered_ids, start=1):
+                connection.execute(
+                    update(table)
+                    .where(table.c.id == item_id)
+                    .values(sort_order=sort_order)
+                )
+        return True
+
     # ── General Customer Brands & Shops ────────────────────────────
 
     def list_general_customer_brands(self) -> list[dict[str, object]]:
@@ -772,12 +797,13 @@ class InventoryRepository:
             select(
                 GENERAL_CUSTOMER_BRAND_TABLE.c.id,
                 GENERAL_CUSTOMER_BRAND_TABLE.c.name,
+                GENERAL_CUSTOMER_BRAND_TABLE.c.sort_order,
                 GENERAL_CUSTOMER_BRAND_TABLE.c.created_at,
                 GENERAL_CUSTOMER_BRAND_TABLE.c.updated_at,
                 func.coalesce(shop_count.c.shop_count, 0).label("shop_count"),
             )
             .outerjoin(shop_count, shop_count.c.brand_name == GENERAL_CUSTOMER_BRAND_TABLE.c.name)
-            .order_by(GENERAL_CUSTOMER_BRAND_TABLE.c.name)
+            .order_by(GENERAL_CUSTOMER_BRAND_TABLE.c.sort_order, GENERAL_CUSTOMER_BRAND_TABLE.c.id)
         )
         with self.engine.connect() as connection:
             return [dict(row) for row in connection.execute(statement).mappings()]
@@ -786,17 +812,19 @@ class InventoryRepository:
         payload = {
             "name": str(data.get("name") or "").strip(),
         }
-        statement = (
-            insert(GENERAL_CUSTOMER_BRAND_TABLE)
-            .values(**payload)
-            .returning(
-                GENERAL_CUSTOMER_BRAND_TABLE.c.id,
-                GENERAL_CUSTOMER_BRAND_TABLE.c.name,
-                GENERAL_CUSTOMER_BRAND_TABLE.c.created_at,
-                GENERAL_CUSTOMER_BRAND_TABLE.c.updated_at,
-            )
-        )
         with self.engine.begin() as connection:
+            payload["sort_order"] = self._next_sort_order(connection, GENERAL_CUSTOMER_BRAND_TABLE)
+            statement = (
+                insert(GENERAL_CUSTOMER_BRAND_TABLE)
+                .values(**payload)
+                .returning(
+                    GENERAL_CUSTOMER_BRAND_TABLE.c.id,
+                    GENERAL_CUSTOMER_BRAND_TABLE.c.name,
+                    GENERAL_CUSTOMER_BRAND_TABLE.c.sort_order,
+                    GENERAL_CUSTOMER_BRAND_TABLE.c.created_at,
+                    GENERAL_CUSTOMER_BRAND_TABLE.c.updated_at,
+                )
+            )
             row = connection.execute(statement).mappings().one()
         item = dict(row)
         item["shop_count"] = 0
@@ -812,6 +840,7 @@ class InventoryRepository:
         statement = select(
             GENERAL_CUSTOMER_BRAND_TABLE.c.id,
             GENERAL_CUSTOMER_BRAND_TABLE.c.name,
+            GENERAL_CUSTOMER_BRAND_TABLE.c.sort_order,
             GENERAL_CUSTOMER_BRAND_TABLE.c.created_at,
             GENERAL_CUSTOMER_BRAND_TABLE.c.updated_at,
             shop_count.label("shop_count"),
@@ -876,6 +905,7 @@ class InventoryRepository:
         statement = select(
             GENERAL_CUSTOMER_BRAND_TABLE.c.id,
             GENERAL_CUSTOMER_BRAND_TABLE.c.name,
+            GENERAL_CUSTOMER_BRAND_TABLE.c.sort_order,
             GENERAL_CUSTOMER_BRAND_TABLE.c.created_at,
             GENERAL_CUSTOMER_BRAND_TABLE.c.updated_at,
         ).where(GENERAL_CUSTOMER_BRAND_TABLE.c.name == name)
@@ -897,14 +927,19 @@ class InventoryRepository:
                 GENERAL_CUSTOMER_SHOP_TABLE.c.id,
                 GENERAL_CUSTOMER_SHOP_TABLE.c.customer_name,
                 GENERAL_CUSTOMER_SHOP_TABLE.c.shop_name,
+                GENERAL_CUSTOMER_SHOP_TABLE.c.sort_order,
                 GENERAL_CUSTOMER_SHOP_TABLE.c.created_at,
                 GENERAL_CUSTOMER_SHOP_TABLE.c.updated_at,
                 func.coalesce(unit_count.c.unit_count, 0).label("unit_count"),
             )
             .outerjoin(unit_count, unit_count.c.shop_id == GENERAL_CUSTOMER_SHOP_TABLE.c.id)
+            .outerjoin(
+                GENERAL_CUSTOMER_BRAND_TABLE,
+                GENERAL_CUSTOMER_BRAND_TABLE.c.name == GENERAL_CUSTOMER_SHOP_TABLE.c.customer_name,
+            )
             .order_by(
-                GENERAL_CUSTOMER_SHOP_TABLE.c.customer_name,
-                GENERAL_CUSTOMER_SHOP_TABLE.c.shop_name,
+                GENERAL_CUSTOMER_BRAND_TABLE.c.sort_order,
+                GENERAL_CUSTOMER_SHOP_TABLE.c.sort_order,
                 GENERAL_CUSTOMER_SHOP_TABLE.c.id,
             )
         )
@@ -916,19 +951,25 @@ class InventoryRepository:
             "customer_name": str(data.get("customer_name") or "").strip(),
             "shop_name": str(data.get("shop_name") or "").strip(),
         }
-        statement = (
-            insert(GENERAL_CUSTOMER_SHOP_TABLE)
-            .values(**payload)
-            .returning(
-                GENERAL_CUSTOMER_SHOP_TABLE.c.id,
-                GENERAL_CUSTOMER_SHOP_TABLE.c.customer_name,
-                GENERAL_CUSTOMER_SHOP_TABLE.c.shop_name,
-                GENERAL_CUSTOMER_SHOP_TABLE.c.created_at,
-                GENERAL_CUSTOMER_SHOP_TABLE.c.updated_at,
-            )
-        )
         with self.engine.begin() as connection:
             self._ensure_general_customer_brand(connection, payload["customer_name"])
+            payload["sort_order"] = self._next_sort_order(
+                connection,
+                GENERAL_CUSTOMER_SHOP_TABLE,
+                GENERAL_CUSTOMER_SHOP_TABLE.c.customer_name == payload["customer_name"],
+            )
+            statement = (
+                insert(GENERAL_CUSTOMER_SHOP_TABLE)
+                .values(**payload)
+                .returning(
+                    GENERAL_CUSTOMER_SHOP_TABLE.c.id,
+                    GENERAL_CUSTOMER_SHOP_TABLE.c.customer_name,
+                    GENERAL_CUSTOMER_SHOP_TABLE.c.shop_name,
+                    GENERAL_CUSTOMER_SHOP_TABLE.c.sort_order,
+                    GENERAL_CUSTOMER_SHOP_TABLE.c.created_at,
+                    GENERAL_CUSTOMER_SHOP_TABLE.c.updated_at,
+                )
+            )
             row = connection.execute(statement).mappings().one()
         item = dict(row)
         item["unit_count"] = 0
@@ -945,6 +986,7 @@ class InventoryRepository:
             GENERAL_CUSTOMER_SHOP_TABLE.c.id,
             GENERAL_CUSTOMER_SHOP_TABLE.c.customer_name,
             GENERAL_CUSTOMER_SHOP_TABLE.c.shop_name,
+            GENERAL_CUSTOMER_SHOP_TABLE.c.sort_order,
             GENERAL_CUSTOMER_SHOP_TABLE.c.created_at,
             GENERAL_CUSTOMER_SHOP_TABLE.c.updated_at,
             unit_count.label("unit_count"),
@@ -952,6 +994,9 @@ class InventoryRepository:
         with self.engine.connect() as connection:
             row = connection.execute(statement).mappings().first()
         return None if row is None else dict(row)
+
+    def reorder_general_customer_brands(self, ordered_ids: list[int]) -> bool:
+        return self._replace_sort_order(GENERAL_CUSTOMER_BRAND_TABLE, ordered_ids)
 
     def update_general_customer_shop(self, shop_id: int, data: Mapping[str, object]) -> dict[str, object] | None:
         payload = {
@@ -995,6 +1040,7 @@ class InventoryRepository:
             GENERAL_CUSTOMER_SHOP_TABLE.c.id,
             GENERAL_CUSTOMER_SHOP_TABLE.c.customer_name,
             GENERAL_CUSTOMER_SHOP_TABLE.c.shop_name,
+            GENERAL_CUSTOMER_SHOP_TABLE.c.sort_order,
             GENERAL_CUSTOMER_SHOP_TABLE.c.created_at,
             GENERAL_CUSTOMER_SHOP_TABLE.c.updated_at,
         ).where(
@@ -1005,22 +1051,32 @@ class InventoryRepository:
             row = connection.execute(statement).mappings().first()
         return None if row is None else dict(row)
 
+    def reorder_general_customer_shops(self, customer_name: str, ordered_ids: list[int]) -> bool:
+        return self._replace_sort_order(
+            GENERAL_CUSTOMER_SHOP_TABLE,
+            ordered_ids,
+            GENERAL_CUSTOMER_SHOP_TABLE.c.customer_name == customer_name,
+        )
+
     def list_general_customer_units(self) -> list[dict[str, object]]:
         statement = (
             select(
                 GENERAL_CUSTOMER_UNIT_TABLE.c.id,
                 GENERAL_CUSTOMER_UNIT_TABLE.c.shop_id,
                 GENERAL_CUSTOMER_UNIT_TABLE.c.unit_name,
+                GENERAL_CUSTOMER_UNIT_TABLE.c.sort_order,
                 GENERAL_CUSTOMER_UNIT_TABLE.c.created_at,
                 GENERAL_CUSTOMER_UNIT_TABLE.c.updated_at,
                 GENERAL_CUSTOMER_SHOP_TABLE.c.customer_name,
                 GENERAL_CUSTOMER_SHOP_TABLE.c.shop_name,
             )
             .join(GENERAL_CUSTOMER_SHOP_TABLE, GENERAL_CUSTOMER_UNIT_TABLE.c.shop_id == GENERAL_CUSTOMER_SHOP_TABLE.c.id)
+            .join(GENERAL_CUSTOMER_BRAND_TABLE, GENERAL_CUSTOMER_BRAND_TABLE.c.name == GENERAL_CUSTOMER_SHOP_TABLE.c.customer_name)
             .order_by(
-                GENERAL_CUSTOMER_SHOP_TABLE.c.customer_name,
-                GENERAL_CUSTOMER_SHOP_TABLE.c.shop_name,
-                GENERAL_CUSTOMER_UNIT_TABLE.c.unit_name,
+                GENERAL_CUSTOMER_BRAND_TABLE.c.sort_order,
+                GENERAL_CUSTOMER_SHOP_TABLE.c.sort_order,
+                GENERAL_CUSTOMER_UNIT_TABLE.c.sort_order,
+                GENERAL_CUSTOMER_UNIT_TABLE.c.id,
             )
         )
         with self.engine.connect() as connection:
@@ -1031,8 +1087,13 @@ class InventoryRepository:
             "shop_id": int(data.get("shop_id") or 0),
             "unit_name": str(data.get("unit_name") or "").strip(),
         }
-        statement = insert(GENERAL_CUSTOMER_UNIT_TABLE).values(**payload).returning(GENERAL_CUSTOMER_UNIT_TABLE)
         with self.engine.begin() as connection:
+            payload["sort_order"] = self._next_sort_order(
+                connection,
+                GENERAL_CUSTOMER_UNIT_TABLE,
+                GENERAL_CUSTOMER_UNIT_TABLE.c.shop_id == payload["shop_id"],
+            )
+            statement = insert(GENERAL_CUSTOMER_UNIT_TABLE).values(**payload).returning(GENERAL_CUSTOMER_UNIT_TABLE)
             row = connection.execute(statement).mappings().one()
             shop = connection.execute(
                 select(GENERAL_CUSTOMER_SHOP_TABLE.c.customer_name, GENERAL_CUSTOMER_SHOP_TABLE.c.shop_name)
@@ -1048,6 +1109,7 @@ class InventoryRepository:
                 GENERAL_CUSTOMER_UNIT_TABLE.c.id,
                 GENERAL_CUSTOMER_UNIT_TABLE.c.shop_id,
                 GENERAL_CUSTOMER_UNIT_TABLE.c.unit_name,
+                GENERAL_CUSTOMER_UNIT_TABLE.c.sort_order,
                 GENERAL_CUSTOMER_UNIT_TABLE.c.created_at,
                 GENERAL_CUSTOMER_UNIT_TABLE.c.updated_at,
                 GENERAL_CUSTOMER_SHOP_TABLE.c.customer_name,
@@ -1068,6 +1130,13 @@ class InventoryRepository:
         with self.engine.connect() as connection:
             row = connection.execute(statement).mappings().first()
         return None if row is None else dict(row)
+
+    def reorder_general_customer_units(self, shop_id: int, ordered_ids: list[int]) -> bool:
+        return self._replace_sort_order(
+            GENERAL_CUSTOMER_UNIT_TABLE,
+            ordered_ids,
+            GENERAL_CUSTOMER_UNIT_TABLE.c.shop_id == shop_id,
+        )
 
     def update_general_customer_unit(self, unit_id: int, data: Mapping[str, object]) -> dict[str, object] | None:
         payload = {
@@ -1166,7 +1235,11 @@ class InventoryRepository:
     # ── Warehouses ─────────────────────────────────────────────────
 
     def list_warehouses(self) -> list[dict[str, object]]:
-        statement = select(WAREHOUSE_TABLE).order_by(WAREHOUSE_TABLE.c.id)
+        statement = (
+            select(WAREHOUSE_TABLE)
+            .outerjoin(WAREHOUSE_BRAND_TABLE, WAREHOUSE_BRAND_TABLE.c.name == WAREHOUSE_TABLE.c.brand)
+            .order_by(WAREHOUSE_BRAND_TABLE.c.sort_order, WAREHOUSE_TABLE.c.sort_order, WAREHOUSE_TABLE.c.id)
+        )
         with self.engine.connect() as connection:
             return [dict(row) for row in connection.execute(statement).mappings()]
 
@@ -1183,29 +1256,32 @@ class InventoryRepository:
             select(
                 WAREHOUSE_BRAND_TABLE.c.id,
                 WAREHOUSE_BRAND_TABLE.c.name,
+                WAREHOUSE_BRAND_TABLE.c.sort_order,
                 WAREHOUSE_BRAND_TABLE.c.created_at,
                 WAREHOUSE_BRAND_TABLE.c.updated_at,
                 func.coalesce(warehouse_count.c.warehouse_count, 0).label("warehouse_count"),
             )
             .outerjoin(warehouse_count, warehouse_count.c.brand_name == WAREHOUSE_BRAND_TABLE.c.name)
-            .order_by(WAREHOUSE_BRAND_TABLE.c.name)
+            .order_by(WAREHOUSE_BRAND_TABLE.c.sort_order, WAREHOUSE_BRAND_TABLE.c.id)
         )
         with self.engine.connect() as connection:
             return [dict(row) for row in connection.execute(statement).mappings()]
 
     def create_warehouse_brand(self, data: Mapping[str, object]) -> dict[str, object]:
         payload = {"name": str(data.get("name") or "").strip()}
-        statement = (
-            insert(WAREHOUSE_BRAND_TABLE)
-            .values(**payload)
-            .returning(
-                WAREHOUSE_BRAND_TABLE.c.id,
-                WAREHOUSE_BRAND_TABLE.c.name,
-                WAREHOUSE_BRAND_TABLE.c.created_at,
-                WAREHOUSE_BRAND_TABLE.c.updated_at,
-            )
-        )
         with self.engine.begin() as connection:
+            payload["sort_order"] = self._next_sort_order(connection, WAREHOUSE_BRAND_TABLE)
+            statement = (
+                insert(WAREHOUSE_BRAND_TABLE)
+                .values(**payload)
+                .returning(
+                    WAREHOUSE_BRAND_TABLE.c.id,
+                    WAREHOUSE_BRAND_TABLE.c.name,
+                    WAREHOUSE_BRAND_TABLE.c.sort_order,
+                    WAREHOUSE_BRAND_TABLE.c.created_at,
+                    WAREHOUSE_BRAND_TABLE.c.updated_at,
+                )
+            )
             row = connection.execute(statement).mappings().one()
         record = dict(row)
         record["warehouse_count"] = 0
@@ -1221,6 +1297,7 @@ class InventoryRepository:
         statement = select(
             WAREHOUSE_BRAND_TABLE.c.id,
             WAREHOUSE_BRAND_TABLE.c.name,
+            WAREHOUSE_BRAND_TABLE.c.sort_order,
             WAREHOUSE_BRAND_TABLE.c.created_at,
             WAREHOUSE_BRAND_TABLE.c.updated_at,
             warehouse_count.label("warehouse_count"),
@@ -1234,6 +1311,9 @@ class InventoryRepository:
         with self.engine.connect() as connection:
             row = connection.execute(statement).mappings().first()
         return None if row is None else dict(row)
+
+    def reorder_warehouse_brands(self, ordered_ids: list[int]) -> bool:
+        return self._replace_sort_order(WAREHOUSE_BRAND_TABLE, ordered_ids)
 
     def update_warehouse_brand(self, brand_id: int, data: Mapping[str, object]) -> dict[str, object] | None:
         payload = {"name": str(data.get("name") or "").strip()}
@@ -1289,10 +1369,22 @@ class InventoryRepository:
     def create_warehouse(self, data: Mapping[str, object]) -> dict[str, object]:
         payload = dict(data)
         payload["brand"] = str(payload.get("brand") or "通用").strip() or "通用"
-        statement = insert(WAREHOUSE_TABLE).values(**payload).returning(WAREHOUSE_TABLE)
         with self.engine.begin() as connection:
+            payload["sort_order"] = self._next_sort_order(
+                connection,
+                WAREHOUSE_TABLE,
+                WAREHOUSE_TABLE.c.brand == payload["brand"],
+            )
+            statement = insert(WAREHOUSE_TABLE).values(**payload).returning(WAREHOUSE_TABLE)
             row = connection.execute(statement).mappings().one()
         return dict(row)
+
+    def reorder_warehouses(self, brand: str, ordered_ids: list[int]) -> bool:
+        return self._replace_sort_order(
+            WAREHOUSE_TABLE,
+            ordered_ids,
+            WAREHOUSE_TABLE.c.brand == brand,
+        )
 
     def update_warehouse(self, warehouse_id: int, data: Mapping[str, object]) -> dict[str, object] | None:
         payload = dict(data)
@@ -1994,6 +2086,10 @@ class InventoryRepository:
     @staticmethod
     def _ensure_warehouse_schema(connection) -> None:
         connection.execute(text("ALTER TABLE IF EXISTS warehouses ADD COLUMN IF NOT EXISTS brand TEXT"))
+        connection.execute(text("ALTER TABLE IF EXISTS warehouses ADD COLUMN IF NOT EXISTS sort_order INTEGER NOT NULL DEFAULT 0"))
+        connection.execute(text("ALTER TABLE IF EXISTS warehouse_brands ADD COLUMN IF NOT EXISTS sort_order INTEGER NOT NULL DEFAULT 0"))
+        connection.execute(text("CREATE INDEX IF NOT EXISTS idx_warehouses_brand_sort ON warehouses (brand, sort_order)"))
+        connection.execute(text("CREATE INDEX IF NOT EXISTS idx_warehouse_brands_sort ON warehouse_brands (sort_order)"))
         connection.execute(
             text(
                 """
@@ -2009,6 +2105,34 @@ class InventoryRepository:
                 UPDATE warehouses
                 SET brand = '通用'
                 WHERE brand IS NULL OR btrim(brand) = ''
+                """
+            )
+        )
+        connection.execute(
+            text(
+                """
+                UPDATE warehouse_brands AS target
+                SET sort_order = ranked.sort_order
+                FROM (
+                    SELECT id, row_number() OVER (ORDER BY id) AS sort_order
+                    FROM warehouse_brands
+                    WHERE sort_order = 0
+                ) AS ranked
+                WHERE target.id = ranked.id
+                """
+            )
+        )
+        connection.execute(
+            text(
+                """
+                UPDATE warehouses AS target
+                SET sort_order = ranked.sort_order
+                FROM (
+                    SELECT id, row_number() OVER (PARTITION BY brand ORDER BY id) AS sort_order
+                    FROM warehouses
+                    WHERE sort_order = 0
+                ) AS ranked
+                WHERE target.id = ranked.id
                 """
             )
         )
@@ -2175,7 +2299,16 @@ class InventoryRepository:
                 )
             ).first()
             if exists is None:
-                connection.execute(insert(GENERAL_CUSTOMER_SHOP_TABLE).values(**row))
+                connection.execute(
+                    insert(GENERAL_CUSTOMER_SHOP_TABLE).values(
+                        **row,
+                        sort_order=self._next_sort_order(
+                            connection,
+                            GENERAL_CUSTOMER_SHOP_TABLE,
+                            GENERAL_CUSTOMER_SHOP_TABLE.c.customer_name == row["customer_name"],
+                        ),
+                    )
+                )
 
         existing_brands = connection.execute(select(GENERAL_CUSTOMER_SHOP_TABLE.c.customer_name).distinct()).all()
         for row in existing_brands:
@@ -2183,17 +2316,68 @@ class InventoryRepository:
 
     @staticmethod
     def _ensure_general_customer_schema(connection) -> None:
-        return None
+        connection.execute(text("ALTER TABLE IF EXISTS general_customer_brands ADD COLUMN IF NOT EXISTS sort_order INTEGER NOT NULL DEFAULT 0"))
+        connection.execute(text("ALTER TABLE IF EXISTS general_customer_shops ADD COLUMN IF NOT EXISTS sort_order INTEGER NOT NULL DEFAULT 0"))
+        connection.execute(text("ALTER TABLE IF EXISTS general_customer_units ADD COLUMN IF NOT EXISTS sort_order INTEGER NOT NULL DEFAULT 0"))
+        connection.execute(text("CREATE INDEX IF NOT EXISTS idx_general_customer_brands_sort ON general_customer_brands (sort_order)"))
+        connection.execute(text("CREATE INDEX IF NOT EXISTS idx_general_customer_shops_customer_sort ON general_customer_shops (customer_name, sort_order)"))
+        connection.execute(text("CREATE INDEX IF NOT EXISTS idx_general_customer_units_shop_sort ON general_customer_units (shop_id, sort_order)"))
+        connection.execute(
+            text(
+                """
+                UPDATE general_customer_brands AS target
+                SET sort_order = ranked.sort_order
+                FROM (
+                    SELECT id, row_number() OVER (ORDER BY id) AS sort_order
+                    FROM general_customer_brands
+                    WHERE sort_order = 0
+                ) AS ranked
+                WHERE target.id = ranked.id
+                """
+            )
+        )
+        connection.execute(
+            text(
+                """
+                UPDATE general_customer_shops AS target
+                SET sort_order = ranked.sort_order
+                FROM (
+                    SELECT id, row_number() OVER (PARTITION BY customer_name ORDER BY id) AS sort_order
+                    FROM general_customer_shops
+                    WHERE sort_order = 0
+                ) AS ranked
+                WHERE target.id = ranked.id
+                """
+            )
+        )
+        connection.execute(
+            text(
+                """
+                UPDATE general_customer_units AS target
+                SET sort_order = ranked.sort_order
+                FROM (
+                    SELECT id, row_number() OVER (PARTITION BY shop_id ORDER BY id) AS sort_order
+                    FROM general_customer_units
+                    WHERE sort_order = 0
+                ) AS ranked
+                WHERE target.id = ranked.id
+                """
+            )
+        )
 
-    @staticmethod
-    def _ensure_general_customer_brand(connection, name: str) -> None:
+    def _ensure_general_customer_brand(self, connection, name: str) -> None:
         if not name:
             return
         exists = connection.execute(
             select(GENERAL_CUSTOMER_BRAND_TABLE.c.id).where(GENERAL_CUSTOMER_BRAND_TABLE.c.name == name)
         ).first()
         if exists is None:
-            connection.execute(insert(GENERAL_CUSTOMER_BRAND_TABLE).values(name=name))
+            connection.execute(
+                insert(GENERAL_CUSTOMER_BRAND_TABLE).values(
+                    name=name,
+                    sort_order=self._next_sort_order(connection, GENERAL_CUSTOMER_BRAND_TABLE),
+                )
+            )
 
     # ── Helpers ────────────────────────────────────────────────────
 

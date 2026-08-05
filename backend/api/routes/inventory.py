@@ -49,6 +49,20 @@ from domain.vip_schema import JST_PRICE_TABLE
 
 router = APIRouter()
 
+
+def _ordered_ids(payload: dict) -> list[int]:
+    raw_ids = payload.get("ids")
+    if not isinstance(raw_ids, list) or not raw_ids:
+        raise HTTPException(status_code=400, detail="请提供完整排序结果")
+    try:
+        ids = [int(item) for item in raw_ids]
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail="排序数据格式不正确") from exc
+    if len(ids) != len(set(ids)):
+        raise HTTPException(status_code=400, detail="排序数据存在重复项")
+    return ids
+
+
 CN_TO_FIELD = {cn: en for cn, en in INVENTORY_COLUMN_ALIASES.items() if en in INVENTORY_CANONICAL_COLUMNS}
 DETAIL_CN_TO_FIELD = {cn: en for cn, en in INVENTORY_DETAIL_ALIASES.items() if en in INVENTORY_DETAIL_COLUMNS}
 
@@ -3044,6 +3058,26 @@ def create_general_customer_brand(request: Request, payload: dict):
     }
 
 
+@router.put("/inventory/general-customer-brands/order")
+def reorder_general_customer_brands(request: Request, payload: dict):
+    repository = request.app.state.inventory_repository
+    ids = _ordered_ids(payload)
+    if not repository.reorder_general_customer_brands(ids):
+        raise HTTPException(status_code=409, detail="品牌列表已变更，请刷新后重试")
+    write_operation_log(
+        request,
+        module="general_customer",
+        action="reorder",
+        entity_type="general_customer_brand_order",
+        entity_id=None,
+        entity_label="一般客户品牌",
+        summary="调整一般客户品牌排序",
+        before_data=None,
+        after_data={"ids": ids},
+    )
+    return {"message": "排序已保存"}
+
+
 @router.put("/inventory/general-customer-brands/{brand_id}")
 def update_general_customer_brand(request: Request, brand_id: int, payload: dict):
     repository = request.app.state.inventory_repository
@@ -3128,6 +3162,29 @@ def create_general_customer_shop(request: Request, payload: dict):
         after_data=item,
     )
     return {"item": item, "message": "创建成功"}
+
+
+@router.put("/inventory/general-customer-shops/order")
+def reorder_general_customer_shops(request: Request, payload: dict):
+    repository = request.app.state.inventory_repository
+    customer_name = str(payload.get("customer_name") or "").strip()
+    if not customer_name:
+        raise HTTPException(status_code=400, detail="请选择品牌")
+    ids = _ordered_ids(payload)
+    if not repository.reorder_general_customer_shops(customer_name, ids):
+        raise HTTPException(status_code=409, detail="店铺列表已变更，请刷新后重试")
+    write_operation_log(
+        request,
+        module="general_customer",
+        action="reorder",
+        entity_type="general_customer_shop_order",
+        entity_id=None,
+        entity_label=customer_name,
+        summary=f"调整一般客户店铺排序：{customer_name}",
+        before_data=None,
+        after_data={"customer_name": customer_name, "ids": ids},
+    )
+    return {"message": "排序已保存"}
 
 
 @router.put("/inventory/general-customer-shops/{shop_id}")
@@ -3217,6 +3274,33 @@ def create_general_customer_unit(request: Request, payload: dict):
         after_data=item,
     )
     return {"item": item, "message": "创建成功"}
+
+
+@router.put("/inventory/general-customer-units/order")
+def reorder_general_customer_units(request: Request, payload: dict):
+    repository = request.app.state.inventory_repository
+    try:
+        shop_id = int(payload.get("shop_id") or 0)
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail="店铺信息不正确") from exc
+    if shop_id <= 0:
+        raise HTTPException(status_code=400, detail="请选择店铺")
+    ids = _ordered_ids(payload)
+    if not repository.reorder_general_customer_units(shop_id, ids):
+        raise HTTPException(status_code=409, detail="单位列表已变更，请刷新后重试")
+    shop = repository.get_general_customer_shop(shop_id)
+    write_operation_log(
+        request,
+        module="general_customer",
+        action="reorder",
+        entity_type="general_customer_unit_order",
+        entity_id=None,
+        entity_label=str(shop.get("shop_name") or shop_id) if shop else str(shop_id),
+        summary=f"调整一般客户单位排序：{shop.get('shop_name') if shop else shop_id}",
+        before_data=None,
+        after_data={"shop_id": shop_id, "ids": ids},
+    )
+    return {"message": "排序已保存"}
 
 
 @router.put("/inventory/general-customer-units/{unit_id}")

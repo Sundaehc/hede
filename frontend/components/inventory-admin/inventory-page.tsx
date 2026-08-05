@@ -47,18 +47,21 @@ import {
   buildInventoryExportUrl,
   buildPurchaseImportTemplateUrl,
   listInventoryAccountSubjects,
+  listGeneralCustomerBrands,
   listGeneralCustomerShops,
   listGeneralCustomerUnits,
   listSuppliers,
+  listWarehouseBrands,
   listWarehouses,
   ApiError,
   type InventoryRecord,
   type InventoryAccountSubject,
   type PurchaseOrderRequirementBrand,
   type SupplierItem,
+  type WarehouseBrandItem,
   type WarehouseItem,
 } from "@/lib/api"
-import type { GeneralCustomerShopItem, GeneralCustomerUnitItem } from "@/lib/types"
+import type { GeneralCustomerBrandItem, GeneralCustomerShopItem, GeneralCustomerUnitItem } from "@/lib/types"
 
 const PAGE_SIZES = [10, 50, 100]
 
@@ -502,7 +505,9 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
   const [submittedFilters, setSubmittedFilters] = useState<Record<string, string>>({})
 
   const [supplierOptions, setSupplierOptions] = useState<SupplierItem[]>([])
+  const [warehouseBrandOptions, setWarehouseBrandOptions] = useState<WarehouseBrandItem[]>([])
   const [warehouseOptions, setWarehouseOptions] = useState<WarehouseItem[]>([])
+  const [customerBrandOptions, setCustomerBrandOptions] = useState<GeneralCustomerBrandItem[]>([])
   const [customerShopOptions, setCustomerShopOptions] = useState<GeneralCustomerShopItem[]>([])
   const [customerUnitOptions, setCustomerUnitOptions] = useState<GeneralCustomerUnitItem[]>([])
   const [accountSubjectOptions, setAccountSubjectOptions] = useState<InventoryAccountSubject[]>([])
@@ -569,15 +574,19 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
   useEffect(() => {
     async function loadOptions() {
       try {
-        const [suppliersRes, warehousesRes, customerShopsRes, customerUnitsRes, accountSubjectsRes] = await Promise.all([
+        const [suppliersRes, warehouseBrandsRes, warehousesRes, customerBrandsRes, customerShopsRes, customerUnitsRes, accountSubjectsRes] = await Promise.all([
           listSuppliers(),
+          listWarehouseBrands(),
           listWarehouses(),
+          listGeneralCustomerBrands(),
           listGeneralCustomerShops(),
           listGeneralCustomerUnits(),
           listInventoryAccountSubjects(),
         ])
         setSupplierOptions(suppliersRes.items)
+        setWarehouseBrandOptions(warehouseBrandsRes.items)
         setWarehouseOptions(warehousesRes.items)
+        setCustomerBrandOptions(customerBrandsRes.items)
         setCustomerShopOptions(customerShopsRes.items)
         setCustomerUnitOptions(customerUnitsRes.items)
         setAccountSubjectOptions(accountSubjectsRes.items)
@@ -1208,17 +1217,21 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
       group.push(warehouse)
       warehousesByBrand.set(brand, group)
     }
-    return Array.from(warehousesByBrand.entries()).sort(([left], [right]) => inventoryBrandLabel(left).localeCompare(inventoryBrandLabel(right), "zh-CN")).map(([brand, warehouses]) => ({
+    const orderedBrands = [
+      ...warehouseBrandOptions.map((brand) => brand.name).filter((brand) => warehousesByBrand.has(brand)),
+      ...Array.from(warehousesByBrand.keys()).filter((brand) => !warehouseBrandOptions.some((item) => item.name === brand)),
+    ]
+    return orderedBrands.map((brand) => ({
       id: `warehouse-brand:${brand}`,
       label: inventoryBrandLabel(brand),
-      children: warehouses.sort((left, right) => left.name.localeCompare(right.name, "zh-CN")).map((warehouse) => ({
+      children: (warehousesByBrand.get(brand) ?? []).map((warehouse) => ({
         id: `warehouse:${warehouse.id}`,
         label: warehouse.name,
         value: warehouse.name,
         keywords: [warehouse.address, warehouse.notes].filter(Boolean).join(" "),
       })),
     }))
-  }, [warehouseOptions])
+  }, [warehouseBrandOptions, warehouseOptions])
   const customerHierarchicalOptions = useMemo<HierarchicalOption[]>(() => {
     const shopsByCustomer = new Map<string, GeneralCustomerShopItem[]>()
     for (const shop of customerShopOptions) {
@@ -1226,21 +1239,25 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
       group.push(shop)
       shopsByCustomer.set(shop.customer_name, group)
     }
-    return Array.from(shopsByCustomer.entries()).sort(([left], [right]) => left.localeCompare(right, "zh-CN")).map(([customerName, shops]) => ({
+    const orderedCustomerNames = [
+      ...customerBrandOptions.map((brand) => brand.name).filter((name) => shopsByCustomer.has(name)),
+      ...Array.from(shopsByCustomer.keys()).filter((name) => !customerBrandOptions.some((brand) => brand.name === name)),
+    ]
+    return orderedCustomerNames.map((customerName) => ({
       id: `customer-brand:${customerName}`,
       label: customerName,
-      children: shops.sort((left, right) => left.shop_name.localeCompare(right.shop_name, "zh-CN")).map((shop) => ({
+      children: (shopsByCustomer.get(customerName) ?? []).map((shop) => ({
         id: `customer-shop:${shop.id}`,
         label: shop.shop_name,
         value: shop.shop_name,
-        children: customerUnitOptions.filter((unit) => unit.shop_id === shop.id).sort((left, right) => left.unit_name.localeCompare(right.unit_name, "zh-CN")).map((unit) => ({
+        children: customerUnitOptions.filter((unit) => unit.shop_id === shop.id).map((unit) => ({
           id: `customer-unit:${unit.id}`,
           label: unit.unit_name,
           value: unit.unit_name,
         })),
       })),
     }))
-  }, [customerShopOptions, customerUnitOptions])
+  }, [customerBrandOptions, customerShopOptions, customerUnitOptions])
   const counterpartyFilterOptions: SearchableFilterOption[] = (() => {
     const uniqueOptions = new Map<string, SearchableFilterOption>()
     for (const option of supplierSelectOptions) {

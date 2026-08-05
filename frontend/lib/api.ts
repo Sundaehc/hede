@@ -895,11 +895,13 @@ export type WarehouseItem = {
   name: string
   address: string | null
   notes: string | null
+  sort_order: number
 }
 
 export type WarehouseBrandItem = {
   id: number
   name: string
+  sort_order: number
   warehouse_count: number
   created_at: string | null
   updated_at: string | null
@@ -1346,6 +1348,20 @@ export function deleteGeneralCustomerShop(id: number) {
   )
 }
 
+export function reorderGeneralCustomerShops(customer_name: string, ids: number[]) {
+  return request<{ message: string }>("/inventory/general-customer-shops/order", {
+    method: "PUT",
+    body: JSON.stringify({ customer_name, ids }),
+  })
+}
+
+export function reorderGeneralCustomerBrands(ids: number[]) {
+  return request<{ message: string }>("/inventory/general-customer-brands/order", {
+    method: "PUT",
+    body: JSON.stringify({ ids }),
+  })
+}
+
 export function listGeneralCustomerUnits() {
   return request<GeneralCustomerUnitListResponse>(
     "/inventory/general-customer-units"
@@ -1369,6 +1385,13 @@ export function updateGeneralCustomerUnit(id: number, payload: { shop_id: number
 export function deleteGeneralCustomerUnit(id: number) {
   return request<{ message: string }>(`/inventory/general-customer-units/${id}`, {
     method: "DELETE",
+  })
+}
+
+export function reorderGeneralCustomerUnits(shop_id: number, ids: number[]) {
+  return request<{ message: string }>("/inventory/general-customer-units/order", {
+    method: "PUT",
+    body: JSON.stringify({ shop_id, ids }),
   })
 }
 
@@ -1627,6 +1650,13 @@ export function deleteWarehouseBrand(id: number) {
   })
 }
 
+export function reorderWarehouseBrands(ids: number[]) {
+  return request<{ message: string }>("/warehouse-brands/order", {
+    method: "PUT",
+    body: JSON.stringify({ ids }),
+  })
+}
+
 export function buildPurchaseInboundDetailExportUrl(params: {
   date_start?: string
   date_end?: string
@@ -1718,5 +1748,12 @@ export function updateWarehouse(id: number, payload: Record<string, unknown>) {
 export function deleteWarehouse(id: number) {
   return request<{ message: string }>(`/warehouses/${id}`, {
     method: "DELETE",
+  })
+}
+
+export function reorderWarehouses(brand: string, ids: number[]) {
+  return request<{ message: string }>("/warehouses/order", {
+    method: "PUT",
+    body: JSON.stringify({ brand, ids }),
   })
 }

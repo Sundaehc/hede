@@ -13,6 +13,19 @@ from api.operation_log_utils import (
 router = APIRouter()
 
 
+def _ordered_ids(payload: dict) -> list[int]:
+    raw_ids = payload.get("ids")
+    if not isinstance(raw_ids, list) or not raw_ids:
+        raise HTTPException(status_code=400, detail="请提供完整排序结果")
+    try:
+        ids = [int(item) for item in raw_ids]
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail="排序数据格式不正确") from exc
+    if len(ids) != len(set(ids)):
+        raise HTTPException(status_code=400, detail="排序数据存在重复项")
+    return ids
+
+
 @router.get("/warehouses")
 def list_warehouses(request: Request):
     repository = request.app.state.inventory_repository
@@ -46,6 +59,26 @@ def create_warehouse_brand(request: Request, payload: dict):
         after_data=item,
     )
     return {"item": item, "message": "创建成功"}
+
+
+@router.put("/warehouse-brands/order")
+def reorder_warehouse_brands(request: Request, payload: dict):
+    repository = request.app.state.inventory_repository
+    ids = _ordered_ids(payload)
+    if not repository.reorder_warehouse_brands(ids):
+        raise HTTPException(status_code=409, detail="品牌列表已变更，请刷新后重试")
+    write_operation_log(
+        request,
+        module="warehouse",
+        action="reorder",
+        entity_type="warehouse_brand_order",
+        entity_id=None,
+        entity_label="仓库品牌",
+        summary="调整仓库品牌排序",
+        before_data=None,
+        after_data={"ids": ids},
+    )
+    return {"message": "排序已保存"}
 
 
 @router.put("/warehouse-brands/{brand_id}")
@@ -133,6 +166,29 @@ def create_warehouse(request: Request, payload: dict):
         after_data=item,
     )
     return {"item": item, "message": "创建成功"}
+
+
+@router.put("/warehouses/order")
+def reorder_warehouses(request: Request, payload: dict):
+    repository = request.app.state.inventory_repository
+    brand = str(payload.get("brand") or "").strip()
+    if not brand:
+        raise HTTPException(status_code=400, detail="请选择仓库品牌")
+    ids = _ordered_ids(payload)
+    if not repository.reorder_warehouses(brand, ids):
+        raise HTTPException(status_code=409, detail="仓库列表已变更，请刷新后重试")
+    write_operation_log(
+        request,
+        module="warehouse",
+        action="reorder",
+        entity_type="warehouse_order",
+        entity_id=None,
+        entity_label=brand,
+        summary=f"调整仓库排序：{brand}",
+        before_data=None,
+        after_data={"brand": brand, "ids": ids},
+    )
+    return {"message": "排序已保存"}
 
 
 @router.put("/warehouses/{warehouse_id}")

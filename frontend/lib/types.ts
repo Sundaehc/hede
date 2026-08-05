@@ -529,6 +529,7 @@ export type GeneralCustomerShopItem = {
   id: number
   customer_name: string
   shop_name: string
+  sort_order: number
   unit_count: number
   created_at: string | null
   updated_at: string | null
@@ -541,6 +542,7 @@ export type GeneralCustomerShopListResponse = {
 export type GeneralCustomerBrandItem = {
   id: number
   name: string
+  sort_order: number
   shop_count: number
   created_at: string | null
   updated_at: string | null
@@ -554,6 +556,7 @@ export type GeneralCustomerUnitItem = {
   id: number
   shop_id: number
   unit_name: string
+  sort_order: number
   customer_name: string
   shop_name: string
   created_at: string | null

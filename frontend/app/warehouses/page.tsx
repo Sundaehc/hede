@@ -1,7 +1,7 @@
 "use client"
 
-import { useCallback, useEffect, useMemo, useState } from "react"
-import { ChevronRight, Edit, History, Plus, Search, Trash2, X } from "lucide-react"
+import { type DragEvent, useCallback, useEffect, useMemo, useState } from "react"
+import { ChevronRight, Edit, GripVertical, History, Plus, Search, Trash2, X } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -23,6 +23,8 @@ import {
   deleteWarehouseBrand,
   listWarehouseBrands,
   listWarehouses,
+  reorderWarehouseBrands,
+  reorderWarehouses,
   updateWarehouse,
   updateWarehouseBrand,
   type WarehouseBrandItem,
@@ -36,10 +38,29 @@ type WarehouseForm = {
   notes: string
 }
 
+type DropPlacement = "before" | "after"
+type DropTarget = { id: number; placement: DropPlacement }
+
 function getErrorMessage(error: unknown) {
   if (error instanceof ApiError) return error.message || `请求失败（${error.status}）`
   if (error instanceof Error) return error.message
   return "发生未知错误"
+}
+
+function dropPlacement(event: DragEvent<HTMLElement>): DropPlacement {
+  const bounds = event.currentTarget.getBoundingClientRect()
+  return event.clientY < bounds.top + bounds.height / 2 ? "before" : "after"
+}
+
+function moveById<T extends { id: number }>(items: T[], sourceId: number, targetId: number, placement: DropPlacement) {
+  const sourceIndex = items.findIndex((item) => item.id === sourceId)
+  if (sourceIndex < 0 || sourceId === targetId) return items
+  const next = [...items]
+  const [source] = next.splice(sourceIndex, 1)
+  const targetIndex = next.findIndex((item) => item.id === targetId)
+  if (targetIndex < 0) return items
+  next.splice(placement === "after" ? targetIndex + 1 : targetIndex, 0, source)
+  return next
 }
 
 export default function WarehousesPage() {
@@ -65,6 +86,11 @@ export default function WarehousesPage() {
   const [isSavingWarehouse, setIsSavingWarehouse] = useState(false)
   const [deleteWarehouseTarget, setDeleteWarehouseTarget] = useState<WarehouseItem | null>(null)
   const [isDeletingWarehouse, setIsDeletingWarehouse] = useState(false)
+  const [draggedBrandId, setDraggedBrandId] = useState<number | null>(null)
+  const [draggedWarehouseId, setDraggedWarehouseId] = useState<number | null>(null)
+  const [brandDropTarget, setBrandDropTarget] = useState<DropTarget | null>(null)
+  const [warehouseDropTarget, setWarehouseDropTarget] = useState<DropTarget | null>(null)
+  const [isReordering, setIsReordering] = useState(false)
 
   const [operationLogOpen, setOperationLogOpen] = useState(false)
   const [messageOpen, setMessageOpen] = useState(false)
@@ -225,6 +251,47 @@ export default function WarehousesPage() {
     }
   }
 
+  const handleBrandDrop = async (targetId: number, placement: DropPlacement) => {
+    if (isReordering || draggedBrandId === null || draggedBrandId === targetId) return
+    const nextBrands = moveById(brands, draggedBrandId, targetId, placement)
+    setDraggedBrandId(null)
+    setBrandDropTarget(null)
+    if (nextBrands === brands) return
+    setBrands(nextBrands)
+    setIsReordering(true)
+    try {
+      await reorderWarehouseBrands(nextBrands.map((brand) => brand.id))
+    } catch (error) {
+      setBrands(brands)
+      showMessage("排序保存失败", getErrorMessage(error))
+    } finally {
+      setIsReordering(false)
+    }
+  }
+
+  const handleWarehouseDrop = async (targetId: number, placement: DropPlacement) => {
+    if (isReordering || !activeBrand || draggedWarehouseId === null || draggedWarehouseId === targetId) return
+    const nextGroup = moveById(visibleWarehouses, draggedWarehouseId, targetId, placement)
+    setDraggedWarehouseId(null)
+    setWarehouseDropTarget(null)
+    if (nextGroup === visibleWarehouses) return
+    const groupIds = new Set(nextGroup.map((warehouse) => warehouse.id))
+    let groupIndex = 0
+    const nextWarehouses = warehouses.map((warehouse) => (
+      groupIds.has(warehouse.id) ? nextGroup[groupIndex++] : warehouse
+    ))
+    setWarehouses(nextWarehouses)
+    setIsReordering(true)
+    try {
+      await reorderWarehouses(activeBrand.name, nextGroup.map((warehouse) => warehouse.id))
+    } catch (error) {
+      setWarehouses(warehouses)
+      showMessage("排序保存失败", getErrorMessage(error))
+    } finally {
+      setIsReordering(false)
+    }
+  }
+
   return (
     <div className="app-page">
       <div className="app-content">
@@ -261,8 +328,30 @@ export default function WarehousesPage() {
               {!isLoading && filteredBrands.map((brand) => {
                 const selected = brand.id === activeBrand?.id
                 return (
-                  <div key={brand.id} className={`group relative flex items-center gap-1 overflow-hidden rounded-xl border px-2 py-2 shadow-xs transition-all duration-150 ${selected ? "border-foreground bg-muted/70 shadow-sm ring-1 ring-foreground/10" : "border-border bg-card hover:-translate-y-px hover:border-foreground/25 hover:bg-muted/45 hover:shadow-sm"}`}>
+                  <div
+                    key={brand.id}
+                    onDragOver={(event) => {
+                      if (draggedBrandId === null || draggedBrandId === brand.id) return
+                      event.preventDefault()
+                      const nextTarget = { id: brand.id, placement: dropPlacement(event) }
+                      setBrandDropTarget((current) => current?.id === nextTarget.id && current.placement === nextTarget.placement ? current : nextTarget)
+                    }}
+                    onDrop={(event) => { event.preventDefault(); void handleBrandDrop(brand.id, brandDropTarget?.id === brand.id ? brandDropTarget.placement : "before") }}
+                    onDragEnd={() => { setDraggedBrandId(null); setBrandDropTarget(null) }}
+                    className={`group relative flex items-center gap-1 overflow-hidden rounded-xl border px-2 py-2 shadow-xs transition-all duration-150 ${selected ? "border-foreground bg-muted/70 shadow-sm ring-1 ring-foreground/10" : "border-border bg-card hover:-translate-y-px hover:border-foreground/25 hover:bg-muted/45 hover:shadow-sm"} ${draggedBrandId === brand.id ? "scale-[0.98] opacity-45" : ""} ${brandDropTarget?.id === brand.id && draggedBrandId !== brand.id ? brandDropTarget.placement === "before" ? "translate-y-2" : "-translate-y-2" : ""}`}
+                  >
                     <span aria-hidden="true" className={`absolute inset-y-2 left-0 w-1 rounded-r-full bg-foreground ${selected ? "opacity-100" : "opacity-0 group-hover:opacity-25"}`} />
+                    {brandDropTarget?.id === brand.id && draggedBrandId !== brand.id && <span aria-hidden="true" className={`pointer-events-none absolute inset-x-2 z-10 h-0.5 rounded-full bg-primary shadow-sm ${brandDropTarget.placement === "before" ? "top-0" : "bottom-0"}`} />}
+                    <button
+                      type="button"
+                      draggable={!isReordering}
+                      onDragStart={(event) => { event.dataTransfer.effectAllowed = "move"; setBrandDropTarget(null); setDraggedBrandId(brand.id) }}
+                      className="relative flex size-8 shrink-0 cursor-grab items-center justify-center rounded-md text-muted-foreground hover:bg-muted active:cursor-grabbing"
+                      aria-label={`拖拽排序品牌 ${brand.name}`}
+                      title="拖拽排序"
+                    >
+                      <GripVertical className="h-4 w-4" />
+                    </button>
                     <button type="button" aria-pressed={selected} onClick={() => setSelectedBrandId(brand.id)} className="relative flex min-h-8 min-w-0 flex-1 cursor-pointer items-center justify-between gap-2 rounded-lg px-1.5 text-left text-sm outline-none focus-visible:ring-3 focus-visible:ring-ring/35">
                       <span className="truncate font-medium text-foreground">{brand.name}</span>
                       <span className={`flex shrink-0 items-center gap-1.5 rounded-full px-1.5 py-0.5 text-xs ${selected ? "bg-background text-foreground shadow-xs" : "text-muted-foreground"}`}>
@@ -292,12 +381,28 @@ export default function WarehousesPage() {
             <div className="mt-3 table-panel overflow-hidden">
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
-                  <thead><tr className="table-head-row"><th className="px-4 py-3 font-medium">仓库名称</th><th className="px-4 py-3 font-medium">地址</th><th className="px-4 py-3 font-medium">备注</th><th className="w-24 px-4 py-3 font-medium">操作</th></tr></thead>
+                  <thead><tr className="table-head-row"><th className="w-12 px-2 py-3 font-medium"><span className="sr-only">排序</span></th><th className="px-4 py-3 font-medium">仓库名称</th><th className="px-4 py-3 font-medium">地址</th><th className="px-4 py-3 font-medium">备注</th><th className="w-24 px-4 py-3 font-medium">操作</th></tr></thead>
                   <tbody className="divide-y divide-border">
-                    {isLoading && <tr><td colSpan={4} className="px-4 py-12 text-center text-muted-foreground">加载中...</td></tr>}
-                    {!isLoading && !activeBrand && <tr><td colSpan={4} className="px-4 py-12 text-center text-muted-foreground">请先新增或选择品牌</td></tr>}
-                    {!isLoading && activeBrand && visibleWarehouses.length === 0 && <tr><td colSpan={4} className="px-4 py-12 text-center text-muted-foreground">该品牌暂无仓库</td></tr>}
-                    {!isLoading && visibleWarehouses.map((warehouse) => <tr key={warehouse.id} className="table-row"><td className="px-4 py-2.5 font-medium">{warehouse.name}</td><td className="px-4 py-2.5">{warehouse.address || "-"}</td><td className="max-w-64 truncate px-4 py-2.5" title={warehouse.notes || ""}>{warehouse.notes || "-"}</td><td className="px-4 py-2.5"><div className="flex items-center gap-0.5"><Button variant="ghost" size="icon" onClick={() => openEditWarehouse(warehouse)} className="cursor-pointer" aria-label={`编辑仓库 ${warehouse.name}`}><Edit className="h-4 w-4" /></Button><Button variant="ghost" size="icon" onClick={() => setDeleteWarehouseTarget(warehouse)} className="cursor-pointer" aria-label={`删除仓库 ${warehouse.name}`}><Trash2 className="h-4 w-4 text-destructive" /></Button></div></td></tr>)}
+                    {isLoading && <tr><td colSpan={5} className="px-4 py-12 text-center text-muted-foreground">加载中...</td></tr>}
+                    {!isLoading && !activeBrand && <tr><td colSpan={5} className="px-4 py-12 text-center text-muted-foreground">请先新增或选择品牌</td></tr>}
+                    {!isLoading && activeBrand && visibleWarehouses.length === 0 && <tr><td colSpan={5} className="px-4 py-12 text-center text-muted-foreground">该品牌暂无仓库</td></tr>}
+                    {!isLoading && visibleWarehouses.map((warehouse) => (
+                      <tr
+                        key={warehouse.id}
+                        onDragOver={(event) => {
+                          if (draggedWarehouseId === null || draggedWarehouseId === warehouse.id) return
+                          event.preventDefault()
+                          const nextTarget = { id: warehouse.id, placement: dropPlacement(event) }
+                          setWarehouseDropTarget((current) => current?.id === nextTarget.id && current.placement === nextTarget.placement ? current : nextTarget)
+                        }}
+                        onDrop={(event) => { event.preventDefault(); void handleWarehouseDrop(warehouse.id, warehouseDropTarget?.id === warehouse.id ? warehouseDropTarget.placement : "before") }}
+                        onDragEnd={() => { setDraggedWarehouseId(null); setWarehouseDropTarget(null) }}
+                        className={`table-row transition-all duration-150 ${draggedWarehouseId === warehouse.id ? "opacity-40" : ""} ${warehouseDropTarget?.id === warehouse.id && draggedWarehouseId !== warehouse.id ? warehouseDropTarget.placement === "before" ? "border-t-2 border-primary bg-primary/5 translate-y-2" : "border-b-2 border-primary bg-primary/5 -translate-y-2" : ""}`}
+                      >
+                        <td className="px-2 py-2.5"><button type="button" draggable={!isReordering} onDragStart={(event) => { event.dataTransfer.effectAllowed = "move"; setWarehouseDropTarget(null); setDraggedWarehouseId(warehouse.id) }} className="flex size-8 cursor-grab items-center justify-center rounded-md text-muted-foreground hover:bg-muted active:cursor-grabbing" aria-label={`拖拽排序仓库 ${warehouse.name}`} title="拖拽排序"><GripVertical className="h-4 w-4" /></button></td>
+                        <td className="px-4 py-2.5 font-medium">{warehouse.name}</td><td className="px-4 py-2.5">{warehouse.address || "-"}</td><td className="max-w-64 truncate px-4 py-2.5" title={warehouse.notes || ""}>{warehouse.notes || "-"}</td><td className="px-4 py-2.5"><div className="flex items-center gap-0.5"><Button variant="ghost" size="icon" onClick={() => openEditWarehouse(warehouse)} className="cursor-pointer" aria-label={`编辑仓库 ${warehouse.name}`}><Edit className="h-4 w-4" /></Button><Button variant="ghost" size="icon" onClick={() => setDeleteWarehouseTarget(warehouse)} className="cursor-pointer" aria-label={`删除仓库 ${warehouse.name}`}><Trash2 className="h-4 w-4 text-destructive" /></Button></div></td>
+                      </tr>
+                    ))}
                   </tbody>
                 </table>
               </div>
