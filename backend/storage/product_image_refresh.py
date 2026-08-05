@@ -78,8 +78,12 @@ def run_product_image_refresh(
     try:
         results: dict[str, dict[str, int]] = {}
         for brand_key in brands:
-            image_brand = IMAGE_BRAND_KEYS[brand_key]
-            matcher = ImageMatcher(settings.image_roots[image_brand])
+            image_brand = IMAGE_BRAND_KEYS.get(brand_key)
+            image_root = settings.image_roots.get(image_brand) if image_brand else None
+            if image_root is None:
+                results[brand_key] = {"scanned": 0, "matched": 0, "updated": 0, "missing": 0}
+                continue
+            matcher = ImageMatcher(image_root)
             results[brand_key] = repository.refresh_image_paths(
                 brand_key,
                 matcher.find,

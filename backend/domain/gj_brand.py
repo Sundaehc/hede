@@ -43,7 +43,7 @@ def infer_gj_fine_table_brand(row: dict[str, object]) -> str | None:
 def infer_supplier_brand_from_name(name: object) -> str | None:
     supplier = _clean(name)
     supplier_upper = supplier.upper()
-    if "NIKE" in supplier_upper or "耐克" in supplier or re.search(r"(^|[^A-Z0-9])NI([^A-Z0-9]|$)", supplier_upper):
+    if re.search(r"(^|[（(\s])NI($|[）)\s])", supplier_upper):
         return NI_BRAND
     if "SMILEY" in supplier_upper or "笑脸" in supplier or "小莲" in supplier:
         return SMILEY_BRAND

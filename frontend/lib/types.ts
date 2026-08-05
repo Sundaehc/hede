@@ -1,4 +1,4 @@
-import type { BrandKey, ProductArchiveBrandKey } from "@/lib/brands"
+import type { BrandKey, ProductArchiveBrandKey, ProductArchiveRecordBrandKey } from "@/lib/brands"
 
 export type AuthUser = {
   id: number
@@ -442,7 +442,7 @@ export type CompletedRefreshProductImagesResult = {
 }
 
 export type ProductFormValues = {
-  brand: BrandKey | ""
+  brand: ProductArchiveRecordBrandKey | ""
   image_path: string
   sku: string
   original_sku: string

@@ -14,7 +14,7 @@ import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Tabs, TabsContent } from "@/components/ui/tabs"
 
-import { PRODUCT_ARCHIVE_BRANDS, type BrandKey, type ProductArchiveBrandKey } from "@/lib/brands"
+import { PRODUCT_ARCHIVE_BRANDS, type ProductArchiveBrandKey, type ProductArchiveRecordBrandKey } from "@/lib/brands"
 import { ApiError, batchDeleteProducts, deleteProduct, getProductYears, listProducts } from "@/lib/api"
 import type { ProductListItem } from "@/lib/types"
 
@@ -22,7 +22,6 @@ const DEFAULT_BRAND = PRODUCT_ARCHIVE_BRANDS.find((item) => item.key !== "all")?
 const PAGE_SIZES = [10, 50, 100]
 
 const isAllBrand = (b: ProductArchiveBrandKey) => b === "all"
-const isSmileyBrand = (b: ProductArchiveBrandKey) => b === "smiley"
 
 function getErrorMessage(error: unknown) {
   if (error instanceof ApiError) {
@@ -48,7 +47,6 @@ export function ProductAdminPage() {
   const [reloadToken, setReloadToken] = useState(0)
   const [items, setItems] = useState<ProductListItem[]>([])
   const [total, setTotal] = useState(0)
-  const [snapshotDate, setSnapshotDate] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [isDialogOpen, setIsDialogOpen] = useState(false)
@@ -110,7 +108,6 @@ export function ProductAdminPage() {
 
         setItems(response.items)
         setTotal(response.total)
-        setSnapshotDate(response.snapshot_date ?? null)
       } catch (loadError) {
         if (cancelled) {
           return
@@ -118,7 +115,6 @@ export function ProductAdminPage() {
 
         setItems([])
         setTotal(0)
-        setSnapshotDate(null)
         setError(getErrorMessage(loadError))
       } finally {
         if (!cancelled) {
@@ -152,7 +148,7 @@ export function ProductAdminPage() {
 
     setIsDeleting(true)
     try {
-      await deleteProduct(deleteTarget.brand as BrandKey, deleteTarget.id)
+      await deleteProduct(deleteTarget.brand as ProductArchiveRecordBrandKey, deleteTarget.id)
       setSelectedIds((prev) => {
         const next = new Set(prev)
         next.delete(deleteTarget.id)
@@ -205,7 +201,7 @@ export function ProductAdminPage() {
   const handleBatchDeleteConfirm = async () => {
     setIsBatchDeleting(true)
     try {
-      await batchDeleteProducts(brand as BrandKey, Array.from(selectedIds))
+      await batchDeleteProducts(brand as ProductArchiveRecordBrandKey, Array.from(selectedIds))
       setSelectedIds(new Set())
       setReloadToken((current) => current + 1)
     } catch (deleteError) {
@@ -222,12 +218,11 @@ export function ProductAdminPage() {
     setMessageOpen(true)
   }, [])
 
-  const isSmiley = isSmileyBrand(brand)
-  const showBatchDelete = !isAllBrand(brand) && !isSmiley && selectedIds.size > 0
+  const showBatchDelete = !isAllBrand(brand) && selectedIds.size > 0
   const canManageProducts = hasPermission("product.manage")
   const canExportProducts = hasPermission("product.export")
   const canImportProducts = hasPermission("product.import")
-  const canSelectProducts = !isSmiley && (canManageProducts || canExportProducts)
+  const canSelectProducts = canManageProducts || canExportProducts
 
   return (
     <div className="app-page">
@@ -236,9 +231,7 @@ export function ProductAdminPage() {
           <div>
             <h1 className="page-title">商品信息档案</h1>
             <p className="page-subtitle">
-              {isSmiley
-                ? `笑脸商品基础资料，汇集全部精细表快照并按货号去重${snapshotDate ? `（最新快照：${snapshotDate}）` : ""}`
-                : "管理品牌商品基础资料、图片匹配和批量导入导出"}
+              管理品牌商品基础资料、图片匹配和批量导入导出
             </p>
           </div>
           <div className="flex h-9 items-center rounded-full border border-border bg-muted/45 px-3 text-sm text-muted-foreground">
@@ -260,7 +253,7 @@ export function ProductAdminPage() {
           </div>
 
           <TabsContent value={brand} className="mt-4 space-y-4">
-            {!isAllBrand(brand) && !isSmiley && (
+            {!isAllBrand(brand) && (
               <div className="flex items-center gap-1.5">
                 {availableYears.length > 0 && (
                   <div className="flex flex-wrap items-center gap-1.5">
@@ -282,13 +275,13 @@ export function ProductAdminPage() {
             )}
 
             <ProductToolbar
-              brand={brand as BrandKey}
+              brand={brand}
               value={searchInput}
               isLoading={isLoading}
               selectedIds={selectedIds}
-              canExport={canExportProducts && !isSmiley}
-              canImport={canImportProducts && !isSmiley}
-              canRefreshImages={canManageProducts && !isSmiley}
+              canExport={canExportProducts}
+              canImport={canImportProducts}
+              canRefreshImages={canManageProducts}
               onValueChange={setSearchInput}
               onSearch={() => {
                 setPage(1)
@@ -302,14 +295,14 @@ export function ProductAdminPage() {
               onRefresh={() => {
                 setReloadToken((current) => current + 1)
               }}
-              onOpenLogs={isSmiley ? undefined : () => setOperationLogOpen(true)}
+              onOpenLogs={() => setOperationLogOpen(true)}
               onImportComplete={(skus: string[]) => {
                 const query = skus.join(",")
                 setSearchInput(query)
                 setSubmittedQuery(query)
                 setPage(1)
               }}
-              onCreate={isAllBrand(brand) || isSmiley || !canManageProducts ? undefined : () => {
+              onCreate={isAllBrand(brand) || !canManageProducts ? undefined : () => {
                 setDialogMode("create")
                 setSelectedItem(null)
                 setIsDialogOpen(true)
@@ -330,12 +323,12 @@ export function ProductAdminPage() {
               onToggleSelect={handleToggleSelect}
               onToggleSelectAll={handleToggleSelectAll}
               onBatchDelete={showBatchDelete && canManageProducts ? handleBatchDeleteRequest : undefined}
-              onEdit={isAllBrand(brand) || isSmiley || !canManageProducts ? undefined : (item) => {
+              onEdit={isAllBrand(brand) || !canManageProducts ? undefined : (item) => {
                 setDialogMode("edit")
                 setSelectedItem(item)
                 setIsDialogOpen(true)
               }}
-              onDelete={isAllBrand(brand) || isSmiley || !canManageProducts ? undefined : handleDeleteRequest}
+              onDelete={isAllBrand(brand) || !canManageProducts ? undefined : handleDeleteRequest}
               onPreviewImage={(item) => {
                 if (!item.image_url) return
                 setPreviewImage({

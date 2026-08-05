@@ -6,6 +6,7 @@ from typing import Any
 from sqlalchemy import delete, func, insert, select, update
 from sqlalchemy.exc import IntegrityError
 
+from domain.product_size_group_mapping_schema import PRODUCT_SIZE_GROUP_MAPPINGS_TABLE
 from domain.schema import PRODUCT_TABLES
 from domain.size_group_schema import SIZE_GROUP_ITEMS_TABLE, SIZE_GROUPS_TABLE
 
@@ -75,6 +76,14 @@ class SizeGroupRepository:
                 name = str(row["size_range"] or "").strip()
                 if name:
                     usage_by_name[name] += int(row["count"] or 0)
+        mapping_rows = connection.execute(
+            select(PRODUCT_SIZE_GROUP_MAPPINGS_TABLE.c.size_group_name, func.count().label("count"))
+            .group_by(PRODUCT_SIZE_GROUP_MAPPINGS_TABLE.c.size_group_name)
+        ).mappings()
+        for row in mapping_rows:
+            name = str(row["size_group_name"] or "").strip()
+            if name:
+                usage_by_name[name] += int(row["count"] or 0)
         return dict(usage_by_name)
 
     def list_groups(self) -> list[dict[str, Any]]:
@@ -136,6 +145,11 @@ class SizeGroupRepository:
                             .where(product_table.c.size_range == previous_name)
                             .values(size_range=normalized_name)
                         )
+                    connection.execute(
+                        update(PRODUCT_SIZE_GROUP_MAPPINGS_TABLE)
+                        .where(PRODUCT_SIZE_GROUP_MAPPINGS_TABLE.c.size_group_name == previous_name)
+                        .values(size_group_name=normalized_name)
+                    )
                 connection.execute(delete(SIZE_GROUP_ITEMS_TABLE).where(SIZE_GROUP_ITEMS_TABLE.c.size_group_id == size_group_id))
                 connection.execute(
                     insert(SIZE_GROUP_ITEMS_TABLE),

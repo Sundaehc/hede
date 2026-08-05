@@ -5,12 +5,12 @@ import { History, ImagePlus } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
-import { type BrandKey } from "@/lib/brands"
+import { type ProductArchiveBrandKey } from "@/lib/brands"
 import { assertProductExportAllowed, downloadProductExport, getProductImageRefreshStatus, importProducts, refreshProductImages, type ProductExportProgress } from "@/lib/api"
 import type { ProductImageRefreshStatus } from "@/lib/types"
 
 type ProductToolbarProps = {
-  brand: BrandKey | "all"
+  brand: ProductArchiveBrandKey
   value: string
   isLoading: boolean
   selectedIds?: Set<number>
@@ -137,6 +137,10 @@ export function ProductToolbar({
   const handleImport = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0]
     if (!file) return
+    if (brand === "all") {
+      onMessage("导入失败", "请选择具体品牌后再导入")
+      return
+    }
 
     setImporting(true)
     try {

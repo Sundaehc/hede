@@ -72,6 +72,7 @@ def test_sync_brand_rows_refreshes_current_launch_year_only(test_database_url: s
         "color_code": "OLD",
         "launch_date": "2026-03-01",
         "image_path": "//images/cur.jpg",
+        "size_range": "手工尺码组",
     }
     old_year_existing = {
         "source_workbook": "manual",
@@ -95,6 +96,7 @@ def test_sync_brand_rows_refreshes_current_launch_year_only(test_database_url: s
         "color_code": "NEW",
         "launch_date": "2026-04-01",
         "image_path": None,
+        "size_range": None,
     }
     incoming_old = {
         "source_workbook": "daily",
@@ -137,6 +139,7 @@ def test_sync_brand_rows_refreshes_current_launch_year_only(test_database_url: s
     assert rows["CUR-001"]["source_workbook"] == "daily"
     assert rows["CUR-001"]["launch_date"] == "2026-04-01"
     assert rows["CUR-001"]["image_path"] == "//images/cur.jpg"
+    assert rows["CUR-001"]["size_range"] == "手工尺码组"
 
     assert rows["OLD-001"]["color"] == "旧年份颜色"
     assert rows["OLD-001"]["color_code"] == "KEEP"

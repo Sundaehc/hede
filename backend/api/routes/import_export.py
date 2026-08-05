@@ -25,8 +25,8 @@ from api.routes.images import get_image_matcher, image_url_for
 from domain.excluded_skus import is_excluded_sku, not_excluded_sku_condition
 from domain.fields import PRODUCT_FIELDS
 from domain.gj_schema import GJ_MERGED_PRODUCT_INFO_TABLE
-from domain.sources import CANONICAL_COLUMNS, COLUMN_ALIASES, TABLE_NAMES
-from domain.schema import PRODUCT_TABLES
+from domain.sources import CANONICAL_COLUMNS, COLUMN_ALIASES
+from domain.schema import PRODUCT_ARCHIVE_TABLES
 from domain.size_group_schema import SIZE_GROUP_ITEMS_TABLE, SIZE_GROUPS_TABLE
 from domain.vip_schema import JST_PRODUCT_PROFILE_TABLE
 from storage.product_repository import apply_jst_product_costs
@@ -111,6 +111,8 @@ BRAND_LABELS = {
     "cbanner_womens": "千百度女鞋",
     "yandou": "烟斗",
     "eblan": "伊伴",
+    "smiley": "笑脸",
+    "ni": "NI",
     "all": "总览",
 }
 
@@ -134,8 +136,7 @@ def _iter_all_export_rows(
     activity_date: date_type | None = None,
 ) -> Iterator[tuple[str, list[object]]]:
     with repository.engine.connect() as connection:
-        for brand in TABLE_NAMES:
-            table = PRODUCT_TABLES[brand]
+        for brand, table in PRODUCT_ARCHIVE_TABLES.items():
             conditions = [not_excluded_sku_condition(table.c.sku, table.c.original_sku)]
             if activity_date:
                 conditions.append(_activity_date_export_condition(table, activity_date))
@@ -282,8 +283,22 @@ def _parse_id_list(ids: str | None) -> list[int]:
 def _validate_product_export_request(brand: str, mode: str | None = None) -> None:
     if mode == SIZE_EXPORT_MODE and brand == "all":
         raise HTTPException(status_code=400, detail="带尺码导出请选择具体品牌")
-    if brand != "all" and brand not in PRODUCT_TABLES:
+    if brand != "all" and brand not in PRODUCT_ARCHIVE_TABLES:
         raise HTTPException(status_code=400, detail="无效品牌")
+
+
+def _validate_import_size_group(repository, size_range: object) -> None:
+    normalized_size_group = str(size_range or "").strip()
+    if not normalized_size_group:
+        return
+    with repository.engine.connect() as connection:
+        exists = connection.execute(
+            select(SIZE_GROUPS_TABLE.c.id)
+            .where(SIZE_GROUPS_TABLE.c.name == normalized_size_group)
+            .limit(1)
+        ).scalar()
+    if exists is None:
+        raise HTTPException(status_code=400, detail=f"尺码组 {normalized_size_group} 不存在或已被删除")
 
 
 def _load_size_export_source_items(
@@ -293,7 +308,7 @@ def _load_size_export_source_items(
     *,
     activity_date: date_type | None = None,
 ) -> list[dict[str, object]]:
-    table = PRODUCT_TABLES[brand]
+    table = PRODUCT_ARCHIVE_TABLES[brand]
     statement = (
         select(table)
         .where(not_excluded_sku_condition(table.c.sku, table.c.original_sku))
@@ -319,7 +334,7 @@ def _size_export_source_codes(items: list[dict[str, object]]) -> set[str]:
 
 
 def _load_product_archive_rows(connection, brand: str, codes: set[str]) -> dict[str, dict[str, object]]:
-    table = PRODUCT_TABLES.get(brand)
+    table = PRODUCT_ARCHIVE_TABLES.get(brand)
     if table is None or not codes:
         return {}
 
@@ -775,7 +790,7 @@ def export_products(
         return _export_all_products(request, repository, activity_date=export_date)
 
     if export_date:
-        table = PRODUCT_TABLES[brand]
+        table = PRODUCT_ARCHIVE_TABLES[brand]
         with repository.engine.connect() as connection:
             items = [
                 dict(row)
@@ -848,6 +863,8 @@ async def import_products(
     brand: str = Query(...),
     file: UploadFile = None,
 ):
+    if brand not in PRODUCT_ARCHIVE_TABLES:
+        raise HTTPException(status_code=400, detail="无效品牌")
     if file is None:
         raise HTTPException(status_code=400, detail="No file uploaded")
 
@@ -972,12 +989,14 @@ async def import_products(
                 "source_sheet": existing["source_sheet"],
                 "source_row_number": existing["source_row_number"],
             })
+            _validate_import_size_group(repository, record.get("size_range"))
             saved_item = repository.update_product(brand, existing["id"], record)
             if saved_item is not None:
                 imported_product_ids.append(int(saved_item["id"]))
             updated += 1
         else:
             record = build_admin_record(brand, payload)
+            _validate_import_size_group(repository, record.get("size_range"))
             saved_item = repository.create_product(brand, record)
             imported_product_ids.append(int(saved_item["id"]))
             created += 1

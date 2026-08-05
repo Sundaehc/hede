@@ -126,9 +126,7 @@ function computeAmount(quantity: string, unitPrice: string): string {
 
 function isNiSupplierName(name: string | null | undefined) {
   const value = (name || "").trim()
-  if (!value) return false
-  const upper = value.toUpperCase()
-  return upper.includes("NI")
+  return /(^|[（(\s])NI($|[）)\s])/i.test(value)
 }
 
 function isSmileySupplierName(name: string | null | undefined) {

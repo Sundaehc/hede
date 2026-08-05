@@ -6,6 +6,7 @@ from pydantic import BaseModel, ConfigDict, model_validator
 
 
 BrandKey = Literal["cbanner_mens", "cbanner_womens", "yandou", "eblan"]
+ProductArchiveBrandKey = Literal["cbanner_mens", "cbanner_womens", "yandou", "eblan", "smiley", "ni"]
 MatchedBy = Literal["original_sku", "sku", "none"]
 
 
@@ -62,14 +63,14 @@ class ProductPayload(BaseModel):
 class ProductWriteRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    brand: BrandKey
+    brand: ProductArchiveBrandKey
     payload: ProductPayload
 
 
 class ImageLookupRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    brand: BrandKey
+    brand: ProductArchiveBrandKey
     original_sku: str | None = None
     sku: str | None = None
 
@@ -86,7 +87,7 @@ class ImageLookupRequest(BaseModel):
 class BatchDeleteRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    brand: BrandKey
+    brand: ProductArchiveBrandKey
     ids: list[int]
 
 

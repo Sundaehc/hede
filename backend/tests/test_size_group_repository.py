@@ -1,5 +1,6 @@
 from sqlalchemy import create_engine, event
 
+from domain.product_size_group_mapping_schema import PRODUCT_SIZE_GROUP_MAPPINGS_TABLE
 from domain.schema import PRODUCT_TABLES
 from domain.size_group_schema import SIZE_GROUP_ITEMS_TABLE, SIZE_GROUPS_TABLE
 from storage.size_group_repository import SizeGroupInUseError, SizeGroupRepository
@@ -14,6 +15,7 @@ def make_repository():
     )
     SIZE_GROUPS_TABLE.create(engine)
     SIZE_GROUP_ITEMS_TABLE.create(engine)
+    PRODUCT_SIZE_GROUP_MAPPINGS_TABLE.create(engine)
     for table in PRODUCT_TABLES.values():
         table.create(engine)
     return SizeGroupRepository(engine), engine
@@ -79,3 +81,31 @@ def test_size_group_requires_unique_size_and_barcode():
         assert "重复" in str(exc)
     else:
         raise AssertionError("expected duplicate size to fail")
+
+
+def test_size_group_rename_updates_product_size_mappings():
+    repository, engine = make_repository()
+    created = repository.create_group(
+        name="旧尺码段",
+        items=[{"size_name": "34", "barcode": "code-34"}],
+    )
+    with engine.begin() as connection:
+        connection.execute(PRODUCT_SIZE_GROUP_MAPPINGS_TABLE.insert().values(
+            product_code="TEST-01",
+            size_group_name="旧尺码段",
+            source_workbook="test.xlsx",
+            source_sheet="汇总",
+            source_row_number="2",
+        ))
+
+    updated = repository.update_group(
+        created["id"],
+        name="新尺码段",
+        items=[{"size_name": "34", "barcode": "code-34"}],
+    )
+
+    assert updated is not None
+    with engine.connect() as connection:
+        assert connection.execute(
+            PRODUCT_SIZE_GROUP_MAPPINGS_TABLE.select()
+        ).mappings().one()["size_group_name"] == "新尺码段"

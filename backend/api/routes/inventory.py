@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import io
+import re
 import urllib.parse
 from collections import defaultdict
 from decimal import Decimal
@@ -265,6 +266,14 @@ PURCHASE_ORDER_REQUIREMENT_BRAND_LABELS = {
     SMILEY_BRAND: "笑脸",
     NI_BRAND: "NI",
 }
+PURCHASE_PRODUCTION_ORDER_TITLE_BRAND_LABELS = {
+    CBANNER_MENS_BRAND: "千百度",
+    CBANNER_WOMENS_BRAND: "千百度",
+    EBLAN_BRAND: "伊伴",
+    YANDOU_BRAND: "名人烟斗",
+    SMILEY_BRAND: "笑脸",
+    NI_BRAND: "NI",
+}
 
 
 def _normalize_date(value: object) -> str | None:
@@ -411,8 +420,7 @@ def _purchase_record_brand(record: dict[str, object]) -> str:
         return brand
 
     supplier_name = _cell_text(record.get("supplier"))
-    upper_name = supplier_name.upper()
-    if "NI" in upper_name:
+    if re.search(r"(^|[（(\s])NI($|[）)\s])", supplier_name.upper()):
         return "ni"
     if "笑脸" in supplier_name:
         return "smiley"
@@ -583,6 +591,11 @@ def _purchase_record_export_context(
         "handler_code": _first_text(extra_fields.get("handler_code"), extra_fields.get("职员编号")),
         "handler_name": _cell_text(record.get("handler")),
     }
+
+
+def _purchase_production_order_title(brand: object) -> str:
+    brand_label = PURCHASE_PRODUCTION_ORDER_TITLE_BRAND_LABELS.get(_cell_text(brand).lower())
+    return f"赫德电商（{brand_label}）生产采购单" if brand_label else "赫德电商生产采购单"
 
 
 def _append_purchase_summary_export(
@@ -1095,7 +1108,7 @@ def _append_purchase_production_order_sheet(
     tail_start_col = size_start_col + len(size_labels)
 
     worksheet.merge_cells(start_row=1, start_column=1, end_row=1, end_column=max_col)
-    worksheet.cell(row=1, column=1, value="赫德电商（千百度）生产采购单")
+    worksheet.cell(row=1, column=1, value=_purchase_production_order_title(context["brand"]))
 
     worksheet.merge_cells(start_row=2, start_column=2, end_row=2, end_column=4)
     worksheet.merge_cells(start_row=2, start_column=6, end_row=2, end_column=8)
@@ -1281,6 +1294,46 @@ def _purchase_size_from_millimeter(size_code: str, brand: str | None) -> str:
     return PURCHASE_MILLIMETER_SIZE_MAP.get(size_code, size_code)
 
 
+def _normalize_purchase_combined_size_label(value: object) -> str:
+    """Return a canonical combined-size label when both endpoints are known shoe sizes."""
+    text = _cell_text(value).replace(" ", "")
+    match = re.fullmatch(r"(\d{2,3})[-~～－—至/／](\d{2,3})", text)
+    if not match:
+        return ""
+    start, end = (str(int(part)) for part in match.groups())
+    if start not in PURCHASE_EXPORT_SIZE_LABELS or end not in PURCHASE_EXPORT_SIZE_LABELS:
+        return ""
+    return f"{start}-{end}"
+
+
+def _split_purchase_combined_size_code(product_code: str) -> tuple[str, str] | None:
+    text = _cell_text(product_code)
+    match = re.search(r"(\d{2,3})[-~～－—至/／](\d{2,3})$", text)
+    if not match:
+        return None
+    size = _normalize_purchase_combined_size_label(match.group(0))
+    base_code = text[:match.start()]
+    if not size or not base_code:
+        return None
+    return base_code, size
+
+
+def _purchase_size_header_indexes(headers: list[str]) -> dict[int, str]:
+    indexes: dict[int, str] = {}
+    for index, value in enumerate(headers):
+        if value in PURCHASE_EXPORT_SIZE_LABELS:
+            indexes[index] = value
+            continue
+        combined_size = _normalize_purchase_combined_size_label(value)
+        if combined_size:
+            indexes[index] = combined_size
+    return indexes
+
+
+def _normalize_imported_purchase_size_label(size: object, brand: str | None) -> str:
+    return _normalize_purchase_combined_size_label(size) or _purchase_size_from_millimeter(_cell_text(size), brand)
+
+
 def _purchase_import_doc_field_indexes(headers: list[str]) -> dict[int, str]:
     return {
         index: field
@@ -1336,11 +1389,7 @@ def _read_purchase_import_rows(content: bytes) -> tuple[list[dict[str, object]],
                 for key, label in PURCHASE_DETAIL_EXTRA_FIELDS.items()
                 if value == label.replace("\n", "")
             }
-            size_indexes = {
-                index: value
-                for index, value in enumerate(headers)
-                if value in PURCHASE_EXPORT_SIZE_LABELS
-            }
+            size_indexes = _purchase_size_header_indexes(headers)
             if code_index is not None and (qty_index is not None or size_indexes):
                 header_index = row_number
                 break
@@ -1417,11 +1466,7 @@ def _read_purchase_import_rows_xls(content: bytes) -> tuple[list[dict[str, objec
             for key, label in PURCHASE_DETAIL_EXTRA_FIELDS.items()
             if value == label.replace("\n", "")
         }
-        size_indexes = {
-            index: value
-            for index, value in enumerate(headers)
-            if value in PURCHASE_EXPORT_SIZE_LABELS
-        }
+        size_indexes = _purchase_size_header_indexes(headers)
         if code_index is not None and (qty_index is not None or size_indexes):
             data_start_row = row_index + 1
             break
@@ -1507,6 +1552,9 @@ def _purchase_detail_color_values(
 
 
 def _split_purchase_size_code(product_code: str, brand: str) -> tuple[str, str]:
+    combined_size = _split_purchase_combined_size_code(product_code)
+    if combined_size:
+        return combined_size
     if len(product_code) >= 3:
         size_code = product_code[-3:]
         if size_code in PURCHASE_MILLIMETER_SIZE_MAP:
@@ -1524,6 +1572,12 @@ def _split_purchase_size_code(product_code: str, brand: str) -> tuple[str, str]:
 def _split_purchase_product_code(product_code: str, color_barcodes: list[tuple[str, str]], brand: str) -> tuple[str, str, str, str, str]:
     if len(product_code) < 3:
         return product_code, product_code, "", "", ""
+    combined_size = _split_purchase_combined_size_code(product_code)
+    if combined_size:
+        style_color_code, size = combined_size
+        color_barcode = _purchase_color_barcode(style_color_code, brand)
+        color_name = next((name for barcode, name in color_barcodes if barcode == color_barcode), "")
+        return style_color_code, style_color_code, color_barcode, color_name, size
     if len(product_code) >= 5:
         raw_size_code = product_code[-3:]
         if raw_size_code in PURCHASE_MILLIMETER_SIZE_MAP:
@@ -2087,7 +2141,7 @@ def _build_purchase_details_from_rows(
             color_name = next((name for barcode, name in color_barcodes if barcode == color_barcode), "")
             size = ""
             normalized_sizes = {
-                _purchase_size_from_millimeter(str(size_key), brand): _to_decimal(size_quantity)
+                _normalize_imported_purchase_size_label(size_key, brand): _to_decimal(size_quantity)
                 for size_key, size_quantity in imported_size_quantities.items()
                 if _to_decimal(size_quantity) != 0
             }
@@ -2187,9 +2241,13 @@ def _build_purchase_details_from_rows(
         quantity = item["quantity"]
         item_unit_price = _to_decimal(item.get("unit_price"))
         amount = quantity * item_unit_price if item_unit_price else Decimal("0")
+        item_size_labels = tuple(dict.fromkeys([
+            *size_labels,
+            *(_cell_text(size) for size in item["size_quantities"]),
+        ]))
         size_quantities = {
             size: _fmt_decimal(item["size_quantities"].get(size, Decimal("0")))
-            for size in size_labels
+            for size in item_size_labels
             if item["size_quantities"].get(size, Decimal("0")) != 0
         }
         details.append({

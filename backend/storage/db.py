@@ -7,7 +7,7 @@ from sqlalchemy import create_engine, delete, func, insert, or_, text
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from domain.product_defaults import apply_product_defaults
-from domain.schema import METADATA, PRODUCT_TABLES
+from domain.schema import METADATA, PRODUCT_ARCHIVE_TABLES
 from domain import fine_table_snapshot_schema  # noqa: F401 - register fine table snapshot tables on METADATA
 from domain.inventory_schema import INVENTORY_TABLE, INVENTORY_DETAIL_TABLE, JST_STOCK_TABLE, SUPPLIER_TABLE, WAREHOUSE_TABLE  # noqa: F401 - register on METADATA
 from domain import task_status_schema  # noqa: F401 - register scheduled task status tables on METADATA
@@ -19,6 +19,7 @@ from domain import jst_stock_snapshot_schema  # noqa: F401 - register JST stock 
 from domain import product_goods_schema  # noqa: F401 - register product goods overrides on METADATA
 from domain import product_goods_detail_snapshot_schema  # noqa: F401 - register product goods detail snapshots on METADATA
 from domain import product_goods_historical_sales_schema  # noqa: F401 - register historical product-goods sales on METADATA
+from domain import product_size_group_mapping_schema  # noqa: F401 - register product size group mappings on METADATA
 from domain import master_data_schema  # noqa: F401 - register master-data tables on METADATA
 from domain import data_governance_schema  # noqa: F401 - register data-governance tables on METADATA
 
@@ -40,11 +41,11 @@ class Database:
         engine = self._require_engine()
         METADATA.create_all(engine, checkfirst=True)
         with engine.begin() as connection:
-            for table in PRODUCT_TABLES.values():
+            for table in PRODUCT_ARCHIVE_TABLES.values():
                 connection.execute(text(f"ALTER TABLE {table.name} ADD COLUMN IF NOT EXISTS product_level TEXT"))
 
     def replace_brand_rows(self, brand_group: str, rows: Iterable[dict[str, object]]) -> int:
-        table = PRODUCT_TABLES[brand_group]
+        table = PRODUCT_ARCHIVE_TABLES[brand_group]
         payload = [dict(apply_product_defaults(brand_group, dict(row))) for row in rows]
 
         # Deduplicate by sku: keep the last occurrence (later workbook overwrites earlier)
@@ -78,7 +79,7 @@ class Database:
         return len(payload)
 
     def upsert_brand_rows(self, brand_group: str, rows: Iterable[dict[str, object]]) -> int:
-        table = PRODUCT_TABLES[brand_group]
+        table = PRODUCT_ARCHIVE_TABLES[brand_group]
         payload = self._dedupe_by_sku(
             [dict(apply_product_defaults(brand_group, dict(row))) for row in rows]
         )
@@ -97,6 +98,7 @@ class Database:
                 excluded = stmt.excluded
                 set_values = {column: getattr(excluded, column) for column in update_columns}
                 set_values["image_path"] = func.coalesce(getattr(excluded, "image_path"), table.c.image_path)
+                set_values["size_range"] = func.coalesce(getattr(excluded, "size_range"), table.c.size_range)
                 set_values["updated_at"] = func.date_trunc("minute", func.now())
                 stmt = stmt.on_conflict_do_update(
                     index_elements=["sku"],
@@ -106,7 +108,7 @@ class Database:
         return len(payload)
 
     def insert_new_brand_rows(self, brand_group: str, rows: Iterable[dict[str, object]]) -> int:
-        table = PRODUCT_TABLES[brand_group]
+        table = PRODUCT_ARCHIVE_TABLES[brand_group]
         payload = self._dedupe_by_sku(
             [dict(apply_product_defaults(brand_group, dict(row))) for row in rows]
         )
@@ -132,7 +134,7 @@ class Database:
         *,
         refresh_launch_year: int,
     ) -> int:
-        table = PRODUCT_TABLES[brand_group]
+        table = PRODUCT_ARCHIVE_TABLES[brand_group]
         payload = self._dedupe_by_sku(
             [dict(apply_product_defaults(brand_group, dict(row))) for row in rows]
         )
@@ -153,6 +155,7 @@ class Database:
                 excluded = stmt.excluded
                 set_values = {column: getattr(excluded, column) for column in update_columns}
                 set_values["image_path"] = func.coalesce(getattr(excluded, "image_path"), table.c.image_path)
+                set_values["size_range"] = func.coalesce(getattr(excluded, "size_range"), table.c.size_range)
                 set_values["updated_at"] = func.date_trunc("minute", func.now())
                 stmt = stmt.on_conflict_do_update(
                     index_elements=["sku"],

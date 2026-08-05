@@ -1,4 +1,4 @@
-import type { BrandKey, ProductArchiveBrandKey } from "@/lib/brands"
+import type { BrandKey, ProductArchiveBrandKey, ProductArchiveRecordBrandKey } from "@/lib/brands"
 import type {
   ImageLookupResult,
   ProductListItem,
@@ -490,12 +490,12 @@ export function getFineTableSnapshotByDate(params: {
   )
 }
 
-export function getProduct(brand: BrandKey, id: number) {
+export function getProduct(brand: ProductArchiveRecordBrandKey, id: number) {
   return request<ProductListItem>(`/products/${brand}/${id}`)
 }
 
 export function createProduct(
-  brand: BrandKey,
+  brand: ProductArchiveRecordBrandKey,
   payload: ProductMutationPayload
 ) {
   return request<{ item: ProductListItem; message: string }>("/products", {
@@ -505,7 +505,7 @@ export function createProduct(
 }
 
 export function updateProduct(
-  brand: BrandKey,
+  brand: ProductArchiveRecordBrandKey,
   id: number,
   payload: ProductMutationPayload
 ) {
@@ -518,7 +518,7 @@ export function updateProduct(
   )
 }
 
-export function deleteProduct(brand: BrandKey, id: number) {
+export function deleteProduct(brand: ProductArchiveRecordBrandKey, id: number) {
   return request<{ message: string }>(`/products/${brand}/${id}`, {
     method: "DELETE",
   })
@@ -529,7 +529,7 @@ export type BatchDeleteResult = {
   message: string
 }
 
-export function batchDeleteProducts(brand: BrandKey, ids: number[]) {
+export function batchDeleteProducts(brand: ProductArchiveRecordBrandKey, ids: number[]) {
   return request<BatchDeleteResult>("/products/batch-delete", {
     method: "POST",
     body: JSON.stringify({ brand, ids }),
@@ -537,7 +537,7 @@ export function batchDeleteProducts(brand: BrandKey, ids: number[]) {
 }
 
 export function lookupImage(params: {
-  brand: BrandKey
+  brand: ProductArchiveRecordBrandKey
   originalSku: string | null
   sku: string | null
 }) {
@@ -551,7 +551,7 @@ export function lookupImage(params: {
   })
 }
 
-export function refreshProductImages(brand: BrandKey | "all") {
+export function refreshProductImages(brand: ProductArchiveBrandKey) {
   const search = new URLSearchParams()
   if (brand !== "all") {
     search.set("brand", brand)
@@ -572,7 +572,7 @@ export function getProductImageRefreshStatus() {
 }
 
 export function buildProductExportUrl(
-  brand: BrandKey,
+  brand: ProductArchiveBrandKey,
   ids?: number[],
   mode?: "with_sizes",
   activityDate?: string
@@ -627,7 +627,7 @@ function downloadBlob(blob: Blob, filename: string) {
 }
 
 export async function downloadProductExport(
-  brand: BrandKey,
+  brand: ProductArchiveBrandKey,
   ids?: number[],
   mode?: "with_sizes",
   onProgress?: (progress: ProductExportProgress) => void,
@@ -705,7 +705,7 @@ export async function downloadProductExport(
 }
 
 export async function assertProductExportAllowed(
-  brand: BrandKey,
+  brand: ProductArchiveBrandKey,
   ids?: number[],
   mode?: "with_sizes",
   activityDate?: string
@@ -720,7 +720,7 @@ export async function assertProductExportAllowed(
 }
 
 export function exportProducts(
-  brand: BrandKey,
+  brand: ProductArchiveBrandKey,
   ids?: number[],
   mode?: "with_sizes",
   activityDate?: string
@@ -742,7 +742,7 @@ export type ImportResult = {
   message: string
 }
 
-export function importProducts(brand: BrandKey, file: File) {
+export function importProducts(brand: ProductArchiveRecordBrandKey, file: File) {
   const formData = new FormData()
   formData.append("file", file)
 

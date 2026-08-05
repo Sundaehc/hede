@@ -67,8 +67,8 @@ DEFAULT_ROLES = [
         "code": "operation_user",
         "name": "运营组",
         "department_code": "运营部",
-        "description": "维护商品档案，查看和导出商品档案、精细表",
-        "permissions": "product.view,product.manage,product.import,product.export,fine_table.view,fine_table.export",
+        "description": "维护商品档案，查看和导出商品档案、精细表及采购单",
+        "permissions": "product.view,product.manage,product.import,product.export,fine_table.view,fine_table.export,purchase.view,purchase.manage,purchase.import,purchase.export",
     },
     {
         "code": "developer_user",

@@ -16,7 +16,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select } from "@/components/ui/select"
 import { ApiError, createProduct, listProductColorBarcodes, listSizeGroups, lookupImage, updateProduct } from "@/lib/api"
-import { BRANDS, type BrandKey } from "@/lib/brands"
+import { PRODUCT_ARCHIVE_BRANDS, type BrandKey, type ProductArchiveRecordBrandKey } from "@/lib/brands"
 import { ALL_PRODUCT_FIELDS, BARCODE_BUILD_RULE_OPTIONS, FIELD_GROUPS, FIELD_LABELS, SEASON_OPTIONS } from "@/lib/fields"
 import type { ImageLookupStatusState, ProductColorBarcodeItem, ProductFormValues, ProductListItem, ProductMutationPayload, SizeGroup } from "@/lib/types"
 import { cn } from "@/lib/utils"
@@ -214,7 +214,7 @@ function toFormValues(item?: ProductListItem | null): ProductFormValues {
   )
 
   return {
-    brand: item.brand as BrandKey,
+    brand: item.brand as ProductArchiveRecordBrandKey,
     ...base,
   } as ProductFormValues
 }
@@ -270,8 +270,15 @@ export function ProductFormDialog({ item, mode, onOpenChange, onSaved, open }: P
       return
     }
 
+    if (values.brand === "smiley" || values.brand === "ni") {
+      setColorBarcodeOptions([])
+      setIsLoadingColorBarcodes(false)
+      return
+    }
+
     let cancelled = false
     setIsLoadingColorBarcodes(true)
+
     listProductColorBarcodes(values.brand as Exclude<BrandKey, "all">)
       .then((response) => {
         if (!cancelled) {
@@ -352,7 +359,7 @@ export function ProductFormDialog({ item, mode, onOpenChange, onSaved, open }: P
       autoMatchedColorCodeRef.current = ""
       setValues((current) => ({
         ...current,
-        brand: nextValue as BrandKey | "",
+        brand: nextValue as ProductArchiveRecordBrandKey | "",
         ...(shouldClearAutoMatchedCode ? { color_code: "" } : {}),
       }))
       setBrandError(null)
@@ -444,7 +451,7 @@ export function ProductFormDialog({ item, mode, onOpenChange, onSaved, open }: P
       if (mode === "create") {
         await createProduct(values.brand, payload)
       } else if (item) {
-        await updateProduct(item.brand as BrandKey, item.id, payload)
+        await updateProduct(item.brand as ProductArchiveRecordBrandKey, item.id, payload)
       }
 
       await onSaved()
@@ -485,11 +492,11 @@ export function ProductFormDialog({ item, mode, onOpenChange, onSaved, open }: P
                     id="product-form-brand"
                     value={values.brand}
                     disabled={mode === "edit"}
-                    onChange={(event) => handleFieldChange("brand", event.target.value as BrandKey | "")}
+                    onChange={(event) => handleFieldChange("brand", event.target.value as ProductArchiveRecordBrandKey | "")}
                     autoComplete="off"
                   >
                     <option value="">请选择品牌</option>
-                    {BRANDS.filter((b) => b.key !== "all").map((brand) => (
+                    {PRODUCT_ARCHIVE_BRANDS.filter((b) => b.key !== "all").map((brand) => (
                       <option key={brand.key} value={brand.key}>
                         {brand.label}
                       </option>

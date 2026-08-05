@@ -11,7 +11,7 @@ from sqlalchemy import and_, bindparam, create_engine, delete, desc, func, inser
 from domain.color_barcode_schema import COLOR_BARCODE_TABLE
 from domain.excluded_skus import not_excluded_sku_condition
 from domain.product_defaults import apply_product_defaults
-from domain.schema import PRODUCT_TABLES
+from domain.schema import PRODUCT_ARCHIVE_TABLES, PRODUCT_TABLES
 from domain.vip_schema import JST_PRICE_TABLE
 
 
@@ -132,7 +132,8 @@ class ProductRepository:
     def create_tables(self) -> None:
         """Apply lightweight, backwards-compatible product archive schema additions."""
         with self.engine.begin() as connection:
-            for table in PRODUCT_TABLES.values():
+            for table in PRODUCT_ARCHIVE_TABLES.values():
+                table.create(connection, checkfirst=True)
                 connection.execute(text(
                     f"ALTER TABLE {table.name} ADD COLUMN IF NOT EXISTS last_imported_at TIMESTAMPTZ"
                 ))
@@ -146,7 +147,7 @@ class ProductRepository:
         rows_by_brand: dict[str, list[dict[str, object]]] = {}
         codes: set[str] = set()
         with self.engine.connect() as connection:
-            for brand, table in PRODUCT_TABLES.items():
+            for brand, table in PRODUCT_ARCHIVE_TABLES.items():
                 rows = [
                     dict(row)
                     for row in connection.execute(
@@ -179,8 +180,8 @@ class ProductRepository:
 
                 if updates:
                     connection.execute(
-                        update(PRODUCT_TABLES[brand])
-                        .where(PRODUCT_TABLES[brand].c.id == bindparam("product_id"))
+                        update(PRODUCT_ARCHIVE_TABLES[brand])
+                        .where(PRODUCT_ARCHIVE_TABLES[brand].c.id == bindparam("product_id"))
                         .values(cost=bindparam("new_cost")),
                         updates,
                     )
@@ -258,7 +259,7 @@ class ProductRepository:
         page_size: int,
         year: str | None = None,
     ) -> dict[str, object]:
-        table = PRODUCT_TABLES[brand]
+        table = PRODUCT_ARCHIVE_TABLES[brand]
         count_statement = select(func.count()).select_from(table)
         items_statement = select(table)
 
@@ -302,11 +303,11 @@ class ProductRepository:
         page: int,
         page_size: int,
     ) -> dict[str, object]:
-        brand_keys = list(PRODUCT_TABLES.keys())
+        brand_keys = list(PRODUCT_ARCHIVE_TABLES.keys())
 
         subqueries = []
         for brand_key in brand_keys:
-            table = PRODUCT_TABLES[brand_key]
+            table = PRODUCT_ARCHIVE_TABLES[brand_key]
             sq = select(
                 table.c.id,
                 literal(brand_key).label("brand"),
@@ -340,7 +341,7 @@ class ProductRepository:
         }
 
     def get_product(self, brand: str, product_id: int) -> dict[str, object] | None:
-        table = PRODUCT_TABLES[brand]
+        table = PRODUCT_ARCHIVE_TABLES[brand]
         statement = (
             select(table)
             .where(table.c.id == product_id)
@@ -357,7 +358,7 @@ class ProductRepository:
     def get_products_by_ids(self, brand: str, ids: list[int]) -> list[dict[str, object]]:
         if not ids:
             return []
-        table = PRODUCT_TABLES[brand]
+        table = PRODUCT_ARCHIVE_TABLES[brand]
         statement = (
             select(table)
             .where(table.c.id.in_(ids))
@@ -372,7 +373,7 @@ class ProductRepository:
         ids = sorted({int(product_id) for product_id in product_ids})
         if not ids:
             return
-        table = PRODUCT_TABLES[brand]
+        table = PRODUCT_ARCHIVE_TABLES[brand]
         with self.engine.begin() as connection:
             for index in range(0, len(ids), IMPORT_MARK_CHUNK_SIZE):
                 connection.execute(
@@ -382,7 +383,7 @@ class ProductRepository:
                 )
 
     def find_by_sku(self, brand: str, sku: object) -> dict[str, object] | None:
-        table = PRODUCT_TABLES[brand]
+        table = PRODUCT_ARCHIVE_TABLES[brand]
         statement = (
             select(table)
             .where(table.c.sku == str(sku))
@@ -393,7 +394,7 @@ class ProductRepository:
         return None if row is None else dict(row)
 
     def find_by_original_sku(self, brand: str, original_sku: object) -> dict[str, object] | None:
-        table = PRODUCT_TABLES[brand]
+        table = PRODUCT_ARCHIVE_TABLES[brand]
         statement = (
             select(table)
             .where(table.c.original_sku == str(original_sku))
@@ -404,7 +405,7 @@ class ProductRepository:
         return None if row is None else dict(row)
 
     def upsert_by_sku(self, brand: str, record: Mapping[str, object]) -> dict[str, object]:
-        table = PRODUCT_TABLES[brand]
+        table = PRODUCT_ARCHIVE_TABLES[brand]
         payload = self._prepare_record(record, brand=brand)
         sku = str(payload.get("sku", ""))
 
@@ -424,7 +425,7 @@ class ProductRepository:
         return dict(row)
 
     def create_product(self, brand: str, record: Mapping[str, object]) -> dict[str, object]:
-        table = PRODUCT_TABLES[brand]
+        table = PRODUCT_ARCHIVE_TABLES[brand]
         statement = insert(table).values(**self._prepare_record(record, brand=brand)).returning(table)
         with self.engine.begin() as connection:
             row = connection.execute(statement).mappings().one()
@@ -438,7 +439,7 @@ class ProductRepository:
         product_id: int,
         record: Mapping[str, object],
     ) -> dict[str, object] | None:
-        table = PRODUCT_TABLES[brand]
+        table = PRODUCT_ARCHIVE_TABLES[brand]
         payload = self._prepare_record(record, brand=brand)
         payload.pop("id", None)
         statement = update(table).where(table.c.id == product_id).values(**payload).returning(table)
@@ -451,7 +452,7 @@ class ProductRepository:
         return item
 
     def delete_product(self, brand: str, product_id: int) -> bool:
-        table = PRODUCT_TABLES[brand]
+        table = PRODUCT_ARCHIVE_TABLES[brand]
         statement = delete(table).where(table.c.id == product_id)
         with self.engine.begin() as connection:
             result = connection.execute(statement)
@@ -460,7 +461,7 @@ class ProductRepository:
     def delete_products(self, brand: str, ids: list[int]) -> int:
         if not ids:
             return 0
-        table = PRODUCT_TABLES[brand]
+        table = PRODUCT_ARCHIVE_TABLES[brand]
         statement = delete(table).where(table.c.id.in_(ids))
         with self.engine.begin() as connection:
             result = connection.execute(statement)
@@ -473,7 +474,7 @@ class ProductRepository:
         *,
         overwrite: bool = False,
     ) -> dict[str, int]:
-        table = PRODUCT_TABLES[brand]
+        table = PRODUCT_ARCHIVE_TABLES[brand]
         statement = select(table.c.id, table.c.original_sku, table.c.sku, table.c.image_path)
         if not overwrite:
             statement = statement.where(or_(table.c.image_path.is_(None), table.c.image_path == ""))

@@ -7,6 +7,7 @@ from config import Settings
 from domain.excluded_skus import is_excluded_sku
 from domain.gj_brand import infer_gj_fine_table_brand, normalize_gj_fine_table_brand
 from domain.gj_schema import GJ_MERGED_PRODUCT_INFO_TABLE
+from domain.product_size_group_mapping_schema import PRODUCT_SIZE_GROUP_MAPPINGS_TABLE
 from domain.sources import IMAGE_BRAND_KEYS, WORKBOOK_SPECS
 from domain.sources import CANONICAL_COLUMNS
 from fileio.cbanner_mens_group_reader import (
@@ -33,7 +34,7 @@ class ImportSummary:
 
 
 CBANNER_BRANDS = {"cbanner_mens", "cbanner_womens"}
-GJ_PRODUCT_BRANDS = {*CBANNER_BRANDS, "yandou", "eblan"}
+GJ_PRODUCT_BRANDS = {*CBANNER_BRANDS, "yandou", "eblan", "smiley", "ni"}
 GJ_ARCHIVE_SUPPLEMENT_FIELDS = {
     "image_path",
     "group_name",
@@ -89,6 +90,14 @@ def _brand_from_gj_row(row: dict[str, object]) -> str | None:
 
 def _archive_group_key(brand_group: str) -> str:
     return "cbanner" if brand_group in CBANNER_BRANDS else brand_group
+
+
+def _mapped_size_range(mapping_by_code: dict[str, str], *codes: object) -> str | None:
+    for code in codes:
+        normalized_code = _clean_code(code)
+        if normalized_code and mapping_by_code.get(normalized_code):
+            return mapping_by_code[normalized_code]
+    return None
 
 
 def _merge_extra_fields(*values: object) -> dict[str, object] | None:
@@ -163,7 +172,7 @@ class ImportPipeline:
     def run(self, *, dry_run: bool, mode: str = "replace") -> dict[str, ImportSummary]:
         summaries = {
             brand_group: ImportSummary(brand_group=brand_group)
-            for brand_group in {spec.brand_group for spec in WORKBOOK_SPECS}
+            for brand_group in ({spec.brand_group for spec in WORKBOOK_SPECS} | GJ_PRODUCT_BRANDS)
         }
         rows_by_brand: dict[str, list[dict[str, object]]] = {key: [] for key in summaries}
         archive_by_group_and_code: dict[str, dict[str, dict[str, object]]] = {
@@ -262,6 +271,17 @@ class ImportPipeline:
             if latest_source_date is None:
                 return rows_by_brand
 
+            size_range_by_code = {
+                _clean_code(row["product_code"]): _clean_code(row["size_group_name"])
+                for row in connection.execute(
+                    select(
+                        PRODUCT_SIZE_GROUP_MAPPINGS_TABLE.c.product_code,
+                        PRODUCT_SIZE_GROUP_MAPPINGS_TABLE.c.size_group_name,
+                    )
+                ).mappings()
+                if _clean_code(row["product_code"]) and _clean_code(row["size_group_name"])
+            }
+
             rows = connection.execute(
                 select(GJ_MERGED_PRODUCT_INFO_TABLE)
                 .where(GJ_MERGED_PRODUCT_INFO_TABLE.c.source_date_value == latest_source_date)
@@ -313,9 +333,7 @@ class ImportPipeline:
                     )
                 image_path = archive_row.get("image_path") if archive_row else None
                 image_brand_key = IMAGE_BRAND_KEYS.get(brand_group)
-                if image_brand_key is None:
-                    continue
-                image_matcher = self.image_matchers.get(image_brand_key)
+                image_matcher = self.image_matchers.get(image_brand_key) if image_brand_key else None
                 if image_path is None and image_matcher is not None:
                     image_path = next(
                         (
@@ -335,6 +353,12 @@ class ImportPipeline:
                     image_path=image_path,
                 )
                 if canonical is not None:
+                    if not _clean_code(canonical.get("size_range")):
+                        canonical["size_range"] = _mapped_size_range(
+                            size_range_by_code,
+                            canonical.get("original_sku"),
+                            canonical.get("sku"),
+                        )
                     if cbanner_mens_group_name:
                         canonical["group_name"] = cbanner_mens_group_name
                     if product_level:

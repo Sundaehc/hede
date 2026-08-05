@@ -10,8 +10,9 @@ from fastapi.responses import FileResponse
 from api.fine_table_cache import clear_fine_table_cache
 from api.product_goods_cache import clear_product_goods_cache
 from api.operation_log_utils import actor_from_request
-from api.schemas import BrandKey, ImageLookupRequest, MatchSkuRequest
-from domain.sources import IMAGE_BRAND_KEYS, TABLE_NAMES
+from api.schemas import ImageLookupRequest, MatchSkuRequest, ProductArchiveBrandKey
+from domain.schema import PRODUCT_ARCHIVE_TABLES
+from domain.sources import IMAGE_BRAND_KEYS
 from fileio.image_matcher import ImageMatcher
 from storage.product_image_refresh import get_image_refresh_status, run_product_image_refresh
 
@@ -59,7 +60,7 @@ def image_url_for(brand: str, image_path: str | None, settings) -> str | None:
 
 
 def get_image_matcher(request: Request, brand: str) -> ImageMatcher | None:
-    if brand not in TABLE_NAMES:
+    if brand not in PRODUCT_ARCHIVE_TABLES:
         return None
     matchers = request.app.state.image_matchers
     matcher = matchers.get(brand)
@@ -67,7 +68,9 @@ def get_image_matcher(request: Request, brand: str) -> ImageMatcher | None:
         return matcher
 
     settings = request.app.state.settings
-    image_brand = IMAGE_BRAND_KEYS[brand]
+    image_brand = IMAGE_BRAND_KEYS.get(brand)
+    if image_brand is None:
+        return None
     root = settings.image_roots.get(image_brand)
     if root is None:
         return None
@@ -174,7 +177,7 @@ def match_sku_image(request: Request, body: MatchSkuRequest):
 def refresh_product_images(
     request: Request,
     background_tasks: BackgroundTasks,
-    brand: BrandKey | None = None,
+    brand: ProductArchiveBrandKey | None = None,
     overwrite: bool = False,
 ):
     repository = request.app.state.repository

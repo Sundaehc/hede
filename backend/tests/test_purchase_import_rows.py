@@ -5,14 +5,18 @@ import io
 from openpyxl import Workbook
 
 from api.routes.inventory import (
+    _build_purchase_details_from_rows,
     _build_purchase_order_import_template,
     _group_purchase_import_rows_by_summary,
     _missing_purchase_order_import_fields,
     _purchase_order_import_has_size_columns,
     _read_purchase_import_rows,
+    _split_purchase_product_code,
+    _split_purchase_size_code,
     PURCHASE_SUMMARY_EXPORT_HEADERS,
     PURCHASE_SIZE_ROW_EXPORT_HEADERS,
 )
+from api.routes import inventory as inventory_routes
 
 
 def _sample_purchase_workbook() -> bytes:
@@ -54,6 +58,33 @@ def _legacy_size_column_workbook() -> bytes:
     buffer = io.BytesIO()
     workbook.save(buffer)
     return buffer.getvalue()
+
+
+def _combined_size_column_workbook() -> bytes:
+    workbook = Workbook()
+    worksheet = workbook.active
+    worksheet.append(["商品编码", "235-240"])
+    worksheet.append(["C5563406D80", 12])
+    buffer = io.BytesIO()
+    workbook.save(buffer)
+    return buffer.getvalue()
+
+
+class _StubConnection:
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        return False
+
+
+class _StubEngine:
+    def connect(self):
+        return _StubConnection()
+
+
+class _StubRepository:
+    engine = _StubEngine()
 
 
 def _legacy_single_document_workbook() -> bytes:
@@ -106,6 +137,34 @@ def test_purchase_order_import_rejects_legacy_size_column_template() -> None:
     rows, _ = _read_purchase_import_rows(_legacy_size_column_workbook())
 
     assert _purchase_order_import_has_size_columns(rows) is True
+
+
+def test_purchase_import_reads_combined_size_column_as_one_size() -> None:
+    rows, _ = _read_purchase_import_rows(_combined_size_column_workbook())
+
+    assert rows[0]["quantity"] == "12"
+    assert rows[0]["size_quantities"] == {"235-240": "12"}
+
+
+def test_purchase_import_keeps_combined_size_quantity_and_full_base_code(monkeypatch) -> None:
+    monkeypatch.setattr(inventory_routes, "_load_color_barcodes", lambda connection: [])
+    monkeypatch.setattr(inventory_routes, "_load_purchase_product_lookup", lambda connection, brand, product_codes: {})
+
+    details = _build_purchase_details_from_rows(
+        _StubRepository(),
+        [{"product_code": "C5563406D80235-240", "quantity": "12"}],
+        brand="cbanner_womens",
+        fallback_unit_price=0,
+    )
+
+    assert details[0]["product_code"] == "C5563406D80"
+    assert details[0]["size_quantities"] == {"235-240": "12"}
+
+
+def test_purchase_import_parses_combined_size_before_single_size_suffix() -> None:
+    assert _split_purchase_size_code("C5563406D80235-240", "cbanner_womens") == ("C5563406D80", "235-240")
+    assert _split_purchase_product_code("C5563406D80235-240", [], "cbanner_womens")[0] == "C5563406D80"
+    assert _split_purchase_size_code("C5563406D8080240", "cbanner_womens") == ("C5563406D8080", "240")
 
 
 def test_purchase_order_import_template_does_not_require_unit_price() -> None:

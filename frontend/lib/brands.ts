@@ -11,6 +11,8 @@ export type BrandKey = (typeof BRANDS)[number]["key"]
 export const PRODUCT_ARCHIVE_BRANDS = [
   ...BRANDS,
   { key: "smiley", label: "笑脸" },
+  { key: "ni", label: "NI" },
 ] as const
 
 export type ProductArchiveBrandKey = (typeof PRODUCT_ARCHIVE_BRANDS)[number]["key"]
+export type ProductArchiveRecordBrandKey = Exclude<ProductArchiveBrandKey, "all">
