@@ -712,7 +712,7 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
           <table className={tableClassName}>
             <thead>
               {isAccountingDocument ? (
-                <tr className="sticky top-0 z-10 border-b border-border bg-muted/40 text-left text-muted-foreground">
+                <tr className="sticky top-0 z-20 border-b border-border bg-muted text-left text-muted-foreground shadow-sm">
                   <th className="w-10 px-3 py-2.5 font-medium">
                     <input
                       type="checkbox"
@@ -727,10 +727,10 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
                   <th className="px-3 py-2.5 font-medium">费用项目名 / 科目</th>
                   <th className="px-3 py-2.5 text-right font-medium">{accountingAmountLabel}</th>
                   <th className="px-3 py-2.5 font-medium">备注</th>
-                  <th className="px-4 py-2.5 w-20 font-medium">操作</th>
+                  <th className="sticky right-0 z-30 w-20 border-l border-border bg-muted px-4 py-2.5 font-medium shadow-[-5px_0_10px_-9px_rgb(0_0_0_/_0.45)]">操作</th>
                 </tr>
               ) : isPurchaseOrder ? (
-                <tr className="sticky top-0 z-10 border-b border-border bg-muted/95 text-left text-muted-foreground shadow-sm">
+                <tr className="sticky top-0 z-20 border-b border-border bg-muted text-left text-muted-foreground shadow-sm">
                   <th className="w-10 px-3 py-2.5 font-medium whitespace-nowrap">
                     <input
                       type="checkbox"
@@ -759,10 +759,10 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
                   <th className="w-[72px] px-3 py-2.5 text-right font-medium whitespace-nowrap">数量</th>
                   <th className="w-[72px] px-3 py-2.5 text-right font-medium whitespace-nowrap">单价</th>
                   <th className="w-[82px] px-3 py-2.5 text-right font-medium whitespace-nowrap">金额</th>
-                  <th className="w-20 px-4 py-2.5 font-medium whitespace-nowrap">操作</th>
+                  <th className="sticky right-0 z-30 w-20 border-l border-border bg-muted px-4 py-2.5 font-medium whitespace-nowrap shadow-[-5px_0_10px_-9px_rgb(0_0_0_/_0.45)]">操作</th>
                 </tr>
               ) : (
-                <tr className="sticky top-0 z-10 border-b border-border bg-muted/40 text-left text-muted-foreground">
+                <tr className="sticky top-0 z-20 border-b border-border bg-muted text-left text-muted-foreground shadow-sm">
                   <th className="w-10 px-3 py-2.5 font-medium">
                     <input
                       type="checkbox"
@@ -783,7 +783,7 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
                   <th className="px-3 py-2.5 text-right font-medium">数量</th>
                   <th className="px-3 py-2.5 text-right font-medium">单价</th>
                   <th className="px-3 py-2.5 text-right font-medium">金额</th>
-                  <th className="px-4 py-2.5 w-20 font-medium">操作</th>
+                  <th className="sticky right-0 z-30 w-20 border-l border-border bg-muted px-4 py-2.5 font-medium shadow-[-5px_0_10px_-9px_rgb(0_0_0_/_0.45)]">操作</th>
                 </tr>
               )}
             </thead>
@@ -799,7 +799,7 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
                 </tr>
               )}
               {items.map((item, index) => (
-                <tr key={item.id} className="hover:bg-muted/30 transition-colors">
+                <tr key={item.id} className="group hover:bg-muted/30 transition-colors">
                   <td className="px-3 py-2.5">
                     <input
                       type="checkbox"
@@ -855,7 +855,7 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
                       <td className="px-3 py-2.5 text-right tabular-nums">{item.amount || "-"}</td>
                     </>
                   )}
-                  <td className="px-4 py-2.5">
+                  <td className="sticky right-0 z-10 border-l border-border bg-background px-4 py-2.5 shadow-[-5px_0_10px_-9px_rgb(0_0_0_/_0.45)] transition-colors group-hover:bg-muted">
                     <div className="flex items-center gap-0.5">
                       <Button variant="ghost" size="icon" onClick={() => openEdit(item)} className="h-8 w-8 cursor-pointer">
                         <Edit className="h-3.5 w-3.5" />

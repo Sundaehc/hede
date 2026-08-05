@@ -1525,7 +1525,7 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
                       <th className="px-4 py-3 font-medium">经手人</th>
                       <th className="px-4 py-3 font-medium">摘要</th>
                       {isPurchaseOrderTab && <th className="px-4 py-3 font-medium">附加说明</th>}
-                      <th className="px-4 py-3 text-center font-medium">操作</th>
+                      <th className="sticky right-0 z-20 w-28 border-l border-border bg-muted px-4 py-3 text-center font-medium shadow-[-5px_0_10px_-9px_rgb(0_0_0_/_0.45)]">操作</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-border">
@@ -1544,7 +1544,7 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
                     {!isLoading && !error && items.map((item) => {
                       const isAccountingRow = ACCOUNTING_DOCUMENT_TYPE_SET.has(item.document_type || "")
                       return (
-                        <tr key={item.id} className="table-row">
+                        <tr key={item.id} className="group table-row">
                           <td className="px-4 py-3 align-middle">
                             <input
                               type="checkbox"
@@ -1595,7 +1595,7 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
                               <span className="block whitespace-normal break-words leading-5" title={item.additional_note || ""}>{item.additional_note || "-"}</span>
                             </td>
                           )}
-                          <td className="px-4 py-3 align-middle">
+                          <td className="sticky right-0 z-10 w-28 border-l border-border bg-card px-4 py-3 align-middle shadow-[-5px_0_10px_-9px_rgb(0_0_0_/_0.45)] transition-colors group-hover:bg-muted">
                             <div className="flex items-center justify-center gap-1">
                               <Button variant="ghost" size="icon-sm" onClick={() => setDetailDocumentId(item.id)} className="cursor-pointer" title="明细">
                                 <List className="h-4 w-4" />
