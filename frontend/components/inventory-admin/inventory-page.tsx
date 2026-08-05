@@ -2103,7 +2103,7 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
       )}
 
       <Dialog open={recycleOpen} onOpenChange={setRecycleOpen}>
-        <DialogContent className="max-w-5xl">
+        <DialogContent className="max-w-[min(95vw,1280px)]">
           <DialogHeader>
             <div className="flex items-center justify-between gap-3">
               <DialogTitle>{isPurchasePage ? "采购单回收站" : "进销存回收站"}</DialogTitle>
@@ -2124,8 +2124,19 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
             <div className="rounded-lg border border-border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
               删除的{isPurchasePage ? "采购单" : "进销存单据"}会在这里保留 10 天，超过 10 天后自动彻底删除。
             </div>
-            <div className="overflow-hidden rounded-lg border border-border">
-              <table className="w-full text-sm">
+            <div className="overflow-x-auto rounded-lg border border-border">
+              <table className="min-w-[1120px] w-full table-fixed text-sm">
+                <colgroup>
+                  <col className="w-12" />
+                  <col className="w-36" />
+                  <col className="w-28" />
+                  <col className="w-32" />
+                  <col className="w-52" />
+                  <col className="w-64" />
+                  <col className="w-40" />
+                  <col className="w-20" />
+                  <col className="w-28" />
+                </colgroup>
                 <thead>
                   <tr className="border-b border-border bg-muted/40 text-left text-muted-foreground">
                     <th className="w-10 px-3 py-2 font-medium">
@@ -2138,14 +2149,14 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
                         aria-label={`选择当前页全部${isPurchasePage ? "采购单" : "进销存"}回收站单据`}
                       />
                     </th>
-                    <th className="px-3 py-2 font-medium">单据编号</th>
-                    <th className="px-3 py-2 font-medium">日期</th>
-                    <th className="px-3 py-2 font-medium">单据类型</th>
-                    <th className="px-3 py-2 font-medium">单位全名</th>
-                    <th className="px-3 py-2 font-medium">摘要</th>
-                    <th className="px-3 py-2 font-medium">删除时间</th>
-                    <th className="px-3 py-2 font-medium">剩余</th>
-                    <th className="px-3 py-2 text-right font-medium">操作</th>
+                    <th className="px-3 py-2 font-medium whitespace-nowrap">单据编号</th>
+                    <th className="px-3 py-2 font-medium whitespace-nowrap">日期</th>
+                    <th className="px-3 py-2 font-medium whitespace-nowrap">单据类型</th>
+                    <th className="px-3 py-2 font-medium whitespace-nowrap">单位全名</th>
+                    <th className="px-3 py-2 font-medium whitespace-nowrap">摘要</th>
+                    <th className="px-3 py-2 font-medium whitespace-nowrap">删除时间</th>
+                    <th className="px-3 py-2 font-medium whitespace-nowrap">剩余</th>
+                    <th className="sticky right-0 z-20 w-28 border-l border-border bg-muted px-3 py-2 text-right font-medium whitespace-nowrap shadow-[-5px_0_10px_-9px_rgb(0_0_0_/_0.45)]">操作</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border">
@@ -2162,7 +2173,7 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
                     </tr>
                   )}
                   {!isRecycleLoading && recycleItems.map((item) => (
-                    <tr key={item.id} className="hover:bg-muted/30">
+                    <tr key={item.id} className="group hover:bg-muted/30">
                       <td className="px-3 py-2">
                         <input
                           type="checkbox"
@@ -2173,14 +2184,14 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
                           aria-label={`选择回收站单据 ${item.document_number || item.id}`}
                         />
                       </td>
-                      <td className="px-3 py-2 font-mono text-xs">{item.document_number || item.id}</td>
+                      <td className="px-3 py-2 font-mono text-xs whitespace-nowrap truncate" title={item.document_number || String(item.id)}>{item.document_number || item.id}</td>
                       <td className="px-3 py-2 whitespace-nowrap">{item.date || "-"}</td>
                       <td className="px-3 py-2 whitespace-nowrap">{item.document_type || "-"}</td>
-                      <td className="px-3 py-2 max-w-40 truncate">{item.supplier || "-"}</td>
-                      <td className="px-3 py-2 max-w-56 truncate">{item.summary || "-"}</td>
+                      <td className="px-3 py-2 truncate whitespace-nowrap" title={item.supplier || ""}>{item.supplier || "-"}</td>
+                      <td className="px-3 py-2 truncate whitespace-nowrap" title={item.summary || ""}>{item.summary || "-"}</td>
                       <td className="px-3 py-2 whitespace-nowrap text-xs">{formatDeletedAt(item.deleted_at)}</td>
                       <td className="px-3 py-2 whitespace-nowrap">{remainingRecycleDays(item.deleted_at)}</td>
-                      <td className="px-3 py-2 text-right">
+                      <td className="sticky right-0 z-10 w-28 border-l border-border bg-card px-3 py-2 text-right shadow-[-5px_0_10px_-9px_rgb(0_0_0_/_0.45)] transition-colors group-hover:bg-muted">
                         <Button
                           size="sm"
                           variant="outline"
