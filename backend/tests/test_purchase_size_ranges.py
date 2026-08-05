@@ -36,3 +36,47 @@ def test_purchase_detail_lookup_checks_other_product_archives_for_size_range(mon
     assert "eblan" in calls
     assert item["size_range"] == "38-43"
     assert item["size_labels"] == ["38", "39", "40", "41", "42", "43"]
+
+
+def test_purchase_detail_lookup_checks_smiley_archive_when_brand_is_unknown(monkeypatch):
+    calls: list[str] = []
+
+    def fake_lookup(_connection, _product_code, _quantity, brand):
+        calls.append(brand)
+        is_smiley = brand == "smiley"
+        return {
+            "product_code": "6975771256717",
+            "size_range": "笑脸男鞋尺码组38-44" if is_smiley else None,
+            "size_labels": ["38", "39", "40", "41", "42", "43", "44"] if is_smiley else [],
+            "_matched_product": is_smiley,
+        }
+
+    monkeypatch.setattr(inventory, "_build_purchase_detail_lookup_for_brand", fake_lookup)
+
+    item = inventory._build_purchase_detail_lookup(None, "6975771256717", Decimal("0"), "cbanner_mens")
+
+    assert "smiley" in calls
+    assert item["size_range"] == "笑脸男鞋尺码组38-44"
+    assert item["size_labels"] == ["38", "39", "40", "41", "42", "43", "44"]
+
+
+def test_purchase_detail_lookup_checks_ni_archive_when_brand_is_unknown(monkeypatch):
+    calls: list[str] = []
+
+    def fake_lookup(_connection, _product_code, _quantity, brand):
+        calls.append(brand)
+        is_ni = brand == "ni"
+        return {
+            "product_code": "NI-001",
+            "size_range": "NI尺码组35-40" if is_ni else None,
+            "size_labels": ["35", "36", "37", "38", "39", "40"] if is_ni else [],
+            "_matched_product": is_ni,
+        }
+
+    monkeypatch.setattr(inventory, "_build_purchase_detail_lookup_for_brand", fake_lookup)
+
+    item = inventory._build_purchase_detail_lookup(None, "NI-001", Decimal("0"), "cbanner_mens")
+
+    assert "ni" in calls
+    assert item["size_range"] == "NI尺码组35-40"
+    assert item["size_labels"] == ["35", "36", "37", "38", "39", "40"]

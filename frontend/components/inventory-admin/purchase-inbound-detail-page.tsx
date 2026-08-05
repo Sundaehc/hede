@@ -6,7 +6,7 @@ import { Download, History, Search, X } from "lucide-react"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
 import { OperationLogDialog } from "@/components/operation-log-dialog"
-import { SearchableFilterInput, type SearchableFilterOption } from "@/components/inventory-admin/searchable-filter-input"
+import { SearchableFilterInput, SearchableMultiFilterInput, type SearchableFilterOption } from "@/components/inventory-admin/searchable-filter-input"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import {
@@ -28,7 +28,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
-import { ApiError, buildPurchaseInboundDetailExportUrl, listPurchaseInboundDetails, listSuppliers, type PurchaseInboundDetailItem, type SupplierItem } from "@/lib/api"
+import { ApiError, buildPurchaseInboundDetailExportUrl, listInventoryDetailCandidates, listPurchaseInboundDetails, listSuppliers, listWarehouses, type InventoryDetailCandidate, type PurchaseInboundDetailItem, type SupplierItem, type WarehouseItem } from "@/lib/api"
 import { cn } from "@/lib/utils"
 
 const PAGE_SIZES = [50, 100, 200]
@@ -41,7 +41,7 @@ type SubmittedFilters = {
   date_end?: string
   document_type?: string
   supplier?: string
-  warehouse?: string
+  warehouse?: string[]
   product_code?: string
   product_name?: string
   color_name?: string
@@ -84,8 +84,10 @@ export function PurchaseInboundDetailPage() {
   const [documentType, setDocumentType] = useState("")
   const [supplier, setSupplier] = useState("")
   const [supplierOptions, setSupplierOptions] = useState<SupplierItem[]>([])
-  const [warehouse, setWarehouse] = useState("")
+  const [warehouse, setWarehouse] = useState<string[]>([])
+  const [warehouseOptions, setWarehouseOptions] = useState<WarehouseItem[]>([])
   const [productCode, setProductCode] = useState("")
+  const [productCodeOptions, setProductCodeOptions] = useState<InventoryDetailCandidate[]>([])
   const [productName, setProductName] = useState("")
   const [colorName, setColorName] = useState("")
   const [sizeName, setSizeName] = useState("")
@@ -102,20 +104,47 @@ export function PurchaseInboundDetailPage() {
   useEffect(() => {
     let cancelled = false
 
-    async function loadSuppliers() {
+    async function loadOptions() {
       try {
-        const response = await listSuppliers()
-        if (!cancelled) setSupplierOptions(response.items)
+        const [suppliersResponse, warehousesResponse] = await Promise.all([listSuppliers(), listWarehouses()])
+        if (!cancelled) {
+          setSupplierOptions(suppliersResponse.items)
+          setWarehouseOptions(warehousesResponse.items)
+        }
       } catch {
-        if (!cancelled) setSupplierOptions([])
+        if (!cancelled) {
+          setSupplierOptions([])
+          setWarehouseOptions([])
+        }
       }
     }
 
-    void loadSuppliers()
+    void loadOptions()
     return () => {
       cancelled = true
     }
   }, [])
+
+  useEffect(() => {
+    const query = productCode.trim()
+    if (query.length < 2) {
+      setProductCodeOptions([])
+      return
+    }
+    let cancelled = false
+    const timer = window.setTimeout(async () => {
+      try {
+        const response = await listInventoryDetailCandidates({ query, limit: 30 })
+        if (!cancelled) setProductCodeOptions(response.items)
+      } catch {
+        if (!cancelled) setProductCodeOptions([])
+      }
+    }, 220)
+    return () => {
+      cancelled = true
+      window.clearTimeout(timer)
+    }
+  }, [productCode])
 
   useEffect(() => {
     let cancelled = false
@@ -160,6 +189,9 @@ export function PurchaseInboundDetailPage() {
       keywords: [item.factory_code, item.contact, item.address].filter(Boolean).join(" "),
     }))
   ), [supplierOptions])
+  const warehouseFilterOptions = useMemo<SearchableFilterOption[]>(() => (
+    warehouseOptions.map((item) => ({ value: item.name, label: item.name, keywords: item.brand || "" }))
+  ), [warehouseOptions])
 
   const submitSearch = () => {
     setPage(1)
@@ -168,7 +200,7 @@ export function PurchaseInboundDetailPage() {
       date_end: dateEnd || undefined,
       document_type: documentType || undefined,
       supplier: supplier || undefined,
-      warehouse: warehouse || undefined,
+      warehouse: warehouse.length ? warehouse : undefined,
       product_code: productCode || undefined,
       product_name: productName || undefined,
       color_name: colorName || undefined,
@@ -181,7 +213,7 @@ export function PurchaseInboundDetailPage() {
     setDateEnd("")
     setDocumentType("")
     setSupplier("")
-    setWarehouse("")
+    setWarehouse([])
     setProductCode("")
     setProductName("")
     setColorName("")
@@ -245,7 +277,14 @@ export function PurchaseInboundDetailPage() {
             </div>
             <div className={FILTER_FIELD_CLASS_NAME}>
               <Label className={FILTER_LABEL_CLASS_NAME}>仓库全名</Label>
-              <Input className={FILTER_CONTROL_CLASS_NAME} value={warehouse} onChange={(event) => setWarehouse(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") submitSearch() }} />
+              <SearchableMultiFilterInput
+                values={warehouse}
+                options={warehouseFilterOptions}
+                onChange={setWarehouse}
+                onSubmit={submitSearch}
+                placeholder="输入仓库名称"
+                className={FILTER_CONTROL_CLASS_NAME}
+              />
             </div>
             <div className={FILTER_FIELD_CLASS_NAME}>
               <Label className={FILTER_LABEL_CLASS_NAME}>商品名称</Label>
@@ -272,7 +311,18 @@ export function PurchaseInboundDetailPage() {
             </div>
             <div className={FILTER_FIELD_CLASS_NAME}>
               <Label className={FILTER_LABEL_CLASS_NAME}>货号</Label>
-              <Input className={FILTER_CONTROL_CLASS_NAME} value={productCode} onChange={(event) => setProductCode(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") submitSearch() }} />
+              <SearchableFilterInput
+                value={productCode}
+                options={productCodeOptions.map((item) => ({
+                  value: item.product_code,
+                  label: item.product_code,
+                  keywords: [item.product_name, item.original_sku, item.color_name, item.factory_code].filter(Boolean).join(" "),
+                }))}
+                onChange={setProductCode}
+                onSubmit={submitSearch}
+                placeholder="输入货号"
+                className={FILTER_CONTROL_CLASS_NAME}
+              />
             </div>
             <div className="grid grid-cols-2 gap-2 md:col-span-2 lg:col-span-3 xl:col-span-1">
               <Button size="lg" onClick={submitSearch} disabled={isLoading} className="min-w-0 cursor-pointer px-3">

@@ -25,6 +25,7 @@ from api.routes.images import get_image_matcher, image_url_for
 from domain.excluded_skus import is_excluded_sku, not_excluded_sku_condition
 from domain.fields import PRODUCT_FIELDS
 from domain.gj_schema import GJ_MERGED_PRODUCT_INFO_TABLE
+from domain.product_size_code import build_product_size_code
 from domain.sources import CANONICAL_COLUMNS, COLUMN_ALIASES
 from domain.schema import PRODUCT_ARCHIVE_TABLES
 from domain.size_group_schema import SIZE_GROUP_ITEMS_TABLE, SIZE_GROUPS_TABLE
@@ -500,14 +501,12 @@ def _load_size_group_items(connection, source_items: list[dict[str, object]]) ->
 
 
 def _build_size_export_product_code(item: dict[str, object], size_barcode: str) -> str:
-    goods_code = _first_text(item.get("sku"), item.get("original_sku"))
-    if not goods_code:
-        return ""
-    rule = _cell_text(item.get("barcode_build_rule"))
-    color_code = _cell_text(item.get("color_code"))
-    if rule != "货号+尺码" and color_code:
-        return f"{goods_code}{color_code}{size_barcode}"
-    return f"{goods_code}{size_barcode}"
+    return build_product_size_code(
+        _first_text(item.get("sku"), item.get("original_sku")),
+        item.get("color_code"),
+        size_barcode,
+        item.get("barcode_build_rule"),
+    )
 
 
 def _size_export_product_name(style_code: str, color_name: str, product_code: str) -> str:

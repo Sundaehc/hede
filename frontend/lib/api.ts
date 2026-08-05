@@ -1600,7 +1600,7 @@ export function listPurchaseInboundDetails(params: {
   date_end?: string
   document_type?: string
   supplier?: string
-  warehouse?: string
+  warehouse?: string[]
   product_code?: string
   product_name?: string
   color_name?: string
@@ -1616,7 +1616,9 @@ export function listPurchaseInboundDetails(params: {
   if (params.date_end) search.set("date_end", params.date_end)
   if (params.document_type) search.set("document_type", params.document_type)
   if (params.supplier) search.set("supplier", params.supplier)
-  if (params.warehouse) search.set("warehouse", params.warehouse)
+  for (const warehouse of params.warehouse ?? []) {
+    if (warehouse) search.append("warehouse", warehouse)
+  }
   if (params.product_code) search.set("product_code", params.product_code)
   if (params.product_name) search.set("product_name", params.product_name)
   if (params.color_name) search.set("color_name", params.color_name)
@@ -1662,7 +1664,7 @@ export function buildPurchaseInboundDetailExportUrl(params: {
   date_end?: string
   document_type?: string
   supplier?: string
-  warehouse?: string
+  warehouse?: string[]
   product_code?: string
   product_name?: string
   color_name?: string
@@ -1673,7 +1675,9 @@ export function buildPurchaseInboundDetailExportUrl(params: {
   if (params.date_end) search.set("date_end", params.date_end)
   if (params.document_type) search.set("document_type", params.document_type)
   if (params.supplier) search.set("supplier", params.supplier)
-  if (params.warehouse) search.set("warehouse", params.warehouse)
+  for (const warehouse of params.warehouse ?? []) {
+    if (warehouse) search.append("warehouse", warehouse)
+  }
   if (params.product_code) search.set("product_code", params.product_code)
   if (params.product_name) search.set("product_name", params.product_name)
   if (params.color_name) search.set("color_name", params.color_name)

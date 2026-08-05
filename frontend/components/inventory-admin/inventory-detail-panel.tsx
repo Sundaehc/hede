@@ -17,6 +17,7 @@ import {
   listDetails,
   lookupInventoryDetail,
   listInventoryDetailCandidates,
+  listSizeGroups,
   createDetail,
   updateDetail,
   deleteDetail,
@@ -30,6 +31,7 @@ import {
   type SupplierItem,
   type InventoryAccountSubject,
 } from "@/lib/api"
+import type { SizeGroup } from "@/lib/types"
 
 function getErrorMessage(error: unknown) {
   if (error instanceof ApiError) return error.message || `请求失败（${error.status}）`
@@ -273,12 +275,14 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
   const [editingId, setEditingId] = useState<number | null>(null)
   const [isSaving, setIsSaving] = useState(false)
   const [subjects, setSubjects] = useState<InventoryAccountSubject[]>([])
+  const [sizeGroups, setSizeGroups] = useState<SizeGroup[]>([])
 
   const purchaseTableSizeColumns = useMemo(
     () => sortPurchaseSizeLabels(items.flatMap((item) => getPurchaseDetailSizeColumns(item))),
     [items],
   )
-  const tableSizeColumns = isPurchaseOrder ? purchaseTableSizeColumns : sizeColumns
+  const tableSizeColumns = purchaseTableSizeColumns
+  const formSizeColumns = purchaseSizeColumns
   const detailColumnCount = isAccountingDocument ? 6 : isPurchaseOrder ? 17 + tableSizeColumns.length : 9 + tableSizeColumns.length
 
   const [deleteTarget, setDeleteTarget] = useState<InventoryDetail | null>(null)
@@ -326,6 +330,19 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
     if (isAccountingDocument) void loadSubjects()
   }, [isAccountingDocument, loadSubjects])
 
+  useEffect(() => {
+    if (!formOpen || isAccountingDocument) return
+    let cancelled = false
+    void listSizeGroups()
+      .then((result) => {
+        if (!cancelled) setSizeGroups(result.items)
+      })
+      .catch(() => {
+        if (!cancelled) setSizeGroups([])
+      })
+    return () => { cancelled = true }
+  }, [formOpen, isAccountingDocument])
+
   const showMessage = (title: string, description: string) => {
     setMessageContent({ title, description })
     setMessageOpen(true)
@@ -365,7 +382,7 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
     setPurchaseSizeRange(item.extra_fields?.size_range || "")
     setPurchaseSizeColumns(detailSizeColumns)
     setSizeQuantities(
-      isPurchaseOrder
+      detailSizeColumns.length > 0
         ? normalizeSizeQuantitiesForColumns(item.size_quantities, detailSizeColumns)
         : normalizeSizeQuantitiesForBrand(item.size_quantities, inventorySizeBrand),
     )
@@ -382,10 +399,8 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
     lookupReasonRef.current = "code"
     setLookupToken((token) => token + 1)
     setSizeQuantities({})
-    if (isPurchaseOrder) {
-      setPurchaseSizeRange("")
-      setPurchaseSizeColumns([])
-    }
+    setPurchaseSizeRange("")
+    setPurchaseSizeColumns([])
     setCandidateOpen(true)
     setFormData((prev) => ({
       ...prev,
@@ -405,6 +420,17 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
     handleProductCodeInput(candidate.product_code, { resetPurchaseFields: true })
     setCandidateOpen(false)
     setProductCandidates([])
+  }
+
+  const handleSizeGroupChange = (sizeRange: string) => {
+    const sizeGroup = sizeGroups.find((item) => item.name === sizeRange)
+    const sizeLabels = sizeGroup
+      ? sortPurchaseSizeLabels(sizeGroup.items.map((item) => item.size_name))
+      : []
+    setPurchaseSizeRange(sizeRange)
+    setPurchaseSizeColumns(sizeLabels)
+    setSizeQuantities({})
+    setFormData((prev) => ({ ...prev, quantity: "", amount: "" }))
   }
 
   const handleSave = async () => {
@@ -430,7 +456,7 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
             ...formData,
             color_spec: formData.color_name || formData.color_spec,
             size_quantities: sizeQuantities,
-            extra_fields: isPurchaseOrder ? buildPurchaseExtraFields(formData, purchaseSizeRange, purchaseSizeColumns) : undefined,
+            extra_fields: buildPurchaseExtraFields(formData, purchaseSizeRange, purchaseSizeColumns),
           }
       if (formMode === "create") {
         await createDetail(documentId, payload)
@@ -477,10 +503,8 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
         const resolvedPurchaseSizeColumns = lookupSizeColumns.length
           ? lookupSizeColumns
           : sortPurchaseSizeLabels(Object.keys(item.size_quantities || {}))
-        if (isPurchaseOrder) {
-          setPurchaseSizeRange(item.size_range || "")
-          setPurchaseSizeColumns(resolvedPurchaseSizeColumns)
-        }
+        setPurchaseSizeRange(item.size_range || "")
+        setPurchaseSizeColumns(resolvedPurchaseSizeColumns)
         setFormData((prev) => ({
           ...prev,
           product_code: item.product_code || prev.product_code,
@@ -1131,13 +1155,7 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
               <Input
                 id="detail-product-code"
                 value={formData.product_code || ""}
-                onChange={(e) => {
-                  lookupSourceCodeRef.current = e.target.value
-                  lookupReasonRef.current = "code"
-                  setLookupToken((token) => token + 1)
-                  setSizeQuantities({})
-                  setFormData((prev) => ({ ...prev, product_code: e.target.value, quantity: "", amount: "" }))
-                }}
+                onChange={(e) => handleProductCodeInput(e.target.value, { resetPurchaseFields: true })}
                 placeholder="货号"
               />
             </div>
@@ -1167,6 +1185,20 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
                 onChange={(e) => setFormData((prev) => ({ ...prev, color_name: e.target.value, color_spec: e.target.value }))}
                 placeholder="颜色名称"
               />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="detail-size-range">尺码段</Label>
+              <select
+                id="detail-size-range"
+                value={purchaseSizeRange}
+                onChange={(event) => handleSizeGroupChange(event.target.value)}
+                className="flex h-9 w-full cursor-pointer rounded-lg border border-input bg-card px-3 py-2 text-sm shadow-xs outline-none transition-colors focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/35"
+              >
+                <option value="">未选择尺码段</option>
+                {sizeGroups.map((sizeGroup) => (
+                  <option key={sizeGroup.id} value={sizeGroup.name}>{sizeGroup.name}</option>
+                ))}
+              </select>
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
@@ -1203,35 +1235,41 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
             </div>
             <div className="space-y-1.5">
               <Label>尺码</Label>
-              <div className="grid grid-cols-5 gap-1.5 rounded-lg border border-border bg-muted/20 p-2">
-                {sizeColumns.map((size) => (
-                  <label key={size} className="flex flex-col gap-1 rounded-md border border-border bg-background p-1.5 text-xs">
-                    <span className="text-center text-muted-foreground">{size}</span>
-                    <Input
-                      value={sizeQuantities[size] || ""}
-                      onChange={(e) => {
-                        const value = e.target.value
-                        setSizeQuantities((prev) => {
-                          const next = { ...prev }
-                          if (value) next[size] = value
-                          else delete next[size]
-                          const quantity = sumSizeQuantities(next, sizeColumns)
-                          const amount = computeAmount(quantity, formData.unit_price || "")
-                          setFormData((current) => ({
-                            ...current,
-                            quantity,
-                            amount,
-                          }))
-                          return next
-                        })
-                      }}
-                      inputMode="numeric"
-                      className="h-7 px-1 text-center text-xs tabular-nums"
-                      placeholder="-"
-                    />
-                  </label>
-                ))}
-              </div>
+              {formSizeColumns.length ? (
+                <div className="grid grid-cols-5 gap-1.5 rounded-lg border border-border bg-muted/20 p-2">
+                  {formSizeColumns.map((size) => (
+                    <label key={size} className="flex flex-col gap-1 rounded-md border border-border bg-background p-1.5 text-xs">
+                      <span className="text-center text-muted-foreground">{size}</span>
+                      <Input
+                        value={sizeQuantities[size] || ""}
+                        onChange={(e) => {
+                          const value = e.target.value
+                          setSizeQuantities((prev) => {
+                            const next = { ...prev }
+                            if (value) next[size] = value
+                            else delete next[size]
+                            const quantity = sumSizeQuantities(next, formSizeColumns)
+                            const amount = computeAmount(quantity, formData.unit_price || "")
+                            setFormData((current) => ({
+                              ...current,
+                              quantity,
+                              amount,
+                            }))
+                            return next
+                          })
+                        }}
+                        inputMode="numeric"
+                        className="h-7 px-1 text-center text-xs tabular-nums"
+                        placeholder="-"
+                      />
+                    </label>
+                  ))}
+                </div>
+              ) : (
+                <div className="rounded-lg border border-dashed border-border px-3 py-4 text-sm text-muted-foreground">
+                  请选择或确认尺码段
+                </div>
+              )}
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="detail-amount">金额</Label>

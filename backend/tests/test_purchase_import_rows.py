@@ -167,6 +167,76 @@ def test_purchase_import_parses_combined_size_before_single_size_suffix() -> Non
     assert _split_purchase_size_code("C5563406D8080240", "cbanner_womens") == ("C5563406D8080", "240")
 
 
+def test_purchase_import_uses_product_size_group_labels(monkeypatch) -> None:
+    monkeypatch.setattr(inventory_routes, "_load_color_barcodes", lambda connection: [])
+    monkeypatch.setattr(
+        inventory_routes,
+        "_load_purchase_product_lookup",
+        lambda connection, brand, product_codes: {
+            "RCT63957D06": {
+                "original_goods_code": "RCT63957D06",
+                "color_name": "咖色",
+                "color_code": "06",
+                "size_range": "女鞋定制尺码",
+                "barcode_build_rule": "货号+颜色代码+尺码",
+            },
+        },
+    )
+    monkeypatch.setattr(
+        inventory_routes,
+        "_load_purchase_size_group_items",
+        lambda connection, size_ranges: {
+            "女鞋定制尺码": (("34", "220"), ("35", "225")),
+        },
+    )
+
+    details = _build_purchase_details_from_rows(
+        _StubRepository(),
+        [{"product_code": "RCT63957D06", "quantity": "3", "size_quantities": {"220": "3"}}],
+        brand="cbanner_womens",
+        fallback_unit_price=0,
+    )
+
+    assert details[0]["extra_fields"]["size_range"] == "女鞋定制尺码"
+    assert details[0]["extra_fields"]["size_labels"] == "34|35"
+    assert details[0]["size_quantities"] == {"34": "3"}
+
+
+def test_purchase_import_uses_matched_product_code_when_color_barcode_is_repeated(monkeypatch) -> None:
+    monkeypatch.setattr(inventory_routes, "_load_color_barcodes", lambda connection: [])
+    monkeypatch.setattr(
+        inventory_routes,
+        "_load_purchase_product_lookup",
+        lambda connection, brand, product_codes: {
+            "RCW62308S28": {
+                "original_goods_code": "RCW62308S28",
+                "color_name": "米白",
+                "color_code": "28",
+                "size_range": "合码225-250",
+            },
+        },
+    )
+    monkeypatch.setattr(
+        inventory_routes,
+        "_load_purchase_size_group_items",
+        lambda connection, size_ranges: {
+            "合码225-250": (("225-230", "225-230"), ("235-240", "235-240"), ("245-250", "245-250")),
+        },
+    )
+
+    details = _build_purchase_details_from_rows(
+        _StubRepository(),
+        [{"product_code": "RCW62308S2828", "quantity": "3", "size_quantities": {"235-240": "3"}}],
+        brand="cbanner_womens",
+        fallback_unit_price=0,
+    )
+
+    assert details[0]["product_code"] == "RCW62308S28"
+    assert details[0]["color_barcode"] == "28"
+    assert details[0]["extra_fields"]["size_range"] == "合码225-250"
+    assert details[0]["size_quantities"] == {"235-240": "3"}
+
+
 def test_purchase_order_import_template_does_not_require_unit_price() -> None:
     workbook = _build_purchase_order_import_template()
     worksheet = workbook.active

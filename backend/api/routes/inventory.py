@@ -33,6 +33,7 @@ from domain.color_barcode_schema import COLOR_BARCODE_TABLE
 from domain.gj_brand import CBANNER_MENS_BRAND, CBANNER_WOMENS_BRAND, EBLAN_BRAND, NI_BRAND, SMILEY_BRAND, SUPPLIER_BRANDS, YANDOU_BRAND, infer_supplier_brand_from_name
 from domain.gj_schema import GJ_MERGED_PRODUCT_INFO_TABLE
 from domain.inventory_schema import SUPPLIER_TABLE
+from domain.product_size_code import build_product_size_code
 from domain.smiley_schema import SMILEY_FINE_TABLE
 from domain.inventory_sources import (
     ACCOUNTING_DOCUMENT_TYPES,
@@ -44,7 +45,7 @@ from domain.inventory_sources import (
     INVENTORY_DETAIL_COLUMNS,
     INVENTORY_EXPORT_LABELS,
 )
-from domain.schema import PRODUCT_TABLES
+from domain.schema import PRODUCT_ARCHIVE_TABLES, PRODUCT_TABLES
 from domain.size_group_schema import SIZE_GROUP_ITEMS_TABLE, SIZE_GROUPS_TABLE
 from domain.vip_schema import JST_PRICE_TABLE
 
@@ -326,6 +327,15 @@ def _fmt_decimal(value: Decimal) -> str:
     return str(normalized) if normalized.as_tuple().exponent < 0 else str(int(normalized))
 
 
+def _excel_number(value: object) -> int | float | str:
+    if value in (None, ""):
+        return ""
+    number = _to_decimal(value)
+    if number == number.to_integral_value():
+        return int(number)
+    return float(number)
+
+
 def _cell_text(value: object) -> str:
     if value is None:
         return ""
@@ -411,6 +421,149 @@ def _purchase_export_barcode(product_code: str, color_barcode: str, size: str, b
     if str(brand or "").strip().lower() in EU_SIZE_BRANDS:
         return f"{product_code}{size}"
     return f"{product_code}{color_barcode}{size}"
+
+
+def _load_purchase_size_group_items(
+    connection,
+    size_ranges: set[str],
+) -> dict[str, tuple[tuple[str, str], ...]]:
+    normalized_ranges = {size_range.strip() for size_range in size_ranges if size_range.strip()}
+    if not normalized_ranges:
+        return {}
+
+    rows = connection.execute(
+        sa_select(
+            SIZE_GROUPS_TABLE.c.name,
+            SIZE_GROUP_ITEMS_TABLE.c.size_name,
+            SIZE_GROUP_ITEMS_TABLE.c.barcode,
+        )
+        .select_from(
+            SIZE_GROUPS_TABLE.join(
+                SIZE_GROUP_ITEMS_TABLE,
+                SIZE_GROUP_ITEMS_TABLE.c.size_group_id == SIZE_GROUPS_TABLE.c.id,
+            )
+        )
+        .where(SIZE_GROUPS_TABLE.c.name.in_(normalized_ranges))
+        .order_by(SIZE_GROUPS_TABLE.c.name, SIZE_GROUP_ITEMS_TABLE.c.sort_order, SIZE_GROUP_ITEMS_TABLE.c.id)
+    ).mappings()
+    items_by_range: dict[str, list[tuple[str, str]]] = defaultdict(list)
+    for row in rows:
+        size_range = _cell_text(row.get("name"))
+        size_name = _cell_text(row.get("size_name"))
+        size_barcode = _first_text(row.get("barcode"), size_name)
+        if size_range and size_name and size_barcode:
+            items_by_range[size_range].append((size_name, size_barcode))
+    return {size_range: tuple(items) for size_range, items in items_by_range.items()}
+
+
+def _normalize_purchase_size_quantities_for_group(
+    size_quantities: dict[str, object],
+    size_group_items: tuple[tuple[str, str], ...],
+    brand: str,
+) -> dict[str, Decimal]:
+    labels_by_input: dict[str, str] = {}
+    for size_name, size_barcode in size_group_items:
+        labels_by_input[size_name] = size_name
+        labels_by_input[size_barcode] = size_name
+
+    normalized: dict[str, Decimal] = defaultdict(Decimal)
+    for raw_size, raw_quantity in size_quantities.items():
+        quantity = _to_decimal(raw_quantity)
+        if quantity == 0:
+            continue
+        raw_label = _cell_text(raw_size)
+        normalized_label = _normalize_imported_purchase_size_label(raw_label, brand)
+        size_label = labels_by_input.get(raw_label) or labels_by_input.get(normalized_label) or normalized_label
+        if size_label:
+            normalized[size_label] += quantity
+    return dict(normalized)
+
+
+def _load_purchase_size_export_profiles(
+    repository,
+    details: list[dict[str, object]],
+    records_by_id: dict[object, dict[str, object]],
+    supplier_lookup: dict[str, list[dict[str, str]]],
+) -> dict[tuple[object, str], dict[str, object]]:
+    requested_codes_by_brand: dict[str, set[str]] = defaultdict(set)
+    profile_keys: dict[tuple[object, str], str] = {}
+    for detail in details:
+        document_id = detail.get("document_id")
+        record = records_by_id.get(document_id)
+        product_code = _cell_text(detail.get("product_code"))
+        if record is None or not product_code:
+            continue
+        brand = _purchase_record_export_context(record, supplier_lookup).get("brand", "")
+        if brand not in PRODUCT_ARCHIVE_TABLES:
+            continue
+        requested_codes_by_brand[brand].add(product_code)
+        profile_keys[(document_id, product_code)] = brand
+
+    profiles_by_brand_and_code: dict[tuple[str, str], dict[str, object]] = {}
+    with repository.engine.connect() as connection:
+        for brand, product_codes in requested_codes_by_brand.items():
+            table = PRODUCT_ARCHIVE_TABLES[brand]
+            rows = connection.execute(
+                sa_select(
+                    table.c.sku,
+                    table.c.original_sku,
+                    table.c.color_code,
+                    table.c.barcode_build_rule,
+                    table.c.size_range,
+                    table.c.updated_at,
+                    table.c.id,
+                )
+                .where(or_(table.c.sku.in_(product_codes), table.c.original_sku.in_(product_codes)))
+                .order_by(desc(table.c.updated_at), desc(table.c.id))
+            ).mappings()
+            for row in rows:
+                profile = dict(row)
+                for code in (_cell_text(profile.get("sku")), _cell_text(profile.get("original_sku"))):
+                    if code in product_codes:
+                        profiles_by_brand_and_code.setdefault((brand, code), profile)
+
+        size_ranges = {
+            _cell_text(profile.get("size_range"))
+            for profile in profiles_by_brand_and_code.values()
+            if _cell_text(profile.get("size_range"))
+        }
+        size_group_items = _load_purchase_size_group_items(connection, size_ranges)
+
+    profiles: dict[tuple[object, str], dict[str, object]] = {}
+    for profile_key, brand in profile_keys.items():
+        profile = profiles_by_brand_and_code.get((brand, profile_key[1]))
+        if profile is None:
+            continue
+        size_barcodes = {
+            value: barcode
+            for size_name, barcode in size_group_items.get(_cell_text(profile.get("size_range")), ())
+            for value in (size_name, barcode)
+        }
+        profiles[profile_key] = {**profile, "size_barcodes": size_barcodes}
+    return profiles
+
+
+def _purchase_size_export_product_code(
+    product_code: str,
+    color_barcode: str,
+    size_name: str,
+    brand: str,
+    profile: dict[str, object] | None,
+) -> tuple[str, str]:
+    if profile is None:
+        return _purchase_export_barcode(product_code, color_barcode, size_name, brand), size_name
+
+    size_barcodes = profile.get("size_barcodes")
+    size_barcode = _cell_text(size_barcodes.get(size_name) if isinstance(size_barcodes, dict) else None) or size_name
+    return (
+        build_product_size_code(
+            _first_text(profile.get("sku"), profile.get("original_sku"), product_code),
+            profile.get("color_code"),
+            size_barcode,
+            profile.get("barcode_build_rule"),
+        ),
+        size_barcode,
+    )
 
 
 def _purchase_record_brand(record: dict[str, object]) -> str:
@@ -710,12 +863,19 @@ def _append_purchase_summary_export(
 
 def _append_purchase_size_rows_export(
     worksheet,
+    repository,
     details: list[dict[str, object]],
     records_by_id: dict[object, dict[str, object]],
     supplier_lookup: dict[str, list[dict[str, str]]],
 ) -> None:
     worksheet.append(PURCHASE_SIZE_ROW_EXPORT_HEADERS)
     size_labels = _purchase_export_size_labels(details)
+    export_profiles = _load_purchase_size_export_profiles(
+        repository,
+        details,
+        records_by_id,
+        supplier_lookup,
+    )
 
     groups: dict[tuple[object, str, str, str], dict[str, object]] = {}
     ordered_keys: list[tuple[object, str, str, str]] = []
@@ -806,10 +966,17 @@ def _append_purchase_size_rows_export(
             _fmt_completion_rate(arrival_quantity, quantity) if has_arrival else ""
         )
         size = group["size"]
+        product_size_code, size_barcode = _purchase_size_export_product_code(
+            group["product_code"],
+            group["color_barcode"],
+            size,
+            record_context["brand"],
+            export_profiles.get((key[0], group["product_code"])),
+        )
 
         worksheet.append([
             record_context["unit_name"],
-            group["product_code"],
+            product_size_code,
             _fmt_export_decimal(quantity, blank_zero=True),
             record_context["summary"],
             record_context["date"],
@@ -818,9 +985,9 @@ def _append_purchase_size_rows_export(
             group["product_name"],
             group["color_barcode"],
             group["color_name"],
+            size_barcode,
             size,
-            size,
-            _purchase_export_barcode(group["product_code"], group["color_barcode"], size, record_context["brand"]),
+            product_size_code,
             record_context["document_type"],
             record_context["document_number"],
             group["detail_remark"],
@@ -1673,8 +1840,41 @@ def _extract_color_name_from_text(*values: object) -> str:
     return ""
 
 
+def _purchase_product_lookup_candidates(product_code: object, brand: str) -> tuple[str, ...]:
+    raw_code = _cell_text(product_code)
+    if not raw_code:
+        return ()
+    stripped_code, _ = _split_purchase_size_code(raw_code, brand)
+    candidates = [raw_code, stripped_code]
+    for suffix_length in (2, 3, 5):
+        if len(raw_code) > suffix_length:
+            candidates.append(raw_code[:-suffix_length])
+    return tuple(dict.fromkeys(candidate for candidate in candidates if candidate))
+
+
+def _matched_purchase_product_info(
+    product_lookup: dict[str, dict[str, object]],
+    brand: str,
+    *product_codes: object,
+) -> dict[str, object]:
+    fallback: dict[str, object] = {}
+    for product_code in product_codes:
+        for candidate in _purchase_product_lookup_candidates(product_code, brand):
+            product_info = product_lookup.get(candidate)
+            if product_info and not fallback:
+                fallback = product_info
+            if product_info and _cell_text(product_info.get("size_range")):
+                return product_info
+    return fallback
+
+
 def _load_purchase_product_lookup(connection, brand: str, product_codes: set[str]) -> dict[str, dict[str, object]]:
-    lookup: dict[str, dict[str, object]] = {code: {} for code in product_codes if code}
+    expanded_codes = {
+        candidate
+        for code in product_codes
+        for candidate in _purchase_product_lookup_candidates(code, brand)
+    }
+    lookup: dict[str, dict[str, object]] = {code: {} for code in expanded_codes if code}
     if not lookup:
         return {}
 
@@ -1761,7 +1961,7 @@ def _load_purchase_product_lookup(connection, brand: str, product_codes: set[str
         if price not in (None, "") and not lookup[code].get("unit_price"):
             lookup[code]["unit_price"] = price
 
-    product_table = PRODUCT_TABLES.get(brand)
+    product_table = PRODUCT_ARCHIVE_TABLES.get(brand)
     if product_table is not None:
         for row in connection.execute(
             sa_select(
@@ -1770,6 +1970,7 @@ def _load_purchase_product_lookup(connection, brand: str, product_codes: set[str
                 product_table.c.cost,
                 product_table.c.color,
                 product_table.c.color_code,
+                product_table.c.barcode_build_rule,
                 product_table.c.factory_sku,
                 product_table.c.upper_material,
                 product_table.c.lining_material,
@@ -1798,6 +1999,8 @@ def _load_purchase_product_lookup(connection, brand: str, product_codes: set[str
                 if product_color_code:
                     lookup[code]["color_barcode"] = product_color_code
                     lookup[code]["color_code"] = product_color_code
+                if row.get("barcode_build_rule"):
+                    lookup[code]["barcode_build_rule"] = _cell_text(row.get("barcode_build_rule"))
                 fallback_fields = {
                     "original_goods_code": _cell_text(row.get("original_sku")),
                     "factory_code": _cell_text(row.get("factory_sku")),
@@ -1864,7 +2067,7 @@ def _build_purchase_detail_candidates(connection, query: str, brand: str | None 
     if len(keyword) < 2:
         return []
 
-    candidate_brands = [brand] if brand else ["cbanner_mens", "cbanner_womens"]
+    candidate_brands = [brand] if brand else list(PRODUCT_ARCHIVE_TABLES)
     seen: set[tuple[str, str]] = set()
     items: list[dict[str, str]] = []
 
@@ -1916,7 +2119,7 @@ def _build_purchase_detail_candidates(connection, query: str, brand: str | None 
                 if len(items) >= limit:
                     return items
 
-        product_table = PRODUCT_TABLES.get(normalized_brand)
+        product_table = PRODUCT_ARCHIVE_TABLES.get(normalized_brand)
         if product_table is not None:
             rows = connection.execute(
                 sa_select(
@@ -2041,8 +2244,16 @@ def _build_purchase_detail_lookup_for_brand(connection, product_code: str, quant
         lookup_codes.add(stripped_code)
     product_lookup = _load_purchase_product_lookup(connection, brand, lookup_codes)
 
-    product_info = product_lookup.get(raw_code) or {}
+    product_info = _matched_purchase_product_info(product_lookup, brand, raw_code)
     detail_code = raw_code
+    if product_info:
+        detail_code = _first_text(
+            product_info.get("original_goods_code"),
+            product_info.get("goods_code"),
+            product_info.get("original_sku"),
+            product_info.get("sku"),
+            raw_code,
+        )
     if not product_info and stripped_code and stripped_code != raw_code:
         product_info = product_lookup.get(stripped_code) or {}
         if product_info:
@@ -2090,7 +2301,7 @@ def _build_purchase_detail_lookup(connection, product_code: str, quantity: Decim
         preferred_brand = "ni"
     brands = list(dict.fromkeys([
         *([preferred_brand] if preferred_brand else []),
-        *PRODUCT_TABLES.keys(),
+        *PRODUCT_ARCHIVE_TABLES.keys(),
     ]))
     fallback: dict[str, object] | None = None
     matched_fallback: dict[str, object] | None = None
@@ -2173,6 +2384,12 @@ def _build_purchase_details_from_rows(
 
     with repository.engine.connect() as connection:
         product_lookup = _load_purchase_product_lookup(connection, brand, product_codes)
+        size_ranges = {
+            _cell_text(product_info.get("size_range"))
+            for product_info in product_lookup.values()
+            if _cell_text(product_info.get("size_range"))
+        }
+        size_group_items_by_range = _load_purchase_size_group_items(connection, size_ranges)
 
     grouped: dict[tuple[str, str], dict[str, object]] = {}
     for row in parsed_rows:
@@ -2181,13 +2398,20 @@ def _build_purchase_details_from_rows(
         original_sku = row["original_sku"]
         color_barcode = row["color_barcode"]
         color_name = row["color_name"] or ""
-        product_info = (
-            product_lookup.get(original_sku)
-            or product_lookup.get(row.get("style_color_code"))
-            or product_lookup.get(row.get("sku"))
-            or product_lookup.get(raw_code)
-            or {}
+        product_info = _matched_purchase_product_info(
+            product_lookup,
+            brand,
+            original_sku,
+            row.get("style_color_code"),
+            row.get("sku"),
+            raw_code,
         )
+        matched_product_code = _first_text(
+            product_info.get("original_goods_code"),
+            product_info.get("goods_code"),
+        )
+        if matched_product_code:
+            original_sku = matched_product_code
         color_barcode, color_name = _purchase_detail_color_values(product_info, color_barcode, color_name)
         imported_unit_price = _to_decimal(row.get("unit_price"))
         lookup_unit_price = _to_decimal(product_info.get("unit_price"))
@@ -2199,7 +2423,20 @@ def _build_purchase_details_from_rows(
         if not product_name:
             product_name = f"{original_sku}{color_name}" if color_name else original_sku
         extra_fields = _purchase_detail_extra_fields(product_info, original_sku, row.get("extra_fields"))
+        size_range = _cell_text(product_info.get("size_range"))
+        size_group_items = size_group_items_by_range.get(size_range, ())
+        if size_range:
+            extra_fields["size_range"] = size_range
+        if size_group_items:
+            extra_fields["size_labels"] = "|".join(size_name for size_name, _ in size_group_items)
+        size_labels_by_input = {
+            value: size_name
+            for size_name, size_barcode in size_group_items
+            for value in (size_name, size_barcode)
+        }
         size = row["size"]
+        if size:
+            size = size_labels_by_input.get(_cell_text(size), _cell_text(size))
         key = (original_sku, color_barcode)
         item = grouped.setdefault(
             key,
@@ -2228,7 +2465,8 @@ def _build_purchase_details_from_rows(
         row_size_quantities = row.get("size_quantities")
         if isinstance(row_size_quantities, dict) and row_size_quantities:
             for size_key, size_quantity in row_size_quantities.items():
-                item["size_quantities"][size_key] += size_quantity
+                normalized_size_key = size_labels_by_input.get(_cell_text(size_key), _cell_text(size_key))
+                item["size_quantities"][normalized_size_key] += size_quantity
         elif size:
             item["size_quantities"][size] += quantity
 
@@ -2236,13 +2474,18 @@ def _build_purchase_details_from_rows(
         raise HTTPException(status_code=400, detail="Excel 中没有有效数量")
 
     details = []
-    size_labels = _purchase_size_labels(brand)
     for item in grouped.values():
         quantity = item["quantity"]
         item_unit_price = _to_decimal(item.get("unit_price"))
         amount = quantity * item_unit_price if item_unit_price else Decimal("0")
+        extra_fields = item.get("extra_fields") if isinstance(item.get("extra_fields"), dict) else {}
+        saved_size_labels = tuple(
+            label
+            for label in _cell_text(extra_fields.get("size_labels")).split("|")
+            if label
+        )
         item_size_labels = tuple(dict.fromkeys([
-            *size_labels,
+            *saved_size_labels,
             *(_cell_text(size) for size in item["size_quantities"]),
         ]))
         size_quantities = {
@@ -2261,7 +2504,7 @@ def _build_purchase_details_from_rows(
             "amount": _fmt_decimal(amount) if amount else None,
             "remark": item.get("remark") or "",
             "size_quantities": size_quantities,
-            "extra_fields": item.get("extra_fields") or {},
+            "extra_fields": extra_fields,
         })
     return details
 
@@ -2399,7 +2642,7 @@ def list_purchase_inbound_details(
     date_end: str | None = None,
     document_type: str | None = None,
     supplier: str | None = None,
-    warehouse: str | None = None,
+    warehouse: list[str] | None = Query(None),
     product_code: str | None = None,
     product_name: str | None = None,
     color_name: str | None = None,
@@ -2433,7 +2676,7 @@ def export_purchase_inbound_details(
     date_end: str | None = None,
     document_type: str | None = None,
     supplier: str | None = None,
-    warehouse: str | None = None,
+    warehouse: list[str] | None = Query(None),
     product_code: str | None = None,
     product_name: str | None = None,
     color_name: str | None = None,
@@ -2465,7 +2708,6 @@ def export_purchase_inbound_details(
         "货号",
         "商品全名",
         "颜色名称",
-        "尺码明细",
         "单据类型",
         "单据编号",
         "日期",
@@ -2477,23 +2719,16 @@ def export_purchase_inbound_details(
         "仓库全名",
     ])
     for item in items:
-        size_quantities = item.get("size_quantities")
-        size_text = "；".join(
-            f"{size}:{quantity}"
-            for size, quantity in (size_quantities.items() if isinstance(size_quantities, dict) else [])
-            if quantity not in (None, "", 0, "0")
-        )
         worksheet.append([
             item.get("row_number"),
             item.get("product_code") or "",
             item.get("product_name") or "",
             item.get("color_name") or "",
-            size_text,
             item.get("document_type") or "",
             item.get("document_number") or "",
             item.get("date") or "",
-            item.get("purchase_quantity") or "",
-            item.get("purchase_amount") or "",
+            _excel_number(item.get("purchase_quantity")),
+            _excel_number(item.get("purchase_amount")),
             item.get("retail_amount") or "",
             item.get("unit_code") or "",
             item.get("unit_name") or "",
@@ -2610,7 +2845,7 @@ def export_inventory(
             return _stream_excel_workbook(wb, "生产采购单.xlsx")
         if normalized_purchase_export_mode == "size_rows":
             ws.title = "尺码明细"
-            _append_purchase_size_rows_export(ws, details, records_by_id, supplier_lookup)
+            _append_purchase_size_rows_export(ws, repository, details, records_by_id, supplier_lookup)
             return _stream_excel_workbook(wb, "进货订单尺码明细.xlsx")
 
         ws.title = "汇总明细"
@@ -3639,7 +3874,70 @@ def batch_delete_inventory(request: Request, payload: dict):
 @router.get("/inventory/{record_id}/details")
 def list_inventory_details(request: Request, record_id: int):
     repository = request.app.state.inventory_repository
-    return {"items": repository.list_details(record_id)}
+    record = repository.get_record(record_id)
+    details = repository.list_details(record_id)
+    if record is None or not details or _cell_text(record.get("document_type")) in ACCOUNTING_DOCUMENT_TYPES:
+        return {"items": details}
+
+    preferred_brand = _purchase_import_brand_for_supplier(
+        repository,
+        _cell_text(record.get("supplier")),
+        _cell_text(record.get("document_type")),
+        _purchase_record_brand(record),
+    )
+    product_codes = {
+        _cell_text(detail.get("product_code"))
+        for detail in details
+        if _cell_text(detail.get("product_code"))
+    }
+    if not product_codes:
+        return {"items": details}
+
+    with repository.engine.connect() as connection:
+        product_lookups = {
+            brand: _load_purchase_product_lookup(connection, brand, product_codes)
+            for brand in dict.fromkeys([preferred_brand, *PRODUCT_ARCHIVE_TABLES])
+            if brand
+        }
+        product_lookup = {
+            product_code: next(
+                (
+                    product_info
+                    for lookup in product_lookups.values()
+                    if (product_info := lookup.get(product_code)) and _cell_text(product_info.get("size_range"))
+                ),
+                {},
+            )
+            for product_code in product_codes
+        }
+        size_ranges = {
+            _cell_text(product_info.get("size_range"))
+            for product_info in product_lookup.values()
+            if _cell_text(product_info.get("size_range"))
+        }
+        size_group_items_by_range = _load_purchase_size_group_items(connection, size_ranges)
+        size_labels_by_range = {
+            size_range: tuple(size_name for size_name, _ in size_group_items_by_range.get(size_range, ()))
+            or _parse_purchase_size_range_labels(size_range)
+            for size_range in size_ranges
+        }
+
+    for detail in details:
+        extra_fields = _dict_or_empty(detail.get("extra_fields"))
+        if _cell_text(extra_fields.get("size_labels")):
+            continue
+        product_info = product_lookup.get(_cell_text(detail.get("product_code"))) or {}
+        size_range = _cell_text(product_info.get("size_range"))
+        size_labels = size_labels_by_range.get(size_range, ())
+        if not size_range or not size_labels:
+            continue
+        detail["extra_fields"] = {
+            **extra_fields,
+            "size_range": size_range,
+            "size_labels": "|".join(size_labels),
+        }
+
+    return {"items": details}
 
 
 @router.post("/inventory/{record_id}/details/import-replace")
@@ -3917,6 +4215,39 @@ async def import_inventory(request: Request, file: UploadFile = None):
                 raw_payload[rp_key] = _normalize_date(rp_value) or rp_value
                 break
         doc_payload["raw_payload"] = raw_payload
+
+        product_code = _cell_text(detail_payload.get("product_code"))
+        if product_code:
+            imported_brand = _purchase_import_brand_for_supplier(
+                repository,
+                _cell_text(doc_payload.get("supplier")),
+                _cell_text(doc_payload.get("document_type")),
+                "",
+            )
+            with repository.engine.connect() as connection:
+                lookup = _build_purchase_detail_lookup(
+                    connection,
+                    product_code,
+                    _to_decimal(detail_payload.get("quantity")),
+                    imported_brand,
+                )
+                size_range = _cell_text(lookup.get("size_range"))
+                size_labels = tuple(
+                    _cell_text(size)
+                    for size in (lookup.get("size_labels") or [])
+                    if _cell_text(size)
+                )
+            if size_range:
+                extra_fields["size_range"] = size_range
+            if size_labels:
+                extra_fields["size_labels"] = "|".join(size_labels)
+                if len(size_labels) == 1 and detail_payload.get("quantity"):
+                    detail_payload["size_quantities"] = {size_labels[0]: str(detail_payload["quantity"])}
+            if extra_fields:
+                detail_payload["extra_fields"] = {
+                    **(detail_payload.get("extra_fields") or {}),
+                    **extra_fields,
+                }
 
         summary = str(doc_payload.get("summary") or "").strip()
         if summary not in groups:

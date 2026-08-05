@@ -248,7 +248,7 @@ class InventoryRepository:
         date_end: str | None = None,
         document_type: str | None = None,
         supplier: str | None = None,
-        warehouse: str | None = None,
+        warehouse: list[str] | None = None,
         product_code: str | None = None,
         product_name: str | None = None,
         color_name: str | None = None,
@@ -273,8 +273,14 @@ class InventoryRepository:
             conditions.append(record.c.document_type == document_type)
         if supplier:
             conditions.append(record.c.supplier.ilike(f"%{supplier.strip()}%"))
-        if warehouse:
-            conditions.append(record.c.warehouse.ilike(f"%{warehouse.strip()}%"))
+        warehouse_values = [warehouse] if isinstance(warehouse, str) else (warehouse or [])
+        warehouse_names = list(dict.fromkeys(
+            warehouse_name.strip()
+            for warehouse_name in warehouse_values
+            if warehouse_name and warehouse_name.strip()
+        ))
+        if warehouse_names:
+            conditions.append(record.c.warehouse.in_(warehouse_names))
         if product_code:
             conditions.append(detail.c.product_code.ilike(f"%{product_code.strip()}%"))
         if product_name:
