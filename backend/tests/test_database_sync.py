@@ -98,7 +98,7 @@ def test_sync_brand_rows_refreshes_current_launch_year_only(test_database_url: s
         "color_code": "NEW",
         "launch_date": "2026-04-01",
         "image_path": None,
-        "size_range": None,
+        "size_range": "源文件尺码组",
         "product_name": "源文件品名",
         "product_model": "源文件型号",
     }

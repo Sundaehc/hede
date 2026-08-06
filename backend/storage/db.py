@@ -155,7 +155,13 @@ class Database:
                 excluded = stmt.excluded
                 set_values = {column: getattr(excluded, column) for column in update_columns}
                 set_values["image_path"] = func.coalesce(getattr(excluded, "image_path"), table.c.image_path)
-                set_values["size_range"] = func.coalesce(getattr(excluded, "size_range"), table.c.size_range)
+                # A size group selected in the product archive is manual master
+                # data. Daily syncs may fill a blank value only; they must not
+                # replace an existing size group from a source workbook.
+                set_values["size_range"] = func.coalesce(
+                    func.nullif(func.btrim(table.c.size_range), ""),
+                    getattr(excluded, "size_range"),
+                )
                 # Desktop product master data is authoritative for existing
                 # products; daily source syncs may only fill blank values.
                 set_values["product_name"] = func.coalesce(table.c.product_name, getattr(excluded, "product_name"))
