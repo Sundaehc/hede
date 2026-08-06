@@ -156,6 +156,10 @@ class Database:
                 set_values = {column: getattr(excluded, column) for column in update_columns}
                 set_values["image_path"] = func.coalesce(getattr(excluded, "image_path"), table.c.image_path)
                 set_values["size_range"] = func.coalesce(getattr(excluded, "size_range"), table.c.size_range)
+                # Desktop product master data is authoritative for existing
+                # products; daily source syncs may only fill blank values.
+                set_values["product_name"] = func.coalesce(table.c.product_name, getattr(excluded, "product_name"))
+                set_values["product_model"] = func.coalesce(table.c.product_model, getattr(excluded, "product_model"))
                 set_values["updated_at"] = func.date_trunc("minute", func.now())
                 stmt = stmt.on_conflict_do_update(
                     index_elements=["sku"],

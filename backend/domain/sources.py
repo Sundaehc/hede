@@ -20,6 +20,7 @@ IMAGE_BRAND_KEYS = {
     "yandou": "yandou",
     "eblan": "eblan",
     "smiley": "smiley",
+    "ni": "ni",
 }
 
 
