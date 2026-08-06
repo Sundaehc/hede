@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import io
+import logging
 import urllib.parse
 import unicodedata
 from collections.abc import Iterator
@@ -34,6 +35,7 @@ from storage.product_repository import apply_jst_product_costs
 from transform.rows import EXCLUDED_EXTRA_FIELD_KEYS, build_admin_record, filter_extra_fields, normalize_admin_field
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 EXPORT_LABELS = {field.name: field.label for field in PRODUCT_FIELDS}
 # Keep the existing export wording for this field while using the canonical field labels elsewhere.
@@ -896,128 +898,118 @@ async def import_products(
     imported_skus: list[str] = []
     imported_product_ids: list[int] = []
 
-    for row in iterator:
-        row_dict = {}
-        for idx, cell_value in enumerate(row):
-            if idx < len(headers) and headers[idx]:
-                row_dict[headers[idx]] = cell_value
+    with repository.engine.begin() as connection:
+        for row_number, row in enumerate(iterator, start=2):
+            try:
+                row_dict = {}
+                for idx, cell_value in enumerate(row):
+                    if idx < len(headers) and headers[idx]:
+                        row_dict[headers[idx]] = cell_value
 
-        payload = {}
-        extra_fields = {}
-        known_fields = set(CN_TO_FIELD.values()) | set(CN_TO_FIELD.keys())
-        for key, value in row_dict.items():
-            field = reverse_aliases.get(key)
-            if field:
-                payload[field] = value
-            elif key and key not in known_fields:
-                # Unrecognized column -> store in extra_fields
-                if key in EXCLUDED_EXTRA_FIELD_KEYS:
+                payload = {}
+                extra_fields = {}
+                known_fields = set(CN_TO_FIELD.values()) | set(CN_TO_FIELD.keys())
+                for key, value in row_dict.items():
+                    field = reverse_aliases.get(key)
+                    if field:
+                        payload[field] = value
+                    elif key and key not in known_fields:
+                        if key in EXCLUDED_EXTRA_FIELD_KEYS:
+                            continue
+                        normalized = normalize_admin_field(key, value)
+                        if normalized is not None and str(normalized).strip():
+                            extra_fields[key] = normalized
+
+                raw_sku = payload.get("sku")
+                if raw_sku is not None:
+                    payload["sku"] = str(int(raw_sku)) if isinstance(raw_sku, float) and raw_sku.is_integer() else str(raw_sku).strip()
+
+                raw_orig = payload.get("original_sku")
+                if raw_orig is not None:
+                    payload["original_sku"] = str(int(raw_orig)) if isinstance(raw_orig, float) and raw_orig.is_integer() else str(raw_orig).strip()
+
+                if not payload.get("original_sku") and not payload.get("sku"):
                     continue
-                normalized = normalize_admin_field(key, value)
-                if normalized is not None and str(normalized).strip():
-                    extra_fields[key] = normalized
+                if payload.get("original_sku") and not payload.get("sku"):
+                    payload["sku"] = payload["original_sku"]
+                if is_excluded_sku(payload.get("sku"), payload.get("original_sku")):
+                    continue
+                if extra_fields:
+                    payload["extra_fields"] = extra_fields
 
-        # Normalize sku/original_sku: handle numeric values from Excel
-        raw_sku = payload.get("sku")
-        if raw_sku is not None:
-            if isinstance(raw_sku, float) and raw_sku.is_integer():
-                payload["sku"] = str(int(raw_sku))
-            else:
-                payload["sku"] = str(raw_sku).strip()
+                sku_val = str(payload.get("sku", "") or "").strip()
+                original_sku_val = str(payload.get("original_sku", "") or "").strip()
+                existing = repository.find_by_sku(brand, sku_val, connection=connection) if sku_val else None
+                if existing is None and original_sku_val:
+                    existing = repository.find_by_original_sku(brand, original_sku_val, connection=connection)
+                if sku_val:
+                    imported_skus.append(sku_val)
 
-        raw_orig = payload.get("original_sku")
-        if raw_orig is not None:
-            if isinstance(raw_orig, float) and raw_orig.is_integer():
-                payload["original_sku"] = str(int(raw_orig))
-            else:
-                payload["original_sku"] = str(raw_orig).strip()
+                import_fields = {}
+                for key, value in payload.items():
+                    if key in ("sku", "extra_fields"):
+                        continue
+                    normalized = normalize_admin_field(key, value)
+                    if normalized is not None and str(normalized).strip():
+                        import_fields[key] = normalized
 
-        if not payload.get("original_sku") and not payload.get("sku"):
-            continue
+                if image_matcher and not import_fields.get("image_path"):
+                    found_path = image_matcher.find(original_sku_val) if original_sku_val else None
+                    if not found_path and sku_val:
+                        found_path = image_matcher.find(sku_val)
+                    if found_path:
+                        import_fields["image_path"] = found_path
 
-        if payload.get("original_sku") and not payload.get("sku"):
-            payload["sku"] = payload["original_sku"]
+                if existing is not None:
+                    merged = {key: value for key, value in existing.items() if value is not None}
+                    merged.update(import_fields)
+                    existing_extra = filter_extra_fields(existing.get("extra_fields")) or {}
+                    new_extra = filter_extra_fields(payload.get("extra_fields")) or {}
+                    if existing_extra or new_extra:
+                        merged["extra_fields"] = {**existing_extra, **new_extra}
+                    record = build_admin_record(brand, merged, existing_metadata={
+                        "source_workbook": existing["source_workbook"],
+                        "source_sheet": existing["source_sheet"],
+                        "source_row_number": existing["source_row_number"],
+                    })
+                    _validate_import_size_group(repository, record.get("size_range"))
+                    saved_item = repository.update_product(brand, existing["id"], record, connection=connection)
+                    if saved_item is not None:
+                        imported_product_ids.append(int(saved_item["id"]))
+                    updated += 1
+                else:
+                    record = build_admin_record(brand, payload)
+                    _validate_import_size_group(repository, record.get("size_range"))
+                    saved_item = repository.create_product(brand, record, connection=connection)
+                    imported_product_ids.append(int(saved_item["id"]))
+                    created += 1
+            except HTTPException as error:
+                raise HTTPException(status_code=error.status_code, detail=f"第 {row_number} 行导入失败：{error.detail}") from error
+            except Exception as error:
+                raise HTTPException(status_code=400, detail=f"第 {row_number} 行导入失败：{error}") from error
 
-        if is_excluded_sku(payload.get("sku"), payload.get("original_sku")):
-            continue
-
-        if extra_fields:
-            payload["extra_fields"] = extra_fields
-
-        sku_val = str(payload.get("sku", "") or "").strip()
-        original_sku_val = str(payload.get("original_sku", "") or "").strip()
-        existing = repository.find_by_sku(brand, sku_val) if sku_val else None
-        if existing is None and original_sku_val:
-            existing = repository.find_by_original_sku(brand, original_sku_val)
-
-        if sku_val:
-            imported_skus.append(sku_val)
-
-        # Only keep fields that have a value in the imported row
-        import_fields = {}
-        for key, value in payload.items():
-            if key in ("sku", "extra_fields"):
-                continue
-            normalized = normalize_admin_field(key, value)
-            if normalized is not None and str(normalized).strip():
-                import_fields[key] = normalized
-
-        # Look up image by original_sku or sku
-        if image_matcher and not import_fields.get("image_path"):
-            orig_val = str(payload.get("original_sku", "") or "").strip()
-            sku_val_img = str(payload.get("sku", "") or "").strip()
-            found_path = None
-            if orig_val:
-                found_path = image_matcher.find(orig_val)
-            if not found_path and sku_val_img:
-                found_path = image_matcher.find(sku_val_img)
-            if found_path:
-                import_fields["image_path"] = found_path
-
-        if existing is not None:
-            # Merge: only overwrite fields present in the imported Excel
-            merged = {k: v for k, v in existing.items() if v is not None}
-            merged.update(import_fields)
-            # Merge extra_fields: keep existing + add new
-            existing_extra = filter_extra_fields(existing.get("extra_fields")) or {}
-            new_extra = filter_extra_fields(payload.get("extra_fields")) or {}
-            if existing_extra or new_extra:
-                merged["extra_fields"] = {**existing_extra, **new_extra}
-            record = build_admin_record(brand, merged, existing_metadata={
-                "source_workbook": existing["source_workbook"],
-                "source_sheet": existing["source_sheet"],
-                "source_row_number": existing["source_row_number"],
-            })
-            _validate_import_size_group(repository, record.get("size_range"))
-            saved_item = repository.update_product(brand, existing["id"], record)
-            if saved_item is not None:
-                imported_product_ids.append(int(saved_item["id"]))
-            updated += 1
-        else:
-            record = build_admin_record(brand, payload)
-            _validate_import_size_group(repository, record.get("size_range"))
-            saved_item = repository.create_product(brand, record)
-            imported_product_ids.append(int(saved_item["id"]))
-            created += 1
+        repository.mark_products_imported(brand, imported_product_ids, connection=connection)
 
     wb.close()
-    repository.mark_products_imported(brand, imported_product_ids)
     clear_fine_table_cache()
     clear_product_goods_cache()
-    write_operation_log(
-        request,
-        module="product",
-        action="import",
-        entity_type="product_import",
-        entity_label=file.filename or "商品档案导入",
-        summary=f"导入商品档案：新增 {created} 条，更新 {updated} 条",
-        after_data={
-            "brand": brand,
-            "filename": file.filename,
-            "created": created,
-            "updated": updated,
-            "skus": imported_skus[:500],
-            "sku_count": len(imported_skus),
-        },
-    )
+    try:
+        write_operation_log(
+            request,
+            module="product",
+            action="import",
+            entity_type="product_import",
+            entity_label=file.filename or "商品档案导入",
+            summary=f"导入商品档案：新增 {created} 条，更新 {updated} 条",
+            after_data={
+                "brand": brand,
+                "filename": file.filename,
+                "created": created,
+                "updated": updated,
+                "skus": imported_skus[:500],
+                "sku_count": len(imported_skus),
+            },
+        )
+    except Exception:
+        logger.exception("Failed to write product import operation log")
     return {"created": created, "updated": updated, "skus": imported_skus, "message": f"导入完成：新增 {created} 条，更新 {updated} 条"}

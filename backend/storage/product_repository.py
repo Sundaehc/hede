@@ -369,39 +369,50 @@ class ProductRepository:
             items = [dict(row) for row in connection.execute(statement).mappings()]
         return apply_jst_product_costs(self.engine, items)
 
-    def mark_products_imported(self, brand: str, product_ids: list[int]) -> None:
+    def mark_products_imported(self, brand: str, product_ids: list[int], *, connection=None) -> None:
         ids = sorted({int(product_id) for product_id in product_ids})
         if not ids:
             return
         table = PRODUCT_ARCHIVE_TABLES[brand]
-        with self.engine.begin() as connection:
+        def mark_imported(active_connection) -> None:
             for index in range(0, len(ids), IMPORT_MARK_CHUNK_SIZE):
-                connection.execute(
+                active_connection.execute(
                     update(table)
                     .where(table.c.id.in_(ids[index:index + IMPORT_MARK_CHUNK_SIZE]))
                     .values(last_imported_at=func.now())
                 )
+        if connection is not None:
+            mark_imported(connection)
+            return
+        with self.engine.begin() as active_connection:
+            mark_imported(active_connection)
 
-    def find_by_sku(self, brand: str, sku: object) -> dict[str, object] | None:
+    def find_by_sku(self, brand: str, sku: object, *, connection=None) -> dict[str, object] | None:
         table = PRODUCT_ARCHIVE_TABLES[brand]
         statement = (
             select(table)
             .where(table.c.sku == str(sku))
             .where(not_excluded_sku_condition(table.c.sku, table.c.original_sku))
         )
-        with self.engine.connect() as connection:
+        if connection is not None:
             row = connection.execute(statement).mappings().first()
+        else:
+            with self.engine.connect() as active_connection:
+                row = active_connection.execute(statement).mappings().first()
         return None if row is None else dict(row)
 
-    def find_by_original_sku(self, brand: str, original_sku: object) -> dict[str, object] | None:
+    def find_by_original_sku(self, brand: str, original_sku: object, *, connection=None) -> dict[str, object] | None:
         table = PRODUCT_ARCHIVE_TABLES[brand]
         statement = (
             select(table)
             .where(table.c.original_sku == str(original_sku))
             .where(not_excluded_sku_condition(table.c.sku, table.c.original_sku))
         )
-        with self.engine.connect() as connection:
+        if connection is not None:
             row = connection.execute(statement).mappings().first()
+        else:
+            with self.engine.connect() as active_connection:
+                row = active_connection.execute(statement).mappings().first()
         return None if row is None else dict(row)
 
     def upsert_by_sku(self, brand: str, record: Mapping[str, object]) -> dict[str, object]:
@@ -424,11 +435,14 @@ class ProductRepository:
 
         return dict(row)
 
-    def create_product(self, brand: str, record: Mapping[str, object]) -> dict[str, object]:
+    def create_product(self, brand: str, record: Mapping[str, object], *, connection=None) -> dict[str, object]:
         table = PRODUCT_ARCHIVE_TABLES[brand]
         statement = insert(table).values(**self._prepare_record(record, brand=brand)).returning(table)
-        with self.engine.begin() as connection:
+        if connection is not None:
             row = connection.execute(statement).mappings().one()
+            return dict(row)
+        with self.engine.begin() as active_connection:
+            row = active_connection.execute(statement).mappings().one()
         item = dict(row)
         apply_jst_product_costs(self.engine, [item])
         return item
@@ -438,13 +452,18 @@ class ProductRepository:
         brand: str,
         product_id: int,
         record: Mapping[str, object],
+        *,
+        connection=None,
     ) -> dict[str, object] | None:
         table = PRODUCT_ARCHIVE_TABLES[brand]
         payload = self._prepare_record(record, brand=brand)
         payload.pop("id", None)
         statement = update(table).where(table.c.id == product_id).values(**payload).returning(table)
-        with self.engine.begin() as connection:
+        if connection is not None:
             row = connection.execute(statement).mappings().first()
+            return None if row is None else dict(row)
+        with self.engine.begin() as active_connection:
+            row = active_connection.execute(statement).mappings().first()
         if row is None:
             return None
         item = dict(row)

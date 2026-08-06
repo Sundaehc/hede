@@ -12,7 +12,7 @@ from api.product_goods_cache import clear_product_goods_cache
 from api.operation_log_utils import actor_from_request
 from api.schemas import ImageLookupRequest, MatchSkuRequest, ProductArchiveBrandKey
 from domain.schema import PRODUCT_ARCHIVE_TABLES
-from domain.sources import IMAGE_BRAND_KEYS
+from domain.sources import IMAGE_BRAND_KEYS, TABLE_NAMES
 from fileio.image_matcher import ImageMatcher
 from storage.product_image_refresh import get_image_refresh_status, run_product_image_refresh
 

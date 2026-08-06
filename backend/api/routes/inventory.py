@@ -1045,9 +1045,9 @@ def _purchase_production_size_labels(details: list[dict[str, object]]) -> tuple[
     used_sizes: set[str] = set()
     for detail in details:
         size_quantities = _dict_or_empty(detail.get("size_quantities"))
-        for size, quantity in size_quantities.items():
+        for size in size_quantities:
             size_text = _cell_text(size)
-            if size_text and _to_decimal(quantity) != 0:
+            if size_text:
                 used_sizes.add(size_text)
     ordered = [size for size in PURCHASE_EXPORT_SIZE_LABELS if size in used_sizes]
     extra = sorted(size for size in used_sizes if size not in PURCHASE_EXPORT_SIZE_LABELS)
@@ -1082,7 +1082,7 @@ def _purchase_production_detail_rows(
             _cell_text(extra_fields.get("insole_material")),
             _cell_text(extra_fields.get("shoe_box_spec")),
             *[
-                _fmt_export_decimal(_to_decimal(size_quantities.get(size)), blank_zero=True)
+                _fmt_export_decimal(_to_decimal(size_quantities.get(size)))
                 for size in size_labels
             ],
             _fmt_export_decimal(quantity, blank_zero=True),

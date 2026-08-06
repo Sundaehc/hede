@@ -274,3 +274,34 @@ def test_import_products_updates_by_original_sku_without_clearing_blank_cells(
 
     listing = repository.list_products("cbanner_mens", query="ORIG-001", page=1, page_size=10)
     assert listing["total"] == 1
+
+
+def test_import_products_rolls_back_all_rows_when_a_row_is_invalid(
+    test_app_client: TestClient,
+    repository,
+):
+    workbook = Workbook()
+    worksheet = workbook.active
+    worksheet.append(["货号", "尺码段"])
+    worksheet.append(["TXN-OK", ""])
+    worksheet.append(["TXN-BAD", "不存在的尺码组"])
+    buffer = io.BytesIO()
+    workbook.save(buffer)
+    buffer.seek(0)
+
+    response = test_app_client.post(
+        "/import",
+        params={"brand": "cbanner_mens"},
+        files={
+            "file": (
+                "invalid-size-group.xlsx",
+                buffer.getvalue(),
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            ),
+        },
+    )
+
+    assert response.status_code == 400
+    assert "第 3 行导入失败" in response.json()["detail"]
+    assert repository.find_by_sku("cbanner_mens", "TXN-OK") is None
+    assert repository.find_by_sku("cbanner_mens", "TXN-BAD") is None

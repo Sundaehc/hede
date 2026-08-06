@@ -148,8 +148,8 @@ export function ProductToolbar({
       onMessage("导入完成", result.message)
       onClear()
       onImportComplete(result.skus)
-    } catch {
-      onMessage("导入失败", "请检查文件格式是否正确")
+    } catch (error) {
+      onMessage("导入失败", error instanceof Error ? error.message : "导入时发生未知错误，请重试")
     } finally {
       setImporting(false)
       if (fileInputRef.current) {

@@ -11,7 +11,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from config import load_settings
 from domain.product_size_group_mapping_schema import PRODUCT_SIZE_GROUP_MAPPINGS_TABLE
-from domain.schema import PRODUCT_TABLES
+from domain.schema import PRODUCT_ARCHIVE_TABLES
 from domain.size_group_schema import SIZE_GROUPS_TABLE
 from storage.db import Database
 
@@ -61,10 +61,6 @@ def read_size_group_mappings(path: Path) -> tuple[dict[str, str], int]:
         }, skipped
     finally:
         workbook.close()
-
-
-def _blank_size_range(table):
-    return (table.c.size_range.is_(None)) | (func.btrim(table.c.size_range) == "")
 
 
 def backfill_size_ranges(*, source_file: Path, dry_run: bool) -> dict[str, object]:
@@ -120,7 +116,7 @@ def backfill_size_ranges(*, source_file: Path, dry_run: bool) -> dict[str, objec
                 )
             )
 
-        for brand, table in PRODUCT_TABLES.items():
+        for brand, table in PRODUCT_ARCHIVE_TABLES.items():
             original_size_range = select(PRODUCT_SIZE_GROUP_MAPPINGS_TABLE.c.size_group_name).where(
                 PRODUCT_SIZE_GROUP_MAPPINGS_TABLE.c.product_code == table.c.original_sku
             ).scalar_subquery()
@@ -130,7 +126,6 @@ def backfill_size_ranges(*, source_file: Path, dry_run: bool) -> dict[str, objec
             mapped_size_range = func.coalesce(original_size_range, sku_size_range)
             result = connection.execute(
                 update(table)
-                .where(_blank_size_range(table))
                 .where(mapped_size_range.is_not(None))
                 .values(size_range=mapped_size_range, updated_at=func.date_trunc("minute", func.now()))
             )

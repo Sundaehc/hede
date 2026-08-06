@@ -8,6 +8,21 @@ from fastapi.testclient import TestClient
 from api.routes.images import router as images_router
 
 
+def test_serve_image_resolves_product_archive_brand(tmp_path):
+    image_path = tmp_path / "C5562217D80.jpg"
+    image_path.write_bytes(b"test-image")
+
+    app = FastAPI()
+    app.state.settings = SimpleNamespace(image_roots={"cbanner": tmp_path})
+    app.include_router(images_router)
+    client = TestClient(app)
+
+    response = client.get("/images/serve/cbanner_mens/C5562217D80.jpg")
+
+    assert response.status_code == 200
+    assert response.content == b"test-image"
+
+
 def test_image_lookup_prefers_original_sku(test_app_client: TestClient):
     response = test_app_client.post(
         "/images/lookup",

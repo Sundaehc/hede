@@ -23,7 +23,7 @@ import xlrd
 from sqlalchemy import select, update
 
 from config import load_settings
-from domain.schema import PRODUCT_TABLES
+from domain.schema import PRODUCT_ARCHIVE_TABLES
 from storage.product_repository import ProductRepository
 
 sys.stdout.reconfigure(encoding="utf-8")
@@ -122,8 +122,26 @@ def resolved_values_by_code(values_by_code: dict[str, dict[str, set[str]]]) -> t
     return resolved, conflicts
 
 
-def build_updates(repository: ProductRepository, brand: str, source: SourceReadResult) -> tuple[list[tuple[int, dict[str, str]]], dict[str, int]]:
-    table = PRODUCT_TABLES[brand]
+def merge_source_results(results: list[SourceReadResult]) -> SourceReadResult:
+    values_by_code: dict[str, dict[str, set[str]]] = defaultdict(lambda: defaultdict(set))
+    for result in results:
+        for code, field_values in result.values_by_code.items():
+            for field, values in field_values.items():
+                values_by_code[code][field].update(values)
+    return SourceReadResult(
+        dict(values_by_code),
+        sum(result.data_rows for result in results),
+        sum(result.usable_rows for result in results),
+    )
+
+
+def build_updates(
+    repository: ProductRepository,
+    brand: str,
+    source: SourceReadResult,
+    target_fields: tuple[str, ...] = TARGET_FIELDS,
+) -> tuple[list[tuple[int, dict[str, str]]], dict[str, int]]:
+    table = PRODUCT_ARCHIVE_TABLES[brand]
     source_values, source_field_conflicts = resolved_values_by_code(source.values_by_code)
     updates: list[tuple[int, dict[str, str]]] = []
     matched_products = 0
@@ -145,6 +163,8 @@ def build_updates(repository: ProductRepository, brand: str, source: SourceReadR
             matched_products += 1
             changes: dict[str, str] = {}
             for field, values in candidate_values.items():
+                if field not in target_fields:
+                    continue
                 if len(values) != 1:
                     target_field_conflicts += 1
                     continue
@@ -168,7 +188,7 @@ def build_updates(repository: ProductRepository, brand: str, source: SourceReadR
 def apply_updates(repository: ProductRepository, brand: str, updates_to_apply: list[tuple[int, dict[str, str]]]) -> None:
     if not updates_to_apply:
         return
-    table = PRODUCT_TABLES[brand]
+    table = PRODUCT_ARCHIVE_TABLES[brand]
     with repository.engine.begin() as connection:
         for product_id, changes in updates_to_apply:
             connection.execute(update(table).where(table.c.id == product_id).values(**changes))
@@ -177,25 +197,46 @@ def apply_updates(repository: ProductRepository, brand: str, updates_to_apply: l
 def main() -> None:
     parser = argparse.ArgumentParser(description="从桌面男鞋、女鞋 XLS 回填商品档案品名和产品型号")
     parser.add_argument("--apply", action="store_true", help="执行数据库更新；未传入时仅预览")
+    parser.add_argument(
+        "--target-brand",
+        choices=("cbanner_mens", "cbanner_womens", "smiley"),
+        help="将来源数据回填到指定商品档案品牌",
+    )
     args = parser.parse_args()
 
     repository = ProductRepository(load_settings().database_url)
     total_updates = 0
     print("模式：" + ("正式回填" if args.apply else "预览（未写入数据库）"))
-    for brand, source_path in SOURCES.items():
-        source = read_source(source_path)
-        updates_to_apply, stats = build_updates(repository, brand, source)
-        field_counts = {field: sum(field in changes for _, changes in updates_to_apply) for field in TARGET_FIELDS}
+    if args.target_brand == "smiley":
+        source = merge_source_results([read_source(path) for path in SOURCES.values()])
+        target_fields = TARGET_FIELDS
+        updates_to_apply, stats = build_updates(repository, args.target_brand, source, target_fields)
+        field_counts = {field: sum(field in changes for _, changes in updates_to_apply) for field in target_fields}
         print(
-            f"{source_path.name} -> {brand}：来源 {source.data_rows} 行，"
+            f"男鞋.xls + 女鞋.xls -> {args.target_brand}：来源 {source.data_rows} 行，"
             f"有效 {source.usable_rows} 行，来源货号 {stats['source_codes']} 个，"
             f"匹配商品 {stats['matched_products']} 条，待更新 {len(updates_to_apply)} 条，"
             f"品名 {field_counts['product_name']} 项，产品型号 {field_counts['product_model']} 项，"
             f"来源冲突 {stats['source_field_conflicts']} 项，匹配冲突 {stats['target_field_conflicts']} 项"
         )
         if args.apply:
-            apply_updates(repository, brand, updates_to_apply)
+            apply_updates(repository, args.target_brand, updates_to_apply)
         total_updates += len(updates_to_apply)
+    else:
+        for brand, source_path in SOURCES.items():
+            source = read_source(source_path)
+            updates_to_apply, stats = build_updates(repository, brand, source)
+            field_counts = {field: sum(field in changes for _, changes in updates_to_apply) for field in TARGET_FIELDS}
+            print(
+                f"{source_path.name} -> {brand}：来源 {source.data_rows} 行，"
+                f"有效 {source.usable_rows} 行，来源货号 {stats['source_codes']} 个，"
+                f"匹配商品 {stats['matched_products']} 条，待更新 {len(updates_to_apply)} 条，"
+                f"品名 {field_counts['product_name']} 项，产品型号 {field_counts['product_model']} 项，"
+                f"来源冲突 {stats['source_field_conflicts']} 项，匹配冲突 {stats['target_field_conflicts']} 项"
+            )
+            if args.apply:
+                apply_updates(repository, brand, updates_to_apply)
+            total_updates += len(updates_to_apply)
 
     print(("已回填" if args.apply else "待回填") + f"商品记录：{total_updates} 条")
 

@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent } from "react"
 import { Plus, Download, Upload, Trash2, Edit, Search, X, RefreshCw, List, BadgeDollarSign, FileText, History, ChevronLeft, ChevronRight } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -162,6 +162,55 @@ const EMPTY_COST_FORM: Record<string, string> = {
   unit_price: "",
   batch_text: "",
 }
+
+type InventoryTableColumnKey =
+  | "document_number"
+  | "date"
+  | "document_type"
+  | "supplier"
+  | "total_count"
+  | "amount"
+  | "warehouse"
+  | "handler"
+  | "summary"
+
+const INVENTORY_TABLE_COLUMN_ORDER: InventoryTableColumnKey[] = [
+  "document_number",
+  "date",
+  "document_type",
+  "supplier",
+  "total_count",
+  "amount",
+  "warehouse",
+  "handler",
+  "summary",
+]
+
+const INVENTORY_TABLE_COLUMN_LABELS: Record<InventoryTableColumnKey, string> = {
+  document_number: "单据编号",
+  date: "日期",
+  document_type: "单据类型",
+  supplier: "供应商",
+  total_count: "总数",
+  amount: "金额",
+  warehouse: "仓库",
+  handler: "经手人",
+  summary: "摘要",
+}
+
+const INVENTORY_TABLE_COLUMN_WIDTHS: Record<InventoryTableColumnKey, string> = {
+  document_number: "w-36",
+  date: "w-28",
+  document_type: "w-28",
+  supplier: "w-44",
+  total_count: "w-20",
+  amount: "w-24",
+  warehouse: "w-48",
+  handler: "w-24",
+  summary: "w-auto",
+}
+
+const INVENTORY_TABLE_COLUMN_ORDER_STORAGE_KEY = "hede.inventory-records.table-column-order"
 
 function getErrorMessage(error: unknown) {
   if (error instanceof ApiError) return error.message || `请求失败（${error.status}）`
@@ -549,10 +598,76 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
   const [isUpdatingCosts, setIsUpdatingCosts] = useState(false)
 
   const [detailDocumentId, setDetailDocumentId] = useState<number | null>(null)
+  const [inventoryColumnOrder, setInventoryColumnOrder] = useState<InventoryTableColumnKey[]>(INVENTORY_TABLE_COLUMN_ORDER)
+  const [draggedInventoryColumn, setDraggedInventoryColumn] = useState<InventoryTableColumnKey | null>(null)
+  const [dragOverInventoryColumn, setDragOverInventoryColumn] = useState<InventoryTableColumnKey | null>(null)
   const [activeTab, setActiveTab] = useState("records")
   const [recordCompletionStatus, setRecordCompletionStatus] = useState<CompletionStatus>("completed")
   const activeTabValue = isPurchasePage ? "purchase-orders" : activeTab
   const isPurchaseOrderTab = activeTabValue === "purchase-orders"
+
+  useEffect(() => {
+    if (isPurchasePage) return
+    try {
+      const storedOrder = window.localStorage.getItem(INVENTORY_TABLE_COLUMN_ORDER_STORAGE_KEY)
+      if (!storedOrder) return
+      const parsedOrder: unknown = JSON.parse(storedOrder)
+      if (!Array.isArray(parsedOrder)) return
+      const normalizedOrder = parsedOrder.filter((value): value is InventoryTableColumnKey => (
+        typeof value === "string" && INVENTORY_TABLE_COLUMN_ORDER.includes(value as InventoryTableColumnKey)
+      ))
+      if (normalizedOrder.length !== INVENTORY_TABLE_COLUMN_ORDER.length) return
+      if (new Set(normalizedOrder).size !== INVENTORY_TABLE_COLUMN_ORDER.length) return
+      setInventoryColumnOrder(normalizedOrder)
+    } catch {
+      // Ignore unavailable or malformed browser storage.
+    }
+  }, [isPurchasePage])
+
+  const handleInventoryColumnDragStart = (event: DragEvent<HTMLTableCellElement>, columnKey: InventoryTableColumnKey) => {
+    event.dataTransfer.effectAllowed = "move"
+    event.dataTransfer.setData("text/plain", columnKey)
+    setDraggedInventoryColumn(columnKey)
+  }
+
+  const handleInventoryColumnDragOver = (event: DragEvent<HTMLTableCellElement>, columnKey: InventoryTableColumnKey) => {
+    event.preventDefault()
+    event.dataTransfer.dropEffect = "move"
+    if (draggedInventoryColumn && draggedInventoryColumn !== columnKey) {
+      setDragOverInventoryColumn(columnKey)
+    }
+  }
+
+  const handleInventoryColumnDrop = (event: DragEvent<HTMLTableCellElement>, targetColumnKey: InventoryTableColumnKey) => {
+    event.preventDefault()
+    const sourceColumnKey = draggedInventoryColumn || event.dataTransfer.getData("text/plain") as InventoryTableColumnKey
+    if (!sourceColumnKey || sourceColumnKey === targetColumnKey) {
+      setDraggedInventoryColumn(null)
+      setDragOverInventoryColumn(null)
+      return
+    }
+    setInventoryColumnOrder((currentOrder) => {
+      const sourceIndex = currentOrder.indexOf(sourceColumnKey)
+      const targetIndex = currentOrder.indexOf(targetColumnKey)
+      if (sourceIndex === -1 || targetIndex === -1) return currentOrder
+      const nextOrder = [...currentOrder]
+      nextOrder.splice(sourceIndex, 1)
+      nextOrder.splice(targetIndex - (sourceIndex < targetIndex ? 1 : 0), 0, sourceColumnKey)
+      try {
+        window.localStorage.setItem(INVENTORY_TABLE_COLUMN_ORDER_STORAGE_KEY, JSON.stringify(nextOrder))
+      } catch {
+        // Keep the current session order when browser storage is unavailable.
+      }
+      return nextOrder
+    })
+    setDraggedInventoryColumn(null)
+    setDragOverInventoryColumn(null)
+  }
+
+  const handleInventoryColumnDragEnd = () => {
+    setDraggedInventoryColumn(null)
+    setDragOverInventoryColumn(null)
+  }
 
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [isImporting, setIsImporting] = useState(false)
@@ -1497,33 +1612,50 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
                 <table className={isPurchaseOrderTab ? "w-full min-w-[1440px] table-fixed text-sm" : "w-full min-w-[1320px] table-fixed text-sm"}>
                   <colgroup>
                     <col className="w-12" />
-                    <col className={isPurchaseOrderTab ? "w-56" : "w-36"} />
-                    <col className="w-28" />
-                    {isPurchaseOrderTab && <col className="w-28" />}
-                    {!isPurchaseOrderTab && <col className="w-28" />}
-                    <col className={isPurchaseOrderTab ? "w-48" : "w-44"} />
-                    {!isPurchaseOrderTab && <col className="w-20" />}
-                    {!isPurchaseOrderTab && <col className="w-24" />}
-                    {!isPurchaseOrderTab && <col className="w-48" />}
-                    <col className="w-24" />
-                    <col />
-                    {isPurchaseOrderTab && <col />}
+                    {isPurchaseOrderTab ? (
+                      <>
+                        <col className="w-56" />
+                        <col className="w-28" />
+                        <col className="w-28" />
+                        <col className="w-48" />
+                        <col className="w-24" />
+                        <col />
+                        <col />
+                      </>
+                    ) : (
+                      inventoryColumnOrder.map((columnKey) => <col key={columnKey} className={INVENTORY_TABLE_COLUMN_WIDTHS[columnKey]} />)
+                    )}
                     <col className="w-28" />
                   </colgroup>
                   <thead>
                     <tr className="table-head-row">
                       <th className="px-4 py-3"></th>
-                      <th className="px-4 py-3 font-medium">单据编号</th>
-                      <th className="px-4 py-3 font-medium">{isPurchaseOrderTab ? "订货日期" : "日期"}</th>
-                      {isPurchaseOrderTab && <th className="px-4 py-3 font-medium">交货日期</th>}
-                      {!isPurchaseOrderTab && <th className="px-4 py-3 font-medium">单据类型</th>}
-                      <th className="px-4 py-3 font-medium">供应商</th>
-                      {!isPurchaseOrderTab && <th className="px-4 py-3 text-right font-medium">总数</th>}
-                      {!isPurchaseOrderTab && <th className="px-4 py-3 text-right font-medium">金额</th>}
-                      {!isPurchaseOrderTab && <th className="px-4 py-3 font-medium">仓库</th>}
-                      <th className="px-4 py-3 font-medium">经手人</th>
-                      <th className="px-4 py-3 font-medium">摘要</th>
-                      {isPurchaseOrderTab && <th className="px-4 py-3 font-medium">附加说明</th>}
+                      {isPurchaseOrderTab ? (
+                        <>
+                          <th className="px-4 py-3 font-medium">单据编号</th>
+                          <th className="px-4 py-3 font-medium">订货日期</th>
+                          <th className="px-4 py-3 font-medium">交货日期</th>
+                          <th className="px-4 py-3 font-medium">供应商</th>
+                          <th className="px-4 py-3 font-medium">经手人</th>
+                          <th className="px-4 py-3 font-medium">摘要</th>
+                          <th className="px-4 py-3 font-medium">附加说明</th>
+                        </>
+                      ) : inventoryColumnOrder.map((columnKey) => (
+                        <th
+                          key={columnKey}
+                          draggable
+                          onDragStart={(event) => handleInventoryColumnDragStart(event, columnKey)}
+                          onDragOver={(event) => handleInventoryColumnDragOver(event, columnKey)}
+                          onDrop={(event) => handleInventoryColumnDrop(event, columnKey)}
+                          onDragEnd={handleInventoryColumnDragEnd}
+                          className={`select-none px-4 py-3 font-medium cursor-grab transition-colors active:cursor-grabbing ${
+                            dragOverInventoryColumn === columnKey ? "bg-primary/15 text-primary" : ""
+                          } ${draggedInventoryColumn === columnKey ? "opacity-50" : ""}`}
+                          title="拖拽调整列顺序"
+                        >
+                          {INVENTORY_TABLE_COLUMN_LABELS[columnKey]}
+                        </th>
+                      ))}
                       <th className="sticky right-0 z-20 w-28 border-l border-border bg-muted px-4 py-3 text-center font-medium shadow-[-5px_0_10px_-9px_rgb(0_0_0_/_0.45)]">操作</th>
                     </tr>
                   </thead>
@@ -1552,48 +1684,81 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
                               className="h-4 w-4 cursor-pointer rounded border border-input accent-primary"
                             />
                           </td>
-                          <td className="px-4 py-3 align-middle font-mono text-xs leading-4 tabular-nums">
-                            <span className={isPurchaseOrderTab ? "block whitespace-nowrap" : "block truncate"} title={String(item.document_number || item.id)}>{item.document_number || item.id}</span>
-                          </td>
-                          <td className="px-4 py-3 align-middle whitespace-nowrap tabular-nums">{item.date || "-"}</td>
-                          {isPurchaseOrderTab && (
-                            <td className="px-4 py-3 align-middle whitespace-nowrap tabular-nums">
-                              {typeof item.extra_fields?.delivery_date === "string" ? item.extra_fields.delivery_date : "-"}
-                            </td>
-                          )}
-                          {!isPurchaseOrderTab && (
-                            <td className="px-4 py-3 align-middle whitespace-nowrap">
-                              {item.document_type ? (
-                                <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${OUTBOUND_DOCUMENT_TYPES.has(item.document_type) ? "bg-red-100 text-red-700"
-                                    : INBOUND_DOCUMENT_TYPES.has(item.document_type) ? "bg-green-100 text-green-700"
-                                      : "bg-blue-100 text-blue-700"
-                                  }`}>
-                                  {item.document_type}
-                                </span>
-                              ) : "-"}
-                            </td>
-                          )}
-                          <td className="px-4 py-3 align-middle">
-                            <span className="block truncate" title={item.supplier || ""}>{item.supplier || "-"}</span>
-                          </td>
-                          {!isPurchaseOrderTab && <td className="px-4 py-3 align-middle text-right font-mono tabular-nums">{isAccountingRow ? "" : item.total_count || "-"}</td>}
-                          {!isPurchaseOrderTab && <td className="px-4 py-3 align-middle text-right font-mono tabular-nums">{isAccountingRow ? "" : item.amount || "-"}</td>}
-                          {!isPurchaseOrderTab && (
-                            <td className="px-4 py-3 align-middle">
-                              <span className="block truncate" title={item.warehouse || ""}>{isAccountingRow ? "" : item.warehouse || "-"}</span>
-                            </td>
-                          )}
-                          <td className="px-4 py-3 align-middle">
-                            <span className="block truncate" title={item.handler || ""}>{item.handler || "-"}</span>
-                          </td>
-                          <td className="px-4 py-3 align-middle">
-                            <span className="block whitespace-normal break-words leading-5" title={item.summary || ""}>{item.summary || "-"}</span>
-                          </td>
-                          {isPurchaseOrderTab && (
-                            <td className="px-4 py-3 align-middle">
-                              <span className="block whitespace-normal break-words leading-5" title={item.additional_note || ""}>{item.additional_note || "-"}</span>
-                            </td>
-                          )}
+                          {isPurchaseOrderTab ? (
+                            <>
+                              <td className="px-4 py-3 align-middle font-mono text-xs leading-4 tabular-nums">
+                                <span className="block whitespace-nowrap" title={String(item.document_number || item.id)}>{item.document_number || item.id}</span>
+                              </td>
+                              <td className="px-4 py-3 align-middle whitespace-nowrap tabular-nums">{item.date || "-"}</td>
+                              <td className="px-4 py-3 align-middle whitespace-nowrap tabular-nums">
+                                {typeof item.extra_fields?.delivery_date === "string" ? item.extra_fields.delivery_date : "-"}
+                              </td>
+                              <td className="px-4 py-3 align-middle">
+                                <span className="block truncate" title={item.supplier || ""}>{item.supplier || "-"}</span>
+                              </td>
+                              <td className="px-4 py-3 align-middle">
+                                <span className="block truncate" title={item.handler || ""}>{item.handler || "-"}</span>
+                              </td>
+                              <td className="px-4 py-3 align-middle">
+                                <span className="block whitespace-normal break-words leading-5" title={item.summary || ""}>{item.summary || "-"}</span>
+                              </td>
+                              <td className="px-4 py-3 align-middle">
+                                <span className="block whitespace-normal break-words leading-5" title={item.additional_note || ""}>{item.additional_note || "-"}</span>
+                              </td>
+                            </>
+                          ) : inventoryColumnOrder.map((columnKey) => {
+                            switch (columnKey) {
+                              case "document_number":
+                                return (
+                                  <td key={columnKey} className="px-4 py-3 align-middle font-mono text-xs leading-4 tabular-nums">
+                                    <span className="block truncate" title={String(item.document_number || item.id)}>{item.document_number || item.id}</span>
+                                  </td>
+                                )
+                              case "date":
+                                return <td key={columnKey} className="px-4 py-3 align-middle whitespace-nowrap tabular-nums">{item.date || "-"}</td>
+                              case "document_type":
+                                return (
+                                  <td key={columnKey} className="px-4 py-3 align-middle whitespace-nowrap">
+                                    {item.document_type ? (
+                                      <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${OUTBOUND_DOCUMENT_TYPES.has(item.document_type) ? "bg-red-100 text-red-700"
+                                          : INBOUND_DOCUMENT_TYPES.has(item.document_type) ? "bg-green-100 text-green-700"
+                                            : "bg-blue-100 text-blue-700"
+                                        }`}>
+                                        {item.document_type}
+                                      </span>
+                                    ) : "-"}
+                                  </td>
+                                )
+                              case "supplier":
+                                return (
+                                  <td key={columnKey} className="px-4 py-3 align-middle">
+                                    <span className="block truncate" title={item.supplier || ""}>{item.supplier || "-"}</span>
+                                  </td>
+                                )
+                              case "total_count":
+                                return <td key={columnKey} className="px-4 py-3 align-middle text-right font-mono tabular-nums">{isAccountingRow ? "" : item.total_count || "-"}</td>
+                              case "amount":
+                                return <td key={columnKey} className="px-4 py-3 align-middle text-right font-mono tabular-nums">{isAccountingRow ? "" : item.amount || "-"}</td>
+                              case "warehouse":
+                                return (
+                                  <td key={columnKey} className="px-4 py-3 align-middle">
+                                    <span className="block truncate" title={item.warehouse || ""}>{isAccountingRow ? "" : item.warehouse || "-"}</span>
+                                  </td>
+                                )
+                              case "handler":
+                                return (
+                                  <td key={columnKey} className="px-4 py-3 align-middle">
+                                    <span className="block truncate" title={item.handler || ""}>{item.handler || "-"}</span>
+                                  </td>
+                                )
+                              case "summary":
+                                return (
+                                  <td key={columnKey} className="px-4 py-3 align-middle">
+                                    <span className="block whitespace-normal break-words leading-5" title={item.summary || ""}>{item.summary || "-"}</span>
+                                  </td>
+                                )
+                            }
+                          })}
                           <td className="sticky right-0 z-10 w-28 border-l border-border bg-card px-4 py-3 align-middle shadow-[-5px_0_10px_-9px_rgb(0_0_0_/_0.45)] transition-colors group-hover:bg-muted">
                             <div className="flex items-center justify-center gap-1">
                               <Button variant="ghost" size="icon-sm" onClick={() => setDetailDocumentId(item.id)} className="cursor-pointer" title="明细">

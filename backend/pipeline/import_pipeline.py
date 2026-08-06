@@ -100,6 +100,14 @@ def _mapped_size_range(mapping_by_code: dict[str, str], *codes: object) -> str |
     return None
 
 
+def _resolve_size_range(
+    mapping_by_code: dict[str, str],
+    source_size_range: object,
+    *codes: object,
+) -> str | None:
+    return _mapped_size_range(mapping_by_code, *codes) or _clean_code(source_size_range) or None
+
+
 def _merge_extra_fields(*values: object) -> dict[str, object] | None:
     merged: dict[str, object] = {}
     for value in values:
@@ -353,12 +361,14 @@ class ImportPipeline:
                     image_path=image_path,
                 )
                 if canonical is not None:
-                    if not _clean_code(canonical.get("size_range")):
-                        canonical["size_range"] = _mapped_size_range(
-                            size_range_by_code,
-                            canonical.get("original_sku"),
-                            canonical.get("sku"),
-                        )
+                    # Product-code mappings are maintained in size-group management and
+                    # must take precedence over a source workbook during daily syncs.
+                    canonical["size_range"] = _resolve_size_range(
+                        size_range_by_code,
+                        canonical.get("size_range"),
+                        canonical.get("original_sku"),
+                        canonical.get("sku"),
+                    )
                     if cbanner_mens_group_name:
                         canonical["group_name"] = cbanner_mens_group_name
                     if product_level:

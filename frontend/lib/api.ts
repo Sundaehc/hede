@@ -752,7 +752,7 @@ export function importProducts(brand: ProductArchiveRecordBrandKey, file: File) 
     credentials: "include",
   }).then(async (response) => {
     if (!response.ok) {
-      throw new ApiError(response.status, await response.text())
+      throw new ApiError(response.status, await readApiError(response))
     }
     return (await response.json()) as ImportResult
   })
