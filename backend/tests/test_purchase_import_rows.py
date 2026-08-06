@@ -120,6 +120,24 @@ def test_purchase_import_rows_include_document_fields_and_group_by_summary() -> 
     assert len(groups[0]["rows"]) == 2
 
 
+def test_purchase_import_keeps_same_summary_separate_when_warehouse_differs() -> None:
+    rows, _ = _read_purchase_import_rows(_sample_purchase_workbook())
+    rows[1]["warehouse"] = "赫德公司仓"
+
+    groups = _group_purchase_import_rows_by_summary(rows, "")
+
+    assert len(groups) == 2
+
+
+def test_purchase_import_keeps_same_summary_separate_when_date_differs() -> None:
+    rows, _ = _read_purchase_import_rows(_sample_purchase_workbook())
+    rows[1]["date"] = "2026-06-30"
+
+    groups = _group_purchase_import_rows_by_summary(rows, "")
+
+    assert len(groups) == 2
+
+
 def test_purchase_order_import_rejects_legacy_single_document_template() -> None:
     rows, _ = _read_purchase_import_rows(_legacy_single_document_workbook())
 

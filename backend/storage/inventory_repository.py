@@ -410,12 +410,36 @@ class InventoryRepository:
             row = connection.execute(statement).mappings().first()
         return None if row is None else dict(row)
 
-    def get_record_by_summary(self, summary: str) -> dict[str, object] | None:
+    def get_record_for_append(
+        self,
+        *,
+        date_value: object,
+        warehouse: object,
+        document_type: object,
+        summary: object,
+    ) -> dict[str, object] | None:
         normalized_summary = str(summary or "").strip()
-        if not normalized_summary:
+        normalized_warehouse = str(warehouse or "").strip()
+        normalized_document_type = str(document_type or "").strip()
+        normalized_date = parse_date(date_value)
+        if not (normalized_summary and normalized_warehouse and normalized_document_type and normalized_date):
             return None
+
         table = INVENTORY_TABLE
-        statement = select(table).where(table.c.summary == normalized_summary).order_by(desc(table.c.id))
+        statement = (
+            select(table)
+            .where(
+                table.c.deleted_at.is_(None),
+                or_(
+                    table.c.date_value == normalized_date,
+                    table.c.date == normalized_date.isoformat(),
+                ),
+                table.c.warehouse == normalized_warehouse,
+                table.c.document_type == normalized_document_type,
+                table.c.summary == normalized_summary,
+            )
+            .order_by(desc(table.c.id))
+        )
         with self.engine.connect() as connection:
             row = connection.execute(statement).mappings().first()
         return None if row is None else dict(row)

@@ -1399,7 +1399,7 @@ def _build_purchase_order_import_template() -> Workbook:
     ]
     worksheet.append(headers)
     worksheet.append([
-        "说明：同一个采购单备注会导入为同一张采购单；不同采购单备注会自动分成多张采购单。商品编码请填写带颜色和尺码的完整商品编码，系统导入时会自动拆解并匹配单价。",
+        "说明：日期、收货仓库、单据类型和采购单备注均相同的记录会追加到同一张采购单；任一项不同则新建采购单。商品编码请填写带颜色和尺码的完整商品编码，系统导入时会自动拆解并匹配单价。",
         "",
         "",
         "",
@@ -2550,8 +2550,8 @@ def _group_purchase_import_rows_by_summary(
     rows: list[dict[str, object]],
     fallback_summary: str,
 ) -> list[dict[str, object]]:
-    groups: dict[str, dict[str, object]] = {}
-    ordered_keys: list[str] = []
+    groups: dict[tuple[str, str, str] | tuple[str, int], dict[str, object]] = {}
+    ordered_keys: list[tuple[str, str, str] | tuple[str, int]] = []
     carried_fields: dict[str, str] = {}
     doc_fields = tuple(PURCHASE_IMPORT_DOC_FIELD_ALIASES.keys())
 
@@ -2568,7 +2568,11 @@ def _group_purchase_import_rows_by_summary(
             for field in doc_fields
         }
         summary = effective_fields.get("summary") or fallback_summary
-        group_key = summary or f"__missing_summary_{row_index}"
+        group_key = (
+            effective_fields.get("date", ""),
+            effective_fields.get("warehouse", ""),
+            summary,
+        ) if summary else ("__missing_summary", row_index)
         if group_key not in groups:
             groups[group_key] = {"summary": summary, "fields": {}, "rows": []}
             ordered_keys.append(group_key)
@@ -2979,8 +2983,6 @@ async def import_purchase_inventory(request: Request, file: UploadFile = None):
     delivery_date = _normalize_date(str(form.get("delivery_date") or "")) or None
     brand = str(form.get("brand") or "").strip() or _purchase_import_brand(document_type)
     fallback_unit_price = _to_decimal(form.get("unit_price"))
-    overwrite_existing = str(form.get("overwrite_existing") or "").strip().lower() in {"1", "true", "yes", "on"}
-
     content = await file.read()
     repository = request.app.state.inventory_repository
     rows, sheet_name = _read_purchase_import_rows(content)
@@ -3001,7 +3003,6 @@ async def import_purchase_inventory(request: Request, file: UploadFile = None):
         raise HTTPException(status_code=400, detail="Excel 中没有可导入的明细")
 
     plans: list[dict[str, object]] = []
-    duplicate_summaries: list[str] = []
     for index, group in enumerate(groups, start=1):
         fields = group.get("fields") if isinstance(group.get("fields"), dict) else {}
         group_summary = _cell_text(fields.get("summary")) if is_purchase_order_import else _first_text(fields.get("summary"), summary)
@@ -3039,9 +3040,12 @@ async def import_purchase_inventory(request: Request, file: UploadFile = None):
             raise HTTPException(status_code=400, detail=f"{label}：采购日期不能为空")
         if document_type == "进货订单" and not group_delivery_date:
             raise HTTPException(status_code=400, detail=f"{label}：交货日期不能为空")
-        existing_record = repository.get_record_by_summary(group_summary)
-        if existing_record:
-            duplicate_summaries.append(group_summary)
+        existing_record = repository.get_record_for_append(
+            date_value=group_date,
+            warehouse=group_warehouse,
+            document_type=document_type,
+            summary=group_summary,
+        )
 
         group_rows = group.get("rows") if isinstance(group.get("rows"), list) else []
         group_brand = _purchase_import_brand_for_supplier(repository, group_supplier, document_type, brand)
@@ -3058,17 +3062,6 @@ async def import_purchase_inventory(request: Request, file: UploadFile = None):
             "existing_record": existing_record,
         })
 
-    if duplicate_summaries and not overwrite_existing:
-        preview = "、".join(duplicate_summaries[:5])
-        suffix = "等" if len(duplicate_summaries) > 5 else ""
-        return {
-            "created": 0,
-            "details": 0,
-            "requires_confirmation": True,
-            "duplicate_summaries": duplicate_summaries,
-            "message": f"摘要 {preview}{suffix} 已存在，确认后将覆盖这些单据的主信息和全部明细，是否继续？",
-        }
-
     for plan in plans:
         plan["details"] = _build_purchase_details_from_rows(
             repository,
@@ -3080,12 +3073,11 @@ async def import_purchase_inventory(request: Request, file: UploadFile = None):
 
     created_docs = 0
     created_details = 0
-    overwritten_docs = 0
-    overwritten_details = 0
+    appended_docs = 0
+    appended_details = 0
     first_doc: dict[str, object] | None = None
     created_records: list[dict[str, object]] = []
-    overwritten_records: list[dict[str, object]] = []
-    overwritten_before: list[dict[str, object]] = []
+    appended_records: list[dict[str, object]] = []
     for plan in plans:
         details = plan["details"] if isinstance(plan.get("details"), list) else []
         total_count = sum((_to_decimal(detail.get("quantity")) for detail in details), Decimal("0"))
@@ -3110,29 +3102,20 @@ async def import_purchase_inventory(request: Request, file: UploadFile = None):
         }
         detail_payloads = []
         existing_record = plan.get("existing_record") if isinstance(plan.get("existing_record"), dict) else None
-        if existing_record and overwrite_existing:
+        if existing_record:
             doc_id = existing_record.get("id")
             if doc_id is None:
-                raise HTTPException(status_code=400, detail=f"摘要 {plan['summary']} 对应的旧单据编号异常，无法覆盖")
-            before_details = repository.list_details(int(doc_id))
-            doc_payload["deleted_at"] = None
-            doc = repository.update_record(int(doc_id), doc_payload)
-            if doc is None:
-                raise HTTPException(status_code=404, detail=f"摘要 {plan['summary']} 对应的旧单据不存在，无法覆盖")
+                raise HTTPException(status_code=400, detail=f"摘要 {plan['summary']} 对应的已有单据编号异常，无法追加")
+            doc = existing_record
             for detail in details:
                 item = dict(detail)
                 item["document_id"] = doc["id"]
                 detail_payloads.append(item)
-            repository.replace_details(doc["id"], detail_payloads)
+            repository.create_details(detail_payloads, doc["id"])
             doc = repository.get_record(int(doc["id"])) or doc
-            overwritten_docs += 1
-            overwritten_details += len(detail_payloads)
-            overwritten_records.append(doc)
-            overwritten_before.append({
-                "record": existing_record,
-                "details": before_details[:200],
-                "detail_count": len(before_details),
-            })
+            appended_docs += 1
+            appended_details += len(detail_payloads)
+            appended_records.append(doc)
         else:
             doc = repository.create_record(doc_payload)
             created_records.append(doc)
@@ -3145,10 +3128,10 @@ async def import_purchase_inventory(request: Request, file: UploadFile = None):
             created_details += len(detail_payloads)
         if first_doc is None:
             first_doc = doc
-    total_details = created_details + overwritten_details
+    total_details = created_details + appended_details
     summary_parts = [f"新增 {created_docs} 条单据"]
-    if overwritten_docs:
-        summary_parts.append(f"覆盖 {overwritten_docs} 条单据")
+    if appended_docs:
+        summary_parts.append(f"追加 {appended_docs} 条单据")
     summary_parts.append(f"{total_details} 条明细")
     result_message = f"导入完成：{'，'.join(summary_parts)}"
 
@@ -3159,25 +3142,21 @@ async def import_purchase_inventory(request: Request, file: UploadFile = None):
         entity_type="inventory_record",
         entity_label=file.filename or "采购/进销存导入",
         summary=f"导入{document_type}：{'，'.join(summary_parts)}",
-        before_data={
-            "overwritten": overwritten_before[:200],
-            "overwritten_count": overwritten_docs,
-        } if overwritten_docs else None,
         after_data={
             "filename": file.filename,
             "document_type": document_type,
             "documents": created_records[:200],
-            "overwritten_documents": overwritten_records[:200],
+            "appended_documents": appended_records[:200],
             "document_count": created_docs,
-            "overwritten_count": overwritten_docs,
+            "appended_count": appended_docs,
             "detail_count": total_details,
             "created_detail_count": created_details,
-            "overwritten_detail_count": overwritten_details,
+            "appended_detail_count": appended_details,
         },
     )
     return {
         "created": created_docs,
-        "overwritten": overwritten_docs,
+        "appended": appended_docs,
         "details": total_details,
         "message": result_message,
         "item": first_doc,
@@ -3728,16 +3707,18 @@ def create_inventory_record(request: Request, payload: dict):
         payload["date"] = _today_text()
     if "document_type" in payload:
         payload["document_type"] = normalize_document_type(payload.get("document_type"))
-    summary = (payload.get("summary") or "").strip()
-    if summary:
-        from domain.inventory_schema import INVENTORY_TABLE
-        from sqlalchemy import select as sa_select
-        with repository.engine.connect() as conn:
-            existing = conn.execute(
-                sa_select(INVENTORY_TABLE).where(INVENTORY_TABLE.c.summary == summary)
-            ).first()
-            if existing:
-                raise HTTPException(status_code=400, detail=f"摘要 '{summary}' 已存在")
+    existing = repository.get_record_for_append(
+        date_value=payload.get("date"),
+        warehouse=payload.get("warehouse"),
+        document_type=payload.get("document_type"),
+        summary=payload.get("summary"),
+    )
+    if existing:
+        return {
+            "item": existing,
+            "appended": True,
+            "message": "已命中同日期、仓库、单据类型和摘要的单据，可继续在该单据中追加明细",
+        }
     record = repository.create_record(payload)
     _log_record_operation(request, action="create", prefix="新增单据", after=record)
     return {"item": record, "message": "创建成功"}
@@ -4145,10 +4126,10 @@ async def import_inventory(request: Request, file: UploadFile = None):
     detail_known_fields = set(DETAIL_CN_TO_FIELD.values()) | set(DETAIL_CN_TO_FIELD.keys())
     repository = request.app.state.inventory_repository
 
-    # Phase 1: Parse all rows and group by summary
+    # Phase 1: Parse all rows and group by the append key.
     # Each row_entry = {doc: dict, detail: dict}
-    groups: dict[str, list[dict]] = {}
-    group_order: list[str] = []  # preserve insertion order
+    groups: dict[tuple[str, str, str, str] | tuple[str, int], list[dict]] = {}
+    group_order: list[tuple[str, str, str, str] | tuple[str, int]] = []  # preserve insertion order
 
     for row in iterator:
         row_dict = {}
@@ -4250,14 +4231,20 @@ async def import_inventory(request: Request, file: UploadFile = None):
                 }
 
         summary = str(doc_payload.get("summary") or "").strip()
-        if summary not in groups:
-            groups[summary] = []
-            group_order.append(summary)
-        groups[summary].append({"doc": doc_payload, "detail": detail_payload})
+        append_key = (
+            str(doc_payload.get("date") or "").strip(),
+            str(doc_payload.get("warehouse") or "").strip(),
+            str(doc_payload.get("document_type") or "").strip(),
+            summary,
+        ) if all((doc_payload.get("date"), doc_payload.get("warehouse"), doc_payload.get("document_type"), summary)) else ("__row__", len(group_order))
+        if append_key not in groups:
+            groups[append_key] = []
+            group_order.append(append_key)
+        groups[append_key].append({"doc": doc_payload, "detail": detail_payload})
 
     wb.close()
 
-    # Phase 2: Create documents with details grouped by summary
+    # Phase 2: Create documents with details grouped by the append key.
     new_suppliers: set[str] = set()
     new_warehouses: set[str] = set()
     created_docs = 0
@@ -4265,11 +4252,10 @@ async def import_inventory(request: Request, file: UploadFile = None):
     skipped_docs = 0
     created_records: list[dict[str, object]] = []
 
-    from domain.inventory_schema import INVENTORY_TABLE
-    from sqlalchemy import select as sa_select
-
-    for summary in group_order:
-        group_rows = groups[summary]
+    appended_docs = 0
+    appended_details = 0
+    for append_key in group_order:
+        group_rows = groups[append_key]
         first = group_rows[0]
         doc_payload = first["doc"]
 
@@ -4280,32 +4266,31 @@ async def import_inventory(request: Request, file: UploadFile = None):
         if warehouse_name:
             new_warehouses.add(warehouse_name)
 
-        # Skip if summary already exists in database
-        if summary:
-            with repository.engine.connect() as conn:
-                existing = conn.execute(
-                    sa_select(INVENTORY_TABLE).where(INVENTORY_TABLE.c.summary == summary)
-                ).first()
-                if existing:
-                    skipped_docs += 1
-                    continue
-
         try:
-            doc = repository.create_record(doc_payload)
-            created_records.append(doc)
-            created_docs += 1
-            doc_id = doc["id"]
+            existing = repository.get_record_for_append(
+                date_value=doc_payload.get("date"),
+                warehouse=doc_payload.get("warehouse"),
+                document_type=doc_payload.get("document_type"),
+                summary=doc_payload.get("summary"),
+            )
+            doc = existing or repository.create_record(doc_payload)
+            if existing:
+                appended_docs += 1
+            else:
+                created_records.append(doc)
+                created_docs += 1
 
-            # Create detail rows that have a product_code
+            detail_payloads = []
             for row in group_rows:
-                detail = row["detail"]
+                detail = dict(row["detail"])
                 if detail.get("product_code"):
-                    detail["document_id"] = doc_id
-                    try:
-                        repository.create_detail(detail)
-                        created_details += 1
-                    except Exception:
-                        pass
+                    detail["document_id"] = doc["id"]
+                    detail_payloads.append(detail)
+            repository.create_details(detail_payloads, doc["id"])
+            if existing:
+                appended_details += len(detail_payloads)
+            else:
+                created_details += len(detail_payloads)
         except Exception:
             skipped_docs += 1
 
@@ -4322,9 +4307,12 @@ async def import_inventory(request: Request, file: UploadFile = None):
             repository.create_warehouse({"name": name})
             warehouse_added += 1
 
-    msg = f"导入完成：新增 {created_docs} 条单据，{created_details} 条明细"
+    msg = f"导入完成：新增 {created_docs} 条单据"
+    if appended_docs:
+        msg += f"，追加 {appended_docs} 条单据"
+    msg += f"，{created_details + appended_details} 条明细"
     if skipped_docs > 0:
-        msg += f"，跳过 {skipped_docs} 条已存在的单据"
+        msg += f"，跳过 {skipped_docs} 条异常单据"
     if supplier_added > 0:
         msg += f"，新增供应商 {supplier_added} 个"
     if warehouse_added > 0:
@@ -4335,12 +4323,18 @@ async def import_inventory(request: Request, file: UploadFile = None):
         action="import",
         entity_type="inventory_record",
         entity_label=file.filename or "进销存导入",
-        summary=f"导入进销存：新增 {created_docs} 条单据，{created_details} 条明细，跳过 {skipped_docs} 条",
+        summary=(
+            f"导入进销存：新增 {created_docs} 条单据，追加 {appended_docs} 条单据，"
+            f"{created_details + appended_details} 条明细，跳过 {skipped_docs} 条"
+        ),
         after_data={
             "filename": file.filename,
             "documents": created_records[:200],
             "document_count": created_docs,
-            "detail_count": created_details,
+            "appended_count": appended_docs,
+            "detail_count": created_details + appended_details,
+            "created_detail_count": created_details,
+            "appended_detail_count": appended_details,
             "skipped": skipped_docs,
             "supplier_added": supplier_added,
             "warehouse_added": warehouse_added,
