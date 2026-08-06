@@ -3905,8 +3905,6 @@ def list_inventory_details(request: Request, record_id: int):
 
     for detail in details:
         extra_fields = _dict_or_empty(detail.get("extra_fields"))
-        if _cell_text(extra_fields.get("size_labels")):
-            continue
         product_info = product_lookup.get(_cell_text(detail.get("product_code"))) or {}
         size_range = _cell_text(product_info.get("size_range"))
         size_labels = size_labels_by_range.get(size_range, ())

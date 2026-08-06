@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import io
+from types import SimpleNamespace
 
 from openpyxl import Workbook
 
@@ -156,6 +157,58 @@ def test_purchase_order_import_allows_an_empty_receiving_warehouse() -> None:
         row["warehouse"] = ""
 
     assert _missing_purchase_order_import_fields(rows) == []
+
+
+def test_inventory_detail_list_refreshes_legacy_size_labels_from_product_size_group(monkeypatch) -> None:
+    class _Connection:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc_value, traceback):
+            return False
+
+    class _Engine:
+        def connect(self):
+            return _Connection()
+
+    class _Repository:
+        engine = _Engine()
+
+        def get_record(self, record_id):
+            return {"id": record_id, "document_type": "报溢单", "supplier": "", "raw_payload": {}}
+
+        def list_details(self, record_id):
+            return [{
+                "id": 1,
+                "document_id": record_id,
+                "product_code": "NI24Q3A030108",
+                "size_quantities": {"230": "1", "240": "3"},
+                "extra_fields": {"size_labels": "230|240|250", "size_range": "旧尺码段"},
+            }]
+
+        def get_supplier_by_name(self, name):
+            return None
+
+    monkeypatch.setattr(
+        inventory_routes,
+        "_load_purchase_product_lookup",
+        lambda connection, brand, product_codes: {
+            "NI24Q3A030108": {"size_range": "NI尺码段35-47"}
+        } if brand == "ni" else {},
+    )
+    monkeypatch.setattr(
+        inventory_routes,
+        "_load_purchase_size_group_items",
+        lambda connection, size_ranges: {
+            "NI尺码段35-47": (("35", "35"), ("36", "36"), ("37", "37"))
+        },
+    )
+    request = SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace(inventory_repository=_Repository())))
+
+    result = inventory_routes.list_inventory_details(request, 1)
+
+    assert result["items"][0]["extra_fields"]["size_range"] == "NI尺码段35-47"
+    assert result["items"][0]["extra_fields"]["size_labels"] == "35|36|37"
 
 
 def test_purchase_order_import_rejects_legacy_size_column_template() -> None:
