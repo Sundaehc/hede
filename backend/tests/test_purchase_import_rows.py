@@ -191,10 +191,8 @@ def test_inventory_detail_list_refreshes_legacy_size_labels_from_product_size_gr
 
     monkeypatch.setattr(
         inventory_routes,
-        "_load_purchase_product_lookup",
-        lambda connection, brand, product_codes: {
-            "NI24Q3A030108": {"size_range": "NI尺码段35-47"}
-        } if brand == "ni" else {},
+        "_load_inventory_detail_size_ranges",
+        lambda connection, product_codes, preferred_brand: {"NI24Q3A030108": "NI尺码段35-47"},
     )
     monkeypatch.setattr(
         inventory_routes,

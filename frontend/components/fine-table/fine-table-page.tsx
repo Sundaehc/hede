@@ -2232,7 +2232,7 @@ export function FineTablePage() {
           <div className="flex items-center justify-between gap-3">
             <TabsList className="rounded-xl bg-muted/50 p-1">
               {viewTabs.map((tab) => (
-                <TabsTrigger key={tab.value} className="rounded-lg px-4 text-sm" value={tab.value}>{tab.label}</TabsTrigger>
+                <TabsTrigger key={tab.value} className="cursor-pointer rounded-lg px-4 text-sm" value={tab.value}>{tab.label}</TabsTrigger>
               ))}
             </TabsList>
             <p className="text-sm text-muted-foreground">

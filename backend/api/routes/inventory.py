@@ -2062,6 +2062,82 @@ def _load_purchase_product_lookup(connection, brand: str, product_codes: set[str
     return lookup
 
 
+def _load_inventory_detail_size_ranges(
+    connection,
+    product_codes: set[str],
+    preferred_brand: str,
+) -> dict[str, str]:
+    """Resolve only the size group needed by an inventory detail list.
+
+    Detail lists may contain hundreds of rows.  Loading the full product lookup
+    for every brand repeats the GJ and price-table queries although this endpoint
+    only needs ``size_range``.  Query each archive table only until a product's
+    size group has been found.
+    """
+    unresolved_codes = set(product_codes)
+    size_ranges_by_product_code: dict[str, str] = {}
+    normalized_preferred_brand = "ni" if preferred_brand == "nike" else preferred_brand
+    brands = dict.fromkeys([normalized_preferred_brand, *PRODUCT_ARCHIVE_TABLES])
+
+    for brand in brands:
+        if not unresolved_codes:
+            break
+        product_table = PRODUCT_ARCHIVE_TABLES.get(brand)
+        if product_table is None:
+            continue
+
+        candidates_by_product_code = {
+            product_code: _purchase_product_lookup_candidates(product_code, brand)
+            for product_code in unresolved_codes
+        }
+        lookup_codes = {
+            candidate
+            for candidates in candidates_by_product_code.values()
+            for candidate in candidates
+        }
+        if not lookup_codes:
+            continue
+
+        size_range_by_lookup_code: dict[str, str] = {}
+        rows = connection.execute(
+            sa_select(
+                product_table.c.sku,
+                product_table.c.original_sku,
+                product_table.c.size_range,
+            )
+            .where(or_(
+                product_table.c.sku.in_(lookup_codes),
+                product_table.c.original_sku.in_(lookup_codes),
+            ))
+            .where(product_table.c.size_range.is_not(None))
+            .where(product_table.c.size_range != "")
+            .order_by(desc(product_table.c.updated_at), desc(product_table.c.id))
+        ).mappings()
+        for row in rows:
+            size_range = _cell_text(row.get("size_range"))
+            if not size_range:
+                continue
+            for field in ("sku", "original_sku"):
+                lookup_code = _cell_text(row.get(field))
+                if lookup_code in lookup_codes:
+                    size_range_by_lookup_code.setdefault(lookup_code, size_range)
+
+        for product_code in tuple(unresolved_codes):
+            size_range = next(
+                (
+                    size_range_by_lookup_code[candidate]
+                    for candidate in candidates_by_product_code[product_code]
+                    if candidate in size_range_by_lookup_code
+                ),
+                "",
+            )
+            if size_range:
+                size_ranges_by_product_code[product_code] = size_range
+                unresolved_codes.remove(product_code)
+
+    return size_ranges_by_product_code
+
+
 def _build_purchase_detail_candidates(connection, query: str, brand: str | None = None, limit: int = 20) -> list[dict[str, str]]:
     keyword = _cell_text(query)
     if len(keyword) < 2:
@@ -3875,26 +3951,15 @@ def list_inventory_details(request: Request, record_id: int):
         return {"items": details}
 
     with repository.engine.connect() as connection:
-        product_lookups = {
-            brand: _load_purchase_product_lookup(connection, brand, product_codes)
-            for brand in dict.fromkeys([preferred_brand, *PRODUCT_ARCHIVE_TABLES])
-            if brand
-        }
-        product_lookup = {
-            product_code: next(
-                (
-                    product_info
-                    for lookup in product_lookups.values()
-                    if (product_info := lookup.get(product_code)) and _cell_text(product_info.get("size_range"))
-                ),
-                {},
-            )
-            for product_code in product_codes
-        }
+        size_ranges_by_product_code = _load_inventory_detail_size_ranges(
+            connection,
+            product_codes,
+            preferred_brand,
+        )
         size_ranges = {
-            _cell_text(product_info.get("size_range"))
-            for product_info in product_lookup.values()
-            if _cell_text(product_info.get("size_range"))
+            size_range
+            for size_range in size_ranges_by_product_code.values()
+            if size_range
         }
         size_group_items_by_range = _load_purchase_size_group_items(connection, size_ranges)
         size_labels_by_range = {
@@ -3905,8 +3970,7 @@ def list_inventory_details(request: Request, record_id: int):
 
     for detail in details:
         extra_fields = _dict_or_empty(detail.get("extra_fields"))
-        product_info = product_lookup.get(_cell_text(detail.get("product_code"))) or {}
-        size_range = _cell_text(product_info.get("size_range"))
+        size_range = size_ranges_by_product_code.get(_cell_text(detail.get("product_code")), "")
         size_labels = size_labels_by_range.get(size_range, ())
         if not size_range or not size_labels:
             continue
