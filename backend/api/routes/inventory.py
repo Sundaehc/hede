@@ -135,7 +135,7 @@ PURCHASE_IMPORT_DOC_FIELD_ALIASES = {
     "handler": {"经办人", "经手人"},
     "additional_note": {"附加说明"},
 }
-PURCHASE_ORDER_IMPORT_REQUIRED_DOC_FIELDS = ("supplier", "summary", "date", "delivery_date", "warehouse", "handler")
+PURCHASE_ORDER_IMPORT_REQUIRED_DOC_FIELDS = ("supplier", "summary", "date", "delivery_date", "handler")
 PURCHASE_ORDER_IMPORT_FIELD_LABELS = {
     "supplier": "供应商",
     "summary": "采购单备注",
@@ -1399,7 +1399,7 @@ def _build_purchase_order_import_template() -> Workbook:
     ]
     worksheet.append(headers)
     worksheet.append([
-        "说明：日期、收货仓库、单据类型和采购单备注均相同的记录会追加到同一张采购单；任一项不同则新建采购单。商品编码请填写带颜色和尺码的完整商品编码，系统导入时会自动拆解并匹配单价。",
+        "说明：日期、收货仓库（选填）、单据类型和采购单备注均相同的记录会追加到同一张采购单；任一项不同则新建采购单。商品编码请填写带颜色和尺码的完整商品编码，系统导入时会自动拆解并匹配单价。",
         "",
         "",
         "",
@@ -3027,7 +3027,7 @@ async def import_purchase_inventory(request: Request, file: UploadFile = None):
                 raise HTTPException(status_code=400, detail=f"{label}：出货仓库不能为空")
             field_name = "收货客户" if document_type.startswith("批发销售") else "供货单位"
             raise HTTPException(status_code=400, detail=f"{label}：{field_name}不能为空")
-        if not group_warehouse:
+        if not group_warehouse and not is_purchase_order_import:
             if document_type == "同价调拨单":
                 raise HTTPException(status_code=400, detail=f"{label}：入货仓库不能为空")
             field_name = "发货仓库" if document_type.startswith("批发销售") else "收货仓库"

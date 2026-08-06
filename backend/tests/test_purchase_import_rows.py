@@ -146,9 +146,16 @@ def test_purchase_order_import_rejects_legacy_single_document_template() -> None
         "summary",
         "date",
         "delivery_date",
-        "warehouse",
         "handler",
     ]
+
+
+def test_purchase_order_import_allows_an_empty_receiving_warehouse() -> None:
+    rows, _ = _read_purchase_import_rows(_sample_purchase_workbook())
+    for row in rows:
+        row["warehouse"] = ""
+
+    assert _missing_purchase_order_import_fields(rows) == []
 
 
 def test_purchase_order_import_rejects_legacy_size_column_template() -> None:

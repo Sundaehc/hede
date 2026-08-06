@@ -40,7 +40,9 @@ PRODUCT_SOURCE_FIELDS = {
     "主供应商": "supplier_name",
 }
 PRICE_CODE_HEADERS = ("货号", "商品编码", "商品条码")
-PRICE_COST_HEADERS = ("成本单价",)
+PRICE_COST_HEADERS = ("预设售价",)
+PRICE_COST_NAME_HEADERS = ("预设售价名称",)
+NI_COST_PRESET_PRICE_NAME = "成本价"
 
 
 @dataclass(frozen=True)
@@ -189,20 +191,25 @@ def read_costs(source_file: Path) -> tuple[dict[str, Decimal], int, int, int]:
     skipped = 0
     try:
         for sheet in workbook.sheets():
-            header_result = _find_header_row(sheet, PRODUCT_CODE_HEADERS + PRICE_COST_HEADERS)
+            header_result = _find_header_row(
+                sheet,
+                PRODUCT_CODE_HEADERS + PRICE_COST_HEADERS + PRICE_COST_NAME_HEADERS,
+            )
             if header_result is None:
                 continue
             header_row, headers = header_result
             code_header = next((header for header in PRICE_CODE_HEADERS if _header_text(header) in headers), None)
             cost_header = next((header for header in PRICE_COST_HEADERS if _header_text(header) in headers), None)
-            if code_header is None or cost_header is None:
+            cost_name_header = next((header for header in PRICE_COST_NAME_HEADERS if _header_text(header) in headers), None)
+            if code_header is None or cost_header is None or cost_name_header is None:
                 continue
             for row_number in range(header_row + 1, sheet.nrows):
                 row = sheet.row_values(row_number)
                 code = _value(row, headers, code_header, datemode=workbook.datemode)
+                cost_name = _value(row, headers, cost_name_header, datemode=workbook.datemode)
                 cost_index = headers[_header_text(cost_header)]
                 cost = _decimal(row[cost_index] if cost_index < len(row) else None)
-                if not code or cost is None:
+                if not code or cost is None or cost_name != NI_COST_PRESET_PRICE_NAME:
                     skipped += 1
                     continue
                 rows_read += 1

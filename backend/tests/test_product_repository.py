@@ -6,13 +6,33 @@ from decimal import Decimal
 import pytest
 
 from domain.vip_schema import JST_PRICE_TABLE
-from storage.product_repository import ProductRepository
+from storage import product_repository as product_repository_module
+from storage.product_repository import ProductRepository, apply_jst_product_costs
 from transform.rows import build_admin_record
 
 
 @pytest.fixture
 def repository(test_database_url: str, recreate_tables) -> ProductRepository:
     return ProductRepository(test_database_url)
+
+
+def test_product_cost_lookup_uses_preset_price_for_every_brand(monkeypatch):
+    calls: list[set[str]] = []
+
+    def fake_load(_engine, codes: set[str]):
+        calls.append(codes)
+        return {"M-001": Decimal("88.00"), "M-002": Decimal("99.00")}
+
+    monkeypatch.setattr(product_repository_module, "_load_jst_product_costs", fake_load)
+    items = [
+        {"brand": "cbanner_mens", "sku": "M-001", "original_sku": "M-001", "cost": Decimal("1.00")},
+        {"brand": "smiley", "sku": "SMILEY-001", "original_sku": "M-002", "cost": Decimal("2.00")},
+    ]
+
+    apply_jst_product_costs(object(), items)
+
+    assert calls == [{"M-001", "SMILEY-001", "M-002"}]
+    assert [item["cost"] for item in items] == [Decimal("88.00"), Decimal("99.00")]
 
 
 def test_list_products_returns_paginated_items_filtered_by_original_sku_in_desc_id_order(
@@ -98,7 +118,7 @@ def test_get_product_returns_row_or_none(repository: ProductRepository):
     assert repository.get_product("yandou", created["id"] + 1) is None
 
 
-def test_sync_costs_uses_latest_combined_footwear_price(repository: ProductRepository):
+def test_sync_costs_uses_latest_combined_footwear_preset_price(repository: ProductRepository):
     product = repository.create_product(
         "cbanner_mens",
         build_admin_record(
@@ -119,6 +139,7 @@ def test_sync_costs_uses_latest_combined_footwear_price(repository: ProductRepos
                     "goods_code": "COST-001",
                     "goods_full_name": "测试商品",
                     "cost_unit_price": Decimal("31.00"),
+                    "preset_price": Decimal("31.50"),
                 },
                 {
                     "source_date": "2026-08-04",
@@ -129,6 +150,7 @@ def test_sync_costs_uses_latest_combined_footwear_price(repository: ProductRepos
                     "goods_code": "COST-001",
                     "goods_full_name": "测试商品",
                     "cost_unit_price": Decimal("32.50"),
+                    "preset_price": Decimal("33.00"),
                 },
                 {
                     "source_date": "2026-08-05",
@@ -139,6 +161,7 @@ def test_sync_costs_uses_latest_combined_footwear_price(repository: ProductRepos
                     "goods_code": "COST-001",
                     "goods_full_name": "测试商品",
                     "cost_unit_price": Decimal("99.00"),
+                    "preset_price": Decimal("99.00"),
                 },
             ],
         )
@@ -147,7 +170,7 @@ def test_sync_costs_uses_latest_combined_footwear_price(repository: ProductRepos
 
     assert result["updated"] == 1
     assert result["brands"]["cbanner_mens"] == {"matched": 1, "updated": 1}
-    assert repository.get_product("cbanner_mens", product["id"])["cost"] == Decimal("32.50")
+    assert repository.get_product("cbanner_mens", product["id"])["cost"] == Decimal("33.00")
 
 
 def test_create_product_persists_and_returns_created_row(repository: ProductRepository):

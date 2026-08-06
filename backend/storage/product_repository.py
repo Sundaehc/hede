@@ -61,20 +61,30 @@ def _unique_color_codes(rows: list[Mapping[str, object]]) -> dict[str, str]:
 
 
 def _load_jst_product_costs(engine, codes: set[str]) -> dict[str, object]:
+    return _load_jst_product_prices(engine, codes, value_column="preset_price")
+
+
+def _load_jst_product_prices(
+    engine,
+    codes: set[str],
+    *,
+    value_column: str,
+) -> dict[str, object]:
     if not codes:
         return {}
 
+    price_column = getattr(JST_PRICE_TABLE.c, value_column)
     costs: dict[str, object] = {}
     with engine.connect() as connection:
         for chunk in _chunk_codes(codes):
             statement = (
                 select(
                     JST_PRICE_TABLE.c.goods_code,
-                    JST_PRICE_TABLE.c.cost_unit_price,
+                    price_column.label("price_value"),
                 )
                 .where(JST_PRICE_TABLE.c.goods_code.in_(chunk))
                 .where(JST_PRICE_TABLE.c.source_workbook.ilike(f"%{COMBINED_FOOTWEAR_PRICE_SOURCE_MARKER}%"))
-                .where(JST_PRICE_TABLE.c.cost_unit_price.isnot(None))
+                .where(price_column.isnot(None))
                 .order_by(
                     JST_PRICE_TABLE.c.goods_code,
                     JST_PRICE_TABLE.c.source_date_value.desc().nulls_last(),
@@ -86,21 +96,11 @@ def _load_jst_product_costs(engine, codes: set[str]) -> dict[str, object]:
                 code = _normalize_code(row.get("goods_code"))
                 if not code or code in costs:
                     continue
-                costs[code] = row["cost_unit_price"]
+                costs[code] = row["price_value"]
     return costs
 
 
-def apply_jst_product_costs(engine, items: list[dict[str, object]]) -> list[dict[str, object]]:
-    codes = {
-        code
-        for item in items
-        for code in (_normalize_code(item.get("sku")), _normalize_code(item.get("original_sku")))
-        if code
-    }
-    costs = _load_jst_product_costs(engine, codes)
-    if not costs:
-        return items
-
+def _apply_cost_lookup(items: list[dict[str, object]], costs: dict[str, object]) -> None:
     for item in items:
         sku = _normalize_code(item.get("sku"))
         original_sku = _normalize_code(item.get("original_sku"))
@@ -108,6 +108,20 @@ def apply_jst_product_costs(engine, items: list[dict[str, object]]) -> list[dict
             item["cost"] = costs[sku]
         elif original_sku in costs:
             item["cost"] = costs[original_sku]
+
+
+def apply_jst_product_costs(engine, items: list[dict[str, object]]) -> list[dict[str, object]]:
+    """Apply latest combined-footwear preset price as the archive cost."""
+    codes = {
+        code
+        for item in items
+        for code in (_normalize_code(item.get("sku")), _normalize_code(item.get("original_sku")))
+        if code
+    }
+    if not codes:
+        return items
+
+    _apply_cost_lookup(items, _load_jst_product_costs(engine, codes))
     return items
 
 
@@ -142,12 +156,18 @@ class ProductRepository:
                     f"ON {table.name} (last_imported_at)"
                 ))
 
-    def sync_costs_from_latest_combined_footwear_price(self) -> dict[str, object]:
-        """Persist latest 男女鞋合并物价信息成本单价 into product archives."""
+    def sync_costs_from_latest_combined_footwear_price(
+        self,
+        *,
+        brands: set[str] | None = None,
+    ) -> dict[str, object]:
+        """Persist latest combined-footwear preset prices into product archives."""
         rows_by_brand: dict[str, list[dict[str, object]]] = {}
         codes: set[str] = set()
         with self.engine.connect() as connection:
             for brand, table in PRODUCT_ARCHIVE_TABLES.items():
+                if brands is not None and brand not in brands:
+                    continue
                 rows = [
                     dict(row)
                     for row in connection.execute(
@@ -191,7 +211,7 @@ class ProductRepository:
                 }
 
         return {
-            "source": COMBINED_FOOTWEAR_PRICE_SOURCE_MARKER,
+            "source": f"{COMBINED_FOOTWEAR_PRICE_SOURCE_MARKER}（预设售价）",
             "updated": sum(item["updated"] for item in summary.values()),
             "brands": summary,
         }

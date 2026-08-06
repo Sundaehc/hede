@@ -2042,7 +2042,7 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
                   </div>
                 )}
                 <div className="space-y-1.5">
-                  <Label>{isImportStockAdjustment ? "仓库" : isImportTransfer ? "入货仓库" : isImportWholesale ? "发货仓库" : "收货仓库"}</Label>
+                  <Label>{isImportStockAdjustment ? "仓库" : isImportTransfer ? "入货仓库" : isImportWholesale ? "发货仓库" : isImportPurchaseOrder ? "收货仓库（选填）" : "收货仓库"}</Label>
                   <HierarchicalSelect
                     value={importFormData.warehouse}
                     options={warehouseHierarchicalOptions}

@@ -108,8 +108,18 @@ export function getAuthOptions() {
   }>("/auth/options")
 }
 
-export function listAdminUsers() {
-  return request<{ items: AuthUser[] }>("/auth/admin/users")
+export function listAdminUsers(params: { page: number; pageSize: number }) {
+  const search = new URLSearchParams({
+    page: String(params.page),
+    page_size: String(params.pageSize),
+  })
+  return request<{
+    items: AuthUser[]
+    total: number
+    page: number
+    page_size: number
+    stats: { active: number; disabled: number; department_count: number }
+  }>(`/auth/admin/users?${search.toString()}`)
 }
 
 export function updateAdminUser(

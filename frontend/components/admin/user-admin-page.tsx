@@ -7,6 +7,15 @@ import { useAuth } from "@/components/auth/auth-provider"
 import { OperationLogDialog } from "@/components/operation-log-dialog"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import {
+  Pagination,
+  PaginationContent,
+  PaginationEllipsis,
+  PaginationItem,
+  PaginationLink,
+  PaginationNext,
+  PaginationPrevious,
+} from "@/components/ui/pagination"
 import { Select } from "@/components/ui/select"
 import { getAuthOptions, listAdminUsers, updateAdminUser } from "@/lib/api"
 import type { AuthDepartment, AuthRole, AuthUser } from "@/lib/types"
@@ -26,6 +35,8 @@ const STATUS_OPTIONS = [
   { value: "active", label: "启用" },
   { value: "disabled", label: "禁用" },
 ]
+
+const PAGE_SIZES = [20, 50, 100]
 
 const STATUS_META = {
   active: {
@@ -71,6 +82,18 @@ function hasDraftChanges(user: AuthUser, draft: UserDraft) {
 
 function statusLabel(status: string) {
   return STATUS_OPTIONS.find((item) => item.value === status)?.label ?? status
+}
+
+function buildPageRange(current: number, total: number): (number | "ellipsis")[] {
+  if (total <= 7) return Array.from({ length: total }, (_, index) => index + 1)
+  const pages: (number | "ellipsis")[] = [1]
+  if (current > 3) pages.push("ellipsis")
+  const start = Math.max(2, current - 1)
+  const end = Math.min(total - 1, current + 1)
+  for (let value = start; value <= end; value += 1) pages.push(value)
+  if (current < total - 2) pages.push("ellipsis")
+  pages.push(total)
+  return pages
 }
 
 function UserIdentity({ user }: { user: AuthUser }) {
@@ -128,6 +151,10 @@ export function UserAdminPage() {
   const [departments, setDepartments] = useState<AuthDepartment[]>([])
   const [roles, setRoles] = useState<AuthRole[]>([])
   const [drafts, setDrafts] = useState<Record<number, UserDraft>>({})
+  const [page, setPage] = useState(1)
+  const [pageSize, setPageSize] = useState(PAGE_SIZES[0])
+  const [total, setTotal] = useState(0)
+  const [userStats, setUserStats] = useState({ active: 0, disabled: 0, departmentCount: 0 })
   const [loading, setLoading] = useState(true)
   const [savingId, setSavingId] = useState<number | null>(null)
   const [message, setMessage] = useState("")
@@ -141,26 +168,30 @@ export function UserAdminPage() {
     }, {})
   }, [roles])
 
-  const userStats = useMemo(() => {
-    const active = users.filter((user) => user.status === "active").length
-    const disabled = users.filter((user) => user.status === "disabled").length
-    const departmentCount = new Set(users.map((user) => user.department_code).filter(Boolean)).size
-    return { active, disabled, departmentCount }
-  }, [users])
-
   const roleByCode = useMemo(() => {
     return Object.fromEntries(roles.map((role) => [role.code, role]))
   }, [roles])
 
-  const load = async () => {
+  const load = async (preserveMessage = false) => {
     setLoading(true)
-    setMessage("")
+    if (!preserveMessage) setMessage("")
     try {
-      const [options, userResponse] = await Promise.all([getAuthOptions(), listAdminUsers()])
+      const [options, userResponse] = await Promise.all([getAuthOptions(), listAdminUsers({ page, pageSize })])
+      const totalPages = Math.max(1, Math.ceil(userResponse.total / pageSize))
+      if (page > totalPages) {
+        setPage(totalPages)
+        return
+      }
       setDepartments(options.departments)
       setRoles(options.roles)
       setUsers(userResponse.items)
       setDrafts(Object.fromEntries(userResponse.items.map((user) => [user.id, draftFromUser(user)])))
+      setTotal(userResponse.total)
+      setUserStats({
+        active: userResponse.stats.active,
+        disabled: userResponse.stats.disabled,
+        departmentCount: userResponse.stats.department_count,
+      })
     } catch (err) {
       setMessage(err instanceof Error ? err.message : "加载用户失败")
     } finally {
@@ -174,7 +205,7 @@ export function UserAdminPage() {
     } else {
       setLoading(false)
     }
-  }, [hasPermission])
+  }, [hasPermission, page, pageSize])
 
   const updateDraft = (userId: number, patch: Partial<UserDraft>) => {
     setDrafts((current) => ({
@@ -198,6 +229,7 @@ export function UserAdminPage() {
       })
       setUsers((current) => current.map((item) => item.id === user.id ? response.item : item))
       setDrafts((current) => ({ ...current, [user.id]: draftFromUser(response.item) }))
+      await load(true)
       setMessage("用户已更新")
     } catch (err) {
       setMessage(err instanceof Error ? err.message : "保存失败")
@@ -387,6 +419,9 @@ export function UserAdminPage() {
     )
   }
 
+  const totalPages = Math.max(1, Math.ceil(total / pageSize))
+  const pageRange = buildPageRange(page, totalPages)
+
   return (
     <div className="app-page">
       <div className="app-content min-w-[760px]">
@@ -408,7 +443,7 @@ export function UserAdminPage() {
         </div>
 
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-          <StatTile icon={Users} label="账号总数" value={users.length} />
+          <StatTile icon={Users} label="账号总数" value={total} />
           <StatTile icon={CheckCircle2} label="启用账号" value={userStats.active} tone="good" />
           <StatTile icon={Ban} label="禁用账号" value={userStats.disabled} tone="warn" />
           <StatTile icon={Building2} label="涉及部门" value={userStats.departmentCount} />
@@ -436,7 +471,7 @@ export function UserAdminPage() {
             </div>
             <div className="inline-flex items-center gap-1.5 rounded-full border border-border bg-muted/40 px-3 py-1 text-xs text-muted-foreground">
               <UserCog className="h-3.5 w-3.5" />
-              {loading ? "正在加载" : `${users.length} 个账号`}
+              {loading ? "正在加载" : `${total} 个账号`}
             </div>
           </div>
 
@@ -504,6 +539,58 @@ export function UserAdminPage() {
               <div className="px-4 py-12 text-center text-muted-foreground">暂无用户</div>
             ) : null}
           </div>
+
+          {total > 0 ? (
+            <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border px-4 py-3">
+              <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                <span>第 {total === 0 ? 0 : (page - 1) * pageSize + 1}-{Math.min(page * pageSize, total)} 条，共 {total} 条</span>
+                <Select
+                  aria-label="每页显示条数"
+                  value={String(pageSize)}
+                  onChange={(event) => {
+                    setPageSize(Number(event.target.value))
+                    setPage(1)
+                  }}
+                  className="h-8 w-20 bg-background text-xs"
+                >
+                  {PAGE_SIZES.map((size) => <option key={size} value={String(size)}>{size} 条</option>)}
+                </Select>
+              </div>
+              {totalPages > 1 ? (
+                <Pagination className="mx-0 w-auto">
+                  <PaginationContent>
+                    <PaginationItem>
+                      <PaginationPrevious
+                        text="上一页"
+                        onClick={() => setPage((current) => Math.max(1, current - 1))}
+                        className={page <= 1 ? "pointer-events-none opacity-50" : "cursor-pointer"}
+                      />
+                    </PaginationItem>
+                    {pageRange.map((item, index) => item === "ellipsis" ? (
+                      <PaginationItem key={`ellipsis-${index}`}><PaginationEllipsis /></PaginationItem>
+                    ) : (
+                      <PaginationItem key={item}>
+                        <PaginationLink
+                          isActive={item === page}
+                          onClick={() => item !== page && setPage(item)}
+                          className={item === page ? "cursor-default" : "cursor-pointer"}
+                        >
+                          {item}
+                        </PaginationLink>
+                      </PaginationItem>
+                    ))}
+                    <PaginationItem>
+                      <PaginationNext
+                        text="下一页"
+                        onClick={() => setPage((current) => Math.min(totalPages, current + 1))}
+                        className={page >= totalPages ? "pointer-events-none opacity-50" : "cursor-pointer"}
+                      />
+                    </PaginationItem>
+                  </PaginationContent>
+                </Pagination>
+              ) : null}
+            </div>
+          ) : null}
         </div>
         <OperationLogDialog
           module="user"

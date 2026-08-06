@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Literal
 
-from fastapi import APIRouter, HTTPException, Request, Response
+from fastapi import APIRouter, HTTPException, Query, Request, Response
 from pydantic import BaseModel, ConfigDict
 
 from api.operation_log_utils import (
@@ -193,10 +193,18 @@ def options(request: Request):
 
 
 @router.get("/admin/users")
-def admin_list_users(request: Request):
+def admin_list_users(
+    request: Request,
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+):
     require_permission(request, "system.admin")
     repository = request.app.state.auth_repository
-    return {"items": [sanitize_user(user) for user in repository.list_users()]}
+    payload = repository.list_users_page(page=page, page_size=page_size)
+    return {
+        **payload,
+        "items": [sanitize_user(user) for user in payload["items"]],
+    }
 
 
 @router.patch("/admin/users/{user_id}")

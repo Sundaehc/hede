@@ -411,6 +411,48 @@ class AuthRepository:
             rows = [dict(row) for row in connection.execute(select(AUTH_USER_TABLE).order_by(AUTH_USER_TABLE.c.id)).mappings()]
         return [self._user_with_permissions(row) for row in rows]
 
+    def list_users_page(self, *, page: int, page_size: int) -> dict[str, object]:
+        page = max(1, int(page))
+        page_size = min(max(1, int(page_size)), 100)
+        table = AUTH_USER_TABLE
+        with self.engine.connect() as connection:
+            total = int(connection.execute(select(func.count()).select_from(table)).scalar_one() or 0)
+            active = int(
+                connection.execute(
+                    select(func.count()).select_from(table).where(table.c.status == "active")
+                ).scalar_one() or 0
+            )
+            disabled = int(
+                connection.execute(
+                    select(func.count()).select_from(table).where(table.c.status == "disabled")
+                ).scalar_one() or 0
+            )
+            department_count = int(
+                connection.execute(
+                    select(func.count(func.distinct(table.c.department_code))).select_from(table)
+                ).scalar_one() or 0
+            )
+            rows = [
+                dict(row)
+                for row in connection.execute(
+                    select(table)
+                    .order_by(table.c.id)
+                    .offset((page - 1) * page_size)
+                    .limit(page_size)
+                ).mappings()
+            ]
+        return {
+            "items": [self._user_with_permissions(row) for row in rows],
+            "total": total,
+            "page": page,
+            "page_size": page_size,
+            "stats": {
+                "active": active,
+                "disabled": disabled,
+                "department_count": department_count,
+            },
+        }
+
     def update_user(self, user_id: int, payload: Mapping[str, object]) -> dict[str, object] | None:
         values: dict[str, object] = {}
         for key in ("display_name", "department_code", "role_code", "status"):
