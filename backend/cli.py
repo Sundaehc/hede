@@ -4,7 +4,7 @@ import argparse
 from collections.abc import Sequence
 
 from config import load_settings
-from pipeline.import_pipeline import ImportPipeline
+from pipeline.import_pipeline import ImportPipeline, PROTECTED_SYNC_BRANDS
 
 
 
@@ -39,6 +39,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     summaries = pipeline.run(
         dry_run=args.command == "dry-run",
         mode="sync" if args.command == "sync" else "replace",
+        excluded_brands=PROTECTED_SYNC_BRANDS if args.command == "sync" else None,
     )
     _print_summary(args.command, summaries)
     return 0

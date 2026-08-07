@@ -1,3 +1,5 @@
+from datetime import date
+
 from api.product_goods_cache import (
     clear_product_goods_cache,
     get_product_goods_cache,
@@ -37,6 +39,15 @@ def test_product_goods_cache_clear_removes_risk_product_codes():
     clear_product_goods_cache()
 
     assert get_product_goods_risk_codes_cache("cbanner_mens") is None
+
+
+def test_product_goods_risk_cache_is_separated_by_snapshot_date():
+    clear_product_goods_cache()
+    set_product_goods_risk_codes_cache("cbanner_mens", {"CURRENT"})
+    set_product_goods_risk_codes_cache("cbanner_mens", {"HISTORICAL"}, date(2026, 8, 6))
+
+    assert get_product_goods_risk_codes_cache("cbanner_mens") == ("CURRENT",)
+    assert get_product_goods_risk_codes_cache("cbanner_mens", date(2026, 8, 6)) == ("HISTORICAL",)
 
 
 def test_product_goods_cache_clear_removes_snapshot_dates():

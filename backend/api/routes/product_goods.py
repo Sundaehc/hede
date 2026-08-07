@@ -350,12 +350,16 @@ def _product_goods_conditions(
     return conditions
 
 
-def _shortage_risk_product_codes(connection, product_table, *, brand: str) -> set[str]:
-    cached_codes = get_product_goods_risk_codes_cache(brand)
+def _shortage_risk_product_codes(
+    connection,
+    product_table,
+    *,
+    brand: str,
+    snapshot_date: date | None = None,
+) -> set[str]:
+    cached_codes = get_product_goods_risk_codes_cache(brand, snapshot_date)
     if cached_codes is not None:
         return set(cached_codes)
-    if not inspect(connection).has_table(JST_FULL_STOCK_TABLE.name):
-        return set()
     product_codes = {
         str(product_code).strip()
         for product_code in connection.execute(select(product_table.c.sku)).scalars()
@@ -363,68 +367,124 @@ def _shortage_risk_product_codes(connection, product_table, *, brand: str) -> se
     }
     if not product_codes:
         return set()
+
+    # Historical views are rendered from the immutable product-goods snapshot.
+    # Do the risk filtering from that same payload so a row marked as broken-size
+    # in the table is not excluded by the current inventory source.
+    if snapshot_date is not None:
+        snapshot_table = product_goods_detail_snapshots_table_for_year(snapshot_date.year)
+        if inspect(connection).has_table(snapshot_table.name):
+            matched_codes: set[str] = set()
+            rows = connection.execute(
+                select(snapshot_table.c.goods_code, snapshot_table.c.data)
+                .where(snapshot_table.c.brand == brand)
+                .where(snapshot_table.c.snapshot_date == snapshot_date)
+                .where(snapshot_table.c.goods_code.in_(product_codes))
+            ).mappings()
+            for row in rows:
+                product_code = str(row["goods_code"] or "").strip()
+                data = row["data"] if isinstance(row["data"], dict) else {}
+                metrics = data.get("metrics") if isinstance(data.get("metrics"), dict) else {}
+                inventory_by_size = data.get("inventory_by_size") if isinstance(data.get("inventory_by_size"), dict) else {}
+                shortage_by_size = data.get("shortage_by_size") if isinstance(data.get("shortage_by_size"), dict) else {}
+                shortage_total = int(metrics.get("shortage_total") or sum(int(value or 0) for value in shortage_by_size.values()))
+                broken_size, biased_size = _size_inventory_risk_flags(inventory_by_size)
+                zero_inventory = bool(inventory_by_size) and sum(int(value or 0) for value in inventory_by_size.values()) <= 0
+                stock_sale_days = metrics.get("stock_sale_days")
+                if (
+                    shortage_total > 0
+                    or (isinstance(stock_sale_days, (int, float)) and stock_sale_days <= SHORTAGE_RISK_SALE_DAYS)
+                    or broken_size
+                    or biased_size
+                    or zero_inventory
+                ):
+                    matched_codes.add(product_code)
+            set_product_goods_risk_codes_cache(brand, matched_codes, snapshot_date)
+            return matched_codes
+
     code_lengths = sorted({len(product_code) for product_code in product_codes}, reverse=True)
-    source_rows = connection.execute(
-        select(
-            JST_FULL_STOCK_TABLE.c.product_code,
-            JST_FULL_STOCK_TABLE.c.size,
-            JST_FULL_STOCK_TABLE.c.available_qty,
-            JST_FULL_STOCK_TABLE.c.stock_sale_days,
-            JST_FULL_STOCK_TABLE.c.actual_stock_qty,
-            JST_FULL_STOCK_TABLE.c.purchase_warehouse_stock_qty,
-            JST_FULL_STOCK_TABLE.c.purchase_in_transit_qty,
-            JST_FULL_STOCK_TABLE.c.transfer_in_transit_qty,
-            JST_FULL_STOCK_TABLE.c.return_in_transit_qty,
-        )
-    ).mappings()
     attributes: dict[str, dict[str, Any]] = {}
-    for row in source_rows:
-        source_code = row["product_code"]
-        normalized_source_code = str(source_code or "").strip()
-        matched_code = None
-        for length in code_lengths:
-            candidate = normalized_source_code[:length]
-            if candidate in product_codes:
-                matched_code = candidate
-                break
-        if matched_code is None:
-            continue
-        attribute = attributes.setdefault(
-            matched_code,
-            {
-                "has_shortage": False,
-                "stock_sale_days": [],
-                "inventory_by_size": {},
-            },
-        )
-        if int(row["available_qty"] or 0) < 0:
-            attribute["has_shortage"] = True
-        if row["stock_sale_days"] is not None:
-            attribute["stock_sale_days"].append(float(row["stock_sale_days"]))
-        size = _full_stock_size(row["size"])
-        if size is not None:
-            inventory_quantity = (
-                int(row["actual_stock_qty"] or 0)
-                + int(row["purchase_warehouse_stock_qty"] or 0)
-                + int(row["purchase_in_transit_qty"] or 0)
-                + int(row["transfer_in_transit_qty"] or 0)
-                + int(row["return_in_transit_qty"] or 0)
+    if inspect(connection).has_table(JST_FULL_STOCK_TABLE.name):
+        source_rows = connection.execute(
+            select(
+                JST_FULL_STOCK_TABLE.c.product_code,
+                JST_FULL_STOCK_TABLE.c.size,
+                JST_FULL_STOCK_TABLE.c.available_qty,
+                JST_FULL_STOCK_TABLE.c.stock_sale_days,
+                JST_FULL_STOCK_TABLE.c.actual_stock_qty,
+                JST_FULL_STOCK_TABLE.c.purchase_warehouse_stock_qty,
+                JST_FULL_STOCK_TABLE.c.purchase_in_transit_qty,
+                JST_FULL_STOCK_TABLE.c.transfer_in_transit_qty,
+                JST_FULL_STOCK_TABLE.c.return_in_transit_qty,
+            )
+        ).mappings()
+        for row in source_rows:
+            source_code = str(row["product_code"] or "").strip()
+            matched_code = next(
+                (source_code[:length] for length in code_lengths if source_code[:length] in product_codes),
+                None,
+            )
+            if matched_code is None:
+                continue
+            attribute = attributes.setdefault(
+                matched_code,
+                {"has_shortage": False, "stock_sale_days": [], "inventory_by_size": {}},
+            )
+            if int(row["available_qty"] or 0) < 0:
+                attribute["has_shortage"] = True
+            if row["stock_sale_days"] is not None:
+                attribute["stock_sale_days"].append(float(row["stock_sale_days"]))
+            size = _full_stock_size(row["size"])
+            if size is not None:
+                inventory_quantity = (
+                    int(row["actual_stock_qty"] or 0)
+                    + int(row["purchase_warehouse_stock_qty"] or 0)
+                    + int(row["purchase_in_transit_qty"] or 0)
+                    + int(row["transfer_in_transit_qty"] or 0)
+                    + int(row["return_in_transit_qty"] or 0)
+                )
+                inventory_by_size = attribute["inventory_by_size"]
+                inventory_by_size[size] = inventory_by_size.get(size, 0) + inventory_quantity
+
+    # Some goods have no row in jst_full_stock, while jst_size_stock still
+    # contains zero-valued size rows. Those rows are exactly what the goods list
+    # uses as its fallback and must participate in the same risk filter.
+    fallback_codes = [code for code in product_codes if code not in attributes]
+    if fallback_codes and inspect(connection).has_table(JST_SIZE_STOCK_TABLE.name):
+        size_rows = connection.execute(
+            select(
+                JST_SIZE_STOCK_TABLE.c.product_code,
+                JST_SIZE_STOCK_TABLE.c.size,
+                JST_SIZE_STOCK_TABLE.c.stock_qty,
+            )
+            .where(JST_SIZE_STOCK_TABLE.c.product_code.in_(fallback_codes))
+        ).mappings()
+        for row in size_rows:
+            product_code = str(row["product_code"] or "").strip()
+            size = STOCK_CODE_TO_SIZE.get(str(row["size"] or "").strip()) or _size_from_color_spec(row["size"])
+            if not product_code or not size:
+                continue
+            attribute = attributes.setdefault(
+                product_code,
+                {"has_shortage": False, "stock_sale_days": [], "inventory_by_size": {}},
             )
             inventory_by_size = attribute["inventory_by_size"]
-            inventory_by_size[size] = inventory_by_size.get(size, 0) + inventory_quantity
+            inventory_by_size[size] = inventory_by_size.get(size, 0) + int(row["stock_qty"] or 0)
 
     matched_codes: set[str] = set()
     for product_code, attribute in attributes.items():
         stock_sale_days = attribute["stock_sale_days"]
         broken_size, biased_size = _size_inventory_risk_flags(attribute["inventory_by_size"])
+        zero_inventory = bool(attribute["inventory_by_size"]) and sum(attribute["inventory_by_size"].values()) <= 0
         if (
             attribute["has_shortage"]
             or (stock_sale_days and min(stock_sale_days) <= SHORTAGE_RISK_SALE_DAYS)
             or broken_size
             or biased_size
+            or zero_inventory
         ):
             matched_codes.add(product_code)
-    set_product_goods_risk_codes_cache(brand, matched_codes)
+    set_product_goods_risk_codes_cache(brand, matched_codes, snapshot_date)
     return matched_codes
 
 
@@ -2120,6 +2180,7 @@ def list_product_goods(
                 connection,
                 product_table,
                 brand=brand,
+                snapshot_date=snapshot_date,
             )
             conditions.append(
                 cast(source_columns["sku"], Text).in_(risk_product_codes)
@@ -2303,7 +2364,14 @@ def list_product_goods(
         stock_by_size = dict(detail_snapshot.get("stock_by_size") or (full_stock["stock_by_size"] if full_stock else size_stocks.get(sku, {})))
         in_transit_by_size = dict(detail_snapshot.get("in_transit_by_size") or (full_stock["in_transit_by_size"] if full_stock else {}))
         shortage_by_size = dict(detail_snapshot.get("shortage_by_size") or (full_stock["shortage_by_size"] if full_stock else {}))
-        shortage_total = int(full_stock["shortage_total"]) if full_stock else 0
+        shortage_total = int(
+            _snapshot_value(
+                snapshot_metrics,
+                "shortage_total",
+                full_stock["shortage_total"] if full_stock else sum(shortage_by_size.values()),
+            )
+            or 0
+        )
         stock_total = int(_snapshot_value(snapshot_metrics, "stock_total", full_stock["stock_total"] if full_stock else sum(stock_by_size.values())) or 0)
         summary = summaries.get(sku, {})
         in_transit_total = int(_snapshot_value(snapshot_metrics, "in_transit_total", full_stock["in_transit_total"] if full_stock else int(summary.get("purchase_in_transit_qty") or 0)) or 0)

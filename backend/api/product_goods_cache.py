@@ -15,7 +15,7 @@ _FILTER_CACHE_MAX_ENTRIES = 80
 _FILTER_CACHE_TTL_SECONDS = 60
 _FILTER_CACHE: OrderedDict[ProductGoodsCacheKey, tuple[float, dict[str, Any]]] = OrderedDict()
 _RISK_CODES_CACHE_TTL_SECONDS = 300
-_RISK_CODES_CACHE: OrderedDict[str, tuple[float, tuple[str, ...]]] = OrderedDict()
+_RISK_CODES_CACHE: OrderedDict[tuple[str, str], tuple[float, tuple[str, ...]]] = OrderedDict()
 _SNAPSHOT_DATES_CACHE_TTL_SECONDS = 300
 _SNAPSHOT_DATES_CACHE: OrderedDict[str, tuple[float, tuple[str, ...]]] = OrderedDict()
 _LOCK = RLock()
@@ -63,26 +63,33 @@ def set_product_goods_filter_options_cache(key: ProductGoodsCacheKey, payload: d
             _FILTER_CACHE.popitem(last=False)
 
 
-def get_product_goods_risk_codes_cache(brand: str) -> tuple[str, ...] | None:
+def _risk_codes_cache_key(brand: str, snapshot_date: object | None = None) -> tuple[str, str]:
+    normalized_date = snapshot_date.isoformat() if hasattr(snapshot_date, "isoformat") else str(snapshot_date or "current")
+    return brand, normalized_date
+
+
+def get_product_goods_risk_codes_cache(brand: str, snapshot_date: object | None = None) -> tuple[str, ...] | None:
+    key = _risk_codes_cache_key(brand, snapshot_date)
     with _LOCK:
-        cached = _RISK_CODES_CACHE.get(brand)
+        cached = _RISK_CODES_CACHE.get(key)
         if cached is None:
             return None
         expires_at, product_codes = cached
         if expires_at <= monotonic():
-            _RISK_CODES_CACHE.pop(brand, None)
+            _RISK_CODES_CACHE.pop(key, None)
             return None
-        _RISK_CODES_CACHE.move_to_end(brand)
+        _RISK_CODES_CACHE.move_to_end(key)
         return product_codes
 
 
-def set_product_goods_risk_codes_cache(brand: str, product_codes: set[str]) -> None:
+def set_product_goods_risk_codes_cache(brand: str, product_codes: set[str], snapshot_date: object | None = None) -> None:
+    key = _risk_codes_cache_key(brand, snapshot_date)
     with _LOCK:
-        _RISK_CODES_CACHE[brand] = (
+        _RISK_CODES_CACHE[key] = (
             monotonic() + _RISK_CODES_CACHE_TTL_SECONDS,
             tuple(sorted(product_codes)),
         )
-        _RISK_CODES_CACHE.move_to_end(brand)
+        _RISK_CODES_CACHE.move_to_end(key)
         while len(_RISK_CODES_CACHE) > 4:
             _RISK_CODES_CACHE.popitem(last=False)
 

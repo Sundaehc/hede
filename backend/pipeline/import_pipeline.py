@@ -35,6 +35,7 @@ class ImportSummary:
 
 CBANNER_BRANDS = {"cbanner_mens", "cbanner_womens"}
 GJ_PRODUCT_BRANDS = {*CBANNER_BRANDS, "yandou", "eblan", "smiley", "ni"}
+PROTECTED_SYNC_BRANDS = frozenset({"smiley", "ni"})
 GJ_ARCHIVE_SUPPLEMENT_FIELDS = {
     "image_path",
     "group_name",
@@ -177,7 +178,14 @@ class ImportPipeline:
             for brand_key, root in settings.image_roots.items()
         }
 
-    def run(self, *, dry_run: bool, mode: str = "replace") -> dict[str, ImportSummary]:
+    def run(
+        self,
+        *,
+        dry_run: bool,
+        mode: str = "replace",
+        excluded_brands: set[str] | frozenset[str] | None = None,
+    ) -> dict[str, ImportSummary]:
+        excluded_brands = excluded_brands or frozenset()
         summaries = {
             brand_group: ImportSummary(brand_group=brand_group)
             for brand_group in ({spec.brand_group for spec in WORKBOOK_SPECS} | GJ_PRODUCT_BRANDS)
@@ -246,6 +254,10 @@ class ImportPipeline:
         if not dry_run:
             self.database.create_tables()
             for brand_group, rows in rows_by_brand.items():
+                if brand_group in excluded_brands:
+                    summaries[brand_group].skipped_rows += len(rows)
+                    summaries[brand_group].loaded_rows = 0
+                    continue
                 if mode == "sync":
                     summaries[brand_group].loaded_rows = self.database.sync_brand_rows(
                         brand_group,
