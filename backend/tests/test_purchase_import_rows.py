@@ -431,6 +431,39 @@ def test_purchase_import_uses_product_size_group_labels(monkeypatch) -> None:
     assert details[0]["size_quantities"] == {"34": "3"}
 
 
+def test_purchase_import_splits_ni_mixed_gender_sizes_for_costs(monkeypatch) -> None:
+    monkeypatch.setattr(inventory_routes, "_load_color_barcodes", lambda connection: [])
+    monkeypatch.setattr(
+        inventory_routes,
+        "_load_purchase_product_lookup",
+        lambda connection, brand, product_codes: {
+            "NIA2253A020115": {
+                "original_goods_code": "NIA2253A020115",
+                "color_name": "黑黄",
+                "color_code": "A2",
+                "gender_costs": {"女": "178", "男": "190"},
+            },
+        },
+    )
+    monkeypatch.setattr(inventory_routes, "_load_purchase_size_group_items", lambda connection, size_ranges: {})
+
+    details = _build_purchase_details_from_rows(
+        _StubRepository(),
+        [{
+            "product_code": "NIA2253A020115",
+            "quantity": "3",
+            "size_quantities": {"36": "2", "42": "1"},
+        }],
+        brand="ni",
+        fallback_unit_price=0,
+    )
+
+    assert [(item["unit_price"], item["quantity"], item["size_quantities"]) for item in details] == [
+        ("178", "2", {"36": "2"}),
+        ("190", "1", {"42": "1"}),
+    ]
+
+
 def test_purchase_import_uses_matched_product_code_when_color_barcode_is_repeated(monkeypatch) -> None:
     monkeypatch.setattr(inventory_routes, "_load_color_barcodes", lambda connection: [])
     monkeypatch.setattr(

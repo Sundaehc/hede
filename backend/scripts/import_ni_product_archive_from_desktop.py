@@ -19,12 +19,13 @@ from sqlalchemy import func
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from config import load_settings
+from domain.ni_gendered_costs import GENDER_COSTS_FIELD, build_gender_costs
 from domain.schema import PRODUCT_ARCHIVE_TABLES
 from storage.db import Database
 
 
 DEFAULT_PRODUCT_FILE = Path.home() / "Desktop" / "NI商品信息数据-2026_08_06-11_04_35.xls"
-DEFAULT_PRICE_FILE = Path.home() / "Desktop" / "NI物价信息查询数据-2026_08_06-11_04_46.xls"
+DEFAULT_PRICE_FILE = Path.home() / "Desktop" / "NI物价信息查询数据-2026_08_06-11_04_461.xls"
 PRODUCT_CODE_HEADERS = ("货号", "商品编码", "商品条码")
 PRODUCT_SOURCE_FIELDS = {
     "原始货号": "original_sku",
@@ -53,6 +54,7 @@ class ImportSummary:
     cost_rows: int
     cost_rows_skipped: int
     cost_conflicts: int
+    gender_cost_products: int
     matched_costs: int
     applied: bool
 
@@ -226,15 +228,60 @@ def read_costs(source_file: Path) -> tuple[dict[str, Decimal], int, int, int]:
     )
 
 
+def read_gendered_costs(source_file: Path) -> dict[str, dict[str, Decimal]]:
+    """Read NI female/male price pairs kept under separate preset-price names."""
+    if not source_file.is_file():
+        raise FileNotFoundError(f"找不到 NI 物价信息文件：{source_file}")
+
+    workbook = xlrd.open_workbook(str(source_file))
+    price_rows: dict[str, dict[str, object]] = defaultdict(dict)
+    try:
+        for sheet in workbook.sheets():
+            header_result = _find_header_row(
+                sheet,
+                PRICE_CODE_HEADERS + PRICE_COST_HEADERS + PRICE_COST_NAME_HEADERS,
+            )
+            if header_result is None:
+                continue
+            header_row, headers = header_result
+            code_header = next((header for header in PRICE_CODE_HEADERS if _header_text(header) in headers), None)
+            cost_header = next((header for header in PRICE_COST_HEADERS if _header_text(header) in headers), None)
+            cost_name_header = next((header for header in PRICE_COST_NAME_HEADERS if _header_text(header) in headers), None)
+            if code_header is None or cost_header is None or cost_name_header is None:
+                continue
+            for row_number in range(header_row + 1, sheet.nrows):
+                row = sheet.row_values(row_number)
+                code = _value(row, headers, code_header, datemode=workbook.datemode)
+                cost_name = _value(row, headers, cost_name_header, datemode=workbook.datemode)
+                cost_index = headers[_header_text(cost_header)]
+                cost = _decimal(row[cost_index] if cost_index < len(row) else None)
+                if code and cost_name and cost is not None:
+                    price_rows[code][cost_name] = cost
+    finally:
+        workbook.release_resources()
+    return build_gender_costs(price_rows)
+
+
 def import_ni_product_archive(*, product_file: Path, price_file: Path, apply: bool) -> ImportSummary:
     product_rows, product_rows_skipped, product_duplicates = read_product_rows(product_file)
     costs, cost_rows, cost_rows_skipped, cost_conflicts = read_costs(price_file)
+    gendered_costs = read_gendered_costs(price_file)
     matched_costs = 0
     for row in product_rows:
-        cost = costs.get(_text(row.get("sku"))) or costs.get(_text(row.get("original_sku")))
+        sku = _text(row.get("sku"))
+        original_sku = _text(row.get("original_sku"))
+        cost = costs.get(sku) or costs.get(original_sku)
         if cost is not None:
             row["cost"] = cost
             matched_costs += 1
+        gender_costs = gendered_costs.get(sku) or gendered_costs.get(original_sku)
+        if gender_costs:
+            extra_fields = row.get("extra_fields")
+            assert isinstance(extra_fields, dict)
+            extra_fields[GENDER_COSTS_FIELD] = {
+                gender: str(price)
+                for gender, price in gender_costs.items()
+            }
 
     if apply and product_rows:
         settings = load_settings(require_database=True)
@@ -245,7 +292,7 @@ def import_ni_product_archive(*, product_file: Path, price_file: Path, apply: bo
         update_columns = [
             column.name
             for column in table.columns
-            if column.name not in {"id", "sku", "created_at", "cost"}
+            if column.name not in {"id", "sku", "created_at", "cost", "image_path"}
         ]
         with database._require_engine().begin() as connection:
             statement = pg_insert(table).values(product_rows)
@@ -262,6 +309,12 @@ def import_ni_product_archive(*, product_file: Path, price_file: Path, apply: bo
         cost_rows=cost_rows,
         cost_rows_skipped=cost_rows_skipped,
         cost_conflicts=cost_conflicts,
+        gender_cost_products=sum(
+            1
+            for row in product_rows
+            if isinstance(row.get("extra_fields"), dict)
+            and GENDER_COSTS_FIELD in row["extra_fields"]
+        ),
         matched_costs=matched_costs,
         applied=apply,
     )
@@ -281,7 +334,8 @@ def main() -> None:
     print(
         f"模式：{'正式导入' if summary.applied else '预览（未写入数据库）'}；"
         f"商品 {summary.product_rows} 条，跳过 {summary.product_rows_skipped} 条，重复 {summary.product_duplicates} 条；"
-        f"物价有效 {summary.cost_rows} 条，跳过 {summary.cost_rows_skipped} 条，冲突 {summary.cost_conflicts} 条；"
+        f"物价有效 {summary.cost_rows} 条，跳过 {summary.cost_rows_skipped} 条，冲突 {summary.cost_conflicts} 条，"
+        f"男女分价 {summary.gender_cost_products} 款；"
         f"匹配成本 {summary.matched_costs} 条"
     )
 

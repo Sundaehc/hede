@@ -108,6 +108,14 @@ function ProductImage({ item, onPreviewImage }: { item: ProductListItem; onPrevi
   )
 }
 
+function productCostText(item: ProductListItem) {
+  const genderCosts = item.gender_costs
+  if (genderCosts?.female && genderCosts.male) {
+    return `女码 ${genderCosts.female} / 男码 ${genderCosts.male}`
+  }
+  return item.cost ? Number(item.cost).toFixed(1) : ""
+}
+
 function ProductCard({ item, selectable, selectedIds, onToggleSelect, onEdit, onDelete, onPreviewImage }: {
   item: ProductListItem
   selectable?: boolean
@@ -119,6 +127,7 @@ function ProductCard({ item, selectable, selectedIds, onToggleSelect, onEdit, on
 }) {
   const checked = selectedIds.has(item.id)
   const canEdit = Boolean(onEdit)
+  const costText = productCostText(item)
   const smileyExtraFields = item.brand === "smiley"
     ? [
         { label: "工厂代码", value: item.factory_code },
@@ -193,7 +202,7 @@ function ProductCard({ item, selectable, selectedIds, onToggleSelect, onEdit, on
           {item.season_category ? <span><span className="text-muted-foreground">季节:</span> {item.season_category}</span> : null}
           {item.year ? <span><span className="text-muted-foreground">年份:</span> {item.year}</span> : null}
           {item.color ? <span><span className="text-muted-foreground">颜色:</span> {item.color}</span> : null}
-          {item.cost ? <span><span className="text-muted-foreground">成本:</span> {Number(item.cost).toFixed(1)}</span> : null}
+          {costText ? <span><span className="text-muted-foreground">成本:</span> {costText}</span> : null}
           {item.size_range ? <span><span className="text-muted-foreground">尺码段:</span> {item.size_range}</span> : null}
         </div>
 

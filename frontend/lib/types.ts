@@ -113,6 +113,7 @@ export type ProductListItem = {
   color_code: string | null
   barcode_build_rule: string | null
   launch_date: string | null
+  gender_costs?: { female: string; male: string } | null
   factory_code?: string | null
   market_price?: string | number | null
   barcode?: string | null

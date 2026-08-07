@@ -33,6 +33,7 @@ from domain.color_barcode_schema import COLOR_BARCODE_TABLE
 from domain.gj_brand import CBANNER_MENS_BRAND, CBANNER_WOMENS_BRAND, EBLAN_BRAND, NI_BRAND, SMILEY_BRAND, SUPPLIER_BRANDS, YANDOU_BRAND, infer_supplier_brand_from_name
 from domain.gj_schema import GJ_MERGED_PRODUCT_INFO_TABLE
 from domain.inventory_schema import SUPPLIER_TABLE
+from domain.ni_gendered_costs import GENDER_COSTS_FIELD, price_for_sizes, split_sizes_by_gender
 from domain.product_size_code import build_product_size_code
 from domain.smiley_schema import SMILEY_FINE_TABLE
 from domain.inventory_sources import (
@@ -2125,6 +2126,7 @@ def _load_purchase_product_lookup(connection, brand: str, product_codes: set[str
                 product_table.c.insole_material,
                 product_table.c.shoe_box_spec,
                 product_table.c.size_range,
+                product_table.c.extra_fields,
             )
             .where(or_(
                 product_table.c.sku.in_(codes),
@@ -2148,6 +2150,9 @@ def _load_purchase_product_lookup(connection, brand: str, product_codes: set[str
                     lookup[code]["color_code"] = product_color_code
                 if row.get("barcode_build_rule"):
                     lookup[code]["barcode_build_rule"] = _cell_text(row.get("barcode_build_rule"))
+                gender_costs = _dict_or_empty(row.get("extra_fields")).get(GENDER_COSTS_FIELD)
+                if gender_costs and not lookup[code].get(GENDER_COSTS_FIELD):
+                    lookup[code][GENDER_COSTS_FIELD] = gender_costs
                 fallback_fields = {
                     "original_goods_code": _cell_text(row.get("original_sku")),
                     "factory_code": _cell_text(row.get("factory_sku")),
@@ -2487,13 +2492,14 @@ def _build_purchase_detail_lookup_for_brand(connection, product_code: str, quant
 
     fallback_color_barcode, fallback_color_name = _lookup_color_name_by_tail(connection, detail_code, brand)
     color_barcode, color_name = _purchase_detail_color_values(product_info, fallback_color_barcode, fallback_color_name)
-    unit_price = _to_decimal(product_info.get("unit_price"))
+    size_quantities = {size: _fmt_decimal(quantity)} if size and quantity else {}
+    gendered_unit_price = price_for_sizes(product_info.get(GENDER_COSTS_FIELD), size_quantities)
+    unit_price = gendered_unit_price or _to_decimal(product_info.get("unit_price"))
     amount = quantity * unit_price if quantity and unit_price else Decimal("0")
     product_name = str(product_info.get("product_name") or "").strip()
     if not product_name:
         product_name = f"{detail_code}{color_name}" if color_name else detail_code
 
-    size_quantities = {size: _fmt_decimal(quantity)} if size and quantity else {}
     extra_fields = _purchase_detail_extra_fields(product_info, detail_code)
     size_range = _cell_text(product_info.get("size_range"))
     size_labels = _purchase_size_labels_for_range(connection, size_range)
@@ -2514,6 +2520,7 @@ def _build_purchase_detail_lookup_for_brand(connection, product_code: str, quant
         "size_quantities": size_quantities,
         "size_range": size_range or None,
         "size_labels": list(size_labels),
+        "gender_costs": product_info.get(GENDER_COSTS_FIELD),
         "_matched_product": bool(product_info),
     }
 
@@ -2543,6 +2550,46 @@ def _build_purchase_detail_lookup(connection, product_code: str, quantity: Decim
     item = matched_fallback or fallback or _build_purchase_detail_lookup_for_brand(connection, product_code, quantity, "cbanner_mens")
     item.pop("_matched_product", None)
     return item
+
+
+def _gendered_detail_payloads(repository, record: dict[str, object], payload: dict[str, object]) -> list[dict[str, object]]:
+    """Apply NI gender prices to manual detail saves as well as Excel imports."""
+    product_code = _cell_text(payload.get("product_code"))
+    raw_sizes = payload.get("size_quantities")
+    if not product_code or not isinstance(raw_sizes, dict) or not raw_sizes:
+        return [payload]
+
+    brand = _purchase_import_brand_for_record(repository, record)
+    with repository.engine.connect() as connection:
+        lookup = _build_purchase_detail_lookup(
+            connection,
+            product_code,
+            _to_decimal(payload.get("quantity")),
+            brand,
+        )
+    gender_costs = lookup.get("gender_costs")
+    gender_groups = split_sizes_by_gender(raw_sizes)
+    quantity = _to_decimal(payload.get("quantity"))
+    recognized_quantity = sum(
+        (sum(sizes.values(), Decimal("0")) for sizes in gender_groups.values()),
+        Decimal("0"),
+    )
+    if not gender_costs or not gender_groups or recognized_quantity != quantity:
+        return [payload]
+
+    result: list[dict[str, object]] = []
+    for sizes in gender_groups.values():
+        price = price_for_sizes(gender_costs, sizes)
+        if price is None:
+            continue
+        detail = dict(payload)
+        detail["size_quantities"] = {size: _fmt_decimal(value) for size, value in sizes.items()}
+        detail_quantity = sum(sizes.values(), Decimal("0"))
+        detail["quantity"] = _fmt_decimal(detail_quantity)
+        detail["unit_price"] = _fmt_decimal(price)
+        detail["amount"] = _fmt_decimal(detail_quantity * price)
+        result.append(detail)
+    return result or [payload]
 
 
 def _build_purchase_details_from_rows(
@@ -2614,7 +2661,7 @@ def _build_purchase_details_from_rows(
         }
         size_group_items_by_range = _load_purchase_size_group_items(connection, size_ranges)
 
-    grouped: dict[tuple[str, str], dict[str, object]] = {}
+    grouped: dict[tuple[str, str, str], dict[str, object]] = {}
     for row in parsed_rows:
         raw_code = row["raw_code"]
         quantity = row["quantity"]
@@ -2636,12 +2683,6 @@ def _build_purchase_details_from_rows(
         if matched_product_code:
             original_sku = matched_product_code
         color_barcode, color_name = _purchase_detail_color_values(product_info, color_barcode, color_name)
-        imported_unit_price = _to_decimal(row.get("unit_price"))
-        lookup_unit_price = _to_decimal(product_info.get("unit_price"))
-        if prefer_lookup_unit_price:
-            unit_price = lookup_unit_price or fallback_unit_price
-        else:
-            unit_price = imported_unit_price or lookup_unit_price or fallback_unit_price
         product_name = str(product_info.get("product_name") or "").strip()
         if not product_name:
             product_name = f"{original_sku}{color_name}" if color_name else original_sku
@@ -2660,38 +2701,73 @@ def _build_purchase_details_from_rows(
         size = row["size"]
         if size:
             size = size_labels_by_input.get(_cell_text(size), _cell_text(size))
-        key = (original_sku, color_barcode)
-        item = grouped.setdefault(
-            key,
-            {
-                "product_code": original_sku,
-                "product_name": product_name,
-                "color_spec": color_name,
-                "color_barcode": color_barcode,
-                "color_name": color_name,
-                "size_quantities": defaultdict(Decimal),
-                "quantity": Decimal("0"),
-                "unit_price": unit_price,
-                "remark": _cell_text(row.get("remark")),
-                "extra_fields": extra_fields,
-                "raw_codes": [],
-            },
-        )
-        if row.get("remark") and not item.get("remark"):
-            item["remark"] = _cell_text(row.get("remark"))
-        if isinstance(item.get("extra_fields"), dict):
-            for field_key, field_value in extra_fields.items():
-                if (field_value or field_key == "inner_color_code") and not item["extra_fields"].get(field_key):
-                    item["extra_fields"][field_key] = field_value
-        item["quantity"] = item["quantity"] + quantity
-        item["raw_codes"].append(raw_code)
         row_size_quantities = row.get("size_quantities")
+        normalized_size_quantities: dict[str, Decimal] = {}
         if isinstance(row_size_quantities, dict) and row_size_quantities:
             for size_key, size_quantity in row_size_quantities.items():
                 normalized_size_key = size_labels_by_input.get(_cell_text(size_key), _cell_text(size_key))
-                item["size_quantities"][normalized_size_key] += size_quantity
+                normalized_size_quantities[normalized_size_key] = (
+                    normalized_size_quantities.get(normalized_size_key, Decimal("0")) + size_quantity
+                )
         elif size:
-            item["size_quantities"][size] += quantity
+            normalized_size_quantities[size] = quantity
+
+        imported_unit_price = _to_decimal(row.get("unit_price"))
+        lookup_unit_price = _to_decimal(product_info.get("unit_price"))
+        should_apply_gender_price = prefer_lookup_unit_price or not imported_unit_price
+        gendered_size_groups = (
+            split_sizes_by_gender(normalized_size_quantities)
+            if should_apply_gender_price and product_info.get(GENDER_COSTS_FIELD)
+            else {}
+        )
+        recognized_quantity = sum(
+            (sum(sizes.values(), Decimal("0")) for sizes in gendered_size_groups.values()),
+            Decimal("0"),
+        )
+        can_split_gendered_sizes = (
+            len(gendered_size_groups) > 1
+            and recognized_quantity == quantity
+        )
+        size_price_buckets = (
+            gendered_size_groups.items()
+            if can_split_gendered_sizes
+            else [("", normalized_size_quantities)]
+        )
+        for _, bucket_sizes in size_price_buckets:
+            bucket_quantity = sum(bucket_sizes.values(), Decimal("0")) or quantity
+            gendered_unit_price = price_for_sizes(product_info.get(GENDER_COSTS_FIELD), bucket_sizes)
+            lookup_price = gendered_unit_price or lookup_unit_price
+            if prefer_lookup_unit_price:
+                unit_price = lookup_price or fallback_unit_price
+            else:
+                unit_price = imported_unit_price or lookup_price or fallback_unit_price
+            key = (original_sku, color_barcode, _fmt_decimal(_to_decimal(unit_price)))
+            item = grouped.setdefault(
+                key,
+                {
+                    "product_code": original_sku,
+                    "product_name": product_name,
+                    "color_spec": color_name,
+                    "color_barcode": color_barcode,
+                    "color_name": color_name,
+                    "size_quantities": defaultdict(Decimal),
+                    "quantity": Decimal("0"),
+                    "unit_price": unit_price,
+                    "remark": _cell_text(row.get("remark")),
+                    "extra_fields": extra_fields,
+                    "raw_codes": [],
+                },
+            )
+            if row.get("remark") and not item.get("remark"):
+                item["remark"] = _cell_text(row.get("remark"))
+            if isinstance(item.get("extra_fields"), dict):
+                for field_key, field_value in extra_fields.items():
+                    if (field_value or field_key == "inner_color_code") and not item["extra_fields"].get(field_key):
+                        item["extra_fields"][field_key] = field_value
+            item["quantity"] = item["quantity"] + bucket_quantity
+            item["raw_codes"].append(raw_code)
+            for size_key, size_quantity in bucket_sizes.items():
+                item["size_quantities"][size_key] += size_quantity
 
     if not grouped:
         raise HTTPException(status_code=400, detail="Excel 中没有有效数量")
@@ -4248,9 +4324,15 @@ def create_inventory_detail(request: Request, record_id: int, payload: dict):
         raise HTTPException(status_code=404, detail="Record not found")
     _validate_purchase_detail_remark(record, payload)
     payload["document_id"] = record_id
-    detail = repository.create_detail(payload)
-    _log_detail_operation(request, action="detail_create", prefix="新增", record=record, after=detail)
-    return {"item": detail, "message": "明细添加成功"}
+    detail_payloads = _gendered_detail_payloads(repository, record, payload)
+    details = [repository.create_detail(detail_payload) for detail_payload in detail_payloads]
+    for detail in details:
+        _log_detail_operation(request, action="detail_create", prefix="新增", record=record, after=detail)
+    return {
+        "item": details[0],
+        "items": details,
+        "message": "明细添加成功" if len(details) == 1 else f"明细添加成功，已按男女码拆分为 {len(details)} 条",
+    }
 
 
 @router.put("/inventory/{record_id}/details/{detail_id}")
@@ -4264,11 +4346,21 @@ def update_inventory_detail(request: Request, record_id: int, detail_id: int, pa
         raise HTTPException(status_code=404, detail="Detail not found")
     _validate_purchase_detail_remark(record, payload)
     payload["document_id"] = record_id
-    detail = repository.update_detail(detail_id, payload)
+    detail_payloads = _gendered_detail_payloads(repository, record, payload)
+    detail = repository.update_detail(detail_id, detail_payloads[0])
     if detail is None:
         raise HTTPException(status_code=404, detail="Detail not found")
     _log_detail_operation(request, action="detail_update", prefix="编辑", record=record, before=before, after=detail)
-    return {"item": detail, "message": "明细更新成功"}
+    details = [detail]
+    for detail_payload in detail_payloads[1:]:
+        created_detail = repository.create_detail(detail_payload)
+        details.append(created_detail)
+        _log_detail_operation(request, action="detail_create", prefix="新增", record=record, after=created_detail)
+    return {
+        "item": detail,
+        "items": details,
+        "message": "明细更新成功" if len(details) == 1 else f"明细更新成功，已按男女码拆分为 {len(details)} 条",
+    }
 
 
 @router.post("/inventory/{record_id}/details/batch-delete")
@@ -4476,7 +4568,11 @@ async def import_inventory(request: Request, file: UploadFile = None):
                     _to_decimal(detail_payload.get("quantity")),
                     imported_brand,
                 )
-                lookup_unit_price = _to_decimal(lookup.get("unit_price"))
+                gendered_lookup_price = price_for_sizes(
+                    lookup.get("gender_costs"),
+                    detail_payload.get("size_quantities"),
+                )
+                lookup_unit_price = gendered_lookup_price or _to_decimal(lookup.get("unit_price"))
                 size_range = _cell_text(lookup.get("size_range"))
                 size_labels = tuple(
                     _cell_text(size)

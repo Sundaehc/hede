@@ -17,6 +17,7 @@ from api.schemas import BatchDeleteRequest, BrandKey, ProductArchiveBrandKey, Pr
 from sqlalchemy import distinct as sa_distinct, select as sa_select
 
 from domain.color_barcode_schema import COLOR_BARCODE_TABLE
+from domain.ni_gendered_costs import FEMALE_KEY, MALE_KEY, GENDER_COSTS_FIELD, normalize_gender_costs
 from domain.excluded_skus import is_excluded_sku
 from domain.schema import PRODUCT_ARCHIVE_TABLES
 from domain.size_group_schema import SIZE_GROUPS_TABLE
@@ -35,10 +36,19 @@ router = APIRouter()
 
 
 def _with_brand_and_image(item: dict, brand: str, settings) -> dict:
+    costs = normalize_gender_costs((item.get("extra_fields") or {}).get(GENDER_COSTS_FIELD))
     return {
         **item,
         "brand": brand,
         "image_url": image_url_for(brand, item.get("image_path"), settings),
+        "gender_costs": (
+            {
+                "female": str(costs[FEMALE_KEY]),
+                "male": str(costs[MALE_KEY]),
+            }
+            if FEMALE_KEY in costs and MALE_KEY in costs
+            else None
+        ),
     }
 
 
