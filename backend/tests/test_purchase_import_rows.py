@@ -209,6 +209,77 @@ def test_inventory_detail_list_refreshes_legacy_size_labels_from_product_size_gr
     assert result["items"][0]["extra_fields"]["size_labels"] == "35|36|37"
 
 
+def test_inventory_detail_list_maps_legacy_millimeter_size_to_combined_group(monkeypatch) -> None:
+    class _Connection:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc_value, traceback):
+            return False
+
+    class _Engine:
+        def connect(self):
+            return _Connection()
+
+    class _Repository:
+        engine = _Engine()
+
+        def get_record(self, record_id):
+            return {"id": record_id, "document_type": "报溢单", "supplier": "", "raw_payload": {}}
+
+        def list_details(self, record_id):
+            return [{
+                "id": 1,
+                "document_id": record_id,
+                "product_code": "NI24Q1A02030143-",
+                "size_quantities": {"270": "3"},
+                "extra_fields": {},
+            }]
+
+        def get_supplier_by_name(self, name):
+            return None
+
+    monkeypatch.setattr(
+        inventory_routes,
+        "_load_inventory_detail_size_ranges",
+        lambda connection, product_codes, preferred_brand: {"NI24Q1A02030143-": "NI合码35-46"},
+    )
+    monkeypatch.setattr(
+        inventory_routes,
+        "_load_legacy_ni_combined_detail_profiles",
+        lambda connection, base_codes_by_legacy_code: {
+            "NI24Q1A02030143-": {
+                "product_code": "NI24Q1A020301",
+                "product_name": "NI24Q1A020301暗夜黑",
+                "color_barcode": "01",
+                "color_name": "暗夜黑",
+            }
+        },
+    )
+    monkeypatch.setattr(
+        inventory_routes,
+        "_load_purchase_size_group_items",
+        lambda connection, size_ranges: {
+            "NI合码35-46": (
+                ("35-36", "35-36"),
+                ("37-38", "37-38"),
+                ("39-40", "39-40"),
+                ("41-42", "41-42"),
+                ("43-44", "43-44"),
+                ("45-46", "45-46"),
+            )
+        },
+    )
+    request = SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace(inventory_repository=_Repository())))
+
+    result = inventory_routes.list_inventory_details(request, 1)
+
+    assert result["items"][0]["size_quantities"] == {"43-44": "3"}
+    assert result["items"][0]["product_code"] == "NI24Q1A020301"
+    assert result["items"][0]["color_barcode"] == "01"
+    assert result["items"][0]["color_name"] == "暗夜黑"
+
+
 def test_purchase_order_import_rejects_legacy_size_column_template() -> None:
     rows, _ = _read_purchase_import_rows(_legacy_size_column_workbook())
 
@@ -241,6 +312,81 @@ def test_purchase_import_parses_combined_size_before_single_size_suffix() -> Non
     assert _split_purchase_size_code("C5563406D80235-240", "cbanner_womens") == ("C5563406D80", "235-240")
     assert _split_purchase_product_code("C5563406D80235-240", [], "cbanner_womens")[0] == "C5563406D80"
     assert _split_purchase_size_code("C5563406D8080240", "cbanner_womens") == ("C5563406D8080", "240")
+    assert _split_purchase_size_code("NI24Q1A02030345-46", "ni") == ("NI24Q1A020303", "45-46")
+
+
+def test_purchase_import_parses_truncated_ni_combined_size_suffix() -> None:
+    assert _split_purchase_size_code("NI24Q1A02030143-", "ni") == ("NI24Q1A020301", "43")
+    assert _split_purchase_product_code("NI24Q1A02030143-", [], "ni") == (
+        "NI24Q1A020301",
+        "NI24Q1A020301",
+        "01",
+        "",
+        "43",
+    )
+
+
+def test_inventory_detail_list_recovers_color_for_full_ni_combined_size(monkeypatch) -> None:
+    class _Connection:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc_value, traceback):
+            return False
+
+    class _Engine:
+        def connect(self):
+            return _Connection()
+
+    class _Repository:
+        engine = _Engine()
+
+        def get_record(self, record_id):
+            return {"id": record_id, "document_type": "报溢单", "supplier": "", "raw_payload": {}}
+
+        def list_details(self, record_id):
+            return [{
+                "id": 1,
+                "document_id": record_id,
+                "product_code": "NI24Q1A02030345-46",
+                "size_quantities": {"45-46": "2"},
+                "extra_fields": {},
+            }]
+
+        def get_supplier_by_name(self, name):
+            return None
+
+    monkeypatch.setattr(
+        inventory_routes,
+        "_load_inventory_detail_size_ranges",
+        lambda connection, product_codes, preferred_brand: {"NI24Q1A02030345-46": "NI合码35-46"},
+    )
+    monkeypatch.setattr(
+        inventory_routes,
+        "_load_legacy_ni_combined_detail_profiles",
+        lambda connection, base_codes_by_legacy_code: {
+            "NI24Q1A02030345-46": {
+                "product_code": "NI24Q1A020303",
+                "product_name": "NI24Q1A020303皓月白",
+                "color_barcode": "03",
+                "color_name": "皓月白",
+            }
+        },
+    )
+    monkeypatch.setattr(
+        inventory_routes,
+        "_load_purchase_size_group_items",
+        lambda connection, size_ranges: {
+            "NI合码35-46": (("45-46", "45-46"),)
+        },
+    )
+    request = SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace(inventory_repository=_Repository())))
+
+    result = inventory_routes.list_inventory_details(request, 1)
+
+    assert result["items"][0]["product_code"] == "NI24Q1A020303"
+    assert result["items"][0]["color_barcode"] == "03"
+    assert result["items"][0]["color_name"] == "皓月白"
 
 
 def test_purchase_import_uses_product_size_group_labels(monkeypatch) -> None:

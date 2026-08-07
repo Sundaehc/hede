@@ -70,7 +70,7 @@ DETAIL_CN_TO_FIELD = {cn: en for cn, en in INVENTORY_DETAIL_ALIASES.items() if e
 
 EXCEL_EPOCH = datetime(1899, 12, 30)
 PURCHASE_IMPORT_TYPES = {"进货订单", "进货单", "进货退货单", "报溢单", "报损单", "批发销售单", "批发销售退货单", "同价调拨单"}
-EU_PURCHASE_SIZE_LABELS = ("35", "36", "37", "38", "39", "40", "41", "42", "43", "44")
+EU_PURCHASE_SIZE_LABELS = ("35", "36", "37", "38", "39", "40", "41", "42", "43", "44", "45", "46", "47")
 MILLIMETER_PURCHASE_SIZE_LABELS = ("220", "225", "230", "235", "240", "245", "250", "255", "260", "265", "270", "275", "280", "285")
 PURCHASE_EXPORT_SIZE_LABELS = (*MILLIMETER_PURCHASE_SIZE_LABELS, *EU_PURCHASE_SIZE_LABELS)
 EU_SIZE_BRANDS = {"smiley", "ni", "nike"}
@@ -454,6 +454,57 @@ def _load_purchase_size_group_items(
         if size_range and size_name and size_barcode:
             items_by_range[size_range].append((size_name, size_barcode))
     return {size_range: tuple(items) for size_range, items in items_by_range.items()}
+
+
+def _combined_size_label_contains(size_label: str, size: str) -> bool:
+    normalized_label = _normalize_purchase_combined_size_label(size_label)
+    if not normalized_label:
+        return False
+    start_text, end_text = normalized_label.split("-", maxsplit=1)
+    try:
+        return int(start_text) <= int(size) <= int(end_text)
+    except ValueError:
+        return False
+
+
+def _normalize_inventory_detail_size_quantities(
+    size_quantities: object,
+    size_group_items: tuple[tuple[str, str], ...],
+) -> dict[str, object]:
+    """Map legacy millimeter keys into the product's current size-group labels."""
+    quantities = _dict_or_empty(size_quantities)
+    if not quantities or not size_group_items:
+        return quantities
+
+    labels_by_input = {
+        _cell_text(value): size_name
+        for size_name, size_barcode in size_group_items
+        for value in (size_name, size_barcode)
+        if _cell_text(value)
+    }
+    normalized: dict[str, Decimal] = defaultdict(Decimal)
+    for raw_size, raw_quantity in quantities.items():
+        raw_label = _cell_text(raw_size)
+        size_label = labels_by_input.get(raw_label, "")
+        eu_size = PURCHASE_MILLIMETER_SIZE_MAP.get(raw_label, raw_label)
+        if not size_label:
+            size_label = labels_by_input.get(eu_size, "")
+        if not size_label:
+            size_label = next(
+                (
+                    size_name
+                    for size_name, _ in size_group_items
+                    if _combined_size_label_contains(size_name, eu_size)
+                ),
+                raw_label,
+            )
+        normalized[size_label] += _to_decimal(raw_quantity)
+
+    return {
+        size_label: _fmt_decimal(quantity)
+        for size_label, quantity in normalized.items()
+        if quantity != 0
+    }
 
 
 def _normalize_purchase_size_quantities_for_group(
@@ -1475,14 +1526,94 @@ def _normalize_purchase_combined_size_label(value: object) -> str:
 
 def _split_purchase_combined_size_code(product_code: str) -> tuple[str, str] | None:
     text = _cell_text(product_code)
-    match = re.search(r"(\d{2,3})[-~～－—至/／](\d{2,3})$", text)
+    match = re.search(r"[-~～－—至/／](\d{2,3})$", text)
     if not match:
         return None
-    size = _normalize_purchase_combined_size_label(match.group(0))
-    base_code = text[:match.start()]
-    if not size or not base_code:
-        return None
-    return base_code, size
+    end = str(int(match.group(1)))
+    prefix = text[:match.start()]
+    for start_length in (3, 2):
+        if len(prefix) <= start_length:
+            continue
+        start = prefix[-start_length:]
+        size = _normalize_purchase_combined_size_label(f"{start}-{end}")
+        base_code = prefix[:-start_length]
+        if size and base_code:
+            return base_code, size
+    return None
+
+
+def _split_purchase_partial_combined_size_code(product_code: str) -> tuple[str, str] | None:
+    """Parse legacy combined-size codes whose trailing endpoint was truncated.
+
+    Some historical workbooks contain values such as ``...0143-`` for a
+    ``...01`` color and a ``43-44`` combined size.  The leading endpoint is
+    still enough to recover the base product code and map the size group.
+    """
+    text = _cell_text(product_code)
+    for size_length in (2, 3):
+        if len(text) <= size_length + 1 or not text.endswith("-"):
+            continue
+        size = text[-size_length - 1:-1]
+        is_eu_size = size_length == 2 and size in EU_PURCHASE_SIZE_LABELS
+        is_millimeter_size = size_length == 3 and size in PURCHASE_MILLIMETER_SIZE_MAP
+        if not is_eu_size and not is_millimeter_size:
+            continue
+        base_code = text[:-size_length - 1]
+        if base_code:
+            return base_code, size
+    return None
+
+
+def _purchase_size_from_code(size_code: str, brand: str | None) -> str:
+    if size_code in PURCHASE_MILLIMETER_SIZE_MAP:
+        return _purchase_size_from_millimeter(size_code, brand)
+    return _purchase_size_from_eu(size_code, brand)
+
+
+def _load_legacy_ni_combined_detail_profiles(
+    connection,
+    base_codes_by_legacy_code: dict[str, str],
+) -> dict[str, dict[str, str]]:
+    """Recover NI color data from the archive for historical combined-size codes."""
+    if not base_codes_by_legacy_code:
+        return {}
+
+    table = PRODUCT_ARCHIVE_TABLES["ni"]
+    rows_by_sku = {
+        _cell_text(row.get("sku")): row
+        for row in connection.execute(
+            sa_select(
+                table.c.sku,
+                table.c.product_name,
+                table.c.color,
+                table.c.color_code,
+                table.c.raw_payload,
+                table.c.extra_fields,
+            )
+            .where(table.c.sku.in_(set(base_codes_by_legacy_code.values())))
+        ).mappings()
+    }
+    profiles: dict[str, dict[str, str]] = {}
+    for legacy_code, base_code in base_codes_by_legacy_code.items():
+        row = rows_by_sku.get(base_code)
+        if row is None:
+            continue
+        raw_payload = _dict_or_empty(row.get("raw_payload"))
+        extra_fields = _dict_or_empty(row.get("extra_fields"))
+        goods_full_name = _first_text(
+            extra_fields.get("商品全名"),
+            raw_payload.get("商品全名"),
+        )
+        color_name = _first_text(row.get("color"))
+        if goods_full_name.startswith(base_code):
+            color_name = _first_text(color_name, goods_full_name[len(base_code):])
+        profiles[legacy_code] = {
+            "product_code": base_code,
+            "product_name": _first_text(goods_full_name, row.get("product_name"), base_code),
+            "color_barcode": _first_text(row.get("color_code"), base_code[-2:]),
+            "color_name": color_name,
+        }
+    return profiles
 
 
 def _purchase_size_header_indexes(headers: list[str]) -> dict[int, str]:
@@ -1722,6 +1853,10 @@ def _split_purchase_size_code(product_code: str, brand: str) -> tuple[str, str]:
     combined_size = _split_purchase_combined_size_code(product_code)
     if combined_size:
         return combined_size
+    partial_combined_size = _split_purchase_partial_combined_size_code(product_code)
+    if partial_combined_size:
+        base_code, size_code = partial_combined_size
+        return base_code, _purchase_size_from_code(size_code, brand)
     if len(product_code) >= 3:
         size_code = product_code[-3:]
         if size_code in PURCHASE_MILLIMETER_SIZE_MAP:
@@ -1745,6 +1880,18 @@ def _split_purchase_product_code(product_code: str, color_barcodes: list[tuple[s
         color_barcode = _purchase_color_barcode(style_color_code, brand)
         color_name = next((name for barcode, name in color_barcodes if barcode == color_barcode), "")
         return style_color_code, style_color_code, color_barcode, color_name, size
+    partial_combined_size = _split_purchase_partial_combined_size_code(product_code)
+    if partial_combined_size:
+        style_color_code, size_code = partial_combined_size
+        color_barcode = _purchase_color_barcode(style_color_code, brand)
+        color_name = next((name for barcode, name in color_barcodes if barcode == color_barcode), "")
+        return (
+            style_color_code,
+            style_color_code,
+            color_barcode,
+            color_name,
+            _purchase_size_from_code(size_code, brand),
+        )
     if len(product_code) >= 5:
         raw_size_code = product_code[-3:]
         if raw_size_code in PURCHASE_MILLIMETER_SIZE_MAP:
@@ -3951,6 +4098,19 @@ def list_inventory_details(request: Request, record_id: int):
         return {"items": details}
 
     with repository.engine.connect() as connection:
+        legacy_ni_base_codes = {
+            product_code: combined_size[0]
+            for product_code in product_codes
+            for combined_size in [
+                _split_purchase_combined_size_code(product_code)
+                or _split_purchase_partial_combined_size_code(product_code)
+            ]
+            if product_code.upper().startswith("NI") and combined_size is not None
+        }
+        legacy_ni_profiles = _load_legacy_ni_combined_detail_profiles(
+            connection,
+            legacy_ni_base_codes,
+        )
         size_ranges_by_product_code = _load_inventory_detail_size_ranges(
             connection,
             product_codes,
@@ -3969,11 +4129,23 @@ def list_inventory_details(request: Request, record_id: int):
         }
 
     for detail in details:
+        original_detail_code = _cell_text(detail.get("product_code"))
+        legacy_ni_profile = legacy_ni_profiles.get(original_detail_code)
+        if legacy_ni_profile:
+            detail["product_code"] = legacy_ni_profile["product_code"]
+            detail["product_name"] = legacy_ni_profile["product_name"]
+            detail["color_barcode"] = legacy_ni_profile["color_barcode"]
+            detail["color_name"] = legacy_ni_profile["color_name"]
+            detail["color_spec"] = legacy_ni_profile["color_name"]
         extra_fields = _dict_or_empty(detail.get("extra_fields"))
-        size_range = size_ranges_by_product_code.get(_cell_text(detail.get("product_code")), "")
+        size_range = size_ranges_by_product_code.get(original_detail_code, "")
         size_labels = size_labels_by_range.get(size_range, ())
         if not size_range or not size_labels:
             continue
+        detail["size_quantities"] = _normalize_inventory_detail_size_quantities(
+            detail.get("size_quantities"),
+            size_group_items_by_range.get(size_range, ()),
+        )
         detail["extra_fields"] = {
             **extra_fields,
             "size_range": size_range,
