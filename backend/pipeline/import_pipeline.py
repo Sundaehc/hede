@@ -35,7 +35,9 @@ class ImportSummary:
 
 CBANNER_BRANDS = {"cbanner_mens", "cbanner_womens"}
 GJ_PRODUCT_BRANDS = {*CBANNER_BRANDS, "yandou", "eblan", "smiley", "ni"}
-PROTECTED_SYNC_BRANDS = frozenset({"smiley", "ni"})
+# NI is maintained from its dedicated workbook and must not be overwritten by
+# the general 管家婆 daily source. Smiley follows the normal archive sync.
+PROTECTED_SYNC_BRANDS = frozenset({"ni"})
 GJ_ARCHIVE_SUPPLEMENT_FIELDS = {
     "image_path",
     "group_name",
@@ -132,6 +134,13 @@ def _gj_row_to_product_row(
     if is_excluded_sku(goods_code, original_goods_code):
         return None
 
+    source_extra_fields = row.get("extra_fields") if isinstance(row.get("extra_fields"), dict) else {}
+    raw_payload = row.get("raw_payload") if isinstance(row.get("raw_payload"), dict) else {}
+    product_model = (
+        source_extra_fields.get("产品型号")
+        or raw_payload.get("产品型号")
+    )
+
     canonical = {column: None for column in CANONICAL_COLUMNS}
     canonical.update({
         "image_path": image_path,
@@ -144,7 +153,8 @@ def _gj_row_to_product_row(
         "insole_material": row.get("insole_material"),
         "execution_standard": row.get("execution_standard"),
         "shoe_box_spec": row.get("shoe_box_spec"),
-        "product_model": row.get("product_name"),
+        "product_name": row.get("product_name"),
+        "product_model": product_model,
         "supplier_name": row.get("primary_supplier"),
         "launch_date": _date_text(row.get("launch_date")),
     })

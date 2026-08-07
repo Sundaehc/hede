@@ -4,6 +4,7 @@ from datetime import date, datetime, time, timedelta
 from decimal import Decimal
 import json
 from math import ceil
+import re
 from typing import Any, Literal
 
 from fastapi import APIRouter, HTTPException, Query, Request
@@ -93,20 +94,107 @@ FineTableFilterOperator = Literal["in", "not_in"]
 FINE_TABLE_FILTER_FIELDS = {
     "sku",
     "original_sku",
+    "status",
     "group_name",
     "product_level",
     "year",
     "season_category",
     "factory_code",
     "factory_name",
+    "product_name",
+    "main_style",
+    "style_code",
+    "goods_id",
+    "p_spu",
+    "category_l3",
     "factory_sku",
+    "execution_standard",
     "upper_material",
     "lining_material",
     "outsole_material",
     "insole_material",
     "first_order_time",
+    "sales_tag",
+    "goods_tag",
     "cost",
+    "final_price",
+    "vip_price",
+    "market_price",
+    "price_band",
+    "activity_profit",
+    "margin_rate",
+    "vip_1d_sales",
+    "vip_3d_sales",
+    "vip_7d_sales",
+    "vip_15d_sales",
+    "vip_30d_sales",
+    "vip_daily_average_sales",
+    "vip_projected_15d_sales",
+    "other_3d_sales",
+    "other_7d_sales",
+    "other_15d_sales",
+    "other_30d_sales",
+    "other_daily_average_sales",
+    "other_projected_15d_sales",
+    "original_other_3d_sales",
+    "original_other_7d_sales",
+    "original_all_7d_sales",
+    "original_other_15d_sales",
+    "original_other_30d_sales",
+    "vip_3d_uv",
+    "vip_7d_uv",
+    "vip_30d_uv",
+    "vip_3d_ctr",
+    "vip_7d_ctr",
+    "vip_30d_ctr",
+    "vip_3d_exposure",
+    "vip_7d_exposure",
+    "vip_30d_exposure",
+    "vip_3d_conversion",
+    "vip_7d_conversion",
+    "vip_30d_conversion",
+    "vip_3d_sales_change_rate",
+    "vip_3d_uv_change_rate",
+    "vip_3d_ctr_change_rate",
+    "vip_3d_conversion_change_rate",
+    "vip_7d_sales_change_rate",
+    "vip_7d_uv_change_rate",
+    "vip_7d_ctr_change_rate",
+    "vip_7d_conversion_change_rate",
+    "vip_30d_reject_count",
+    "vip_30d_reject_rate",
+    "stock_qty",
+    "original_stock_qty",
+    "projected_5d_stock_no_inbound",
+    "inbound_qty",
+    "defect_stock",
+    "original_defect_stock",
+    "original_inbound_qty",
+    "original_order_in_transit_stock",
+    "original_defect_in_transit_stock",
+    "off_shelf_stock",
+    "order_occupy_stock",
+    "order_in_transit_stock",
+    "defect_in_transit_stock",
+    "vip_projected_15d_stock",
+    "other_projected_15d_stock",
+    "risk",
+    "image",
 }
+
+# These fields can be narrowed before the expensive sales/inventory assembly.
+# The displayed value of cost is sourced from the latest price row, so it is
+# deliberately evaluated against the assembled payload instead.
+FINE_TABLE_SQL_FILTER_FIELDS = FINE_TABLE_FILTER_FIELDS - {
+    field for field in FINE_TABLE_FILTER_FIELDS
+    if field not in {
+        "sku", "original_sku", "group_name", "product_level", "year",
+        "season_category", "factory_code", "factory_name", "factory_sku",
+        "upper_material", "lining_material", "outsole_material",
+        "insole_material", "first_order_time",
+    }
+}
+FINE_TABLE_DYNAMIC_FILTER_PATTERN = re.compile(r"^(?:daily_sales_(\d+)_(?:quantity|uv)|size_.+)$")
 
 
 class FineTableFilter(BaseModel):
@@ -134,12 +222,16 @@ def _parse_fine_table_filters(raw_filters: str | None) -> tuple[FineTableFilter,
             raise HTTPException(status_code=400, detail="筛选条件格式无效") from exc
         condition.field = condition.field.strip()
         condition.values = [value.strip() for value in condition.values]
-        if condition.field not in FINE_TABLE_FILTER_FIELDS:
+        if not _is_supported_fine_table_filter_field(condition.field):
             raise HTTPException(status_code=400, detail=f"不支持按 {condition.field or '该字段'} 筛选")
         if len(condition.values) > 5_000:
             raise HTTPException(status_code=400, detail="单个字段最多选择 5000 个值")
         filters.append(condition)
     return tuple(filters)
+
+
+def _is_supported_fine_table_filter_field(field: str) -> bool:
+    return field in FINE_TABLE_FILTER_FIELDS or bool(FINE_TABLE_DYNAMIC_FILTER_PATTERN.fullmatch(field))
 
 
 def _fine_table_filter_columns(product_table, brand: BrandKey):
@@ -187,6 +279,121 @@ def _fine_table_filter_conditions(
         _fine_table_filter_condition(columns[item.field], item.operator, item.values)
         for item in filters
     ]
+
+
+def _fine_table_status_label(row: dict[str, Any]) -> str:
+    goods_status = str(row.get("goods_status") or "").strip()
+    if goods_status:
+        return goods_status
+    return {
+        "online": "商品上线",
+        "partial": "部分上线",
+        "offline": "已下线",
+    }.get(str(row.get("status_key") or ""), "未知")
+
+
+def _fine_table_metric_number(value: Any) -> float | None:
+    if value is None or value == "":
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return _metric_to_float(value)
+
+
+def _fine_table_exposure(uv: Any, ctr: Any) -> int | None:
+    uv_value = _fine_table_metric_number(uv)
+    ctr_value = _metric_to_float(ctr)
+    if uv_value is None or ctr_value in (None, 0):
+        return None
+    if isinstance(ctr, str) and "%" in ctr:
+        ctr_value /= 100
+    elif abs(ctr_value) > 1:
+        ctr_value /= 100
+    return round(uv_value / ctr_value) if ctr_value else None
+
+
+def _fine_table_filter_value(row: dict[str, Any], field: str) -> Any:
+    if field == "status":
+        return _fine_table_status_label(row)
+    if field == "image":
+        return "有图片" if row.get("image_url") or row.get("image_path") else "无图片"
+    if field == "category_l3":
+        return row.get("category_l3") or row.get("product_model")
+    if field == "cost":
+        return row.get("latest_purchase_price") if row.get("latest_purchase_price") not in (None, "") else row.get("cost")
+    if field == "vip_projected_15d_sales":
+        return _fine_table_metric_number(row.get("vip_daily_average_sales")) * 15 if row.get("vip_daily_average_sales") is not None else None
+    if field == "other_daily_average_sales":
+        return _fine_table_metric_number(row.get("other_30d_sales")) / 30 if row.get("other_30d_sales") is not None else None
+    if field == "other_projected_15d_sales":
+        daily = _fine_table_filter_value(row, "other_daily_average_sales")
+        return daily * 15 if daily is not None else None
+    if field == "projected_5d_stock_no_inbound":
+        vip_daily = _fine_table_metric_number(row.get("vip_daily_average_sales")) or 0
+        other_daily = _fine_table_metric_number(row.get("other_30d_sales")) or 0
+        return (_fine_table_metric_number(row.get("stock_qty")) or 0) - (vip_daily * 5 + other_daily / 30 * 5)
+    if field == "order_in_transit_stock":
+        return (_fine_table_metric_number(row.get("inbound_qty")) or 0) - (_fine_table_metric_number(row.get("defect_in_transit_stock")) or 0)
+    if field == "vip_projected_15d_stock":
+        stock = _fine_table_metric_number(row.get("stock_qty")) or 0
+        inbound = _fine_table_metric_number(row.get("inbound_qty")) or 0
+        sales = _fine_table_filter_value(row, "vip_projected_15d_sales") or 0
+        return stock + inbound - sales
+    if field == "other_projected_15d_stock":
+        return (_fine_table_filter_value(row, "vip_projected_15d_stock") or 0) - (_fine_table_filter_value(row, "other_projected_15d_sales") or 0)
+    if field == "risk":
+        vip_stock = _fine_table_filter_value(row, "vip_projected_15d_stock") or 0
+        other_stock = _fine_table_filter_value(row, "other_projected_15d_stock") or 0
+        if min(vip_stock, other_stock) < 0:
+            return "15天后缺口"
+        if (_fine_table_metric_number(row.get("stock_qty")) or 0) < ((_fine_table_metric_number(row.get("vip_7d_sales")) or 0) + (_fine_table_metric_number(row.get("other_7d_sales")) or 0)):
+            return "低库存"
+        return "正常"
+    if field in {"vip_3d_exposure", "vip_7d_exposure", "vip_30d_exposure"}:
+        period = field.split("_")[1]
+        return _fine_table_exposure(row.get(f"vip_{period}_uv"), row.get(f"vip_{period}_ctr"))
+    daily_match = re.fullmatch(r"daily_sales_(\d+)_(quantity|uv)", field)
+    if daily_match:
+        index = int(daily_match.group(1))
+        metric = daily_match.group(2)
+        daily_sales = row.get("daily_sales") or []
+        if index >= len(daily_sales):
+            return 0
+        return daily_sales[index].get(metric, 0) if isinstance(daily_sales[index], dict) else 0
+    if field.startswith("size_"):
+        return (row.get("size_stock") or {}).get(field.removeprefix("size_"), 0)
+    return row.get(field)
+
+
+def _fine_table_scalar_equal(left: Any, right: str) -> bool:
+    if left in (None, ""):
+        return right == ""
+    left_number = _fine_table_metric_number(left)
+    right_number = _fine_table_metric_number(right)
+    if left_number is not None and right_number is not None:
+        return left_number == right_number
+    return str(left).strip().lower() == str(right).strip().lower()
+
+
+def _fine_table_row_matches_filter(row: dict[str, Any], condition: FineTableFilter) -> bool:
+    value = _fine_table_filter_value(row, condition.field)
+    matched = any(_fine_table_scalar_equal(value, candidate) for candidate in condition.values)
+    return matched if condition.operator == "in" else not matched
+
+
+def _fine_table_rows_match_filters(rows: list[dict[str, Any]], filters: tuple[FineTableFilter, ...]) -> list[dict[str, Any]]:
+    if not filters:
+        return rows
+    return [row for row in rows if all(_fine_table_row_matches_filter(row, condition) for condition in filters)]
+
+
+def _fine_table_filter_option_text(value: Any) -> str:
+    if value in (None, ""):
+        return ""
+    if isinstance(value, float) and value.is_integer():
+        return str(int(value))
+    return str(value)
 
 
 def _ensure_snapshot_tables(engine) -> None:
@@ -666,6 +873,7 @@ def get_fine_table_snapshot_by_date(
     snapshot_date: date = Query(...),
     query: str | None = None,
     sku_prefix: str | None = None,
+    filters: str | None = None,
     page: int = Query(1, ge=1),
     page_size: int = Query(80, ge=1, le=200),
 ):
@@ -685,6 +893,7 @@ def get_fine_table_snapshot_by_date(
         batch_id=int(batch["id"]),
         query=query,
         sku_prefix=sku_prefix,
+        filters=filters,
         page=page,
         page_size=page_size,
     )
@@ -696,12 +905,14 @@ def get_fine_table_snapshot(
     batch_id: int,
     query: str | None = None,
     sku_prefix: str | None = None,
+    filters: str | None = None,
     page: int = Query(1, ge=1),
     page_size: int = Query(80, ge=1, le=200),
 ):
     settings = request.app.state.settings
     repository = request.app.state.repository
     _ensure_snapshot_tables(repository.engine)
+    parsed_filters = _parse_fine_table_filters(filters)
     with repository.engine.connect() as connection:
         batch = connection.execute(
             select(FINE_TABLE_SNAPSHOT_BATCH_TABLE)
@@ -716,31 +927,67 @@ def get_fine_table_snapshot(
         if not fine_table_snapshot_year_table_exists(repository.engine, snapshot_date) and not fine_table_snapshot_ref_table_exists(repository.engine, snapshot_date):
             raise HTTPException(status_code=500, detail="Snapshot row table not found")
         if optimized_snapshot_available(repository.engine, snapshot_date, int(batch["id"])):
-            ref_table = fine_table_snapshot_ref_table_for_date(snapshot_date)
-            conditions = [ref_table.c.batch_id == batch_id]
-            normalized_query = ",".join(
-                term.strip()
-                for term in (query or "").replace("\n", ",").split(",")
-                if term.strip()
-            )
-            prefix_terms = _normalized_terms(sku_prefix)
-            if normalized_query:
-                search_conditions = []
-                for term in normalized_query.split(","):
-                    like = f"%{term}%"
-                    search_conditions.extend([ref_table.c.sku.ilike(like), ref_table.c.original_sku.ilike(like)])
-                conditions.append(or_(*search_conditions))
-            if prefix_terms:
-                conditions.append(_prefix_search_condition(ref_table, prefix_terms))
-            conditions.append(not_excluded_sku_condition(ref_table.c.sku, ref_table.c.original_sku))
-            items, total = load_optimized_snapshot_rows(
+            if not parsed_filters:
+                ref_table = fine_table_snapshot_ref_table_for_date(snapshot_date)
+                conditions = [not_excluded_sku_condition(ref_table.c.sku, ref_table.c.original_sku)]
+                query_terms = _normalized_terms(query)
+                prefix_terms = _normalized_terms(sku_prefix)
+                if query_terms:
+                    search_conditions = []
+                    for term in query_terms:
+                        like = f"%{term}%"
+                        search_conditions.extend([ref_table.c.sku.ilike(like), ref_table.c.original_sku.ilike(like)])
+                    conditions.append(or_(*search_conditions))
+                if prefix_terms:
+                    conditions.append(_prefix_search_condition(ref_table, prefix_terms))
+                items, total = load_optimized_snapshot_rows(
+                    repository.engine,
+                    snapshot_date,
+                    int(batch_id),
+                    conditions=conditions,
+                    page=page,
+                    page_size=page_size,
+                )
+                with repository.engine.connect() as connection:
+                    _hydrate_snapshot_image_urls(
+                        connection=connection,
+                        items=items,
+                        brand=batch["brand"],
+                        settings=settings,
+                    )
+                return {
+                    "items": items,
+                    "total": total,
+                    "page": page,
+                    "page_size": page_size,
+                    "snapshot": _snapshot_batch_payload(dict(batch)),
+                }
+            all_rows, _snapshot_total = load_optimized_snapshot_rows(
                 repository.engine,
                 snapshot_date,
                 int(batch_id),
-                conditions=conditions[1:],
-                page=page,
-                page_size=page_size,
+                conditions=[],
+                page=1,
+                page_size=1_000_000,
             )
+            query_terms = _normalized_terms(query)
+            prefix_terms = _normalized_terms(sku_prefix)
+            filtered_rows = []
+            for row in all_rows:
+                sku = str(row.get("sku") or "")
+                original_sku = str(row.get("original_sku") or "")
+                if is_excluded_sku(sku, original_sku):
+                    continue
+                if query_terms and not any(term.lower() in sku.lower() or term.lower() in original_sku.lower() for term in query_terms):
+                    continue
+                if prefix_terms and not any(sku.lower().startswith(term.lower()) or original_sku.lower().startswith(term.lower()) for term in prefix_terms):
+                    continue
+                if parsed_filters and not all(_fine_table_row_matches_filter(row, condition) for condition in parsed_filters):
+                    continue
+                filtered_rows.append(row)
+            total = len(filtered_rows) if (parsed_filters or query_terms or prefix_terms) else int(_snapshot_total)
+            offset = (page - 1) * page_size
+            items = filtered_rows[offset:offset + page_size]
             with repository.engine.connect() as connection:
                 _hydrate_snapshot_image_urls(
                     connection=connection,
@@ -757,42 +1004,29 @@ def get_fine_table_snapshot(
             }
 
         snapshot_row_table = fine_table_snapshot_row_table_for_date(snapshot_date)
-        conditions = [snapshot_row_table.c.batch_id == batch_id]
-        normalized_query = ",".join(
-            term.strip()
-            for term in (query or "").replace("\n", ",").split(",")
-            if term.strip()
-        )
-        prefix_terms = _normalized_terms(sku_prefix)
-        if normalized_query:
-            search_conditions = []
-            for term in normalized_query.split(","):
-                like = f"%{term}%"
-                search_conditions.extend([
-                    snapshot_row_table.c.sku.ilike(like),
-                    snapshot_row_table.c.original_sku.ilike(like),
-                ])
-            conditions.append(or_(*search_conditions))
-        if prefix_terms:
-            conditions.append(_prefix_search_condition(snapshot_row_table, prefix_terms))
-        conditions.append(
-            not_excluded_sku_condition(
-                snapshot_row_table.c.sku,
-                snapshot_row_table.c.original_sku,
-            )
-        )
-        criterion = and_(*conditions)
-        total = connection.execute(
-            select(func.count()).select_from(snapshot_row_table).where(criterion)
-        ).scalar_one()
-        rows = connection.execute(
+        all_rows = [dict(row["payload"] or {}) for row in connection.execute(
             select(snapshot_row_table.c.payload)
-            .where(criterion)
+            .where(snapshot_row_table.c.batch_id == batch_id)
             .order_by(snapshot_row_table.c.row_index)
-            .offset((page - 1) * page_size)
-            .limit(page_size)
-        ).mappings()
-        items = [dict(row["payload"]) for row in rows]
+        ).mappings()]
+        query_terms = _normalized_terms(query)
+        prefix_terms = _normalized_terms(sku_prefix)
+        filtered_rows = []
+        for row in all_rows:
+            sku = str(row.get("sku") or "")
+            original_sku = str(row.get("original_sku") or "")
+            if is_excluded_sku(sku, original_sku):
+                continue
+            if query_terms and not any(term.lower() in sku.lower() or term.lower() in original_sku.lower() for term in query_terms):
+                continue
+            if prefix_terms and not any(sku.lower().startswith(term.lower()) or original_sku.lower().startswith(term.lower()) for term in prefix_terms):
+                continue
+            if parsed_filters and not all(_fine_table_row_matches_filter(row, condition) for condition in parsed_filters):
+                continue
+            filtered_rows.append(row)
+        total = len(filtered_rows)
+        offset = (page - 1) * page_size
+        items = filtered_rows[offset:offset + page_size]
         _hydrate_snapshot_image_urls(
             connection=connection,
             items=items,
@@ -809,6 +1043,21 @@ def get_fine_table_snapshot(
     }
 
 
+def _fine_table_options_from_rows(rows: list[dict[str, Any]], field: str) -> dict[str, Any]:
+    counts: dict[str, int] = {}
+    for row in rows:
+        value = _fine_table_filter_option_text(_fine_table_filter_value(row, field))
+        counts[value] = counts.get(value, 0) + 1
+    sorted_options = sorted(counts.items(), key=lambda item: (-item[1], item[0].lower()))
+    options = [{"value": value, "count": count} for value, count in sorted_options[:10_000]]
+    return {
+        "field": field,
+        "total": len(sorted_options),
+        "truncated": len(sorted_options) > len(options),
+        "options": options,
+    }
+
+
 @router.get("/fine-table/filter-options")
 def list_fine_table_filter_options(
     request: Request,
@@ -817,13 +1066,78 @@ def list_fine_table_filter_options(
     filters: str | None = None,
     query: str | None = None,
     sku_prefix: str | None = None,
+    snapshot_date: date | None = None,
 ):
-    if field not in FINE_TABLE_FILTER_FIELDS:
+    if not _is_supported_fine_table_filter_field(field):
         raise HTTPException(status_code=400, detail=f"不支持按 {field or '该字段'} 筛选")
+    parsed_filters = _parse_fine_table_filters(filters)
+    other_filters = tuple(item for item in parsed_filters if item.field != field)
     product_table = PRODUCT_TABLES[brand]
     terms = _normalized_terms(query)
     prefix_terms = _normalized_terms(sku_prefix)
-    parsed_filters = _parse_fine_table_filters(filters)
+
+    repository = request.app.state.repository
+    if snapshot_date is not None:
+        _ensure_snapshot_tables(repository.engine)
+        with repository.engine.connect() as connection:
+            batch = connection.execute(
+                select(FINE_TABLE_SNAPSHOT_BATCH_TABLE)
+                .where(FINE_TABLE_SNAPSHOT_BATCH_TABLE.c.brand == brand)
+                .where(FINE_TABLE_SNAPSHOT_BATCH_TABLE.c.snapshot_date == snapshot_date)
+            ).mappings().first()
+        if batch is None:
+            raise HTTPException(status_code=404, detail="Snapshot not found")
+        if optimized_snapshot_available(repository.engine, snapshot_date, int(batch["id"])):
+            rows, _snapshot_total = load_optimized_snapshot_rows(
+                repository.engine,
+                snapshot_date,
+                int(batch["id"]),
+                conditions=[],
+                page=1,
+                page_size=1_000_000,
+            )
+        else:
+            snapshot_row_table = fine_table_snapshot_row_table_for_date(snapshot_date)
+            with repository.engine.connect() as connection:
+                rows = [dict(row["payload"] or {}) for row in connection.execute(
+                    select(snapshot_row_table.c.payload)
+                    .where(snapshot_row_table.c.batch_id == int(batch["id"]))
+                    .order_by(snapshot_row_table.c.row_index)
+                ).mappings()]
+        filtered_rows = []
+        for row in rows:
+            sku = str(row.get("sku") or "")
+            original_sku = str(row.get("original_sku") or "")
+            if is_excluded_sku(sku, original_sku):
+                continue
+            if terms and not any(term.lower() in sku.lower() or term.lower() in original_sku.lower() for term in terms):
+                continue
+            if prefix_terms and not any(sku.lower().startswith(term.lower()) or original_sku.lower().startswith(term.lower()) for term in prefix_terms):
+                continue
+            if other_filters and not all(_fine_table_row_matches_filter(row, condition) for condition in other_filters):
+                continue
+            filtered_rows.append(row)
+        return _fine_table_options_from_rows(filtered_rows, field)
+
+    payload_filter_mode = (
+        _gj_fine_table_brand(brand) is not None
+        or field not in FINE_TABLE_SQL_FILTER_FIELDS
+        or any(item.field not in FINE_TABLE_SQL_FILTER_FIELDS for item in other_filters)
+    )
+    if payload_filter_mode:
+        encoded_filters = json.dumps([item.model_dump() for item in other_filters], ensure_ascii=False)
+        response = list_fine_table(
+            request,
+            brand=brand,
+            query=query,
+            sku_prefix=sku_prefix,
+            filters=encoded_filters if other_filters else None,
+            page=1,
+            page_size=200,
+            include_all=True,
+        )
+        return _fine_table_options_from_rows(response["items"], field)
+
     conditions = [not_excluded_sku_condition(product_table.c.sku, product_table.c.original_sku)]
     if terms:
         search_conditions = []
@@ -836,7 +1150,7 @@ def list_fine_table_filter_options(
     conditions.extend(_fine_table_filter_conditions(
         product_table,
         brand,
-        tuple(item for item in parsed_filters if item.field != field),
+        other_filters,
     ))
     column = _fine_table_filter_columns(product_table, brand)[field]
     value_expression = func.coalesce(func.trim(cast(column, Text)), "")
@@ -849,7 +1163,6 @@ def list_fine_table_filter_options(
         .limit(10_000)
     )
     total_statement = select(func.count(func.distinct(value_expression))).select_from(product_table).where(and_(*conditions))
-    repository = request.app.state.repository
     with repository.engine.connect() as connection:
         rows = connection.execute(statement).mappings().all()
         total = int(connection.execute(total_statement).scalar() or 0)
@@ -870,6 +1183,7 @@ def list_fine_table(
     season: str | None = None,
     filters: str | None = None,
     cache_bust: str | None = None,
+    include_all: bool = False,
     page: int = Query(1, ge=1),
     page_size: int = Query(80, ge=1, le=200),
 ):
@@ -882,8 +1196,12 @@ def list_fine_table(
     normalized_sku_prefix = ",".join(prefix_terms)
     normalized_season = season if season and season != "all" else "all"
     parsed_filters = _parse_fine_table_filters(filters)
+    payload_filters = parsed_filters if _gj_fine_table_brand(brand) is not None else tuple(
+        item for item in parsed_filters if item.field not in FINE_TABLE_SQL_FILTER_FIELDS
+    )
+    fetch_all_rows = include_all or bool(payload_filters)
     normalized_filters = tuple(sorted((item.field, item.operator, tuple(item.values)) for item in parsed_filters))
-    bypass_cache = bool(cache_bust)
+    bypass_cache = bool(cache_bust) or include_all
     cache_key = (brand, normalized_query, normalized_sku_prefix, normalized_season, normalized_filters, page, page_size)
     total_cache_key = (brand, normalized_query, normalized_sku_prefix, normalized_season, normalized_filters, 0, 0)
     cached = None if bypass_cache else get_fine_table_cache(cache_key)
@@ -943,37 +1261,26 @@ def list_fine_table(
                         .where(product_table.c.season_category == normalized_season)
                         .exists()
                     )
-                if parsed_filters:
-                    archive_filters = _fine_table_filter_conditions(product_table, brand, parsed_filters)
-                    gj_conditions.append(
-                        select(product_table.c.id)
-                        .where(or_(
-                            product_table.c.sku == GJ_MERGED_PRODUCT_INFO_TABLE.c.goods_code,
-                            product_table.c.sku == GJ_MERGED_PRODUCT_INFO_TABLE.c.original_goods_code,
-                            product_table.c.original_sku == GJ_MERGED_PRODUCT_INFO_TABLE.c.goods_code,
-                            product_table.c.original_sku == GJ_MERGED_PRODUCT_INFO_TABLE.c.original_goods_code,
-                        ))
-                        .where(and_(*archive_filters))
-                        .exists()
-                    )
                 gj_criterion = and_(*gj_conditions)
-                if cached_total is None:
+                if fetch_all_rows:
+                    total = 0
+                elif cached_total is None:
                     total = conn.execute(
                         select(func.count()).select_from(GJ_MERGED_PRODUCT_INFO_TABLE).where(gj_criterion)
                     ).scalar_one()
                     set_fine_table_cache(total_cache_key, {"total": total})
                 else:
                     total = cached_total
-                gj_rows = [
-                    dict(row)
-                    for row in conn.execute(
-                        select(GJ_MERGED_PRODUCT_INFO_TABLE)
-                        .where(gj_criterion)
-                        .order_by(desc(GJ_MERGED_PRODUCT_INFO_TABLE.c.id))
-                        .offset((page - 1) * page_size)
-                        .limit(page_size)
-                    ).mappings()
-                ]
+                gj_statement = (
+                    select(GJ_MERGED_PRODUCT_INFO_TABLE)
+                    .where(gj_criterion)
+                    .order_by(desc(GJ_MERGED_PRODUCT_INFO_TABLE.c.id))
+                )
+                if not fetch_all_rows:
+                    gj_statement = gj_statement.offset((page - 1) * page_size).limit(page_size)
+                gj_rows = [dict(row) for row in conn.execute(gj_statement).mappings()]
+                if fetch_all_rows:
+                    total = len(gj_rows)
                 gj_match_codes = {
                     code
                     for row in gj_rows
@@ -1027,7 +1334,8 @@ def list_fine_table(
                 conditions.append(_prefix_search_condition(product_table, prefix_terms))
             if normalized_season != "all":
                 conditions.append(product_table.c.season_category == normalized_season)
-            conditions.extend(_fine_table_filter_conditions(product_table, brand, parsed_filters))
+            sql_filters = tuple(item for item in parsed_filters if item.field in FINE_TABLE_SQL_FILTER_FIELDS)
+            conditions.extend(_fine_table_filter_conditions(product_table, brand, sql_filters))
 
             count_stmt = select(func.count()).select_from(product_table)
             items_base_stmt = select(product_table).order_by(desc(product_table.c.id))
@@ -1036,17 +1344,17 @@ def list_fine_table(
                 count_stmt = count_stmt.where(criterion)
                 items_base_stmt = items_base_stmt.where(criterion)
 
-            if cached_total is None:
+            if fetch_all_rows:
+                total = 0
+            elif cached_total is None:
                 total = conn.execute(count_stmt).scalar_one()
                 set_fine_table_cache(total_cache_key, {"total": total})
             else:
                 total = cached_total
-            product_rows = [
-                dict(row)
-                for row in conn.execute(
-                    items_base_stmt.offset((page - 1) * page_size).limit(page_size)
-                ).mappings()
-            ]
+            items_statement = items_base_stmt if fetch_all_rows else items_base_stmt.offset((page - 1) * page_size).limit(page_size)
+            product_rows = [dict(row) for row in conn.execute(items_statement).mappings()]
+            if fetch_all_rows:
+                total = len(product_rows)
 
         skus = [str(row.get("sku") or "").strip() for row in product_rows if row.get("sku")]
         if not skus:
@@ -1507,6 +1815,15 @@ def list_fine_table(
             "projected_15d_stock": projected_15,
             "daily_sales": orders.get("daily_sales", []),
         })
+
+    if payload_filters:
+        items = _fine_table_rows_match_filters(items, payload_filters)
+        total = len(items)
+        if not include_all:
+            offset = (page - 1) * page_size
+            items = items[offset:offset + page_size]
+    elif include_all:
+        total = len(items)
 
     payload = {
         "items": items,

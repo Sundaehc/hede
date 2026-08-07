@@ -48,10 +48,6 @@ const EXPORT_CONCURRENCY = 3
 const FINE_TABLE_PAGE_CACHE_LIMIT = 80
 const FINE_TABLE_CLIENT_CACHE_TTL_MS = 5 * 60 * 1000
 const DAILY_SALES_DISPLAY_DAYS = 5
-const FINE_TABLE_FILTER_FIELDS = new Set<FineTableFilterField>([
-  "sku", "original_sku", "group_name", "product_level", "year", "season_category", "factory_code", "factory_name", "factory_sku", "upper_material", "lining_material", "outsole_material", "insole_material", "first_order_time", "cost",
-])
-
 type ViewKey = "all" | "missingImage" | "stockRisk"
 type ColumnMode = "full" | "custom"
 type ColumnGroup = "基础" | "价格" | "销售" | "库存" | "每日" | "尺码"
@@ -808,9 +804,7 @@ function createTableColumns(dailyLabels: string[]): TableColumn[] {
     ...sizeColumns,
   ]
   for (const column of columns) {
-    if (FINE_TABLE_FILTER_FIELDS.has(column.key as FineTableFilterField)) {
-      column.filterField = column.key as FineTableFilterField
-    }
+    column.filterField = column.key as FineTableFilterField
   }
   return columns
 }
@@ -1245,7 +1239,7 @@ const FineTableGrid = memo(function FineTableGrid({
         >
           <thead className="sticky top-0 z-[60] bg-card">
             <tr className="text-xs text-muted-foreground">
-              <th rowSpan={hasDailyColumns ? 2 : 1} className="sticky left-0 z-[70] w-20 min-w-[5rem] max-w-[5rem] border-b border-border bg-card px-3 py-2.5 text-center font-medium">图片</th>
+              <th rowSpan={hasDailyColumns ? 2 : 1} className="sticky left-0 z-[70] w-20 min-w-[5rem] max-w-[5rem] border-b border-border bg-card px-3 py-2.5 text-center font-medium"><div className="flex items-center justify-center gap-0.5"><span>图片</span>{filtersEnabled && <FineTableHeaderFilterButton field="image" label="图片" active={activeFilterFields.has("image")} onOpen={onOpenColumnFilter} />}</div></th>
               <th rowSpan={hasDailyColumns ? 2 : 1} className="sticky left-20 z-[70] w-40 min-w-[10rem] max-w-[10rem] border-b border-border bg-card px-3 py-2.5 text-left font-medium"><div className="flex items-center justify-between gap-1"><span>货号</span>{filtersEnabled && <FineTableHeaderFilterButton field="sku" label="货号" active={activeFilterFields.has("sku")} onOpen={onOpenColumnFilter} />}</div></th>
               <th rowSpan={hasDailyColumns ? 2 : 1} className="sticky left-60 z-[70] w-40 min-w-[10rem] max-w-[10rem] border-b border-border bg-card px-3 py-2.5 text-left font-medium"><div className="flex items-center justify-between gap-1"><span>原始货号</span>{filtersEnabled && <FineTableHeaderFilterButton field="original_sku" label="原始货号" active={activeFilterFields.has("original_sku")} onOpen={onOpenColumnFilter} />}</div></th>
               {headerCells}
@@ -1261,7 +1255,17 @@ const FineTableGrid = memo(function FineTableGrid({
                       column.className,
                     )}
                   >
-                    {column.dailyMetricLabel}
+                    <div className="flex items-center justify-center gap-0.5">
+                      <span>{column.dailyMetricLabel}</span>
+                      {filtersEnabled && column.filterField && (
+                        <FineTableHeaderFilterButton
+                          field={column.filterField}
+                          label={`${column.dailyDateLabel ?? column.label}${column.dailyMetricLabel}`}
+                          active={activeFilterFields.has(column.filterField)}
+                          onOpen={onOpenColumnFilter}
+                        />
+                      )}
+                    </div>
                   </th>
                 ))}
               </tr>
@@ -1388,6 +1392,7 @@ async function loadFineTablePage(context: FineTablePageContext, page: number) {
       pageSize: PAGE_SIZE,
       query: context.query || undefined,
       skuPrefix: context.skuPrefix || undefined,
+      filters: context.filters.length ? context.filters : undefined,
     })
     : await listFineTable({
       brand: context.brand,
@@ -1562,7 +1567,7 @@ export function FineTablePage() {
   }, [brand, filters, historyDate, page, query, skuPrefix, reloadToken])
 
   useEffect(() => {
-    if (!activeColumnFilter || historyDate) return
+    if (!activeColumnFilter) return
     const requestId = ++columnFilterRequestIdRef.current
     setColumnFilterLoading(true)
     setColumnFilterError("")
@@ -1572,6 +1577,7 @@ export function FineTablePage() {
       filters,
       query: query || undefined,
       skuPrefix: skuPrefix || undefined,
+      snapshotDate: historyDate || undefined,
     }).then((response) => {
       if (requestId !== columnFilterRequestIdRef.current) return
       setColumnFilterData(response)
@@ -1680,7 +1686,6 @@ export function FineTablePage() {
   }, [brand])
 
   function openFineTableColumnFilter(field: FineTableFilterField, label: string, target: HTMLElement) {
-    if (historyDate) return
     const rect = target.getBoundingClientRect()
     setActiveColumnFilter({
       field,
@@ -1907,6 +1912,7 @@ export function FineTablePage() {
             pageSize: EXPORT_PAGE_SIZE,
             query: query || undefined,
             skuPrefix: skuPrefix || undefined,
+            filters: filters.length ? filters : undefined,
           })
           : listFineTable({
             brand,
@@ -2242,9 +2248,9 @@ export function FineTablePage() {
 
           <TabsContent value={view} className="mt-0">
             <FineTableGrid
-              activeFilters={historyDate ? [] : filters}
+              activeFilters={filters}
               error={error}
-              filtersEnabled={!historyDate}
+              filtersEnabled
               filteredRows={filteredRows}
               isLoading={isLoading}
               onOpenColumnFilter={openFineTableColumnFilter}
@@ -2265,7 +2271,7 @@ export function FineTablePage() {
           </TabsContent>
         </Tabs>
       </div>
-      {activeColumnFilter && !historyDate && (
+      {activeColumnFilter && (
         <div
           className="fixed z-[100] flex w-[min(24rem,calc(100vw-1.5rem))] flex-col overflow-hidden border border-border bg-card shadow-xl"
           style={{ top: activeColumnFilter.top, left: activeColumnFilter.left }}

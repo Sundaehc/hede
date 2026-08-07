@@ -225,19 +225,94 @@ export function listProducts(params: {
 export type FineTableFilterField =
   | "sku"
   | "original_sku"
+  | "status"
   | "group_name"
   | "product_level"
   | "year"
   | "season_category"
   | "factory_code"
   | "factory_name"
+  | "product_name"
+  | "main_style"
+  | "style_code"
+  | "goods_id"
+  | "p_spu"
+  | "category_l3"
   | "factory_sku"
+  | "execution_standard"
   | "upper_material"
   | "lining_material"
   | "outsole_material"
   | "insole_material"
   | "first_order_time"
+  | "sales_tag"
+  | "goods_tag"
   | "cost"
+  | "final_price"
+  | "vip_price"
+  | "market_price"
+  | "price_band"
+  | "activity_profit"
+  | "margin_rate"
+  | "vip_1d_sales"
+  | "vip_3d_sales"
+  | "vip_7d_sales"
+  | "vip_15d_sales"
+  | "vip_30d_sales"
+  | "vip_daily_average_sales"
+  | "vip_projected_15d_sales"
+  | "other_3d_sales"
+  | "other_7d_sales"
+  | "other_15d_sales"
+  | "other_30d_sales"
+  | "other_daily_average_sales"
+  | "other_projected_15d_sales"
+  | "original_other_3d_sales"
+  | "original_other_7d_sales"
+  | "original_all_7d_sales"
+  | "original_other_15d_sales"
+  | "original_other_30d_sales"
+  | "vip_3d_uv"
+  | "vip_7d_uv"
+  | "vip_30d_uv"
+  | "vip_3d_ctr"
+  | "vip_7d_ctr"
+  | "vip_30d_ctr"
+  | "vip_3d_exposure"
+  | "vip_7d_exposure"
+  | "vip_30d_exposure"
+  | "vip_3d_conversion"
+  | "vip_7d_conversion"
+  | "vip_30d_conversion"
+  | "vip_3d_sales_change_rate"
+  | "vip_3d_uv_change_rate"
+  | "vip_3d_ctr_change_rate"
+  | "vip_3d_conversion_change_rate"
+  | "vip_7d_sales_change_rate"
+  | "vip_7d_uv_change_rate"
+  | "vip_7d_ctr_change_rate"
+  | "vip_7d_conversion_change_rate"
+  | "vip_30d_reject_count"
+  | "vip_30d_reject_rate"
+  | "stock_qty"
+  | "original_stock_qty"
+  | "projected_5d_stock_no_inbound"
+  | "inbound_qty"
+  | "defect_stock"
+  | "original_defect_stock"
+  | "original_inbound_qty"
+  | "original_order_in_transit_stock"
+  | "original_defect_in_transit_stock"
+  | "off_shelf_stock"
+  | "order_occupy_stock"
+  | "order_in_transit_stock"
+  | "defect_in_transit_stock"
+  | "vip_projected_15d_stock"
+  | "other_projected_15d_stock"
+  | "risk"
+  | "image"
+  | `daily_sales_${number}_${"quantity" | "uv"}`
+  | `size_${string}`
 export type FineTableFilter = {
   field: FineTableFilterField
   operator: "in" | "not_in"
@@ -279,6 +354,7 @@ export function listFineTableFilterOptions(params: {
   filters?: FineTableFilter[]
   query?: string
   skuPrefix?: string
+  snapshotDate?: string
 }) {
   const search = new URLSearchParams({
     brand: params.brand,
@@ -288,6 +364,7 @@ export function listFineTableFilterOptions(params: {
     search.set("filters", JSON.stringify(params.filters))
   if (params.query) search.set("query", params.query)
   if (params.skuPrefix) search.set("sku_prefix", params.skuPrefix)
+  if (params.snapshotDate) search.set("snapshot_date", params.snapshotDate)
   return request<FineTableFilterOptionsResponse>(
     `/fine-table/filter-options?${search.toString()}`
   )
@@ -465,6 +542,7 @@ export function getFineTableSnapshot(params: {
   id: number
   query?: string
   skuPrefix?: string
+  filters?: FineTableFilter[]
   page: number
   pageSize: number
 }) {
@@ -474,6 +552,7 @@ export function getFineTableSnapshot(params: {
   })
   if (params.query) search.set("query", params.query)
   if (params.skuPrefix) search.set("sku_prefix", params.skuPrefix)
+  if (params.filters?.length) search.set("filters", JSON.stringify(params.filters))
   return request<FineTableSnapshotResponse>(
     `/fine-table/snapshots/${params.id}?${search.toString()}`
   )
@@ -484,6 +563,7 @@ export function getFineTableSnapshotByDate(params: {
   snapshotDate: string
   query?: string
   skuPrefix?: string
+  filters?: FineTableFilter[]
   page: number
   pageSize: number
 }) {
@@ -495,6 +575,7 @@ export function getFineTableSnapshotByDate(params: {
   })
   if (params.query) search.set("query", params.query)
   if (params.skuPrefix) search.set("sku_prefix", params.skuPrefix)
+  if (params.filters?.length) search.set("filters", JSON.stringify(params.filters))
   return request<FineTableSnapshotResponse>(
     `/fine-table/snapshots/by-date?${search.toString()}`
   )
