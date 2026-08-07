@@ -5,7 +5,7 @@ from datetime import date, datetime
 from decimal import Decimal
 
 import orjson
-from sqlalchemy import and_, create_engine, desc, func, insert, or_, select, text
+from sqlalchemy import Text, and_, cast, create_engine, desc, func, insert, or_, select, text
 
 from domain.auth_schema import AUTH_USER_TABLE
 from domain.operation_log_schema import OPERATION_LOG_TABLE
@@ -100,8 +100,12 @@ class OperationLogRepository:
             conditions.append(
                 table.c.summary.ilike(pattern)
                 | table.c.entity_label.ilike(pattern)
+                | table.c.entity_id.ilike(pattern)
                 | table.c.username.ilike(pattern)
                 | table.c.display_name.ilike(pattern)
+                | cast(table.c.changed_fields, Text).ilike(pattern)
+                | cast(table.c.before_data, Text).ilike(pattern)
+                | cast(table.c.after_data, Text).ilike(pattern)
             )
         if exclude_super_admin_logs:
             conditions.append(

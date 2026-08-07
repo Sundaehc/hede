@@ -27,6 +27,7 @@ import { ConfirmDialog, MessageDialog } from "@/components/confirm-dialog"
 import { InventoryDetailPanel } from "@/components/inventory-admin/inventory-detail-panel"
 import { EndingInventoryTab } from "@/components/inventory-admin/ending-inventory-tab"
 import { OperationLogDialog } from "@/components/operation-log-dialog"
+import { useAuth } from "@/components/auth/auth-provider"
 import { SearchableFilterInput, type SearchableFilterOption } from "@/components/inventory-admin/searchable-filter-input"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import {
@@ -534,7 +535,9 @@ type InventoryPageProps = {
 }
 
 export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
+  const { user } = useAuth()
   const isPurchasePage = mode === "purchase-orders"
+  const accountHandler = user?.display_name || user?.username || ""
   const [searchDateStart, setSearchDateStart] = useState("")
   const [searchDateEnd, setSearchDateEnd] = useState("")
   const [searchSupplier, setSearchSupplier] = useState("")
@@ -835,7 +838,7 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
       date: isPurchasePage ? todayInputValue() : (lastInventoryEntryDefaults.date || todayInputValue()),
       document_type: isPurchasePage ? PURCHASE_ORDER_DOCUMENT_TYPE : lastInventoryEntryDefaults.document_type,
       warehouse: isPurchasePage ? "" : lastInventoryEntryDefaults.warehouse,
-      handler: isPurchasePage ? "" : lastInventoryEntryDefaults.handler,
+      handler: accountHandler || lastInventoryEntryDefaults.handler,
     })
     setEditingId(null)
     void listInventoryAccountSubjects()
@@ -853,7 +856,7 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
       date: isPurchasePage ? todayInputValue() : (lastInventoryEntryDefaults.date || todayInputValue()),
       document_type: isPurchasePage ? PURCHASE_ORDER_DOCUMENT_TYPE : lastInventoryEntryDefaults.document_type,
       warehouse: isPurchasePage ? "" : lastInventoryEntryDefaults.warehouse,
-      handler: isPurchasePage ? prev.handler || "" : lastInventoryEntryDefaults.handler,
+      handler: accountHandler || prev.handler || lastInventoryEntryDefaults.handler,
     }))
     setImportDialogOpen(true)
   }
@@ -867,7 +870,7 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
       warehouse: item.warehouse || "",
       document_type: item.document_type || "",
       delivery_date: typeof item.extra_fields?.delivery_date === "string" ? item.extra_fields.delivery_date : "",
-      handler: item.handler || "",
+      handler: accountHandler || item.handler || "",
       summary: item.summary || "",
       additional_note: item.additional_note || "",
     })
@@ -1881,7 +1884,7 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
             )}
             <div className="space-y-1.5">
               <Label htmlFor="form-handler">经手人</Label>
-              <Input id="form-handler" value={formData.handler || ""} onChange={(e) => setFormData((prev) => ({ ...prev, handler: e.target.value }))} placeholder="经手人" />
+              <Input id="form-handler" value={formData.handler || ""} onChange={(e) => setFormData((prev) => ({ ...prev, handler: e.target.value }))} placeholder="经手人" readOnly={Boolean(accountHandler)} />
             </div>
             {!isFormStockAdjustment && (
               <div className="space-y-1.5">

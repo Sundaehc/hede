@@ -22,6 +22,7 @@ from api.operation_log_utils import (
     GENERAL_CUSTOMER_SHOP_FIELD_LABELS,
     GENERAL_CUSTOMER_UNIT_FIELD_LABELS,
     INVENTORY_FIELD_LABELS,
+    actor_from_request,
     build_changed_fields,
     detail_entity_label,
     inventory_entity_label,
@@ -343,6 +344,30 @@ def _cell_text(value: object) -> str:
     if isinstance(value, float) and value.is_integer():
         return str(int(value))
     return str(value).strip()
+
+
+def _current_account_handler(request: Request) -> str:
+    """Use the logged-in account name as the document handler when available."""
+    try:
+        actor = actor_from_request(request) or {}
+    except AttributeError:
+        actor = {}
+    return _first_text(actor.get("display_name"), actor.get("username"))
+
+
+def _document_numbers(records: list[dict[str, object]]) -> list[str]:
+    return list(dict.fromkeys(
+        document_number
+        for document_number in (_cell_text(record.get("document_number")) for record in records)
+        if document_number
+    ))
+
+
+def _document_log_label(document_numbers: list[str], fallback: str) -> str:
+    if not document_numbers:
+        return fallback
+    preview = "、".join(document_numbers[:10])
+    return f"{preview} 等 {len(document_numbers)} 张单据" if len(document_numbers) > 10 else preview
 
 
 def _first_text(*values: object) -> str:
@@ -3467,19 +3492,24 @@ async def import_purchase_inventory(request: Request, file: UploadFile = None):
         summary_parts.append(f"追加 {appended_docs} 条单据")
     summary_parts.append(f"{total_details} 条明细")
     result_message = f"导入完成：{'，'.join(summary_parts)}"
+    affected_records = [*created_records, *appended_records]
+    document_numbers = _document_numbers(affected_records)
 
     write_operation_log(
         request,
         module="purchase" if document_type == "进货订单" else "inventory",
         action="import_purchase",
         entity_type="inventory_record",
-        entity_label=file.filename or "采购/进销存导入",
-        summary=f"导入{document_type}：{'，'.join(summary_parts)}",
+        entity_label=_document_log_label(document_numbers, file.filename or "采购/进销存导入"),
+        summary=f"导入{document_type}：{'，'.join(summary_parts)}" + (
+            f"；单据编号：{'、'.join(document_numbers[:10])}" if document_numbers else ""
+        ),
         after_data={
             "filename": file.filename,
             "document_type": document_type,
             "documents": created_records[:200],
             "appended_documents": appended_records[:200],
+            "document_numbers": document_numbers,
             "document_count": created_docs,
             "appended_count": appended_docs,
             "detail_count": total_details,
@@ -4034,6 +4064,8 @@ def get_inventory_record(request: Request, record_id: int):
 @router.post("/inventory")
 def create_inventory_record(request: Request, payload: dict):
     repository = request.app.state.inventory_repository
+    if handler := _current_account_handler(request):
+        payload["handler"] = handler
     if payload.get("date"):
         payload["date"] = _normalize_date(str(payload["date"]))
     else:
@@ -4067,6 +4099,8 @@ def update_inventory_record(request: Request, record_id: int, payload: dict):
         payload["date"] = _normalize_date(str(payload["date"]))
     if "document_type" in payload:
         payload["document_type"] = normalize_document_type(payload.get("document_type"))
+    if handler := _current_account_handler(request):
+        payload["handler"] = handler
     record = repository.update_record(record_id, payload)
     if record is None:
         raise HTTPException(status_code=404, detail="Record not found")
@@ -4115,6 +4149,7 @@ def batch_restore_inventory(request: Request, payload: dict):
     for record in before_records:
         grouped[inventory_module_for_record(record)].append(record)
     for module, records in grouped.items():
+        document_numbers = _document_numbers(records)
         write_operation_log(
             request,
             module=module,
@@ -4122,7 +4157,11 @@ def batch_restore_inventory(request: Request, payload: dict):
             entity_type="inventory_record",
             entity_label=f"{len(records)} 条单据",
             summary=f"批量恢复单据 {len(records)} 条",
-            after_data={"ids": [record.get("id") for record in records], "records": records[:200]},
+            after_data={
+                "ids": [record.get("id") for record in records],
+                "document_numbers": document_numbers,
+                "records": records[:200],
+            },
         )
     return {"restored": restored, "message": f"已恢复 {restored} 条记录"}
 
@@ -4145,6 +4184,7 @@ def batch_permanently_delete_inventory(request: Request, payload: dict):
     for record in before_records:
         grouped[inventory_module_for_record(record)].append(record)
     for module, records in grouped.items():
+        document_numbers = _document_numbers(records)
         write_operation_log(
             request,
             module=module,
@@ -4152,7 +4192,11 @@ def batch_permanently_delete_inventory(request: Request, payload: dict):
             entity_type="inventory_record",
             entity_label=f"{len(records)} 条单据",
             summary=f"彻底删除回收站单据 {len(records)} 条",
-            before_data={"ids": [record.get("id") for record in records], "records": records[:200]},
+            before_data={
+                "ids": [record.get("id") for record in records],
+                "document_numbers": document_numbers,
+                "records": records[:200],
+            },
         )
     return {"deleted": deleted, "message": f"已彻底删除 {deleted} 条单据"}
 
@@ -4173,6 +4217,7 @@ def batch_delete_inventory(request: Request, payload: dict):
     for record in before_records:
         grouped[inventory_module_for_record(record)].append(record)
     for module, records in grouped.items():
+        document_numbers = _document_numbers(records)
         write_operation_log(
             request,
             module=module,
@@ -4180,7 +4225,11 @@ def batch_delete_inventory(request: Request, payload: dict):
             entity_type="inventory_record",
             entity_label=f"{len(records)} 条单据",
             summary=f"批量移入回收站 {len(records)} 条单据",
-            before_data={"ids": [record.get("id") for record in records], "records": records[:200]},
+            before_data={
+                "ids": [record.get("id") for record in records],
+                "document_numbers": document_numbers,
+                "records": records[:200],
+            },
         )
     return {"deleted": deleted, "message": f"已移入回收站 {deleted} 条记录，10 天内可恢复"}
 
@@ -4618,6 +4667,7 @@ async def import_inventory(request: Request, file: UploadFile = None):
     created_details = 0
     skipped_docs = 0
     created_records: list[dict[str, object]] = []
+    appended_records: list[dict[str, object]] = []
 
     appended_docs = 0
     appended_details = 0
@@ -4643,6 +4693,7 @@ async def import_inventory(request: Request, file: UploadFile = None):
             doc = existing or repository.create_record(doc_payload)
             if existing:
                 appended_docs += 1
+                appended_records.append(doc)
             else:
                 created_records.append(doc)
                 created_docs += 1
@@ -4684,19 +4735,23 @@ async def import_inventory(request: Request, file: UploadFile = None):
         msg += f"，新增供应商 {supplier_added} 个"
     if warehouse_added > 0:
         msg += f"，新增仓库 {warehouse_added} 个"
+    affected_records = [*created_records, *appended_records]
+    document_numbers = _document_numbers(affected_records)
     write_operation_log(
         request,
         module="inventory",
         action="import",
         entity_type="inventory_record",
-        entity_label=file.filename or "进销存导入",
+        entity_label=_document_log_label(document_numbers, file.filename or "进销存导入"),
         summary=(
             f"导入进销存：新增 {created_docs} 条单据，追加 {appended_docs} 条单据，"
             f"{created_details + appended_details} 条明细，跳过 {skipped_docs} 条"
-        ),
+        ) + (f"；单据编号：{'、'.join(document_numbers[:10])}" if document_numbers else ""),
         after_data={
             "filename": file.filename,
             "documents": created_records[:200],
+            "appended_documents": appended_records[:200],
+            "document_numbers": document_numbers,
             "document_count": created_docs,
             "appended_count": appended_docs,
             "detail_count": created_details + appended_details,
