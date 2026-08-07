@@ -9,6 +9,7 @@ from openpyxl import load_workbook
 from sqlalchemy import text
 
 from config import load_settings
+from domain.schema import PRODUCT_ARCHIVE_TABLES
 from domain.sources import TABLE_NAMES
 from storage.product_repository import ProductRepository
 
@@ -113,7 +114,7 @@ def _count_existing_values(items: list[dict[str, object]]) -> tuple[int, int]:
     return color_count, color_code_count
 
 
-def run(file_path: Path, *, apply: bool) -> None:
+def run(file_path: Path, *, apply: bool, brand: str | None = None) -> None:
     if not file_path.exists():
         raise FileNotFoundError(file_path)
 
@@ -129,8 +130,10 @@ def run(file_path: Path, *, apply: bool) -> None:
     total_matched = 0
     total_updates = 0
 
-    for brand, table_name in TABLE_NAMES.items():
-        result = repository.list_products(brand, query=None, page=1, page_size=1_000_000)
+    target_brands = (brand,) if brand else tuple(TABLE_NAMES)
+    for target_brand in target_brands:
+        table_name = PRODUCT_ARCHIVE_TABLES[target_brand].name
+        result = repository.list_products(target_brand, query=None, page=1, page_size=1_000_000)
         items = list(result["items"])
         existing_color, existing_color_code = _count_existing_values(items)
 
@@ -152,7 +155,7 @@ def run(file_path: Path, *, apply: bool) -> None:
 
         total_matched += len(updates)
         print(
-            f"\n{brand} ({table_name}): 总数 {len(items)}，已有颜色 {existing_color}，"
+            f"\n{target_brand} ({table_name}): 总数 {len(items)}，已有颜色 {existing_color}，"
             f"已有颜色代码 {existing_color_code}，待更新 {len(updates)}"
         )
         for item_id, payload in updates[:5]:
@@ -179,10 +182,11 @@ def run(file_path: Path, *, apply: bool) -> None:
 def main() -> int:
     parser = argparse.ArgumentParser(description="用桌面聚水潭货号颜色颜色代码汇总补全商品档案颜色信息")
     parser.add_argument("--file", type=Path, default=DEFAULT_FILE)
+    parser.add_argument("--brand", choices=sorted(PRODUCT_ARCHIVE_TABLES))
     parser.add_argument("--apply", action="store_true")
     args = parser.parse_args()
 
-    run(args.file, apply=args.apply)
+    run(args.file, apply=args.apply, brand=args.brand)
     return 0
 
 

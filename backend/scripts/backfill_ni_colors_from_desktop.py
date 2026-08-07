@@ -181,6 +181,7 @@ def run(product_file: Path, color_code_file: Path, *, apply: bool) -> None:
             "id": row["id"],
             "color": color,
             "color_code": color_codes.get(color, {}).get("color_code", ""),
+            "barcode_build_rule": "货号+尺码",
         })
 
     print(f"货号颜色表：{len(product_colors)} 条")
@@ -199,7 +200,12 @@ def run(product_file: Path, color_code_file: Path, *, apply: bool) -> None:
             connection.execute(
                 update(NI_PRODUCT_TABLE)
                 .where(NI_PRODUCT_TABLE.c.id == item["id"])
-                .values(color=item["color"], color_code=item["color_code"], updated_at=func.date_trunc("minute", func.now()))
+                .values(
+                    color=item["color"],
+                    color_code=item["color_code"],
+                    barcode_build_rule=item["barcode_build_rule"],
+                    updated_at=func.date_trunc("minute", func.now()),
+                )
             )
 
         barcode_rows = [

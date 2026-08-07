@@ -11,4 +11,6 @@ def apply_product_defaults(brand_group: str, row: MutableMapping[str, object]) -
         group_name = row.get("group_name")
         if group_name is None or not str(group_name).strip():
             row["group_name"] = CBANNER_WOMENS_DEFAULT_GROUP_NAME
+    if brand_group in {"ni", "smiley"}:
+        row["barcode_build_rule"] = "货号+尺码"
     return row
