@@ -11,6 +11,8 @@ from api.routes.inventory import (
     _group_purchase_import_rows_by_summary,
     _missing_purchase_order_import_fields,
     _purchase_order_import_has_size_columns,
+    _purchase_import_brand_for_supplier,
+    _purchase_import_brand_for_record,
     _read_purchase_import_rows,
     _split_purchase_product_code,
     _split_purchase_size_code,
@@ -86,6 +88,11 @@ class _StubEngine:
 
 class _StubRepository:
     engine = _StubEngine()
+
+
+class _WarehouseBrandRepository:
+    def get_warehouse_by_name(self, name: str):
+        return {"brand": "NI仓库"} if name == "NI仙岩仓库" else None
 
 
 def _legacy_single_document_workbook() -> bytes:
@@ -476,6 +483,28 @@ def test_purchase_order_import_template_does_not_require_unit_price() -> None:
         "附加说明",
     ]
     assert "单价" not in headers
+
+
+def test_surplus_import_uses_warehouse_brand_when_supplier_is_empty() -> None:
+    assert _purchase_import_brand_for_supplier(
+        _WarehouseBrandRepository(),
+        "",
+        "报溢单",
+        "cbanner_mens",
+        "NI仙岩仓库",
+    ) == "ni"
+
+
+def test_warehouse_brand_overrides_legacy_default_brand_for_saved_record() -> None:
+    assert _purchase_import_brand_for_record(
+        _WarehouseBrandRepository(),
+        {
+            "supplier": "",
+            "warehouse": "NI仙岩仓库",
+            "document_type": "报溢单",
+            "raw_payload": {"brand": "cbanner_mens"},
+        },
+    ) == "ni"
 
 
 def test_purchase_size_row_export_does_not_include_duplicate_note_columns() -> None:

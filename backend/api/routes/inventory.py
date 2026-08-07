@@ -620,7 +620,7 @@ def _purchase_size_export_product_code(
 def _purchase_record_brand(record: dict[str, object]) -> str:
     raw_payload = _dict_or_empty(record.get("raw_payload"))
     brand = _cell_text(raw_payload.get("brand")).lower()
-    if brand in EU_SIZE_BRANDS:
+    if brand:
         return brand
 
     supplier_name = _cell_text(record.get("supplier"))
@@ -2756,6 +2756,7 @@ def _purchase_import_brand_for_supplier(
     supplier: str,
     document_type: str,
     fallback_brand: str,
+    warehouse: str = "",
 ) -> str:
     supplier_name = _cell_text(supplier)
     if supplier_name:
@@ -2766,7 +2767,34 @@ def _purchase_import_brand_for_supplier(
         inferred_brand = infer_supplier_brand_from_name(supplier_name)
         if inferred_brand:
             return inferred_brand
+
+    warehouse_name = _cell_text(warehouse)
+    warehouse_record = repository.get_warehouse_by_name(warehouse_name) if warehouse_name else None
+    warehouse_brand = _cell_text(warehouse_record.get("brand") if warehouse_record else "")
+    warehouse_context = f"{warehouse_brand} {warehouse_name}".upper()
+    if "NI" in warehouse_context:
+        return "ni"
+    if "笑脸" in warehouse_context or "SMILEY" in warehouse_context:
+        return "smiley"
+    if "伊伴" in warehouse_context:
+        return "eblan"
+    if "烟斗" in warehouse_context:
+        return "yandou"
+    if "女鞋" in warehouse_context:
+        return "cbanner_womens"
+    if "男鞋" in warehouse_context:
+        return "cbanner_mens"
     return fallback_brand or _purchase_import_brand(document_type)
+
+
+def _purchase_import_brand_for_record(repository, record: dict[str, object]) -> str:
+    return _purchase_import_brand_for_supplier(
+        repository,
+        _cell_text(record.get("supplier")),
+        _cell_text(record.get("document_type")),
+        _purchase_record_brand(record),
+        _cell_text(record.get("warehouse")),
+    )
 
 
 def _group_purchase_import_rows_by_summary(
@@ -3271,7 +3299,13 @@ async def import_purchase_inventory(request: Request, file: UploadFile = None):
         )
 
         group_rows = group.get("rows") if isinstance(group.get("rows"), list) else []
-        group_brand = _purchase_import_brand_for_supplier(repository, group_supplier, document_type, brand)
+        group_brand = _purchase_import_brand_for_supplier(
+            repository,
+            group_supplier,
+            document_type,
+            brand,
+            group_warehouse,
+        )
         plans.append({
             "summary": group_summary,
             "supplier": group_supplier,
@@ -4083,12 +4117,7 @@ def list_inventory_details(request: Request, record_id: int):
     if record is None or not details or _cell_text(record.get("document_type")) in ACCOUNTING_DOCUMENT_TYPES:
         return {"items": details}
 
-    preferred_brand = _purchase_import_brand_for_supplier(
-        repository,
-        _cell_text(record.get("supplier")),
-        _cell_text(record.get("document_type")),
-        _purchase_record_brand(record),
-    )
+    preferred_brand = _purchase_import_brand_for_record(repository, record)
     product_codes = {
         _cell_text(detail.get("product_code"))
         for detail in details
@@ -4167,7 +4196,7 @@ async def reimport_inventory_details_from_excel(request: Request, record_id: int
 
     form = await request.form()
     document_type = normalize_document_type(record.get("document_type"))
-    brand = str(form.get("brand") or "").strip() or _purchase_import_brand(document_type or "")
+    brand = str(form.get("brand") or "").strip() or _purchase_import_brand_for_record(repository, record)
     fallback_unit_price = _to_decimal(form.get("unit_price"))
     content = await file.read()
     details, sheet_name = _build_purchase_details_from_excel(
@@ -4438,6 +4467,7 @@ async def import_inventory(request: Request, file: UploadFile = None):
                 _cell_text(doc_payload.get("supplier")),
                 _cell_text(doc_payload.get("document_type")),
                 "",
+                _cell_text(doc_payload.get("warehouse")),
             )
             with repository.engine.connect() as connection:
                 lookup = _build_purchase_detail_lookup(
@@ -4446,6 +4476,7 @@ async def import_inventory(request: Request, file: UploadFile = None):
                     _to_decimal(detail_payload.get("quantity")),
                     imported_brand,
                 )
+                lookup_unit_price = _to_decimal(lookup.get("unit_price"))
                 size_range = _cell_text(lookup.get("size_range"))
                 size_labels = tuple(
                     _cell_text(size)
@@ -4458,6 +4489,12 @@ async def import_inventory(request: Request, file: UploadFile = None):
                 extra_fields["size_labels"] = "|".join(size_labels)
                 if len(size_labels) == 1 and detail_payload.get("quantity"):
                     detail_payload["size_quantities"] = {size_labels[0]: str(detail_payload["quantity"])}
+            imported_unit_price = _to_decimal(detail_payload.get("unit_price"))
+            if imported_unit_price <= 0 and lookup_unit_price > 0:
+                detail_payload["unit_price"] = _fmt_decimal(lookup_unit_price)
+                quantity = _to_decimal(detail_payload.get("quantity"))
+                if quantity:
+                    detail_payload["amount"] = _fmt_decimal(quantity * lookup_unit_price)
             if extra_fields:
                 detail_payload["extra_fields"] = {
                     **(detail_payload.get("extra_fields") or {}),

@@ -145,6 +145,13 @@ function inferInventorySizeBrand(record: InventoryRecord | null, suppliers: Supp
   if (brand === "ni") return brand
   if (brand && MILLIMETER_SIZE_BRANDS.has(brand)) return brand
   if (brand === "smiley") return brand
+  const warehouseContext = `${record?.warehouse || ""}`.toLowerCase()
+  if (warehouseContext.includes("ni")) return "ni"
+  if (warehouseContext.includes("笑脸") || warehouseContext.includes("smiley")) return "smiley"
+  if (warehouseContext.includes("伊伴")) return "eblan"
+  if (warehouseContext.includes("烟斗")) return "yandou"
+  if (warehouseContext.includes("女鞋")) return "cbanner_womens"
+  if (warehouseContext.includes("男鞋")) return "cbanner_mens"
   return "cbanner_mens"
 }
 
