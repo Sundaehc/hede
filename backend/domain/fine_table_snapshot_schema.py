@@ -50,6 +50,23 @@ FINE_TABLE_SNAPSHOT_METRICS_TABLE = Table(
     Column("created_at", DateTime(timezone=True), server_default=func.date_trunc("minute", func.now())),
     UniqueConstraint("brand", "content_hash", name="uq_fine_table_snapshot_metrics_brand_hash"),
 )
+FINE_TABLE_FILTER_OPTION_CACHE_TABLE = Table(
+    "fine_table_filter_option_cache",
+    METADATA,
+    Column("id", BigInteger, Identity(always=False), primary_key=True),
+    Column("brand", Text, nullable=False),
+    Column("field", Text, nullable=False),
+    Column("source_snapshot_date", Date, nullable=False),
+    Column("payload", JSONB, nullable=False),
+    Column("created_at", DateTime(timezone=True), server_default=func.date_trunc("minute", func.now())),
+    Column(
+        "updated_at",
+        DateTime(timezone=True),
+        server_default=func.date_trunc("minute", func.now()),
+        onupdate=func.date_trunc("minute", func.now()),
+    ),
+    UniqueConstraint("brand", "field", name="uq_fine_table_filter_option_cache_brand_field"),
+)
 
 
 def fine_table_snapshot_row_table_name(snapshot_date: date) -> str:

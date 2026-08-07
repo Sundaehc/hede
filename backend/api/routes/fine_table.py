@@ -11,6 +11,7 @@ from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.encoders import jsonable_encoder
 from pydantic import BaseModel
 from sqlalchemy import Text, and_, cast, delete, desc, false, func, insert, or_, select, update
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from api.fine_table_cache import get_fine_table_cache, set_fine_table_cache
 from api.operation_log_utils import write_operation_log
@@ -20,6 +21,7 @@ from domain.excluded_skus import is_excluded_sku, not_excluded_sku_condition
 from domain.fields import PRODUCT_FIELDS
 from domain.fine_table_snapshot_schema import (
     FINE_TABLE_SNAPSHOT_BATCH_TABLE,
+    FINE_TABLE_FILTER_OPTION_CACHE_TABLE,
     FINE_TABLE_SNAPSHOT_METRICS_TABLE,
     FINE_TABLE_SNAPSHOT_PAYLOADS_TABLE,
     ensure_fine_table_snapshot_row_table,
@@ -194,7 +196,35 @@ FINE_TABLE_SQL_FILTER_FIELDS = FINE_TABLE_FILTER_FIELDS - {
         "insole_material", "first_order_time",
     }
 }
+# These fields are sourced from the product archive in the GJ-backed fine
+# table as well, so an include filter can narrow rows before metric assembly.
+FINE_TABLE_GJ_SQL_FILTER_FIELDS = {
+    "sku",
+    "original_sku",
+    "group_name",
+    "product_level",
+    "year",
+    "season_category",
+    "first_order_time",
+}
+FINE_TABLE_VIP_OPS_FILTER_COLUMNS = {
+    "goods_id": VIP_OPS_TABLE.c.goods_id,
+    "p_spu": VIP_OPS_TABLE.c.p_spu,
+    "style_code": VIP_OPS_TABLE.c.style_code,
+    "final_price": VIP_OPS_TABLE.c.final_price,
+    "vip_price": VIP_OPS_TABLE.c.vip_price,
+    "market_price": VIP_OPS_TABLE.c.market_price,
+    "sales_tag": VIP_OPS_TABLE.c.sales_tag,
+    "goods_tag": VIP_OPS_TABLE.c.goods_tag,
+}
 FINE_TABLE_DYNAMIC_FILTER_PATTERN = re.compile(r"^(?:daily_sales_(\d+)_(?:quantity|uv)|size_.+)$")
+# These are the fields whose option lists otherwise require the full live
+# sales/inventory assembly. They are refreshed with the latest daily snapshot.
+FINE_TABLE_SNAPSHOT_FILTER_CACHE_FIELDS = tuple(sorted(
+    (FINE_TABLE_FILTER_FIELDS - FINE_TABLE_SQL_FILTER_FIELDS - set(FINE_TABLE_VIP_OPS_FILTER_COLUMNS))
+    | {f"daily_sales_{day}_{metric}" for day in range(DAILY_SALES_DAYS) for metric in ("quantity", "uv")}
+    | {f"size_{label}" for label in SIZE_LABELS.values()}
+))
 
 
 class FineTableFilter(BaseModel):
@@ -400,6 +430,7 @@ def _ensure_snapshot_tables(engine) -> None:
     FINE_TABLE_SNAPSHOT_BATCH_TABLE.create(engine, checkfirst=True)
     FINE_TABLE_SNAPSHOT_PAYLOADS_TABLE.create(engine, checkfirst=True)
     FINE_TABLE_SNAPSHOT_METRICS_TABLE.create(engine, checkfirst=True)
+    FINE_TABLE_FILTER_OPTION_CACHE_TABLE.create(engine, checkfirst=True)
 
 
 def _snapshot_batch_payload(row: dict[str, Any]) -> dict[str, Any]:
@@ -831,6 +862,12 @@ def create_fine_table_snapshot(
             batch_id=int(batch_id),
             payloads=row_payloads,
         )
+        _refresh_fine_table_filter_option_cache(
+            connection,
+            brand=brand,
+            snapshot_date=resolved_snapshot_date,
+            rows=row_payloads,
+        )
 
     return {
         "item": _snapshot_batch_payload(dict(batch)),
@@ -1058,6 +1095,170 @@ def _fine_table_options_from_rows(rows: list[dict[str, Any]], field: str) -> dic
     }
 
 
+def _refresh_fine_table_filter_option_cache(
+    connection,
+    *,
+    brand: str,
+    snapshot_date: date,
+    rows: list[dict[str, Any]],
+) -> int:
+    records = [
+        {
+            "brand": brand,
+            "field": field,
+            "source_snapshot_date": snapshot_date,
+            "payload": _fine_table_options_from_rows(rows, field),
+        }
+        for field in FINE_TABLE_SNAPSHOT_FILTER_CACHE_FIELDS
+    ]
+    if not records:
+        return 0
+
+    connection.execute(
+        delete(FINE_TABLE_FILTER_OPTION_CACHE_TABLE)
+        .where(FINE_TABLE_FILTER_OPTION_CACHE_TABLE.c.brand == brand)
+        .where(FINE_TABLE_FILTER_OPTION_CACHE_TABLE.c.field.not_in(FINE_TABLE_SNAPSHOT_FILTER_CACHE_FIELDS))
+    )
+    for start in range(0, len(records), 100):
+        connection.execute(
+            pg_insert(FINE_TABLE_FILTER_OPTION_CACHE_TABLE)
+            .values(records[start:start + 100])
+            .on_conflict_do_update(
+                constraint="uq_fine_table_filter_option_cache_brand_field",
+                set_={
+                    "source_snapshot_date": pg_insert(FINE_TABLE_FILTER_OPTION_CACHE_TABLE).excluded.source_snapshot_date,
+                    "payload": pg_insert(FINE_TABLE_FILTER_OPTION_CACHE_TABLE).excluded.payload,
+                    "updated_at": func.date_trunc("minute", func.now()),
+                },
+            )
+        )
+    return len(records)
+
+
+def _load_fine_table_filter_option_cache(
+    repository,
+    *,
+    brand: BrandKey,
+    field: str,
+    snapshot_date: date | None = None,
+) -> dict[str, Any] | None:
+    statement = (
+        select(FINE_TABLE_FILTER_OPTION_CACHE_TABLE.c.payload)
+        .where(FINE_TABLE_FILTER_OPTION_CACHE_TABLE.c.brand == brand)
+        .where(FINE_TABLE_FILTER_OPTION_CACHE_TABLE.c.field == field)
+    )
+    if snapshot_date is not None:
+        statement = statement.where(FINE_TABLE_FILTER_OPTION_CACHE_TABLE.c.source_snapshot_date == snapshot_date)
+    with repository.engine.connect() as connection:
+        payload = connection.execute(statement).scalar()
+    return dict(payload) if isinstance(payload, dict) else None
+
+
+def _list_vip_ops_filter_options(
+    *,
+    repository,
+    brand: BrandKey,
+    field: str,
+    terms: list[str],
+    prefix_terms: list[str],
+) -> dict[str, Any]:
+    ops_column = FINE_TABLE_VIP_OPS_FILTER_COLUMNS[field]
+    gj_brand = _gj_fine_table_brand(brand)
+
+    if gj_brand is not None:
+        with repository.engine.connect() as connection:
+            latest_source_date = connection.execute(
+                select(func.max(GJ_MERGED_PRODUCT_INFO_TABLE.c.source_date_value))
+            ).scalar()
+            if latest_source_date is None:
+                return {"field": field, "total": 0, "truncated": False, "options": []}
+            ops_value = (
+                select(ops_column)
+                .where(VIP_OPS_TABLE.c.goods_code == GJ_MERGED_PRODUCT_INFO_TABLE.c.goods_code)
+                .limit(1)
+                .scalar_subquery()
+            )
+            value_expression = func.coalesce(func.trim(cast(ops_value, Text)), "")
+            conditions = [
+                GJ_MERGED_PRODUCT_INFO_TABLE.c.source_date_value == latest_source_date,
+                GJ_MERGED_PRODUCT_INFO_TABLE.c.fine_table_brand == gj_brand,
+                not_excluded_sku_condition(
+                    GJ_MERGED_PRODUCT_INFO_TABLE.c.goods_code,
+                    GJ_MERGED_PRODUCT_INFO_TABLE.c.original_goods_code,
+                ),
+            ]
+            if terms:
+                search_conditions = []
+                for term in terms:
+                    like = f"%{term}%"
+                    search_conditions.extend([
+                        GJ_MERGED_PRODUCT_INFO_TABLE.c.goods_code.ilike(like),
+                        GJ_MERGED_PRODUCT_INFO_TABLE.c.original_goods_code.ilike(like),
+                    ])
+                conditions.append(or_(*search_conditions))
+            if prefix_terms:
+                prefix_conditions = []
+                for prefix in prefix_terms:
+                    like = f"{prefix}%"
+                    prefix_conditions.extend([
+                        GJ_MERGED_PRODUCT_INFO_TABLE.c.goods_code.ilike(like),
+                        GJ_MERGED_PRODUCT_INFO_TABLE.c.original_goods_code.ilike(like),
+                    ])
+                conditions.append(or_(*prefix_conditions))
+            statement = (
+                select(value_expression.label("value"), func.count().label("count"))
+                .select_from(GJ_MERGED_PRODUCT_INFO_TABLE)
+                .where(and_(*conditions))
+                .group_by(value_expression)
+                .order_by(desc(func.count()), value_expression)
+                .limit(10_000)
+            )
+            total_statement = (
+                select(func.count(func.distinct(value_expression)))
+                .select_from(GJ_MERGED_PRODUCT_INFO_TABLE)
+                .where(and_(*conditions))
+            )
+            rows = connection.execute(statement).mappings().all()
+            total = int(connection.execute(total_statement).scalar() or 0)
+    else:
+        product_table = PRODUCT_TABLES[brand]
+        ops_value = (
+            select(ops_column)
+            .where(VIP_OPS_TABLE.c.goods_code == product_table.c.sku)
+            .limit(1)
+            .scalar_subquery()
+        )
+        value_expression = func.coalesce(func.trim(cast(ops_value, Text)), "")
+        conditions = [not_excluded_sku_condition(product_table.c.sku, product_table.c.original_sku)]
+        if terms:
+            search_conditions = []
+            for term in terms:
+                like = f"%{term}%"
+                search_conditions.extend([product_table.c.sku.ilike(like), product_table.c.original_sku.ilike(like)])
+            conditions.append(or_(*search_conditions))
+        if prefix_terms:
+            conditions.append(_prefix_search_condition(product_table, prefix_terms))
+        statement = (
+            select(value_expression.label("value"), func.count().label("count"))
+            .select_from(product_table)
+            .where(and_(*conditions))
+            .group_by(value_expression)
+            .order_by(desc(func.count()), value_expression)
+            .limit(10_000)
+        )
+        total_statement = select(func.count(func.distinct(value_expression))).select_from(product_table).where(and_(*conditions))
+        with repository.engine.connect() as connection:
+            rows = connection.execute(statement).mappings().all()
+            total = int(connection.execute(total_statement).scalar() or 0)
+
+    return {
+        "field": field,
+        "total": total,
+        "truncated": total > len(rows),
+        "options": [{"value": str(row["value"] or ""), "count": int(row["count"] or 0)} for row in rows],
+    }
+
+
 @router.get("/fine-table/filter-options")
 def list_fine_table_filter_options(
     request: Request,
@@ -1079,6 +1280,15 @@ def list_fine_table_filter_options(
     repository = request.app.state.repository
     if snapshot_date is not None:
         _ensure_snapshot_tables(repository.engine)
+        if not other_filters and not terms and not prefix_terms and field in FINE_TABLE_SNAPSHOT_FILTER_CACHE_FIELDS:
+            cached = _load_fine_table_filter_option_cache(
+                repository,
+                brand=brand,
+                field=field,
+                snapshot_date=snapshot_date,
+            )
+            if cached is not None:
+                return cached
         with repository.engine.connect() as connection:
             batch = connection.execute(
                 select(FINE_TABLE_SNAPSHOT_BATCH_TABLE)
@@ -1119,9 +1329,27 @@ def list_fine_table_filter_options(
             filtered_rows.append(row)
         return _fine_table_options_from_rows(filtered_rows, field)
 
+    if not other_filters and not terms and not prefix_terms and field in FINE_TABLE_SNAPSHOT_FILTER_CACHE_FIELDS:
+        _ensure_snapshot_tables(repository.engine)
+        cached = _load_fine_table_filter_option_cache(
+            repository,
+            brand=brand,
+            field=field,
+        )
+        if cached is not None:
+            return cached
+
+    if not other_filters and field in FINE_TABLE_VIP_OPS_FILTER_COLUMNS:
+        return _list_vip_ops_filter_options(
+            repository=repository,
+            brand=brand,
+            field=field,
+            terms=terms,
+            prefix_terms=prefix_terms,
+        )
+
     payload_filter_mode = (
-        _gj_fine_table_brand(brand) is not None
-        or field not in FINE_TABLE_SQL_FILTER_FIELDS
+        field not in FINE_TABLE_SQL_FILTER_FIELDS
         or any(item.field not in FINE_TABLE_SQL_FILTER_FIELDS for item in other_filters)
     )
     if payload_filter_mode:
@@ -1196,8 +1424,20 @@ def list_fine_table(
     normalized_sku_prefix = ",".join(prefix_terms)
     normalized_season = season if season and season != "all" else "all"
     parsed_filters = _parse_fine_table_filters(filters)
-    payload_filters = parsed_filters if _gj_fine_table_brand(brand) is not None else tuple(
-        item for item in parsed_filters if item.field not in FINE_TABLE_SQL_FILTER_FIELDS
+    gj_sql_filters = tuple(
+        item
+        for item in parsed_filters
+        if item.field in FINE_TABLE_GJ_SQL_FILTER_FIELDS and item.operator == "in"
+    )
+    gj_ops_sql_filters = tuple(
+        item
+        for item in parsed_filters
+        if item.field in FINE_TABLE_VIP_OPS_FILTER_COLUMNS and item.operator == "in"
+    )
+    payload_filters = (
+        tuple(item for item in parsed_filters if item not in (*gj_sql_filters, *gj_ops_sql_filters))
+        if _gj_fine_table_brand(brand) is not None
+        else tuple(item for item in parsed_filters if item.field not in FINE_TABLE_SQL_FILTER_FIELDS)
     )
     fetch_all_rows = include_all or bool(payload_filters)
     normalized_filters = tuple(sorted((item.field, item.operator, tuple(item.values)) for item in parsed_filters))
@@ -1259,6 +1499,27 @@ def list_fine_table(
                             product_table.c.original_sku == GJ_MERGED_PRODUCT_INFO_TABLE.c.original_goods_code,
                         ))
                         .where(product_table.c.season_category == normalized_season)
+                        .exists()
+                    )
+                if gj_sql_filters:
+                    archive_filters = _fine_table_filter_conditions(product_table, brand, gj_sql_filters)
+                    gj_conditions.append(
+                        select(product_table.c.id)
+                        .where(or_(
+                            product_table.c.sku == GJ_MERGED_PRODUCT_INFO_TABLE.c.goods_code,
+                            product_table.c.sku == GJ_MERGED_PRODUCT_INFO_TABLE.c.original_goods_code,
+                            product_table.c.original_sku == GJ_MERGED_PRODUCT_INFO_TABLE.c.goods_code,
+                            product_table.c.original_sku == GJ_MERGED_PRODUCT_INFO_TABLE.c.original_goods_code,
+                        ))
+                        .where(and_(*archive_filters))
+                        .exists()
+                    )
+                for ops_filter in gj_ops_sql_filters:
+                    ops_column = FINE_TABLE_VIP_OPS_FILTER_COLUMNS[ops_filter.field]
+                    gj_conditions.append(
+                        select(VIP_OPS_TABLE.c.id)
+                        .where(VIP_OPS_TABLE.c.goods_code == GJ_MERGED_PRODUCT_INFO_TABLE.c.goods_code)
+                        .where(_fine_table_filter_condition(ops_column, ops_filter.operator, ops_filter.values))
                         .exists()
                     )
                 gj_criterion = and_(*gj_conditions)

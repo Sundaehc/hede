@@ -1091,14 +1091,22 @@ const ProductGoodsGridRow = memo(function ProductGoodsGridRow({
           {value(item.style_code)}
         </td>
       )}
-      {visibleColumns.map((column) => (
-        <td
-          key={column.key}
-          className="border-b border-border px-3 py-2 text-center align-middle tabular-nums"
-        >
-          {column.render(item)}
-        </td>
-      ))}
+      {visibleColumns.map((column) => {
+        const renderedValue = column.render(item)
+        return (
+          <td
+            key={column.key}
+            title={
+              typeof renderedValue === "string" || typeof renderedValue === "number"
+                ? String(renderedValue)
+                : undefined
+            }
+            className="overflow-hidden border-b border-border px-3 py-2 text-center align-middle text-ellipsis whitespace-nowrap tabular-nums"
+          >
+            {renderedValue}
+          </td>
+        )
+      })}
       <td className="sticky right-0 z-20 w-20 border-b border-border bg-card px-3 py-2 text-center group-hover:bg-muted">
         <Button
           variant="ghost"
@@ -1148,12 +1156,18 @@ const ProductGoodsGrid = memo(function ProductGoodsGrid({
     <div className="relative max-h-[72svh] min-h-[360px] overflow-auto">
       <table
         style={{ minWidth: tableWidth }}
-        className={cn(
-          "w-full border-separate border-spacing-0 text-[13px] transition-opacity duration-150",
-          loading && items.length > 0 && "opacity-60"
-        )}
+        className="w-full table-fixed border-separate border-spacing-0 text-[13px]"
         aria-busy={loading}
       >
+        <colgroup>
+          <col className="w-20" />
+          <col className="w-40" />
+          {!isStyleSummary && <col className="w-40" />}
+          {visibleColumns.map((column) => (
+            <col key={column.key} style={{ width: column.width ?? 78 }} />
+          ))}
+          <col className="w-20" />
+        </colgroup>
         <thead className="sticky top-0 z-[60] bg-card">
           <tr className="text-xs text-muted-foreground">
             <th
@@ -1600,7 +1614,7 @@ const ProductGoodsRiskGrid = memo(function ProductGoodsRiskGrid({
   sort: ProductGoodsSort
 }) {
   const tableWidth =
-    420 +
+    336 +
     RISK_METRIC_COLUMNS.length * 104 +
     sizes.length * RISK_SIZE_GROUPS.length * 68
 
@@ -1608,12 +1622,22 @@ const ProductGoodsRiskGrid = memo(function ProductGoodsRiskGrid({
     <div className="relative max-h-[72svh] min-h-[360px] overflow-auto">
       <table
         style={{ minWidth: tableWidth }}
-        className={cn(
-          "w-full border-separate border-spacing-0 text-[13px] transition-opacity duration-150",
-          loading && items.length > 0 && "opacity-60"
-        )}
+        className="w-full table-fixed border-separate border-spacing-0 text-[13px]"
         aria-busy={loading}
       >
+        <colgroup>
+          <col className="w-20" />
+          <col className="w-44" />
+          {RISK_METRIC_COLUMNS.map(([key]) => (
+            <col key={key} style={{ width: 104 }} />
+          ))}
+          {RISK_SIZE_GROUPS.flatMap((group) =>
+            sizes.map((size) => (
+              <col key={`${group.key}-${size}`} style={{ width: 68 }} />
+            ))
+          )}
+          <col className="w-20" />
+        </colgroup>
         <thead className="sticky top-0 z-[60] bg-card">
           <tr className="text-xs text-muted-foreground">
             <th
@@ -2363,12 +2387,11 @@ export function ProductGoodsPage() {
     setSelectedItem(item)
   }, [])
   const tableWidth =
-    (renderedDataView === "style_summary" ? 285 : 445) +
+    (renderedDataView === "style_summary" ? 320 : 480) +
     deferredVisibleColumns.reduce(
       (total, column) => total + (column.width ?? 78),
       0
-    ) +
-    76
+    )
   const brandLabel =
     GOODS_BRANDS.find((item) => item.key === brand)?.label ?? "商品"
   function logExport(exportedRows: number, totalRows: number, filename: string) {

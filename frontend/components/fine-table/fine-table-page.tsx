@@ -73,6 +73,10 @@ type FineTablePageCacheEntry = {
   snapshotLabel: string | null
   cachedAt: number
 }
+type FineTableColumnFilterCacheEntry = {
+  data: FineTableFilterOptionsResponse
+  cachedAt: number
+}
 type FineTablePageContext = {
   brand: FineTableBrandKey
   historyDate: string
@@ -132,6 +136,7 @@ const FINE_TABLE_BRANDS = BRANDS.filter((item) => item.key !== "all") as Array<{
 const DEFAULT_FINE_TABLE_BRAND: FineTableBrandKey = "cbanner_mens"
 const fineTablePageCache = new Map<string, FineTablePageCacheEntry>()
 const fineTablePagePrefetching = new Set<string>()
+const fineTableColumnFilterCache = new Map<string, FineTableColumnFilterCacheEntry>()
 let fineTableLastState: FineTableLastState = {
   brand: DEFAULT_FINE_TABLE_BRAND,
   page: 1,
@@ -1569,17 +1574,17 @@ export function FineTablePage() {
   useEffect(() => {
     if (!activeColumnFilter) return
     const requestId = ++columnFilterRequestIdRef.current
-    setColumnFilterLoading(true)
     setColumnFilterError("")
-    void listFineTableFilterOptions({
+    const optionCacheKey = JSON.stringify([
       brand,
-      field: activeColumnFilter.field,
+      historyDate,
+      activeColumnFilter.field,
       filters,
-      query: query || undefined,
-      skuPrefix: skuPrefix || undefined,
-      snapshotDate: historyDate || undefined,
-    }).then((response) => {
-      if (requestId !== columnFilterRequestIdRef.current) return
+      query,
+      skuPrefix,
+      reloadToken,
+    ])
+    const applyFilterOptions = (response: FineTableFilterOptionsResponse) => {
       setColumnFilterData(response)
       setDraftColumnValues((current) => {
         if (current !== null) return current
@@ -1593,12 +1598,37 @@ export function FineTablePage() {
         }
         return response.options.map((item) => item.value)
       })
+    }
+    const cached = fineTableColumnFilterCache.get(optionCacheKey)
+    if (cached && Date.now() - cached.cachedAt <= FINE_TABLE_CLIENT_CACHE_TTL_MS) {
+      applyFilterOptions(cached.data)
+      setColumnFilterLoading(false)
+      return
+    }
+
+    setColumnFilterLoading(true)
+    void listFineTableFilterOptions({
+      brand,
+      field: activeColumnFilter.field,
+      filters,
+      query: query || undefined,
+      skuPrefix: skuPrefix || undefined,
+      snapshotDate: historyDate || undefined,
+    }).then((response) => {
+      if (requestId !== columnFilterRequestIdRef.current) return
+      fineTableColumnFilterCache.set(optionCacheKey, { data: response, cachedAt: Date.now() })
+      while (fineTableColumnFilterCache.size > FINE_TABLE_PAGE_CACHE_LIMIT) {
+        const oldestKey = fineTableColumnFilterCache.keys().next().value
+        if (!oldestKey) break
+        fineTableColumnFilterCache.delete(oldestKey)
+      }
+      applyFilterOptions(response)
     }).catch((loadError: unknown) => {
       if (requestId === columnFilterRequestIdRef.current) setColumnFilterError(getErrorMessage(loadError))
     }).finally(() => {
       if (requestId === columnFilterRequestIdRef.current) setColumnFilterLoading(false)
     })
-  }, [activeColumnFilter, brand, filters, historyDate, query, skuPrefix])
+  }, [activeColumnFilter, brand, filters, historyDate, query, reloadToken, skuPrefix])
 
   useEffect(() => {
     fineTableLastState = {

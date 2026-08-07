@@ -1,9 +1,18 @@
 from api.routes.fine_table import (
+    FINE_TABLE_SNAPSHOT_FILTER_CACHE_FIELDS,
     FineTableFilter,
     _fine_table_filter_value,
     _fine_table_row_matches_filter,
     _parse_fine_table_filters,
 )
+
+
+def test_fine_table_snapshot_filter_cache_covers_expensive_derived_fields():
+    fields = set(FINE_TABLE_SNAPSHOT_FILTER_CACHE_FIELDS)
+
+    assert {"status", "risk", "vip_7d_sales", "stock_qty", "daily_sales_0_quantity", "size_34/220"} <= fields
+    assert "sku" not in fields
+    assert "goods_tag" not in fields
 
 
 def test_fine_table_filters_accept_in_and_not_in_values():
