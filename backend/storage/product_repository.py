@@ -26,6 +26,7 @@ PRODUCT_COLOR_BARCODE_SOURCE_BRANDS = {
     "cbanner_womens": "cbanner_womens",
     "yandou": "cbanner_mens",
     "eblan": "cbanner_mens",
+    "ni": "ni",
 }
 COMBINED_FOOTWEAR_PRICE_SOURCE_MARKER = "男女鞋合并物价"
 

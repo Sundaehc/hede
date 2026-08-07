@@ -26,6 +26,7 @@ PRODUCT_COLOR_BARCODE_BRANDS = {
     "cbanner_womens": "cbanner_womens",
     "yandou": "cbanner_mens",
     "eblan": "cbanner_mens",
+    "ni": "ni",
 }
 from transform.rows import build_admin_record, filter_extra_fields
 
