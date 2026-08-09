@@ -113,7 +113,7 @@ function productCostText(item: ProductListItem) {
   if (genderCosts?.female && genderCosts.male) {
     return `女码 ${genderCosts.female} / 男码 ${genderCosts.male}`
   }
-  return item.cost ? Number(item.cost).toFixed(1) : ""
+  return item.cost ?? ""
 }
 
 function ProductCard({ item, selectable, selectedIds, onToggleSelect, onEdit, onDelete, onPreviewImage }: {
