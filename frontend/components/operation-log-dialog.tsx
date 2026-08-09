@@ -181,7 +181,7 @@ export function OperationLogDialog({ module, open, title, onOpenChange }: Operat
               <tr>
                 <th className="w-44 px-4 py-3 text-left font-medium">时间</th>
                 <th className="w-36 px-4 py-3 text-left font-medium">操作人</th>
-                <th className="w-28 px-4 py-3 text-left font-medium">动作</th>
+                <th className="w-28 whitespace-nowrap px-4 py-3 text-left font-medium">动作</th>
                 <th className="w-40 px-4 py-3 text-left font-medium">对象</th>
                 <th className="px-4 py-3 text-left font-medium">修改内容</th>
                 <th className="w-44 px-4 py-3 text-left font-medium">修改字段</th>
@@ -210,8 +210,8 @@ export function OperationLogDialog({ module, open, title, onOpenChange }: Operat
                     <p className="font-medium">{actorName(item)}</p>
                     {item.department_name ? <p className="mt-0.5 text-xs text-muted-foreground">{item.department_name}</p> : null}
                   </td>
-                  <td className="px-4 py-3">
-                    <span className="inline-flex rounded-md border border-border bg-background px-2 py-1 text-xs">
+                  <td className="whitespace-nowrap px-4 py-3">
+                    <span className="inline-flex whitespace-nowrap rounded-md border border-border bg-background px-2 py-1 text-xs">
                       {ACTION_LABELS[item.action] || item.action}
                     </span>
                   </td>
