@@ -2135,8 +2135,8 @@ def _load_purchase_product_lookup(connection, brand: str, product_codes: set[str
         if not code or code not in lookup:
             continue
         price = _purchase_lookup_price(
-            row.get("latest_purchase_price"),
             row.get("preset_price"),
+            row.get("latest_purchase_price"),
             row.get("cost_unit_price"),
         )
         product_name = str(row.get("goods_full_name") or "").strip()
@@ -2626,6 +2626,30 @@ def _gendered_detail_payloads(repository, record: dict[str, object], payload: di
         detail["amount"] = _fmt_decimal(detail_quantity * price)
         result.append(detail)
     return result or [payload]
+
+
+def _apply_product_archive_cost(repository, record: dict[str, object], payload: dict[str, object]) -> dict[str, object]:
+    """Use the matched product archive cost for manually saved details."""
+    product_code = _cell_text(payload.get("product_code"))
+    if not product_code:
+        return payload
+    brand = _purchase_import_brand_for_record(repository, record)
+    with repository.engine.connect() as connection:
+        lookup = _build_purchase_detail_lookup(
+            connection,
+            product_code,
+            _to_decimal(payload.get("quantity")),
+            brand,
+        )
+    price = _to_decimal(lookup.get("unit_price"))
+    if price == 0:
+        return payload
+    normalized = dict(payload)
+    normalized["unit_price"] = _fmt_decimal(price)
+    quantity = _to_decimal(normalized.get("quantity"))
+    if quantity:
+        normalized["amount"] = _fmt_decimal(quantity * price)
+    return normalized
 
 
 def _build_purchase_details_from_rows(
@@ -3437,7 +3461,7 @@ async def import_purchase_inventory(request: Request, file: UploadFile = None):
             plan["rows"],
             brand=str(plan["brand"]),
             fallback_unit_price=fallback_unit_price,
-            prefer_lookup_unit_price=is_purchase_order_import,
+            prefer_lookup_unit_price=document_type != "批发销售单",
         )
 
     created_docs = 0
@@ -4340,7 +4364,7 @@ async def reimport_inventory_details_from_excel(request: Request, record_id: int
         content,
         brand=brand,
         fallback_unit_price=fallback_unit_price,
-        prefer_lookup_unit_price=document_type == "进货订单",
+        prefer_lookup_unit_price=document_type != "批发销售单",
     )
     detail_payloads = []
     for detail in details:
@@ -4383,6 +4407,7 @@ def create_inventory_detail(request: Request, record_id: int, payload: dict):
     if record is None:
         raise HTTPException(status_code=404, detail="Record not found")
     _validate_purchase_detail_remark(record, payload)
+    payload = _apply_product_archive_cost(repository, record, payload)
     payload["document_id"] = record_id
     detail_payloads = _gendered_detail_payloads(repository, record, payload)
     details = [repository.create_detail(detail_payload) for detail_payload in detail_payloads]
@@ -4405,6 +4430,7 @@ def update_inventory_detail(request: Request, record_id: int, detail_id: int, pa
     if before is None:
         raise HTTPException(status_code=404, detail="Detail not found")
     _validate_purchase_detail_remark(record, payload)
+    payload = _apply_product_archive_cost(repository, record, payload)
     payload["document_id"] = record_id
     detail_payloads = _gendered_detail_payloads(repository, record, payload)
     detail = repository.update_detail(detail_id, detail_payloads[0])
