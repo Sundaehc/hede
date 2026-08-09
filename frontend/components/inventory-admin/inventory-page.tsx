@@ -1,7 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent } from "react"
-import { Plus, Download, Upload, Trash2, Edit, Search, X, RefreshCw, List, BadgeDollarSign, FileText, History, ChevronLeft, ChevronRight } from "lucide-react"
+import { Check, Copy, Plus, Download, Upload, Trash2, Edit, Search, X, RefreshCw, List, BadgeDollarSign, FileText, History, ChevronLeft, ChevronRight } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -217,6 +217,56 @@ function getErrorMessage(error: unknown) {
   if (error instanceof ApiError) return error.message || `请求失败（${error.status}）`
   if (error instanceof Error) return error.message
   return "发生未知错误"
+}
+
+async function copyText(value: string) {
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(value)
+    return
+  }
+
+  const textarea = document.createElement("textarea")
+  textarea.value = value
+  textarea.setAttribute("readonly", "")
+  textarea.style.position = "fixed"
+  textarea.style.opacity = "0"
+  document.body.appendChild(textarea)
+  textarea.select()
+  document.execCommand("copy")
+  textarea.remove()
+}
+
+function CopyableDocumentNumber({ value, className = "" }: { value: string; className?: string }) {
+  const [copied, setCopied] = useState(false)
+
+  const handleCopy = async (event: React.MouseEvent<HTMLButtonElement>) => {
+    event.stopPropagation()
+    if (!value) return
+    try {
+      await copyText(value)
+      setCopied(true)
+      window.setTimeout(() => setCopied(false), 1600)
+    } catch {
+      setCopied(false)
+    }
+  }
+
+  return (
+    <button
+      type="button"
+      className={`group inline-flex max-w-full cursor-pointer items-center gap-1 rounded text-left hover:text-primary focus:outline-none focus-visible:ring-2 focus-visible:ring-ring ${className}`}
+      onClick={handleCopy}
+      title="复制单据编号"
+      aria-label={`复制单据编号 ${value}`}
+    >
+      <span className="truncate">{value}</span>
+      {copied ? (
+        <Check className="h-3.5 w-3.5 shrink-0 text-emerald-600" aria-hidden="true" />
+      ) : (
+        <Copy className="h-3.5 w-3.5 shrink-0 opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100" aria-hidden="true" />
+      )}
+    </button>
+  )
 }
 
 function inventoryBrandLabel(brand: string | null | undefined) {
@@ -1672,7 +1722,7 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
                           {isPurchaseOrderTab ? (
                             <>
                               <td className="px-4 py-3 align-middle font-mono text-xs leading-4 tabular-nums">
-                                <span className="block whitespace-nowrap" title={String(item.document_number || item.id)}>{item.document_number || item.id}</span>
+                                <CopyableDocumentNumber value={String(item.document_number || item.id)} className="whitespace-nowrap" />
                               </td>
                               <td className="px-4 py-3 align-middle whitespace-nowrap tabular-nums">{item.date || "-"}</td>
                               <td className="px-4 py-3 align-middle whitespace-nowrap tabular-nums">
@@ -1696,7 +1746,7 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
                               case "document_number":
                                 return (
                                   <td key={columnKey} className="px-4 py-3 align-middle font-mono text-xs leading-4 tabular-nums">
-                                    <span className="block truncate" title={String(item.document_number || item.id)}>{item.document_number || item.id}</span>
+                                    <CopyableDocumentNumber value={String(item.document_number || item.id)} className="max-w-full" />
                                   </td>
                                 )
                               case "date":
@@ -2323,7 +2373,9 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
                           aria-label={`选择回收站单据 ${item.document_number || item.id}`}
                         />
                       </td>
-                      <td className="px-3 py-2 font-mono text-xs whitespace-nowrap truncate" title={item.document_number || String(item.id)}>{item.document_number || item.id}</td>
+                      <td className="px-3 py-2 font-mono text-xs whitespace-nowrap truncate">
+                        <CopyableDocumentNumber value={String(item.document_number || item.id)} />
+                      </td>
                       <td className="px-3 py-2 whitespace-nowrap">{item.date || "-"}</td>
                       <td className="px-3 py-2 whitespace-nowrap">{item.document_type || "-"}</td>
                       <td className="px-3 py-2 truncate whitespace-nowrap" title={item.supplier || ""}>{item.supplier || "-"}</td>

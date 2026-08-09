@@ -1,4 +1,5 @@
-import { Edit, RefreshCw, Trash2 } from "lucide-react"
+import { Check, Copy, Edit, RefreshCw, Trash2 } from "lucide-react"
+import { useState } from "react"
 import type { ProductListItem } from "@/lib/types"
 import { FIELD_GROUPS, FIELD_LABELS } from "@/lib/fields"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
@@ -116,6 +117,23 @@ function productCostText(item: ProductListItem) {
   return item.cost ?? ""
 }
 
+async function copyProductCode(value: string) {
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(value)
+    return
+  }
+
+  const textarea = document.createElement("textarea")
+  textarea.value = value
+  textarea.setAttribute("readonly", "")
+  textarea.style.position = "fixed"
+  textarea.style.opacity = "0"
+  document.body.appendChild(textarea)
+  textarea.select()
+  document.execCommand("copy")
+  textarea.remove()
+}
+
 function ProductCard({ item, selectable, selectedIds, onToggleSelect, onEdit, onDelete, onPreviewImage }: {
   item: ProductListItem
   selectable?: boolean
@@ -128,6 +146,20 @@ function ProductCard({ item, selectable, selectedIds, onToggleSelect, onEdit, on
   const checked = selectedIds.has(item.id)
   const canEdit = Boolean(onEdit)
   const costText = productCostText(item)
+  const [copiedCode, setCopiedCode] = useState<string | null>(null)
+  const handleCopyCode = async (event: React.MouseEvent<HTMLButtonElement>, value: string) => {
+    event.stopPropagation()
+    if (!value) return
+    try {
+      await copyProductCode(value)
+      setCopiedCode(value)
+      window.setTimeout(() => {
+        setCopiedCode((current) => current === value ? null : current)
+      }, 1600)
+    } catch {
+      setCopiedCode(null)
+    }
+  }
   const smileyExtraFields = item.brand === "smiley"
     ? [
         { label: "工厂代码", value: item.factory_code },
@@ -166,11 +198,36 @@ function ProductCard({ item, selectable, selectedIds, onToggleSelect, onEdit, on
         {/* Header: SKU + actions */}
         <div className="flex items-start justify-between gap-2">
           <div className="min-w-0">
-            <p className="truncate text-sm font-semibold" data-testid={`card-title-${item.id}`}>
-              {item.sku || "-"}
-            </p>
+            <button
+              type="button"
+              className="group inline-flex max-w-full cursor-pointer items-center gap-1 truncate rounded text-left text-sm font-semibold hover:text-primary focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              onClick={(event) => handleCopyCode(event, item.sku || item.original_sku || "")}
+              title="复制货号"
+              aria-label={`复制货号 ${item.sku || item.original_sku || ""}`}
+              data-testid={`card-title-${item.id}`}
+            >
+              <span className="truncate">{item.sku || "-"}</span>
+              {copiedCode === (item.sku || item.original_sku || "") ? (
+                <Check className="h-3.5 w-3.5 shrink-0 text-emerald-600" aria-hidden="true" />
+              ) : (
+                <Copy className="h-3.5 w-3.5 shrink-0 opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100" aria-hidden="true" />
+              )}
+            </button>
             {item.original_sku ? (
-              <p className="mt-0.5 text-xs text-muted-foreground">原始货号: {item.original_sku}</p>
+              <button
+                type="button"
+                className="group mt-0.5 inline-flex max-w-full cursor-pointer items-center gap-1 rounded text-left text-xs text-muted-foreground hover:text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                onClick={(event) => handleCopyCode(event, item.original_sku || "")}
+                title="复制原始货号"
+                aria-label={`复制原始货号 ${item.original_sku}`}
+              >
+                <span className="truncate">原始货号: {item.original_sku}</span>
+                {copiedCode === item.original_sku ? (
+                  <Check className="h-3.5 w-3.5 shrink-0 text-emerald-600" aria-hidden="true" />
+                ) : (
+                  <Copy className="h-3.5 w-3.5 shrink-0 opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100" aria-hidden="true" />
+                )}
+              </button>
             ) : null}
           </div>
           {(onEdit || onDelete) ? (

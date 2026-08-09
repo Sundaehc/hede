@@ -324,6 +324,17 @@ def _to_decimal(value: object) -> Decimal:
         return Decimal("0")
 
 
+def _purchase_lookup_price(*values: object) -> object | None:
+    """Return the first plausible source price; corrupted source values are ignored."""
+    for value in values:
+        if value in (None, ""):
+            continue
+        price = _to_decimal(value)
+        if Decimal("0") < price < Decimal("10000"):
+            return value
+    return None
+
+
 def _fmt_decimal(value: Decimal) -> str:
     normalized = value.normalize()
     return str(normalized) if normalized.as_tuple().exponent < 0 else str(int(normalized))
@@ -2123,10 +2134,10 @@ def _load_purchase_product_lookup(connection, brand: str, product_codes: set[str
         code = str(row.get("goods_code") or "").strip()
         if not code or code not in lookup:
             continue
-        price = (
-            row.get("cost_unit_price")
-            or row.get("latest_purchase_price")
-            or row.get("preset_price")
+        price = _purchase_lookup_price(
+            row.get("latest_purchase_price"),
+            row.get("preset_price"),
+            row.get("cost_unit_price"),
         )
         product_name = str(row.get("goods_full_name") or "").strip()
         if product_name and not lookup[code].get("product_name"):
