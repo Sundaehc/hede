@@ -72,6 +72,8 @@ DETAIL_CN_TO_FIELD = {cn: en for cn, en in INVENTORY_DETAIL_ALIASES.items() if e
 
 EXCEL_EPOCH = datetime(1899, 12, 30)
 PURCHASE_IMPORT_TYPES = {"进货订单", "进货单", "进货退货单", "报溢单", "报损单", "批发销售单", "批发销售退货单", "同价调拨单"}
+WHOLESALE_DOCUMENT_TYPES = {"批发销售单", "批发销售退货单"}
+TRANSFER_DOCUMENT_TYPES = {"同价调拨单"}
 EU_PURCHASE_SIZE_LABELS = ("35", "36", "37", "38", "39", "40", "41", "42", "43", "44", "45", "46", "47")
 MILLIMETER_PURCHASE_SIZE_LABELS = ("220", "225", "230", "235", "240", "245", "250", "255", "260", "265", "270", "275", "280", "285")
 PURCHASE_EXPORT_SIZE_LABELS = (*MILLIMETER_PURCHASE_SIZE_LABELS, *EU_PURCHASE_SIZE_LABELS)
@@ -3247,7 +3249,28 @@ def export_inventory(
     ws = wb.active
     ws.title = "经营历程"
 
-    headers = [INVENTORY_EXPORT_LABELS.get(c, c) for c in INVENTORY_CANONICAL_COLUMNS]
+    counterparty_label = (
+        "收货客户"
+        if document_type in WHOLESALE_DOCUMENT_TYPES
+        else "出货仓库"
+        if document_type in TRANSFER_DOCUMENT_TYPES
+        else "供应商"
+        if document_type
+        else "供应商/收货客户/出货仓库"
+    )
+    warehouse_label = (
+        "入货仓库"
+        if document_type in TRANSFER_DOCUMENT_TYPES
+        else "仓库"
+        if document_type
+        else "仓库/入货仓库"
+    )
+    headers = [
+        counterparty_label if column == "supplier"
+        else warehouse_label if column == "warehouse"
+        else INVENTORY_EXPORT_LABELS.get(column, column)
+        for column in INVENTORY_CANONICAL_COLUMNS
+    ]
     ws.append(headers)
 
     for item in items:
@@ -3260,8 +3283,8 @@ def export_inventory(
         "订货日期",
         "交货日期",
         "单据类型",
-        "供应商/客户/出货仓库",
-        "仓库",
+        f"{counterparty_label}",
+        warehouse_label,
         "经手人",
         "摘要",
         "货号",

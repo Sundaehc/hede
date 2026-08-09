@@ -213,6 +213,17 @@ const INVENTORY_TABLE_COLUMN_WIDTHS: Record<InventoryTableColumnKey, string> = {
 
 const INVENTORY_TABLE_COLUMN_ORDER_STORAGE_KEY = "hede.inventory-records.table-column-order"
 
+function inventoryCounterpartyLabel(documentType?: string) {
+  if (documentType && WHOLESALE_DOCUMENT_TYPES.has(documentType)) return "收货客户"
+  if (documentType && TRANSFER_DOCUMENT_TYPES.has(documentType)) return "出货仓库"
+  return documentType ? "供应商" : "供应商/收货客户"
+}
+
+function inventoryWarehouseLabel(documentType?: string) {
+  if (documentType && TRANSFER_DOCUMENT_TYPES.has(documentType)) return "入货仓库"
+  return documentType ? "仓库" : "仓库/入货仓库"
+}
+
 function getErrorMessage(error: unknown) {
   if (error instanceof ApiError) return error.message || `请求失败（${error.status}）`
   if (error instanceof Error) return error.message
@@ -1307,6 +1318,12 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
   const recycleActionBusy = isBatchRestoring || isRecycleBatchDeleting
   const detailRecord = detailDocumentId === null ? null : items.find((item) => item.id === detailDocumentId) ?? null
   const completionLabel = isPurchaseOrderTab ? "采购单" : COMPLETION_TABS.find((item) => item.value === recordCompletionStatus)?.label ?? "单据"
+  const inventoryCounterpartyColumnLabel = isPurchaseOrderTab
+    ? "供应商"
+    : inventoryCounterpartyLabel(submittedFilters.document_type)
+  const inventoryWarehouseColumnLabel = isPurchaseOrderTab
+    ? "仓库"
+    : inventoryWarehouseLabel(submittedFilters.document_type)
   const pageRange = buildPageRange(page, totalPages)
   const isFormWholesale = WHOLESALE_DOCUMENT_TYPES.has(formData.document_type || "")
   const isFormTransfer = TRANSFER_DOCUMENT_TYPES.has(formData.document_type || "")
@@ -1688,7 +1705,11 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
                           } ${draggedInventoryColumn === columnKey ? "opacity-50" : ""}`}
                           title="拖拽调整列顺序"
                         >
-                          {INVENTORY_TABLE_COLUMN_LABELS[columnKey]}
+                          {columnKey === "supplier"
+                            ? inventoryCounterpartyColumnLabel
+                            : columnKey === "warehouse"
+                              ? inventoryWarehouseColumnLabel
+                              : INVENTORY_TABLE_COLUMN_LABELS[columnKey]}
                         </th>
                       ))}
                       <th className="sticky right-0 z-20 w-28 border-l border-border bg-muted px-4 py-3 text-center font-medium shadow-[-5px_0_10px_-9px_rgb(0_0_0_/_0.45)]">操作</th>
