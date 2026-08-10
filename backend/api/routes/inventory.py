@@ -4401,21 +4401,55 @@ def batch_delete_inventory(request: Request, payload: dict):
 
 
 @router.get("/inventory/{record_id}/details")
-def list_inventory_details(request: Request, record_id: int):
+def list_inventory_details(
+    request: Request,
+    record_id: int,
+    page: int | None = None,
+    page_size: int | None = None,
+):
     repository = request.app.state.inventory_repository
     record = repository.get_record(record_id)
-    details = repository.list_details(record_id)
+    paged = page_size is not None
+    if paged:
+        result = repository.list_details_page(record_id, page=page or 1, page_size=page_size)
+        details = result["items"]
+        total = int(result["total"])
+        response_page = int(result["page"])
+        response_page_size = int(result["page_size"])
+    else:
+        details = repository.list_details(record_id)
+        total = len(details)
+        response_page = 1
+        response_page_size = total
     if record is None or not details or _cell_text(record.get("document_type")) in ACCOUNTING_DOCUMENT_TYPES:
-        return {"items": details}
+        return {"items": details, "total": total, "page": response_page, "page_size": response_page_size}
+
+    details_to_enrich = [
+        detail
+        for detail in details
+        if (
+            not _cell_text(_dict_or_empty(detail.get("extra_fields")).get("size_range"))
+            or not _cell_text(_dict_or_empty(detail.get("extra_fields")).get("size_labels"))
+            or (
+                _cell_text(detail.get("product_code")).upper().startswith("NI")
+                and (
+                    _split_purchase_combined_size_code(_cell_text(detail.get("product_code")))
+                    or _split_purchase_partial_combined_size_code(_cell_text(detail.get("product_code")))
+                ) is not None
+            )
+        )
+    ]
+    if not details_to_enrich:
+        return {"items": details, "total": total, "page": response_page, "page_size": response_page_size}
 
     preferred_brand = _purchase_import_brand_for_record(repository, record)
     product_codes = {
         _cell_text(detail.get("product_code"))
-        for detail in details
+        for detail in details_to_enrich
         if _cell_text(detail.get("product_code"))
     }
     if not product_codes:
-        return {"items": details}
+        return {"items": details, "total": total, "page": response_page, "page_size": response_page_size}
 
     with repository.engine.connect() as connection:
         legacy_ni_base_codes = {
@@ -4448,7 +4482,7 @@ def list_inventory_details(request: Request, record_id: int):
             for size_range in size_ranges
         }
 
-    for detail in details:
+    for detail in details_to_enrich:
         original_detail_code = _cell_text(detail.get("product_code"))
         legacy_ni_profile = legacy_ni_profiles.get(original_detail_code)
         if legacy_ni_profile:
@@ -4472,7 +4506,7 @@ def list_inventory_details(request: Request, record_id: int):
             "size_labels": "|".join(size_labels),
         }
 
-    return {"items": details}
+    return {"items": details, "total": total, "page": response_page, "page_size": response_page_size}
 
 
 @router.post("/inventory/{record_id}/details/import-replace")

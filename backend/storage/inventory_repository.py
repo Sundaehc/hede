@@ -1616,6 +1616,30 @@ class InventoryRepository:
         with self.engine.connect() as connection:
             return [dict(row) for row in connection.execute(statement).mappings()]
 
+    def list_details_page(self, document_id: int, *, page: int, page_size: int) -> dict[str, object]:
+        table = INVENTORY_DETAIL_TABLE
+        normalized_page = max(1, page)
+        normalized_page_size = min(max(1, page_size), 500)
+        offset = (normalized_page - 1) * normalized_page_size
+        statement = (
+            select(table)
+            .where(table.c.document_id == document_id)
+            .order_by(table.c.id)
+            .limit(normalized_page_size)
+            .offset(offset)
+        )
+        with self.engine.connect() as connection:
+            total = int(connection.execute(
+                select(func.count()).select_from(table).where(table.c.document_id == document_id)
+            ).scalar_one())
+            items = [dict(row) for row in connection.execute(statement).mappings()]
+        return {
+            "items": items,
+            "total": total,
+            "page": normalized_page,
+            "page_size": normalized_page_size,
+        }
+
     def get_detail(self, detail_id: int) -> dict[str, object] | None:
         table = INVENTORY_DETAIL_TABLE
         statement = select(table).where(table.c.id == detail_id)

@@ -1482,9 +1482,13 @@ export function reorderGeneralCustomerUnits(shop_id: number, ids: number[]) {
   })
 }
 
-export function listDetails(documentId: number) {
-  return request<{ items: InventoryDetail[] }>(
-    `/inventory/${documentId}/details`
+export function listDetails(documentId: number, params?: { page?: number; pageSize?: number }) {
+  const search = new URLSearchParams()
+  if (params?.page) search.set("page", String(params.page))
+  if (params?.pageSize) search.set("page_size", String(params.pageSize))
+  const suffix = search.size > 0 ? `?${search.toString()}` : ""
+  return request<{ items: InventoryDetail[]; total: number; page: number; page_size: number }>(
+    `/inventory/${documentId}/details${suffix}`
   )
 }
 

@@ -1,7 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import { Plus, Trash2, Edit, X, Upload, Search } from "lucide-react"
+import { Plus, Trash2, Edit, X, Upload, Search, ChevronLeft, ChevronRight } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -98,6 +98,7 @@ const EU_TO_MILLIMETER_SIZE = Object.fromEntries(
   Object.entries(MILLIMETER_TO_EU_SIZE).map(([millimeter, eu]) => [eu, millimeter]),
 ) as Record<string, string>
 const ACCOUNTING_DOCUMENT_TYPES = new Set(["应付款减少", "应付款增加", "应收款减少", "应收款增加"])
+const DETAIL_PAGE_SIZE = 100
 
 type Props = {
   record: InventoryRecord | null
@@ -260,6 +261,9 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
   const sizeColumns = useMemo(() => getSizeColumns(inventorySizeBrand), [inventorySizeBrand])
   const [items, setItems] = useState<InventoryDetail[]>([])
   const [isLoading, setIsLoading] = useState(false)
+  const [detailPage, setDetailPage] = useState(1)
+  const [detailTotal, setDetailTotal] = useState(0)
+  const detailRequestIdRef = useRef(0)
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set())
   const replaceInputRef = useRef<HTMLInputElement>(null)
   const [replaceFile, setReplaceFile] = useState<File | null>(null)
@@ -300,10 +304,18 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
 
   const load = useCallback(async () => {
     if (!documentId) return
+    const requestId = ++detailRequestIdRef.current
     setIsLoading(true)
     try {
-      const res = await listDetails(documentId)
+      const res = await listDetails(documentId, { page: detailPage, pageSize: DETAIL_PAGE_SIZE })
+      if (requestId !== detailRequestIdRef.current) return
+      const lastPage = Math.max(1, Math.ceil(res.total / DETAIL_PAGE_SIZE))
+      if (res.total > 0 && detailPage > lastPage) {
+        setDetailPage(lastPage)
+        return
+      }
       setItems(res.items)
+      setDetailTotal(res.total)
       setSelectedIds((current) => {
         if (current.size === 0) return current
         const existingIds = new Set(res.items.map((item) => item.id))
@@ -311,18 +323,22 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
         return next.size === current.size ? current : next
       })
     } catch {
+      if (requestId !== detailRequestIdRef.current) return
       setItems([])
+      setDetailTotal(0)
       setSelectedIds(new Set())
     } finally {
-      setIsLoading(false)
+      if (requestId === detailRequestIdRef.current) setIsLoading(false)
     }
-  }, [documentId])
-
-  useEffect(() => { void load() }, [load])
+  }, [detailPage, documentId])
 
   useEffect(() => {
     setSelectedIds(new Set())
+    setDetailPage(1)
+    setDetailTotal(0)
   }, [documentId])
+
+  useEffect(() => { void load() }, [load])
 
   const loadSubjects = useCallback(async () => {
     try {
@@ -669,6 +685,9 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
   if (documentId === null) return null
 
   const allSelected = items.length > 0 && items.every((item) => selectedIds.has(item.id))
+  const totalPages = Math.max(1, Math.ceil(detailTotal / DETAIL_PAGE_SIZE))
+  const firstDetailIndex = detailTotal === 0 ? 0 : (detailPage - 1) * DETAIL_PAGE_SIZE + 1
+  const lastDetailIndex = Math.min(detailPage * DETAIL_PAGE_SIZE, detailTotal)
   const tableClassName = isPurchaseOrder ? "w-[2360px] table-fixed text-xs" : "w-full text-sm"
   const purchaseHeaderClassName = "px-3 py-2.5 font-medium whitespace-nowrap"
   const purchaseCodeCellClassName = "px-3 py-2.5 whitespace-nowrap font-mono text-[11px]"
@@ -686,9 +705,38 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
         <div className="flex items-center justify-between border-b border-border px-6 py-4 shrink-0">
           <div>
             <h2 className="text-lg font-semibold">单据明细</h2>
-            <p className="text-xs text-muted-foreground">单据 {record?.document_number || documentId}</p>
+            <p className="text-xs text-muted-foreground">单据 {record?.document_number || documentId}{detailTotal > 0 ? ` · ${firstDetailIndex}-${lastDetailIndex} / ${detailTotal} 条` : ""}</p>
           </div>
           <div className="flex items-center gap-2">
+            {detailTotal > DETAIL_PAGE_SIZE && (
+              <div className="flex h-8 items-center rounded-lg border border-border bg-card">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="h-7 w-7 cursor-pointer rounded-md"
+                  disabled={detailPage <= 1 || isLoading}
+                  onClick={() => setDetailPage((current) => Math.max(1, current - 1))}
+                  title="上一页"
+                  aria-label="上一页"
+                >
+                  <ChevronLeft className="h-4 w-4" />
+                </Button>
+                <span className="min-w-12 text-center text-xs tabular-nums text-muted-foreground">{detailPage} / {totalPages}</span>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="h-7 w-7 cursor-pointer rounded-md"
+                  disabled={detailPage >= totalPages || isLoading}
+                  onClick={() => setDetailPage((current) => Math.min(totalPages, current + 1))}
+                  title="下一页"
+                  aria-label="下一页"
+                >
+                  <ChevronRight className="h-4 w-4" />
+                </Button>
+              </div>
+            )}
             {!isAccountingDocument && (
               <>
                 <input
