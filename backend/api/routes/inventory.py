@@ -1151,6 +1151,16 @@ def _purchase_hyphen_date(value: object) -> str:
 def _purchase_production_size_labels(details: list[dict[str, object]]) -> tuple[str, ...]:
     used_sizes: set[str] = set()
     for detail in details:
+        extra_fields = _dict_or_empty(detail.get("extra_fields"))
+        saved_size_labels = _cell_text(extra_fields.get("size_labels"))
+        if saved_size_labels:
+            used_sizes.update(
+                size_label
+                for size_label in (_cell_text(value) for value in saved_size_labels.split("|"))
+                if size_label
+            )
+        elif _cell_text(extra_fields.get("size_range")):
+            used_sizes.update(_parse_purchase_size_range_labels(extra_fields.get("size_range")))
         size_quantities = _dict_or_empty(detail.get("size_quantities"))
         for size in size_quantities:
             size_text = _cell_text(size)
@@ -1189,7 +1199,10 @@ def _purchase_production_detail_rows(
             _cell_text(extra_fields.get("insole_material")),
             _cell_text(extra_fields.get("shoe_box_spec")),
             *[
-                _fmt_export_decimal(_to_decimal(size_quantities.get(size)))
+                _fmt_export_decimal(
+                    _to_decimal(size_quantities.get(size)),
+                    blank_zero=size not in size_quantities,
+                )
                 for size in size_labels
             ],
             _fmt_export_decimal(quantity, blank_zero=True),
@@ -2071,6 +2084,66 @@ def _matched_purchase_product_info(
     return fallback
 
 
+def _purchase_size_matches_product_group(
+    size: str,
+    size_group_items: tuple[tuple[str, str], ...],
+    brand: str,
+) -> bool:
+    normalized_size = _cell_text(size)
+    if not normalized_size:
+        return False
+    if not size_group_items:
+        return normalized_size in PURCHASE_EXPORT_SIZE_LABELS
+
+    for size_name, size_barcode in size_group_items:
+        if normalized_size in {_cell_text(size_name), _cell_text(size_barcode)}:
+            return True
+        normalized_size_for_brand = _normalize_imported_purchase_size_label(normalized_size, brand)
+        if normalized_size_for_brand in {_cell_text(size_name), _cell_text(size_barcode)}:
+            return True
+        if _combined_size_label_contains(_cell_text(size_name), normalized_size_for_brand):
+            return True
+    return False
+
+
+def _purchase_product_code_matches_archive(
+    product_info: dict[str, object],
+    raw_code: str,
+    brand: str,
+    size_group_items: tuple[tuple[str, str], ...],
+) -> bool:
+    if not product_info.get("_archive_matched"):
+        return False
+
+    archive_sku = _first_text(product_info.get("_archive_sku"), product_info.get("_archive_original_sku"))
+    archive_original_sku = _first_text(product_info.get("_archive_original_sku"), archive_sku)
+    parsed_sku, parsed_original_sku, _, _, size = _split_purchase_product_code(raw_code, [], brand)
+    parsed_base = _first_text(parsed_original_sku, parsed_sku)
+    if not parsed_base or parsed_base not in {archive_sku, archive_original_sku}:
+        return False
+    if not _purchase_size_matches_product_group(size, size_group_items, brand):
+        return False
+
+    normalized_size = _normalize_imported_purchase_size_label(size, brand)
+    candidate_size_barcodes = {
+        _cell_text(size_barcode)
+        for size_name, size_barcode in size_group_items
+        if normalized_size in {_cell_text(size_name), _cell_text(size_barcode)}
+        or normalized_size == _normalize_imported_purchase_size_label(size_name, brand)
+    }
+    if not candidate_size_barcodes:
+        candidate_size_barcodes.add(normalized_size)
+
+    goods_codes = tuple(dict.fromkeys(code for code in (archive_sku, archive_original_sku) if code))
+    color_code = _first_text(product_info.get("color_code"), product_info.get("color_barcode"))
+    barcode_rule = product_info.get("barcode_build_rule")
+    return any(
+        build_product_size_code(goods_code, color_code, size_barcode, barcode_rule) == raw_code
+        for goods_code in goods_codes
+        for size_barcode in candidate_size_barcodes
+    )
+
+
 def _load_purchase_product_lookup(connection, brand: str, product_codes: set[str]) -> dict[str, dict[str, object]]:
     expanded_codes = {
         candidate
@@ -2203,6 +2276,9 @@ def _load_purchase_product_lookup(connection, brand: str, product_codes: set[str
                 if product_color_code:
                     lookup[code]["color_barcode"] = product_color_code
                     lookup[code]["color_code"] = product_color_code
+                lookup[code]["_archive_matched"] = True
+                lookup[code]["_archive_sku"] = _cell_text(row.get("sku"))
+                lookup[code]["_archive_original_sku"] = _cell_text(row.get("original_sku"))
                 if row.get("barcode_build_rule"):
                     lookup[code]["barcode_build_rule"] = _cell_text(row.get("barcode_build_rule"))
                 gender_costs = _dict_or_empty(row.get("extra_fields")).get(GENDER_COSTS_FIELD)
@@ -2678,6 +2754,7 @@ def _build_purchase_details_from_rows(
     brand: str,
     fallback_unit_price: Decimal,
     prefer_lookup_unit_price: bool = False,
+    require_archive_product_code: bool = False,
 ) -> list[dict[str, object]]:
     if not rows:
         raise HTTPException(status_code=400, detail="Excel 中没有可导入的明细")
@@ -2755,6 +2832,16 @@ def _build_purchase_details_from_rows(
             row.get("sku"),
             raw_code,
         )
+        if require_archive_product_code and not _purchase_product_code_matches_archive(
+            product_info,
+            raw_code,
+            brand,
+            size_group_items_by_range.get(_cell_text(product_info.get("size_range")), ()),
+        ):
+            raise HTTPException(
+                status_code=400,
+                detail=f"商品编码 {raw_code} 不是由商品信息档案中的已有商品构成，请检查货号、颜色和尺码",
+            )
         matched_product_code = _first_text(
             product_info.get("original_goods_code"),
             product_info.get("goods_code"),
@@ -3502,6 +3589,7 @@ async def import_purchase_inventory(request: Request, file: UploadFile = None):
             brand=str(plan["brand"]),
             fallback_unit_price=fallback_unit_price,
             prefer_lookup_unit_price=document_type != "批发销售单",
+            require_archive_product_code=is_purchase_order_import,
         )
 
     created_docs = 0

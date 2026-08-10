@@ -276,6 +276,52 @@ def test_import_products_updates_by_original_sku_without_clearing_blank_cells(
     assert listing["total"] == 1
 
 
+def test_import_products_rejects_supplier_mismatch_for_existing_product(
+    test_app_client: TestClient,
+    repository,
+):
+    existing = repository.create_product(
+        "cbanner_mens",
+        build_admin_record(
+            "cbanner_mens",
+            {
+                "sku": "SUPPLIER-MISMATCH-001",
+                "supplier_name": "原供应商",
+                "barcode_build_rule": "货号+尺码",
+            },
+        ),
+    )
+
+    workbook = Workbook()
+    worksheet = workbook.active
+    worksheet.append(["货号", "供应商名", "条码构成逻辑"])
+    worksheet.append(["SUPPLIER-MISMATCH-001", "导入供应商", "货号+尺码"])
+    buffer = io.BytesIO()
+    workbook.save(buffer)
+    buffer.seek(0)
+
+    response = test_app_client.post(
+        "/import",
+        params={"brand": "cbanner_mens"},
+        files={
+            "file": (
+                "supplier-mismatch.xlsx",
+                buffer.getvalue(),
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            ),
+        },
+    )
+
+    assert response.status_code == 400
+    assert "供应商不一致" in response.json()["detail"]
+    assert "原供应商" in response.json()["detail"]
+    assert "导入供应商" in response.json()["detail"]
+
+    unchanged = repository.get_product("cbanner_mens", existing["id"])
+    assert unchanged is not None
+    assert unchanged["supplier_name"] == "原供应商"
+
+
 def test_import_products_rolls_back_all_rows_when_a_row_is_invalid(
     test_app_client: TestClient,
     repository,

@@ -958,6 +958,26 @@ async def import_products(
                 if sku_val:
                     imported_skus.append(sku_val)
 
+                incoming_supplier = normalize_admin_field(
+                    "supplier_name",
+                    payload.get("supplier_name"),
+                )
+                if existing is not None and incoming_supplier:
+                    existing_supplier = normalize_admin_field(
+                        "supplier_name",
+                        existing.get("supplier_name"),
+                    )
+                    if existing_supplier and existing_supplier != incoming_supplier:
+                        display_sku = sku_val or original_sku_val or "未填写货号"
+                        raise HTTPException(
+                            status_code=400,
+                            detail=(
+                                f"第 {row_number} 行导入失败：货号 {display_sku} 的供应商不一致，"
+                                f"现有供应商为“{existing_supplier}”，导入供应商为“{incoming_supplier}”，"
+                                "请修正后再导入"
+                            ),
+                        )
+
                 import_fields = {}
                 for key, value in payload.items():
                     if key in ("sku", "extra_fields"):

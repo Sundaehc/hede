@@ -35,3 +35,20 @@ def test_production_purchase_export_keeps_zero_size_columns_and_values():
 
     assert "235" in size_labels
     assert rows[0][len(PURCHASE_PRODUCTION_FIXED_HEADERS)] == "0"
+
+
+def test_production_purchase_export_includes_full_size_group_with_blank_missing_quantities():
+    details = [{
+        "product_code": "QB123",
+        "quantity": "1",
+        "unit_price": "10",
+        "size_quantities": {"230": "1"},
+        "extra_fields": {"size_labels": "220|225|230|235|240|245|250"},
+    }]
+
+    size_labels = _purchase_production_size_labels(details)
+    rows = _purchase_production_detail_rows(details, size_labels, "")
+    size_values = rows[0][len(PURCHASE_PRODUCTION_FIXED_HEADERS):len(PURCHASE_PRODUCTION_FIXED_HEADERS) + len(size_labels)]
+
+    assert size_labels == ("220", "225", "230", "235", "240", "245", "250")
+    assert size_values == ["", "", "1", "", "", "", ""]
