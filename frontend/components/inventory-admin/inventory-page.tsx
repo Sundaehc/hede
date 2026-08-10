@@ -556,8 +556,8 @@ function HierarchicalSelect({
         <div className="absolute z-50 mt-1 max-h-72 w-full overflow-y-auto rounded-lg border border-border bg-popover py-1 shadow-lg">
           {searchTerm ? (
             searchResults.length === 0 ? <div className="px-3 py-6 text-center text-sm text-muted-foreground">{emptyText}</div> : searchResults.map(({ option, path }) => (
-              <button key={option.id} type="button" onClick={() => selectOption(option)} className="flex w-full cursor-pointer items-center px-3 py-2 text-left text-sm hover:bg-muted">
-                <span className="min-w-0 flex-1 truncate">{path.join(" / ")}</span>
+              <button key={option.id} type="button" onClick={() => selectOption(option)} className="flex w-full cursor-pointer items-start px-3 py-2 text-left text-sm hover:bg-muted">
+                <span className="min-w-0 flex-1 whitespace-normal break-words leading-5" title={path.join(" / ")}>{path.join(" / ")}</span>
               </button>
             ))
           ) : (
@@ -572,8 +572,8 @@ function HierarchicalSelect({
                 const canEnter = Boolean(option.children?.length)
                 return (
                   <div key={option.id} className="flex items-center hover:bg-muted">
-                    <button type="button" onClick={() => option.value ? selectOption(option) : enterOption(option)} className="flex min-w-0 flex-1 cursor-pointer items-center px-3 py-2 text-left text-sm">
-                      <span className="truncate">{option.label}</span>
+                    <button type="button" onClick={() => option.value ? selectOption(option) : enterOption(option)} className="flex min-w-0 flex-1 cursor-pointer items-start px-3 py-2 text-left text-sm">
+                      <span className="whitespace-normal break-words leading-5" title={option.label}>{option.label}</span>
                     </button>
                     {canEnter && (
                       <button type="button" aria-label={`查看 ${option.label} 下级`} onClick={() => enterOption(option)} className="mr-1 inline-flex h-8 w-8 cursor-pointer items-center justify-center rounded-md text-muted-foreground hover:bg-background hover:text-foreground">
