@@ -120,10 +120,6 @@ WAREHOUSE_BRAND_FIELDS: tuple[FieldSpec, ...] = (
     FieldSpec("name", "品牌"),
 )
 
-GENERAL_CUSTOMER_CATEGORY_FIELDS: tuple[FieldSpec, ...] = (
-    FieldSpec("name", "分类"),
-)
-
 GENERAL_CUSTOMER_BRAND_FIELDS: tuple[FieldSpec, ...] = (
     FieldSpec("category_name", "分类"),
     FieldSpec("name", "品牌"),

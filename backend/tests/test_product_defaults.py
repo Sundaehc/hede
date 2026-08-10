@@ -17,3 +17,11 @@ def test_original_kt_sku_uses_sku_and_size_barcode_rule():
     )
 
     assert row["barcode_build_rule"] == "货号+尺码"
+
+
+def test_fixed_barcode_rules_are_applied_by_brand():
+    assert apply_product_defaults("cbanner_mens", {"sku": "C5562217D06"})["barcode_build_rule"] == "货号+颜色代码+尺码"
+    assert apply_product_defaults("cbanner_womens", {"sku": "C5562217D06"})["barcode_build_rule"] == "货号+颜色代码+尺码"
+    assert apply_product_defaults("eblan", {"sku": "E5562217D06"})["barcode_build_rule"] == "货号+颜色代码+尺码"
+    assert apply_product_defaults("smiley", {"sku": "S5562217D06"})["barcode_build_rule"] == "货号+尺码"
+    assert apply_product_defaults("ni", {"sku": "NIA2253A020115"})["barcode_build_rule"] == "货号+尺码"

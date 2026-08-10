@@ -67,6 +67,23 @@ def _ordered_ids(payload: dict) -> list[int]:
     return ids
 
 
+def _current_account_id(request: Request, *, required: bool = False) -> int | None:
+    user = actor_from_request(request)
+    if user is None:
+        if required:
+            raise HTTPException(status_code=401, detail="请登录后保存个人排序")
+        return None
+    try:
+        user_id = int(user.get("id") or 0)
+    except (TypeError, ValueError):
+        user_id = 0
+    if user_id > 0:
+        return user_id
+    if required:
+        raise HTTPException(status_code=401, detail="当前账户无效，无法保存个人排序")
+    return None
+
+
 CN_TO_FIELD = {cn: en for cn, en in INVENTORY_COLUMN_ALIASES.items() if en in INVENTORY_CANONICAL_COLUMNS}
 DETAIL_CN_TO_FIELD = {cn: en for cn, en in INVENTORY_DETAIL_ALIASES.items() if en in INVENTORY_DETAIL_COLUMNS}
 
@@ -648,9 +665,11 @@ def _purchase_size_export_product_code(
     return (
         build_product_size_code(
             _first_text(profile.get("sku"), profile.get("original_sku"), product_code),
-            profile.get("color_code"),
+            _first_text(profile.get("color_code"), color_barcode),
             size_barcode,
             profile.get("barcode_build_rule"),
+            brand=brand,
+            original_goods_code=profile.get("original_sku"),
         ),
         size_barcode,
     )
@@ -3655,7 +3674,7 @@ def update_purchase_order_requirement(request: Request, brand: str, payload: dic
 @router.get("/inventory/general-customer-shops")
 def list_general_customer_shops(request: Request):
     repository = request.app.state.inventory_repository
-    return {"items": repository.list_general_customer_shops()}
+    return {"items": repository.list_general_customer_shops(user_id=_current_account_id(request))}
 
 
 @router.get("/inventory/account-subjects")
@@ -3721,7 +3740,7 @@ def delete_inventory_account_subject(request: Request, subject_id: int):
 @router.get("/inventory/general-customer-brands")
 def list_general_customer_brands(request: Request):
     repository = request.app.state.inventory_repository
-    return {"items": repository.list_general_customer_brands()}
+    return {"items": repository.list_general_customer_brands(user_id=_current_account_id(request))}
 
 
 @router.post("/inventory/general-customer-brands")
@@ -3754,8 +3773,9 @@ def create_general_customer_brand(request: Request, payload: dict):
 @router.put("/inventory/general-customer-brands/order")
 def reorder_general_customer_brands(request: Request, payload: dict):
     repository = request.app.state.inventory_repository
+    user_id = _current_account_id(request, required=True)
     ids = _ordered_ids(payload)
-    if not repository.reorder_general_customer_brands(ids):
+    if not repository.reorder_general_customer_brands(user_id, ids):
         raise HTTPException(status_code=409, detail="品牌列表已变更，请刷新后重试")
     write_operation_log(
         request,
@@ -3764,9 +3784,9 @@ def reorder_general_customer_brands(request: Request, payload: dict):
         entity_type="general_customer_brand_order",
         entity_id=None,
         entity_label="一般客户品牌",
-        summary="调整一般客户品牌排序",
+        summary="调整个人一般客户品牌排序",
         before_data=None,
-        after_data={"ids": ids},
+        after_data={"scope": "personal", "ids": ids},
     )
     return {"message": "排序已保存"}
 
@@ -3860,11 +3880,12 @@ def create_general_customer_shop(request: Request, payload: dict):
 @router.put("/inventory/general-customer-shops/order")
 def reorder_general_customer_shops(request: Request, payload: dict):
     repository = request.app.state.inventory_repository
+    user_id = _current_account_id(request, required=True)
     customer_name = str(payload.get("customer_name") or "").strip()
     if not customer_name:
         raise HTTPException(status_code=400, detail="请选择品牌")
     ids = _ordered_ids(payload)
-    if not repository.reorder_general_customer_shops(customer_name, ids):
+    if not repository.reorder_general_customer_shops(user_id, customer_name, ids):
         raise HTTPException(status_code=409, detail="店铺列表已变更，请刷新后重试")
     write_operation_log(
         request,
@@ -3873,9 +3894,9 @@ def reorder_general_customer_shops(request: Request, payload: dict):
         entity_type="general_customer_shop_order",
         entity_id=None,
         entity_label=customer_name,
-        summary=f"调整一般客户店铺排序：{customer_name}",
+        summary=f"调整个人一般客户店铺排序：{customer_name}",
         before_data=None,
-        after_data={"customer_name": customer_name, "ids": ids},
+        after_data={"scope": "personal", "customer_name": customer_name, "ids": ids},
     )
     return {"message": "排序已保存"}
 
@@ -3938,7 +3959,7 @@ def delete_general_customer_shop(request: Request, shop_id: int):
 @router.get("/inventory/general-customer-units")
 def list_general_customer_units(request: Request):
     repository = request.app.state.inventory_repository
-    return {"items": repository.list_general_customer_units()}
+    return {"items": repository.list_general_customer_units(user_id=_current_account_id(request))}
 
 
 @router.post("/inventory/general-customer-units")
@@ -3972,6 +3993,7 @@ def create_general_customer_unit(request: Request, payload: dict):
 @router.put("/inventory/general-customer-units/order")
 def reorder_general_customer_units(request: Request, payload: dict):
     repository = request.app.state.inventory_repository
+    user_id = _current_account_id(request, required=True)
     try:
         shop_id = int(payload.get("shop_id") or 0)
     except (TypeError, ValueError) as exc:
@@ -3979,7 +4001,7 @@ def reorder_general_customer_units(request: Request, payload: dict):
     if shop_id <= 0:
         raise HTTPException(status_code=400, detail="请选择店铺")
     ids = _ordered_ids(payload)
-    if not repository.reorder_general_customer_units(shop_id, ids):
+    if not repository.reorder_general_customer_units(user_id, shop_id, ids):
         raise HTTPException(status_code=409, detail="单位列表已变更，请刷新后重试")
     shop = repository.get_general_customer_shop(shop_id)
     write_operation_log(
@@ -3989,9 +4011,9 @@ def reorder_general_customer_units(request: Request, payload: dict):
         entity_type="general_customer_unit_order",
         entity_id=None,
         entity_label=str(shop.get("shop_name") or shop_id) if shop else str(shop_id),
-        summary=f"调整一般客户单位排序：{shop.get('shop_name') if shop else shop_id}",
+        summary=f"调整个人一般客户单位排序：{shop.get('shop_name') if shop else shop_id}",
         before_data=None,
-        after_data={"shop_id": shop_id, "ids": ids},
+        after_data={"scope": "personal", "shop_id": shop_id, "ids": ids},
     )
     return {"message": "排序已保存"}
 

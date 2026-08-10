@@ -323,7 +323,10 @@ def _load_size_export_source_items(
         statement = statement.where(_activity_date_export_condition(table, activity_date))
 
     with repository.engine.connect() as connection:
-        return [dict(row) for row in connection.execute(statement).mappings()]
+        return [
+            {**dict(row), "_archive_brand": brand}
+            for row in connection.execute(statement).mappings()
+        ]
 
 
 def _size_export_source_codes(items: list[dict[str, object]]) -> set[str]:
@@ -508,6 +511,8 @@ def _build_size_export_product_code(item: dict[str, object], size_barcode: str) 
         item.get("color_code"),
         size_barcode,
         item.get("barcode_build_rule"),
+        brand=item.get("_archive_brand"),
+        original_goods_code=item.get("original_sku"),
     )
 
 

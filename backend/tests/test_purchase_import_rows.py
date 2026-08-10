@@ -22,6 +22,25 @@ from api.routes.inventory import (
 from api.routes import inventory as inventory_routes
 
 
+def test_purchase_size_export_uses_detail_color_barcode_when_archive_color_code_is_missing() -> None:
+    product_code, size_barcode = inventory_routes._purchase_size_export_product_code(
+        "EE563366D20",
+        "20",
+        "225",
+        "eblan",
+        {
+            "sku": "EE563366D20",
+            "original_sku": "EE563366D20",
+            "color_code": None,
+            "barcode_build_rule": "货号+颜色代码+尺码",
+            "size_barcodes": {"225": "225"},
+        },
+    )
+
+    assert product_code == "EE563366D2020225"
+    assert size_barcode == "225"
+
+
 def _sample_purchase_workbook() -> bytes:
     workbook = Workbook()
     worksheet = workbook.active

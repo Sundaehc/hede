@@ -10,7 +10,13 @@ from sqlalchemy import and_, bindparam, create_engine, delete, desc, func, inser
 
 from domain.color_barcode_schema import COLOR_BARCODE_TABLE
 from domain.excluded_skus import not_excluded_sku_condition
-from domain.product_defaults import apply_product_defaults
+from domain.product_defaults import (
+    COLOR_AND_SIZE_BARCODE_BRANDS,
+    COLOR_AND_SIZE_BARCODE_RULE,
+    SIZE_ONLY_BARCODE_BRANDS,
+    SIZE_ONLY_BARCODE_RULE,
+    apply_product_defaults,
+)
 from domain.schema import PRODUCT_ARCHIVE_TABLES, PRODUCT_TABLES
 from domain.vip_schema import JST_PRICE_TABLE
 
@@ -156,6 +162,44 @@ class ProductRepository:
                     f"CREATE INDEX IF NOT EXISTS idx_{table.name}_last_imported_at "
                     f"ON {table.name} (last_imported_at)"
                 ))
+            self._enforce_fixed_barcode_build_rules(connection)
+
+    @staticmethod
+    def _enforce_fixed_barcode_build_rules(connection) -> None:
+        for brand, table in PRODUCT_ARCHIVE_TABLES.items():
+            is_kt_code = or_(
+                func.coalesce(table.c.sku, "").ilike("KT%"),
+                func.coalesce(table.c.original_sku, "").ilike("KT%"),
+            )
+            if brand in SIZE_ONLY_BARCODE_BRANDS:
+                connection.execute(
+                    update(table)
+                    .where(or_(table.c.barcode_build_rule.is_(None), table.c.barcode_build_rule != SIZE_ONLY_BARCODE_RULE))
+                    .values(barcode_build_rule=SIZE_ONLY_BARCODE_RULE)
+                )
+                continue
+
+            if brand in COLOR_AND_SIZE_BARCODE_BRANDS:
+                connection.execute(
+                    update(table)
+                    .where(is_kt_code)
+                    .where(or_(table.c.barcode_build_rule.is_(None), table.c.barcode_build_rule != SIZE_ONLY_BARCODE_RULE))
+                    .values(barcode_build_rule=SIZE_ONLY_BARCODE_RULE)
+                )
+                connection.execute(
+                    update(table)
+                    .where(~is_kt_code)
+                    .where(or_(table.c.barcode_build_rule.is_(None), table.c.barcode_build_rule != COLOR_AND_SIZE_BARCODE_RULE))
+                    .values(barcode_build_rule=COLOR_AND_SIZE_BARCODE_RULE)
+                )
+                continue
+
+            connection.execute(
+                update(table)
+                .where(is_kt_code)
+                .where(or_(table.c.barcode_build_rule.is_(None), table.c.barcode_build_rule != SIZE_ONLY_BARCODE_RULE))
+                .values(barcode_build_rule=SIZE_ONLY_BARCODE_RULE)
+            )
 
     def sync_costs_from_latest_combined_footwear_price(
         self,

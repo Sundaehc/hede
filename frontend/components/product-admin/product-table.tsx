@@ -171,7 +171,7 @@ function ProductCard({ item, selectable, selectedIds, onToggleSelect, onEdit, on
 
   return (
     <div
-      className={`surface-panel flex items-center gap-4 p-4 transition-all hover:-translate-y-0.5 hover:shadow-md${canEdit ? " cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2" : ""}`}
+      className={`surface-panel flex items-center gap-4 p-4 transition-shadow hover:shadow-md${canEdit ? " cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2" : ""}`}
       role={canEdit ? "button" : undefined}
       tabIndex={canEdit ? 0 : undefined}
       onClick={canEdit ? () => onEdit?.(item) : undefined}

@@ -12,7 +12,7 @@ from sqlalchemy import Text, and_, case, create_engine, delete, desc, func, inse
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from domain.gj_schema import GJ_MERGED_PRODUCT_INFO_TABLE
-from domain.inventory_schema import GENERAL_CUSTOMER_BRAND_TABLE, GENERAL_CUSTOMER_SHOP_TABLE, GENERAL_CUSTOMER_UNIT_TABLE, INVENTORY_ACCOUNT_SUBJECT_TABLE, INVENTORY_DETAIL_TABLE, INVENTORY_TABLE, JST_STOCK_TABLE, PURCHASE_ORDER_REQUIREMENT_TABLE, SUPPLIER_TABLE, WAREHOUSE_BRAND_TABLE, WAREHOUSE_TABLE
+from domain.inventory_schema import GENERAL_CUSTOMER_BRAND_TABLE, GENERAL_CUSTOMER_SHOP_TABLE, GENERAL_CUSTOMER_SORT_PREFERENCE_TABLE, GENERAL_CUSTOMER_UNIT_TABLE, INVENTORY_ACCOUNT_SUBJECT_TABLE, INVENTORY_DETAIL_TABLE, INVENTORY_TABLE, JST_STOCK_TABLE, PURCHASE_ORDER_REQUIREMENT_TABLE, SUPPLIER_TABLE, WAREHOUSE_BRAND_TABLE, WAREHOUSE_TABLE
 from domain.inventory_sources import ACCOUNTING_DOCUMENT_TYPES
 from domain.gj_brand import CBANNER_MENS_BRAND, GJ_FINE_TABLE_BRANDS, SUPPLIER_BRANDS, infer_supplier_brand_from_name
 from domain import jst_stock_snapshot_schema  # noqa: F401 - register JST stock snapshot tables on METADATA
@@ -51,6 +51,10 @@ CUSTOMER_LEDGER_INCREASE_TYPES = ("批发销售单", "应收款增加")
 CUSTOMER_LEDGER_DECREASE_TYPES = ("批发销售退货单", "应收款减少")
 NEGATIVE_TOTAL_DOCUMENT_TYPES = {"进货退货单"}
 PURCHASE_INBOUND_DETAIL_TYPES = ("进货单", "进货退货单")
+GENERAL_CUSTOMER_SORT_SCOPE_BRAND = "brand"
+GENERAL_CUSTOMER_SORT_SCOPE_SHOP = "shop"
+GENERAL_CUSTOMER_SORT_SCOPE_UNIT = "unit"
+GENERAL_CUSTOMER_ROOT_SORT_PARENT_ID = 0
 
 
 def _json_serializer(value: object) -> str:
@@ -816,7 +820,80 @@ class InventoryRepository:
 
     # ── General Customer Brands & Shops ────────────────────────────
 
-    def list_general_customer_brands(self) -> list[dict[str, object]]:
+    def _general_customer_sort_orders(
+        self,
+        user_id: int | None,
+        scope: str,
+    ) -> dict[tuple[int, int], int]:
+        if user_id is None:
+            return {}
+        statement = select(
+            GENERAL_CUSTOMER_SORT_PREFERENCE_TABLE.c.parent_id,
+            GENERAL_CUSTOMER_SORT_PREFERENCE_TABLE.c.item_id,
+            GENERAL_CUSTOMER_SORT_PREFERENCE_TABLE.c.sort_order,
+        ).where(
+            GENERAL_CUSTOMER_SORT_PREFERENCE_TABLE.c.user_id == user_id,
+            GENERAL_CUSTOMER_SORT_PREFERENCE_TABLE.c.scope == scope,
+        )
+        with self.engine.connect() as connection:
+            rows = connection.execute(statement).mappings()
+            return {
+                (int(row["parent_id"]), int(row["item_id"])): int(row["sort_order"])
+                for row in rows
+            }
+
+    @staticmethod
+    def _general_customer_sort_key(
+        preferences: Mapping[tuple[int, int], int],
+        parent_id: int,
+        item_id: int,
+        default_sort_order: int,
+    ) -> tuple[int, int, int]:
+        preference_order = preferences.get((parent_id, item_id))
+        if preference_order is not None:
+            return (0, preference_order, item_id)
+        return (1, default_sort_order, item_id)
+
+    def _replace_general_customer_user_sort_order(
+        self,
+        *,
+        user_id: int,
+        scope: str,
+        parent_id: int,
+        table,
+        ordered_ids: list[int],
+        condition=None,
+    ) -> bool:
+        statement = select(table.c.id)
+        if condition is not None:
+            statement = statement.where(condition)
+        with self.engine.begin() as connection:
+            existing_ids = [int(value) for value in connection.execute(statement).scalars()]
+            if set(existing_ids) != set(ordered_ids):
+                return False
+            connection.execute(
+                delete(GENERAL_CUSTOMER_SORT_PREFERENCE_TABLE).where(
+                    GENERAL_CUSTOMER_SORT_PREFERENCE_TABLE.c.user_id == user_id,
+                    GENERAL_CUSTOMER_SORT_PREFERENCE_TABLE.c.scope == scope,
+                    GENERAL_CUSTOMER_SORT_PREFERENCE_TABLE.c.parent_id == parent_id,
+                )
+            )
+            connection.execute(
+                insert(GENERAL_CUSTOMER_SORT_PREFERENCE_TABLE),
+                [
+                    {
+                        "user_id": user_id,
+                        "scope": scope,
+                        "parent_id": parent_id,
+                        "item_id": item_id,
+                        "sort_order": sort_order,
+                    }
+                    for sort_order, item_id in enumerate(ordered_ids, start=1)
+                ],
+            )
+        return True
+
+    def list_general_customer_brands(self, user_id: int | None = None) -> list[dict[str, object]]:
         shop_count = (
             select(
                 GENERAL_CUSTOMER_SHOP_TABLE.c.customer_name.label("brand_name"),
@@ -838,7 +915,17 @@ class InventoryRepository:
             .order_by(GENERAL_CUSTOMER_BRAND_TABLE.c.sort_order, GENERAL_CUSTOMER_BRAND_TABLE.c.id)
         )
         with self.engine.connect() as connection:
-            return [dict(row) for row in connection.execute(statement).mappings()]
+            items = [dict(row) for row in connection.execute(statement).mappings()]
+        preferences = self._general_customer_sort_orders(user_id, GENERAL_CUSTOMER_SORT_SCOPE_BRAND)
+        return sorted(
+            items,
+            key=lambda item: self._general_customer_sort_key(
+                preferences,
+                GENERAL_CUSTOMER_ROOT_SORT_PARENT_ID,
+                int(item["id"]),
+                int(item["sort_order"]),
+            ),
+        )
 
     def create_general_customer_brand(self, data: Mapping[str, object]) -> dict[str, object]:
         payload = {
@@ -945,7 +1032,7 @@ class InventoryRepository:
             row = connection.execute(statement).mappings().first()
         return None if row is None else dict(row)
 
-    def list_general_customer_shops(self) -> list[dict[str, object]]:
+    def list_general_customer_shops(self, user_id: int | None = None) -> list[dict[str, object]]:
         unit_count = (
             select(
                 GENERAL_CUSTOMER_UNIT_TABLE.c.shop_id,
@@ -962,6 +1049,8 @@ class InventoryRepository:
                 GENERAL_CUSTOMER_SHOP_TABLE.c.sort_order,
                 GENERAL_CUSTOMER_SHOP_TABLE.c.created_at,
                 GENERAL_CUSTOMER_SHOP_TABLE.c.updated_at,
+                GENERAL_CUSTOMER_BRAND_TABLE.c.id.label("_brand_id"),
+                GENERAL_CUSTOMER_BRAND_TABLE.c.sort_order.label("_brand_sort_order"),
                 func.coalesce(unit_count.c.unit_count, 0).label("unit_count"),
             )
             .outerjoin(unit_count, unit_count.c.shop_id == GENERAL_CUSTOMER_SHOP_TABLE.c.id)
@@ -976,7 +1065,29 @@ class InventoryRepository:
             )
         )
         with self.engine.connect() as connection:
-            return [dict(row) for row in connection.execute(statement).mappings()]
+            items = [dict(row) for row in connection.execute(statement).mappings()]
+        brand_preferences = self._general_customer_sort_orders(user_id, GENERAL_CUSTOMER_SORT_SCOPE_BRAND)
+        shop_preferences = self._general_customer_sort_orders(user_id, GENERAL_CUSTOMER_SORT_SCOPE_SHOP)
+        items.sort(
+            key=lambda item: (
+                self._general_customer_sort_key(
+                    brand_preferences,
+                    GENERAL_CUSTOMER_ROOT_SORT_PARENT_ID,
+                    int(item["_brand_id"]),
+                    int(item["_brand_sort_order"]),
+                ),
+                self._general_customer_sort_key(
+                    shop_preferences,
+                    int(item["_brand_id"]),
+                    int(item["id"]),
+                    int(item["sort_order"]),
+                ),
+            )
+        )
+        for item in items:
+            item.pop("_brand_id", None)
+            item.pop("_brand_sort_order", None)
+        return items
 
     def create_general_customer_shop(self, data: Mapping[str, object]) -> dict[str, object]:
         payload = {
@@ -1027,8 +1138,14 @@ class InventoryRepository:
             row = connection.execute(statement).mappings().first()
         return None if row is None else dict(row)
 
-    def reorder_general_customer_brands(self, ordered_ids: list[int]) -> bool:
-        return self._replace_sort_order(GENERAL_CUSTOMER_BRAND_TABLE, ordered_ids)
+    def reorder_general_customer_brands(self, user_id: int, ordered_ids: list[int]) -> bool:
+        return self._replace_general_customer_user_sort_order(
+            user_id=user_id,
+            scope=GENERAL_CUSTOMER_SORT_SCOPE_BRAND,
+            parent_id=GENERAL_CUSTOMER_ROOT_SORT_PARENT_ID,
+            table=GENERAL_CUSTOMER_BRAND_TABLE,
+            ordered_ids=ordered_ids,
+        )
 
     def update_general_customer_shop(self, shop_id: int, data: Mapping[str, object]) -> dict[str, object] | None:
         payload = {
@@ -1083,14 +1200,25 @@ class InventoryRepository:
             row = connection.execute(statement).mappings().first()
         return None if row is None else dict(row)
 
-    def reorder_general_customer_shops(self, customer_name: str, ordered_ids: list[int]) -> bool:
-        return self._replace_sort_order(
-            GENERAL_CUSTOMER_SHOP_TABLE,
-            ordered_ids,
-            GENERAL_CUSTOMER_SHOP_TABLE.c.customer_name == customer_name,
+    def reorder_general_customer_shops(self, user_id: int, customer_name: str, ordered_ids: list[int]) -> bool:
+        with self.engine.connect() as connection:
+            brand_id = connection.execute(
+                select(GENERAL_CUSTOMER_BRAND_TABLE.c.id).where(
+                    GENERAL_CUSTOMER_BRAND_TABLE.c.name == customer_name
+                )
+            ).scalar_one_or_none()
+        if brand_id is None:
+            return False
+        return self._replace_general_customer_user_sort_order(
+            user_id=user_id,
+            scope=GENERAL_CUSTOMER_SORT_SCOPE_SHOP,
+            parent_id=int(brand_id),
+            table=GENERAL_CUSTOMER_SHOP_TABLE,
+            ordered_ids=ordered_ids,
+            condition=GENERAL_CUSTOMER_SHOP_TABLE.c.customer_name == customer_name,
         )
 
-    def list_general_customer_units(self) -> list[dict[str, object]]:
+    def list_general_customer_units(self, user_id: int | None = None) -> list[dict[str, object]]:
         statement = (
             select(
                 GENERAL_CUSTOMER_UNIT_TABLE.c.id,
@@ -1101,6 +1229,9 @@ class InventoryRepository:
                 GENERAL_CUSTOMER_UNIT_TABLE.c.updated_at,
                 GENERAL_CUSTOMER_SHOP_TABLE.c.customer_name,
                 GENERAL_CUSTOMER_SHOP_TABLE.c.shop_name,
+                GENERAL_CUSTOMER_SHOP_TABLE.c.sort_order.label("_shop_sort_order"),
+                GENERAL_CUSTOMER_BRAND_TABLE.c.id.label("_brand_id"),
+                GENERAL_CUSTOMER_BRAND_TABLE.c.sort_order.label("_brand_sort_order"),
             )
             .join(GENERAL_CUSTOMER_SHOP_TABLE, GENERAL_CUSTOMER_UNIT_TABLE.c.shop_id == GENERAL_CUSTOMER_SHOP_TABLE.c.id)
             .join(GENERAL_CUSTOMER_BRAND_TABLE, GENERAL_CUSTOMER_BRAND_TABLE.c.name == GENERAL_CUSTOMER_SHOP_TABLE.c.customer_name)
@@ -1112,7 +1243,37 @@ class InventoryRepository:
             )
         )
         with self.engine.connect() as connection:
-            return [dict(row) for row in connection.execute(statement).mappings()]
+            items = [dict(row) for row in connection.execute(statement).mappings()]
+        brand_preferences = self._general_customer_sort_orders(user_id, GENERAL_CUSTOMER_SORT_SCOPE_BRAND)
+        shop_preferences = self._general_customer_sort_orders(user_id, GENERAL_CUSTOMER_SORT_SCOPE_SHOP)
+        unit_preferences = self._general_customer_sort_orders(user_id, GENERAL_CUSTOMER_SORT_SCOPE_UNIT)
+        items.sort(
+            key=lambda item: (
+                self._general_customer_sort_key(
+                    brand_preferences,
+                    GENERAL_CUSTOMER_ROOT_SORT_PARENT_ID,
+                    int(item["_brand_id"]),
+                    int(item["_brand_sort_order"]),
+                ),
+                self._general_customer_sort_key(
+                    shop_preferences,
+                    int(item["_brand_id"]),
+                    int(item["shop_id"]),
+                    int(item["_shop_sort_order"]),
+                ),
+                self._general_customer_sort_key(
+                    unit_preferences,
+                    int(item["shop_id"]),
+                    int(item["id"]),
+                    int(item["sort_order"]),
+                ),
+            )
+        )
+        for item in items:
+            item.pop("_brand_id", None)
+            item.pop("_brand_sort_order", None)
+            item.pop("_shop_sort_order", None)
+        return items
 
     def create_general_customer_unit(self, data: Mapping[str, object]) -> dict[str, object]:
         payload = {
@@ -1163,11 +1324,14 @@ class InventoryRepository:
             row = connection.execute(statement).mappings().first()
         return None if row is None else dict(row)
 
-    def reorder_general_customer_units(self, shop_id: int, ordered_ids: list[int]) -> bool:
-        return self._replace_sort_order(
-            GENERAL_CUSTOMER_UNIT_TABLE,
-            ordered_ids,
-            GENERAL_CUSTOMER_UNIT_TABLE.c.shop_id == shop_id,
+    def reorder_general_customer_units(self, user_id: int, shop_id: int, ordered_ids: list[int]) -> bool:
+        return self._replace_general_customer_user_sort_order(
+            user_id=user_id,
+            scope=GENERAL_CUSTOMER_SORT_SCOPE_UNIT,
+            parent_id=shop_id,
+            table=GENERAL_CUSTOMER_UNIT_TABLE,
+            ordered_ids=ordered_ids,
+            condition=GENERAL_CUSTOMER_UNIT_TABLE.c.shop_id == shop_id,
         )
 
     def update_general_customer_unit(self, unit_id: int, data: Mapping[str, object]) -> dict[str, object] | None:
@@ -2094,6 +2258,7 @@ class InventoryRepository:
             GENERAL_CUSTOMER_BRAND_TABLE.create(connection, checkfirst=True)
             GENERAL_CUSTOMER_SHOP_TABLE.create(connection, checkfirst=True)
             GENERAL_CUSTOMER_UNIT_TABLE.create(connection, checkfirst=True)
+            GENERAL_CUSTOMER_SORT_PREFERENCE_TABLE.create(connection, checkfirst=True)
             self._ensure_general_customer_schema(connection)
             self._seed_general_customer_shops(connection)
             connection.execute(text("UPDATE inventory_records SET total_count = NULL, amount = NULL, warehouse = NULL WHERE document_type IN ('应付款减少', '应付款增加', '应收款减少', '应收款增加') AND (total_count IS NOT NULL OR amount IS NOT NULL OR warehouse IS NOT NULL)"))

@@ -48,6 +48,15 @@ function findUniqueColorCode(colorName: string, options: ProductColorBarcodeItem
   return codes.size === 1 ? Array.from(codes)[0] : ""
 }
 
+function fixedBarcodeBuildRule(brand: string, sku: string, originalSku: string) {
+  const hasKtCode = [sku, originalSku].some((value) => value.trim().toUpperCase().startsWith("KT"))
+  if (brand === "smiley" || brand === "ni" || hasKtCode) return "货号+尺码"
+  if (brand === "cbanner_mens" || brand === "cbanner_womens" || brand === "eblan") {
+    return "货号+颜色代码+尺码"
+  }
+  return null
+}
+
 type ColorCodeSearchSelectProps = {
   disabled: boolean
   id: string
@@ -235,6 +244,11 @@ function toPayload(values: ProductFormValues): ProductMutationPayload {
     }
   }
 
+  const fixedRule = fixedBarcodeBuildRule(values.brand, values.sku, values.original_sku)
+  if (fixedRule) {
+    payload.barcode_build_rule = fixedRule
+  }
+
   return payload as ProductMutationPayload
 }
 
@@ -252,6 +266,7 @@ export function ProductFormDialog({ item, mode, onOpenChange, onSaved, open }: P
   const [isLoadingSizeGroups, setIsLoadingSizeGroups] = useState(false)
 
   const title = mode === "create" ? "新增商品" : "编辑商品"
+  const fixedRule = fixedBarcodeBuildRule(values.brand, values.sku, values.original_sku)
   const lookupDisabled = useMemo(() => {
     return !values.brand || (!values.original_sku.trim() && !values.sku.trim()) || lookupStatus.status === "loading"
   }, [lookupStatus.status, values.brand, values.original_sku, values.sku])
@@ -263,6 +278,15 @@ export function ProductFormDialog({ item, mode, onOpenChange, onSaved, open }: P
     setSubmitError(null)
     setBrandError(null)
   }, [initialValues, open])
+
+  useEffect(() => {
+    if (!open || !fixedRule) return
+    setValues((current) => (
+      current.barcode_build_rule === fixedRule
+        ? current
+        : { ...current, barcode_build_rule: fixedRule }
+    ))
+  }, [fixedRule, open])
 
   useEffect(() => {
     if (!open || !values.brand) {
@@ -579,7 +603,8 @@ export function ProductFormDialog({ item, mode, onOpenChange, onSaved, open }: P
                             ) : field === "barcode_build_rule" ? (
                               <Select
                                 id={`product-form-${field}`}
-                                value={values.barcode_build_rule}
+                                value={fixedRule ?? values.barcode_build_rule}
+                                disabled={Boolean(fixedRule)}
                                 onChange={(event) => handleFieldChange("barcode_build_rule", event.target.value)}
                                 autoComplete="off"
                               >
