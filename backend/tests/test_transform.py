@@ -326,6 +326,7 @@ def test_build_admin_record_sets_manual_metadata_and_raw_payload_from_normalized
     payload = {
         "sku": "  SKU-1  ",
         "cost": "88.00",
+        "barcode_build_rule": "货号+颜色代码+尺码",
         "first_order_time": "2026/4/5 10:00:00",
         "source_row_number": "ignored",
     }
@@ -334,6 +335,7 @@ def test_build_admin_record_sets_manual_metadata_and_raw_payload_from_normalized
 
     assert record["sku"] == "SKU-1"
     assert record["cost"] == Decimal("88.0")
+    assert record["barcode_build_rule"] == "货号+颜色代码+尺码"
     assert record["first_order_time"] == "2026-04-05"
     assert record["source_workbook"] == "manual_admin"
     assert record["source_sheet"] == "cbanner_womens"
@@ -341,6 +343,7 @@ def test_build_admin_record_sets_manual_metadata_and_raw_payload_from_normalized
     assert record["raw_payload"] == {
         "sku": "SKU-1",
         "cost": Decimal("88.00"),
+        "barcode_build_rule": "货号+颜色代码+尺码",
         "first_order_time": "2026-04-05",
     }
 

@@ -242,8 +242,8 @@ def test_import_products_updates_by_original_sku_without_clearing_blank_cells(
 
     workbook = Workbook()
     worksheet = workbook.active
-    worksheet.append(["货号", "原始货号", "颜色", "鞋面材质", "执行标准", "季节分类"])
-    worksheet.append(["", "ORIG-001", "白色", "", "", ""])
+    worksheet.append(["货号", "原始货号", "颜色", "鞋面材质", "执行标准", "季节分类", "条码构成逻辑"])
+    worksheet.append(["", "ORIG-001", "白色", "", "", "", "货号+颜色代码+尺码"])
     buffer = io.BytesIO()
     workbook.save(buffer)
     buffer.seek(0)
@@ -282,9 +282,9 @@ def test_import_products_rolls_back_all_rows_when_a_row_is_invalid(
 ):
     workbook = Workbook()
     worksheet = workbook.active
-    worksheet.append(["货号", "尺码段"])
-    worksheet.append(["TXN-OK", ""])
-    worksheet.append(["TXN-BAD", "不存在的尺码组"])
+    worksheet.append(["货号", "尺码段", "条码构成逻辑"])
+    worksheet.append(["TXN-OK", "", "货号+颜色代码+尺码"])
+    worksheet.append(["TXN-BAD", "不存在的尺码组", "货号+尺码"])
     buffer = io.BytesIO()
     workbook.save(buffer)
     buffer.seek(0)
@@ -305,3 +305,34 @@ def test_import_products_rolls_back_all_rows_when_a_row_is_invalid(
     assert "第 3 行导入失败" in response.json()["detail"]
     assert repository.find_by_sku("cbanner_mens", "TXN-OK") is None
     assert repository.find_by_sku("cbanner_mens", "TXN-BAD") is None
+
+
+def test_import_products_requires_barcode_build_rule(
+    test_app_client: TestClient,
+    repository,
+):
+    workbook = Workbook()
+    worksheet = workbook.active
+    worksheet.append(["货号", "品名"])
+    worksheet.append(["BARCODE-RULE-REQUIRED", "测试鞋"])
+    buffer = io.BytesIO()
+    workbook.save(buffer)
+    buffer.seek(0)
+
+    response = test_app_client.post(
+        "/import",
+        params={"brand": "cbanner_mens"},
+        files={
+            "file": (
+                "missing-barcode-rule.xlsx",
+                buffer.getvalue(),
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            ),
+        },
+    )
+
+    assert response.status_code == 400
+    assert "第 2 行导入失败" in response.json()["detail"]
+    assert "BARCODE-RULE-REQUIRED" in response.json()["detail"]
+    assert "未填写条码构成逻辑" in response.json()["detail"]
+    assert repository.find_by_sku("cbanner_mens", "BARCODE-RULE-REQUIRED") is None

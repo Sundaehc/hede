@@ -217,7 +217,7 @@ export function OperationLogDialog({ module, open, title, onOpenChange }: Operat
                   </td>
                   <td className="px-4 py-3">
                     <p className="max-w-40 truncate font-medium">{item.entity_label || "-"}</p>
-                    {item.entity_id ? <p className="mt-0.5 text-xs text-muted-foreground">ID {item.entity_id}</p> : null}
+                    {item.entity_id ? <p className="mt-0.5 text-xs text-muted-foreground">{item.entity_id}</p> : null}
                   </td>
                   <td className="px-4 py-3">
                     <p className="break-words">{item.summary}</p>

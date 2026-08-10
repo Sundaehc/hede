@@ -280,6 +280,9 @@ class ImportPipeline:
             for brand_group, rows in rows_by_brand.items():
                 summaries[brand_group].loaded_rows = len(rows)
 
+        if mode == "sync" and "yandou" not in excluded_brands:
+            self.database.sync_yandou_product_models()
+
         return summaries
 
     def _build_product_rows_from_gj(

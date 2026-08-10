@@ -162,10 +162,35 @@ class Database:
                     func.nullif(func.btrim(table.c.size_range), ""),
                     getattr(excluded, "size_range"),
                 )
-                # Desktop product master data is authoritative for existing
-                # products; daily source syncs may only fill blank values.
-                set_values["product_name"] = func.coalesce(table.c.product_name, getattr(excluded, "product_name"))
-                set_values["product_model"] = func.coalesce(table.c.product_model, getattr(excluded, "product_model"))
+                # Year and season entered through the product archive import
+                # are manual merchandising data. The daily source does not
+                # consistently provide them, so it may only fill blanks.
+                set_values["season_category"] = func.coalesce(
+                    func.nullif(func.btrim(table.c.season_category), ""),
+                    getattr(excluded, "season_category"),
+                )
+                set_values["year"] = func.coalesce(
+                    func.nullif(func.btrim(table.c.year), ""),
+                    getattr(excluded, "year"),
+                )
+                set_values["color"] = func.coalesce(
+                    func.nullif(func.btrim(table.c.color), ""),
+                    getattr(excluded, "color"),
+                )
+                set_values["color_code"] = func.coalesce(
+                    func.nullif(func.btrim(table.c.color_code), ""),
+                    getattr(excluded, "color_code"),
+                )
+                # Product names and models entered in the archive are manual
+                # master data. Daily sources may fill blanks only.
+                set_values["product_name"] = func.coalesce(
+                    func.nullif(func.btrim(table.c.product_name), ""),
+                    getattr(excluded, "product_name"),
+                )
+                set_values["product_model"] = func.coalesce(
+                    func.nullif(func.btrim(table.c.product_model), ""),
+                    getattr(excluded, "product_model"),
+                )
                 set_values["updated_at"] = func.date_trunc("minute", func.now())
                 stmt = stmt.on_conflict_do_update(
                     index_elements=["sku"],
@@ -178,6 +203,38 @@ class Database:
                 result = connection.execute(stmt)
                 affected += result.rowcount or 0
         return affected
+
+    def sync_yandou_product_models(self) -> int:
+        """Refresh Yandou product models from the latest 管家婆 import."""
+        table = PRODUCT_ARCHIVE_TABLES["yandou"]
+        statement = text(
+            """
+            WITH latest_source AS (
+                SELECT max(source_date_value) AS source_date_value
+                FROM gj_merged_product_info
+                WHERE fine_table_brand = 'yandou'
+            ), source_models AS (
+                SELECT DISTINCT ON (source_info.goods_code)
+                    source_info.goods_code,
+                    nullif(btrim(source_info.raw_payload ->> '产品型号'), '') AS product_model
+                FROM gj_merged_product_info AS source_info
+                CROSS JOIN latest_source
+                WHERE source_info.fine_table_brand = 'yandou'
+                  AND source_info.source_date_value = latest_source.source_date_value
+                  AND nullif(btrim(source_info.raw_payload ->> '产品型号'), '') IS NOT NULL
+                ORDER BY source_info.goods_code, source_info.id DESC
+            )
+            UPDATE yandou_products AS target
+            SET product_model = source_models.product_model,
+                updated_at = date_trunc('minute', now())
+            FROM source_models
+            WHERE target.sku = source_models.goods_code
+              AND nullif(btrim(target.product_model), '') IS NULL
+            """
+        )
+        with self._require_engine().begin() as connection:
+            result = connection.execute(statement)
+        return result.rowcount or 0
 
     @staticmethod
     def _dedupe_by_sku(rows: list[dict[str, object]]) -> list[dict[str, object]]:

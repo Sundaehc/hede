@@ -668,8 +668,6 @@ def _purchase_size_export_product_code(
             _first_text(profile.get("color_code"), color_barcode),
             size_barcode,
             profile.get("barcode_build_rule"),
-            brand=brand,
-            original_goods_code=profile.get("original_sku"),
         ),
         size_barcode,
     )

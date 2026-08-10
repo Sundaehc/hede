@@ -138,25 +138,22 @@ def _iter_all_export_rows(
     *,
     activity_date: date_type | None = None,
 ) -> Iterator[tuple[str, list[object]]]:
-    with repository.engine.connect() as connection:
-        for brand, table in PRODUCT_ARCHIVE_TABLES.items():
-            conditions = [not_excluded_sku_condition(table.c.sku, table.c.original_sku)]
-            if activity_date:
-                conditions.append(_activity_date_export_condition(table, activity_date))
-            statement = select(*(table.c[column] for column in EXPORT_COLUMNS)).where(*conditions).order_by(desc(table.c.id))
-            rows = connection.execution_options(stream_results=True).execute(statement)
-            batch: list[dict[str, object]] = []
-            for row in rows.mappings():
-                batch.append(dict(row))
-                if len(batch) >= LOOKUP_CHUNK_SIZE:
-                    apply_jst_product_costs(repository.engine, batch)
-                    for item in batch:
-                        yield brand, [item.get(column) for column in EXPORT_COLUMNS]
-                    batch = []
-            if batch:
-                apply_jst_product_costs(repository.engine, batch)
-                for item in batch:
-                    yield brand, [item.get(column) for column in EXPORT_COLUMNS]
+    for brand, table in PRODUCT_ARCHIVE_TABLES.items():
+        conditions = [not_excluded_sku_condition(table.c.sku, table.c.original_sku)]
+        if activity_date:
+            conditions.append(_activity_date_export_condition(table, activity_date))
+        statement = select(*(table.c[column] for column in EXPORT_COLUMNS)).where(*conditions).order_by(desc(table.c.id))
+        with repository.engine.connect() as connection:
+            items = [dict(row) for row in connection.execute(statement).mappings()]
+
+        # The archive already stores the displayed cost. Only backfill blank
+        # costs during export instead of rescanning the large price history for
+        # every product in a full overview export.
+        items_missing_cost = [item for item in items if item.get("cost") in (None, "")]
+        if items_missing_cost:
+            apply_jst_product_costs(repository.engine, items_missing_cost)
+        for item in items:
+            yield brand, [item.get(column) for column in EXPORT_COLUMNS]
 
 
 def _cell_text(value: object) -> str:
@@ -221,8 +218,11 @@ def _export_all_products(
     row_count = 1
     for brand, values in _iter_all_export_rows(repository, activity_date=activity_date):
         row = [BRAND_LABELS.get(brand, brand)] + [_excel_cell_value(value) for value in values]
-        for index, value in enumerate(row):
-            column_widths[index] = max(column_widths[index], min(_display_width(value) + 2, max_width))
+        # A small sample is enough to keep widths readable without scanning
+        # every cell in a 60k+ row overview export.
+        if row_count <= 1000:
+            for index, value in enumerate(row):
+                column_widths[index] = max(column_widths[index], min(_display_width(value) + 2, max_width))
         ws.append(row)
         row_count += 1
 
@@ -511,8 +511,6 @@ def _build_size_export_product_code(item: dict[str, object], size_barcode: str) 
         item.get("color_code"),
         size_barcode,
         item.get("barcode_build_rule"),
-        brand=item.get("_archive_brand"),
-        original_goods_code=item.get("original_sku"),
     )
 
 
@@ -944,6 +942,16 @@ async def import_products(
 
                 sku_val = str(payload.get("sku", "") or "").strip()
                 original_sku_val = str(payload.get("original_sku", "") or "").strip()
+                barcode_build_rule = normalize_admin_field(
+                    "barcode_build_rule",
+                    payload.get("barcode_build_rule"),
+                )
+                if barcode_build_rule is None or not str(barcode_build_rule).strip():
+                    display_sku = sku_val or original_sku_val or "未填写货号"
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"第 {row_number} 行导入失败：货号 {display_sku} 未填写条码构成逻辑",
+                    )
                 existing = repository.find_by_sku(brand, sku_val, connection=connection) if sku_val else None
                 if existing is None and original_sku_val:
                     existing = repository.find_by_original_sku(brand, original_sku_val, connection=connection)

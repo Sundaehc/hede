@@ -182,6 +182,7 @@ ADMIN_EDITABLE_COLUMNS = (
     "product_model",
     "supplier_name",
     "color_code",
+    "barcode_build_rule",
     "launch_date",
 )
 

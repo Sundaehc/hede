@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from sqlalchemy import select
+from sqlalchemy import select, text
 
 from domain.schema import PRODUCT_TABLES
 from storage.db import Database
@@ -73,6 +73,8 @@ def test_sync_brand_rows_refreshes_current_launch_year_only(test_database_url: s
         "launch_date": "2026-03-01",
         "image_path": "//images/cur.jpg",
         "size_range": "手工尺码组",
+        "season_category": "秋季",
+        "year": "26年秋季款",
         "product_name": "桌面品名",
         "product_model": "桌面型号",
     }
@@ -99,6 +101,8 @@ def test_sync_brand_rows_refreshes_current_launch_year_only(test_database_url: s
         "launch_date": "2026-04-01",
         "image_path": None,
         "size_range": "源文件尺码组",
+        "season_category": None,
+        "year": "",
         "product_name": "源文件品名",
         "product_model": "源文件型号",
     }
@@ -138,12 +142,14 @@ def test_sync_brand_rows_refreshes_current_launch_year_only(test_database_url: s
             for row in connection.execute(select(table).order_by(table.c.sku)).mappings()
         }
 
-    assert rows["CUR-001"]["color"] == "新颜色"
-    assert rows["CUR-001"]["color_code"] == "NEW"
+    assert rows["CUR-001"]["color"] == "旧颜色"
+    assert rows["CUR-001"]["color_code"] == "OLD"
     assert rows["CUR-001"]["source_workbook"] == "daily"
     assert rows["CUR-001"]["launch_date"] == "2026-04-01"
     assert rows["CUR-001"]["image_path"] == "//images/cur.jpg"
     assert rows["CUR-001"]["size_range"] == "手工尺码组"
+    assert rows["CUR-001"]["season_category"] == "秋季"
+    assert rows["CUR-001"]["year"] == "26年秋季款"
     assert rows["CUR-001"]["product_name"] == "桌面品名"
     assert rows["CUR-001"]["product_model"] == "桌面型号"
 
@@ -154,3 +160,71 @@ def test_sync_brand_rows_refreshes_current_launch_year_only(test_database_url: s
 
     assert rows["NEW-2026"]["color"] == "新增颜色"
     assert rows["NEW-2026"]["color_code"] == "N1"
+
+
+def test_sync_brand_rows_preserves_yandou_product_model_from_archive(test_database_url: str, recreate_tables):
+    database = Database(test_database_url)
+    table = PRODUCT_TABLES["yandou"]
+    existing = {
+        "source_workbook": "legacy",
+        "source_sheet": "legacy",
+        "source_row_number": "1",
+        "raw_payload": {},
+        "sku": "YD-001",
+        "original_sku": "YD-001",
+        "launch_date": "2026-04-01",
+        "product_model": "男式休闲鞋",
+    }
+    incoming = {
+        "source_workbook": "管家婆",
+        "source_sheet": "商品信息",
+        "source_row_number": "2",
+        "raw_payload": {"产品型号": "二型半"},
+        "sku": "YD-001",
+        "original_sku": "YD-001",
+        "launch_date": "2026-04-01",
+        "product_model": "二型半",
+    }
+
+    database.replace_brand_rows("yandou", [existing])
+    database.sync_brand_rows(
+        "yandou",
+        [incoming],
+        refresh_launch_year=2026,
+    )
+
+    with database.engine.connect() as connection:
+        row = connection.execute(select(table).where(table.c.sku == "YD-001")).mappings().one()
+
+    assert row["product_model"] == "男式休闲鞋"
+
+
+def test_sync_yandou_product_models_fills_blank_archive_value_from_latest_gj_source(test_database_url: str, recreate_tables):
+    database = Database(test_database_url)
+    table = PRODUCT_TABLES["yandou"]
+    database.replace_brand_rows("yandou", [{
+        "source_workbook": "legacy",
+        "source_sheet": "legacy",
+        "source_row_number": "1",
+        "raw_payload": {},
+        "sku": "YD-MODEL-001",
+        "original_sku": "YD-MODEL-001",
+        "product_model": "",
+    }])
+    with database.engine.begin() as connection:
+        connection.execute(text("""
+            INSERT INTO gj_merged_product_info (
+                source_date, source_date_value, fine_table_brand, source_workbook,
+                source_sheet, source_row_number, raw_payload, goods_code
+            ) VALUES (
+                '2026-08-10', '2026-08-10', 'yandou', '管家婆',
+                '商品信息', '1', CAST('{"产品型号": "二型半"}' AS json), 'YD-MODEL-001'
+            )
+        """))
+
+    assert database.sync_yandou_product_models() == 1
+
+    with database.engine.connect() as connection:
+        row = connection.execute(select(table).where(table.c.sku == "YD-MODEL-001")).mappings().one()
+
+    assert row["product_model"] == "二型半"
