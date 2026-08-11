@@ -26,6 +26,7 @@ from api.routes.images import get_image_matcher, image_url_for
 from domain.excluded_skus import is_excluded_sku, not_excluded_sku_condition
 from domain.fields import PRODUCT_FIELDS
 from domain.gj_schema import GJ_MERGED_PRODUCT_INFO_TABLE
+from domain.product_defaults import apply_product_defaults
 from domain.product_size_code import build_product_size_code
 from domain.sources import CANONICAL_COLUMNS, COLUMN_ALIASES
 from domain.schema import PRODUCT_ARCHIVE_TABLES
@@ -942,6 +943,7 @@ async def import_products(
 
                 sku_val = str(payload.get("sku", "") or "").strip()
                 original_sku_val = str(payload.get("original_sku", "") or "").strip()
+                payload = dict(apply_product_defaults(brand, payload))
                 barcode_build_rule = normalize_admin_field(
                     "barcode_build_rule",
                     payload.get("barcode_build_rule"),

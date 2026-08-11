@@ -353,7 +353,37 @@ def test_import_products_rolls_back_all_rows_when_a_row_is_invalid(
     assert repository.find_by_sku("cbanner_mens", "TXN-BAD") is None
 
 
-def test_import_products_requires_barcode_build_rule(
+def test_import_products_uses_fixed_barcode_build_rule_when_omitted(
+    test_app_client: TestClient,
+    repository,
+):
+    workbook = Workbook()
+    worksheet = workbook.active
+    worksheet.append(["货号", "品名"])
+    worksheet.append(["BARCODE-RULE-DEFAULT", "测试鞋"])
+    buffer = io.BytesIO()
+    workbook.save(buffer)
+    buffer.seek(0)
+
+    response = test_app_client.post(
+        "/import",
+        params={"brand": "cbanner_mens"},
+        files={
+            "file": (
+                "default-barcode-rule.xlsx",
+                buffer.getvalue(),
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            ),
+        },
+    )
+
+    assert response.status_code == 200
+    imported = repository.find_by_sku("cbanner_mens", "BARCODE-RULE-DEFAULT")
+    assert imported is not None
+    assert imported["barcode_build_rule"] == "货号+颜色代码+尺码"
+
+
+def test_import_products_requires_barcode_build_rule_when_no_fixed_rule(
     test_app_client: TestClient,
     repository,
 ):
@@ -367,7 +397,7 @@ def test_import_products_requires_barcode_build_rule(
 
     response = test_app_client.post(
         "/import",
-        params={"brand": "cbanner_mens"},
+        params={"brand": "yandou"},
         files={
             "file": (
                 "missing-barcode-rule.xlsx",
@@ -381,4 +411,4 @@ def test_import_products_requires_barcode_build_rule(
     assert "第 2 行导入失败" in response.json()["detail"]
     assert "BARCODE-RULE-REQUIRED" in response.json()["detail"]
     assert "未填写条码构成逻辑" in response.json()["detail"]
-    assert repository.find_by_sku("cbanner_mens", "BARCODE-RULE-REQUIRED") is None
+    assert repository.find_by_sku("yandou", "BARCODE-RULE-REQUIRED") is None
