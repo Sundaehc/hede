@@ -144,7 +144,7 @@ export function SidebarNav() {
   })).filter((group) => group.items.length > 0)
 
   return (
-    <aside className="fixed left-0 top-0 z-40 flex h-svh w-56 flex-col border-r border-sidebar-border bg-sidebar shadow-2xl shadow-black/10">
+    <aside className="fixed left-0 top-0 z-40 flex h-svh w-56 flex-col overflow-hidden rounded-r-xl border-r border-sidebar-border bg-sidebar shadow-2xl shadow-black/10">
       <div className="flex h-16 items-center gap-3 border-b border-sidebar-border px-4">
         <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-sidebar-primary text-sidebar-primary-foreground shadow-sm">
           <Box className="h-4 w-4" />
