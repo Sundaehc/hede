@@ -41,6 +41,18 @@ def _normalize_code(value: object) -> str:
     return str(value).strip()
 
 
+def _color_name_variants(value: object) -> set[str]:
+    normalized = _normalize_code(value)
+    if not normalized:
+        return set()
+    variants = {normalized}
+    if normalized.endswith("色") and len(normalized) > 1:
+        variants.add(normalized[:-1])
+    else:
+        variants.add(f"{normalized}色")
+    return variants
+
+
 def _chunk_codes(codes: set[str]) -> list[list[str]]:
     ordered = sorted(codes)
     return [
@@ -52,9 +64,10 @@ def _chunk_codes(codes: set[str]) -> list[list[str]]:
 def _unique_color_codes(rows: list[Mapping[str, object]]) -> dict[str, str]:
     codes_by_name: dict[str, set[str]] = defaultdict(set)
     for row in rows:
-        color_name = _normalize_code(row.get("color_name"))
         color_code = _normalize_code(row.get("color_barcode"))
-        if color_name and color_code:
+        if not color_code:
+            continue
+        for color_name in _color_name_variants(row.get("color_name")):
             codes_by_name[color_name].add(color_code)
     return {
         color_name: next(iter(codes))

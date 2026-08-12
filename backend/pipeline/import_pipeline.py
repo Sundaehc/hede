@@ -20,6 +20,7 @@ from fileio.excel_reader import read_workbook_rows
 from fileio.image_matcher import ImageMatcher
 from storage.date_normalization import parse_date
 from storage.db import Database
+from storage.product_repository import ProductRepository
 from transform.rows import build_canonical_row, filter_extra_fields, normalize_upper_material
 from sqlalchemy import func, select
 
@@ -282,6 +283,11 @@ class ImportPipeline:
 
         if mode == "sync" and "yandou" not in excluded_brands:
             self.database.sync_yandou_product_models()
+
+        if mode == "sync" and not dry_run:
+            # 管家婆同步写入使用 Database；补齐空颜色代码时复用商品档案
+            # 的唯一颜色映射，且不会覆盖已有的手工颜色代码。
+            ProductRepository(self.settings.database_url).backfill_missing_color_codes()
 
         return summaries
 

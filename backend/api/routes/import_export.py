@@ -29,10 +29,15 @@ from domain.gj_schema import GJ_MERGED_PRODUCT_INFO_TABLE
 from domain.product_defaults import apply_product_defaults
 from domain.product_size_code import build_product_size_code
 from domain.sources import CANONICAL_COLUMNS, COLUMN_ALIASES
+from domain.color_barcode_schema import COLOR_BARCODE_TABLE
 from domain.schema import PRODUCT_ARCHIVE_TABLES
 from domain.size_group_schema import SIZE_GROUP_ITEMS_TABLE, SIZE_GROUPS_TABLE
 from domain.vip_schema import JST_PRODUCT_PROFILE_TABLE
-from storage.product_repository import apply_jst_product_costs
+from storage.product_repository import (
+    PRODUCT_COLOR_BARCODE_SOURCE_BRANDS,
+    _color_name_variants,
+    apply_jst_product_costs,
+)
 from transform.rows import EXCLUDED_EXTRA_FIELD_KEYS, build_admin_record, filter_extra_fields, normalize_admin_field
 
 router = APIRouter()
@@ -527,10 +532,62 @@ def _load_size_group_items(connection, source_items: list[dict[str, object]]) ->
     return items_by_group
 
 
-def _build_size_export_product_code(item: dict[str, object], size_barcode: str) -> str:
+def _resolve_size_export_color_codes(
+    connection,
+    source_items: list[dict[str, object]],
+) -> dict[object, str]:
+    """Resolve only blank archive color codes from the maintained color mapping."""
+    color_names_by_source_brand: dict[str, set[str]] = {}
+    item_keys_by_brand_and_color: dict[tuple[str, str], list[object]] = {}
+    for item in source_items:
+        if _cell_text(item.get("color_code")):
+            continue
+        archive_brand = _cell_text(item.get("_archive_brand"))
+        source_brand = PRODUCT_COLOR_BARCODE_SOURCE_BRANDS.get(archive_brand, archive_brand)
+        color_name = _cell_text(item.get("color"))
+        item_id = item.get("id")
+        if not source_brand or not color_name or item_id is None:
+            continue
+        color_names_by_source_brand.setdefault(source_brand, set()).add(color_name)
+        item_keys_by_brand_and_color.setdefault((source_brand, color_name), []).append(item_id)
+
+    if not item_keys_by_brand_and_color:
+        return {}
+
+    color_codes_by_brand_and_name: dict[tuple[str, str], set[str]] = {}
+    for source_brand, color_names in color_names_by_source_brand.items():
+        for chunk in _chunk_values(color_names):
+            rows = connection.execute(
+                select(COLOR_BARCODE_TABLE.c.color_name, COLOR_BARCODE_TABLE.c.color_barcode)
+                .where(COLOR_BARCODE_TABLE.c.brand == source_brand)
+                .where(COLOR_BARCODE_TABLE.c.color_name.in_(chunk))
+            ).mappings()
+            for row in rows:
+                color_code = _cell_text(row.get("color_barcode"))
+                if not color_code:
+                    continue
+                for color_name in _color_name_variants(row.get("color_name")):
+                    color_codes_by_brand_and_name.setdefault((source_brand, color_name), set()).add(color_code)
+
+    resolved_by_item_id: dict[object, str] = {}
+    for key, item_ids in item_keys_by_brand_and_color.items():
+        color_codes = color_codes_by_brand_and_name.get(key, set())
+        # A color name with multiple codes is intentionally not guessed.
+        if len(color_codes) == 1:
+            color_code = next(iter(color_codes))
+            resolved_by_item_id.update({item_id: color_code for item_id in item_ids})
+    return resolved_by_item_id
+
+
+def _build_size_export_product_code(
+    item: dict[str, object],
+    size_barcode: str,
+    *,
+    resolved_color_code: str | None = None,
+) -> str:
     return build_product_size_code(
         _first_text(item.get("sku"), item.get("original_sku")),
-        item.get("color_code"),
+        _first_text(item.get("color_code"), resolved_color_code),
         size_barcode,
         item.get("barcode_build_rule"),
     )
@@ -544,6 +601,8 @@ def _size_export_product_name(style_code: str, color_name: str, product_code: st
 def _size_export_profiles_from_size_groups(
     source_items: list[dict[str, object]],
     size_group_items: dict[str, list[dict[str, str]]],
+    *,
+    resolved_color_codes: dict[object, str] | None = None,
 ) -> tuple[list[dict[str, object]], set[str]]:
     profiles: list[dict[str, object]] = []
     source_codes_with_size_groups: set[str] = set()
@@ -560,7 +619,11 @@ def _size_export_profiles_from_size_groups(
         style_code = _first_text(item.get("original_sku"), item.get("sku"))
         for size_item in size_items:
             size_barcode = _first_text(size_item.get("barcode"), size_item.get("size_name"))
-            product_code = _build_size_export_product_code(item, size_barcode)
+            product_code = _build_size_export_product_code(
+                item,
+                size_barcode,
+                resolved_color_code=(resolved_color_codes or {}).get(item.get("id")),
+            )
             if not product_code:
                 continue
             profiles.append({
@@ -689,7 +752,12 @@ def _export_products_with_sizes(
     with repository.engine.connect() as connection:
         profiles = _load_product_profile_rows(connection, selected_codes)
         size_group_items = _load_size_group_items(connection, source_items)
-        size_group_profiles, source_codes_with_size_groups = _size_export_profiles_from_size_groups(source_items, size_group_items)
+        resolved_color_codes = _resolve_size_export_color_codes(connection, source_items)
+        size_group_profiles, source_codes_with_size_groups = _size_export_profiles_from_size_groups(
+            source_items,
+            size_group_items,
+            resolved_color_codes=resolved_color_codes,
+        )
         profiles = [
             profile
             for profile in profiles
