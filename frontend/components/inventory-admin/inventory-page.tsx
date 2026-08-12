@@ -179,6 +179,21 @@ type InventoryTableColumnKey =
 type InventorySortKey = InventoryTableColumnKey | "delivery_date" | "additional_note"
 type SortDirection = "asc" | "desc"
 
+const INVENTORY_TABLE_COLUMN_DEFAULT_WIDTHS: Record<InventorySortKey, number> = {
+  document_number: 160,
+  date: 128,
+  delivery_date: 128,
+  document_type: 144,
+  supplier: 208,
+  total_count: 128,
+  amount: 112,
+  warehouse: 208,
+  handler: 112,
+  summary: 260,
+  additional_note: 260,
+  updated_at: 160,
+}
+
 const INVENTORY_TABLE_COLUMN_ORDER: InventoryTableColumnKey[] = [
   "document_number",
   "date",
@@ -205,20 +220,18 @@ const INVENTORY_TABLE_COLUMN_LABELS: Record<InventoryTableColumnKey, string> = {
   updated_at: "最后修改时间",
 }
 
-const INVENTORY_TABLE_COLUMN_WIDTHS: Record<InventoryTableColumnKey, string> = {
-  document_number: "w-40",
-  date: "w-32",
-  document_type: "w-36",
-  supplier: "w-52",
-  total_count: "w-32",
-  amount: "w-28",
-  warehouse: "w-52",
-  handler: "w-28",
-  summary: "w-auto",
-  updated_at: "w-40",
-}
-
 const INVENTORY_TABLE_COLUMN_ORDER_STORAGE_KEY = "hede.inventory-records.table-column-order"
+const INVENTORY_TABLE_COLUMN_WIDTHS_STORAGE_KEY = "hede.inventory-records.table-column-widths"
+const PURCHASE_TABLE_COLUMN_ORDER: InventorySortKey[] = [
+  "document_number",
+  "date",
+  "delivery_date",
+  "supplier",
+  "handler",
+  "summary",
+  "additional_note",
+  "updated_at",
+]
 
 function inventoryCounterpartyLabel(documentType?: string) {
   if (documentType && WHOLESALE_DOCUMENT_TYPES.has(documentType)) return "收货客户"
@@ -330,6 +343,25 @@ function SortableColumnLabel({
       <span>{label}</span>
       <Icon className={`size-3.5 shrink-0 ${active ? "text-primary" : "text-muted-foreground/70"}`} aria-hidden="true" />
     </button>
+  )
+}
+
+function ColumnResizeHandle({
+  columnKey,
+  label,
+  onResizeStart,
+}: {
+  columnKey: InventorySortKey
+  label: string
+  onResizeStart: (event: React.MouseEvent<HTMLSpanElement>, columnKey: InventorySortKey) => void
+}) {
+  return (
+    <span
+      role="separator"
+      aria-label={`调整${label}列宽`}
+      onMouseDown={(event) => onResizeStart(event, columnKey)}
+      className="absolute inset-y-0 right-0 z-10 w-2 cursor-col-resize select-none touch-none after:absolute after:inset-y-1.5 after:right-0.5 after:w-px after:rounded-full after:bg-border/70 hover:bg-primary/10 hover:after:bg-primary"
+    />
   )
 }
 
@@ -662,6 +694,7 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
   const [pageSize, setPageSize] = useState(PAGE_SIZES[0])
   const [sortBy, setSortBy] = useState<InventorySortKey | null>(null)
   const [sortDirection, setSortDirection] = useState<SortDirection>("desc")
+  const [inventoryColumnWidths, setInventoryColumnWidths] = useState<Record<InventorySortKey, number>>(INVENTORY_TABLE_COLUMN_DEFAULT_WIDTHS)
   const [reloadToken, setReloadToken] = useState(0)
   const [items, setItems] = useState<InventoryRecord[]>([])
   const [total, setTotal] = useState(0)
@@ -726,6 +759,23 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
     }
   }, [isPurchasePage])
 
+  useEffect(() => {
+    try {
+      const storedWidths = window.localStorage.getItem(INVENTORY_TABLE_COLUMN_WIDTHS_STORAGE_KEY)
+      if (!storedWidths) return
+      const parsedWidths: unknown = JSON.parse(storedWidths)
+      if (!parsedWidths || typeof parsedWidths !== "object" || Array.isArray(parsedWidths)) return
+      const normalizedWidths = { ...INVENTORY_TABLE_COLUMN_DEFAULT_WIDTHS }
+      for (const key of Object.keys(INVENTORY_TABLE_COLUMN_DEFAULT_WIDTHS) as InventorySortKey[]) {
+        const value = Number((parsedWidths as Record<string, unknown>)[key])
+        if (Number.isFinite(value)) normalizedWidths[key] = Math.min(640, Math.max(80, value))
+      }
+      setInventoryColumnWidths(normalizedWidths)
+    } catch {
+      // Ignore unavailable or malformed browser storage.
+    }
+  }, [])
+
   const handleInventoryColumnDragStart = (event: DragEvent<HTMLElement>, columnKey: InventoryTableColumnKey) => {
     event.dataTransfer.effectAllowed = "move"
     event.dataTransfer.setData("text/plain", columnKey)
@@ -773,6 +823,34 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
     draggedInventoryColumnRef.current = null
     setDraggedInventoryColumn(null)
     setDragOverInventoryColumn(null)
+  }
+
+  const handleInventoryColumnResizeStart = (event: React.MouseEvent<HTMLSpanElement>, columnKey: InventorySortKey) => {
+    event.preventDefault()
+    event.stopPropagation()
+    const startX = event.clientX
+    const startWidth = inventoryColumnWidths[columnKey] || INVENTORY_TABLE_COLUMN_DEFAULT_WIDTHS[columnKey]
+    let latestWidth = startWidth
+    const handleMouseMove = (moveEvent: MouseEvent) => {
+      const nextWidth = Math.min(640, Math.max(80, startWidth + moveEvent.clientX - startX))
+      latestWidth = nextWidth
+      setInventoryColumnWidths((current) => current[columnKey] === nextWidth ? current : { ...current, [columnKey]: nextWidth })
+    }
+    const handleMouseUp = () => {
+      document.removeEventListener("mousemove", handleMouseMove)
+      document.removeEventListener("mouseup", handleMouseUp)
+      setInventoryColumnWidths((current) => {
+        const nextWidths = current[columnKey] === latestWidth ? current : { ...current, [columnKey]: latestWidth }
+        try {
+          window.localStorage.setItem(INVENTORY_TABLE_COLUMN_WIDTHS_STORAGE_KEY, JSON.stringify(nextWidths))
+        } catch {
+          // Keep the current session widths when browser storage is unavailable.
+        }
+        return nextWidths
+      })
+    }
+    document.addEventListener("mousemove", handleMouseMove)
+    document.addEventListener("mouseup", handleMouseUp)
   }
 
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -1376,6 +1454,8 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
   const someSelected = items.some((item) => selectedIds.has(item.id))
   const allRecycleSelected = recycleItems.length > 0 && recycleItems.every((item) => selectedRecycleIds.has(item.id))
   const recycleActionBusy = isBatchRestoring || isRecycleBatchDeleting
+  const tableColumnKeys: InventorySortKey[] = isPurchaseOrderTab ? PURCHASE_TABLE_COLUMN_ORDER : inventoryColumnOrder
+  const tableMinWidth = 160 + tableColumnKeys.reduce((totalWidth, columnKey) => totalWidth + inventoryColumnWidths[columnKey], 0)
   const detailRecord = detailDocumentId === null ? null : items.find((item) => item.id === detailDocumentId) ?? null
   const completionLabel = isPurchaseOrderTab ? "采购单" : COMPLETION_TABS.find((item) => item.value === recordCompletionStatus)?.label ?? "单据"
   const inventoryCounterpartyColumnLabel = isPurchaseOrderTab
@@ -1727,22 +1807,15 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
                     更新中
                   </div>
                 )}
-                <table className={isPurchaseOrderTab ? "w-full min-w-[1700px] table-fixed text-sm" : "w-full min-w-[1740px] table-fixed text-sm"}>
+                <table className="w-full table-fixed text-sm" style={{ minWidth: tableMinWidth }}>
                   <colgroup>
                     <col className="w-12" />
                     {isPurchaseOrderTab ? (
                       <>
-                        <col className="w-56" />
-                        <col className="w-28" />
-                        <col className="w-28" />
-                        <col className="w-48" />
-                        <col className="w-24" />
-                        <col />
-                        <col />
-                        <col className="w-40" />
+                        {PURCHASE_TABLE_COLUMN_ORDER.map((columnKey) => <col key={columnKey} style={{ width: inventoryColumnWidths[columnKey] }} />)}
                       </>
                     ) : (
-                      inventoryColumnOrder.map((columnKey) => <col key={columnKey} className={INVENTORY_TABLE_COLUMN_WIDTHS[columnKey]} />)
+                      inventoryColumnOrder.map((columnKey) => <col key={columnKey} style={{ width: inventoryColumnWidths[columnKey] }} />)
                     )}
                     <col className="w-28" />
                   </colgroup>
@@ -1751,21 +1824,21 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
                       <th className="px-4 py-3"></th>
                       {isPurchaseOrderTab ? (
                         <>
-                          <th className="px-4 py-3 font-medium"><SortableColumnLabel label="单据编号" active={sortBy === "document_number"} direction={sortDirection} onClick={() => handleTableSort("document_number")} /></th>
-                          <th className="px-4 py-3 font-medium"><SortableColumnLabel label="订货日期" active={sortBy === "date"} direction={sortDirection} onClick={() => handleTableSort("date")} /></th>
-                          <th className="px-4 py-3 font-medium"><SortableColumnLabel label="交货日期" active={sortBy === "delivery_date"} direction={sortDirection} onClick={() => handleTableSort("delivery_date")} /></th>
-                          <th className="px-4 py-3 font-medium"><SortableColumnLabel label="供应商" active={sortBy === "supplier"} direction={sortDirection} onClick={() => handleTableSort("supplier")} /></th>
-                          <th className="px-4 py-3 font-medium"><SortableColumnLabel label="经手人" active={sortBy === "handler"} direction={sortDirection} onClick={() => handleTableSort("handler")} /></th>
-                          <th className="px-4 py-3 font-medium"><SortableColumnLabel label="摘要" active={sortBy === "summary"} direction={sortDirection} onClick={() => handleTableSort("summary")} /></th>
-                          <th className="px-4 py-3 font-medium"><SortableColumnLabel label="附加说明" active={sortBy === "additional_note"} direction={sortDirection} onClick={() => handleTableSort("additional_note")} /></th>
-                          <th className="px-4 py-3 font-medium"><SortableColumnLabel label="最后修改时间" active={sortBy === "updated_at"} direction={sortDirection} onClick={() => handleTableSort("updated_at")} /></th>
+                          <th className="relative px-4 py-3 font-medium"><SortableColumnLabel label="单据编号" active={sortBy === "document_number"} direction={sortDirection} onClick={() => handleTableSort("document_number")} /><ColumnResizeHandle columnKey="document_number" label="单据编号" onResizeStart={handleInventoryColumnResizeStart} /></th>
+                          <th className="relative px-4 py-3 font-medium"><SortableColumnLabel label="订货日期" active={sortBy === "date"} direction={sortDirection} onClick={() => handleTableSort("date")} /><ColumnResizeHandle columnKey="date" label="订货日期" onResizeStart={handleInventoryColumnResizeStart} /></th>
+                          <th className="relative px-4 py-3 font-medium"><SortableColumnLabel label="交货日期" active={sortBy === "delivery_date"} direction={sortDirection} onClick={() => handleTableSort("delivery_date")} /><ColumnResizeHandle columnKey="delivery_date" label="交货日期" onResizeStart={handleInventoryColumnResizeStart} /></th>
+                          <th className="relative px-4 py-3 font-medium"><SortableColumnLabel label="供应商" active={sortBy === "supplier"} direction={sortDirection} onClick={() => handleTableSort("supplier")} /><ColumnResizeHandle columnKey="supplier" label="供应商" onResizeStart={handleInventoryColumnResizeStart} /></th>
+                          <th className="relative px-4 py-3 font-medium"><SortableColumnLabel label="经手人" active={sortBy === "handler"} direction={sortDirection} onClick={() => handleTableSort("handler")} /><ColumnResizeHandle columnKey="handler" label="经手人" onResizeStart={handleInventoryColumnResizeStart} /></th>
+                          <th className="relative px-4 py-3 font-medium"><SortableColumnLabel label="摘要" active={sortBy === "summary"} direction={sortDirection} onClick={() => handleTableSort("summary")} /><ColumnResizeHandle columnKey="summary" label="摘要" onResizeStart={handleInventoryColumnResizeStart} /></th>
+                          <th className="relative px-4 py-3 font-medium"><SortableColumnLabel label="附加说明" active={sortBy === "additional_note"} direction={sortDirection} onClick={() => handleTableSort("additional_note")} /><ColumnResizeHandle columnKey="additional_note" label="附加说明" onResizeStart={handleInventoryColumnResizeStart} /></th>
+                          <th className="relative px-4 py-3 font-medium"><SortableColumnLabel label="最后修改时间" active={sortBy === "updated_at"} direction={sortDirection} onClick={() => handleTableSort("updated_at")} /><ColumnResizeHandle columnKey="updated_at" label="最后修改时间" onResizeStart={handleInventoryColumnResizeStart} /></th>
                         </>
                       ) : inventoryColumnOrder.map((columnKey) => (
                         <th
                           key={columnKey}
                           onDragOver={(event) => handleInventoryColumnDragOver(event, columnKey)}
                           onDrop={(event) => handleInventoryColumnDrop(event, columnKey)}
-                          className={`select-none px-4 py-3 font-medium transition-colors ${
+                          className={`relative select-none px-4 py-3 font-medium transition-colors ${
                             dragOverInventoryColumn === columnKey ? "bg-primary/15 text-primary" : ""
                           } ${draggedInventoryColumn === columnKey ? "opacity-50" : ""}`}
                         >
@@ -1792,6 +1865,7 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
                               onClick={() => handleTableSort(columnKey)}
                             />
                           </div>
+                          <ColumnResizeHandle columnKey={columnKey} label={INVENTORY_TABLE_COLUMN_LABELS[columnKey]} onResizeStart={handleInventoryColumnResizeStart} />
                         </th>
                       ))}
                       <th className="sticky right-0 z-20 w-28 border-l border-border bg-muted px-4 py-3 text-center font-medium shadow-[-5px_0_10px_-9px_rgb(0_0_0_/_0.45)]">操作</th>
