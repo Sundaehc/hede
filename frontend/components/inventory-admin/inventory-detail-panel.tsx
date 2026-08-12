@@ -878,7 +878,7 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
               {items.map((item, index) => (
                 <tr key={item.id} className="group hover:bg-muted/30 transition-colors">
                   <td className={isPurchaseOrder
-                    ? "sticky left-0 z-20 w-10 bg-background px-3 py-2.5"
+                    ? "sticky left-0 z-20 w-10 bg-background px-3 py-2.5 group-hover:bg-muted"
                     : "px-3 py-2.5"}>
                     <input
                       type="checkbox"
@@ -897,7 +897,7 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
                     </>
                   ) : isPurchaseOrder ? (
                     <>
-                      <td className={`${purchaseCodeCellClassName} sticky left-10 z-20 bg-background group-hover:bg-muted/30`}>{item.product_code || "-"}</td>
+                      <td className={`${purchaseCodeCellClassName} sticky left-10 z-20 bg-background group-hover:bg-muted`}>{item.product_code || "-"}</td>
                       <td className={purchaseTextCellClassName} title={item.remark || ""}>{item.remark || "-"}</td>
                       <td className={purchaseCodeCellClassName}>{getPurchaseDetailExtra(item, "image_code") || item.product_code || "-"}</td>
                       <td className={purchaseCodeCellClassName}>{getPurchaseDetailExtra(item, "factory_code") || "-"}</td>
