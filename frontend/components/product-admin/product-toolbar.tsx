@@ -146,19 +146,23 @@ export function ProductToolbar({
     }
 
     setImporting(true)
+    let importedSkus: string[] = []
     try {
       const result = await importProducts(brand, file)
+      importedSkus = result.skus
       onMessage("导入完成", result.message)
-      onClear()
-      onImportComplete(result.skus)
     } catch (error) {
       onMessage("导入失败", error instanceof Error ? error.message : "导入时发生未知错误，请重试")
+      return
     } finally {
       setImporting(false)
       if (fileInputRef.current) {
         fileInputRef.current.value = ""
       }
     }
+
+    onClear()
+    onImportComplete(importedSkus)
   }
 
   const handleRefreshImages = async () => {

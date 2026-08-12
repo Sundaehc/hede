@@ -9,7 +9,7 @@ from datetime import date as date_type
 from datetime import datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
-from fastapi import APIRouter, HTTPException, Query, Request, Response, UploadFile
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Query, Request, Response, UploadFile
 from fastapi.responses import StreamingResponse
 from openpyxl import Workbook, load_workbook
 from openpyxl.cell import WriteOnlyCell
@@ -962,9 +962,46 @@ def check_export_products(
     return Response(status_code=200)
 
 
+def _finish_product_import(
+    request: Request,
+    *,
+    brand: str,
+    filename: str | None,
+    created: int,
+    updated: int,
+    imported_skus: list[str],
+) -> None:
+    try:
+        clear_fine_table_cache()
+        clear_product_goods_cache()
+    except Exception:
+        logger.exception("Failed to clear product caches after import")
+
+    try:
+        write_operation_log(
+            request,
+            module="product",
+            action="import",
+            entity_type="product_import",
+            entity_label=filename or "商品档案导入",
+            summary=f"导入商品档案：新增 {created} 条，更新 {updated} 条",
+            after_data={
+                "brand": brand,
+                "filename": filename,
+                "created": created,
+                "updated": updated,
+                "skus": imported_skus[:500],
+                "sku_count": len(imported_skus),
+            },
+        )
+    except Exception:
+        logger.exception("Failed to write product import operation log")
+
+
 @router.post("/import")
 async def import_products(
     request: Request,
+    background_tasks: BackgroundTasks,
     brand: str = Query(...),
     file: UploadFile = None,
 ):
@@ -1125,26 +1162,23 @@ async def import_products(
 
         repository.mark_products_imported(brand, imported_product_ids, connection=connection)
 
-    wb.close()
-    clear_fine_table_cache()
-    clear_product_goods_cache()
     try:
-        write_operation_log(
-            request,
-            module="product",
-            action="import",
-            entity_type="product_import",
-            entity_label=file.filename or "商品档案导入",
-            summary=f"导入商品档案：新增 {created} 条，更新 {updated} 条",
-            after_data={
-                "brand": brand,
-                "filename": file.filename,
-                "created": created,
-                "updated": updated,
-                "skus": imported_skus[:500],
-                "sku_count": len(imported_skus),
-            },
-        )
+        wb.close()
     except Exception:
-        logger.exception("Failed to write product import operation log")
-    return {"created": created, "updated": updated, "skus": imported_skus, "message": f"导入完成：新增 {created} 条，更新 {updated} 条"}
+        logger.exception("Failed to close product import workbook")
+
+    background_tasks.add_task(
+        _finish_product_import,
+        request,
+        brand=brand,
+        filename=file.filename,
+        created=created,
+        updated=updated,
+        imported_skus=imported_skus,
+    )
+    return {
+        "created": created,
+        "updated": updated,
+        "skus": imported_skus,
+        "message": f"导入完成：新增 {created} 条，更新 {updated} 条",
+    }
