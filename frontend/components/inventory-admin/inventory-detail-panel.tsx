@@ -808,7 +808,7 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
                 </tr>
               ) : isPurchaseOrder ? (
                 <tr className="sticky top-0 z-20 border-b border-border bg-muted text-left text-muted-foreground shadow-sm">
-                  <th className="w-10 px-3 py-2.5 font-medium whitespace-nowrap">
+                  <th className="sticky left-0 z-40 w-10 bg-muted px-3 py-2.5 font-medium whitespace-nowrap">
                     <input
                       type="checkbox"
                       checked={allSelected}
@@ -818,7 +818,7 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
                       aria-label="选择全部明细"
                     />
                   </th>
-                  <th className={`${purchaseHeaderClassName} w-[130px]`}>商品货号</th>
+                  <th className={`${purchaseHeaderClassName} sticky left-10 z-40 w-[130px] bg-muted`}>商品货号</th>
                   <th className={`${purchaseHeaderClassName} w-[120px]`}>商品备注</th>
                   <th className={`${purchaseHeaderClassName} w-[130px]`}>图片</th>
                   <th className={`${purchaseHeaderClassName} w-[96px]`}>工厂货号</th>
@@ -877,7 +877,9 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
               )}
               {items.map((item, index) => (
                 <tr key={item.id} className="group hover:bg-muted/30 transition-colors">
-                  <td className="px-3 py-2.5">
+                  <td className={isPurchaseOrder
+                    ? "sticky left-0 z-20 w-10 bg-background px-3 py-2.5"
+                    : "px-3 py-2.5"}>
                     <input
                       type="checkbox"
                       checked={selectedIds.has(item.id)}
@@ -895,7 +897,7 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
                     </>
                   ) : isPurchaseOrder ? (
                     <>
-                      <td className={purchaseCodeCellClassName}>{item.product_code || "-"}</td>
+                      <td className={`${purchaseCodeCellClassName} sticky left-10 z-20 bg-background group-hover:bg-muted/30`}>{item.product_code || "-"}</td>
                       <td className={purchaseTextCellClassName} title={item.remark || ""}>{item.remark || "-"}</td>
                       <td className={purchaseCodeCellClassName}>{getPurchaseDetailExtra(item, "image_code") || item.product_code || "-"}</td>
                       <td className={purchaseCodeCellClassName}>{getPurchaseDetailExtra(item, "factory_code") || "-"}</td>
@@ -945,6 +947,17 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
                 </tr>
               ))}
             </tbody>
+            {isPurchaseOrder && !isLoading && detailTotal > 0 && (
+              <tfoot>
+                <tr className="border-t-2 border-border bg-muted/60 font-medium">
+                  <td colSpan={13 + tableSizeColumns.length} className="px-3 py-3 text-right whitespace-nowrap">合计</td>
+                  <td className="px-2 py-3 text-right tabular-nums">{record?.total_count || "-"}</td>
+                  <td className="px-2 py-3 text-right tabular-nums">-</td>
+                  <td className="px-2 py-3 text-right tabular-nums">{record?.amount ?? "-"}</td>
+                  <td className="sticky right-0 z-10 border-l border-border bg-muted/60 px-4 py-3" />
+                </tr>
+              </tfoot>
+            )}
           </table>
         </div>
       </div>
