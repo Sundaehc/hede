@@ -666,7 +666,8 @@ export function buildProductExportUrl(
   brand: ProductArchiveBrandKey,
   ids?: number[],
   mode?: "with_sizes",
-  activityDate?: string
+  activityDate?: string,
+  year?: string
 ) {
   const params = new URLSearchParams({ brand })
   if (brand !== "all" && ids && ids.length > 0) {
@@ -677,6 +678,9 @@ export function buildProductExportUrl(
   }
   if (activityDate) {
     params.set("activity_date", activityDate)
+  }
+  if (year) {
+    params.set("year", year)
   }
   return `${API_PREFIX}/export?${params.toString()}`
 }
@@ -722,10 +726,11 @@ export async function downloadProductExport(
   ids?: number[],
   mode?: "with_sizes",
   onProgress?: (progress: ProductExportProgress) => void,
-  activityDate?: string
+  activityDate?: string,
+  year?: string
 ) {
   onProgress?.({ phase: "preparing", loaded: 0, total: null, percent: null })
-  const response = await fetch(buildProductExportUrl(brand, ids, mode, activityDate), {
+  const response = await fetch(buildProductExportUrl(brand, ids, mode, activityDate, year), {
     credentials: "include",
   })
   if (!response.ok) {
@@ -799,9 +804,10 @@ export async function assertProductExportAllowed(
   brand: ProductArchiveBrandKey,
   ids?: number[],
   mode?: "with_sizes",
-  activityDate?: string
+  activityDate?: string,
+  year?: string
 ) {
-  const response = await fetch(buildProductExportUrl(brand, ids, mode, activityDate), {
+  const response = await fetch(buildProductExportUrl(brand, ids, mode, activityDate, year), {
     credentials: "include",
     method: "HEAD",
   })
@@ -814,9 +820,10 @@ export function exportProducts(
   brand: ProductArchiveBrandKey,
   ids?: number[],
   mode?: "with_sizes",
-  activityDate?: string
+  activityDate?: string,
+  year?: string
 ) {
-  return fetch(buildProductExportUrl(brand, ids, mode, activityDate), {
+  return fetch(buildProductExportUrl(brand, ids, mode, activityDate, year), {
     credentials: "include",
   }).then(async (response) => {
     if (!response.ok) {
@@ -1032,6 +1039,8 @@ export function listInventory(params: {
   product_code?: string
   handler?: string
   completion_status?: string
+  sortBy?: string
+  sortDirection?: "asc" | "desc"
   page: number
   pageSize: number
 }) {
@@ -1052,6 +1061,8 @@ export function listInventory(params: {
   if (params.handler) search.set("handler", params.handler)
   if (params.completion_status)
     search.set("completion_status", params.completion_status)
+  if (params.sortBy) search.set("sort_by", params.sortBy)
+  if (params.sortDirection) search.set("sort_direction", params.sortDirection)
   return request<InventoryListResponse>(`/inventory?${search.toString()}`)
 }
 

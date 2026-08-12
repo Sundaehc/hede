@@ -86,6 +86,8 @@ class InventoryRepository:
         product_code: str | None = None,
         handler: str | None = None,
         completion_status: str | None = None,
+        sort_by: str | None = None,
+        sort_direction: str = "desc",
         page: int,
         page_size: int,
     ) -> dict[str, object]:
@@ -230,7 +232,29 @@ class InventoryRepository:
             items_statement = items_statement.where(criterion)
             count_statement = count_statement.where(criterion)
 
-        items_statement = items_statement.order_by(desc(table.c.id)).offset((page - 1) * page_size).limit(page_size)
+        sort_columns = {
+            "document_number": table.c.document_number,
+            "date": table.c.date_value,
+            "delivery_date": table.c.extra_fields["delivery_date"].as_string(),
+            "document_type": table.c.document_type,
+            "supplier": table.c.supplier,
+            "total_count": table.c.total_count,
+            "amount": table.c.amount,
+            "warehouse": table.c.warehouse,
+            "handler": table.c.handler,
+            "summary": table.c.summary,
+            "additional_note": table.c.additional_note,
+            "updated_at": table.c.updated_at,
+        }
+        sort_column = sort_columns.get(str(sort_by or "").strip())
+        descending = str(sort_direction or "").lower() != "asc"
+        if sort_column is None:
+            order_by = (desc(table.c.id),)
+        elif descending:
+            order_by = (sort_column.desc().nulls_last(), desc(table.c.id))
+        else:
+            order_by = (sort_column.asc().nulls_last(), table.c.id.asc())
+        items_statement = items_statement.order_by(*order_by).offset((page - 1) * page_size).limit(page_size)
 
         with self.engine.connect() as connection:
             total = connection.execute(count_statement).scalar_one()
@@ -1817,7 +1841,10 @@ class InventoryRepository:
             ).scalar_one_or_none()
             if document_type in ACCOUNTING_DOCUMENT_TYPES:
                 total_count = None
-                amount = None
+                amount = connection.execute(
+                    select(func.coalesce(func.sum(detail.c.amount), 0))
+                    .where(detail.c.document_id == document_id)
+                ).scalar_one()
             else:
                 stmt = select(
                     func.coalesce(func.sum(detail.c.quantity), 0),
@@ -2285,7 +2312,22 @@ class InventoryRepository:
             GENERAL_CUSTOMER_SORT_PREFERENCE_TABLE.create(connection, checkfirst=True)
             self._ensure_general_customer_schema(connection)
             self._seed_general_customer_shops(connection)
-            connection.execute(text("UPDATE inventory_records SET total_count = NULL, amount = NULL, warehouse = NULL WHERE document_type IN ('应付款减少', '应付款增加', '应收款减少', '应收款增加') AND (total_count IS NOT NULL OR amount IS NOT NULL OR warehouse IS NOT NULL)"))
+            connection.execute(text("UPDATE inventory_records SET total_count = NULL, warehouse = NULL WHERE document_type IN ('应付款减少', '应付款增加', '应收款减少', '应收款增加') AND (total_count IS NOT NULL OR warehouse IS NOT NULL)"))
+            connection.execute(text("""
+                UPDATE inventory_records AS record
+                SET amount = accounting_amounts.amount
+                FROM (
+                    SELECT details.document_id, SUM(details.amount) AS amount
+                    FROM inventory_details AS details
+                    JOIN inventory_records AS source_record ON source_record.id = details.document_id
+                    WHERE source_record.document_type IN ('应付款减少', '应付款增加', '应收款减少', '应收款增加')
+                      AND details.amount IS NOT NULL
+                    GROUP BY details.document_id
+                ) AS accounting_amounts
+                WHERE record.id = accounting_amounts.document_id
+                  AND record.amount IS NULL
+                  AND record.deleted_at IS NULL
+            """))
             connection.execute(text("UPDATE inventory_records SET total_count = -abs(total_count) WHERE document_type = '进货退货单' AND total_count IS NOT NULL AND total_count > 0"))
             connection.execute(text("UPDATE inventory_records SET amount = -abs(amount) WHERE document_type = '进货退货单' AND amount IS NOT NULL AND amount > 0"))
             connection.execute(text("DELETE FROM inventory_records WHERE deleted_at < now() - interval '10 days'"))
@@ -2617,7 +2659,6 @@ class InventoryRepository:
     def _clear_accounting_record_summary(record: dict[str, object]) -> dict[str, object]:
         if record.get("document_type") in ACCOUNTING_DOCUMENT_TYPES:
             record["total_count"] = None
-            record["amount"] = None
             record["warehouse"] = None
         return record
 

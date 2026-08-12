@@ -37,7 +37,11 @@ def required_permission_for_request(method: str, path: str) -> str | tuple[str, 
         return None
     if path.startswith("/fine-table"):
         return "fine_table.export" if "export" in path and method != "GET" else "fine_table.view"
-    if path.startswith("/suppliers") or path.startswith("/warehouses"):
+    if path.startswith("/suppliers"):
+        if method == "GET":
+            return "inventory.view"
+        return "supplier.create" if method == "POST" else "inventory.manage"
+    if path.startswith("/warehouses"):
         return "inventory.view" if method == "GET" else "inventory.manage"
     if path.startswith("/inventory/export"):
         return ("inventory.export", "purchase.export")

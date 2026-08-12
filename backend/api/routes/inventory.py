@@ -3109,6 +3109,8 @@ def list_inventory(
     product_code: str | None = None,
     handler: str | None = None,
     completion_status: str | None = None,
+    sort_by: str | None = None,
+    sort_direction: str = "desc",
     page: int = 1,
     page_size: int = 20,
 ):
@@ -3127,6 +3129,8 @@ def list_inventory(
         product_code=product_code,
         handler=handler,
         completion_status=completion_status,
+        sort_by=sort_by,
+        sort_direction=sort_direction,
         page=page,
         page_size=page_size,
     )

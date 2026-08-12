@@ -1,7 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent } from "react"
-import { Check, Copy, Plus, Download, Upload, Trash2, Edit, Search, X, RefreshCw, List, BadgeDollarSign, FileText, History, ChevronLeft, ChevronRight } from "lucide-react"
+import { ArrowDown, ArrowUp, ArrowUpDown, Check, Copy, Plus, Download, Upload, Trash2, Edit, Search, X, RefreshCw, List, BadgeDollarSign, FileText, History, ChevronLeft, ChevronRight, GripVertical } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -174,6 +174,10 @@ type InventoryTableColumnKey =
   | "warehouse"
   | "handler"
   | "summary"
+  | "updated_at"
+
+type InventorySortKey = InventoryTableColumnKey | "delivery_date" | "additional_note"
+type SortDirection = "asc" | "desc"
 
 const INVENTORY_TABLE_COLUMN_ORDER: InventoryTableColumnKey[] = [
   "document_number",
@@ -185,6 +189,7 @@ const INVENTORY_TABLE_COLUMN_ORDER: InventoryTableColumnKey[] = [
   "warehouse",
   "handler",
   "summary",
+  "updated_at",
 ]
 
 const INVENTORY_TABLE_COLUMN_LABELS: Record<InventoryTableColumnKey, string> = {
@@ -197,18 +202,20 @@ const INVENTORY_TABLE_COLUMN_LABELS: Record<InventoryTableColumnKey, string> = {
   warehouse: "仓库",
   handler: "经手人",
   summary: "摘要",
+  updated_at: "最后修改时间",
 }
 
 const INVENTORY_TABLE_COLUMN_WIDTHS: Record<InventoryTableColumnKey, string> = {
-  document_number: "w-36",
-  date: "w-28",
-  document_type: "w-28",
-  supplier: "w-44",
-  total_count: "w-20",
-  amount: "w-24",
-  warehouse: "w-48",
-  handler: "w-24",
+  document_number: "w-40",
+  date: "w-32",
+  document_type: "w-36",
+  supplier: "w-52",
+  total_count: "w-32",
+  amount: "w-28",
+  warehouse: "w-52",
+  handler: "w-28",
   summary: "w-auto",
+  updated_at: "w-40",
 }
 
 const INVENTORY_TABLE_COLUMN_ORDER_STORAGE_KEY = "hede.inventory-records.table-column-order"
@@ -265,12 +272,12 @@ function CopyableDocumentNumber({ value, className = "" }: { value: string; clas
   return (
     <button
       type="button"
-      className={`group inline-flex max-w-full cursor-pointer items-center gap-1 rounded text-left hover:text-primary focus:outline-none focus-visible:ring-2 focus-visible:ring-ring ${className}`}
+      className={`group inline-flex max-w-full cursor-pointer items-start gap-1 rounded text-left hover:text-primary focus:outline-none focus-visible:ring-2 focus-visible:ring-ring ${className}`}
       onClick={handleCopy}
       title="复制单据编号"
       aria-label={`复制单据编号 ${value}`}
     >
-      <span className="truncate">{value}</span>
+      <span className="min-w-0 whitespace-normal break-all">{value}</span>
       {copied ? (
         <Check className="h-3.5 w-3.5 shrink-0 text-emerald-600" aria-hidden="true" />
       ) : (
@@ -290,6 +297,40 @@ function formatDeletedAt(value: string | null) {
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return value
   return date.toLocaleString("zh-CN", { hour12: false })
+}
+
+function formatLastModifiedAt(value: string | null) {
+  if (!value) return "-"
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return value
+  return date.toLocaleString("zh-CN", { hour12: false })
+}
+
+function SortableColumnLabel({
+  label,
+  active,
+  direction,
+  onClick,
+}: {
+  label: string
+  active: boolean
+  direction: SortDirection
+  onClick: () => void
+}) {
+  const Icon = active ? (direction === "asc" ? ArrowUp : ArrowDown) : ArrowUpDown
+  const nextDirectionLabel = active && direction === "desc" ? "升序" : "降序"
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`inline-flex shrink-0 items-center gap-1 whitespace-nowrap text-left transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 ${active ? "text-foreground" : ""}`}
+      aria-label={`按${label}${nextDirectionLabel}排序`}
+      title={`按${label}${nextDirectionLabel}排序`}
+    >
+      <span>{label}</span>
+      <Icon className={`size-3.5 shrink-0 ${active ? "text-primary" : "text-muted-foreground/70"}`} aria-hidden="true" />
+    </button>
+  )
 }
 
 function remainingRecycleDays(value: string | null) {
@@ -619,6 +660,8 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
   const [accountSubjectOptions, setAccountSubjectOptions] = useState<InventoryAccountSubject[]>([])
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(PAGE_SIZES[0])
+  const [sortBy, setSortBy] = useState<InventorySortKey | null>(null)
+  const [sortDirection, setSortDirection] = useState<SortDirection>("desc")
   const [reloadToken, setReloadToken] = useState(0)
   const [items, setItems] = useState<InventoryRecord[]>([])
   const [total, setTotal] = useState(0)
@@ -659,6 +702,7 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
   const [inventoryColumnOrder, setInventoryColumnOrder] = useState<InventoryTableColumnKey[]>(INVENTORY_TABLE_COLUMN_ORDER)
   const [draggedInventoryColumn, setDraggedInventoryColumn] = useState<InventoryTableColumnKey | null>(null)
   const [dragOverInventoryColumn, setDragOverInventoryColumn] = useState<InventoryTableColumnKey | null>(null)
+  const draggedInventoryColumnRef = useRef<InventoryTableColumnKey | null>(null)
   const [activeTab, setActiveTab] = useState("records")
   const [recordCompletionStatus, setRecordCompletionStatus] = useState<CompletionStatus>("completed")
   const activeTabValue = isPurchasePage ? "purchase-orders" : activeTab
@@ -682,24 +726,26 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
     }
   }, [isPurchasePage])
 
-  const handleInventoryColumnDragStart = (event: DragEvent<HTMLTableCellElement>, columnKey: InventoryTableColumnKey) => {
+  const handleInventoryColumnDragStart = (event: DragEvent<HTMLElement>, columnKey: InventoryTableColumnKey) => {
     event.dataTransfer.effectAllowed = "move"
     event.dataTransfer.setData("text/plain", columnKey)
+    draggedInventoryColumnRef.current = columnKey
     setDraggedInventoryColumn(columnKey)
   }
 
-  const handleInventoryColumnDragOver = (event: DragEvent<HTMLTableCellElement>, columnKey: InventoryTableColumnKey) => {
+  const handleInventoryColumnDragOver = (event: DragEvent<HTMLElement>, columnKey: InventoryTableColumnKey) => {
+    const sourceColumnKey = draggedInventoryColumnRef.current
+    if (!sourceColumnKey || sourceColumnKey === columnKey) return
     event.preventDefault()
     event.dataTransfer.dropEffect = "move"
-    if (draggedInventoryColumn && draggedInventoryColumn !== columnKey) {
-      setDragOverInventoryColumn(columnKey)
-    }
+    setDragOverInventoryColumn((current) => current === columnKey ? current : columnKey)
   }
 
-  const handleInventoryColumnDrop = (event: DragEvent<HTMLTableCellElement>, targetColumnKey: InventoryTableColumnKey) => {
+  const handleInventoryColumnDrop = (event: DragEvent<HTMLElement>, targetColumnKey: InventoryTableColumnKey) => {
     event.preventDefault()
-    const sourceColumnKey = draggedInventoryColumn || event.dataTransfer.getData("text/plain") as InventoryTableColumnKey
+    const sourceColumnKey = draggedInventoryColumnRef.current || event.dataTransfer.getData("text/plain") as InventoryTableColumnKey
     if (!sourceColumnKey || sourceColumnKey === targetColumnKey) {
+      draggedInventoryColumnRef.current = null
       setDraggedInventoryColumn(null)
       setDragOverInventoryColumn(null)
       return
@@ -718,11 +764,13 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
       }
       return nextOrder
     })
+    draggedInventoryColumnRef.current = null
     setDraggedInventoryColumn(null)
     setDragOverInventoryColumn(null)
   }
 
   const handleInventoryColumnDragEnd = () => {
+    draggedInventoryColumnRef.current = null
     setDraggedInventoryColumn(null)
     setDragOverInventoryColumn(null)
   }
@@ -783,6 +831,8 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
           product_code: submittedFilters.product_code || undefined,
           handler: submittedFilters.handler || undefined,
           completion_status: isPurchaseOrderTab ? undefined : recordCompletionStatus,
+          sortBy: sortBy || undefined,
+          sortDirection,
           page,
           pageSize,
         })
@@ -800,7 +850,7 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
     }
     void load()
     return () => { cancelled = true }
-  }, [isPurchaseOrderTab, page, pageSize, recordCompletionStatus, reloadToken, submittedFilters])
+  }, [isPurchaseOrderTab, page, pageSize, recordCompletionStatus, reloadToken, sortBy, sortDirection, submittedFilters])
 
   useEffect(() => { setSelectedIds(new Set()) }, [page, recordCompletionStatus, submittedFilters])
 
@@ -808,6 +858,16 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
     setMessageContent({ title, description })
     setMessageOpen(true)
   }, [])
+
+  const handleTableSort = (columnKey: InventorySortKey) => {
+    setPage(1)
+    if (sortBy === columnKey) {
+      setSortDirection((current) => current === "desc" ? "asc" : "desc")
+      return
+    }
+    setSortBy(columnKey)
+    setSortDirection("desc")
+  }
 
   const openRequirementDialog = async () => {
     setRequirementsDialogOpen(true)
@@ -1660,8 +1720,14 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
               )}
 
               {/* Table */}
-              <div className="table-panel overflow-x-auto">
-                <table className={isPurchaseOrderTab ? "w-full min-w-[1440px] table-fixed text-sm" : "w-full min-w-[1320px] table-fixed text-sm"}>
+              <div className="table-panel relative overflow-x-auto">
+                {isLoading && items.length > 0 && (
+                  <div className="pointer-events-none absolute right-3 top-3 z-30 inline-flex items-center gap-1.5 rounded-full border border-border bg-card/95 px-2.5 py-1 text-xs text-muted-foreground shadow-sm">
+                    <RefreshCw className="size-3 animate-spin" aria-hidden="true" />
+                    更新中
+                  </div>
+                )}
+                <table className={isPurchaseOrderTab ? "w-full min-w-[1700px] table-fixed text-sm" : "w-full min-w-[1740px] table-fixed text-sm"}>
                   <colgroup>
                     <col className="w-12" />
                     {isPurchaseOrderTab ? (
@@ -1673,6 +1739,7 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
                         <col className="w-24" />
                         <col />
                         <col />
+                        <col className="w-40" />
                       </>
                     ) : (
                       inventoryColumnOrder.map((columnKey) => <col key={columnKey} className={INVENTORY_TABLE_COLUMN_WIDTHS[columnKey]} />)
@@ -1684,51 +1751,66 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
                       <th className="px-4 py-3"></th>
                       {isPurchaseOrderTab ? (
                         <>
-                          <th className="px-4 py-3 font-medium">单据编号</th>
-                          <th className="px-4 py-3 font-medium">订货日期</th>
-                          <th className="px-4 py-3 font-medium">交货日期</th>
-                          <th className="px-4 py-3 font-medium">供应商</th>
-                          <th className="px-4 py-3 font-medium">经手人</th>
-                          <th className="px-4 py-3 font-medium">摘要</th>
-                          <th className="px-4 py-3 font-medium">附加说明</th>
+                          <th className="px-4 py-3 font-medium"><SortableColumnLabel label="单据编号" active={sortBy === "document_number"} direction={sortDirection} onClick={() => handleTableSort("document_number")} /></th>
+                          <th className="px-4 py-3 font-medium"><SortableColumnLabel label="订货日期" active={sortBy === "date"} direction={sortDirection} onClick={() => handleTableSort("date")} /></th>
+                          <th className="px-4 py-3 font-medium"><SortableColumnLabel label="交货日期" active={sortBy === "delivery_date"} direction={sortDirection} onClick={() => handleTableSort("delivery_date")} /></th>
+                          <th className="px-4 py-3 font-medium"><SortableColumnLabel label="供应商" active={sortBy === "supplier"} direction={sortDirection} onClick={() => handleTableSort("supplier")} /></th>
+                          <th className="px-4 py-3 font-medium"><SortableColumnLabel label="经手人" active={sortBy === "handler"} direction={sortDirection} onClick={() => handleTableSort("handler")} /></th>
+                          <th className="px-4 py-3 font-medium"><SortableColumnLabel label="摘要" active={sortBy === "summary"} direction={sortDirection} onClick={() => handleTableSort("summary")} /></th>
+                          <th className="px-4 py-3 font-medium"><SortableColumnLabel label="附加说明" active={sortBy === "additional_note"} direction={sortDirection} onClick={() => handleTableSort("additional_note")} /></th>
+                          <th className="px-4 py-3 font-medium"><SortableColumnLabel label="最后修改时间" active={sortBy === "updated_at"} direction={sortDirection} onClick={() => handleTableSort("updated_at")} /></th>
                         </>
                       ) : inventoryColumnOrder.map((columnKey) => (
                         <th
                           key={columnKey}
-                          draggable
-                          onDragStart={(event) => handleInventoryColumnDragStart(event, columnKey)}
                           onDragOver={(event) => handleInventoryColumnDragOver(event, columnKey)}
                           onDrop={(event) => handleInventoryColumnDrop(event, columnKey)}
-                          onDragEnd={handleInventoryColumnDragEnd}
-                          className={`select-none px-4 py-3 font-medium cursor-grab transition-colors active:cursor-grabbing ${
+                          className={`select-none px-4 py-3 font-medium transition-colors ${
                             dragOverInventoryColumn === columnKey ? "bg-primary/15 text-primary" : ""
                           } ${draggedInventoryColumn === columnKey ? "opacity-50" : ""}`}
-                          title="拖拽调整列顺序"
                         >
-                          {columnKey === "supplier"
-                            ? inventoryCounterpartyColumnLabel
-                            : columnKey === "warehouse"
-                              ? inventoryWarehouseColumnLabel
-                              : INVENTORY_TABLE_COLUMN_LABELS[columnKey]}
+                          <div className="flex items-center gap-1.5">
+                            <button
+                              type="button"
+                              draggable
+                              onDragStart={(event) => handleInventoryColumnDragStart(event, columnKey)}
+                              onDragEnd={handleInventoryColumnDragEnd}
+                              className="-ml-1 flex size-5 shrink-0 cursor-grab items-center justify-center rounded text-muted-foreground hover:bg-muted-foreground/10 hover:text-foreground active:cursor-grabbing"
+                              aria-label={`拖拽排序${INVENTORY_TABLE_COLUMN_LABELS[columnKey]}`}
+                              title="拖拽调整列顺序"
+                            >
+                              <GripVertical className="size-3.5" />
+                            </button>
+                            <SortableColumnLabel
+                              label={columnKey === "supplier"
+                                ? inventoryCounterpartyColumnLabel
+                                : columnKey === "warehouse"
+                                  ? inventoryWarehouseColumnLabel
+                                  : INVENTORY_TABLE_COLUMN_LABELS[columnKey]}
+                              active={sortBy === columnKey}
+                              direction={sortDirection}
+                              onClick={() => handleTableSort(columnKey)}
+                            />
+                          </div>
                         </th>
                       ))}
                       <th className="sticky right-0 z-20 w-28 border-l border-border bg-muted px-4 py-3 text-center font-medium shadow-[-5px_0_10px_-9px_rgb(0_0_0_/_0.45)]">操作</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-border">
-                    {isLoading && (
+                    {isLoading && items.length === 0 && (
                       <tr>
-                        <td colSpan={isPurchaseOrderTab ? 9 : 11} className="px-4 py-12 text-center text-muted-foreground">加载中...</td>
+                        <td colSpan={isPurchaseOrderTab ? 10 : 12} className="px-4 py-12 text-center text-muted-foreground">加载中...</td>
                       </tr>
                     )}
                     {!isLoading && !error && items.length === 0 && (
                       <tr>
-                        <td colSpan={isPurchaseOrderTab ? 9 : 11} className="px-4 py-12 text-center text-muted-foreground">
+                      <td colSpan={isPurchaseOrderTab ? 10 : 12} className="px-4 py-12 text-center text-muted-foreground">
                           {hasFilters ? `没有符合条件的${completionLabel}` : `暂无${completionLabel}`}
                         </td>
                       </tr>
                     )}
-                    {!isLoading && !error && items.map((item) => {
+                    {!error && items.map((item) => {
                       const isAccountingRow = ACCOUNTING_DOCUMENT_TYPE_SET.has(item.document_type || "")
                       return (
                         <tr key={item.id} className="group table-row">
@@ -1760,6 +1842,9 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
                               </td>
                               <td className="px-4 py-3 align-middle">
                                 <span className="block whitespace-normal break-words leading-5" title={item.additional_note || ""}>{item.additional_note || "-"}</span>
+                              </td>
+                              <td className="px-4 py-3 align-middle whitespace-nowrap text-xs tabular-nums text-muted-foreground" title={item.updated_at || ""}>
+                                {formatLastModifiedAt(item.updated_at)}
                               </td>
                             </>
                           ) : inventoryColumnOrder.map((columnKey) => {
@@ -1794,11 +1879,11 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
                               case "total_count":
                                 return <td key={columnKey} className="px-4 py-3 align-middle text-right font-mono tabular-nums">{isAccountingRow ? "" : item.total_count || "-"}</td>
                               case "amount":
-                                return <td key={columnKey} className="px-4 py-3 align-middle text-right font-mono tabular-nums">{isAccountingRow ? "" : item.amount || "-"}</td>
+                                return <td key={columnKey} className="px-4 py-3 align-middle text-right font-mono tabular-nums">{item.amount ?? "-"}</td>
                               case "warehouse":
                                 return (
                                   <td key={columnKey} className="px-4 py-3 align-middle">
-                                    <span className="block truncate" title={item.warehouse || ""}>{isAccountingRow ? "" : item.warehouse || "-"}</span>
+                                    <span className="block whitespace-normal break-words leading-5" title={item.warehouse || ""}>{isAccountingRow ? "" : item.warehouse || "-"}</span>
                                   </td>
                                 )
                               case "handler":
@@ -1811,6 +1896,12 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
                                 return (
                                   <td key={columnKey} className="px-4 py-3 align-middle">
                                     <span className="block whitespace-normal break-words leading-5" title={item.summary || ""}>{item.summary || "-"}</span>
+                                  </td>
+                                )
+                              case "updated_at":
+                                return (
+                                  <td key={columnKey} className="px-4 py-3 align-middle whitespace-nowrap text-xs tabular-nums text-muted-foreground" title={item.updated_at || ""}>
+                                    {formatLastModifiedAt(item.updated_at)}
                                   </td>
                                 )
                             }

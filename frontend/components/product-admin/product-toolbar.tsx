@@ -11,6 +11,7 @@ import type { ProductImageRefreshStatus } from "@/lib/types"
 
 type ProductToolbarProps = {
   brand: ProductArchiveBrandKey
+  year: string
   value: string
   isLoading: boolean
   selectedIds?: Set<number>
@@ -40,6 +41,7 @@ function currentShanghaiDateValue() {
 
 export function ProductToolbar({
   brand,
+  year,
   value,
   isLoading,
   selectedIds,
@@ -119,12 +121,13 @@ export function ProductToolbar({
   const handleExport = async (mode?: "with_sizes", exportActivityDate?: string) => {
     const isActivityExport = Boolean(exportActivityDate)
     const ids = !isActivityExport && brand !== "all" && selectedIds && selectedIds.size > 0 ? Array.from(selectedIds) : undefined
+    const exportYear = isActivityExport ? undefined : year || undefined
     setExporting(true)
     setExportingMode(isActivityExport ? (mode ? "today_with_sizes" : "today") : (mode ?? "default"))
     setExportProgress({ phase: "preparing", loaded: 0, total: null, percent: null })
     try {
-      await assertProductExportAllowed(brand, ids, mode, exportActivityDate)
-      await downloadProductExport(brand, ids, mode, setExportProgress, exportActivityDate)
+      await assertProductExportAllowed(brand, ids, mode, exportActivityDate, exportYear)
+      await downloadProductExport(brand, ids, mode, setExportProgress, exportActivityDate, exportYear)
     } catch (error) {
       onMessage("导出失败", error instanceof Error ? error.message : "导出 Excel 时发生错误，请重试")
     } finally {

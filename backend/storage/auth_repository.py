@@ -60,8 +60,8 @@ DEFAULT_ROLES = [
         "code": "product_user",
         "name": "商品组",
         "department_code": "商品部",
-        "description": "维护商品档案和采购单，允许精细表导出",
-        "permissions": "product.view,product.manage,product.import,product.export,fine_table.view,fine_table.export,purchase.view,purchase.manage,purchase.import,purchase.export,inventory.view",
+        "description": "维护商品档案和采购单，可新增供应商，允许精细表导出",
+        "permissions": "product.view,product.manage,product.import,product.export,fine_table.view,fine_table.export,purchase.view,purchase.manage,purchase.import,purchase.export,inventory.view,supplier.create",
     },
     {
         "code": "operation_user",

@@ -276,6 +276,7 @@ export function ProductAdminPage() {
 
             <ProductToolbar
               brand={brand}
+              year={year}
               value={searchInput}
               isLoading={isLoading}
               selectedIds={selectedIds}

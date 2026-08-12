@@ -14,6 +14,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { ConfirmDialog, MessageDialog } from "@/components/confirm-dialog"
+import { useAuth } from "@/components/auth/auth-provider"
 import { CounterpartyLedgerDialog } from "@/components/inventory-admin/counterparty-ledger-dialog"
 import { OperationLogDialog } from "@/components/operation-log-dialog"
 import {
@@ -85,6 +86,7 @@ function getPageTokens(currentPage: number, totalPages: number): PageToken[] {
 }
 
 export default function SuppliersPage() {
+  const { hasPermission } = useAuth()
   const [items, setItems] = useState<SupplierItem[]>([])
   const [total, setTotal] = useState(0)
   const [page, setPage] = useState(1)
@@ -231,6 +233,8 @@ export default function SuppliersPage() {
   const end = total === 0 ? 0 : Math.min(page * PAGE_SIZE, total)
   const pageTokens = getPageTokens(page, totalPages)
   const hasRows = items.length > 0
+  const canCreateSupplier = hasPermission("supplier.create") || hasPermission("inventory.manage")
+  const canManageSuppliers = hasPermission("inventory.manage")
 
   return (
     <div className="app-page">
@@ -247,10 +251,12 @@ export default function SuppliersPage() {
               <History className="h-4 w-4" />
               <span className="ml-1.5">操作日志</span>
             </Button>
-            <Button size="sm" onClick={openCreate} className="cursor-pointer">
-              <Plus className="h-4 w-4" />
-              <span className="ml-1.5">新增供应商</span>
-            </Button>
+            {canCreateSupplier ? (
+              <Button size="sm" onClick={openCreate} className="cursor-pointer">
+                <Plus className="h-4 w-4" />
+                <span className="ml-1.5">新增供应商</span>
+              </Button>
+            ) : null}
           </div>
         </div>
 
@@ -362,32 +368,34 @@ export default function SuppliersPage() {
                     <td className="truncate px-4 py-2.5" title={item.cooperation_status || ""}>{item.cooperation_status || "-"}</td>
                     <td className="truncate px-4 py-2.5" title={item.address || ""}>{item.address || "-"}</td>
                     <td className="px-4 py-2.5">
-                      <div className="flex items-center gap-0.5">
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={(event) => {
-                            event.stopPropagation()
-                            openEdit(item)
-                          }}
-                          className="cursor-pointer"
-                          aria-label={`编辑 ${item.name}`}
-                        >
-                          <Edit className="h-4 w-4" />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={(event) => {
-                            event.stopPropagation()
-                            setDeleteTarget(item)
-                          }}
-                          className="cursor-pointer"
-                          aria-label={`删除 ${item.name}`}
-                        >
-                          <Trash2 className="h-4 w-4 text-destructive" />
-                        </Button>
-                      </div>
+                      {canManageSuppliers ? (
+                        <div className="flex items-center gap-0.5">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={(event) => {
+                              event.stopPropagation()
+                              openEdit(item)
+                            }}
+                            className="cursor-pointer"
+                            aria-label={`编辑 ${item.name}`}
+                          >
+                            <Edit className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={(event) => {
+                              event.stopPropagation()
+                              setDeleteTarget(item)
+                            }}
+                            className="cursor-pointer"
+                            aria-label={`删除 ${item.name}`}
+                          >
+                            <Trash2 className="h-4 w-4 text-destructive" />
+                          </Button>
+                        </div>
+                      ) : null}
                     </td>
                   </tr>
                 ))}
