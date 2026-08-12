@@ -3111,12 +3111,18 @@ def list_inventory(
     completion_status: str | None = None,
     sort_by: str | None = None,
     sort_direction: str = "desc",
+    sort: list[str] | None = Query(None),
     page: int = 1,
     page_size: int = 20,
 ):
     repository = request.app.state.inventory_repository
     document_type = normalize_document_type(document_type) if document_type else None
     exclude_document_type = normalize_document_type(exclude_document_type) if exclude_document_type else None
+    sort_rules: list[tuple[str, str]] = []
+    for raw_rule in sort or []:
+        key, separator, direction = str(raw_rule).partition(":")
+        if separator and key.strip() and direction.strip().lower() in {"asc", "desc"}:
+            sort_rules.append((key.strip(), direction.strip().lower()))
     return repository.list_records(
         date_start=date_start,
         date_end=date_end,
@@ -3131,6 +3137,7 @@ def list_inventory(
         completion_status=completion_status,
         sort_by=sort_by,
         sort_direction=sort_direction,
+        sort_rules=sort_rules,
         page=page,
         page_size=page_size,
     )

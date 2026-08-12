@@ -88,6 +88,7 @@ class InventoryRepository:
         completion_status: str | None = None,
         sort_by: str | None = None,
         sort_direction: str = "desc",
+        sort_rules: list[tuple[str, str]] | None = None,
         page: int,
         page_size: int,
     ) -> dict[str, object]:
@@ -246,14 +247,25 @@ class InventoryRepository:
             "additional_note": table.c.additional_note,
             "updated_at": table.c.updated_at,
         }
-        sort_column = sort_columns.get(str(sort_by or "").strip())
-        descending = str(sort_direction or "").lower() != "asc"
-        if sort_column is None:
-            order_by = (desc(table.c.id),)
-        elif descending:
-            order_by = (sort_column.desc().nulls_last(), desc(table.c.id))
+        normalized_sort_rules = list(sort_rules or [])
+        if not normalized_sort_rules and sort_by:
+            normalized_sort_rules = [(str(sort_by).strip(), str(sort_direction or "desc").lower())]
+        order_by = []
+        seen_sort_keys: set[str] = set()
+        for sort_key, direction in normalized_sort_rules:
+            normalized_key = str(sort_key or "").strip()
+            sort_column = sort_columns.get(normalized_key)
+            if sort_column is None or normalized_key in seen_sort_keys:
+                continue
+            seen_sort_keys.add(normalized_key)
+            if str(direction or "").lower() == "asc":
+                order_by.append(sort_column.asc().nulls_last())
+            else:
+                order_by.append(sort_column.desc().nulls_last())
+        if not order_by:
+            order_by = [desc(table.c.id)]
         else:
-            order_by = (sort_column.asc().nulls_last(), table.c.id.asc())
+            order_by.append(desc(table.c.id))
         items_statement = items_statement.order_by(*order_by).offset((page - 1) * page_size).limit(page_size)
 
         with self.engine.connect() as connection:

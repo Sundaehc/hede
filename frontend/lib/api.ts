@@ -1041,6 +1041,7 @@ export function listInventory(params: {
   completion_status?: string
   sortBy?: string
   sortDirection?: "asc" | "desc"
+  sortRules?: Array<{ key: string; direction: "asc" | "desc" }>
   page: number
   pageSize: number
 }) {
@@ -1063,6 +1064,9 @@ export function listInventory(params: {
     search.set("completion_status", params.completion_status)
   if (params.sortBy) search.set("sort_by", params.sortBy)
   if (params.sortDirection) search.set("sort_direction", params.sortDirection)
+  for (const rule of params.sortRules ?? []) {
+    search.append("sort", `${rule.key}:${rule.direction}`)
+  }
   return request<InventoryListResponse>(`/inventory?${search.toString()}`)
 }
 
