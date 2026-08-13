@@ -1,7 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useState } from "react"
-import { ChevronLeft, ChevronRight, Edit, History, Plus, Search, Trash2, X } from "lucide-react"
+import { ChevronLeft, ChevronRight, Download, Edit, History, Plus, Search, Trash2, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -22,6 +22,7 @@ import {
   createSupplier,
   updateSupplier,
   deleteSupplier,
+  exportSuppliers,
   ApiError,
   type SupplierItem,
 } from "@/lib/api"
@@ -45,6 +46,15 @@ const SUPPLIER_BRAND_OPTIONS: ReadonlyArray<{ key: SupplierBrand | "all"; label:
 ]
 const DEFAULT_SUPPLIER_BRAND: SupplierBrand = "cbanner_mens"
 const COOPERATION_STATUS_OPTIONS = ["未合作", "合作中", "暂停", "淘汰"] as const
+const SUPPLIER_EXPORT_BRAND_LABELS: Record<SupplierBrand | "all", string> = {
+  all: "总览",
+  cbanner_mens: "千百度男鞋",
+  cbanner_womens: "千百度女鞋",
+  yandou: "烟斗",
+  eblan: "伊伴",
+  smiley: "笑脸",
+  ni: "NI",
+}
 
 function getErrorMessage(error: unknown) {
   if (error instanceof ApiError) return error.message || `请求失败（${error.status}）`
@@ -94,6 +104,7 @@ export default function SuppliersPage() {
   const [queryInput, setQueryInput] = useState("")
   const [query, setQuery] = useState("")
   const [isLoading, setIsLoading] = useState(true)
+  const [isExporting, setIsExporting] = useState(false)
 
   const [formOpen, setFormOpen] = useState(false)
   const [formMode, setFormMode] = useState<"create" | "edit">("create")
@@ -228,6 +239,22 @@ export default function SuppliersPage() {
     }
   }
 
+  const handleExport = async () => {
+    setIsExporting(true)
+    try {
+      const blob = await exportSuppliers({ query, brand })
+      const link = document.createElement("a")
+      link.href = URL.createObjectURL(blob)
+      link.download = `供应商管理_${SUPPLIER_EXPORT_BRAND_LABELS[brand]}.xlsx`
+      link.click()
+      URL.revokeObjectURL(link.href)
+    } catch (error) {
+      showMessage("导出失败", getErrorMessage(error))
+    } finally {
+      setIsExporting(false)
+    }
+  }
+
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE))
   const start = total === 0 ? 0 : (page - 1) * PAGE_SIZE + 1
   const end = total === 0 ? 0 : Math.min(page * PAGE_SIZE, total)
@@ -247,6 +274,10 @@ export default function SuppliersPage() {
             <span className="min-w-20 rounded-full border border-border bg-muted/45 px-3 py-1 text-center text-sm text-muted-foreground tabular-nums">{formatNumber(total)} 个</span>
           </div>
           <div className="flex items-center gap-2">
+            <Button size="sm" variant="outline" onClick={handleExport} disabled={isExporting} className="cursor-pointer">
+              <Download className="h-4 w-4" />
+              <span className="ml-1.5">{isExporting ? "导出中..." : "导出"}</span>
+            </Button>
             <Button size="sm" variant="outline" onClick={() => setOperationLogOpen(true)} className="cursor-pointer">
               <History className="h-4 w-4" />
               <span className="ml-1.5">操作日志</span>

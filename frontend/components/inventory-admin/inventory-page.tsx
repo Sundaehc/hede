@@ -25,7 +25,6 @@ import {
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { ConfirmDialog, MessageDialog } from "@/components/confirm-dialog"
 import { InventoryDetailPanel } from "@/components/inventory-admin/inventory-detail-panel"
-import { EndingInventoryTab } from "@/components/inventory-admin/ending-inventory-tab"
 import { OperationLogDialog } from "@/components/operation-log-dialog"
 import { useAuth } from "@/components/auth/auth-provider"
 import { SearchableFilterInput, type SearchableFilterOption } from "@/components/inventory-admin/searchable-filter-input"
@@ -252,10 +251,14 @@ function getInventoryColumnWidthsStorageKey(userId: number, isPurchasePage: bool
   return `${INVENTORY_TABLE_COLUMN_WIDTHS_STORAGE_KEY}.${userId}.${isPurchasePage ? "purchase-orders" : "inventory"}`
 }
 
+function getInventoryColumnOrderStorageKey(userId: number) {
+  return `${INVENTORY_TABLE_COLUMN_ORDER_STORAGE_KEY}.${userId}`
+}
+
 function inventoryCounterpartyLabel(documentType?: string) {
   if (documentType && WHOLESALE_DOCUMENT_TYPES.has(documentType)) return "收货客户"
   if (documentType && TRANSFER_DOCUMENT_TYPES.has(documentType)) return "出货仓库"
-  return documentType ? "供应商" : "供应商/收货客户"
+  return documentType ? "供应商" : "供应商/收货客户/出货仓库"
 }
 
 function inventoryWarehouseLabel(documentType?: string) {
@@ -757,16 +760,16 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
   const [draggedInventoryColumn, setDraggedInventoryColumn] = useState<InventoryTableColumnKey | null>(null)
   const [dragOverInventoryColumn, setDragOverInventoryColumn] = useState<InventoryTableColumnKey | null>(null)
   const draggedInventoryColumnRef = useRef<InventoryTableColumnKey | null>(null)
-  const [activeTab, setActiveTab] = useState("records")
   const [recordCompletionStatus, setRecordCompletionStatus] = useState<CompletionStatus>("completed")
-  const activeTabValue = isPurchasePage ? "purchase-orders" : activeTab
-  const isPurchaseOrderTab = activeTabValue === "purchase-orders"
+  const isPurchaseOrderTab = isPurchasePage
+  const inventoryColumnOrderStorageKey = user ? getInventoryColumnOrderStorageKey(user.id) : null
   const inventoryColumnWidthsStorageKey = user ? getInventoryColumnWidthsStorageKey(user.id, isPurchasePage) : null
 
   useEffect(() => {
-    if (isPurchasePage) return
+    setInventoryColumnOrder(INVENTORY_TABLE_COLUMN_ORDER)
+    if (isPurchasePage || !inventoryColumnOrderStorageKey) return
     try {
-      const storedOrder = window.localStorage.getItem(INVENTORY_TABLE_COLUMN_ORDER_STORAGE_KEY)
+      const storedOrder = window.localStorage.getItem(inventoryColumnOrderStorageKey)
       if (!storedOrder) return
       const parsedOrder: unknown = JSON.parse(storedOrder)
       if (!Array.isArray(parsedOrder)) return
@@ -779,7 +782,7 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
     } catch {
       // Ignore unavailable or malformed browser storage.
     }
-  }, [isPurchasePage])
+  }, [inventoryColumnOrderStorageKey, isPurchasePage])
 
   useEffect(() => {
     setInventoryColumnWidths({ ...INVENTORY_TABLE_COLUMN_DEFAULT_WIDTHS })
@@ -833,10 +836,12 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
       const nextOrder = [...currentOrder]
       nextOrder.splice(sourceIndex, 1)
       nextOrder.splice(targetIndex - (sourceIndex < targetIndex ? 1 : 0), 0, sourceColumnKey)
-      try {
-        window.localStorage.setItem(INVENTORY_TABLE_COLUMN_ORDER_STORAGE_KEY, JSON.stringify(nextOrder))
-      } catch {
-        // Keep the current session order when browser storage is unavailable.
+      if (inventoryColumnOrderStorageKey) {
+        try {
+          window.localStorage.setItem(inventoryColumnOrderStorageKey, JSON.stringify(nextOrder))
+        } catch {
+          // Keep the current session order when browser storage is unavailable.
+        }
       }
       return nextOrder
     })
@@ -1496,15 +1501,6 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
     setSelectedIds(new Set())
   }
 
-  const handleMainTabChange = (value: string) => {
-    if (isPurchasePage) return
-    setActiveTab(value)
-    setPage(1)
-    setSelectedIds(new Set())
-    setSearchDocumentType("")
-    setSubmittedFilters({})
-  }
-
   const hasFilters = Object.entries(submittedFilters).some(
     ([key, value]) => value && !(isPurchaseOrderTab && key === "document_type" && value === PURCHASE_ORDER_DOCUMENT_TYPE),
   )
@@ -1724,16 +1720,8 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
           </div>
         </div>
 
-        <Tabs defaultValue="records" value={activeTab} onValueChange={handleMainTabChange}>
-          {!isPurchasePage && (
-            <TabsList className="rounded-xl bg-muted/60 p-1">
-              <TabsTrigger value="records">经营历程</TabsTrigger>
-              <TabsTrigger value="ending">期末库存</TabsTrigger>
-            </TabsList>
-          )}
-
-          {(activeTabValue === "records" || activeTabValue === "purchase-orders") && (
-            <>
+        <Tabs defaultValue="records">
+          <>
               {!isPurchaseOrderTab && (
                 <div className="surface-panel p-1.5">
                   <Tabs defaultValue="completed" value={recordCompletionStatus} onValueChange={handleCompletionTabChange}>
@@ -1901,7 +1889,7 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
                           <th className="relative px-4 py-3 pr-7 font-medium"><SortableColumnLabel label="单据编号" sortRule={getSortRule("document_number")} onClick={(event) => handleTableSort("document_number", event.shiftKey)} /><ColumnResizeHandle columnKey="document_number" label="单据编号" onResizeStart={handleInventoryColumnResizeStart} /></th>
                           <th className="relative px-4 py-3 pr-7 font-medium"><SortableColumnLabel label="订货日期" sortRule={getSortRule("date")} onClick={(event) => handleTableSort("date", event.shiftKey)} /><ColumnResizeHandle columnKey="date" label="订货日期" onResizeStart={handleInventoryColumnResizeStart} /></th>
                           <th className="relative px-4 py-3 pr-7 font-medium"><SortableColumnLabel label="交货日期" sortRule={getSortRule("delivery_date")} onClick={(event) => handleTableSort("delivery_date", event.shiftKey)} /><ColumnResizeHandle columnKey="delivery_date" label="交货日期" onResizeStart={handleInventoryColumnResizeStart} /></th>
-                          <th className="relative px-4 py-3 pr-7 font-medium"><SortableColumnLabel label="供应商" sortRule={getSortRule("supplier")} onClick={(event) => handleTableSort("supplier", event.shiftKey)} /><ColumnResizeHandle columnKey="supplier" label="供应商" onResizeStart={handleInventoryColumnResizeStart} /></th>
+                          <th className="relative px-4 py-3 pr-7 font-medium"><SortableColumnLabel label="供应商/收货客户/出货仓库" sortRule={getSortRule("supplier")} onClick={(event) => handleTableSort("supplier", event.shiftKey)} /><ColumnResizeHandle columnKey="supplier" label="供应商/收货客户/出货仓库" onResizeStart={handleInventoryColumnResizeStart} /></th>
                           <th className="relative px-4 py-3 pr-7 font-medium"><SortableColumnLabel label="经手人" sortRule={getSortRule("handler")} onClick={(event) => handleTableSort("handler", event.shiftKey)} /><ColumnResizeHandle columnKey="handler" label="经手人" onResizeStart={handleInventoryColumnResizeStart} /></th>
                           <th className="relative px-4 py-3 pr-7 font-medium"><SortableColumnLabel label="摘要" sortRule={getSortRule("summary")} onClick={(event) => handleTableSort("summary", event.shiftKey)} /><ColumnResizeHandle columnKey="summary" label="摘要" onResizeStart={handleInventoryColumnResizeStart} /></th>
                           <th className="relative px-4 py-3 pr-7 font-medium"><SortableColumnLabel label="附加说明" sortRule={getSortRule("additional_note")} onClick={(event) => handleTableSort("additional_note", event.shiftKey)} /><ColumnResizeHandle columnKey="additional_note" label="附加说明" onResizeStart={handleInventoryColumnResizeStart} /></th>
@@ -2134,9 +2122,7 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
               <div className="text-center text-xs text-muted-foreground">
                 {completionLabel}共 {total} 条 · 第 {total === 0 ? 0 : (page - 1) * pageSize + 1}-{Math.min(page * pageSize, total)} 条
               </div>
-            </>
-          )}
-          {!isPurchasePage && activeTabValue === "ending" && <EndingInventoryTab />}
+          </>
         </Tabs>
       </div>
 

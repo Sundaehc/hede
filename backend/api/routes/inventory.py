@@ -2559,7 +2559,12 @@ def _build_purchase_detail_candidates(connection, query: str, brand: str | None 
 
 def _purchase_detail_extra_fields(product_info: dict[str, object], detail_code: object, imported_extra_fields: object | None = None) -> dict[str, str]:
     code = _cell_text(detail_code)
-    original_code = _first_text(product_info.get("original_goods_code"), code)
+    original_code = _first_text(
+        product_info.get("_archive_sku"),
+        product_info.get("goods_code"),
+        product_info.get("sku"),
+        code,
+    )
     extra_fields = {
         "image_code": original_code,
         "factory_code": _cell_text(product_info.get("factory_code")),
@@ -2607,10 +2612,12 @@ def _build_purchase_detail_lookup_for_brand(connection, product_code: str, quant
     detail_code = raw_code
     if product_info:
         detail_code = _first_text(
-            product_info.get("original_goods_code"),
+            product_info.get("_archive_sku"),
             product_info.get("goods_code"),
-            product_info.get("original_sku"),
             product_info.get("sku"),
+            product_info.get("_archive_original_sku"),
+            product_info.get("original_goods_code"),
+            product_info.get("original_sku"),
             raw_code,
         )
     if not product_info and stripped_code and stripped_code != raw_code:
@@ -2843,8 +2850,11 @@ def _build_purchase_details_from_rows(
                 detail=f"商品编码 {raw_code} 不是由商品信息档案中的已有商品构成，请检查货号、颜色和尺码",
             )
         matched_product_code = _first_text(
-            product_info.get("original_goods_code"),
+            product_info.get("_archive_sku"),
             product_info.get("goods_code"),
+            product_info.get("sku"),
+            product_info.get("_archive_original_sku"),
+            product_info.get("original_goods_code"),
         )
         if matched_product_code:
             original_sku = matched_product_code

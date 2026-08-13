@@ -3,6 +3,8 @@
 import { memo, useDeferredValue, useEffect, useMemo, useRef, useState, useTransition, type ReactNode } from "react"
 import {
   AlertTriangle,
+  ArrowDownAZ,
+  ArrowUpAZ,
   BarChart3, 
   Boxes,
   CalendarDays,
@@ -38,7 +40,7 @@ import { OperationLogDialog } from "@/components/operation-log-dialog"
 import { Input } from "@/components/ui/input"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { BRANDS, type BrandKey } from "@/lib/brands"
-import { ApiError, getFineTableSnapshotByDate, listFineTable, listFineTableFilterOptions, logFineTableExport, type FineTableFilter, type FineTableFilterField, type FineTableFilterOptionsResponse } from "@/lib/api"
+import { ApiError, getFineTableSnapshotByDate, listFineTable, listFineTableFilterOptions, logFineTableExport, type FineTableFilter, type FineTableFilterField, type FineTableFilterOption, type FineTableFilterOptionsResponse } from "@/lib/api"
 import type { FineTableItem, FineTableResponse, FineTableSnapshotResponse, ProductListItem } from "@/lib/types"
 import { cn } from "@/lib/utils"
 
@@ -98,6 +100,48 @@ type FineTableLastState = {
   reloadToken: number
 }
 type ActiveFineTableColumnFilter = { field: FineTableFilterField; label: string; top: number; left: number }
+type ColumnFilterSortOrder = "asc" | "desc"
+type FineTableDateFilterDay = { day: number; options: FineTableFilterOption[]; count: number }
+type FineTableDateFilterMonth = { month: number; days: FineTableDateFilterDay[]; count: number }
+type FineTableDateFilterYear = { year: number; months: FineTableDateFilterMonth[]; count: number }
+
+function parseFineTableFilterDate(value: string): { year: number; month: number; day: number } | null {
+  const match = value.match(/^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})(?:[T\s].*)?$/)
+  if (!match) return null
+  const year = Number(match[1])
+  const month = Number(match[2])
+  const day = Number(match[3])
+  if (!Number.isInteger(year) || month < 1 || month > 12 || day < 1 || day > 31) return null
+  return { year, month, day }
+}
+
+function compareFineTableFilterValues(left: string, right: string, direction: ColumnFilterSortOrder) {
+  if (!left && !right) return 0
+  if (!left) return 1
+  if (!right) return -1
+  const result = left.localeCompare(right, "zh-CN", { numeric: true, sensitivity: "base" })
+  return direction === "asc" ? result : -result
+}
+
+function FilterCheckbox({
+  checked,
+  indeterminate = false,
+  onChange,
+  ariaLabel,
+}: {
+  checked: boolean
+  indeterminate?: boolean
+  onChange: () => void
+  ariaLabel: string
+}) {
+  const inputRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => {
+    if (inputRef.current) inputRef.current.indeterminate = indeterminate
+  }, [indeterminate])
+
+  return <input ref={inputRef} type="checkbox" checked={checked} onChange={onChange} aria-label={ariaLabel} />
+}
 
 function FineTableHeaderFilterButton({
   field,
@@ -1465,7 +1509,10 @@ export function FineTablePage() {
   const [activeColumnFilter, setActiveColumnFilter] = useState<ActiveFineTableColumnFilter | null>(null)
   const [columnFilterData, setColumnFilterData] = useState<FineTableFilterOptionsResponse | null>(null)
   const [columnFilterSearch, setColumnFilterSearch] = useState("")
+  const [columnFilterSortOrder, setColumnFilterSortOrder] = useState<ColumnFilterSortOrder>("desc")
   const [draftColumnValues, setDraftColumnValues] = useState<string[] | null>(null)
+  const [expandedDateFilterYears, setExpandedDateFilterYears] = useState<number[]>([])
+  const [expandedDateFilterMonths, setExpandedDateFilterMonths] = useState<string[]>([])
   const [columnFilterLoading, setColumnFilterLoading] = useState(false)
   const [columnFilterError, setColumnFilterError] = useState("")
   const [view, setView] = useState<ViewKey>(initialState.view)
@@ -1680,9 +1727,14 @@ export function FineTablePage() {
     if (!keyword) return columnFilterData?.options ?? []
     return (columnFilterData?.options ?? []).filter((item) => item.value.toLocaleLowerCase().includes(keyword))
   }, [columnFilterData, columnFilterSearch])
+  const sortedColumnFilterOptions = useMemo(() => (
+    [...matchingColumnFilterOptions].sort((left, right) => (
+      compareFineTableFilterValues(left.value, right.value, columnFilterSortOrder)
+    ))
+  ), [columnFilterSortOrder, matchingColumnFilterOptions])
   const visibleColumnFilterOptions = useMemo(
-    () => matchingColumnFilterOptions.slice(0, 300),
-    [matchingColumnFilterOptions],
+    () => sortedColumnFilterOptions.slice(0, 300),
+    [sortedColumnFilterOptions],
   )
   const hasHiddenColumnFilterOptions = matchingColumnFilterOptions.length > visibleColumnFilterOptions.length
   const selectedColumnValues = useMemo(
@@ -1691,6 +1743,46 @@ export function FineTablePage() {
   )
   const allVisibleColumnOptionsSelected = visibleColumnFilterOptions.length > 0
     && visibleColumnFilterOptions.every((item) => selectedColumnValues.has(item.value))
+  const isDateColumnFilter = activeColumnFilter?.field === "first_order_time"
+  const dateColumnFilterTree = useMemo(() => {
+    if (!isDateColumnFilter) return { years: [] as FineTableDateFilterYear[], otherOptions: [] as FineTableFilterOption[] }
+    const years = new Map<number, Map<number, Map<number, FineTableFilterOption[]>>>()
+    const otherOptions: FineTableFilterOption[] = []
+    for (const option of visibleColumnFilterOptions) {
+      const date = parseFineTableFilterDate(option.value)
+      if (!date) {
+        otherOptions.push(option)
+        continue
+      }
+      const months = years.get(date.year) ?? new Map<number, Map<number, FineTableFilterOption[]>>()
+      const days = months.get(date.month) ?? new Map<number, FineTableFilterOption[]>()
+      const options = days.get(date.day) ?? []
+      options.push(option)
+      days.set(date.day, options)
+      months.set(date.month, days)
+      years.set(date.year, months)
+    }
+    const sortedYears = [...years.entries()].map(([year, months]) => {
+      const sortedMonths = [...months.entries()].map(([month, days]) => {
+        const sortedDays = [...days.entries()].map(([day, options]) => ({
+          day,
+          options,
+          count: options.reduce((total, option) => total + option.count, 0),
+        })).sort((left, right) => columnFilterSortOrder === "asc" ? left.day - right.day : right.day - left.day)
+        return {
+          month,
+          days: sortedDays,
+          count: sortedDays.reduce((total, day) => total + day.count, 0),
+        }
+      }).sort((left, right) => columnFilterSortOrder === "asc" ? left.month - right.month : right.month - left.month)
+      return {
+        year,
+        months: sortedMonths,
+        count: sortedMonths.reduce((total, month) => total + month.count, 0),
+      }
+    }).sort((left, right) => columnFilterSortOrder === "asc" ? left.year - right.year : right.year - left.year)
+    return { years: sortedYears, otherOptions }
+  }, [columnFilterSortOrder, isDateColumnFilter, visibleColumnFilterOptions])
   const draftCustomColumnKeySet = useMemo(() => new Set(draftCustomColumnKeys), [draftCustomColumnKeys])
   const collapsedColumnGroupSet = useMemo(() => new Set(collapsedColumnGroups), [collapsedColumnGroups])
   const groupedColumns = useMemo(() => {
@@ -1725,7 +1817,10 @@ export function FineTablePage() {
     })
     setColumnFilterData(null)
     setColumnFilterSearch("")
+    setColumnFilterSortOrder("desc")
     setDraftColumnValues(null)
+    setExpandedDateFilterYears([])
+    setExpandedDateFilterMonths([])
     setColumnFilterError("")
   }
 
@@ -1735,13 +1830,37 @@ export function FineTablePage() {
     setColumnFilterError("")
   }
 
-  function toggleFineTableColumnFilterValue(value: string) {
+  function toggleFineTableColumnFilterValues(targetValues: string[]) {
+    if (targetValues.length === 0) return
     setDraftColumnValues((current) => {
       const values = new Set(current ?? columnFilterData?.options.map((item) => item.value) ?? [])
-      if (values.has(value)) values.delete(value)
-      else values.add(value)
+      const shouldSelect = targetValues.some((value) => !values.has(value))
+      targetValues.forEach((value) => {
+        if (shouldSelect) values.add(value)
+        else values.delete(value)
+      })
       return [...values]
     })
+  }
+
+  function toggleFineTableColumnFilterValue(value: string) {
+    toggleFineTableColumnFilterValues([value])
+  }
+
+  function getFineTableColumnFilterSelectionState(values: string[]) {
+    const selectedCount = values.filter((value) => selectedColumnValues.has(value)).length
+    return {
+      checked: values.length > 0 && selectedCount === values.length,
+      indeterminate: selectedCount > 0 && selectedCount < values.length,
+    }
+  }
+
+  function toggleDateFilterYear(year: number) {
+    setExpandedDateFilterYears((current) => current.includes(year) ? current.filter((item) => item !== year) : [...current, year])
+  }
+
+  function toggleDateFilterMonth(key: string) {
+    setExpandedDateFilterMonths((current) => current.includes(key) ? current.filter((item) => item !== key) : [...current, key])
   }
 
   function toggleAllVisibleFineTableColumnFilterOptions() {
@@ -2303,7 +2422,7 @@ export function FineTablePage() {
       </div>
       {activeColumnFilter && (
         <div
-          className="fixed z-[100] flex w-[min(24rem,calc(100vw-1.5rem))] flex-col overflow-hidden border border-border bg-card shadow-xl"
+          className="fixed z-[100] flex w-[min(24rem,calc(100vw-1.5rem))] flex-col overflow-hidden rounded-lg border border-border bg-card shadow-xl"
           style={{ top: activeColumnFilter.top, left: activeColumnFilter.left }}
         >
           <div className="flex items-center justify-between border-b border-border px-3 py-2">
@@ -2311,9 +2430,21 @@ export function FineTablePage() {
               <p className="text-sm font-medium">{activeColumnFilter.label}</p>
               <p className="text-[11px] text-muted-foreground">{columnFilterData ? `${columnFilterData.total.toLocaleString("zh-CN")} 个筛选项` : "正在读取筛选项"}</p>
             </div>
-            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={closeFineTableColumnFilter} aria-label="关闭字段筛选" title="关闭">
-              <X className="h-4 w-4" />
-            </Button>
+            <div className="flex items-center gap-1">
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-7 w-7 cursor-pointer"
+                onClick={() => setColumnFilterSortOrder((current) => current === "desc" ? "asc" : "desc")}
+                aria-label={columnFilterSortOrder === "desc" ? "当前降序，切换为升序" : "当前升序，切换为降序"}
+                title={columnFilterSortOrder === "desc" ? "当前降序，点击切换为升序" : "当前升序，点击切换为降序"}
+              >
+                {columnFilterSortOrder === "desc" ? <ArrowDownAZ className="h-4 w-4" /> : <ArrowUpAZ className="h-4 w-4" />}
+              </Button>
+              <Button variant="ghost" size="icon" className="h-7 w-7 cursor-pointer" onClick={closeFineTableColumnFilter} aria-label="关闭字段筛选" title="关闭">
+                <X className="h-4 w-4" />
+              </Button>
+            </div>
           </div>
           <div className="border-b border-border px-3 py-2">
             <div className="relative">
@@ -2330,7 +2461,65 @@ export function FineTablePage() {
             {!columnFilterLoading && columnFilterError && <p className="px-1 py-8 text-center text-sm text-destructive">{columnFilterError}</p>}
             {!columnFilterLoading && !columnFilterError && hasHiddenColumnFilterOptions && <p className="mb-2 border border-border bg-muted/40 px-2 py-1.5 text-xs text-muted-foreground">当前展示前 300 项，请输入货号搜索更多结果。</p>}
             {!columnFilterLoading && !columnFilterError && !visibleColumnFilterOptions.length && <p className="px-1 py-8 text-center text-sm text-muted-foreground">没有匹配的筛选项</p>}
-            {!columnFilterLoading && !columnFilterError && visibleColumnFilterOptions.map((item) => <label key={item.value || "__empty"} className="flex h-7 cursor-pointer items-center justify-between gap-2 px-1 text-xs hover:bg-muted/70"><span className="flex min-w-0 items-center gap-2"><input type="checkbox" checked={selectedColumnValues.has(item.value)} onChange={() => toggleFineTableColumnFilterValue(item.value)} /><span className="truncate">{item.value || "(空白)"}</span></span><span className="shrink-0 text-muted-foreground">{item.count.toLocaleString("zh-CN")}</span></label>)}
+            {!columnFilterLoading && !columnFilterError && isDateColumnFilter && dateColumnFilterTree.years.map((year) => {
+              const yearValues = year.months.flatMap((month) => month.days.flatMap((day) => day.options.map((option) => option.value)))
+              const yearSelection = getFineTableColumnFilterSelectionState(yearValues)
+              const yearExpanded = expandedDateFilterYears.includes(year.year)
+              return (
+                <div key={year.year} className="border-b border-border/60 last:border-b-0">
+                  <div className="flex h-8 items-center gap-1 px-1 text-xs hover:bg-muted/70">
+                    <button type="button" className="flex h-6 w-6 shrink-0 cursor-pointer items-center justify-center rounded hover:bg-muted" onClick={() => toggleDateFilterYear(year.year)} aria-label={`${year.year}年${yearExpanded ? "收起" : "展开"}`}>
+                      <ChevronRight className={cn("h-3.5 w-3.5 transition-transform", yearExpanded && "rotate-90")} />
+                    </button>
+                    <label className="flex min-w-0 flex-1 cursor-pointer items-center gap-2">
+                      <FilterCheckbox checked={yearSelection.checked} indeterminate={yearSelection.indeterminate} onChange={() => toggleFineTableColumnFilterValues(yearValues)} ariaLabel={`选择${year.year}年`} />
+                      <span className="font-medium">{year.year}年</span>
+                    </label>
+                    <span className="shrink-0 text-muted-foreground">{year.count.toLocaleString("zh-CN")}</span>
+                  </div>
+                  {yearExpanded && year.months.map((month) => {
+                    const monthKey = `${year.year}-${month.month}`
+                    const monthValues = month.days.flatMap((day) => day.options.map((option) => option.value))
+                    const monthSelection = getFineTableColumnFilterSelectionState(monthValues)
+                    const monthExpanded = expandedDateFilterMonths.includes(monthKey)
+                    return (
+                      <div key={monthKey} className="ml-5">
+                        <div className="flex h-8 items-center gap-1 px-1 text-xs hover:bg-muted/70">
+                          <button type="button" className="flex h-6 w-6 shrink-0 cursor-pointer items-center justify-center rounded hover:bg-muted" onClick={() => toggleDateFilterMonth(monthKey)} aria-label={`${month.month}月${monthExpanded ? "收起" : "展开"}`}>
+                            <ChevronRight className={cn("h-3.5 w-3.5 transition-transform", monthExpanded && "rotate-90")} />
+                          </button>
+                          <label className="flex min-w-0 flex-1 cursor-pointer items-center gap-2">
+                            <FilterCheckbox checked={monthSelection.checked} indeterminate={monthSelection.indeterminate} onChange={() => toggleFineTableColumnFilterValues(monthValues)} ariaLabel={`选择${year.year}年${month.month}月`} />
+                            <span>{month.month}月</span>
+                          </label>
+                          <span className="shrink-0 text-muted-foreground">{month.count.toLocaleString("zh-CN")}</span>
+                        </div>
+                        {monthExpanded && month.days.map((day) => {
+                          const dayValues = day.options.map((option) => option.value)
+                          const daySelection = getFineTableColumnFilterSelectionState(dayValues)
+                          return (
+                            <label key={`${monthKey}-${day.day}`} className="ml-7 flex h-7 cursor-pointer items-center justify-between gap-2 px-1 text-xs hover:bg-muted/70">
+                              <span className="flex min-w-0 items-center gap-2">
+                                <FilterCheckbox checked={daySelection.checked} indeterminate={daySelection.indeterminate} onChange={() => toggleFineTableColumnFilterValues(dayValues)} ariaLabel={`选择${year.year}年${month.month}月${day.day}日`} />
+                                <span>{day.day}日</span>
+                              </span>
+                              <span className="shrink-0 text-muted-foreground">{day.count.toLocaleString("zh-CN")}</span>
+                            </label>
+                          )
+                        })}
+                      </div>
+                    )
+                  })}
+                </div>
+              )
+            })}
+            {!columnFilterLoading && !columnFilterError && isDateColumnFilter && dateColumnFilterTree.otherOptions.length > 0 && (
+              <div className="mt-2 border-t border-border pt-2">
+                <p className="px-1 pb-1 text-[11px] text-muted-foreground">其他</p>
+                {dateColumnFilterTree.otherOptions.map((item) => <label key={item.value || "__empty"} className="flex h-7 cursor-pointer items-center justify-between gap-2 px-1 text-xs hover:bg-muted/70"><span className="flex min-w-0 items-center gap-2"><FilterCheckbox checked={selectedColumnValues.has(item.value)} onChange={() => toggleFineTableColumnFilterValue(item.value)} ariaLabel={`选择${item.value || "空白"}`} /><span className="truncate">{item.value || "(空白)"}</span></span><span className="shrink-0 text-muted-foreground">{item.count.toLocaleString("zh-CN")}</span></label>)}
+              </div>
+            )}
+            {!columnFilterLoading && !columnFilterError && !isDateColumnFilter && visibleColumnFilterOptions.map((item) => <label key={item.value || "__empty"} className="flex h-7 cursor-pointer items-center justify-between gap-2 px-1 text-xs hover:bg-muted/70"><span className="flex min-w-0 items-center gap-2"><FilterCheckbox checked={selectedColumnValues.has(item.value)} onChange={() => toggleFineTableColumnFilterValue(item.value)} ariaLabel={`选择${item.value || "空白"}`} /><span className="truncate">{item.value || "(空白)"}</span></span><span className="shrink-0 text-muted-foreground">{item.count.toLocaleString("zh-CN")}</span></label>)}
           </div>
           <div className="flex items-center justify-between border-t border-border px-3 py-2"><Button variant="ghost" size="sm" onClick={clearActiveFineTableColumnFilter}>清除此列</Button><div className="flex gap-2"><Button variant="outline" size="sm" onClick={closeFineTableColumnFilter}>取消</Button><Button size="sm" onClick={applyFineTableColumnFilter} disabled={columnFilterLoading || !columnFilterData}>确定</Button></div></div>
         </div>

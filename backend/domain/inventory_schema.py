@@ -74,6 +74,7 @@ def build_inventory_table() -> Table:
     Index("idx_inventory_records_supplier", table.c.supplier)
     Index("idx_inventory_records_warehouse", table.c.warehouse)
     Index("idx_inventory_records_document_type", table.c.document_type)
+    Index("idx_inventory_records_warehouse_date", table.c.warehouse, table.c.date_value)
     return table
 
 

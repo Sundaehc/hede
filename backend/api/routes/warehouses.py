@@ -32,6 +32,58 @@ def list_warehouses(request: Request):
     return {"items": repository.list_warehouses()}
 
 
+@router.get("/warehouses/{warehouse_id}/inventory")
+def get_warehouse_inventory(
+    request: Request,
+    warehouse_id: int,
+    date_start: str | None = None,
+    date_end: str | None = None,
+    product_code: str | None = None,
+    page: int = 1,
+    page_size: int = 20,
+):
+    repository = request.app.state.inventory_repository
+    warehouse = repository.get_warehouse(warehouse_id)
+    if warehouse is None:
+        raise HTTPException(status_code=404, detail="Warehouse not found")
+    return repository.get_warehouse_inventory(
+        warehouse_name=str(warehouse.get("name") or ""),
+        date_start=date_start,
+        date_end=date_end,
+        product_code=product_code,
+        page=max(page, 1),
+        page_size=min(max(page_size, 1), 200),
+    )
+
+
+@router.get("/warehouses/{warehouse_id}/inventory/movements")
+def list_warehouse_inventory_movements(
+    request: Request,
+    warehouse_id: int,
+    date_start: str | None = None,
+    date_end: str | None = None,
+    product_code: str | None = None,
+    color_name: str | None = None,
+    color_spec: str | None = None,
+    page: int = 1,
+    page_size: int = 50,
+):
+    repository = request.app.state.inventory_repository
+    warehouse = repository.get_warehouse(warehouse_id)
+    if warehouse is None:
+        raise HTTPException(status_code=404, detail="Warehouse not found")
+    return repository.list_warehouse_inventory_movements(
+        warehouse_name=str(warehouse.get("name") or ""),
+        date_start=date_start,
+        date_end=date_end,
+        product_code=product_code,
+        color_name=color_name,
+        color_spec=color_spec,
+        page=max(page, 1),
+        page_size=min(max(page_size, 1), 200),
+    )
+
+
 @router.get("/warehouse-brands")
 def list_warehouse_brands(request: Request):
     repository = request.app.state.inventory_repository

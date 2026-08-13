@@ -54,6 +54,7 @@ PURCHASE_INBOUND_DETAIL_TYPES = ("进货单", "进货退货单")
 GENERAL_CUSTOMER_SORT_SCOPE_BRAND = "brand"
 GENERAL_CUSTOMER_SORT_SCOPE_SHOP = "shop"
 GENERAL_CUSTOMER_SORT_SCOPE_UNIT = "unit"
+
 GENERAL_CUSTOMER_ROOT_SORT_PARENT_ID = 0
 
 
@@ -1621,8 +1622,29 @@ class InventoryRepository:
     def update_warehouse(self, warehouse_id: int, data: Mapping[str, object]) -> dict[str, object] | None:
         payload = dict(data)
         payload.pop("id", None)
-        statement = update(WAREHOUSE_TABLE).where(WAREHOUSE_TABLE.c.id == warehouse_id).values(**payload).returning(WAREHOUSE_TABLE)
         with self.engine.begin() as connection:
+            before = connection.execute(
+                select(WAREHOUSE_TABLE.c.name).where(WAREHOUSE_TABLE.c.id == warehouse_id)
+            ).scalar_one_or_none()
+            if before is None:
+                return None
+            previous_name = str(before).strip()
+            next_name = str(payload.get("name") or previous_name).strip()
+            if next_name and next_name != previous_name:
+                connection.execute(
+                    update(INVENTORY_TABLE)
+                    .where(INVENTORY_TABLE.c.warehouse == previous_name)
+                    .values(warehouse=next_name)
+                )
+                connection.execute(
+                    update(INVENTORY_TABLE)
+                    .where(
+                        INVENTORY_TABLE.c.document_type == "同价调拨单",
+                        INVENTORY_TABLE.c.supplier == previous_name,
+                    )
+                    .values(supplier=next_name)
+                )
+            statement = update(WAREHOUSE_TABLE).where(WAREHOUSE_TABLE.c.id == warehouse_id).values(**payload).returning(WAREHOUSE_TABLE)
             row = connection.execute(statement).mappings().first()
         return None if row is None else dict(row)
 
@@ -1643,6 +1665,246 @@ class InventoryRepository:
         with self.engine.connect() as connection:
             row = connection.execute(statement).mappings().first()
         return None if row is None else dict(row)
+
+    # ── Warehouse inventory ───────────────────────────────────────
+
+    @staticmethod
+    def _warehouse_inventory_expressions(warehouse_name: str):
+        """Return inbound, outbound and scope expressions for one warehouse."""
+        record = INVENTORY_TABLE
+        detail = INVENTORY_DETAIL_TABLE
+        quantity = func.coalesce(detail.c.quantity, 0)
+        inbound_types = ("进货单", "报溢单", "批发销售退货单")
+        outbound_types = ("进货退货单", "报损单", "批发销售单")
+
+        inbound = case(
+            (
+                or_(
+                    and_(record.c.document_type.in_(inbound_types), record.c.warehouse == warehouse_name),
+                    and_(record.c.document_type == "同价调拨单", record.c.warehouse == warehouse_name),
+                ),
+                quantity,
+            ),
+            else_=0,
+        )
+        outbound = case(
+            (
+                or_(
+                    and_(record.c.document_type.in_(outbound_types), record.c.warehouse == warehouse_name),
+                    and_(record.c.document_type == "同价调拨单", record.c.supplier == warehouse_name),
+                ),
+                quantity,
+            ),
+            else_=0,
+        )
+        affected = or_(
+            and_(record.c.document_type.in_(inbound_types + outbound_types), record.c.warehouse == warehouse_name),
+            and_(
+                record.c.document_type == "同价调拨单",
+                or_(record.c.warehouse == warehouse_name, record.c.supplier == warehouse_name),
+            ),
+        )
+        return inbound, outbound, affected
+
+    def get_warehouse_inventory(
+        self,
+        *,
+        warehouse_name: str,
+        date_start: str | None = None,
+        date_end: str | None = None,
+        product_code: str | None = None,
+        page: int,
+        page_size: int,
+    ) -> dict[str, object]:
+        record = INVENTORY_TABLE
+        detail = INVENTORY_DETAIL_TABLE
+        joined = detail.join(record, detail.c.document_id == record.c.id)
+        inbound, outbound, affected = self._warehouse_inventory_expressions(warehouse_name)
+        start_date = parse_date(date_start) if date_start else None
+        end_date = parse_date(date_end) if date_end else None
+
+        conditions = [record.c.deleted_at.is_(None), affected]
+        if end_date:
+            conditions.append(or_(
+                record.c.date_value <= end_date,
+                and_(record.c.date_value.is_(None), record.c.date <= date_end),
+            ))
+        elif date_end:
+            conditions.append(record.c.date <= date_end)
+        if product_code:
+            conditions.append(detail.c.product_code.ilike(f"%{product_code.strip()}%"))
+
+        if start_date:
+            before_period = or_(
+                record.c.date_value < start_date,
+                and_(record.c.date_value.is_(None), record.c.date < date_start),
+            )
+            in_period = or_(
+                record.c.date_value >= start_date,
+                and_(record.c.date_value.is_(None), record.c.date >= date_start),
+            )
+        elif date_start:
+            before_period = record.c.date < date_start
+            in_period = record.c.date >= date_start
+        else:
+            before_period = False
+            in_period = True
+
+        beginning_qty = func.coalesce(func.sum(case((before_period, inbound - outbound), else_=0)), 0).label("beginning_qty")
+        inbound_qty = func.coalesce(func.sum(case((in_period, inbound), else_=0)), 0).label("inbound_qty")
+        outbound_qty = func.coalesce(func.sum(case((in_period, outbound), else_=0)), 0).label("outbound_qty")
+        grouped = (
+            select(
+                detail.c.product_code,
+                detail.c.product_name,
+                detail.c.color_name,
+                detail.c.color_spec,
+                beginning_qty,
+                inbound_qty,
+                outbound_qty,
+            )
+            .select_from(joined)
+            .where(and_(*conditions))
+            .group_by(
+                detail.c.product_code,
+                detail.c.product_name,
+                detail.c.color_name,
+                detail.c.color_spec,
+            )
+            .subquery()
+        )
+        ending_qty = (grouped.c.beginning_qty + grouped.c.inbound_qty - grouped.c.outbound_qty).label("ending_qty")
+        count_statement = select(func.count()).select_from(grouped)
+        totals_statement = select(
+            func.coalesce(func.sum(grouped.c.beginning_qty), 0).label("beginning_qty"),
+            func.coalesce(func.sum(grouped.c.inbound_qty), 0).label("inbound_qty"),
+            func.coalesce(func.sum(grouped.c.outbound_qty), 0).label("outbound_qty"),
+            func.coalesce(func.sum(ending_qty), 0).label("ending_qty"),
+        )
+        items_statement = (
+            select(grouped, ending_qty)
+            .order_by(grouped.c.product_code, grouped.c.color_name, grouped.c.color_spec)
+            .offset((page - 1) * page_size)
+            .limit(page_size)
+        )
+
+        with self.engine.connect() as connection:
+            total = connection.execute(count_statement).scalar_one()
+            totals = connection.execute(totals_statement).mappings().one()
+            rows = [dict(row) for row in connection.execute(items_statement).mappings()]
+
+        def format_quantity(value: object) -> str:
+            return self._format_decimal(Decimal(str(value or "0")))
+
+        items = [{
+            "product_code": row.get("product_code"),
+            "product_name": row.get("product_name"),
+            "color_name": row.get("color_name"),
+            "color_spec": row.get("color_spec"),
+            "beginning_qty": format_quantity(row.get("beginning_qty")),
+            "inbound_qty": format_quantity(row.get("inbound_qty")),
+            "outbound_qty": format_quantity(row.get("outbound_qty")),
+            "ending_qty": format_quantity(row.get("ending_qty")),
+        } for row in rows]
+        return {
+            "items": items,
+            "total": total,
+            "page": page,
+            "page_size": page_size,
+            "totals": {
+                "beginning_qty": format_quantity(totals.get("beginning_qty")),
+                "inbound_qty": format_quantity(totals.get("inbound_qty")),
+                "outbound_qty": format_quantity(totals.get("outbound_qty")),
+                "ending_qty": format_quantity(totals.get("ending_qty")),
+            },
+        }
+
+    def list_warehouse_inventory_movements(
+        self,
+        *,
+        warehouse_name: str,
+        date_start: str | None = None,
+        date_end: str | None = None,
+        product_code: str | None = None,
+        color_name: str | None = None,
+        color_spec: str | None = None,
+        page: int,
+        page_size: int,
+    ) -> dict[str, object]:
+        record = INVENTORY_TABLE
+        detail = INVENTORY_DETAIL_TABLE
+        joined = detail.join(record, detail.c.document_id == record.c.id)
+        inbound, outbound, affected = self._warehouse_inventory_expressions(warehouse_name)
+        conditions = [record.c.deleted_at.is_(None), affected]
+        start_date = parse_date(date_start) if date_start else None
+        end_date = parse_date(date_end) if date_end else None
+        if start_date:
+            conditions.append(or_(
+                record.c.date_value >= start_date,
+                and_(record.c.date_value.is_(None), record.c.date >= date_start),
+            ))
+        elif date_start:
+            conditions.append(record.c.date >= date_start)
+        if end_date:
+            conditions.append(or_(
+                record.c.date_value <= end_date,
+                and_(record.c.date_value.is_(None), record.c.date <= date_end),
+            ))
+        elif date_end:
+            conditions.append(record.c.date <= date_end)
+        if product_code:
+            conditions.append(detail.c.product_code.ilike(f"%{product_code.strip()}%"))
+        if color_name:
+            conditions.append(detail.c.color_name == color_name)
+        if color_spec:
+            conditions.append(detail.c.color_spec == color_spec)
+
+        criterion = and_(*conditions)
+        count_statement = select(func.count()).select_from(joined).where(criterion)
+        items_statement = (
+            select(
+                detail.c.id.label("detail_id"),
+                record.c.id.label("document_id"),
+                record.c.date,
+                record.c.date_value,
+                record.c.document_type,
+                record.c.document_number,
+                record.c.supplier,
+                record.c.warehouse,
+                record.c.summary,
+                record.c.handler,
+                detail.c.product_code,
+                detail.c.product_name,
+                detail.c.color_name,
+                detail.c.color_spec,
+                inbound.label("inbound_qty"),
+                outbound.label("outbound_qty"),
+                (inbound - outbound).label("change_qty"),
+            )
+            .select_from(joined)
+            .where(criterion)
+            .order_by(record.c.date_value.nulls_last(), record.c.date, record.c.document_number, detail.c.id)
+            .offset((page - 1) * page_size)
+            .limit(page_size)
+        )
+        with self.engine.connect() as connection:
+            total = connection.execute(count_statement).scalar_one()
+            rows = [dict(row) for row in connection.execute(items_statement).mappings()]
+
+        def format_quantity(value: object) -> str:
+            return self._format_decimal(Decimal(str(value or "0")))
+
+        return {
+            "items": [{
+                **row,
+                "inbound_qty": format_quantity(row.get("inbound_qty")),
+                "outbound_qty": format_quantity(row.get("outbound_qty")),
+                "change_qty": format_quantity(row.get("change_qty")),
+            } for row in rows],
+            "total": total,
+            "page": page,
+            "page_size": page_size,
+        }
 
     # ── Inventory Details ───────────────────────────────────────────
 
@@ -2266,6 +2528,8 @@ class InventoryRepository:
             connection.execute(text("ALTER TABLE IF EXISTS inventory_records ADD COLUMN IF NOT EXISTS document_number TEXT"))
             self._backfill_document_numbers(connection)
             connection.execute(text("CREATE INDEX IF NOT EXISTS idx_inventory_records_document_number ON inventory_records (document_number)"))
+            connection.execute(text("CREATE INDEX IF NOT EXISTS idx_inventory_records_warehouse_date ON inventory_records (warehouse, date_value)"))
+            connection.execute(text("CREATE INDEX IF NOT EXISTS idx_inventory_records_supplier_date ON inventory_records (supplier, date_value)"))
             connection.execute(text("ALTER TABLE IF EXISTS inventory_records ADD COLUMN IF NOT EXISTS handler TEXT"))
             connection.execute(text("ALTER TABLE IF EXISTS inventory_records ADD COLUMN IF NOT EXISTS additional_note TEXT"))
             connection.execute(text("ALTER TABLE IF EXISTS inventory_records ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ"))

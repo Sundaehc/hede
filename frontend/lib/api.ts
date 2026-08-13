@@ -1005,6 +1005,57 @@ export type WarehouseBrandItem = {
   updated_at: string | null
 }
 
+export type WarehouseInventoryItem = {
+  product_code: string | null
+  product_name: string | null
+  color_name: string | null
+  color_spec: string | null
+  beginning_qty: string
+  inbound_qty: string
+  outbound_qty: string
+  ending_qty: string
+}
+
+export type WarehouseInventoryResponse = {
+  items: WarehouseInventoryItem[]
+  total: number
+  page: number
+  page_size: number
+  totals: {
+    beginning_qty: string
+    inbound_qty: string
+    outbound_qty: string
+    ending_qty: string
+  }
+}
+
+export type WarehouseInventoryMovementItem = {
+  detail_id: number
+  document_id: number
+  date: string | null
+  date_value: string | null
+  document_type: string | null
+  document_number: string | null
+  supplier: string | null
+  warehouse: string | null
+  summary: string | null
+  handler: string | null
+  product_code: string | null
+  product_name: string | null
+  color_name: string | null
+  color_spec: string | null
+  inbound_qty: string
+  outbound_qty: string
+  change_qty: string
+}
+
+export type WarehouseInventoryMovementResponse = {
+  items: WarehouseInventoryMovementItem[]
+  total: number
+  page: number
+  page_size: number
+}
+
 export type InventoryAccountSubject = {
   id: number
   code: string | null
@@ -1812,6 +1863,16 @@ export function listSuppliers(params?: {
   return request<SupplierListResponse>(`/suppliers?${search.toString()}`)
 }
 
+export async function exportSuppliers(params?: { query?: string; brand?: BrandKey | "smiley" | "ni" | "all" }) {
+  const search = new URLSearchParams()
+  if (params?.query?.trim()) search.set("query", params.query.trim())
+  if (params?.brand && params.brand !== "all") search.set("brand", params.brand)
+  const suffix = search.size ? `?${search.toString()}` : ""
+  const response = await fetch(`${API_PREFIX}/suppliers/export${suffix}`, { credentials: "include" })
+  if (!response.ok) throw new ApiError(response.status, await readApiError(response))
+  return response.blob()
+}
+
 export function createSupplier(payload: Record<string, unknown>) {
   return request<{ item: SupplierItem; message: string }>("/suppliers", {
     method: "POST",
@@ -1836,6 +1897,44 @@ export function deleteSupplier(id: number) {
 
 export function listWarehouses() {
   return request<{ items: WarehouseItem[] }>("/warehouses")
+}
+
+export function getWarehouseInventory(warehouseId: number, params: {
+  date_start?: string
+  date_end?: string
+  product_code?: string
+  page: number
+  pageSize: number
+}) {
+  const search = new URLSearchParams({
+    page: String(params.page),
+    page_size: String(params.pageSize),
+  })
+  if (params.date_start) search.set("date_start", params.date_start)
+  if (params.date_end) search.set("date_end", params.date_end)
+  if (params.product_code) search.set("product_code", params.product_code)
+  return request<WarehouseInventoryResponse>(`/warehouses/${warehouseId}/inventory?${search.toString()}`)
+}
+
+export function listWarehouseInventoryMovements(warehouseId: number, params: {
+  date_start?: string
+  date_end?: string
+  product_code?: string
+  color_name?: string
+  color_spec?: string
+  page: number
+  pageSize: number
+}) {
+  const search = new URLSearchParams({
+    page: String(params.page),
+    page_size: String(params.pageSize),
+  })
+  if (params.date_start) search.set("date_start", params.date_start)
+  if (params.date_end) search.set("date_end", params.date_end)
+  if (params.product_code) search.set("product_code", params.product_code)
+  if (params.color_name) search.set("color_name", params.color_name)
+  if (params.color_spec) search.set("color_spec", params.color_spec)
+  return request<WarehouseInventoryMovementResponse>(`/warehouses/${warehouseId}/inventory/movements?${search.toString()}`)
 }
 
 export function createWarehouse(payload: Record<string, unknown>) {

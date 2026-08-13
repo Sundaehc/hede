@@ -1,7 +1,7 @@
 "use client"
 
 import { type DragEvent, useCallback, useEffect, useMemo, useState } from "react"
-import { ChevronRight, Edit, GripVertical, History, Plus, Search, Trash2, X } from "lucide-react"
+import { ChevronRight, Edit, Eye, GripVertical, History, Plus, Search, Trash2, X } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -15,6 +15,7 @@ import {
 } from "@/components/ui/dialog"
 import { ConfirmDialog, MessageDialog } from "@/components/confirm-dialog"
 import { OperationLogDialog } from "@/components/operation-log-dialog"
+import { WarehouseInventoryDialog } from "@/components/inventory-admin/warehouse-inventory-dialog"
 import {
   ApiError,
   createWarehouse,
@@ -85,6 +86,7 @@ export default function WarehousesPage() {
   const [editingWarehouseId, setEditingWarehouseId] = useState<number | null>(null)
   const [isSavingWarehouse, setIsSavingWarehouse] = useState(false)
   const [deleteWarehouseTarget, setDeleteWarehouseTarget] = useState<WarehouseItem | null>(null)
+  const [inventoryWarehouse, setInventoryWarehouse] = useState<WarehouseItem | null>(null)
   const [isDeletingWarehouse, setIsDeletingWarehouse] = useState(false)
   const [draggedBrandId, setDraggedBrandId] = useState<number | null>(null)
   const [draggedWarehouseId, setDraggedWarehouseId] = useState<number | null>(null)
@@ -381,7 +383,7 @@ export default function WarehousesPage() {
             <div className="mt-3 table-panel overflow-hidden">
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
-                  <thead><tr className="table-head-row"><th className="w-12 px-2 py-3 font-medium"><span className="sr-only">排序</span></th><th className="px-4 py-3 font-medium">仓库名称</th><th className="px-4 py-3 font-medium">地址</th><th className="px-4 py-3 font-medium">备注</th><th className="w-24 px-4 py-3 font-medium">操作</th></tr></thead>
+                  <thead><tr className="table-head-row"><th className="w-12 px-2 py-3 font-medium"><span className="sr-only">排序</span></th><th className="px-4 py-3 font-medium">仓库名称</th><th className="px-4 py-3 font-medium">地址</th><th className="px-4 py-3 font-medium">备注</th><th className="w-32 px-4 py-3 font-medium">操作</th></tr></thead>
                   <tbody className="divide-y divide-border">
                     {isLoading && <tr><td colSpan={5} className="px-4 py-12 text-center text-muted-foreground">加载中...</td></tr>}
                     {!isLoading && !activeBrand && <tr><td colSpan={5} className="px-4 py-12 text-center text-muted-foreground">请先新增或选择品牌</td></tr>}
@@ -400,7 +402,7 @@ export default function WarehousesPage() {
                         className={`table-row transition-all duration-150 ${draggedWarehouseId === warehouse.id ? "opacity-40" : ""} ${warehouseDropTarget?.id === warehouse.id && draggedWarehouseId !== warehouse.id ? warehouseDropTarget.placement === "before" ? "border-t-2 border-primary bg-primary/5 translate-y-2" : "border-b-2 border-primary bg-primary/5 -translate-y-2" : ""}`}
                       >
                         <td className="px-2 py-2.5"><button type="button" draggable={!isReordering} onDragStart={(event) => { event.dataTransfer.effectAllowed = "move"; setWarehouseDropTarget(null); setDraggedWarehouseId(warehouse.id) }} className="flex size-8 cursor-grab items-center justify-center rounded-md text-muted-foreground hover:bg-muted active:cursor-grabbing" aria-label={`拖拽排序仓库 ${warehouse.name}`} title="拖拽排序"><GripVertical className="h-4 w-4" /></button></td>
-                        <td className="px-4 py-2.5 font-medium">{warehouse.name}</td><td className="px-4 py-2.5">{warehouse.address || "-"}</td><td className="max-w-64 truncate px-4 py-2.5" title={warehouse.notes || ""}>{warehouse.notes || "-"}</td><td className="px-4 py-2.5"><div className="flex items-center gap-0.5"><Button variant="ghost" size="icon" onClick={() => openEditWarehouse(warehouse)} className="cursor-pointer" aria-label={`编辑仓库 ${warehouse.name}`}><Edit className="h-4 w-4" /></Button><Button variant="ghost" size="icon" onClick={() => setDeleteWarehouseTarget(warehouse)} className="cursor-pointer" aria-label={`删除仓库 ${warehouse.name}`}><Trash2 className="h-4 w-4 text-destructive" /></Button></div></td>
+                        <td className="px-4 py-2.5 font-medium">{warehouse.name}</td><td className="px-4 py-2.5">{warehouse.address || "-"}</td><td className="max-w-64 truncate px-4 py-2.5" title={warehouse.notes || ""}>{warehouse.notes || "-"}</td><td className="px-4 py-2.5"><div className="flex items-center gap-0.5"><Button variant="ghost" size="icon" onClick={() => setInventoryWarehouse(warehouse)} className="cursor-pointer" aria-label={`查看仓库 ${warehouse.name} 库存`} title="查看库存"><Eye className="h-4 w-4" /></Button><Button variant="ghost" size="icon" onClick={() => openEditWarehouse(warehouse)} className="cursor-pointer" aria-label={`编辑仓库 ${warehouse.name}`}><Edit className="h-4 w-4" /></Button><Button variant="ghost" size="icon" onClick={() => setDeleteWarehouseTarget(warehouse)} className="cursor-pointer" aria-label={`删除仓库 ${warehouse.name}`}><Trash2 className="h-4 w-4 text-destructive" /></Button></div></td>
                       </tr>
                     ))}
                   </tbody>
@@ -416,6 +418,7 @@ export default function WarehousesPage() {
 
       <ConfirmDialog open={deleteBrandTarget !== null} title="确认删除" description={`确定删除品牌 ${deleteBrandTarget?.name}？该品牌下的仓库需要先调整或删除。`} confirmLabel={isDeletingBrand ? "删除中..." : "删除"} variant="destructive" onConfirm={handleDeleteBrand} onCancel={() => setDeleteBrandTarget(null)} />
       <ConfirmDialog open={deleteWarehouseTarget !== null} title="确认删除" description={`确定删除仓库 ${deleteWarehouseTarget?.name}？此操作不可撤销。`} confirmLabel={isDeletingWarehouse ? "删除中..." : "删除"} variant="destructive" onConfirm={handleDeleteWarehouse} onCancel={() => setDeleteWarehouseTarget(null)} />
+      <WarehouseInventoryDialog warehouse={inventoryWarehouse} open={inventoryWarehouse !== null} onOpenChange={(nextOpen) => { if (!nextOpen) setInventoryWarehouse(null) }} />
       <MessageDialog open={messageOpen} title={messageContent.title} description={messageContent.description} onClose={() => setMessageOpen(false)} />
       <OperationLogDialog module="warehouse" title="仓库管理操作日志" open={operationLogOpen} onOpenChange={setOperationLogOpen} />
     </div>
