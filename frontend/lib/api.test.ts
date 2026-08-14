@@ -34,6 +34,26 @@ test("listProducts serializes brand query and pagination into the request URL", 
   )
 })
 
+test("listProducts serializes SKU prefix into the request URL", async () => {
+  const fetchMock = vi.spyOn(global, "fetch").mockResolvedValue(
+    new Response(JSON.stringify({ items: [], total: 0, page: 1, page_size: 20 }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    }),
+  )
+
+  await listProducts({ brand: "cbanner_mens", skuPrefix: "KT", page: 1, pageSize: 20 })
+
+  expect(fetchMock).toHaveBeenCalledWith(
+    "/api/products?brand=cbanner_mens&page=1&page_size=20&sku_prefix=KT",
+    expect.objectContaining({
+      headers: {
+        "Content-Type": "application/json",
+      },
+    }),
+  )
+})
+
 test("buildProductExportUrl includes the submitted SKU search", () => {
   expect(buildProductExportUrl("cbanner_mens", undefined, undefined, undefined, undefined, " KT\nOA ")).toBe(
     "/api/export?brand=cbanner_mens&query=KT%0AOA",

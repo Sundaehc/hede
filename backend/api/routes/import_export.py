@@ -160,6 +160,22 @@ def _product_search_condition(table, query: str | None):
     ))
 
 
+def _product_prefix_condition(table, sku_prefix: str | None):
+    if not sku_prefix:
+        return None
+    terms = [term.strip() for term in sku_prefix.replace("\n", ",").split(",") if term.strip()]
+    if not terms:
+        return None
+    return or_(*(
+        condition
+        for term in terms
+        for condition in (
+            table.c.original_sku.ilike(f"{term}%"),
+            table.c.sku.ilike(f"{term}%"),
+        )
+    ))
+
+
 def _activity_export_label(activity_date: date_type | None) -> str:
     return f"{activity_date.isoformat()}导入新增" if activity_date else "总览"
 
@@ -170,6 +186,7 @@ def _iter_all_export_rows(
     activity_date: date_type | None = None,
     year: str | None = None,
     query: str | None = None,
+    sku_prefix: str | None = None,
 ) -> Iterator[tuple[str, list[object]]]:
     for brand in repository.product_archive_brands():
         table = repository._table_for_brand(brand)
@@ -183,6 +200,9 @@ def _iter_all_export_rows(
         search_condition = _product_search_condition(table, query)
         if search_condition is not None:
             conditions.append(search_condition)
+        prefix_condition = _product_prefix_condition(table, sku_prefix)
+        if prefix_condition is not None:
+            conditions.append(prefix_condition)
         statement = select(*(table.c[column] for column in EXPORT_COLUMNS)).where(*conditions).order_by(desc(table.c.id))
         with repository.engine.connect() as connection:
             items = [dict(row) for row in connection.execute(statement).mappings()]
@@ -237,6 +257,7 @@ def _export_all_products(
     activity_date: date_type | None = None,
     year: str | None = None,
     query: str | None = None,
+    sku_prefix: str | None = None,
 ) -> StreamingResponse:
     headers = ["品牌"] + [EXPORT_LABELS.get(c, c) for c in EXPORT_COLUMNS]
     wb = Workbook(write_only=True)
@@ -259,7 +280,7 @@ def _export_all_products(
     ws.append(header_cells)
 
     row_count = 1
-    for brand, values in _iter_all_export_rows(repository, activity_date=activity_date, year=year, query=query):
+    for brand, values in _iter_all_export_rows(repository, activity_date=activity_date, year=year, query=query, sku_prefix=sku_prefix):
         row = [BRAND_LABELS.get(brand, brand)] + [_excel_cell_value(value) for value in values]
         # A small sample is enough to keep widths readable without scanning
         # every cell in a 60k+ row overview export.
@@ -291,6 +312,7 @@ def _export_all_products(
             "brand_label": export_label,
             "activity_date": activity_date.isoformat() if activity_date else None,
             "query": query or None,
+            "sku_prefix": sku_prefix or None,
             "exported_rows": exported_rows,
             "filename": f"{export_label}商品信息档案.xlsx",
         },
@@ -356,6 +378,7 @@ def _load_size_export_source_items(
     activity_date: date_type | None = None,
     year: str | None = None,
     query: str | None = None,
+    sku_prefix: str | None = None,
 ) -> list[dict[str, object]]:
     table = repository._table_for_brand(brand)
     statement = (
@@ -374,6 +397,9 @@ def _load_size_export_source_items(
     search_condition = _product_search_condition(table, query)
     if search_condition is not None:
         statement = statement.where(search_condition)
+    prefix_condition = _product_prefix_condition(table, sku_prefix)
+    if prefix_condition is not None:
+        statement = statement.where(prefix_condition)
 
     with repository.engine.connect() as connection:
         return [
@@ -748,6 +774,7 @@ def _export_products_with_sizes(
     activity_date: date_type | None = None,
     year: str | None = None,
     query: str | None = None,
+    sku_prefix: str | None = None,
 ) -> StreamingResponse:
     _validate_product_export_request(repository, brand, SIZE_EXPORT_MODE)
     source_items = _load_size_export_source_items(
@@ -757,6 +784,7 @@ def _export_products_with_sizes(
         activity_date=activity_date,
         year=year,
         query=query,
+        sku_prefix=sku_prefix,
     )
     if ids and not source_items:
         raise HTTPException(status_code=404, detail="未找到可导出的选中商品")
@@ -883,6 +911,7 @@ def _export_products_with_sizes(
             "ids": None if activity_date else ids,
             "activity_date": activity_date.isoformat() if activity_date else None,
             "query": query or None,
+            "sku_prefix": sku_prefix or None,
             "exported_rows": len(export_profiles),
             "size_profile_rows": len(size_group_profiles),
             "fallback_rows": len(fallback_profiles),
@@ -901,6 +930,7 @@ def export_products(
     activity_date: date_type | None = Query(None),
     year: str | None = Query(None),
     query: str | None = Query(None),
+    sku_prefix: str | None = Query(None),
     today_only: bool = Query(False),
 ):
     repository = request.app.state.repository
@@ -911,6 +941,7 @@ def export_products(
     export_date = activity_date or (datetime.now(SHANGHAI_TIME_ZONE).date() if today_only else None)
     export_year = year.strip() if year and not export_date else None
     export_query = query.strip() if query and not export_date else None
+    export_sku_prefix = sku_prefix.strip() if sku_prefix and not export_date else None
 
     if mode == SIZE_EXPORT_MODE:
         return _export_products_with_sizes(
@@ -921,6 +952,7 @@ def export_products(
             activity_date=export_date,
             year=export_year,
             query=export_query,
+            sku_prefix=export_sku_prefix,
         )
 
     if brand == "all":
@@ -930,6 +962,7 @@ def export_products(
             activity_date=export_date,
             year=export_year,
             query=export_query,
+            sku_prefix=export_sku_prefix,
         )
 
     if export_date:
@@ -949,7 +982,7 @@ def export_products(
         id_list = [int(i.strip()) for i in ids.split(",") if i.strip()]
         items = repository.get_products_by_ids(brand, id_list)
     else:
-        table = repository.list_products(brand, query=export_query, page=1, page_size=1_000_000, year=export_year)
+        table = repository.list_products(brand, query=export_query, sku_prefix=export_sku_prefix, page=1, page_size=1_000_000, year=export_year)
         items = table["items"]
 
     wb = Workbook()
@@ -985,6 +1018,7 @@ def export_products(
             "ids": None if export_date else ids,
             "activity_date": export_date.isoformat() if export_date else None,
             "query": export_query,
+            "sku_prefix": export_sku_prefix,
             "exported_rows": len(items),
             "filename": raw_filename,
         },

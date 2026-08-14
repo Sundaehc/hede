@@ -42,6 +42,8 @@ export function ProductAdminPage() {
   const [availableYears, setAvailableYears] = useState<string[]>([])
   const [searchInput, setSearchInput] = useState("")
   const [submittedQuery, setSubmittedQuery] = useState("")
+  const [skuPrefixInput, setSkuPrefixInput] = useState("")
+  const [submittedSkuPrefix, setSubmittedSkuPrefix] = useState("")
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(PAGE_SIZES[0])
   const [reloadToken, setReloadToken] = useState(0)
@@ -126,6 +128,7 @@ export function ProductAdminPage() {
           page,
           pageSize: pageSize,
           query: submittedQuery || undefined,
+          skuPrefix: submittedSkuPrefix || undefined,
           year: year || undefined,
         })
 
@@ -155,12 +158,12 @@ export function ProductAdminPage() {
     return () => {
       cancelled = true
     }
-  }, [brand, year, page, pageSize, reloadToken, submittedQuery])
+  }, [brand, year, page, pageSize, reloadToken, submittedQuery, submittedSkuPrefix])
 
   // Clear selection on page/brand/search change
   useEffect(() => {
     setSelectedIds(new Set())
-  }, [brand, year, page, submittedQuery])
+  }, [brand, year, page, submittedQuery, submittedSkuPrefix])
 
   const handleSaved = async () => {
     setReloadToken((current) => current + 1)
@@ -357,20 +360,26 @@ export function ProductAdminPage() {
                 year={year}
                 value={searchInput}
                 query={submittedQuery}
+                prefixValue={skuPrefixInput}
+                skuPrefix={submittedSkuPrefix}
                 isLoading={isLoading}
                 selectedIds={selectedIds}
                 canExport={canExportProducts}
                 canImport={canImportProducts}
                 canRefreshImages={canManageProducts}
                 onValueChange={setSearchInput}
+                onPrefixValueChange={setSkuPrefixInput}
                 onSearch={() => {
                   setPage(1)
                   setSubmittedQuery(searchInput.trim())
+                  setSubmittedSkuPrefix(skuPrefixInput.trim())
                 }}
                 onClear={() => {
                   setSearchInput("")
+                  setSkuPrefixInput("")
                   setPage(1)
                   setSubmittedQuery("")
+                  setSubmittedSkuPrefix("")
                 }}
                 onRefresh={() => {
                   setReloadToken((current) => current + 1)
@@ -385,6 +394,8 @@ export function ProductAdminPage() {
                   const query = skus.join(",")
                   setSearchInput(query)
                   setSubmittedQuery(query)
+                  setSkuPrefixInput("")
+                  setSubmittedSkuPrefix("")
                   setPage(1)
                 }}
                 onCreate={isAllBrand(brand) || !canManageProducts ? undefined : () => {

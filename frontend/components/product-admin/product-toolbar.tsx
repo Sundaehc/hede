@@ -14,12 +14,15 @@ type ProductToolbarProps = {
   year: string
   value: string
   query: string
+  prefixValue: string
+  skuPrefix: string
   isLoading: boolean
   selectedIds?: Set<number>
   canExport?: boolean
   canImport?: boolean
   canRefreshImages?: boolean
   onValueChange: (value: string) => void
+  onPrefixValueChange: (value: string) => void
   onSearch: () => void
   onClear: () => void
   onRefresh: () => void
@@ -46,12 +49,15 @@ export function ProductToolbar({
   year,
   value,
   query,
+  prefixValue,
+  skuPrefix,
   isLoading,
   selectedIds,
   canExport = true,
   canImport = true,
   canRefreshImages = true,
   onValueChange,
+  onPrefixValueChange,
   onSearch,
   onClear,
   onRefresh,
@@ -127,12 +133,13 @@ export function ProductToolbar({
     const ids = !isActivityExport && brand !== "all" && selectedIds && selectedIds.size > 0 ? Array.from(selectedIds) : undefined
     const exportYear = isActivityExport ? undefined : year || undefined
     const exportQuery = !isActivityExport && !ids ? query || undefined : undefined
+    const exportSkuPrefix = !isActivityExport && !ids ? skuPrefix || undefined : undefined
     setExporting(true)
     setExportingMode(isActivityExport ? (mode ? "today_with_sizes" : "today") : (mode ?? "default"))
     setExportProgress({ phase: "preparing", loaded: 0, total: null, percent: null })
     try {
-      await assertProductExportAllowed(brand, ids, mode, exportActivityDate, exportYear, exportQuery)
-      await downloadProductExport(brand, ids, mode, setExportProgress, exportActivityDate, exportYear, exportQuery)
+      await assertProductExportAllowed(brand, ids, mode, exportActivityDate, exportYear, exportQuery, exportSkuPrefix)
+      await downloadProductExport(brand, ids, mode, setExportProgress, exportActivityDate, exportYear, exportQuery, exportSkuPrefix)
     } catch (error) {
       onMessage("导出失败", error instanceof Error ? error.message : "导出 Excel 时发生错误，请重试")
     } finally {
@@ -204,7 +211,7 @@ export function ProductToolbar({
         : null
   const defaultExportLabel = exportingMode === "default" && exportStatusText
     ? exportStatusText
-    : hasSelection ? `导出选中 (${selectedIds!.size})` : query ? "导出搜索结果" : "导出 Excel"
+    : hasSelection ? `导出选中 (${selectedIds!.size})` : query || skuPrefix ? "导出搜索结果" : "导出 Excel"
   const sizeExportLabel = exportingMode === "with_sizes" && exportStatusText ? exportStatusText : "带尺码导出"
   const activityExportLabel = exportingMode === "today" && exportStatusText ? exportStatusText : "导出当日导入/新增"
   const activitySizeExportLabel = exportingMode === "today_with_sizes" && exportStatusText ? exportStatusText : "导出当日导入/新增带尺码"
@@ -217,31 +224,54 @@ export function ProductToolbar({
 
   return (
     <div className="surface-panel flex flex-col gap-3 p-4">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
-        <div className="flex flex-1 flex-col gap-1.5">
-          <Label htmlFor="product-search-input" className="text-xs text-muted-foreground">
-            {hasMultipleLines ? "批量搜索（逗号或换行分隔）" : "货号搜索"}
-          </Label>
-          <textarea
-            id="product-search-input"
-            value={value}
-            placeholder="输入货号或原始货号，多个可用逗号分隔，Shift+Enter 换行"
-            rows={hasMultipleLines ? 3 : 1}
-            onChange={(event: React.ChangeEvent<HTMLTextAreaElement>) => onValueChange(event.target.value)}
-            onKeyDown={(event: React.KeyboardEvent<HTMLTextAreaElement>) => {
-              if (event.key === "Enter" && !event.shiftKey) {
-                event.preventDefault()
-                onSearch()
-              }
-            }}
-            className="resize-none rounded-lg border border-input bg-card px-3 py-2 text-sm shadow-xs outline-none transition-colors placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/35 disabled:cursor-not-allowed disabled:opacity-50"
-          />
+      <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_auto] xl:items-center">
+        <div className="min-w-0">
+          <div className="grid gap-3 md:grid-cols-[minmax(20rem,1.65fr)_minmax(14rem,0.8fr)]">
+          <div className="flex min-w-0 flex-col gap-1.5">
+            <Label htmlFor="product-search-input" className="text-xs text-muted-foreground">
+              {hasMultipleLines ? "包含搜索（逗号或换行分隔）" : "包含搜索"}
+            </Label>
+            <textarea
+              id="product-search-input"
+              value={value}
+              placeholder="货号或原始货号，多个可用逗号分隔，Shift+Enter 换行"
+              rows={hasMultipleLines ? 3 : 1}
+              onChange={(event: React.ChangeEvent<HTMLTextAreaElement>) => onValueChange(event.target.value)}
+              onKeyDown={(event: React.KeyboardEvent<HTMLTextAreaElement>) => {
+                if (event.key === "Enter" && !event.shiftKey) {
+                  event.preventDefault()
+                  onSearch()
+                }
+              }}
+              className="resize-none rounded-lg border border-input bg-card px-3 py-2 text-sm shadow-xs outline-none transition-colors placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/35 disabled:cursor-not-allowed disabled:opacity-50"
+            />
+          </div>
+          <div className="flex min-w-0 flex-col gap-1.5">
+            <Label htmlFor="product-sku-prefix-input" className="text-xs text-muted-foreground">
+              货号前缀
+            </Label>
+            <input
+              id="product-sku-prefix-input"
+              value={prefixValue}
+              placeholder="货号/原始货号开头"
+              onChange={(event) => onPrefixValueChange(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  event.preventDefault()
+                  onSearch()
+                }
+              }}
+              className="h-9 rounded-lg border border-input bg-card px-3 text-sm shadow-xs outline-none transition-colors placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/35 disabled:cursor-not-allowed disabled:opacity-50"
+            />
+          </div>
+          </div>
+          <p className="mt-2 text-xs text-muted-foreground">{imageStatusText}</p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap items-center gap-2 xl:justify-end xl:self-center">
           <Button type="button" size="sm" onClick={onSearch} disabled={isLoading} className="cursor-pointer">
             搜索
           </Button>
-          <Button type="button" variant="outline" size="sm" onClick={onClear} disabled={isLoading && value.length === 0} className="cursor-pointer">
+          <Button type="button" variant="outline" size="sm" onClick={onClear} disabled={isLoading && value.length === 0 && prefixValue.length === 0} className="cursor-pointer">
             清空
           </Button>
           <Button type="button" variant="outline" size="sm" onClick={onRefresh} disabled={isLoading} className="cursor-pointer">
@@ -275,7 +305,6 @@ export function ProductToolbar({
           ) : null}
         </div>
       </div>
-      <p className="text-xs text-muted-foreground">{imageStatusText}</p>
 
       {showActions ? (
         <div className="flex flex-wrap items-center gap-2 border-t border-border pt-3">

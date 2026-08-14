@@ -1,9 +1,10 @@
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 
 import pytest
+from sqlalchemy import update
 
 from domain.vip_schema import JST_PRICE_TABLE
 from storage.inventory_repository import InventoryRepository
@@ -104,6 +105,32 @@ def test_list_products_treats_none_and_empty_query_as_unfiltered(repository: Pro
 
     assert repository.list_products("cbanner_womens", query=None, page=1, page_size=10) == expected
     assert repository.list_products("cbanner_womens", query="", page=1, page_size=10) == expected
+
+
+def test_list_products_filters_sku_and_original_sku_by_prefix(repository: ProductRepository):
+    by_sku = repository.create_product(
+        "cbanner_womens",
+        build_admin_record("cbanner_womens", {"sku": "KT-001", "original_sku": "STYLE-001"}),
+    )
+    by_original_sku = repository.create_product(
+        "cbanner_womens",
+        build_admin_record("cbanner_womens", {"sku": "SKU-002", "original_sku": "KT-002"}),
+    )
+    repository.create_product(
+        "cbanner_womens",
+        build_admin_record("cbanner_womens", {"sku": "SKU-KT-003", "original_sku": "STYLE-003"}),
+    )
+
+    result = repository.list_products(
+        "cbanner_womens",
+        query=None,
+        sku_prefix="kt",
+        page=1,
+        page_size=10,
+    )
+
+    assert result["total"] == 2
+    assert {item["id"] for item in result["items"]} == {by_sku["id"], by_original_sku["id"]}
 
 
 def test_get_product_returns_row_or_none(repository: ProductRepository):
@@ -251,6 +278,28 @@ def test_delete_product_moves_row_to_recycle_bin_and_can_restore_or_purge(reposi
     purged = repository.permanently_delete_product("cbanner_womens", created["id"])
     assert purged is not None
     assert repository.list_recycled_products(brand="cbanner_womens", page=1, page_size=10)["total"] == 0
+
+
+def test_product_recycle_bin_purges_rows_older_than_ten_days(repository: ProductRepository):
+    created = repository.create_product(
+        "cbanner_womens",
+        build_admin_record("cbanner_womens", {"sku": "PURGE-10-DAYS", "original_sku": "PURGE-10-DAYS"}),
+    )
+    assert repository.delete_product("cbanner_womens", created["id"]) is True
+
+    table = repository._table_for_brand("cbanner_womens")
+    expired_at = datetime.now(timezone.utc) - timedelta(days=11)
+    with repository.engine.begin() as connection:
+        connection.execute(
+            update(table)
+            .where(table.c.id == created["id"])
+            .values(deleted_at=expired_at)
+        )
+
+    result = repository.purge_expired_deleted_products()
+
+    assert result["cbanner_womens"] == 1
+    assert repository.permanently_delete_product("cbanner_womens", created["id"]) is None
 
 
 def test_manual_brand_creates_independent_product_archive(repository: ProductRepository, test_database_url: str):

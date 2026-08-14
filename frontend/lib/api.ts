@@ -203,6 +203,7 @@ export function deleteSizeGroup(id: number) {
 export function listProducts(params: {
   brand: ProductArchiveBrandKey
   query?: string
+  skuPrefix?: string
   year?: string
   page: number
   pageSize: number
@@ -215,6 +216,9 @@ export function listProducts(params: {
 
   if (params.query) {
     search.set("query", params.query)
+  }
+  if (params.skuPrefix) {
+    search.set("sku_prefix", params.skuPrefix)
   }
   if (params.year) {
     search.set("year", params.year)
@@ -669,7 +673,8 @@ export function buildProductExportUrl(
   mode?: "with_sizes",
   activityDate?: string,
   year?: string,
-  query?: string
+  query?: string,
+  skuPrefix?: string
 ) {
   const params = new URLSearchParams({ brand })
   if (brand !== "all" && ids && ids.length > 0) {
@@ -686,6 +691,9 @@ export function buildProductExportUrl(
   }
   if (query?.trim()) {
     params.set("query", query.trim())
+  }
+  if (skuPrefix?.trim()) {
+    params.set("sku_prefix", skuPrefix.trim())
   }
   return `${API_PREFIX}/export?${params.toString()}`
 }
@@ -733,10 +741,11 @@ export async function downloadProductExport(
   onProgress?: (progress: ProductExportProgress) => void,
   activityDate?: string,
   year?: string,
-  query?: string
+  query?: string,
+  skuPrefix?: string
 ) {
   onProgress?.({ phase: "preparing", loaded: 0, total: null, percent: null })
-  const response = await fetch(buildProductExportUrl(brand, ids, mode, activityDate, year, query), {
+  const response = await fetch(buildProductExportUrl(brand, ids, mode, activityDate, year, query, skuPrefix), {
     credentials: "include",
   })
   if (!response.ok) {
@@ -812,9 +821,10 @@ export async function assertProductExportAllowed(
   mode?: "with_sizes",
   activityDate?: string,
   year?: string,
-  query?: string
+  query?: string,
+  skuPrefix?: string
 ) {
-  const response = await fetch(buildProductExportUrl(brand, ids, mode, activityDate, year, query), {
+  const response = await fetch(buildProductExportUrl(brand, ids, mode, activityDate, year, query, skuPrefix), {
     credentials: "include",
     method: "HEAD",
   })
@@ -829,9 +839,10 @@ export function exportProducts(
   mode?: "with_sizes",
   activityDate?: string,
   year?: string,
-  query?: string
+  query?: string,
+  skuPrefix?: string
 ) {
-  return fetch(buildProductExportUrl(brand, ids, mode, activityDate, year, query), {
+  return fetch(buildProductExportUrl(brand, ids, mode, activityDate, year, query, skuPrefix), {
     credentials: "include",
   }).then(async (response) => {
     if (!response.ok) {

@@ -24,6 +24,7 @@ def _json_serializer(value: object) -> bytes:
 # historical price table during full product exports.
 PRICE_LOOKUP_CHUNK_SIZE = 20000
 IMPORT_MARK_CHUNK_SIZE = 2000
+PRODUCT_RECYCLE_BIN_RETENTION_DAYS = 10
 PRODUCT_COLOR_BARCODE_SOURCE_BRANDS = {
     "cbanner_mens": "cbanner_mens",
     "cbanner_womens": "cbanner_womens",
@@ -40,6 +41,27 @@ def _normalize_code(value: object) -> str:
     if isinstance(value, float) and value.is_integer():
         return str(int(value))
     return str(value).strip()
+
+
+def _sku_terms(value: str | None) -> list[str]:
+    if not value:
+        return []
+    return [term.strip() for term in value.replace("\n", ",").split(",") if term.strip()]
+
+
+def _sku_search_condition(table, value: str | None, *, prefix: bool = False):
+    terms = _sku_terms(value)
+    if not terms:
+        return None
+    wildcard = "{}%" if prefix else "%{}%"
+    return or_(*(
+        condition
+        for term in terms
+        for condition in (
+            table.c.original_sku.ilike(wildcard.format(term)),
+            table.c.sku.ilike(wildcard.format(term)),
+        )
+    ))
 
 
 def _color_name_variants(value: object) -> set[str]:
@@ -383,6 +405,7 @@ class ProductRepository:
         page: int,
         page_size: int,
         year: str | None = None,
+        sku_prefix: str | None = None,
     ) -> dict[str, object]:
         table = self._table_for_brand(brand)
         count_statement = select(func.count()).select_from(table)
@@ -392,13 +415,12 @@ class ProductRepository:
             table.c.deleted_at.is_(None),
             not_excluded_sku_condition(table.c.sku, table.c.original_sku),
         ]
-        if query:
-            terms = [t.strip() for t in query.replace("\n", ",").split(",") if t.strip()]
-            query_conditions = []
-            for term in terms:
-                query_conditions.append(table.c.original_sku.ilike(f"%{term}%"))
-                query_conditions.append(table.c.sku.ilike(f"%{term}%"))
-            conditions.append(or_(*query_conditions))
+        query_condition = _sku_search_condition(table, query)
+        if query_condition is not None:
+            conditions.append(query_condition)
+        prefix_condition = _sku_search_condition(table, sku_prefix, prefix=True)
+        if prefix_condition is not None:
+            conditions.append(prefix_condition)
         if year:
             # year values like "21年春季款" or "2025" — match by prefix
             prefix2 = year[-2:]
@@ -430,6 +452,7 @@ class ProductRepository:
         query: str | None,
         page: int,
         page_size: int,
+        sku_prefix: str | None = None,
     ) -> dict[str, object]:
         brand_keys = self.product_archive_brands()
 
@@ -443,13 +466,12 @@ class ProductRepository:
             )
             sq = sq.where(table.c.deleted_at.is_(None))
             sq = sq.where(not_excluded_sku_condition(table.c.sku, table.c.original_sku))
-            if query:
-                terms = [t.strip() for t in query.replace("\n", ",").split(",") if t.strip()]
-                conditions = []
-                for term in terms:
-                    conditions.append(table.c.original_sku.ilike(f"%{term}%"))
-                    conditions.append(table.c.sku.ilike(f"%{term}%"))
-                sq = sq.where(or_(*conditions))
+            query_condition = _sku_search_condition(table, query)
+            if query_condition is not None:
+                sq = sq.where(query_condition)
+            prefix_condition = _sku_search_condition(table, sku_prefix, prefix=True)
+            if prefix_condition is not None:
+                sq = sq.where(prefix_condition)
             subqueries.append(sq)
 
         combined = union_all(*subqueries).subquery()
@@ -640,6 +662,7 @@ class ProductRepository:
         page: int,
         page_size: int,
     ) -> dict[str, object]:
+        self.purge_expired_deleted_products()
         brands = [brand] if brand else self.product_archive_brands()
         subqueries = []
         for brand_key in brands:
@@ -671,7 +694,22 @@ class ProductRepository:
             items = [dict(row) for row in connection.execute(items_statement).mappings()]
         return {"items": items, "total": total, "page": page, "page_size": page_size}
 
+    def purge_expired_deleted_products(self) -> dict[str, int]:
+        """Permanently remove product archive rows kept in the recycle bin for over 10 days."""
+        deleted_by_brand: dict[str, int] = {}
+        expiration = func.now() - text(f"interval '{PRODUCT_RECYCLE_BIN_RETENTION_DAYS} days'")
+        for brand in self.product_archive_brands():
+            table = self._table_for_brand(brand)
+            statement = delete(table).where(
+                table.c.deleted_at.isnot(None),
+                table.c.deleted_at < expiration,
+            )
+            with self.engine.begin() as connection:
+                deleted_by_brand[brand] = int(connection.execute(statement).rowcount or 0)
+        return deleted_by_brand
+
     def restore_product(self, brand: str, product_id: int) -> dict[str, object] | None:
+        self.purge_expired_deleted_products()
         table = self._table_for_brand(brand)
         statement = (
             update(table)
@@ -684,6 +722,7 @@ class ProductRepository:
         return None if row is None else dict(row)
 
     def permanently_delete_product(self, brand: str, product_id: int) -> dict[str, object] | None:
+        self.purge_expired_deleted_products()
         table = self._table_for_brand(brand)
         statement = delete(table).where(table.c.id == product_id, table.c.deleted_at.isnot(None)).returning(table)
         with self.engine.begin() as connection:

@@ -10,6 +10,7 @@ from sqlalchemy import create_engine, inspect, text
 
 from config import load_settings
 from storage.task_status_repository import ScheduledTaskStatusRepository
+from storage.product_repository import ProductRepository
 
 
 TASK_NAME = "database_maintenance"
@@ -54,16 +55,26 @@ def main() -> int:
         with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as connection:
             for table_name in table_names:
                 connection.execute(text(f"ANALYZE public.{table_name}"))
+        purged_products = ProductRepository(settings.database_url).purge_expired_deleted_products()
+        purged_product_count = sum(purged_products.values())
         elapsed_seconds = round(time.perf_counter() - started_at, 2)
-        result = {"analyzed_tables": list(table_names), "elapsed_seconds": elapsed_seconds}
+        result = {
+            "analyzed_tables": list(table_names),
+            "purged_product_recycle_bin": purged_products,
+            "purged_product_count": purged_product_count,
+            "elapsed_seconds": elapsed_seconds,
+        }
         status_repository.mark_finished(
             TASK_NAME,
             args.business_date,
             status="success",
-            message=f"统计信息更新完成: {len(table_names)} 张表，耗时 {elapsed_seconds} 秒",
+            message=f"统计信息更新完成: {len(table_names)} 张表，清理商品回收站 {purged_product_count} 条，耗时 {elapsed_seconds} 秒",
             result=result,
         )
-        print(f"[DATABASE_MAINTENANCE] analyzed {len(table_names)} tables in {elapsed_seconds}s")
+        print(
+            f"[DATABASE_MAINTENANCE] analyzed {len(table_names)} tables, "
+            f"purged {purged_product_count} product recycle-bin rows in {elapsed_seconds}s"
+        )
         return 0
     except Exception as exc:  # pragma: no cover - logged for scheduled task diagnosis
         status_repository.mark_finished(
