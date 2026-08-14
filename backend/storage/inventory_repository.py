@@ -1518,6 +1518,20 @@ class InventoryRepository:
             row = connection.execute(statement).mappings().first()
         return None if row is None else dict(row)
 
+    def update_account_subject(self, subject_id: int, data: Mapping[str, object]) -> dict[str, object] | None:
+        payload = {
+            "name": str(data.get("name") or "").strip(),
+        }
+        statement = (
+            update(INVENTORY_ACCOUNT_SUBJECT_TABLE)
+            .where(INVENTORY_ACCOUNT_SUBJECT_TABLE.c.id == subject_id)
+            .values(**payload)
+            .returning(INVENTORY_ACCOUNT_SUBJECT_TABLE)
+        )
+        with self.engine.begin() as connection:
+            row = connection.execute(statement).mappings().first()
+        return None if row is None else dict(row)
+
     def delete_account_subject(self, subject_id: int) -> bool:
         statement = delete(INVENTORY_ACCOUNT_SUBJECT_TABLE).where(INVENTORY_ACCOUNT_SUBJECT_TABLE.c.id == subject_id)
         with self.engine.begin() as connection:

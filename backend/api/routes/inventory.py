@@ -17,6 +17,7 @@ from sqlalchemy import MetaData, desc, or_, select as sa_select
 
 from api.excel_export import style_excel_workbook, style_excel_worksheet
 from api.operation_log_utils import (
+    ACCOUNT_SUBJECT_FIELD_LABELS,
     DETAIL_FIELD_LABELS,
     GENERAL_CUSTOMER_BRAND_FIELD_LABELS,
     GENERAL_CUSTOMER_SHOP_FIELD_LABELS,
@@ -3867,6 +3868,38 @@ def create_inventory_account_subject(request: Request, payload: dict):
         "item": item,
         "message": "创建成功",
     }
+
+
+@router.put("/inventory/account-subjects/{subject_id}")
+def update_inventory_account_subject(request: Request, subject_id: int, payload: dict):
+    repository = request.app.state.inventory_repository
+    name = str(payload.get("name") or "").strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="科目名称不能为空")
+    before = repository.get_account_subject(subject_id)
+    if before is None:
+        raise HTTPException(status_code=404, detail="Subject not found")
+    try:
+        record = repository.update_account_subject(subject_id, {"name": name})
+    except Exception as error:
+        raise HTTPException(status_code=400, detail=f"科目 '{name}' 已存在或无法保存") from error
+    if record is None:
+        raise HTTPException(status_code=404, detail="Subject not found")
+    label = str(record.get("name") or before.get("name") or subject_id).strip()
+    changes = build_changed_fields(before, record, ACCOUNT_SUBJECT_FIELD_LABELS)
+    write_operation_log(
+        request,
+        module="account_subject",
+        action="update",
+        entity_type="inventory_account_subject",
+        entity_id=subject_id,
+        entity_label=label,
+        summary=summarize_changes("编辑科目", label, changes),
+        changed_fields=changes,
+        before_data=before,
+        after_data=record,
+    )
+    return {"item": record, "message": "更新成功"}
 
 
 @router.delete("/inventory/account-subjects/{subject_id}")

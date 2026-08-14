@@ -1,4 +1,8 @@
-import type { BrandKey, ProductArchiveBrandKey, ProductArchiveRecordBrandKey } from "@/lib/brands"
+import type {
+  BrandKey,
+  ProductArchiveBrandKey,
+  ProductArchiveRecordBrandKey,
+} from "@/lib/brands"
 import type {
   ImageLookupResult,
   ProductListItem,
@@ -557,7 +561,8 @@ export function getFineTableSnapshot(params: {
   })
   if (params.query) search.set("query", params.query)
   if (params.skuPrefix) search.set("sku_prefix", params.skuPrefix)
-  if (params.filters?.length) search.set("filters", JSON.stringify(params.filters))
+  if (params.filters?.length)
+    search.set("filters", JSON.stringify(params.filters))
   return request<FineTableSnapshotResponse>(
     `/fine-table/snapshots/${params.id}?${search.toString()}`
   )
@@ -580,7 +585,8 @@ export function getFineTableSnapshotByDate(params: {
   })
   if (params.query) search.set("query", params.query)
   if (params.skuPrefix) search.set("sku_prefix", params.skuPrefix)
-  if (params.filters?.length) search.set("filters", JSON.stringify(params.filters))
+  if (params.filters?.length)
+    search.set("filters", JSON.stringify(params.filters))
   return request<FineTableSnapshotResponse>(
     `/fine-table/snapshots/by-date?${search.toString()}`
   )
@@ -625,7 +631,10 @@ export type BatchDeleteResult = {
   message: string
 }
 
-export function batchDeleteProducts(brand: ProductArchiveRecordBrandKey, ids: number[]) {
+export function batchDeleteProducts(
+  brand: ProductArchiveRecordBrandKey,
+  ids: number[]
+) {
   return request<BatchDeleteResult>("/products/batch-delete", {
     method: "POST",
     body: JSON.stringify({ brand, ids }),
@@ -745,9 +754,20 @@ export async function downloadProductExport(
   skuPrefix?: string
 ) {
   onProgress?.({ phase: "preparing", loaded: 0, total: null, percent: null })
-  const response = await fetch(buildProductExportUrl(brand, ids, mode, activityDate, year, query, skuPrefix), {
-    credentials: "include",
-  })
+  const response = await fetch(
+    buildProductExportUrl(
+      brand,
+      ids,
+      mode,
+      activityDate,
+      year,
+      query,
+      skuPrefix
+    ),
+    {
+      credentials: "include",
+    }
+  )
   if (!response.ok) {
     throw new ApiError(response.status, await readApiError(response))
   }
@@ -824,10 +844,21 @@ export async function assertProductExportAllowed(
   query?: string,
   skuPrefix?: string
 ) {
-  const response = await fetch(buildProductExportUrl(brand, ids, mode, activityDate, year, query, skuPrefix), {
-    credentials: "include",
-    method: "HEAD",
-  })
+  const response = await fetch(
+    buildProductExportUrl(
+      brand,
+      ids,
+      mode,
+      activityDate,
+      year,
+      query,
+      skuPrefix
+    ),
+    {
+      credentials: "include",
+      method: "HEAD",
+    }
+  )
   if (!response.ok) {
     throw new ApiError(response.status, await readApiError(response))
   }
@@ -842,9 +873,20 @@ export function exportProducts(
   query?: string,
   skuPrefix?: string
 ) {
-  return fetch(buildProductExportUrl(brand, ids, mode, activityDate, year, query, skuPrefix), {
-    credentials: "include",
-  }).then(async (response) => {
+  return fetch(
+    buildProductExportUrl(
+      brand,
+      ids,
+      mode,
+      activityDate,
+      year,
+      query,
+      skuPrefix
+    ),
+    {
+      credentials: "include",
+    }
+  ).then(async (response) => {
     if (!response.ok) {
       throw new ApiError(response.status, await response.text())
     }
@@ -859,7 +901,10 @@ export type ImportResult = {
   message: string
 }
 
-export function importProducts(brand: ProductArchiveRecordBrandKey, file: File) {
+export function importProducts(
+  brand: ProductArchiveRecordBrandKey,
+  file: File
+) {
   const formData = new FormData()
   formData.append("file", file)
 
@@ -885,16 +930,27 @@ export function listProductRecycleBin(params: {
     page_size: String(params.pageSize ?? 20),
   })
   if (params.brand) search.set("brand", params.brand)
-  return request<ProductRecycleResponse>(`/products/recycle-bin?${search.toString()}`)
+  return request<ProductRecycleResponse>(
+    `/products/recycle-bin?${search.toString()}`
+  )
 }
 
-export function restoreProductFromRecycleBin(brand: ProductArchiveRecordBrandKey, id: number) {
-  return request<{ item: ProductListItem; message: string }>(`/products/recycle-bin/${brand}/${id}/restore`, {
-    method: "POST",
-  })
+export function restoreProductFromRecycleBin(
+  brand: ProductArchiveRecordBrandKey,
+  id: number
+) {
+  return request<{ item: ProductListItem; message: string }>(
+    `/products/recycle-bin/${brand}/${id}/restore`,
+    {
+      method: "POST",
+    }
+  )
 }
 
-export function permanentlyDeleteProduct(brand: ProductArchiveRecordBrandKey, id: number) {
+export function permanentlyDeleteProduct(
+  brand: ProductArchiveRecordBrandKey,
+  id: number
+) {
   return request<{ message: string }>(`/products/recycle-bin/${brand}/${id}`, {
     method: "DELETE",
   })
@@ -1179,7 +1235,11 @@ export function listInventory(params: {
 }
 
 export function createInventoryRecord(payload: Record<string, unknown>) {
-  return request<{ item: InventoryRecord; message: string; appended?: boolean }>("/inventory", {
+  return request<{
+    item: InventoryRecord
+    message: string
+    appended?: boolean
+  }>("/inventory", {
     method: "POST",
     body: JSON.stringify(payload),
   })
@@ -1488,6 +1548,19 @@ export function createInventoryAccountSubject(
   )
 }
 
+export function updateInventoryAccountSubject(
+  id: number,
+  payload: Record<string, unknown>
+) {
+  return request<{ item: InventoryAccountSubject; message: string }>(
+    `/inventory/account-subjects/${id}`,
+    {
+      method: "PUT",
+      body: JSON.stringify(payload),
+    }
+  )
+}
+
 export function deleteInventoryAccountSubject(id: number) {
   return request<{ message: string }>(`/inventory/account-subjects/${id}`, {
     method: "DELETE",
@@ -1558,18 +1631,27 @@ export function deleteGeneralCustomerShop(id: number) {
   )
 }
 
-export function reorderGeneralCustomerShops(customer_name: string, ids: number[]) {
-  return request<{ message: string }>("/inventory/general-customer-shops/order", {
-    method: "PUT",
-    body: JSON.stringify({ customer_name, ids }),
-  })
+export function reorderGeneralCustomerShops(
+  customer_name: string,
+  ids: number[]
+) {
+  return request<{ message: string }>(
+    "/inventory/general-customer-shops/order",
+    {
+      method: "PUT",
+      body: JSON.stringify({ customer_name, ids }),
+    }
+  )
 }
 
 export function reorderGeneralCustomerBrands(ids: number[]) {
-  return request<{ message: string }>("/inventory/general-customer-brands/order", {
-    method: "PUT",
-    body: JSON.stringify({ ids }),
-  })
+  return request<{ message: string }>(
+    "/inventory/general-customer-brands/order",
+    {
+      method: "PUT",
+      body: JSON.stringify({ ids }),
+    }
+  )
 }
 
 export function listGeneralCustomerUnits() {
@@ -1578,41 +1660,59 @@ export function listGeneralCustomerUnits() {
   )
 }
 
-export function createGeneralCustomerUnit(payload: { shop_id: number; unit_name: string }) {
+export function createGeneralCustomerUnit(payload: {
+  shop_id: number
+  unit_name: string
+}) {
   return request<{ item: GeneralCustomerUnitItem; message: string }>(
     "/inventory/general-customer-units",
-    { method: "POST", body: JSON.stringify(payload) },
+    { method: "POST", body: JSON.stringify(payload) }
   )
 }
 
-export function updateGeneralCustomerUnit(id: number, payload: { shop_id: number; unit_name: string }) {
+export function updateGeneralCustomerUnit(
+  id: number,
+  payload: { shop_id: number; unit_name: string }
+) {
   return request<{ item: GeneralCustomerUnitItem; message: string }>(
     `/inventory/general-customer-units/${id}`,
-    { method: "PUT", body: JSON.stringify(payload) },
+    { method: "PUT", body: JSON.stringify(payload) }
   )
 }
 
 export function deleteGeneralCustomerUnit(id: number) {
-  return request<{ message: string }>(`/inventory/general-customer-units/${id}`, {
-    method: "DELETE",
-  })
+  return request<{ message: string }>(
+    `/inventory/general-customer-units/${id}`,
+    {
+      method: "DELETE",
+    }
+  )
 }
 
 export function reorderGeneralCustomerUnits(shop_id: number, ids: number[]) {
-  return request<{ message: string }>("/inventory/general-customer-units/order", {
-    method: "PUT",
-    body: JSON.stringify({ shop_id, ids }),
-  })
+  return request<{ message: string }>(
+    "/inventory/general-customer-units/order",
+    {
+      method: "PUT",
+      body: JSON.stringify({ shop_id, ids }),
+    }
+  )
 }
 
-export function listDetails(documentId: number, params?: { page?: number; pageSize?: number }) {
+export function listDetails(
+  documentId: number,
+  params?: { page?: number; pageSize?: number }
+) {
   const search = new URLSearchParams()
   if (params?.page) search.set("page", String(params.page))
   if (params?.pageSize) search.set("page_size", String(params.pageSize))
   const suffix = search.size > 0 ? `?${search.toString()}` : ""
-  return request<{ items: InventoryDetail[]; total: number; page: number; page_size: number }>(
-    `/inventory/${documentId}/details${suffix}`
-  )
+  return request<{
+    items: InventoryDetail[]
+    total: number
+    page: number
+    page_size: number
+  }>(`/inventory/${documentId}/details${suffix}`)
 }
 
 export function replaceDetailsFromExcel(payload: {
@@ -1847,17 +1947,23 @@ export function listWarehouseBrands() {
 }
 
 export function createWarehouseBrand(payload: { name: string }) {
-  return request<{ item: WarehouseBrandItem; message: string }>("/warehouse-brands", {
-    method: "POST",
-    body: JSON.stringify(payload),
-  })
+  return request<{ item: WarehouseBrandItem; message: string }>(
+    "/warehouse-brands",
+    {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }
+  )
 }
 
 export function updateWarehouseBrand(id: number, payload: { name: string }) {
-  return request<{ item: WarehouseBrandItem; message: string }>(`/warehouse-brands/${id}`, {
-    method: "PUT",
-    body: JSON.stringify(payload),
-  })
+  return request<{ item: WarehouseBrandItem; message: string }>(
+    `/warehouse-brands/${id}`,
+    {
+      method: "PUT",
+      body: JSON.stringify(payload),
+    }
+  )
 }
 
 export function deleteWarehouseBrand(id: number) {
@@ -1873,17 +1979,19 @@ export function reorderWarehouseBrands(ids: number[]) {
   })
 }
 
-export function buildPurchaseInboundDetailExportUrl(params: {
-  date_start?: string
-  date_end?: string
-  document_type?: string
-  supplier?: string
-  warehouse?: string[]
-  product_code?: string
-  product_name?: string
-  color_name?: string
-  size_name?: string
-} = {}) {
+export function buildPurchaseInboundDetailExportUrl(
+  params: {
+    date_start?: string
+    date_end?: string
+    document_type?: string
+    supplier?: string
+    warehouse?: string[]
+    product_code?: string
+    product_name?: string
+    color_name?: string
+    size_name?: string
+  } = {}
+) {
   const search = new URLSearchParams()
   if (params.date_start) search.set("date_start", params.date_start)
   if (params.date_end) search.set("date_end", params.date_end)
@@ -1920,13 +2028,19 @@ export function listSuppliers(params?: {
   return request<SupplierListResponse>(`/suppliers?${search.toString()}`)
 }
 
-export async function exportSuppliers(params?: { query?: string; brand?: string }) {
+export async function exportSuppliers(params?: {
+  query?: string
+  brand?: string
+}) {
   const search = new URLSearchParams()
   if (params?.query?.trim()) search.set("query", params.query.trim())
   if (params?.brand && params.brand !== "all") search.set("brand", params.brand)
   const suffix = search.size ? `?${search.toString()}` : ""
-  const response = await fetch(`${API_PREFIX}/suppliers/export${suffix}`, { credentials: "include" })
-  if (!response.ok) throw new ApiError(response.status, await readApiError(response))
+  const response = await fetch(`${API_PREFIX}/suppliers/export${suffix}`, {
+    credentials: "include",
+  })
+  if (!response.ok)
+    throw new ApiError(response.status, await readApiError(response))
   return response.blob()
 }
 
@@ -1935,17 +2049,23 @@ export function listSupplierBrands() {
 }
 
 export function createSupplierBrand(payload: { name: string }) {
-  return request<{ item: SupplierBrandItem; message: string }>("/supplier-brands", {
-    method: "POST",
-    body: JSON.stringify(payload),
-  })
+  return request<{ item: SupplierBrandItem; message: string }>(
+    "/supplier-brands",
+    {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }
+  )
 }
 
 export function updateSupplierBrand(id: number, payload: { name: string }) {
-  return request<{ item: SupplierBrandItem; message: string }>(`/supplier-brands/${id}`, {
-    method: "PUT",
-    body: JSON.stringify(payload),
-  })
+  return request<{ item: SupplierBrandItem; message: string }>(
+    `/supplier-brands/${id}`,
+    {
+      method: "PUT",
+      body: JSON.stringify(payload),
+    }
+  )
 }
 
 export function deleteSupplierBrand(id: number) {
@@ -1980,13 +2100,16 @@ export function listWarehouses() {
   return request<{ items: WarehouseItem[] }>("/warehouses")
 }
 
-export function getWarehouseInventory(warehouseId: number, params: {
-  date_start?: string
-  date_end?: string
-  product_code?: string
-  page: number
-  pageSize: number
-}) {
+export function getWarehouseInventory(
+  warehouseId: number,
+  params: {
+    date_start?: string
+    date_end?: string
+    product_code?: string
+    page: number
+    pageSize: number
+  }
+) {
   const search = new URLSearchParams({
     page: String(params.page),
     page_size: String(params.pageSize),
@@ -1994,18 +2117,23 @@ export function getWarehouseInventory(warehouseId: number, params: {
   if (params.date_start) search.set("date_start", params.date_start)
   if (params.date_end) search.set("date_end", params.date_end)
   if (params.product_code) search.set("product_code", params.product_code)
-  return request<WarehouseInventoryResponse>(`/warehouses/${warehouseId}/inventory?${search.toString()}`)
+  return request<WarehouseInventoryResponse>(
+    `/warehouses/${warehouseId}/inventory?${search.toString()}`
+  )
 }
 
-export function listWarehouseInventoryMovements(warehouseId: number, params: {
-  date_start?: string
-  date_end?: string
-  product_code?: string
-  color_name?: string
-  color_spec?: string
-  page: number
-  pageSize: number
-}) {
+export function listWarehouseInventoryMovements(
+  warehouseId: number,
+  params: {
+    date_start?: string
+    date_end?: string
+    product_code?: string
+    color_name?: string
+    color_spec?: string
+    page: number
+    pageSize: number
+  }
+) {
   const search = new URLSearchParams({
     page: String(params.page),
     page_size: String(params.pageSize),
@@ -2015,7 +2143,9 @@ export function listWarehouseInventoryMovements(warehouseId: number, params: {
   if (params.product_code) search.set("product_code", params.product_code)
   if (params.color_name) search.set("color_name", params.color_name)
   if (params.color_spec) search.set("color_spec", params.color_spec)
-  return request<WarehouseInventoryMovementResponse>(`/warehouses/${warehouseId}/inventory/movements?${search.toString()}`)
+  return request<WarehouseInventoryMovementResponse>(
+    `/warehouses/${warehouseId}/inventory/movements?${search.toString()}`
+  )
 }
 
 export function createWarehouse(payload: Record<string, unknown>) {
