@@ -13,6 +13,7 @@ type ProductToolbarProps = {
   brand: ProductArchiveBrandKey
   year: string
   value: string
+  query: string
   isLoading: boolean
   selectedIds?: Set<number>
   canExport?: boolean
@@ -44,6 +45,7 @@ export function ProductToolbar({
   brand,
   year,
   value,
+  query,
   isLoading,
   selectedIds,
   canExport = true,
@@ -124,12 +126,13 @@ export function ProductToolbar({
     const isActivityExport = Boolean(exportActivityDate)
     const ids = !isActivityExport && brand !== "all" && selectedIds && selectedIds.size > 0 ? Array.from(selectedIds) : undefined
     const exportYear = isActivityExport ? undefined : year || undefined
+    const exportQuery = !isActivityExport && !ids ? query || undefined : undefined
     setExporting(true)
     setExportingMode(isActivityExport ? (mode ? "today_with_sizes" : "today") : (mode ?? "default"))
     setExportProgress({ phase: "preparing", loaded: 0, total: null, percent: null })
     try {
-      await assertProductExportAllowed(brand, ids, mode, exportActivityDate, exportYear)
-      await downloadProductExport(brand, ids, mode, setExportProgress, exportActivityDate, exportYear)
+      await assertProductExportAllowed(brand, ids, mode, exportActivityDate, exportYear, exportQuery)
+      await downloadProductExport(brand, ids, mode, setExportProgress, exportActivityDate, exportYear, exportQuery)
     } catch (error) {
       onMessage("导出失败", error instanceof Error ? error.message : "导出 Excel 时发生错误，请重试")
     } finally {
@@ -201,7 +204,7 @@ export function ProductToolbar({
         : null
   const defaultExportLabel = exportingMode === "default" && exportStatusText
     ? exportStatusText
-    : hasSelection ? `导出选中 (${selectedIds!.size})` : "导出 Excel"
+    : hasSelection ? `导出选中 (${selectedIds!.size})` : query ? "导出搜索结果" : "导出 Excel"
   const sizeExportLabel = exportingMode === "with_sizes" && exportStatusText ? exportStatusText : "带尺码导出"
   const activityExportLabel = exportingMode === "today" && exportStatusText ? exportStatusText : "导出当日导入/新增"
   const activitySizeExportLabel = exportingMode === "today_with_sizes" && exportStatusText ? exportStatusText : "导出当日导入/新增带尺码"

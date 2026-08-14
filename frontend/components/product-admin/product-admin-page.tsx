@@ -356,6 +356,7 @@ export function ProductAdminPage() {
                 brand={brand}
                 year={year}
                 value={searchInput}
+                query={submittedQuery}
                 isLoading={isLoading}
                 selectedIds={selectedIds}
                 canExport={canExportProducts}

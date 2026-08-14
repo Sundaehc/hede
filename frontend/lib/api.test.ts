@@ -1,6 +1,14 @@
 import { beforeEach, expect, test, vi } from "vitest"
 
-import { ApiError, createProduct, deleteProduct, listProducts, lookupImage, updateProduct } from "@/lib/api"
+import {
+  ApiError,
+  buildProductExportUrl,
+  createProduct,
+  deleteProduct,
+  listProducts,
+  lookupImage,
+  updateProduct,
+} from "@/lib/api"
 
 beforeEach(() => {
   vi.restoreAllMocks()
@@ -23,6 +31,12 @@ test("listProducts serializes brand query and pagination into the request URL", 
         "Content-Type": "application/json",
       },
     }),
+  )
+})
+
+test("buildProductExportUrl includes the submitted SKU search", () => {
+  expect(buildProductExportUrl("cbanner_mens", undefined, undefined, undefined, undefined, " KT\nOA ")).toBe(
+    "/api/export?brand=cbanner_mens&query=KT%0AOA",
   )
 })
 

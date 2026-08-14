@@ -668,7 +668,8 @@ export function buildProductExportUrl(
   ids?: number[],
   mode?: "with_sizes",
   activityDate?: string,
-  year?: string
+  year?: string,
+  query?: string
 ) {
   const params = new URLSearchParams({ brand })
   if (brand !== "all" && ids && ids.length > 0) {
@@ -682,6 +683,9 @@ export function buildProductExportUrl(
   }
   if (year) {
     params.set("year", year)
+  }
+  if (query?.trim()) {
+    params.set("query", query.trim())
   }
   return `${API_PREFIX}/export?${params.toString()}`
 }
@@ -728,10 +732,11 @@ export async function downloadProductExport(
   mode?: "with_sizes",
   onProgress?: (progress: ProductExportProgress) => void,
   activityDate?: string,
-  year?: string
+  year?: string,
+  query?: string
 ) {
   onProgress?.({ phase: "preparing", loaded: 0, total: null, percent: null })
-  const response = await fetch(buildProductExportUrl(brand, ids, mode, activityDate, year), {
+  const response = await fetch(buildProductExportUrl(brand, ids, mode, activityDate, year, query), {
     credentials: "include",
   })
   if (!response.ok) {
@@ -806,9 +811,10 @@ export async function assertProductExportAllowed(
   ids?: number[],
   mode?: "with_sizes",
   activityDate?: string,
-  year?: string
+  year?: string,
+  query?: string
 ) {
-  const response = await fetch(buildProductExportUrl(brand, ids, mode, activityDate, year), {
+  const response = await fetch(buildProductExportUrl(brand, ids, mode, activityDate, year, query), {
     credentials: "include",
     method: "HEAD",
   })
@@ -822,9 +828,10 @@ export function exportProducts(
   ids?: number[],
   mode?: "with_sizes",
   activityDate?: string,
-  year?: string
+  year?: string,
+  query?: string
 ) {
-  return fetch(buildProductExportUrl(brand, ids, mode, activityDate, year), {
+  return fetch(buildProductExportUrl(brand, ids, mode, activityDate, year, query), {
     credentials: "include",
   }).then(async (response) => {
     if (!response.ok) {
