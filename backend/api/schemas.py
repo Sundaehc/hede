@@ -6,7 +6,7 @@ from pydantic import BaseModel, ConfigDict, model_validator
 
 
 BrandKey = Literal["cbanner_mens", "cbanner_womens", "yandou", "eblan"]
-ProductArchiveBrandKey = Literal["cbanner_mens", "cbanner_womens", "yandou", "eblan", "smiley", "ni"]
+ProductArchiveBrandKey = str
 MatchedBy = Literal["original_sku", "sku", "none"]
 
 

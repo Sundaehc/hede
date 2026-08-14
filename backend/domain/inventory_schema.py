@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from sqlalchemy import (
     BigInteger,
+    Boolean,
     Column,
     DateTime,
     Date,
@@ -25,6 +26,7 @@ from domain.inventory_sources import (
     JST_STOCK_TABLE_NAME,
     PURCHASE_ORDER_REQUIREMENT_TABLE_NAME,
     SUPPLIER_TABLE_NAME,
+    SUPPLIER_BRAND_TABLE_NAME,
     WAREHOUSE_BRAND_TABLE_NAME,
     WAREHOUSE_TABLE_NAME,
     GENERAL_CUSTOMER_SHOP_TABLE_NAME,
@@ -158,6 +160,25 @@ def build_warehouse_table() -> Table:
     return table
 
 
+def build_supplier_brand_table() -> Table:
+    table = Table(
+        SUPPLIER_BRAND_TABLE_NAME,
+        METADATA,
+        Column("id", BigInteger, Identity(always=False), primary_key=True),
+        Column("code", Text, nullable=False),
+        Column("name", Text, nullable=False),
+        Column("product_archive_enabled", Boolean, nullable=False, server_default="true"),
+        Column("product_table_name", Text, nullable=True),
+        Column("sort_order", Integer, nullable=False, server_default="0"),
+        Column("created_at", DateTime(timezone=True), server_default=func.date_trunc('minute', func.now())),
+        Column("updated_at", DateTime(timezone=True), server_default=func.date_trunc('minute', func.now()), onupdate=func.date_trunc('minute', func.now())),
+        UniqueConstraint("code", name="uq_supplier_brands_code"),
+        UniqueConstraint("name", name="uq_supplier_brands_name"),
+    )
+    Index("idx_supplier_brands_sort", table.c.sort_order)
+    return table
+
+
 def build_warehouse_brand_table() -> Table:
     columns: list = [
         Column("id", BigInteger, Identity(always=False), primary_key=True),
@@ -262,6 +283,7 @@ INVENTORY_DETAIL_TABLE = build_inventory_detail_table()
 INVENTORY_ACCOUNT_SUBJECT_TABLE = build_inventory_account_subject_table()
 PURCHASE_ORDER_REQUIREMENT_TABLE = build_purchase_order_requirement_table()
 SUPPLIER_TABLE = build_supplier_table()
+SUPPLIER_BRAND_TABLE = build_supplier_brand_table()
 WAREHOUSE_TABLE = build_warehouse_table()
 WAREHOUSE_BRAND_TABLE = build_warehouse_brand_table()
 GENERAL_CUSTOMER_BRAND_TABLE = build_general_customer_brand_table()

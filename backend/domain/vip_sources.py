@@ -75,7 +75,7 @@ JST_PURCHASE_DIFF_TABLE_NAME = "jst_purchase_defects"
 
 JST_PURCHASE_DIFF_COLUMNS: list[str] = field_names(JST_PURCHASE_DIFF_FIELDS)
 
-# ── jst_product_profiles: 聚水潭商品资料表 共 4 列 ────────────────
+# ── jst_product_profiles: 聚水潭商品资料表 ────────────────────────
 JST_PRODUCT_PROFILE_TABLE_NAME = "jst_product_profiles"
 
 JST_PRODUCT_PROFILE_COLUMNS: list[str] = field_names(JST_PRODUCT_PROFILE_FIELDS)

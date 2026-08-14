@@ -68,6 +68,7 @@ class SizeGroupRepository:
         for product_table in PRODUCT_TABLES.values():
             rows = connection.execute(
                 select(product_table.c.size_range, func.count().label("count"))
+                .where(product_table.c.deleted_at.is_(None))
                 .where(product_table.c.size_range.is_not(None))
                 .where(func.trim(product_table.c.size_range) != "")
                 .group_by(product_table.c.size_range)

@@ -16,6 +16,17 @@ def test_purchase_size_range_expands_millimeter_sizes():
     assert _parse_purchase_size_range_labels("220-235") == ("220", "225", "230", "235")
 
 
+def test_purchase_import_parses_ns_color_coded_eu_size():
+    assert inventory._split_purchase_size_code("NAA2656001A020634", "ns") == ("NAA2656001A02", "34")
+    assert inventory._split_purchase_product_code("NAA2656001A020634", [], "ns") == (
+        "NAA2656001A02",
+        "NAA2656001A02",
+        "06",
+        "",
+        "34",
+    )
+
+
 def test_purchase_detail_lookup_checks_other_product_archives_for_size_range(monkeypatch):
     calls: list[str] = []
 

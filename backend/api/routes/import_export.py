@@ -30,7 +30,6 @@ from domain.product_defaults import apply_product_defaults
 from domain.product_size_code import build_product_size_code
 from domain.sources import CANONICAL_COLUMNS, COLUMN_ALIASES
 from domain.color_barcode_schema import COLOR_BARCODE_TABLE
-from domain.schema import PRODUCT_ARCHIVE_TABLES
 from domain.size_group_schema import SIZE_GROUP_ITEMS_TABLE, SIZE_GROUPS_TABLE
 from domain.vip_schema import JST_PRODUCT_PROFILE_TABLE
 from storage.product_repository import (
@@ -51,6 +50,7 @@ EXPORT_COLUMNS = [c for c in CANONICAL_COLUMNS if c != "image_path"]
 CN_TO_FIELD = {cn: en for cn, en in COLUMN_ALIASES.items() if en in EXPORT_COLUMNS}
 SIZE_EXPORT_MODE = "with_sizes"
 SIZE_EXPORT_HEADERS = [
+    "供应商名",
     "商品编码",
     "款式编码",
     "商品名",
@@ -65,7 +65,6 @@ SIZE_EXPORT_HEADERS = [
     "鞋垫材质",
     "原始货号",
     "供应商商品款号",
-    "供应商名",
     "品牌",
     "颜色及规格",
     "分类",
@@ -77,6 +76,7 @@ SHANGHAI_TIME_ZONE = ZoneInfo("Asia/Shanghai")
 SIZE_EXPORT_MAX_WIDTH = 42
 SIZE_EXPORT_MIN_WIDTH = 10
 SIZE_EXPORT_WIDTH_BY_HEADER = {
+    "供应商名": 20,
     "商品编码": 24,
     "款式编码": 20,
     "商品名": 32,
@@ -91,7 +91,6 @@ SIZE_EXPORT_WIDTH_BY_HEADER = {
     "鞋垫材质": 16,
     "原始货号": 20,
     "供应商商品款号": 20,
-    "供应商名": 20,
     "品牌": 14,
     "颜色及规格": 18,
     "分类": 18,
@@ -155,7 +154,8 @@ def _iter_all_export_rows(
     activity_date: date_type | None = None,
     year: str | None = None,
 ) -> Iterator[tuple[str, list[object]]]:
-    for brand, table in PRODUCT_ARCHIVE_TABLES.items():
+    for brand in repository.product_archive_brands():
+        table = repository._table_for_brand(brand)
         conditions = [not_excluded_sku_condition(table.c.sku, table.c.original_sku)]
         if activity_date:
             conditions.append(_activity_date_export_condition(table, activity_date))
@@ -305,10 +305,10 @@ def _parse_id_list(ids: str | None) -> list[int]:
         raise HTTPException(status_code=400, detail="无效的商品 ID")
 
 
-def _validate_product_export_request(brand: str, mode: str | None = None) -> None:
+def _validate_product_export_request(repository, brand: str, mode: str | None = None) -> None:
     if mode == SIZE_EXPORT_MODE and brand == "all":
         raise HTTPException(status_code=400, detail="带尺码导出请选择具体品牌")
-    if brand != "all" and brand not in PRODUCT_ARCHIVE_TABLES:
+    if brand != "all" and not repository.is_product_archive_brand(brand):
         raise HTTPException(status_code=400, detail="无效品牌")
 
 
@@ -334,7 +334,7 @@ def _load_size_export_source_items(
     activity_date: date_type | None = None,
     year: str | None = None,
 ) -> list[dict[str, object]]:
-    table = PRODUCT_ARCHIVE_TABLES[brand]
+    table = repository._table_for_brand(brand)
     statement = (
         select(table)
         .where(not_excluded_sku_condition(table.c.sku, table.c.original_sku))
@@ -366,10 +366,10 @@ def _size_export_source_codes(items: list[dict[str, object]]) -> set[str]:
     return selected_codes
 
 
-def _load_product_archive_rows(connection, brand: str, codes: set[str]) -> dict[str, dict[str, object]]:
-    table = PRODUCT_ARCHIVE_TABLES.get(brand)
-    if table is None or not codes:
+def _load_product_archive_rows(repository, connection, brand: str, codes: set[str]) -> dict[str, dict[str, object]]:
+    if not codes:
         return {}
+    table = repository._table_for_brand(brand)
 
     rows_by_code: dict[str, dict[str, object]] = {}
     for chunk in _chunk_values(codes):
@@ -722,7 +722,7 @@ def _export_products_with_sizes(
     activity_date: date_type | None = None,
     year: str | None = None,
 ) -> StreamingResponse:
-    _validate_product_export_request(brand, SIZE_EXPORT_MODE)
+    _validate_product_export_request(repository, brand, SIZE_EXPORT_MODE)
     source_items = _load_size_export_source_items(
         repository,
         brand,
@@ -785,7 +785,7 @@ def _export_products_with_sizes(
         }
         lookup_codes = set(profile_style_codes)
         lookup_codes.update(selected_codes)
-        loaded_archive_rows = _load_product_archive_rows(connection, brand, lookup_codes)
+        loaded_archive_rows = _load_product_archive_rows(repository, connection, brand, lookup_codes)
         apply_jst_product_costs(repository.engine, list(loaded_archive_rows.values()))
         archive_rows = dict(loaded_archive_rows)
         gj_rows = _load_gj_rows(connection, lookup_codes)
@@ -805,9 +805,10 @@ def _export_products_with_sizes(
             style_contexts[context_key] = context
 
         product_name = _size_export_product_name(style_code, color_name, product_code)
-        category = _first_text(context["category"], raw_payload.get("分类"))
+        category = "男鞋" if brand == "cbanner_mens" else _first_text(context["category"], raw_payload.get("分类"))
         logo = _first_text(context["logo"], raw_payload.get("LOGO"), raw_payload.get("品牌"))
         row = [
+            _first_text(context["supplier_name"], raw_payload.get("供应商名"), raw_payload.get("供应商")),
             product_code,
             style_code,
             product_name,
@@ -822,7 +823,6 @@ def _export_products_with_sizes(
             _first_text(context["insole_material"], raw_payload.get("鞋垫材质")),
             _first_text(context["original_sku"], raw_payload.get("原始货号")),
             _first_text(raw_payload.get("供应商商品款号"), context["factory_code"]),
-            _first_text(context["supplier_name"], raw_payload.get("供应商名"), raw_payload.get("供应商")),
             _first_text(raw_payload.get("品牌"), context["brand"]),
             f"{color_name};{size_barcode}" if color_name or size_barcode else "",
             category,
@@ -874,7 +874,7 @@ def export_products(
     today_only: bool = Query(False),
 ):
     repository = request.app.state.repository
-    _validate_product_export_request(brand, mode)
+    _validate_product_export_request(repository, brand, mode)
     if request.method == "HEAD":
         return Response(status_code=200)
 
@@ -895,7 +895,7 @@ def export_products(
         return _export_all_products(request, repository, activity_date=export_date, year=export_year)
 
     if export_date:
-        table = PRODUCT_ARCHIVE_TABLES[brand]
+        table = repository._table_for_brand(brand)
         with repository.engine.connect() as connection:
             items = [
                 dict(row)
@@ -955,10 +955,12 @@ def export_products(
 
 @router.head("/export")
 def check_export_products(
+    request: Request,
     brand: str = Query(...),
     mode: str | None = Query(None),
 ):
-    _validate_product_export_request(brand, mode)
+    repository = request.app.state.repository
+    _validate_product_export_request(repository, brand, mode)
     return Response(status_code=200)
 
 
@@ -1005,7 +1007,8 @@ async def import_products(
     brand: str = Query(...),
     file: UploadFile = None,
 ):
-    if brand not in PRODUCT_ARCHIVE_TABLES:
+    repository = request.app.state.repository
+    if not repository.is_product_archive_brand(brand):
         raise HTTPException(status_code=400, detail="无效品牌")
     if file is None:
         raise HTTPException(status_code=400, detail="No file uploaded")

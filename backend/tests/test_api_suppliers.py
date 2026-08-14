@@ -83,3 +83,27 @@ def test_suppliers_infer_brand_suffixes_from_unit_supplier_name(test_app_client:
         )
         assert response.status_code == 200
         assert response.json()["item"]["brand"] == expected_brand
+
+
+def test_supplier_brand_can_be_deleted_when_unreferenced(test_app_client: TestClient):
+    created = test_app_client.post("/supplier-brands", json={"name": "待删除测试品牌"})
+    assert created.status_code == 200
+
+    brand_id = created.json()["item"]["id"]
+    deleted = test_app_client.delete(f"/supplier-brands/{brand_id}")
+
+    assert deleted.status_code == 200
+    assert deleted.json()["message"] == "删除成功"
+
+
+def test_supplier_brand_cannot_be_deleted_when_suppliers_exist(test_app_client: TestClient):
+    created_brand = test_app_client.post("/supplier-brands", json={"name": "关联供应商测试品牌"})
+    assert created_brand.status_code == 200
+    brand = created_brand.json()["item"]
+
+    created_supplier = test_app_client.post("/suppliers", json={"brand": brand["code"], "name": "关联供应商"})
+    assert created_supplier.status_code == 200
+
+    deleted = test_app_client.delete(f"/supplier-brands/{brand['id']}")
+    assert deleted.status_code == 400
+    assert "关联供应商" in deleted.json()["detail"]

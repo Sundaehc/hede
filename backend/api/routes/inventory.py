@@ -13,7 +13,7 @@ from fastapi.responses import StreamingResponse
 from openpyxl import Workbook, load_workbook
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
-from sqlalchemy import desc, or_, select as sa_select
+from sqlalchemy import MetaData, desc, or_, select as sa_select
 
 from api.excel_export import style_excel_workbook, style_excel_worksheet
 from api.operation_log_utils import (
@@ -33,7 +33,7 @@ from api.operation_log_utils import (
 from domain.color_barcode_schema import COLOR_BARCODE_TABLE
 from domain.gj_brand import CBANNER_MENS_BRAND, CBANNER_WOMENS_BRAND, EBLAN_BRAND, NI_BRAND, SMILEY_BRAND, SUPPLIER_BRANDS, YANDOU_BRAND, infer_supplier_brand_from_name
 from domain.gj_schema import GJ_MERGED_PRODUCT_INFO_TABLE
-from domain.inventory_schema import SUPPLIER_TABLE
+from domain.inventory_schema import SUPPLIER_BRAND_TABLE, SUPPLIER_TABLE
 from domain.ni_gendered_costs import GENDER_COSTS_FIELD, price_for_sizes, split_sizes_by_gender
 from domain.product_size_code import build_product_size_code
 from domain.smiley_schema import SMILEY_FINE_TABLE
@@ -47,11 +47,49 @@ from domain.inventory_sources import (
     INVENTORY_DETAIL_COLUMNS,
     INVENTORY_EXPORT_LABELS,
 )
-from domain.schema import PRODUCT_ARCHIVE_TABLES, PRODUCT_TABLES
+from domain.schema import PRODUCT_ARCHIVE_TABLES, PRODUCT_TABLES, build_product_archive_table
 from domain.size_group_schema import SIZE_GROUP_ITEMS_TABLE, SIZE_GROUPS_TABLE
 from domain.vip_schema import JST_PRICE_TABLE
 
 router = APIRouter()
+
+
+def _normalize_product_archive_brand(brand: object) -> str:
+    normalized_brand = _cell_text(brand).lower()
+    return "ni" if normalized_brand == "nike" else normalized_brand
+
+
+def _product_archive_table_for_brand(connection, brand: object):
+    normalized_brand = _normalize_product_archive_brand(brand)
+    static_table = PRODUCT_ARCHIVE_TABLES.get(normalized_brand)
+    if static_table is not None:
+        return static_table
+
+    configured_brand = connection.execute(
+        sa_select(SUPPLIER_BRAND_TABLE.c.product_table_name)
+        .where(SUPPLIER_BRAND_TABLE.c.code == normalized_brand)
+        .where(SUPPLIER_BRAND_TABLE.c.product_archive_enabled.is_(True))
+    ).scalar()
+    table_name = _cell_text(configured_brand)
+    prefix = "manual_product_archive_"
+    if not table_name.startswith(prefix) or not table_name.removeprefix(prefix).isdigit():
+        return None
+    return build_product_archive_table(table_name, metadata=MetaData())
+
+
+def _product_archive_brand_codes(connection) -> list[str]:
+    if connection is None:
+        return list(PRODUCT_ARCHIVE_TABLES)
+    configured_brands = [
+        _cell_text(code).lower()
+        for code in connection.execute(
+            sa_select(SUPPLIER_BRAND_TABLE.c.code)
+            .where(SUPPLIER_BRAND_TABLE.c.product_archive_enabled.is_(True))
+            .order_by(SUPPLIER_BRAND_TABLE.c.sort_order, SUPPLIER_BRAND_TABLE.c.id)
+        ).scalars()
+        if _cell_text(code)
+    ]
+    return list(dict.fromkeys([*configured_brands, *PRODUCT_ARCHIVE_TABLES]))
 
 
 def _ordered_ids(payload: dict) -> list[int]:
@@ -95,6 +133,8 @@ EU_PURCHASE_SIZE_LABELS = ("35", "36", "37", "38", "39", "40", "41", "42", "43",
 MILLIMETER_PURCHASE_SIZE_LABELS = ("220", "225", "230", "235", "240", "245", "250", "255", "260", "265", "270", "275", "280", "285")
 PURCHASE_EXPORT_SIZE_LABELS = (*MILLIMETER_PURCHASE_SIZE_LABELS, *EU_PURCHASE_SIZE_LABELS)
 EU_SIZE_BRANDS = {"smiley", "ni", "nike"}
+COLOR_CODED_EU_SIZE_BRANDS = {"ns"}
+COLOR_CODED_EU_SIZE_LABELS = ("34", *EU_PURCHASE_SIZE_LABELS)
 PURCHASE_SIZE_CODE_MAPS = {
     "cbanner_mens": {
         "01": "38",
@@ -601,15 +641,15 @@ def _load_purchase_size_export_profiles(
         if record is None or not product_code:
             continue
         brand = _purchase_record_export_context(record, supplier_lookup).get("brand", "")
-        if brand not in PRODUCT_ARCHIVE_TABLES:
-            continue
         requested_codes_by_brand[brand].add(product_code)
         profile_keys[(document_id, product_code)] = brand
 
     profiles_by_brand_and_code: dict[tuple[str, str], dict[str, object]] = {}
     with repository.engine.connect() as connection:
         for brand, product_codes in requested_codes_by_brand.items():
-            table = PRODUCT_ARCHIVE_TABLES[brand]
+            table = _product_archive_table_for_brand(connection, brand)
+            if table is None:
+                continue
             rows = connection.execute(
                 sa_select(
                     table.c.sku,
@@ -1919,6 +1959,7 @@ def _purchase_detail_color_values(
 
 
 def _split_purchase_size_code(product_code: str, brand: str) -> tuple[str, str]:
+    normalized_brand = _normalize_product_archive_brand(brand)
     combined_size = _split_purchase_combined_size_code(product_code)
     if combined_size:
         return combined_size
@@ -1926,6 +1967,10 @@ def _split_purchase_size_code(product_code: str, brand: str) -> tuple[str, str]:
     if partial_combined_size:
         base_code, size_code = partial_combined_size
         return base_code, _purchase_size_from_code(size_code, brand)
+    if normalized_brand in COLOR_CODED_EU_SIZE_BRANDS and len(product_code) >= 4:
+        size_code = product_code[-2:]
+        if size_code in COLOR_CODED_EU_SIZE_LABELS:
+            return product_code[:-4], size_code
     if len(product_code) >= 3:
         size_code = product_code[-3:]
         if size_code in PURCHASE_MILLIMETER_SIZE_MAP:
@@ -1961,6 +2006,13 @@ def _split_purchase_product_code(product_code: str, color_barcodes: list[tuple[s
             color_name,
             _purchase_size_from_code(size_code, brand),
         )
+    if _normalize_product_archive_brand(brand) in COLOR_CODED_EU_SIZE_BRANDS and len(product_code) >= 5:
+        size_code = product_code[-2:]
+        if size_code in COLOR_CODED_EU_SIZE_LABELS:
+            original_sku = product_code[:-4]
+            color_barcode = product_code[-4:-2]
+            color_name = next((name for barcode, name in color_barcodes if barcode == color_barcode), "")
+            return original_sku, original_sku, color_barcode, color_name, size_code
     if len(product_code) >= 5:
         raw_size_code = product_code[-3:]
         if raw_size_code in PURCHASE_MILLIMETER_SIZE_MAP:
@@ -2237,7 +2289,7 @@ def _load_purchase_product_lookup(connection, brand: str, product_codes: set[str
         if price not in (None, "") and not lookup[code].get("unit_price"):
             lookup[code]["unit_price"] = price
 
-    product_table = PRODUCT_ARCHIVE_TABLES.get(brand)
+    product_table = _product_archive_table_for_brand(connection, brand)
     if product_table is not None:
         for row in connection.execute(
             sa_select(
@@ -2360,12 +2412,12 @@ def _load_inventory_detail_size_ranges(
     unresolved_codes = set(product_codes)
     size_ranges_by_product_code: dict[str, str] = {}
     normalized_preferred_brand = "ni" if preferred_brand == "nike" else preferred_brand
-    brands = dict.fromkeys([normalized_preferred_brand, *PRODUCT_ARCHIVE_TABLES])
+    brands = dict.fromkeys([normalized_preferred_brand, *_product_archive_brand_codes(connection)])
 
     for brand in brands:
         if not unresolved_codes:
             break
-        product_table = PRODUCT_ARCHIVE_TABLES.get(brand)
+        product_table = _product_archive_table_for_brand(connection, brand)
         if product_table is None:
             continue
 
@@ -2426,14 +2478,12 @@ def _build_purchase_detail_candidates(connection, query: str, brand: str | None 
     if len(keyword) < 2:
         return []
 
-    candidate_brands = [brand] if brand else list(PRODUCT_ARCHIVE_TABLES)
+    candidate_brands = [brand] if brand else _product_archive_brand_codes(connection)
     seen: set[tuple[str, str]] = set()
     items: list[dict[str, str]] = []
 
     for candidate_brand in candidate_brands:
-        normalized_brand = _cell_text(candidate_brand).lower()
-        if normalized_brand == "nike":
-            normalized_brand = "ni"
+        normalized_brand = _normalize_product_archive_brand(candidate_brand)
         if not normalized_brand:
             continue
         if normalized_brand == "smiley":
@@ -2478,7 +2528,7 @@ def _build_purchase_detail_candidates(connection, query: str, brand: str | None 
                 if len(items) >= limit:
                     return items
 
-        product_table = PRODUCT_ARCHIVE_TABLES.get(normalized_brand)
+        product_table = _product_archive_table_for_brand(connection, normalized_brand)
         if product_table is not None:
             rows = connection.execute(
                 sa_select(
@@ -2664,12 +2714,10 @@ def _build_purchase_detail_lookup_for_brand(connection, product_code: str, quant
 
 
 def _build_purchase_detail_lookup(connection, product_code: str, quantity: Decimal, brand: str | None = None) -> dict[str, object]:
-    preferred_brand = _cell_text(brand).lower()
-    if preferred_brand == "nike":
-        preferred_brand = "ni"
+    preferred_brand = _normalize_product_archive_brand(brand)
     brands = list(dict.fromkeys([
         *([preferred_brand] if preferred_brand else []),
-        *PRODUCT_ARCHIVE_TABLES.keys(),
+        *_product_archive_brand_codes(connection),
     ]))
     fallback: dict[str, object] | None = None
     matched_fallback: dict[str, object] | None = None

@@ -6,12 +6,13 @@ from decimal import Decimal
 from typing import Callable
 
 import orjson
-from sqlalchemy import and_, bindparam, create_engine, delete, desc, func, insert, literal, or_, select, text, union_all, update
+from sqlalchemy import MetaData, Table, and_, bindparam, create_engine, delete, desc, func, insert, literal, or_, select, text, union_all, update
 
 from domain.color_barcode_schema import COLOR_BARCODE_TABLE
 from domain.excluded_skus import not_excluded_sku_condition
 from domain.product_defaults import apply_product_defaults
-from domain.schema import PRODUCT_ARCHIVE_TABLES, PRODUCT_TABLES
+from domain.inventory_schema import SUPPLIER_BRAND_TABLE
+from domain.schema import PRODUCT_ARCHIVE_TABLES, PRODUCT_TABLES, build_product_archive_table
 from domain.vip_schema import JST_PRICE_TABLE
 
 
@@ -161,6 +162,83 @@ class ProductRepository:
             json_serializer=_json_serializer,
         )
         self._color_code_cache: dict[str, dict[str, str]] = {}
+        self._manual_product_tables: dict[str, Table] = {}
+
+    @staticmethod
+    def _manual_table_name(value: object) -> str | None:
+        table_name = str(value or "").strip()
+        if not table_name.startswith("manual_product_archive_"):
+            return None
+        suffix = table_name.removeprefix("manual_product_archive_")
+        return table_name if suffix.isdigit() else None
+
+    def _manual_brand(self, brand: str) -> dict[str, object] | None:
+        statement = (
+            select(SUPPLIER_BRAND_TABLE)
+            .where(SUPPLIER_BRAND_TABLE.c.code == brand)
+            .where(SUPPLIER_BRAND_TABLE.c.product_archive_enabled.is_(True))
+        )
+        with self.engine.connect() as connection:
+            row = connection.execute(statement).mappings().first()
+        return None if row is None else dict(row)
+
+    def is_product_archive_brand(self, brand: str) -> bool:
+        return brand in PRODUCT_ARCHIVE_TABLES or self._manual_brand(brand) is not None
+
+    @staticmethod
+    def _apply_costs_for_brand(brand: str, items: list[dict[str, object]], engine) -> list[dict[str, object]]:
+        if brand in PRODUCT_ARCHIVE_TABLES:
+            return apply_jst_product_costs(engine, items)
+        return items
+
+    def product_archive_brands(self) -> list[str]:
+        statement = (
+            select(SUPPLIER_BRAND_TABLE.c.code)
+            .where(SUPPLIER_BRAND_TABLE.c.product_archive_enabled.is_(True))
+            .order_by(SUPPLIER_BRAND_TABLE.c.sort_order, SUPPLIER_BRAND_TABLE.c.id)
+        )
+        with self.engine.connect() as connection:
+            configured = [str(code) for code in connection.execute(statement).scalars()]
+        return list(dict.fromkeys([*configured, *PRODUCT_ARCHIVE_TABLES]))
+
+    def _table_for_brand(self, brand: str) -> Table:
+        static_table = PRODUCT_ARCHIVE_TABLES.get(brand)
+        if static_table is not None:
+            return static_table
+        configured = self._manual_brand(brand)
+        table_name = self._manual_table_name(configured.get("product_table_name") if configured else None)
+        if table_name is None:
+            raise KeyError(f"Unknown product archive brand: {brand}")
+        table = self._manual_product_tables.get(brand)
+        if table is None:
+            table = build_product_archive_table(table_name, metadata=MetaData())
+            self._manual_product_tables[brand] = table
+        return table
+
+    def ensure_manual_product_archive(self, brand: Mapping[str, object]) -> None:
+        code = str(brand.get("code") or "").strip()
+        if not code or code in PRODUCT_ARCHIVE_TABLES:
+            return
+        table = self._table_for_brand(code)
+        with self.engine.begin() as connection:
+            table.create(connection, checkfirst=True)
+            connection.execute(text(f"ALTER TABLE {table.name} ADD COLUMN IF NOT EXISTS last_imported_at TIMESTAMPTZ"))
+            connection.execute(text(f"ALTER TABLE {table.name} ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ"))
+            connection.execute(text(f"CREATE INDEX IF NOT EXISTS idx_{table.name}_last_imported_at ON {table.name} (last_imported_at)"))
+            connection.execute(text(f"CREATE INDEX IF NOT EXISTS idx_{table.name}_deleted_at ON {table.name} (deleted_at)"))
+
+    def ensure_manual_product_archives(self) -> None:
+        for brand in self._list_manual_archive_brand_records():
+            self.ensure_manual_product_archive(brand)
+
+    def _list_manual_archive_brand_records(self) -> list[dict[str, object]]:
+        statement = (
+            select(SUPPLIER_BRAND_TABLE)
+            .where(SUPPLIER_BRAND_TABLE.c.product_archive_enabled.is_(True))
+            .where(SUPPLIER_BRAND_TABLE.c.product_table_name.isnot(None))
+        )
+        with self.engine.connect() as connection:
+            return [dict(row) for row in connection.execute(statement).mappings()]
 
     def create_tables(self) -> None:
         """Apply lightweight, backwards-compatible product archive schema additions."""
@@ -174,6 +252,14 @@ class ProductRepository:
                     f"CREATE INDEX IF NOT EXISTS idx_{table.name}_last_imported_at "
                     f"ON {table.name} (last_imported_at)"
                 ))
+                connection.execute(text(
+                    f"ALTER TABLE {table.name} ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ"
+                ))
+                connection.execute(text(
+                    f"CREATE INDEX IF NOT EXISTS idx_{table.name}_deleted_at "
+                    f"ON {table.name} (deleted_at)"
+                ))
+        self.ensure_manual_product_archives()
 
     def sync_costs_from_latest_combined_footwear_price(
         self,
@@ -298,11 +384,14 @@ class ProductRepository:
         page_size: int,
         year: str | None = None,
     ) -> dict[str, object]:
-        table = PRODUCT_ARCHIVE_TABLES[brand]
+        table = self._table_for_brand(brand)
         count_statement = select(func.count()).select_from(table)
         items_statement = select(table)
 
-        conditions = [not_excluded_sku_condition(table.c.sku, table.c.original_sku)]
+        conditions = [
+            table.c.deleted_at.is_(None),
+            not_excluded_sku_condition(table.c.sku, table.c.original_sku),
+        ]
         if query:
             terms = [t.strip() for t in query.replace("\n", ",").split(",") if t.strip()]
             query_conditions = []
@@ -328,7 +417,7 @@ class ProductRepository:
             total = connection.execute(count_statement).scalar_one()
             items = [dict(row) for row in connection.execute(items_statement).mappings()]
 
-        apply_jst_product_costs(self.engine, items)
+        self._apply_costs_for_brand(brand, items, self.engine)
         return {
             "items": items,
             "total": total,
@@ -342,16 +431,17 @@ class ProductRepository:
         page: int,
         page_size: int,
     ) -> dict[str, object]:
-        brand_keys = list(PRODUCT_ARCHIVE_TABLES.keys())
+        brand_keys = self.product_archive_brands()
 
         subqueries = []
         for brand_key in brand_keys:
-            table = PRODUCT_ARCHIVE_TABLES[brand_key]
+            table = self._table_for_brand(brand_key)
             sq = select(
                 table.c.id,
                 literal(brand_key).label("brand"),
                 *([c for c in table.columns if c.key not in ("id",)]),
             )
+            sq = sq.where(table.c.deleted_at.is_(None))
             sq = sq.where(not_excluded_sku_condition(table.c.sku, table.c.original_sku))
             if query:
                 terms = [t.strip() for t in query.replace("\n", ",").split(",") if t.strip()]
@@ -371,7 +461,8 @@ class ProductRepository:
             total = connection.execute(count_statement).scalar_one()
             items = [dict(row) for row in connection.execute(items_statement).mappings()]
 
-        apply_jst_product_costs(self.engine, items)
+        for item in items:
+            self._apply_costs_for_brand(str(item.get("brand") or ""), [item], self.engine)
         return {
             "items": items,
             "total": total,
@@ -380,10 +471,11 @@ class ProductRepository:
         }
 
     def get_product(self, brand: str, product_id: int) -> dict[str, object] | None:
-        table = PRODUCT_ARCHIVE_TABLES[brand]
+        table = self._table_for_brand(brand)
         statement = (
             select(table)
             .where(table.c.id == product_id)
+            .where(table.c.deleted_at.is_(None))
             .where(not_excluded_sku_condition(table.c.sku, table.c.original_sku))
         )
         with self.engine.connect() as connection:
@@ -397,10 +489,11 @@ class ProductRepository:
     def get_products_by_ids(self, brand: str, ids: list[int]) -> list[dict[str, object]]:
         if not ids:
             return []
-        table = PRODUCT_ARCHIVE_TABLES[brand]
+        table = self._table_for_brand(brand)
         statement = (
             select(table)
             .where(table.c.id.in_(ids))
+            .where(table.c.deleted_at.is_(None))
             .where(not_excluded_sku_condition(table.c.sku, table.c.original_sku))
             .order_by(desc(table.c.id))
         )
@@ -412,7 +505,7 @@ class ProductRepository:
         ids = sorted({int(product_id) for product_id in product_ids})
         if not ids:
             return
-        table = PRODUCT_ARCHIVE_TABLES[brand]
+        table = self._table_for_brand(brand)
         def mark_imported(active_connection) -> None:
             for index in range(0, len(ids), IMPORT_MARK_CHUNK_SIZE):
                 active_connection.execute(
@@ -427,10 +520,11 @@ class ProductRepository:
             mark_imported(active_connection)
 
     def find_by_sku(self, brand: str, sku: object, *, connection=None) -> dict[str, object] | None:
-        table = PRODUCT_ARCHIVE_TABLES[brand]
+        table = self._table_for_brand(brand)
         statement = (
             select(table)
             .where(table.c.sku == str(sku))
+            .where(table.c.deleted_at.is_(None))
             .where(not_excluded_sku_condition(table.c.sku, table.c.original_sku))
         )
         if connection is not None:
@@ -441,10 +535,11 @@ class ProductRepository:
         return None if row is None else dict(row)
 
     def find_by_original_sku(self, brand: str, original_sku: object, *, connection=None) -> dict[str, object] | None:
-        table = PRODUCT_ARCHIVE_TABLES[brand]
+        table = self._table_for_brand(brand)
         statement = (
             select(table)
             .where(table.c.original_sku == str(original_sku))
+            .where(table.c.deleted_at.is_(None))
             .where(not_excluded_sku_condition(table.c.sku, table.c.original_sku))
         )
         if connection is not None:
@@ -455,7 +550,7 @@ class ProductRepository:
         return None if row is None else dict(row)
 
     def upsert_by_sku(self, brand: str, record: Mapping[str, object]) -> dict[str, object]:
-        table = PRODUCT_ARCHIVE_TABLES[brand]
+        table = self._table_for_brand(brand)
         payload = self._prepare_record(record, brand=brand)
         sku = str(payload.get("sku", ""))
 
@@ -475,7 +570,7 @@ class ProductRepository:
         return dict(row)
 
     def create_product(self, brand: str, record: Mapping[str, object], *, connection=None) -> dict[str, object]:
-        table = PRODUCT_ARCHIVE_TABLES[brand]
+        table = self._table_for_brand(brand)
         statement = insert(table).values(**self._prepare_record(record, brand=brand)).returning(table)
         if connection is not None:
             row = connection.execute(statement).mappings().one()
@@ -483,7 +578,7 @@ class ProductRepository:
         with self.engine.begin() as active_connection:
             row = active_connection.execute(statement).mappings().one()
         item = dict(row)
-        apply_jst_product_costs(self.engine, [item])
+        self._apply_costs_for_brand(brand, [item], self.engine)
         return item
 
     def update_product(
@@ -494,10 +589,15 @@ class ProductRepository:
         *,
         connection=None,
     ) -> dict[str, object] | None:
-        table = PRODUCT_ARCHIVE_TABLES[brand]
+        table = self._table_for_brand(brand)
         payload = self._prepare_record(record, brand=brand)
         payload.pop("id", None)
-        statement = update(table).where(table.c.id == product_id).values(**payload).returning(table)
+        statement = (
+            update(table)
+            .where(table.c.id == product_id, table.c.deleted_at.is_(None))
+            .values(**payload)
+            .returning(table)
+        )
         if connection is not None:
             row = connection.execute(statement).mappings().first()
             return None if row is None else dict(row)
@@ -510,8 +610,12 @@ class ProductRepository:
         return item
 
     def delete_product(self, brand: str, product_id: int) -> bool:
-        table = PRODUCT_ARCHIVE_TABLES[brand]
-        statement = delete(table).where(table.c.id == product_id)
+        table = self._table_for_brand(brand)
+        statement = (
+            update(table)
+            .where(table.c.id == product_id, table.c.deleted_at.is_(None))
+            .values(deleted_at=func.now())
+        )
         with self.engine.begin() as connection:
             result = connection.execute(statement)
         return result.rowcount > 0
@@ -519,11 +623,72 @@ class ProductRepository:
     def delete_products(self, brand: str, ids: list[int]) -> int:
         if not ids:
             return 0
-        table = PRODUCT_ARCHIVE_TABLES[brand]
-        statement = delete(table).where(table.c.id.in_(ids))
+        table = self._table_for_brand(brand)
+        statement = (
+            update(table)
+            .where(table.c.id.in_(ids), table.c.deleted_at.is_(None))
+            .values(deleted_at=func.now())
+        )
         with self.engine.begin() as connection:
             result = connection.execute(statement)
         return result.rowcount
+
+    def list_recycled_products(
+        self,
+        *,
+        brand: str | None,
+        page: int,
+        page_size: int,
+    ) -> dict[str, object]:
+        brands = [brand] if brand else self.product_archive_brands()
+        subqueries = []
+        for brand_key in brands:
+            table = self._table_for_brand(brand_key)
+            subqueries.append(
+                select(
+                    table.c.id,
+                    literal(brand_key).label("brand"),
+                    table.c.sku,
+                    table.c.original_sku,
+                    table.c.product_name,
+                    table.c.color,
+                    table.c.year,
+                    table.c.image_path,
+                    table.c.deleted_at,
+                ).where(table.c.deleted_at.isnot(None))
+            )
+
+        combined = union_all(*subqueries).subquery()
+        count_statement = select(func.count()).select_from(combined)
+        items_statement = (
+            select(combined)
+            .order_by(desc(combined.c.deleted_at), desc(combined.c.id))
+            .offset((page - 1) * page_size)
+            .limit(page_size)
+        )
+        with self.engine.connect() as connection:
+            total = int(connection.execute(count_statement).scalar_one())
+            items = [dict(row) for row in connection.execute(items_statement).mappings()]
+        return {"items": items, "total": total, "page": page, "page_size": page_size}
+
+    def restore_product(self, brand: str, product_id: int) -> dict[str, object] | None:
+        table = self._table_for_brand(brand)
+        statement = (
+            update(table)
+            .where(table.c.id == product_id, table.c.deleted_at.isnot(None))
+            .values(deleted_at=None)
+            .returning(table)
+        )
+        with self.engine.begin() as connection:
+            row = connection.execute(statement).mappings().first()
+        return None if row is None else dict(row)
+
+    def permanently_delete_product(self, brand: str, product_id: int) -> dict[str, object] | None:
+        table = self._table_for_brand(brand)
+        statement = delete(table).where(table.c.id == product_id, table.c.deleted_at.isnot(None)).returning(table)
+        with self.engine.begin() as connection:
+            row = connection.execute(statement).mappings().first()
+        return None if row is None else dict(row)
 
     def refresh_image_paths(
         self,
@@ -532,7 +697,7 @@ class ProductRepository:
         *,
         overwrite: bool = False,
     ) -> dict[str, int]:
-        table = PRODUCT_ARCHIVE_TABLES[brand]
+        table = self._table_for_brand(brand)
         statement = select(table.c.id, table.c.original_sku, table.c.sku, table.c.image_path)
         if not overwrite:
             statement = statement.where(or_(table.c.image_path.is_(None), table.c.image_path == ""))

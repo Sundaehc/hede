@@ -17,7 +17,7 @@ def _column_type(field: FieldSpec):
 
 
 
-def _build_product_table(table_name: str) -> Table:
+def build_product_archive_table(table_name: str, *, metadata: MetaData = METADATA) -> Table:
     columns: list = [
         Column("id", BigInteger, Identity(always=False), primary_key=True),
         Column("source_workbook", Text, nullable=False),
@@ -30,12 +30,18 @@ def _build_product_table(table_name: str) -> Table:
     columns.append(Column("created_at", DateTime(timezone=True), server_default=func.date_trunc('minute', func.now())))
     columns.append(Column("updated_at", DateTime(timezone=True), server_default=func.date_trunc('minute', func.now()), onupdate=func.date_trunc('minute', func.now())))
     columns.append(Column("last_imported_at", DateTime(timezone=True), nullable=True))
+    columns.append(Column("deleted_at", DateTime(timezone=True), nullable=True))
     columns.append(UniqueConstraint("sku", name=f"uq_{table_name}_sku"))
-    table = Table(table_name, METADATA, *columns)
+    table = Table(table_name, metadata, *columns)
     Index(f"idx_{table_name}_year", table.c.year)
     Index(f"idx_{table_name}_original_sku", table.c.original_sku)
     Index(f"idx_{table_name}_last_imported_at", table.c.last_imported_at)
+    Index(f"idx_{table_name}_deleted_at", table.c.deleted_at)
     return table
+
+
+def _build_product_table(table_name: str) -> Table:
+    return build_product_archive_table(table_name)
 
 
 def build_product_tables() -> dict[str, Table]:

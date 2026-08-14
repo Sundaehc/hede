@@ -6,6 +6,7 @@ import urllib.parse
 from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
 from openpyxl import Workbook
+from sqlalchemy import text
 
 from api.excel_export import style_excel_worksheet
 from api.operation_log_utils import (
@@ -14,8 +15,8 @@ from api.operation_log_utils import (
     summarize_changes,
     write_operation_log,
 )
-from api.schemas import BrandKey
-from domain.gj_brand import CBANNER_MENS_BRAND, SUPPLIER_BRANDS, infer_supplier_brand_from_name
+from domain.gj_brand import CBANNER_MENS_BRAND, infer_supplier_brand_from_name
+from domain.schema import PRODUCT_ARCHIVE_TABLES
 
 router = APIRouter()
 
@@ -29,12 +30,12 @@ SUPPLIER_EXPORT_BRAND_LABELS = {
 }
 
 
-def _normalize_brand(value: str | None) -> str | None:
+def _normalize_brand(repository, value: str | None) -> str | None:
     if value in (None, "", "all"):
         return None
-    if value not in SUPPLIER_BRANDS:
+    if repository.get_supplier_brand_by_code(str(value)) is None:
         raise HTTPException(status_code=400, detail="无效品牌")
-    return value
+    return str(value)
 
 
 def _stream_supplier_export(workbook: Workbook, filename: str) -> StreamingResponse:
@@ -62,7 +63,7 @@ def list_suppliers(
     brand: str | None = None,
 ):
     repository = request.app.state.inventory_repository
-    normalized_brand = _normalize_brand(brand)
+    normalized_brand = _normalize_brand(repository, brand)
     if page is None and page_size is None and not query:
         items = repository.list_suppliers(brand=normalized_brand)
         return {
@@ -77,7 +78,7 @@ def list_suppliers(
 @router.get("/suppliers/export")
 def export_suppliers(request: Request, query: str | None = None, brand: str | None = None):
     repository = request.app.state.inventory_repository
-    normalized_brand = _normalize_brand(brand)
+    normalized_brand = _normalize_brand(repository, brand)
     items = repository.list_suppliers_page(
         page=1,
         page_size=200,
@@ -114,7 +115,8 @@ def export_suppliers(request: Request, query: str | None = None, brand: str | No
         ])
     style_excel_worksheet(worksheet, width_by_header={"供应商名称": 28, "联系人": 16, "微信号": 20, "合作状态": 14, "地址": 30, "备注": 30})
 
-    brand_label = "全部品牌" if normalized_brand is None else str(normalized_brand)
+    selected_brand = repository.get_supplier_brand_by_code(normalized_brand) if normalized_brand else None
+    brand_label = "全部品牌" if selected_brand is None else str(selected_brand.get("name") or normalized_brand)
     keyword = str(query or "").strip()
     summary = f"导出供应商 {len(rows)} 条（{brand_label}{f'，关键词：{keyword}' if keyword else ''}）"
     write_operation_log(
@@ -125,21 +127,119 @@ def export_suppliers(request: Request, query: str | None = None, brand: str | No
         summary=summary,
         after_data={"count": len(rows), "brand": normalized_brand, "query": keyword},
     )
-    filename = f"供应商管理_{SUPPLIER_EXPORT_BRAND_LABELS.get(normalized_brand or '', '总览')}.xlsx"
+    filename = f"供应商管理_{brand_label}.xlsx"
     return _stream_supplier_export(workbook, filename)
+
+
+@router.get("/supplier-brands")
+def list_supplier_brands(request: Request):
+    return {"items": request.app.state.inventory_repository.list_supplier_brands()}
+
+
+@router.post("/supplier-brands")
+def create_supplier_brand(request: Request, payload: dict):
+    repository = request.app.state.inventory_repository
+    name = str(payload.get("name") or "").strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="品牌名称不能为空")
+    if any(str(item.get("name") or "") == name for item in repository.list_supplier_brands()):
+        raise HTTPException(status_code=400, detail=f"品牌“{name}”已存在")
+    item = repository.create_supplier_brand({"name": name})
+    request.app.state.repository.ensure_manual_product_archive(item)
+    write_operation_log(
+        request,
+        module="supplier",
+        action="create_brand",
+        entity_type="supplier_brand",
+        entity_id=item.get("id"),
+        entity_label=name,
+        summary=f"新增品牌 {name}",
+        after_data=item,
+    )
+    return {"item": item, "message": "创建成功"}
+
+
+@router.put("/supplier-brands/{brand_id}")
+def update_supplier_brand(request: Request, brand_id: int, payload: dict):
+    repository = request.app.state.inventory_repository
+    name = str(payload.get("name") or "").strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="品牌名称不能为空")
+    before = repository.get_supplier_brand(brand_id)
+    if before is None:
+        raise HTTPException(status_code=404, detail="Supplier brand not found")
+    if any(item.get("id") != brand_id and str(item.get("name") or "") == name for item in repository.list_supplier_brands()):
+        raise HTTPException(status_code=400, detail=f"品牌“{name}”已存在")
+    item = repository.update_supplier_brand(brand_id, {"name": name})
+    if item is None:
+        raise HTTPException(status_code=404, detail="Supplier brand not found")
+    changes = build_changed_fields(before, item, {"name": "品牌名称"})
+    write_operation_log(
+        request,
+        module="supplier",
+        action="update_brand",
+        entity_type="supplier_brand",
+        entity_id=brand_id,
+        entity_label=name,
+        summary=summarize_changes("编辑品牌", name, changes),
+        changed_fields=changes,
+        before_data=before,
+        after_data=item,
+    )
+    return {"item": item, "message": "更新成功"}
+
+
+@router.delete("/supplier-brands/{brand_id}")
+def delete_supplier_brand(request: Request, brand_id: int):
+    repository = request.app.state.inventory_repository
+    before = repository.get_supplier_brand(brand_id)
+    if before is None:
+        raise HTTPException(status_code=404, detail="品牌不存在")
+
+    brand_code = str(before.get("code") or "")
+    if brand_code in PRODUCT_ARCHIVE_TABLES:
+        raise HTTPException(status_code=400, detail="该品牌已关联商品信息档案，不能删除")
+
+    if bool(before.get("product_archive_enabled")):
+        product_table = str(before.get("product_table_name") or "")
+        if product_table:
+            with request.app.state.repository.engine.connect() as connection:
+                product_count = connection.execute(text(f"SELECT count(*) FROM {product_table}")).scalar_one()
+            if product_count:
+                raise HTTPException(status_code=400, detail=f"该品牌商品档案中还有 {product_count} 个商品，不能删除")
+
+    supplier_count = repository.count_suppliers_by_brand(brand_code)
+    if supplier_count:
+        raise HTTPException(status_code=400, detail=f"该品牌下还有 {supplier_count} 个供应商，不能删除")
+
+    deleted = repository.delete_supplier_brand(brand_id)
+    if deleted is None:
+        raise HTTPException(status_code=404, detail="品牌不存在")
+    name = str(deleted.get("name") or brand_id)
+    write_operation_log(
+        request,
+        module="supplier",
+        action="delete_brand",
+        entity_type="supplier_brand",
+        entity_id=brand_id,
+        entity_label=name,
+        summary=f"删除品牌 {name}",
+        before_data=before,
+    )
+    return {"message": "删除成功"}
 
 
 @router.post("/suppliers")
 def create_supplier(request: Request, payload: dict):
     repository = request.app.state.inventory_repository
-    name = payload.get("name", "").strip()
-    brand: BrandKey = infer_supplier_brand_from_name(name) or payload.get("brand") or CBANNER_MENS_BRAND
-    _normalize_brand(brand)
+    name = str(payload.get("name") or "").strip()
+    brand = payload.get("brand") or infer_supplier_brand_from_name(name) or CBANNER_MENS_BRAND
+    normalized_brand = _normalize_brand(repository, str(brand))
     if not name:
         raise HTTPException(status_code=400, detail="供应商名称不能为空")
     payload["name"] = name
-    payload["brand"] = brand
-    existing = repository.get_supplier_by_name(name, brand=brand)
+    payload["brand"] = normalized_brand
+    existing = repository.get_supplier_by_name(name, brand=normalized_brand)
     if existing:
         raise HTTPException(status_code=400, detail=f"供应商 '{name}' 已存在")
     item = repository.create_supplier(payload)
@@ -162,15 +262,15 @@ def create_supplier(request: Request, payload: dict):
 def update_supplier(request: Request, supplier_id: int, payload: dict):
     repository = request.app.state.inventory_repository
     name = str(payload.get("name") or "").strip()
-    brand: BrandKey = infer_supplier_brand_from_name(name) or payload.get("brand") or CBANNER_MENS_BRAND
-    _normalize_brand(brand)
+    brand = payload.get("brand") or infer_supplier_brand_from_name(name) or CBANNER_MENS_BRAND
+    normalized_brand = _normalize_brand(repository, str(brand))
     if not name:
         raise HTTPException(status_code=400, detail="供应商名称不能为空")
-    existing = repository.get_supplier_by_name(name, brand=brand)
+    existing = repository.get_supplier_by_name(name, brand=normalized_brand)
     if existing and existing.get("id") != supplier_id:
         raise HTTPException(status_code=400, detail=f"供应商 '{name}' 已存在")
     payload["name"] = name
-    payload["brand"] = brand
+    payload["brand"] = normalized_brand
     before = repository.get_supplier(supplier_id)
     if before is None:
         raise HTTPException(status_code=404, detail="Supplier not found")

@@ -28,3 +28,13 @@ def test_product_role_can_create_suppliers_without_inventory_management():
 
     assert "supplier.create" in permissions
     assert "inventory.manage" not in permissions
+
+
+def test_supplier_management_is_available_to_designated_departments_and_super_admin():
+    roles = {item["code"]: set(item["permissions"].split(",")) for item in DEFAULT_ROLES}
+
+    assert "*" in roles["super_admin"]
+    assert "inventory.view" in roles["finance_user"]
+    assert "inventory.view" in roles["product_user"]
+    assert "supplier.create" in roles["product_user"]
+    assert "inventory.view" in roles["developer_user"]

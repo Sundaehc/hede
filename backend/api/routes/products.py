@@ -67,6 +67,11 @@ def _validate_size_group(request: Request, size_range: object) -> None:
         raise HTTPException(status_code=400, detail=f"尺码组 {normalized_size_group} 不存在或已被删除")
 
 
+@router.get("/products/brands")
+def list_product_archive_brands(request: Request):
+    return {"items": request.app.state.inventory_repository.list_product_archive_brands()}
+
+
 @router.get("/products")
 def list_products(
     request: Request,
@@ -86,7 +91,7 @@ def list_products(
             "items": [_with_brand_and_image(item, item["brand"], settings) for item in payload["items"]],
         }
 
-    if brand not in PRODUCT_ARCHIVE_TABLES:
+    if not repository.is_product_archive_brand(brand):
         from fastapi import HTTPException
         raise HTTPException(status_code=400, detail=f"Invalid brand: {brand}")
 
@@ -99,10 +104,10 @@ def list_products(
 
 @router.get("/products/{brand}/years")
 def get_product_years(request: Request, brand: str):
-    if brand == "all" or brand not in PRODUCT_ARCHIVE_TABLES:
-        return {"years": []}
     repository = request.app.state.repository
-    table = PRODUCT_ARCHIVE_TABLES[brand]
+    if brand == "all" or not repository.is_product_archive_brand(brand):
+        return {"years": []}
+    table = repository._table_for_brand(brand)
     with repository.engine.connect() as connection:
         result = connection.execute(
             sa_select(sa_distinct(table.c.year))
@@ -159,10 +164,83 @@ def list_product_color_barcodes(request: Request, brand: BrandKey):
     return {"items": items, "source_brand": source_brand}
 
 
+@router.get("/products/recycle-bin")
+def list_product_recycle_bin(
+    request: Request,
+    brand: ProductArchiveBrandKey | None = None,
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+):
+    settings = request.app.state.settings
+    repository = request.app.state.repository
+    if brand is not None and not repository.is_product_archive_brand(brand):
+        raise HTTPException(status_code=400, detail=f"Invalid brand: {brand}")
+    payload = repository.list_recycled_products(
+        brand=brand,
+        page=page,
+        page_size=page_size,
+    )
+    return {
+        **payload,
+        "items": [_with_brand_and_image(item, item["brand"], settings) for item in payload["items"]],
+    }
+
+
+@router.post("/products/recycle-bin/{brand}/{product_id}/restore")
+def restore_product_from_recycle_bin(request: Request, brand: ProductArchiveBrandKey, product_id: int):
+    repository = request.app.state.repository
+    if not repository.is_product_archive_brand(brand):
+        raise HTTPException(status_code=400, detail=f"Invalid brand: {brand}")
+    item = repository.restore_product(brand, product_id)
+    if item is None:
+        raise HTTPException(status_code=404, detail="Product not found in recycle bin")
+    clear_fine_table_cache()
+    clear_product_goods_cache()
+    label = product_entity_label(item)
+    write_operation_log(
+        request,
+        module="product",
+        action="restore",
+        entity_type="product",
+        entity_id=label,
+        entity_label=label,
+        summary=f"从回收站恢复商品 {label}",
+        after_data={**item, "brand": brand},
+    )
+    return {"item": {**item, "brand": brand}, "message": "已恢复商品"}
+
+
+@router.delete("/products/recycle-bin/{brand}/{product_id}")
+def permanently_delete_product(request: Request, brand: ProductArchiveBrandKey, product_id: int):
+    repository = request.app.state.repository
+    if not repository.is_product_archive_brand(brand):
+        raise HTTPException(status_code=400, detail=f"Invalid brand: {brand}")
+    item = repository.permanently_delete_product(brand, product_id)
+    if item is None:
+        raise HTTPException(status_code=404, detail="Product not found in recycle bin")
+    clear_fine_table_cache()
+    clear_product_goods_cache()
+    label = product_entity_label(item)
+    write_operation_log(
+        request,
+        module="product",
+        action="permanent_delete",
+        entity_type="product",
+        entity_id=label,
+        entity_label=label,
+        summary=f"彻底删除商品 {label}",
+        before_data={**item, "brand": brand},
+    )
+    return {"message": "已彻底删除商品"}
+
+
 @router.get("/products/{brand}/{product_id}")
 def get_product(request: Request, brand: ProductArchiveBrandKey, product_id: int):
     settings = request.app.state.settings
-    item = request.app.state.repository.get_product(brand, product_id)
+    repository = request.app.state.repository
+    if not repository.is_product_archive_brand(brand):
+        raise HTTPException(status_code=400, detail=f"Invalid brand: {brand}")
+    item = repository.get_product(brand, product_id)
     if item is None:
         raise HTTPException(status_code=404, detail="Product not found")
     return _with_brand_and_image(item, brand, settings)
@@ -170,6 +248,8 @@ def get_product(request: Request, brand: ProductArchiveBrandKey, product_id: int
 
 @router.post("/products")
 def create_product(request: Request, body: ProductWriteRequest):
+    if not request.app.state.repository.is_product_archive_brand(body.brand):
+        raise HTTPException(status_code=400, detail=f"Invalid brand: {body.brand}")
     record = build_admin_record(body.brand, body.payload.model_dump(exclude_none=False))
     _validate_size_group(request, record.get("size_range"))
     if is_excluded_sku(record.get("sku"), record.get("original_sku")):
@@ -196,7 +276,10 @@ def update_product(request: Request, brand: ProductArchiveBrandKey, product_id: 
     if body.brand != brand:
         raise HTTPException(status_code=400, detail="Brand mismatch")
 
-    existing = request.app.state.repository.get_product(brand, product_id)
+    repository = request.app.state.repository
+    if not repository.is_product_archive_brand(brand):
+        raise HTTPException(status_code=400, detail=f"Invalid brand: {brand}")
+    existing = repository.get_product(brand, product_id)
     if existing is None:
         raise HTTPException(status_code=404, detail="Product not found")
 
@@ -238,7 +321,10 @@ def update_product(request: Request, brand: ProductArchiveBrandKey, product_id: 
 
 @router.delete("/products/{brand}/{product_id}")
 def delete_product(request: Request, brand: ProductArchiveBrandKey, product_id: int):
-    existing = request.app.state.repository.get_product(brand, product_id)
+    repository = request.app.state.repository
+    if not repository.is_product_archive_brand(brand):
+        raise HTTPException(status_code=400, detail=f"Invalid brand: {brand}")
+    existing = repository.get_product(brand, product_id)
     if existing is None:
         raise HTTPException(status_code=404, detail="Product not found")
     deleted = request.app.state.repository.delete_product(brand, product_id)
@@ -254,18 +340,21 @@ def delete_product(request: Request, brand: ProductArchiveBrandKey, product_id: 
         entity_type="product",
         entity_id=label,
         entity_label=label,
-        summary=f"删除商品 {label}",
+        summary=f"移入回收站 商品 {label}",
         before_data={**existing, "brand": brand},
     )
-    return {"message": "Product deleted"}
+    return {"message": "已移入回收站"}
 
 
 @router.post("/products/batch-delete")
 def batch_delete_products(request: Request, body: BatchDeleteRequest):
     if not body.ids:
         raise HTTPException(status_code=400, detail="No ids provided")
-    existing_items = request.app.state.repository.get_products_by_ids(body.brand, body.ids)
-    deleted = request.app.state.repository.delete_products(body.brand, body.ids)
+    repository = request.app.state.repository
+    if not repository.is_product_archive_brand(body.brand):
+        raise HTTPException(status_code=400, detail=f"Invalid brand: {body.brand}")
+    existing_items = repository.get_products_by_ids(body.brand, body.ids)
+    deleted = repository.delete_products(body.brand, body.ids)
     clear_fine_table_cache()
     clear_product_goods_cache()
     labels = [product_entity_label(item) for item in existing_items]
@@ -276,7 +365,7 @@ def batch_delete_products(request: Request, body: BatchDeleteRequest):
         entity_type="product",
         entity_id=",".join(labels),
         entity_label=f"{deleted} 条商品",
-        summary=f"批量删除商品 {deleted} 条",
+        summary=f"批量移入回收站 商品 {deleted} 条",
         before_data={"brand": body.brand, "items": existing_items[:200], "labels": labels[:200]},
     )
-    return {"deleted": deleted, "message": f"已删除 {deleted} 条商品"}
+    return {"deleted": deleted, "message": f"已移入回收站 {deleted} 条商品"}

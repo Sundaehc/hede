@@ -3,6 +3,7 @@ import type {
   ImageLookupResult,
   ProductListItem,
   ProductListResponse,
+  ProductRecycleResponse,
   ProductGoodsResponse,
   FactoryChannelDashboardResponse,
   ProductMutationPayload,
@@ -856,6 +857,35 @@ export function importProducts(brand: ProductArchiveRecordBrandKey, file: File) 
   })
 }
 
+export function listProductRecycleBin(params: {
+  brand?: ProductArchiveBrandKey
+  page?: number
+  pageSize?: number
+}) {
+  const search = new URLSearchParams({
+    page: String(params.page ?? 1),
+    page_size: String(params.pageSize ?? 20),
+  })
+  if (params.brand) search.set("brand", params.brand)
+  return request<ProductRecycleResponse>(`/products/recycle-bin?${search.toString()}`)
+}
+
+export function restoreProductFromRecycleBin(brand: ProductArchiveRecordBrandKey, id: number) {
+  return request<{ item: ProductListItem; message: string }>(`/products/recycle-bin/${brand}/${id}/restore`, {
+    method: "POST",
+  })
+}
+
+export function permanentlyDeleteProduct(brand: ProductArchiveRecordBrandKey, id: number) {
+  return request<{ message: string }>(`/products/recycle-bin/${brand}/${id}`, {
+    method: "DELETE",
+  })
+}
+
+export function listProductArchiveBrands() {
+  return request<{ items: SupplierBrandItem[] }>("/products/brands")
+}
+
 // ── Inventory ────────────────────────────────────────────────────
 
 export type InventoryRecord = {
@@ -970,7 +1000,7 @@ export type CounterpartyLedgerResponse = {
 
 export type SupplierItem = {
   id: number
-  brand: Exclude<BrandKey, "all"> | "smiley" | "ni"
+  brand: string
   name: string
   factory_code: string | null
   contact: string | null
@@ -994,6 +1024,15 @@ export type WarehouseItem = {
   address: string | null
   notes: string | null
   sort_order: number
+}
+
+export type SupplierBrandItem = {
+  id: number
+  code: string
+  name: string
+  sort_order: number
+  created_at: string | null
+  updated_at: string | null
 }
 
 export type WarehouseBrandItem = {
@@ -1849,7 +1888,7 @@ export function listSuppliers(params?: {
   page?: number
   pageSize?: number
   query?: string
-  brand?: BrandKey | "smiley" | "ni"
+  brand?: string
 }) {
   if (!params) {
     return request<SupplierListResponse>("/suppliers")
@@ -1863,7 +1902,7 @@ export function listSuppliers(params?: {
   return request<SupplierListResponse>(`/suppliers?${search.toString()}`)
 }
 
-export async function exportSuppliers(params?: { query?: string; brand?: BrandKey | "smiley" | "ni" | "all" }) {
+export async function exportSuppliers(params?: { query?: string; brand?: string }) {
   const search = new URLSearchParams()
   if (params?.query?.trim()) search.set("query", params.query.trim())
   if (params?.brand && params.brand !== "all") search.set("brand", params.brand)
@@ -1871,6 +1910,30 @@ export async function exportSuppliers(params?: { query?: string; brand?: BrandKe
   const response = await fetch(`${API_PREFIX}/suppliers/export${suffix}`, { credentials: "include" })
   if (!response.ok) throw new ApiError(response.status, await readApiError(response))
   return response.blob()
+}
+
+export function listSupplierBrands() {
+  return request<{ items: SupplierBrandItem[] }>("/supplier-brands")
+}
+
+export function createSupplierBrand(payload: { name: string }) {
+  return request<{ item: SupplierBrandItem; message: string }>("/supplier-brands", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  })
+}
+
+export function updateSupplierBrand(id: number, payload: { name: string }) {
+  return request<{ item: SupplierBrandItem; message: string }>(`/supplier-brands/${id}`, {
+    method: "PUT",
+    body: JSON.stringify(payload),
+  })
+}
+
+export function deleteSupplierBrand(id: number) {
+  return request<{ message: string }>(`/supplier-brands/${id}`, {
+    method: "DELETE",
+  })
 }
 
 export function createSupplier(payload: Record<string, unknown>) {

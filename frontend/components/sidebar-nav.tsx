@@ -72,6 +72,12 @@ const NAV_ITEMS = [
         permission: "inventory.view",
       },
       {
+        href: "/supplier-brands",
+        label: "品牌管理",
+        icon: BadgeDollarSign,
+        permission: "inventory.view",
+      },
+      {
         href: "/warehouses",
         label: "仓库管理",
         icon: Warehouse,

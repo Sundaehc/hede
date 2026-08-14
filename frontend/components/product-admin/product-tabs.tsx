@@ -1,10 +1,14 @@
-import { PRODUCT_ARCHIVE_BRANDS } from "@/lib/brands"
+import { type ProductArchiveBrand } from "@/lib/brands"
 import { TabsList, TabsTrigger } from "@/components/ui/tabs"
 
-export function ProductTabs() {
+type ProductTabsProps = {
+  brands: readonly ProductArchiveBrand[]
+}
+
+export function ProductTabs({ brands }: ProductTabsProps) {
   return (
     <TabsList className="h-auto w-full flex-wrap justify-start bg-transparent p-0 gap-1">
-      {PRODUCT_ARCHIVE_BRANDS.map((item) => (
+      {brands.map((item) => (
         <TabsTrigger
           key={item.key}
           value={item.key}

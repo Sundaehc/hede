@@ -707,6 +707,7 @@ def _hydrate_snapshot_image_urls(
             product_table.c.sku.in_(codes),
             product_table.c.original_sku.in_(codes),
         ))
+        .where(product_table.c.deleted_at.is_(None))
         .where(product_table.c.image_path.isnot(None))
         .where(product_table.c.image_path != "")
         .order_by(desc(product_table.c.id))
@@ -1229,7 +1230,7 @@ def _list_vip_ops_filter_options(
             .scalar_subquery()
         )
         value_expression = func.coalesce(func.trim(cast(ops_value, Text)), "")
-        conditions = [not_excluded_sku_condition(product_table.c.sku, product_table.c.original_sku)]
+        conditions = [product_table.c.deleted_at.is_(None), not_excluded_sku_condition(product_table.c.sku, product_table.c.original_sku)]
         if terms:
             search_conditions = []
             for term in terms:
@@ -1366,7 +1367,7 @@ def list_fine_table_filter_options(
         )
         return _fine_table_options_from_rows(response["items"], field)
 
-    conditions = [not_excluded_sku_condition(product_table.c.sku, product_table.c.original_sku)]
+    conditions = [product_table.c.deleted_at.is_(None), not_excluded_sku_condition(product_table.c.sku, product_table.c.original_sku)]
     if terms:
         search_conditions = []
         for term in terms:
@@ -1581,7 +1582,7 @@ def list_fine_table(
                     )
                     product_rows.append(_merge_gj_product_row(gj_row, archive_row, brand))
         else:
-            conditions = [not_excluded_sku_condition(product_table.c.sku, product_table.c.original_sku)]
+            conditions = [product_table.c.deleted_at.is_(None), not_excluded_sku_condition(product_table.c.sku, product_table.c.original_sku)]
             if terms:
                 search_conditions = []
                 for term in terms:
@@ -1655,6 +1656,7 @@ def list_fine_table(
             for row in conn.execute(
                 select(product_table.c.sku, product_table.c.original_sku)
                 .where(product_table.c.original_sku.in_(original_skus))
+                .where(product_table.c.deleted_at.is_(None))
                 .where(not_excluded_sku_condition(product_table.c.sku, product_table.c.original_sku))
             ).mappings():
                 sku = str(row.get("sku") or "").strip()

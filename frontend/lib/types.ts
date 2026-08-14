@@ -131,6 +131,26 @@ export type ProductListResponse = {
   snapshot_date?: string | null
 }
 
+export type ProductRecycleItem = {
+  id: number
+  brand: ProductArchiveBrandKey
+  image_path: string | null
+  image_url: string | null
+  sku: string | null
+  original_sku: string | null
+  product_name: string | null
+  color: string | null
+  year: string | null
+  deleted_at: string | null
+}
+
+export type ProductRecycleResponse = {
+  items: ProductRecycleItem[]
+  total: number
+  page: number
+  page_size: number
+}
+
 export type FineTableShopSale = {
   shop_name: string
   quantity: number

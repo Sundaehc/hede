@@ -20,6 +20,7 @@ from domain.fields import (
 
 INVENTORY_TABLE_NAME = "inventory_records"
 SUPPLIER_TABLE_NAME = "suppliers"
+SUPPLIER_BRAND_TABLE_NAME = "supplier_brands"
 WAREHOUSE_TABLE_NAME = "warehouses"
 WAREHOUSE_BRAND_TABLE_NAME = "warehouse_brands"
 GENERAL_CUSTOMER_BRAND_TABLE_NAME = "general_customer_brands"

@@ -1264,7 +1264,7 @@ def get_factory_channel_dashboard(
             product_table.c.supplier_name,
             product_table.c.season_category,
             product_table.c.year,
-        ).where(product_table.c.sku.is_not(None))
+        ).where(product_table.c.deleted_at.is_(None)).where(product_table.c.sku.is_not(None))
         if normalized_product_year:
             product_statement = product_statement.where(product_table.c.year.ilike(f"%{normalized_product_year}%"))
         product_rows = [dict(row) for row in connection.execute(product_statement).mappings()]
@@ -2074,7 +2074,7 @@ def list_product_goods_filter_options(
                 gj_table.c.source_date_value == latest_gj_product_info_date,
                 gj_table.c.fine_table_brand == brand,
             ])
-            join = gj_table.join(product_table, product_table.c.sku == gj_table.c.goods_code).outerjoin(
+            join = gj_table.join(product_table, (product_table.c.sku == gj_table.c.goods_code) & product_table.c.deleted_at.is_(None)).outerjoin(
                 override,
                 (override.c.brand == brand) & (override.c.product_id == product_table.c.id),
             )
@@ -2193,7 +2193,7 @@ def list_product_goods(
                 gj_table.c.source_date_value == latest_gj_product_info_date,
                 gj_table.c.fine_table_brand == brand,
             ])
-            join = gj_table.join(product_table, product_table.c.sku == gj_table.c.goods_code).outerjoin(
+            join = gj_table.join(product_table, (product_table.c.sku == gj_table.c.goods_code) & product_table.c.deleted_at.is_(None)).outerjoin(
                 override,
                 (override.c.brand == brand) & (override.c.product_id == product_table.c.id),
             )

@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from datetime import date
 from decimal import Decimal
+from uuid import uuid4
 
 from pathlib import Path
 
@@ -12,7 +13,7 @@ from sqlalchemy import Text, and_, case, create_engine, delete, desc, func, inse
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from domain.gj_schema import GJ_MERGED_PRODUCT_INFO_TABLE
-from domain.inventory_schema import GENERAL_CUSTOMER_BRAND_TABLE, GENERAL_CUSTOMER_SHOP_TABLE, GENERAL_CUSTOMER_SORT_PREFERENCE_TABLE, GENERAL_CUSTOMER_UNIT_TABLE, INVENTORY_ACCOUNT_SUBJECT_TABLE, INVENTORY_DETAIL_TABLE, INVENTORY_TABLE, JST_STOCK_TABLE, PURCHASE_ORDER_REQUIREMENT_TABLE, SUPPLIER_TABLE, WAREHOUSE_BRAND_TABLE, WAREHOUSE_TABLE
+from domain.inventory_schema import GENERAL_CUSTOMER_BRAND_TABLE, GENERAL_CUSTOMER_SHOP_TABLE, GENERAL_CUSTOMER_SORT_PREFERENCE_TABLE, GENERAL_CUSTOMER_UNIT_TABLE, INVENTORY_ACCOUNT_SUBJECT_TABLE, INVENTORY_DETAIL_TABLE, INVENTORY_TABLE, JST_STOCK_TABLE, PURCHASE_ORDER_REQUIREMENT_TABLE, SUPPLIER_BRAND_TABLE, SUPPLIER_TABLE, WAREHOUSE_BRAND_TABLE, WAREHOUSE_TABLE
 from domain.inventory_sources import ACCOUNTING_DOCUMENT_TYPES
 from domain.gj_brand import CBANNER_MENS_BRAND, GJ_FINE_TABLE_BRANDS, SUPPLIER_BRANDS, infer_supplier_brand_from_name
 from domain import jst_stock_snapshot_schema  # noqa: F401 - register JST stock snapshot tables on METADATA
@@ -748,6 +749,83 @@ class InventoryRepository:
 
     # ── Suppliers ──────────────────────────────────────────────────
 
+    def list_supplier_brands(self) -> list[dict[str, object]]:
+        statement = select(SUPPLIER_BRAND_TABLE).order_by(SUPPLIER_BRAND_TABLE.c.sort_order, SUPPLIER_BRAND_TABLE.c.id)
+        with self.engine.connect() as connection:
+            return [dict(row) for row in connection.execute(statement).mappings()]
+
+    def get_supplier_brand(self, brand_id: int) -> dict[str, object] | None:
+        statement = select(SUPPLIER_BRAND_TABLE).where(SUPPLIER_BRAND_TABLE.c.id == brand_id)
+        with self.engine.connect() as connection:
+            row = connection.execute(statement).mappings().first()
+        return None if row is None else dict(row)
+
+    def get_supplier_brand_by_code(self, code: str) -> dict[str, object] | None:
+        statement = select(SUPPLIER_BRAND_TABLE).where(SUPPLIER_BRAND_TABLE.c.code == code)
+        with self.engine.connect() as connection:
+            row = connection.execute(statement).mappings().first()
+        return None if row is None else dict(row)
+
+    def list_product_archive_brands(self) -> list[dict[str, object]]:
+        statement = (
+            select(SUPPLIER_BRAND_TABLE)
+            .where(SUPPLIER_BRAND_TABLE.c.product_archive_enabled.is_(True))
+            .order_by(SUPPLIER_BRAND_TABLE.c.sort_order, SUPPLIER_BRAND_TABLE.c.id)
+        )
+        with self.engine.connect() as connection:
+            return [dict(row) for row in connection.execute(statement).mappings()]
+
+    def create_supplier_brand(self, data: Mapping[str, object]) -> dict[str, object]:
+        name = str(data.get("name") or "").strip()
+        code = str(data.get("code") or "").strip() or f"supplier_brand_{uuid4().hex[:12]}"
+        with self.engine.begin() as connection:
+            sort_order = connection.execute(select(func.coalesce(func.max(SUPPLIER_BRAND_TABLE.c.sort_order), 0))).scalar_one() + 1
+            row = connection.execute(
+                insert(SUPPLIER_BRAND_TABLE)
+                .values(code=code, name=name, product_archive_enabled=True, sort_order=sort_order)
+                .returning(SUPPLIER_BRAND_TABLE)
+            ).mappings().one()
+            item = dict(row)
+            row = connection.execute(
+                update(SUPPLIER_BRAND_TABLE)
+                .where(SUPPLIER_BRAND_TABLE.c.id == item["id"])
+                .values(product_table_name=f"manual_product_archive_{item['id']}")
+                .returning(SUPPLIER_BRAND_TABLE)
+            ).mappings().one()
+        return dict(row)
+
+    def update_supplier_brand(self, brand_id: int, data: Mapping[str, object]) -> dict[str, object] | None:
+        name = str(data.get("name") or "").strip()
+        with self.engine.begin() as connection:
+            row = connection.execute(
+                update(SUPPLIER_BRAND_TABLE)
+                .where(SUPPLIER_BRAND_TABLE.c.id == brand_id)
+                .values(name=name)
+                .returning(SUPPLIER_BRAND_TABLE)
+            ).mappings().first()
+        return None if row is None else dict(row)
+
+    def delete_supplier_brand(self, brand_id: int) -> dict[str, object] | None:
+        with self.engine.begin() as connection:
+            row = connection.execute(
+                delete(SUPPLIER_BRAND_TABLE)
+                .where(SUPPLIER_BRAND_TABLE.c.id == brand_id)
+                .returning(SUPPLIER_BRAND_TABLE)
+            ).mappings().first()
+        return None if row is None else dict(row)
+
+    def count_suppliers_by_brand(self, brand_code: str) -> int:
+        statement = (
+            select(func.count())
+            .select_from(SUPPLIER_TABLE)
+            .where(SUPPLIER_TABLE.c.brand == brand_code)
+        )
+        with self.engine.connect() as connection:
+            return int(connection.execute(statement).scalar_one())
+
+    def reorder_supplier_brands(self, ordered_ids: list[int]) -> bool:
+        return self._replace_sort_order(SUPPLIER_BRAND_TABLE, ordered_ids)
+
     def list_suppliers(self, *, brand: str | None = None) -> list[dict[str, object]]:
         statement = select(SUPPLIER_TABLE).order_by(SUPPLIER_TABLE.c.brand, SUPPLIER_TABLE.c.id)
         if brand:
@@ -828,6 +906,20 @@ class InventoryRepository:
             statement = statement.where(SUPPLIER_TABLE.c.brand == brand)
         with self.engine.connect() as connection:
             row = connection.execute(statement).mappings().first()
+            if row is None:
+                normalized_name = str(name or "").strip().replace("（", "(").replace("）", ")").lower()
+                if normalized_name:
+                    normalized_supplier_name = func.lower(
+                        func.replace(
+                            func.replace(SUPPLIER_TABLE.c.name, "（", "("),
+                            "）",
+                            ")",
+                        )
+                    )
+                    normalized_statement = select(SUPPLIER_TABLE).where(normalized_supplier_name == normalized_name)
+                    if brand:
+                        normalized_statement = normalized_statement.where(SUPPLIER_TABLE.c.brand == brand)
+                    row = connection.execute(normalized_statement).mappings().first()
         return None if row is None else dict(row)
 
     @staticmethod
@@ -2577,6 +2669,8 @@ class InventoryRepository:
             self._seed_account_subjects(connection)
             PURCHASE_ORDER_REQUIREMENT_TABLE.create(connection, checkfirst=True)
             SUPPLIER_TABLE.create(connection, checkfirst=True)
+            SUPPLIER_BRAND_TABLE.create(connection, checkfirst=True)
+            self._ensure_supplier_brand_schema(connection)
             WAREHOUSE_TABLE.create(connection, checkfirst=True)
             WAREHOUSE_BRAND_TABLE.create(connection, checkfirst=True)
             self._ensure_warehouse_schema(connection)
@@ -2622,6 +2716,50 @@ class InventoryRepository:
             ).first()
             if exists is None:
                 connection.execute(insert(INVENTORY_ACCOUNT_SUBJECT_TABLE).values(**row))
+
+    @staticmethod
+    def _ensure_supplier_brand_schema(connection) -> None:
+        connection.execute(text("ALTER TABLE IF EXISTS supplier_brands ADD COLUMN IF NOT EXISTS code TEXT"))
+        connection.execute(text("ALTER TABLE IF EXISTS supplier_brands ADD COLUMN IF NOT EXISTS name TEXT"))
+        connection.execute(text("ALTER TABLE IF EXISTS supplier_brands ADD COLUMN IF NOT EXISTS product_archive_enabled BOOLEAN NOT NULL DEFAULT TRUE"))
+        connection.execute(text("ALTER TABLE IF EXISTS supplier_brands ADD COLUMN IF NOT EXISTS product_table_name TEXT"))
+        connection.execute(text("ALTER TABLE IF EXISTS supplier_brands ADD COLUMN IF NOT EXISTS sort_order INTEGER NOT NULL DEFAULT 0"))
+        default_brands = (
+            ("cbanner_mens", "千百度男鞋"),
+            ("cbanner_womens", "千百度女鞋"),
+            ("yandou", "烟斗"),
+            ("eblan", "伊伴"),
+            ("smiley", "笑脸"),
+            ("ni", "NI"),
+        )
+        for index, (code, name) in enumerate(default_brands, start=1):
+            connection.execute(
+                text(
+                    """
+                    INSERT INTO supplier_brands (code, name, sort_order)
+                    VALUES (:code, :name, :sort_order)
+                    ON CONFLICT (code) DO NOTHING
+                    """
+                ),
+                {"code": code, "name": name, "sort_order": index},
+            )
+        manual_brand_ids = connection.execute(text("""
+            SELECT id
+            FROM supplier_brands
+            WHERE product_archive_enabled = TRUE
+              AND product_table_name IS NULL
+              AND code NOT IN ('cbanner_mens', 'cbanner_womens', 'yandou', 'eblan', 'smiley', 'ni')
+        """)).scalars()
+        for brand_id in manual_brand_ids:
+            connection.execute(
+                text("UPDATE supplier_brands SET product_table_name = :table_name WHERE id = :id"),
+                {"id": brand_id, "table_name": f"manual_product_archive_{brand_id}"},
+            )
+        connection.execute(text("ALTER TABLE IF EXISTS supplier_brands ALTER COLUMN code SET NOT NULL"))
+        connection.execute(text("ALTER TABLE IF EXISTS supplier_brands ALTER COLUMN name SET NOT NULL"))
+        connection.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uq_supplier_brands_code ON supplier_brands (code)"))
+        connection.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uq_supplier_brands_name ON supplier_brands (name)"))
+        connection.execute(text("CREATE INDEX IF NOT EXISTS idx_supplier_brands_sort ON supplier_brands (sort_order)"))
 
     @staticmethod
     def _ensure_warehouse_schema(connection) -> None:
@@ -3051,7 +3189,7 @@ class InventoryRepository:
     @staticmethod
     def _prepare_supplier(data: Mapping[str, object]) -> dict[str, object]:
         name = str(data.get("name") or "").strip()
-        brand = infer_supplier_brand_from_name(name) or str(data.get("brand") or "").strip() or CBANNER_MENS_BRAND
+        brand = str(data.get("brand") or "").strip() or infer_supplier_brand_from_name(name) or CBANNER_MENS_BRAND
         payload = {
             "brand": brand,
             "name": name,
@@ -3062,6 +3200,4 @@ class InventoryRepository:
             "address": str(data.get("address") or "").strip() or None,
             "notes": str(data.get("notes") or "").strip() or None,
         }
-        if payload["brand"] not in SUPPLIER_BRANDS:
-            payload["brand"] = CBANNER_MENS_BRAND
         return payload

@@ -6,6 +6,7 @@ from decimal import Decimal
 import pytest
 
 from domain.vip_schema import JST_PRICE_TABLE
+from storage.inventory_repository import InventoryRepository
 from storage import product_repository as product_repository_module
 from storage.product_repository import ProductRepository, apply_jst_product_costs
 from transform.rows import build_admin_record
@@ -223,7 +224,7 @@ def test_update_product_returns_updated_row_and_none_for_missing_record(
     assert repository.update_product("cbanner_mens", created["id"] + 9999, {"sku": "missing"}) is None
 
 
-def test_delete_product_removes_row_and_reports_success(repository: ProductRepository):
+def test_delete_product_moves_row_to_recycle_bin_and_can_restore_or_purge(repository: ProductRepository):
     created = repository.create_product(
         "cbanner_womens",
         build_admin_record(
@@ -235,3 +236,37 @@ def test_delete_product_removes_row_and_reports_success(repository: ProductRepos
     assert repository.delete_product("cbanner_womens", created["id"]) is True
     assert repository.get_product("cbanner_womens", created["id"]) is None
     assert repository.delete_product("cbanner_womens", created["id"]) is False
+
+    recycled = repository.list_recycled_products(brand="cbanner_womens", page=1, page_size=10)
+    assert recycled["total"] == 1
+    assert recycled["items"][0]["id"] == created["id"]
+    assert recycled["items"][0]["deleted_at"] is not None
+
+    restored = repository.restore_product("cbanner_womens", created["id"])
+    assert restored is not None
+    assert repository.get_product("cbanner_womens", created["id"]) is not None
+    assert repository.list_recycled_products(brand="cbanner_womens", page=1, page_size=10)["total"] == 0
+
+    assert repository.delete_product("cbanner_womens", created["id"]) is True
+    purged = repository.permanently_delete_product("cbanner_womens", created["id"])
+    assert purged is not None
+    assert repository.list_recycled_products(brand="cbanner_womens", page=1, page_size=10)["total"] == 0
+
+
+def test_manual_brand_creates_independent_product_archive(repository: ProductRepository, test_database_url: str):
+    inventory_repository = InventoryRepository(test_database_url)
+    inventory_repository.create_tables()
+    manual_brand = inventory_repository.create_supplier_brand({"name": "NS"})
+    repository.ensure_manual_product_archive(manual_brand)
+
+    assert repository.is_product_archive_brand(manual_brand["code"])
+    created = repository.create_product(
+        str(manual_brand["code"]),
+        build_admin_record(
+            str(manual_brand["code"]),
+            {"sku": "NS-001", "original_sku": "NS-001", "cost": "123.45"},
+        ),
+    )
+
+    assert repository.list_products(str(manual_brand["code"]), query=None, page=1, page_size=10)["items"][0]["sku"] == "NS-001"
+    assert created["cost"] == Decimal("123.45")

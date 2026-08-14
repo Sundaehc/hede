@@ -23,38 +23,17 @@ import {
   updateSupplier,
   deleteSupplier,
   exportSuppliers,
+  listSupplierBrands,
   ApiError,
+  type SupplierBrandItem,
   type SupplierItem,
 } from "@/lib/api"
-import { BRANDS, type BrandKey } from "@/lib/brands"
 
 const PAGE_SIZE = 30
 type PageToken = number | "start-ellipsis" | "end-ellipsis"
-type SupplierBrand = Exclude<BrandKey, "all"> | "smiley" | "ni"
-
-const SUPPLIER_BRANDS: ReadonlyArray<{ key: SupplierBrand; label: string }> = [
-  { key: "cbanner_mens", label: "千百度男鞋" },
-  { key: "cbanner_womens", label: "千百度女鞋" },
-  { key: "yandou", label: "烟斗" },
-  { key: "eblan", label: "伊伴" },
-  { key: "smiley", label: "笑脸" },
-  { key: "ni", label: "NI" },
-]
-const SUPPLIER_BRAND_OPTIONS: ReadonlyArray<{ key: SupplierBrand | "all"; label: string }> = [
-  { key: "all", label: "总览" },
-  ...SUPPLIER_BRANDS,
-]
-const DEFAULT_SUPPLIER_BRAND: SupplierBrand = "cbanner_mens"
+type SupplierBrand = string
+const DEFAULT_SUPPLIER_BRAND = "cbanner_mens"
 const COOPERATION_STATUS_OPTIONS = ["未合作", "合作中", "暂停", "淘汰"] as const
-const SUPPLIER_EXPORT_BRAND_LABELS: Record<SupplierBrand | "all", string> = {
-  all: "总览",
-  cbanner_mens: "千百度男鞋",
-  cbanner_womens: "千百度女鞋",
-  yandou: "烟斗",
-  eblan: "伊伴",
-  smiley: "笑脸",
-  ni: "NI",
-}
 
 function getErrorMessage(error: unknown) {
   if (error instanceof ApiError) return error.message || `请求失败（${error.status}）`
@@ -97,6 +76,7 @@ function getPageTokens(currentPage: number, totalPages: number): PageToken[] {
 
 export default function SuppliersPage() {
   const { hasPermission } = useAuth()
+  const [brands, setBrands] = useState<SupplierBrandItem[]>([])
   const [items, setItems] = useState<SupplierItem[]>([])
   const [total, setTotal] = useState(0)
   const [page, setPage] = useState(1)
@@ -156,12 +136,30 @@ export default function SuppliersPage() {
     }
   }, [brand, page, query])
 
+  const loadBrands = useCallback(async () => {
+    try {
+      const response = await listSupplierBrands()
+      setBrands(response.items)
+      setBrand((current) => {
+        if (current === "all" || response.items.some((item) => item.code === current)) return current
+        return response.items[0]?.code ?? "all"
+      })
+    } catch (error) {
+      setBrands([])
+      showMessage("加载失败", getErrorMessage(error))
+    }
+  }, [])
+
   useEffect(() => {
     const timer = window.setTimeout(() => {
       void load()
     }, 0)
     return () => window.clearTimeout(timer)
   }, [load])
+
+  useEffect(() => {
+    void loadBrands()
+  }, [loadBrands])
 
   const showMessage = (title: string, description: string) => {
     setMessageContent({ title, description })
@@ -171,7 +169,7 @@ export default function SuppliersPage() {
   const openCreate = () => {
     setFormMode("create")
     setFormData({
-      brand: brand === "all" ? DEFAULT_SUPPLIER_BRAND : brand,
+      brand: brand === "all" ? brands[0]?.code || DEFAULT_SUPPLIER_BRAND : brand,
       name: "",
       factory_code: "",
       contact: "",
@@ -245,7 +243,8 @@ export default function SuppliersPage() {
       const blob = await exportSuppliers({ query, brand })
       const link = document.createElement("a")
       link.href = URL.createObjectURL(blob)
-      link.download = `供应商管理_${SUPPLIER_EXPORT_BRAND_LABELS[brand]}.xlsx`
+      const brandLabel = brand === "all" ? "总览" : brands.find((item) => item.code === brand)?.name || "供应商"
+      link.download = `供应商管理_${brandLabel}.xlsx`
       link.click()
       URL.revokeObjectURL(link.href)
     } catch (error) {
@@ -262,6 +261,7 @@ export default function SuppliersPage() {
   const hasRows = items.length > 0
   const canCreateSupplier = hasPermission("supplier.create") || hasPermission("inventory.manage")
   const canManageSuppliers = hasPermission("inventory.manage")
+  const supplierBrandOptions = [{ code: "all", name: "总览" }, ...brands]
 
   return (
     <div className="app-page">
@@ -292,11 +292,11 @@ export default function SuppliersPage() {
         </div>
 
         <div className="surface-panel mb-3 p-1.5">
-          <Tabs defaultValue={DEFAULT_SUPPLIER_BRAND} value={brand} onValueChange={(value) => { setBrand(value as SupplierBrand | "all"); setPage(1) }}>
+          <Tabs defaultValue={DEFAULT_SUPPLIER_BRAND} value={brand} onValueChange={(value) => { setBrand(value); setPage(1) }}>
             <TabsList className="flex flex-wrap justify-start gap-1 bg-transparent p-0">
-              {SUPPLIER_BRAND_OPTIONS.map((item) => (
-                <TabsTrigger key={item.key} value={item.key} className="cursor-pointer">
-                  {item.label}
+              {supplierBrandOptions.map((item) => (
+                <TabsTrigger key={item.code} value={item.code} className="cursor-pointer">
+                  {item.name}
                 </TabsTrigger>
               ))}
             </TabsList>
@@ -369,7 +369,7 @@ export default function SuppliersPage() {
                   <th className="px-4 py-3 font-medium">微信号</th>
                   <th className="px-4 py-3 font-medium">合作状态</th>
                   <th className="px-4 py-3 font-medium">地址</th>
-                  <th className="px-4 py-3 w-32 font-medium">操作</th>
+                  <th className="sticky right-0 z-20 w-32 border-l border-border bg-muted px-4 py-3 text-center font-medium shadow-[-5px_0_10px_-9px_rgb(0_0_0_/_0.45)]">操作</th>
                 </tr>
               </thead>
               <tbody className={`divide-y divide-border transition-opacity ${isLoading && hasRows ? "opacity-55" : "opacity-100"}`}>
@@ -398,7 +398,7 @@ export default function SuppliersPage() {
                     <td className="truncate px-4 py-2.5" title={item.wechat || ""}>{item.wechat || "-"}</td>
                     <td className="truncate px-4 py-2.5" title={item.cooperation_status || ""}>{item.cooperation_status || "-"}</td>
                     <td className="truncate px-4 py-2.5" title={item.address || ""}>{item.address || "-"}</td>
-                    <td className="px-4 py-2.5">
+                    <td className="sticky right-0 z-10 border-l border-border bg-card px-4 py-2.5 shadow-[-5px_0_10px_-9px_rgb(0_0_0_/_0.45)]">
                       {canManageSuppliers ? (
                         <div className="flex items-center gap-0.5">
                           <Button
@@ -494,8 +494,8 @@ export default function SuppliersPage() {
                 onChange={(e) => setFormData((prev) => ({ ...prev, brand: e.target.value as SupplierBrand }))}
                 className="flex h-9 w-full rounded-lg border border-input bg-card px-3 py-2 text-sm shadow-xs outline-none transition-colors focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/35"
               >
-                {SUPPLIER_BRANDS.map((item) => (
-                  <option key={item.key} value={item.key}>{item.label}</option>
+                {brands.map((item) => (
+                  <option key={item.code} value={item.code}>{item.name}</option>
                 ))}
               </select>
             </div>

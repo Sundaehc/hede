@@ -16,12 +16,13 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select } from "@/components/ui/select"
 import { ApiError, createProduct, listProductColorBarcodes, listSizeGroups, lookupImage, updateProduct } from "@/lib/api"
-import { PRODUCT_ARCHIVE_BRANDS, type BrandKey, type ProductArchiveRecordBrandKey } from "@/lib/brands"
+import { PRODUCT_ARCHIVE_BRANDS, type BrandKey, type ProductArchiveBrand, type ProductArchiveRecordBrandKey } from "@/lib/brands"
 import { ALL_PRODUCT_FIELDS, BARCODE_BUILD_RULE_OPTIONS, FIELD_GROUPS, FIELD_LABELS, SEASON_OPTIONS } from "@/lib/fields"
 import type { ImageLookupStatusState, ProductColorBarcodeItem, ProductFormValues, ProductListItem, ProductMutationPayload, SizeGroup } from "@/lib/types"
 import { cn } from "@/lib/utils"
 
 type ProductFormDialogProps = {
+  brands?: readonly ProductArchiveBrand[]
   item?: ProductListItem | null
   mode: "create" | "edit"
   onOpenChange: (open: boolean) => void
@@ -238,7 +239,7 @@ function toPayload(values: ProductFormValues): ProductMutationPayload {
   return payload as ProductMutationPayload
 }
 
-export function ProductFormDialog({ item, mode, onOpenChange, onSaved, open }: ProductFormDialogProps) {
+export function ProductFormDialog({ brands = PRODUCT_ARCHIVE_BRANDS, item, mode, onOpenChange, onSaved, open }: ProductFormDialogProps) {
   const initialValues = useMemo(() => toFormValues(item), [item])
   const [values, setValues] = useState<ProductFormValues>(initialValues)
   const [brandError, setBrandError] = useState<string | null>(null)
@@ -496,7 +497,7 @@ export function ProductFormDialog({ item, mode, onOpenChange, onSaved, open }: P
                     autoComplete="off"
                   >
                     <option value="">请选择品牌</option>
-                    {PRODUCT_ARCHIVE_BRANDS.filter((b) => b.key !== "all").map((brand) => (
+                    {brands.filter((brand) => brand.key !== "all").map((brand) => (
                       <option key={brand.key} value={brand.key}>
                         {brand.label}
                       </option>

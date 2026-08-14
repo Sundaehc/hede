@@ -1,7 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useState } from "react"
-import { X } from "lucide-react"
+import { RotateCcw, Trash2, X } from "lucide-react"
 
 import { useAuth } from "@/components/auth/auth-provider"
 import { ConfirmDialog, MessageDialog } from "@/components/confirm-dialog"
@@ -14,9 +14,9 @@ import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Tabs, TabsContent } from "@/components/ui/tabs"
 
-import { PRODUCT_ARCHIVE_BRANDS, type ProductArchiveBrandKey, type ProductArchiveRecordBrandKey } from "@/lib/brands"
-import { ApiError, batchDeleteProducts, deleteProduct, getProductYears, listProducts } from "@/lib/api"
-import type { ProductListItem } from "@/lib/types"
+import { PRODUCT_ARCHIVE_BRANDS, resolveProductArchiveBrands, type ProductArchiveBrandKey, type ProductArchiveRecordBrandKey } from "@/lib/brands"
+import { ApiError, batchDeleteProducts, deleteProduct, getProductYears, listProductArchiveBrands, listProductRecycleBin, listProducts, permanentlyDeleteProduct, restoreProductFromRecycleBin, type SupplierBrandItem } from "@/lib/api"
+import type { ProductListItem, ProductRecycleItem } from "@/lib/types"
 
 const DEFAULT_BRAND = PRODUCT_ARCHIVE_BRANDS.find((item) => item.key !== "all")?.key ?? PRODUCT_ARCHIVE_BRANDS[0].key
 const PAGE_SIZES = [10, 50, 100]
@@ -54,6 +54,17 @@ export function ProductAdminPage() {
   const [selectedItem, setSelectedItem] = useState<ProductListItem | null>(null)
   const [previewImage, setPreviewImage] = useState<{ src: string; alt: string } | null>(null)
   const [operationLogOpen, setOperationLogOpen] = useState(false)
+  const [managedBrands, setManagedBrands] = useState<SupplierBrandItem[]>([])
+  const productArchiveBrands = resolveProductArchiveBrands(managedBrands)
+  const [recycleOpen, setRecycleOpen] = useState(false)
+  const [recycleBrand, setRecycleBrand] = useState<ProductArchiveBrandKey | "all">("all")
+  const [recycleItems, setRecycleItems] = useState<ProductRecycleItem[]>([])
+  const [recycleTotal, setRecycleTotal] = useState(0)
+  const [recyclePage, setRecyclePage] = useState(1)
+  const [isRecycleLoading, setIsRecycleLoading] = useState(false)
+  const [recycleActionItem, setRecycleActionItem] = useState<ProductRecycleItem | null>(null)
+  const [recycleAction, setRecycleAction] = useState<"restore" | "permanent_delete" | null>(null)
+  const [isRecycleActioning, setIsRecycleActioning] = useState(false)
 
   // Selection state
   const [selectedIds, setSelectedIds] = useState<Set<number>>(() => new Set())
@@ -85,6 +96,22 @@ export function ProductAdminPage() {
     }
     void loadYears()
   }, [brand])
+
+  useEffect(() => {
+    let cancelled = false
+
+    void listProductArchiveBrands()
+      .then((response) => {
+        if (!cancelled) setManagedBrands(response.items)
+      })
+      .catch(() => {
+        if (!cancelled) setManagedBrands([])
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   useEffect(() => {
     let cancelled = false
@@ -164,6 +191,60 @@ export function ProductAdminPage() {
     }
   }
 
+  const showMessage = useCallback((title: string, description: string) => {
+    setMessageContent({ title, description })
+    setMessageOpen(true)
+  }, [])
+
+  const loadRecycleBin = useCallback(async () => {
+    setIsRecycleLoading(true)
+    try {
+      const response = await listProductRecycleBin({
+        brand: recycleBrand === "all" ? undefined : recycleBrand,
+        page: recyclePage,
+        pageSize: 20,
+      })
+      setRecycleItems(response.items)
+      setRecycleTotal(response.total)
+    } catch (loadError) {
+      setRecycleItems([])
+      setRecycleTotal(0)
+      showMessage("回收站加载失败", getErrorMessage(loadError))
+    } finally {
+      setIsRecycleLoading(false)
+    }
+  }, [recycleBrand, recyclePage, showMessage])
+
+  useEffect(() => {
+    if (recycleOpen) void loadRecycleBin()
+  }, [loadRecycleBin, recycleOpen])
+
+  const requestRecycleAction = (item: ProductRecycleItem, action: "restore" | "permanent_delete") => {
+    setRecycleActionItem(item)
+    setRecycleAction(action)
+  }
+
+  const handleRecycleAction = async () => {
+    if (!recycleActionItem || !recycleAction) return
+    setIsRecycleActioning(true)
+    try {
+      const brandKey = recycleActionItem.brand as ProductArchiveRecordBrandKey
+      if (recycleAction === "restore") {
+        await restoreProductFromRecycleBin(brandKey, recycleActionItem.id)
+      } else {
+        await permanentlyDeleteProduct(brandKey, recycleActionItem.id)
+      }
+      setRecycleActionItem(null)
+      setRecycleAction(null)
+      setReloadToken((current) => current + 1)
+      await loadRecycleBin()
+    } catch (actionError) {
+      showMessage(recycleAction === "restore" ? "恢复失败" : "彻底删除失败", getErrorMessage(actionError))
+    } finally {
+      setIsRecycleActioning(false)
+    }
+  }
+
   const handleToggleSelect = useCallback((id: number) => {
     setSelectedIds((prev) => {
       const next = new Set(prev)
@@ -213,11 +294,6 @@ export function ProductAdminPage() {
     }
   }
 
-  const showMessage = useCallback((title: string, description: string) => {
-    setMessageContent({ title, description })
-    setMessageOpen(true)
-  }, [])
-
   const showBatchDelete = !isAllBrand(brand) && selectedIds.size > 0
   const canManageProducts = hasPermission("product.manage")
   const canExportProducts = hasPermission("product.export")
@@ -243,74 +319,84 @@ export function ProductAdminPage() {
           value={brand}
           defaultValue={DEFAULT_BRAND}
           onValueChange={(value) => {
+            setAvailableYears([])
             setBrand(value as ProductArchiveBrandKey)
             setYear("")
             setPage(1)
           }}
         >
-          <div className="surface-panel p-1.5">
-            <ProductTabs />
+          <div className="sticky top-0 z-30 -mx-5 bg-background/95 px-5 py-3 shadow-[0_8px_18px_-18px_rgb(0_0_0_/_0.65)] backdrop-blur">
+            <div className="surface-panel p-1.5">
+              <ProductTabs brands={productArchiveBrands} />
+            </div>
+
+            <TabsContent value={brand} className="mt-4 space-y-4">
+              {!isAllBrand(brand) && (
+                <div className="flex min-h-8 items-center gap-1.5">
+                  {availableYears.length > 0 && (
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      {["", ...availableYears].map((y) => (
+                        <button
+                          key={y}
+                          onClick={() => { setYear(y); setPage(1) }}
+                          className={`cursor-pointer rounded-lg px-3 py-1.5 text-sm font-medium transition-all duration-150 ${year === y
+                              ? "bg-primary text-primary-foreground shadow-sm"
+                              : "bg-muted text-muted-foreground hover:bg-muted-foreground/20 hover:text-foreground"
+                            }`}
+                        >
+                          {y || "全部"}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              <ProductToolbar
+                brand={brand}
+                year={year}
+                value={searchInput}
+                isLoading={isLoading}
+                selectedIds={selectedIds}
+                canExport={canExportProducts}
+                canImport={canImportProducts}
+                canRefreshImages={canManageProducts}
+                onValueChange={setSearchInput}
+                onSearch={() => {
+                  setPage(1)
+                  setSubmittedQuery(searchInput.trim())
+                }}
+                onClear={() => {
+                  setSearchInput("")
+                  setPage(1)
+                  setSubmittedQuery("")
+                }}
+                onRefresh={() => {
+                  setReloadToken((current) => current + 1)
+                }}
+                onOpenLogs={() => setOperationLogOpen(true)}
+                onOpenRecycleBin={canManageProducts ? () => {
+                  setRecycleBrand(isAllBrand(brand) ? "all" : brand)
+                  setRecyclePage(1)
+                  setRecycleOpen(true)
+                } : undefined}
+                onImportComplete={(skus: string[]) => {
+                  const query = skus.join(",")
+                  setSearchInput(query)
+                  setSubmittedQuery(query)
+                  setPage(1)
+                }}
+                onCreate={isAllBrand(brand) || !canManageProducts ? undefined : () => {
+                  setDialogMode("create")
+                  setSelectedItem(null)
+                  setIsDialogOpen(true)
+                }}
+                onMessage={showMessage}
+              />
+            </TabsContent>
           </div>
 
-          <TabsContent value={brand} className="mt-4 space-y-4">
-            {!isAllBrand(brand) && (
-              <div className="flex items-center gap-1.5">
-                {availableYears.length > 0 && (
-                  <div className="flex flex-wrap items-center gap-1.5">
-                    {["", ...availableYears].map((y) => (
-                      <button
-                        key={y}
-                        onClick={() => { setYear(y); setPage(1) }}
-                        className={`cursor-pointer rounded-lg px-3 py-1.5 text-sm font-medium transition-all duration-150 ${year === y
-                            ? "bg-primary text-primary-foreground shadow-sm"
-                            : "bg-muted text-muted-foreground hover:bg-muted-foreground/20 hover:text-foreground"
-                          }`}
-                      >
-                        {y || "全部"}
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
-
-            <ProductToolbar
-              brand={brand}
-              year={year}
-              value={searchInput}
-              isLoading={isLoading}
-              selectedIds={selectedIds}
-              canExport={canExportProducts}
-              canImport={canImportProducts}
-              canRefreshImages={canManageProducts}
-              onValueChange={setSearchInput}
-              onSearch={() => {
-                setPage(1)
-                setSubmittedQuery(searchInput.trim())
-              }}
-              onClear={() => {
-                setSearchInput("")
-                setPage(1)
-                setSubmittedQuery("")
-              }}
-              onRefresh={() => {
-                setReloadToken((current) => current + 1)
-              }}
-              onOpenLogs={() => setOperationLogOpen(true)}
-              onImportComplete={(skus: string[]) => {
-                const query = skus.join(",")
-                setSearchInput(query)
-                setSubmittedQuery(query)
-                setPage(1)
-              }}
-              onCreate={isAllBrand(brand) || !canManageProducts ? undefined : () => {
-                setDialogMode("create")
-                setSelectedItem(null)
-                setIsDialogOpen(true)
-              }}
-              onMessage={showMessage}
-            />
-
+          <TabsContent value={brand} className="mt-4">
             <ProductTable
               items={items}
               total={total}
@@ -359,6 +445,7 @@ export function ProductAdminPage() {
             }
           }}
           onSaved={handleSaved}
+          brands={productArchiveBrands}
         />
 
         <OperationLogDialog
@@ -371,8 +458,8 @@ export function ProductAdminPage() {
         <ConfirmDialog
           open={deleteTarget !== null}
           title="确认删除"
-          description={`确定删除商品 ${deleteTarget?.original_sku || deleteTarget?.sku || deleteTarget?.id}？此操作不可撤销。`}
-          confirmLabel={isDeleting ? "删除中..." : "删除"}
+          description={`确定将商品 ${deleteTarget?.original_sku || deleteTarget?.sku || deleteTarget?.id} 移入回收站吗？可在回收站中恢复或彻底删除。`}
+          confirmLabel={isDeleting ? "处理中..." : "移入回收站"}
           variant="destructive"
           onConfirm={handleDeleteConfirm}
           onCancel={() => setDeleteTarget(null)}
@@ -381,8 +468,8 @@ export function ProductAdminPage() {
         <ConfirmDialog
           open={batchDeleteOpen}
           title="确认批量删除"
-          description={`确定删除选中的 ${selectedIds.size} 条商品？此操作不可撤销。`}
-          confirmLabel={isBatchDeleting ? "删除中..." : "删除"}
+          description={`确定将选中的 ${selectedIds.size} 条商品移入回收站吗？可在回收站中恢复或彻底删除。`}
+          confirmLabel={isBatchDeleting ? "处理中..." : "移入回收站"}
           variant="destructive"
           onConfirm={handleBatchDeleteConfirm}
           onCancel={() => setBatchDeleteOpen(false)}
@@ -393,6 +480,56 @@ export function ProductAdminPage() {
           title={messageContent.title}
           description={messageContent.description}
           onClose={() => setMessageOpen(false)}
+        />
+        <Dialog open={recycleOpen} onOpenChange={setRecycleOpen}>
+          <DialogContent className="max-h-[88svh] max-w-[min(96vw,1100px)] overflow-hidden p-0">
+            <DialogHeader className="border-b border-border px-5 py-4">
+              <DialogTitle>商品信息档案回收站</DialogTitle>
+            </DialogHeader>
+            <div className="space-y-4 overflow-y-auto p-5">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div className="flex flex-wrap gap-1.5">
+                  {[{ key: "all" as const, label: "全部品牌" }, ...productArchiveBrands.filter((item) => item.key !== "all")].map((item) => (
+                    <Button
+                      key={item.key}
+                      type="button"
+                      size="sm"
+                      variant={recycleBrand === item.key ? "default" : "outline"}
+                      className="cursor-pointer"
+                      onClick={() => { setRecycleBrand(item.key); setRecyclePage(1) }}
+                    >
+                      {item.label}
+                    </Button>
+                  ))}
+                </div>
+                <span className="text-sm text-muted-foreground">共 {recycleTotal} 条</span>
+              </div>
+              <div className="overflow-x-auto rounded-lg border border-border">
+                <table className="w-full min-w-[780px] text-sm">
+                  <thead><tr className="table-head-row"><th className="px-3 py-2 text-left font-medium">品牌</th><th className="px-3 py-2 text-left font-medium">货号</th><th className="px-3 py-2 text-left font-medium">品名</th><th className="px-3 py-2 text-left font-medium">颜色</th><th className="px-3 py-2 text-left font-medium">删除时间</th><th className="px-3 py-2 text-center font-medium">操作</th></tr></thead>
+                  <tbody className="divide-y divide-border">
+                    {isRecycleLoading && <tr><td colSpan={6} className="px-3 py-12 text-center text-muted-foreground">加载中...</td></tr>}
+                    {!isRecycleLoading && recycleItems.length === 0 && <tr><td colSpan={6} className="px-3 py-12 text-center text-muted-foreground">回收站暂无商品</td></tr>}
+                    {!isRecycleLoading && recycleItems.map((item) => <tr key={`${item.brand}-${item.id}`} className="table-row"><td className="px-3 py-2">{productArchiveBrands.find((brandItem) => brandItem.key === item.brand)?.label || item.brand}</td><td className="px-3 py-2 font-medium">{item.original_sku || item.sku || "-"}</td><td className="px-3 py-2">{item.product_name || "-"}</td><td className="px-3 py-2">{item.color || "-"}</td><td className="px-3 py-2 whitespace-nowrap text-xs text-muted-foreground">{item.deleted_at ? new Date(item.deleted_at).toLocaleString("zh-CN", { hour12: false }) : "-"}</td><td className="px-3 py-2"><div className="flex justify-center gap-1"><Button type="button" variant="ghost" size="sm" className="cursor-pointer" onClick={() => requestRecycleAction(item, "restore")}><RotateCcw className="mr-1 h-3.5 w-3.5" />恢复</Button><Button type="button" variant="ghost" size="sm" className="cursor-pointer text-destructive hover:bg-destructive/10 hover:text-destructive" onClick={() => requestRecycleAction(item, "permanent_delete")}><Trash2 className="mr-1 h-3.5 w-3.5" />彻底删除</Button></div></td></tr>)}
+                  </tbody>
+                </table>
+              </div>
+              <div className="flex items-center justify-end gap-3">
+                <Button type="button" size="sm" variant="outline" className="cursor-pointer" disabled={recyclePage <= 1 || isRecycleLoading} onClick={() => setRecyclePage((value) => value - 1)}>上一页</Button>
+                <span className="text-sm text-muted-foreground">{recyclePage} / {Math.max(1, Math.ceil(recycleTotal / 20))}</span>
+                <Button type="button" size="sm" variant="outline" className="cursor-pointer" disabled={recyclePage >= Math.max(1, Math.ceil(recycleTotal / 20)) || isRecycleLoading} onClick={() => setRecyclePage((value) => value + 1)}>下一页</Button>
+              </div>
+            </div>
+          </DialogContent>
+        </Dialog>
+        <ConfirmDialog
+          open={recycleActionItem !== null}
+          title={recycleAction === "restore" ? "确认恢复商品" : "确认彻底删除商品"}
+          description={recycleAction === "restore" ? `确定恢复商品 ${recycleActionItem?.original_sku || recycleActionItem?.sku || recycleActionItem?.id} 吗？` : `确定彻底删除商品 ${recycleActionItem?.original_sku || recycleActionItem?.sku || recycleActionItem?.id} 吗？此操作不可恢复。`}
+          confirmLabel={isRecycleActioning ? "处理中..." : recycleAction === "restore" ? "恢复" : "彻底删除"}
+          variant={recycleAction === "permanent_delete" ? "destructive" : "default"}
+          onConfirm={() => void handleRecycleAction()}
+          onCancel={() => !isRecycleActioning && (setRecycleActionItem(null), setRecycleAction(null))}
         />
         <Dialog open={previewImage !== null} onOpenChange={(open) => !open && setPreviewImage(null)}>
           <DialogContent className="max-h-[92svh] max-w-[min(94vw,1120px)] overflow-hidden bg-background p-0 shadow-2xl">

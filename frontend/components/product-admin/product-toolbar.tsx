@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useRef, useState } from "react"
-import { History, ImagePlus } from "lucide-react"
+import { History, ImagePlus, Trash2 } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
@@ -25,6 +25,7 @@ type ProductToolbarProps = {
   onImportComplete: (skus: string[]) => void
   onCreate?: () => void
   onOpenLogs?: () => void
+  onOpenRecycleBin?: () => void
   onMessage: (title: string, description: string) => void
 }
 
@@ -55,6 +56,7 @@ export function ProductToolbar({
   onImportComplete,
   onCreate,
   onOpenLogs,
+  onOpenRecycleBin,
   onMessage,
 }: ProductToolbarProps) {
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -202,7 +204,7 @@ export function ProductToolbar({
     : hasSelection ? `导出选中 (${selectedIds!.size})` : "导出 Excel"
   const sizeExportLabel = exportingMode === "with_sizes" && exportStatusText ? exportStatusText : "带尺码导出"
   const activityExportLabel = exportingMode === "today" && exportStatusText ? exportStatusText : "导出当日导入/新增"
-  const activitySizeExportLabel = exportingMode === "today_with_sizes" && exportStatusText ? exportStatusText : "当日导入/新增带尺码"
+  const activitySizeExportLabel = exportingMode === "today_with_sizes" && exportStatusText ? exportStatusText : "导出当日导入/新增带尺码"
   const lastImageRun = imageRefreshStatus?.last_run
   const imageStatusText = imageRefreshStatus?.in_progress
     ? "图片刷新任务正在后台运行"
@@ -248,6 +250,12 @@ export function ProductToolbar({
               操作日志
             </Button>
           ) : null}
+          {onOpenRecycleBin ? (
+            <Button type="button" variant="outline" size="sm" onClick={onOpenRecycleBin} className="cursor-pointer">
+              <Trash2 className="h-3.5 w-3.5" />
+              回收站
+            </Button>
+          ) : null}
           {canRefreshImages ? (
             <Button
               type="button"
@@ -267,61 +275,61 @@ export function ProductToolbar({
       <p className="text-xs text-muted-foreground">{imageStatusText}</p>
 
       {showActions ? (
-      <div className="flex flex-wrap items-center gap-2 border-t border-border pt-3">
-        {canExport ? (
-          <>
-            <Button type="button" variant="outline" size="sm" onClick={() => void handleExport()} disabled={isLoading || exporting} className="cursor-pointer">
-              {defaultExportLabel}
-            </Button>
-            <div className="flex items-center gap-1.5">
-              <Label htmlFor="product-activity-export-date" className="whitespace-nowrap text-xs text-muted-foreground">导出日期</Label>
-              <input
-                id="product-activity-export-date"
-                type="date"
-                value={activityDate}
-                onChange={(event) => setActivityDate(event.target.value)}
-                disabled={isLoading || exporting}
-                className="h-8 cursor-pointer rounded-md border border-input bg-card px-2 text-xs shadow-xs outline-none transition-colors focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/35 disabled:cursor-not-allowed disabled:opacity-50"
-              />
-              <Button type="button" variant="outline" size="sm" onClick={() => void handleExport(undefined, activityDate)} disabled={isLoading || exporting || !activityDate} className="cursor-pointer">
-                {activityExportLabel}
+        <div className="flex flex-wrap items-center gap-2 border-t border-border pt-3">
+          {canExport ? (
+            <>
+              <Button type="button" variant="outline" size="sm" onClick={() => void handleExport()} disabled={isLoading || exporting} className="cursor-pointer">
+                {defaultExportLabel}
               </Button>
-            </div>
-          </>
-        ) : null}
-        {onCreate ? (
-          <>
-            {canExport ? (
-              <>
+              {onCreate ? (
                 <Button type="button" variant="outline" size="sm" onClick={() => void handleExport("with_sizes")} disabled={isLoading || exporting} className="cursor-pointer">
                   {sizeExportLabel}
                 </Button>
-                <Button type="button" variant="outline" size="sm" onClick={() => void handleExport("with_sizes", activityDate)} disabled={isLoading || exporting || !activityDate} className="cursor-pointer">
-                  {activitySizeExportLabel}
-                </Button>
-              </>
-            ) : null}
-            {canImport ? (
-              <>
-                <Button type="button" variant="outline" size="sm" onClick={() => fileInputRef.current?.click()} disabled={importing} className="cursor-pointer">
-                  {importing ? "导入中..." : "导入 Excel"}
-                </Button>
+              ) : null}
+              <div className="flex items-center gap-1.5">
+                <Label htmlFor="product-activity-export-date" className="whitespace-nowrap text-xs text-muted-foreground">导出日期</Label>
                 <input
-                  ref={fileInputRef}
-                  type="file"
-                  accept=".xlsx,.xls"
-                  className="hidden"
-                  onChange={(e) => void handleImport(e)}
+                  id="product-activity-export-date"
+                  type="date"
+                  value={activityDate}
+                  onChange={(event) => setActivityDate(event.target.value)}
+                  disabled={isLoading || exporting}
+                  className="h-8 cursor-pointer rounded-md border border-input bg-card px-2 text-xs shadow-xs outline-none transition-colors focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/35 disabled:cursor-not-allowed disabled:opacity-50"
                 />
-              </>
-            ) : null}
-            <div className="flex-1" />
-            <Button type="button" size="sm" onClick={onCreate} className="cursor-pointer">
-              <span>新增商品</span>
-            </Button>
-          </>
-        ) : null}
-      </div>
+                <Button type="button" variant="outline" size="sm" onClick={() => void handleExport(undefined, activityDate)} disabled={isLoading || exporting || !activityDate} className="cursor-pointer">
+                  {activityExportLabel}
+                </Button>
+                {onCreate ? (
+                  <Button type="button" variant="outline" size="sm" onClick={() => void handleExport("with_sizes", activityDate)} disabled={isLoading || exporting || !activityDate} className="cursor-pointer">
+                    {activitySizeExportLabel}
+                  </Button>
+                ) : null}
+              </div>
+            </>
+          ) : null}
+          {onCreate ? (
+            <>
+              <div className="flex-1" />
+              {canImport ? (
+                <>
+                  <Button type="button" variant="outline" size="sm" onClick={() => fileInputRef.current?.click()} disabled={importing} className="cursor-pointer">
+                    {importing ? "导入中..." : "导入 Excel"}
+                  </Button>
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept=".xlsx,.xls"
+                    className="hidden"
+                    onChange={(e) => void handleImport(e)}
+                  />
+                </>
+              ) : null}
+              <Button type="button" size="sm" onClick={onCreate} className="cursor-pointer">
+                <span>新增商品</span>
+              </Button>
+            </>
+          ) : null}
+        </div>
       ) : null}
     </div>
   )
