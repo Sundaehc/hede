@@ -125,6 +125,9 @@ def test_product_goods_uses_recent_sales_ranking_fast_path(monkeypatch):
     assert payload["title"] == "千百度女鞋近7天销量排行"
     assert payload["rows"][0]["recent_sales"] == 36
     assert payload["data_as_of"] == [{"label": "最新销售日期", "value": "2026-08-15"}]
+    assert payload["link"]["href"] == (
+        "/product-goods?brand=cbanner_womens&query=QC153883D54&view=goods"
+    )
 
 
 def test_product_goods_queries_every_detected_product_code(monkeypatch):

@@ -1,6 +1,39 @@
 import type { AiQueryResponse } from "@/lib/types"
 
-type SuggestionContext = Pick<AiQueryResponse, "intent" | "link">
+type SuggestionContext = Pick<AiQueryResponse, "intent" | "link" | "rows">
+
+const RESULT_CODE_KEYS = [
+  "goods_code",
+  "sku",
+  "product_code",
+  "货号",
+  "商品货号",
+  "商品编码",
+]
+
+function resultQuery(rows: AiQueryResponse["rows"]) {
+  return Array.from(
+    new Set(
+      rows.flatMap((row) => {
+        for (const key of RESULT_CODE_KEYS) {
+          const value = row[key]
+          if (typeof value === "string" && value.trim()) return [value.trim()]
+        }
+        return []
+      })
+    )
+  ).join(",")
+}
+
+function sourceWithResultQuery(response: SuggestionContext) {
+  if (!response.link?.href) return null
+  const source = new URL(response.link.href, "http://localhost")
+  if (!source.searchParams.get("query")) {
+    const query = resultQuery(response.rows)
+    if (query) source.searchParams.set("query", query)
+  }
+  return source
+}
 
 function buildHref(
   pathname: string,
@@ -21,9 +54,8 @@ export function getAiQuerySuggestionHref(
   response: SuggestionContext,
   suggestion: string
 ) {
-  if (!response.link?.href) return null
-
-  const source = new URL(response.link.href, "http://localhost")
+  const source = sourceWithResultQuery(response)
+  if (!source) return null
   if (response.intent === "product_goods") {
     if (suggestion === "查看这批商品的商品档案") {
       return buildHref("/products", source)
@@ -38,4 +70,10 @@ export function getAiQuerySuggestionHref(
   }
 
   return null
+}
+
+export function getAiQueryPrimaryHref(response: SuggestionContext) {
+  const source = sourceWithResultQuery(response)
+  if (!source) return null
+  return `${source.pathname}${source.search}${source.hash}`
 }

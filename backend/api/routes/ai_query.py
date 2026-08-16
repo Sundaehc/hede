@@ -366,6 +366,11 @@ def _run_product_goods(request: Request, question: str, payload: dict[str, objec
             limit=limit,
         )
         rows = list(result.get("items") or [])
+        result_codes = ",".join(
+            _clean_text(row.get("goods_code"))
+            for row in rows
+            if isinstance(row, dict) and _clean_text(row.get("goods_code"))
+        )
         date_start = _clean_text(result.get("date_start"))
         date_end = _clean_text(result.get("date_end"))
         period_label = f"{date_start} 至 {date_end}" if date_start and date_end else f"近{days}天"
@@ -395,7 +400,10 @@ def _run_product_goods(request: Request, question: str, payload: dict[str, objec
                 "rows": rows,
                 "data_as_of": ([{"label": "最新销售日期", "value": date_end}] if date_end else []),
                 "sources": ["商品信息档案", "聚水潭日销", "唯品日销", *(result.get("sources") or [])],
-                "link": {"label": "打开商品货品表", "href": f"/product-goods?brand={brand}&view=goods"},
+                "link": {
+                    "label": "打开商品货品表",
+                    "href": f"/product-goods?brand={brand}&query={result_codes}&view=goods",
+                },
                 "suggestions": ["查看这批商品的商品档案"],
             }
         )

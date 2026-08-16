@@ -12,14 +12,16 @@ import {
   History,
   LoaderCircle,
   Search,
-  Sparkles,
   Trash2,
   X,
 } from "lucide-react"
 
 import { ConfirmDialog } from "@/components/confirm-dialog"
 import { Button } from "@/components/ui/button"
-import { getAiQuerySuggestionHref } from "@/lib/ai-query-navigation"
+import {
+  getAiQueryPrimaryHref,
+  getAiQuerySuggestionHref,
+} from "@/lib/ai-query-navigation"
 import {
   ApiError,
   clearAiQueryHistory,
@@ -189,20 +191,6 @@ export default function AiQueryPage() {
     <div className="app-page">
       <div className="app-content-wide min-h-[calc(100svh-2rem)] sm:min-h-[calc(100svh-3rem)]">
         <div className="mx-auto flex min-h-0 w-full max-w-[1640px] flex-1 flex-col gap-5">
-          <header className="flex min-h-14 items-center justify-between gap-4 border-b border-border/80 px-1 pb-4">
-            <div className="flex min-w-0 items-center gap-3">
-              <div className="flex size-9 shrink-0 items-center justify-center rounded-lg border border-border bg-background text-foreground shadow-xs">
-                <Sparkles className="size-[17px]" />
-              </div>
-              <div className="min-w-0">
-                <h1 className="text-xl font-semibold">智能查询</h1>
-                <p className="mt-0.5 text-xs text-muted-foreground">
-                  业务数据工作台
-                </p>
-              </div>
-            </div>
-          </header>
-
           <div className="grid min-h-0 min-w-0 flex-1 items-stretch gap-6 xl:grid-cols-[minmax(0,1fr)_248px]">
             <main className="flex min-h-0 min-w-0 flex-col gap-5">
               {error ? (
@@ -437,7 +425,12 @@ export default function AiQueryPage() {
                       })}
                       {response.link ? (
                         <Button type="button" size="sm" asChild>
-                          <Link href={response.link.href}>
+                          <Link
+                            href={
+                              getAiQueryPrimaryHref(response) ??
+                              response.link.href
+                            }
+                          >
                             {response.link.label}
                             <ArrowUpRight className="size-3.5" />
                           </Link>
