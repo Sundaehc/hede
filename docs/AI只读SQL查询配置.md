@@ -16,7 +16,7 @@ AI_API_KEY=填写实际密钥
 AI_PROVIDER=openai
 AI_BASE_URL=https://api.openai.com/v1
 AI_MODEL=gpt-4.1-mini
-AI_TIMEOUT_SECONDS=60
+AI_TIMEOUT_SECONDS=180
 AI_SQL_MAX_ROWS=500
 ```
 

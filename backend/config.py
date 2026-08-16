@@ -71,7 +71,7 @@ class Settings:
     ai_provider: str = "openai"
     ai_base_url: str = "https://api.openai.com/v1"
     ai_model: str = "gpt-4.1-mini"
-    ai_timeout_seconds: int = 30
+    ai_timeout_seconds: int = 180
     ai_sql_max_rows: int = 500
 
     @property
@@ -237,7 +237,7 @@ def load_settings(require_database: bool = True) -> Settings:
         ai_base_url=os.getenv("AI_BASE_URL", "https://api.openai.com/v1"),
         ai_model=os.getenv("AI_MODEL", "gpt-4.1-mini"),
         ai_timeout_seconds=_int_from_env(
-            "AI_TIMEOUT_SECONDS", 30, minimum=5, maximum=120
+            "AI_TIMEOUT_SECONDS", 180, minimum=5, maximum=300
         ),
         ai_sql_max_rows=_int_from_env(
             "AI_SQL_MAX_ROWS", 500, minimum=1, maximum=2000

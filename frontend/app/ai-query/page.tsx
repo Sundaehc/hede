@@ -236,12 +236,6 @@ export default function AiQueryPage() {
                     <div className="mx-auto flex size-12 items-center justify-center rounded-full border border-dashed border-border bg-muted/20 text-muted-foreground">
                       <Search className="size-5" />
                     </div>
-                    <p className="mt-4 text-sm font-medium text-foreground/80">
-                      等待查询
-                    </p>
-                    <p className="mt-1 text-xs text-muted-foreground">
-                      查询结果将在这里展开
-                    </p>
                     <div
                       className="mx-auto mt-7 grid max-w-xs grid-cols-[0.8fr_1.2fr_0.65fr] gap-2 opacity-55"
                       aria-hidden="true"
