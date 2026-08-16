@@ -203,6 +203,7 @@ function SeasonTable({
 
 export function FactoryChannelDashboardPage() {
   const [brand, setBrand] = useState<DashboardBrand>(DEFAULT_BRAND)
+  const [routeContextReady, setRouteContextReady] = useState(false)
   const [salesYear, setSalesYear] = useState("")
   const [factoryQuery, setFactoryQuery] = useState("")
   const [dateStart, setDateStart] = useState("")
@@ -212,7 +213,19 @@ export function FactoryChannelDashboardPage() {
   const [error, setError] = useState("")
   const [refreshToken, setRefreshToken] = useState(0)
 
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    const nextBrand = params.get("brand")
+    const nextSalesYear = params.get("sales_year")
+    if (nextBrand && DASHBOARD_BRANDS.some((item) => item.key === nextBrand)) {
+      setBrand(nextBrand as DashboardBrand)
+    }
+    if (nextSalesYear && /^\d{4}$/.test(nextSalesYear)) setSalesYear(nextSalesYear)
+    setRouteContextReady(true)
+  }, [])
+
   const loadDashboard = useCallback(async () => {
+    if (!routeContextReady) return
     setLoading(true)
     setError("")
     try {
@@ -230,7 +243,7 @@ export function FactoryChannelDashboardPage() {
     } finally {
       setLoading(false)
     }
-  }, [brand, dateEnd, dateStart, salesYear])
+  }, [brand, dateEnd, dateStart, routeContextReady, salesYear])
 
   useEffect(() => {
     void loadDashboard()

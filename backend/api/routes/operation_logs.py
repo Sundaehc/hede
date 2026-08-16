@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException, Query, Request
 
-from api.routes.auth import require_permission
+from api.routes.auth import get_current_user_from_request, require_permission, user_has_permission
 
 
 router = APIRouter(prefix="/operation-logs")
@@ -17,10 +17,12 @@ MODULE_PERMISSIONS = {
     "purchase": "purchase.view",
     "purchase_inbound_detail": "inventory.view",
     "supplier": "inventory.view",
+    "supplier_brand": "inventory.view",
     "warehouse": "inventory.view",
     "account_subject": "inventory.view",
     "general_customer": "inventory.view",
     "user": "system.admin",
+    "ai_query": "system.admin",
 }
 
 
@@ -35,7 +37,14 @@ def list_operation_logs(
     permission = MODULE_PERMISSIONS.get(module)
     if permission is None:
         raise HTTPException(status_code=400, detail="日志模块无效")
-    user = require_permission(request, permission)
+    if isinstance(permission, tuple):
+        user = get_current_user_from_request(request)
+        if user is None:
+            raise HTTPException(status_code=401, detail="未登录")
+        if not any(user_has_permission(user, item) for item in permission):
+            raise HTTPException(status_code=403, detail="权限不足")
+    else:
+        user = require_permission(request, permission)
     if module == "size_group":
         role_code = str(user.get("role_code") or "").strip()
         department_code = str(user.get("department_code") or "").strip()

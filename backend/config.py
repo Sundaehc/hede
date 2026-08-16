@@ -66,6 +66,13 @@ class Settings:
     cbanner_womens_product_detail_source: Path | None = DEFAULT_CBANNER_WOMENS_PRODUCT_DETAIL_SOURCE
     eblan_product_detail_source: Path | None = DEFAULT_EBLAN_PRODUCT_DETAIL_SOURCE
     eblan_product_goods_order_source: Path | None = DEFAULT_EBLAN_PRODUCT_GOODS_ORDER_SOURCE
+    ai_sql_enabled: bool = False
+    ai_api_key: str | None = None
+    ai_provider: str = "openai"
+    ai_base_url: str = "https://api.openai.com/v1"
+    ai_model: str = "gpt-4.1-mini"
+    ai_timeout_seconds: int = 30
+    ai_sql_max_rows: int = 500
 
     @property
     def image_roots(self) -> dict[str, Path]:
@@ -109,6 +116,24 @@ def _path_from_env_with_default(name: str, default: Path | None) -> Path:
             raise ValueError(f"{name} is required in .env")
         return default
     return Path(value)
+
+
+def _bool_from_env(name: str, default: bool = False) -> bool:
+    value = os.getenv(name)
+    if value is None:
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _int_from_env(name: str, default: int, *, minimum: int, maximum: int) -> int:
+    value = os.getenv(name)
+    if not value:
+        return default
+    try:
+        parsed = int(value)
+    except ValueError:
+        return default
+    return max(minimum, min(parsed, maximum))
 
 
 def load_settings(require_database: bool = True) -> Settings:
@@ -203,4 +228,18 @@ def load_settings(require_database: bool = True) -> Settings:
         cbanner_womens_product_detail_source=cbanner_womens_product_detail_source,
         eblan_product_detail_source=eblan_product_detail_source,
         eblan_product_goods_order_source=eblan_product_goods_order_source,
+        ai_sql_enabled=_bool_from_env(
+            "AI_SQL_ENABLED",
+            default=bool(os.getenv("AI_API_KEY") or os.getenv("OPENAI_API_KEY")),
+        ),
+        ai_api_key=os.getenv("AI_API_KEY") or os.getenv("OPENAI_API_KEY") or None,
+        ai_provider=os.getenv("AI_PROVIDER", "openai").strip().lower() or "openai",
+        ai_base_url=os.getenv("AI_BASE_URL", "https://api.openai.com/v1"),
+        ai_model=os.getenv("AI_MODEL", "gpt-4.1-mini"),
+        ai_timeout_seconds=_int_from_env(
+            "AI_TIMEOUT_SECONDS", 30, minimum=5, maximum=120
+        ),
+        ai_sql_max_rows=_int_from_env(
+            "AI_SQL_MAX_ROWS", 500, minimum=1, maximum=2000
+        ),
     )

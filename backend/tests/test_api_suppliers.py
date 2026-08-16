@@ -107,3 +107,34 @@ def test_supplier_brand_cannot_be_deleted_when_suppliers_exist(test_app_client: 
     deleted = test_app_client.delete(f"/supplier-brands/{brand['id']}")
     assert deleted.status_code == 400
     assert "关联供应商" in deleted.json()["detail"]
+
+
+def test_supplier_brand_and_supplier_operation_logs_are_separate(test_app_client: TestClient):
+    created_brand = test_app_client.post("/supplier-brands", json={"name": "日志隔离测试品牌"})
+    assert created_brand.status_code == 200
+    brand = created_brand.json()["item"]
+
+    created_supplier = test_app_client.post(
+        "/suppliers",
+        json={"brand": brand["code"], "name": "日志隔离测试供应商"},
+    )
+    assert created_supplier.status_code == 200
+
+    repository = test_app_client.app.state.operation_log_repository
+    brand_logs = repository.list_logs(
+        module="supplier_brand",
+        query=None,
+        page=1,
+        page_size=20,
+    )
+    supplier_logs = repository.list_logs(
+        module="supplier",
+        query=None,
+        page=1,
+        page_size=20,
+    )
+
+    assert brand_logs["total"] == 1
+    assert brand_logs["items"][0]["entity_type"] == "supplier_brand"
+    assert supplier_logs["total"] == 1
+    assert supplier_logs["items"][0]["entity_type"] == "supplier"

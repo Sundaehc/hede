@@ -151,7 +151,7 @@ export default function SupplierBrandsPage() {
         onConfirm={() => void handleDelete()}
         onCancel={() => !isDeleting && setDeleteTarget(null)}
       />
-      <OperationLogDialog module="supplier" title="品牌管理操作日志" open={operationLogOpen} onOpenChange={setOperationLogOpen} />
+      <OperationLogDialog module="supplier_brand" title="品牌管理操作日志" open={operationLogOpen} onOpenChange={setOperationLogOpen} />
     </div>
   )
 }

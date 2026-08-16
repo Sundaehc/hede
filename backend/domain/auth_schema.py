@@ -80,7 +80,37 @@ AUTH_SESSION_TABLE = Table(
 )
 
 
+AI_QUERY_HISTORY_TABLE = Table(
+    "ai_query_history",
+    METADATA,
+    Column("id", Integer, primary_key=True),
+    Column(
+        "user_id",
+        Integer,
+        ForeignKey(
+            "auth_users.id",
+            name="fk_ai_query_history_user_id",
+            ondelete="CASCADE",
+        ),
+        nullable=False,
+    ),
+    Column("question", Text, nullable=False),
+    Column("created_at", DateTime(timezone=True), server_default=func.now()),
+    Column("last_used_at", DateTime(timezone=True), server_default=func.now()),
+    UniqueConstraint(
+        "user_id",
+        "question",
+        name="uq_ai_query_history_user_question",
+    ),
+)
+
+
 Index("idx_auth_sessions_user_id", AUTH_SESSION_TABLE.c.user_id)
 Index("idx_auth_sessions_expires_at", AUTH_SESSION_TABLE.c.expires_at)
 Index("idx_auth_users_department", AUTH_USER_TABLE.c.department_code)
 Index("idx_auth_users_role", AUTH_USER_TABLE.c.role_code)
+Index(
+    "idx_ai_query_history_user_last_used",
+    AI_QUERY_HISTORY_TABLE.c.user_id,
+    AI_QUERY_HISTORY_TABLE.c.last_used_at.desc(),
+)

@@ -148,7 +148,7 @@ def create_supplier_brand(request: Request, payload: dict):
     request.app.state.repository.ensure_manual_product_archive(item)
     write_operation_log(
         request,
-        module="supplier",
+        module="supplier_brand",
         action="create_brand",
         entity_type="supplier_brand",
         entity_id=item.get("id"),
@@ -176,7 +176,7 @@ def update_supplier_brand(request: Request, brand_id: int, payload: dict):
     changes = build_changed_fields(before, item, {"name": "品牌名称"})
     write_operation_log(
         request,
-        module="supplier",
+        module="supplier_brand",
         action="update_brand",
         entity_type="supplier_brand",
         entity_id=brand_id,
@@ -218,7 +218,7 @@ def delete_supplier_brand(request: Request, brand_id: int):
     name = str(deleted.get("name") or brand_id)
     write_operation_log(
         request,
-        module="supplier",
+        module="supplier_brand",
         action="delete_brand",
         entity_type="supplier_brand",
         entity_id=brand_id,

@@ -38,6 +38,7 @@ function getErrorMessage(error: unknown) {
 export function ProductAdminPage() {
   const { hasPermission } = useAuth()
   const [brand, setBrand] = useState<ProductArchiveBrandKey>(DEFAULT_BRAND)
+  const [routeContextReady, setRouteContextReady] = useState(false)
   const [year, setYear] = useState("")
   const [availableYears, setAvailableYears] = useState<string[]>([])
   const [searchInput, setSearchInput] = useState("")
@@ -84,6 +85,21 @@ export function ProductAdminPage() {
   const [messageContent, setMessageContent] = useState({ title: "", description: "" })
 
   useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    const nextBrand = params.get("brand")
+    const nextQuery = params.get("query") || ""
+    if (nextBrand && PRODUCT_ARCHIVE_BRANDS.some((item) => item.key === nextBrand)) {
+      setBrand(nextBrand)
+    }
+    if (nextQuery) {
+      setSearchInput(nextQuery)
+      setSubmittedQuery(nextQuery)
+    }
+    setRouteContextReady(true)
+  }, [])
+
+  useEffect(() => {
+    if (!routeContextReady) return
     if (isAllBrand(brand)) {
       setAvailableYears([])
       return
@@ -97,7 +113,7 @@ export function ProductAdminPage() {
       }
     }
     void loadYears()
-  }, [brand])
+  }, [brand, routeContextReady])
 
   useEffect(() => {
     let cancelled = false
@@ -158,7 +174,7 @@ export function ProductAdminPage() {
     return () => {
       cancelled = true
     }
-  }, [brand, year, page, pageSize, reloadToken, submittedQuery, submittedSkuPrefix])
+  }, [brand, year, page, pageSize, reloadToken, routeContextReady, submittedQuery, submittedSkuPrefix])
 
   // Clear selection on page/brand/search change
   useEffect(() => {

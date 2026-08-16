@@ -12,6 +12,8 @@ const nextConfig = {
     ]
   },
   experimental: {
+    // AI SQL planning can legitimately exceed Next's 30s development proxy default.
+    proxyTimeout: 180_000,
     serverActions: {
       bodySizeLimit: "50mb",
     },

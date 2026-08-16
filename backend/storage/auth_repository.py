@@ -6,8 +6,16 @@ from collections.abc import Mapping
 from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import and_, create_engine, delete, func, insert, select, text, update
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 
-from domain.auth_schema import AUTH_DEPARTMENT_TABLE, AUTH_ROLE_TABLE, AUTH_SESSION_TABLE, AUTH_USER_TABLE, METADATA
+from domain.auth_schema import (
+    AI_QUERY_HISTORY_TABLE,
+    AUTH_DEPARTMENT_TABLE,
+    AUTH_ROLE_TABLE,
+    AUTH_SESSION_TABLE,
+    AUTH_USER_TABLE,
+    METADATA,
+)
 
 
 SESSION_COOKIE_NAME = "hede_session"
@@ -54,42 +62,42 @@ DEFAULT_ROLES = [
         "name": "财务组",
         "department_code": "财务部",
         "description": "管理进销存和采购单，允许查看、导出及新增编辑删除",
-        "permissions": "inventory.view,inventory.manage,inventory.export,purchase.view,purchase.manage,purchase.export",
+        "permissions": "inventory.view,inventory.manage,inventory.export,purchase.view,purchase.manage,purchase.export,ai_query.view",
     },
     {
         "code": "product_user",
         "name": "商品组",
         "department_code": "商品部",
         "description": "维护商品档案和采购单，可新增供应商，允许精细表导出",
-        "permissions": "product.view,product.manage,product.import,product.export,fine_table.view,fine_table.export,purchase.view,purchase.manage,purchase.import,purchase.export,inventory.view,supplier.create",
+        "permissions": "product.view,product.manage,product.import,product.export,fine_table.view,fine_table.export,purchase.view,purchase.manage,purchase.import,purchase.export,inventory.view,supplier.create,ai_query.view",
     },
     {
         "code": "operation_user",
         "name": "运营组",
         "department_code": "运营部",
         "description": "维护商品档案，查看和导出商品档案、精细表及采购单",
-        "permissions": "product.view,product.manage,product.import,product.export,fine_table.view,fine_table.export,purchase.view,purchase.manage,purchase.import,purchase.export",
+        "permissions": "product.view,product.manage,product.import,product.export,fine_table.view,fine_table.export,purchase.view,purchase.manage,purchase.import,purchase.export,ai_query.view",
     },
     {
         "code": "developer_user",
         "name": "开发部",
         "department_code": "开发部",
         "description": "业务全部权限，不含用户管理",
-        "permissions": "product.view,product.manage,product.import,product.export,fine_table.view,fine_table.export,inventory.view,inventory.manage,inventory.export,purchase.view,purchase.manage,purchase.import,purchase.export",
+        "permissions": "product.view,product.manage,product.import,product.export,fine_table.view,fine_table.export,inventory.view,inventory.manage,inventory.export,purchase.view,purchase.manage,purchase.import,purchase.export,ai_query.view",
     },
     {
         "code": "design_viewer",
         "name": "美工部只读",
         "department_code": "美工部",
         "description": "只允许查看商品信息档案",
-        "permissions": "product.view",
+        "permissions": "product.view,ai_query.view",
     },
     {
         "code": "customer_service_viewer",
         "name": "客服部只读",
         "department_code": "客服部",
         "description": "只允许查看商品信息档案",
-        "permissions": "product.view",
+        "permissions": "product.view,ai_query.view",
     },
 ]
 
@@ -404,6 +412,67 @@ class AuthRepository:
                 update(AUTH_SESSION_TABLE)
                 .where(AUTH_SESSION_TABLE.c.token_hash == hash_session_token(token))
                 .values(revoked_at=datetime.now(timezone.utc))
+            )
+
+    def add_ai_query_history(
+        self,
+        user_id: int,
+        question: str,
+        *,
+        limit: int = 8,
+    ) -> None:
+        value = question.strip()[:500]
+        if not value:
+            return
+        insert_statement = pg_insert(AI_QUERY_HISTORY_TABLE).values(
+            user_id=user_id,
+            question=value,
+        )
+        keep_ids = (
+            select(AI_QUERY_HISTORY_TABLE.c.id)
+            .where(AI_QUERY_HISTORY_TABLE.c.user_id == user_id)
+            .order_by(
+                AI_QUERY_HISTORY_TABLE.c.last_used_at.desc(),
+                AI_QUERY_HISTORY_TABLE.c.id.desc(),
+            )
+            .limit(max(1, limit))
+        )
+        with self.engine.begin() as connection:
+            connection.execute(
+                insert_statement.on_conflict_do_update(
+                    index_elements=[
+                        AI_QUERY_HISTORY_TABLE.c.user_id,
+                        AI_QUERY_HISTORY_TABLE.c.question,
+                    ],
+                    set_={"last_used_at": func.now()},
+                )
+            )
+            connection.execute(
+                delete(AI_QUERY_HISTORY_TABLE).where(
+                    AI_QUERY_HISTORY_TABLE.c.user_id == user_id,
+                    AI_QUERY_HISTORY_TABLE.c.id.not_in(keep_ids),
+                )
+            )
+
+    def list_ai_query_history(self, user_id: int, *, limit: int = 8) -> list[str]:
+        with self.engine.connect() as connection:
+            rows = connection.execute(
+                select(AI_QUERY_HISTORY_TABLE.c.question)
+                .where(AI_QUERY_HISTORY_TABLE.c.user_id == user_id)
+                .order_by(
+                    AI_QUERY_HISTORY_TABLE.c.last_used_at.desc(),
+                    AI_QUERY_HISTORY_TABLE.c.id.desc(),
+                )
+                .limit(max(1, limit))
+            ).scalars()
+            return [str(question) for question in rows]
+
+    def clear_ai_query_history(self, user_id: int) -> None:
+        with self.engine.begin() as connection:
+            connection.execute(
+                delete(AI_QUERY_HISTORY_TABLE).where(
+                    AI_QUERY_HISTORY_TABLE.c.user_id == user_id
+                )
             )
 
     def list_users(self) -> list[dict[str, object]]:

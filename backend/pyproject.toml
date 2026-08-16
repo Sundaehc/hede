@@ -15,6 +15,7 @@ dependencies = [
     "python-multipart>=0.0.20",
     "python-dotenv>=1.1.1",
     "SQLAlchemy>=2.0.44",
+    "sqlglot>=26.0.0",
     "psycopg[binary]>=3.2.12",
     "uvicorn>=0.32.0",
     "xlrd>=2.0.2",

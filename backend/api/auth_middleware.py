@@ -17,6 +17,8 @@ PUBLIC_PATHS = (
 
 
 def required_permission_for_request(method: str, path: str) -> str | tuple[str, ...] | None:
+    if path.startswith("/ai-query"):
+        return ("ai_query.view", "product.view", "fine_table.view", "purchase.view", "inventory.view")
     if path.startswith("/auth/admin"):
         return "system.admin"
     if path.startswith("/auth/"):

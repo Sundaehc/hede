@@ -110,3 +110,30 @@ def test_super_admin_product_goods_export_is_written_to_operation_logs(
         "column_count": 34,
         "filename": "千百度男鞋_商品货品表.csv",
     }
+
+
+def test_legacy_supplier_brand_logs_are_migrated(test_app_client: TestClient):
+    repository = test_app_client.app.state.operation_log_repository
+    repository.create_log(
+        module="supplier",
+        action="create_brand",
+        entity_type="supplier_brand",
+        summary="新增品牌 历史品牌",
+    )
+
+    repository.create_tables()
+
+    brand_logs = repository.list_logs(
+        module="supplier_brand",
+        query=None,
+        page=1,
+        page_size=20,
+    )
+    supplier_logs = repository.list_logs(
+        module="supplier",
+        query=None,
+        page=1,
+        page_size=20,
+    )
+    assert brand_logs["total"] == 1
+    assert supplier_logs["total"] == 0

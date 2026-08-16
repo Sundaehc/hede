@@ -46,6 +46,7 @@ def test_public_openapi_schema_only_contains_read_operations():
         for path in schema["paths"]
     )
     assert all(not path.startswith("/auth") for path in schema["paths"])
+    assert all(not path.startswith("/ai-query") for path in schema["paths"])
     assert all(not path.startswith("/operation-logs") for path in schema["paths"])
 
 

@@ -5,8 +5,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 import { ProductAdminPage } from "@/components/product-admin/product-admin-page"
 import { ApiError } from "@/lib/api"
 
-const { mockCreateProduct, mockListProducts, mockUpdateProduct } = vi.hoisted(() => ({
+const { mockCreateProduct, mockListProductArchiveBrands, mockListProducts, mockUpdateProduct } = vi.hoisted(() => ({
   mockCreateProduct: vi.fn(),
+  mockListProductArchiveBrands: vi.fn(),
   mockListProducts: vi.fn(),
   mockUpdateProduct: vi.fn(),
 }))
@@ -17,6 +18,7 @@ vi.mock("@/lib/api", async () => {
   return {
     ...actual,
     createProduct: mockCreateProduct,
+    listProductArchiveBrands: mockListProductArchiveBrands,
     listProducts: mockListProducts,
     updateProduct: mockUpdateProduct,
   }
@@ -121,8 +123,21 @@ const sampleResponse = {
 describe("ProductAdminPage", () => {
   beforeEach(() => {
     mockCreateProduct.mockReset()
+    mockListProductArchiveBrands.mockReset()
     mockListProducts.mockReset()
     mockUpdateProduct.mockReset()
+    mockListProductArchiveBrands.mockResolvedValue({
+      items: [
+        {
+          id: 31,
+          code: "ns",
+          name: "NS",
+          sort_order: 7,
+          created_at: null,
+          updated_at: null,
+        },
+      ],
+    })
     mockListProducts.mockResolvedValue(sampleResponse)
     mockCreateProduct.mockResolvedValue({ item: sampleResponse.items[0], message: "created" })
     mockUpdateProduct.mockResolvedValue({ item: sampleResponse.items[0], message: "updated" })
@@ -144,6 +159,13 @@ describe("ProductAdminPage", () => {
     expect(screen.getByRole("heading", { name: "商品信息档案" })).toBeInTheDocument()
     expect(screen.getByRole("tab", { name: "千百度男鞋", selected: true })).toBeInTheDocument()
     expect(await screen.findByTestId("card-title-1")).toBeInTheDocument()
+  })
+
+  it("shows product archive brands loaded from brand management", async () => {
+    render(<ProductAdminPage />)
+
+    expect(await screen.findByRole("tab", { name: "NS" })).toBeInTheDocument()
+    expect(mockListProductArchiveBrands).toHaveBeenCalledOnce()
   })
 
   it("shows the loading state while products are being fetched", () => {

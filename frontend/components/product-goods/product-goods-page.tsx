@@ -1776,6 +1776,7 @@ const ProductGoodsRiskGrid = memo(function ProductGoodsRiskGrid({
 export function ProductGoodsPage() {
   const { hasPermission } = useAuth()
   const [brand, setBrand] = useState<Exclude<BrandKey, "all">>(DEFAULT_BRAND)
+  const [routeContextReady, setRouteContextReady] = useState(false)
   const [data, setData] = useState<ProductGoodsResponse>({
     items: [],
     total: 0,
@@ -1840,6 +1841,26 @@ export function ProductGoodsPage() {
   const [customKeys, setCustomKeys] = useState<string[]>(DEFAULT_COLUMN_KEYS)
   const [draftKeys, setDraftKeys] = useState<string[]>(DEFAULT_COLUMN_KEYS)
   const [columnSearch, setColumnSearch] = useState("")
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    const nextBrand = params.get("brand")
+    const nextQuery = params.get("query") || ""
+    const nextView = params.get("view") as ProductGoodsView | null
+    if (nextBrand && BRANDS.some((item) => item.key === nextBrand && item.key !== "all")) {
+      setBrand(nextBrand as Exclude<BrandKey, "all">)
+    }
+    if (nextQuery) {
+      setQueryInput(nextQuery)
+      setQuery(nextQuery)
+    }
+    if (nextView === "goods" || nextView === "style_summary" || nextView === "shortage_risk") {
+      setDataView(nextView)
+      setRenderedDataView(nextView)
+    }
+    setRouteContextReady(true)
+  }, [])
+
   const prefetchDataView = useCallback(
     (nextView: ProductGoodsView) => {
       if (nextView === dataView) return
@@ -1879,6 +1900,7 @@ export function ProductGoodsPage() {
     [brand, dataView, filters, pageSize, query, snapshotDate]
   )
   useEffect(() => {
+    if (!routeContextReady) return
     let cancelled = false
     const prefetchTimers = new Set<number>()
     const requestId = loadRequestIdRef.current + 1
@@ -1992,6 +2014,7 @@ export function ProductGoodsPage() {
     query,
     reloadVersion,
     snapshotDate,
+    routeContextReady,
   ])
   useEffect(() => {
     if (!activeColumnFilter) return

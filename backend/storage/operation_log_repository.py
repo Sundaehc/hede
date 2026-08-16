@@ -46,6 +46,12 @@ class OperationLogRepository:
         OPERATION_LOG_TABLE.create(self.engine, checkfirst=True)
         with self.engine.begin() as connection:
             connection.execute(text("ALTER TABLE operation_logs ADD COLUMN IF NOT EXISTS role_code TEXT"))
+            connection.execute(text("""
+                UPDATE operation_logs
+                SET module = 'supplier_brand'
+                WHERE module = 'supplier'
+                  AND entity_type = 'supplier_brand'
+            """))
 
     def create_log(
         self,

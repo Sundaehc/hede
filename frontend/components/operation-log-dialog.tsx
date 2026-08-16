@@ -4,12 +4,31 @@ import { useEffect, useState } from "react"
 import { History, RefreshCw, Search, X } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { listOperationLogs } from "@/lib/api"
 import type { OperationLogChange, OperationLogItem } from "@/lib/types"
 
-type OperationLogModule = "product" | "size_group" | "product_goods" | "fine_table" | "inventory" | "purchase" | "purchase_inbound_detail" | "supplier" | "warehouse" | "account_subject" | "general_customer" | "user"
+type OperationLogModule =
+  | "product"
+  | "size_group"
+  | "product_goods"
+  | "fine_table"
+  | "inventory"
+  | "purchase"
+  | "purchase_inbound_detail"
+  | "supplier"
+  | "supplier_brand"
+  | "warehouse"
+  | "account_subject"
+  | "general_customer"
+  | "ai_query"
+  | "user"
 
 type OperationLogDialogProps = {
   module: OperationLogModule
@@ -30,6 +49,9 @@ const ACTION_LABELS: Record<string, string> = {
   batch_permanent_delete: "彻底删除",
   import: "导入",
   export: "导出",
+  create_brand: "新增品牌",
+  update_brand: "编辑品牌",
+  delete_brand: "删除品牌",
   import_purchase: "导入",
   detail_create: "新增明细",
   detail_update: "编辑明细",
@@ -51,7 +73,11 @@ function formatDateTime(value: string | null) {
 
 function formatValue(value: unknown) {
   if (value === null || value === undefined || value === "") return "空"
-  if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
+  if (
+    typeof value === "string" ||
+    typeof value === "number" ||
+    typeof value === "boolean"
+  ) {
     return String(value)
   }
   try {
@@ -74,14 +100,23 @@ function ChangeList({ changes }: { changes: OperationLogChange[] | null }) {
       </summary>
       <div className="mt-2 space-y-1.5">
         {changes.slice(0, 12).map((change) => (
-          <div key={`${change.field}-${change.label}`} className="rounded-md bg-muted/55 px-2 py-1.5 text-xs">
-            <p className="font-medium text-foreground">{change.label || change.field}</p>
+          <div
+            key={`${change.field}-${change.label}`}
+            className="rounded-md bg-muted/55 px-2 py-1.5 text-xs"
+          >
+            <p className="font-medium text-foreground">
+              {change.label || change.field}
+            </p>
             <p className="mt-0.5 break-all text-muted-foreground">
               {formatValue(change.before)} → {formatValue(change.after)}
             </p>
           </div>
         ))}
-        {changes.length > 12 ? <p className="text-xs text-muted-foreground">还有 {changes.length - 12} 个字段未展开显示</p> : null}
+        {changes.length > 12 ? (
+          <p className="text-xs text-muted-foreground">
+            还有 {changes.length - 12} 个字段未展开显示
+          </p>
+        ) : null}
       </div>
     </details>
   )
@@ -91,7 +126,12 @@ function actorName(item: OperationLogItem) {
   return item.display_name || item.username || "未知用户"
 }
 
-export function OperationLogDialog({ module, open, title, onOpenChange }: OperationLogDialogProps) {
+export function OperationLogDialog({
+  module,
+  open,
+  title,
+  onOpenChange,
+}: OperationLogDialogProps) {
   const [items, setItems] = useState<OperationLogItem[]>([])
   const [total, setTotal] = useState(0)
   const [page, setPage] = useState(1)
@@ -149,14 +189,20 @@ export function OperationLogDialog({ module, open, title, onOpenChange }: Operat
             <History className="h-4 w-4 shrink-0 text-muted-foreground" />
             <DialogTitle className="truncate text-base">{title}</DialogTitle>
           </div>
-          <Button type="button" variant="ghost" size="icon" onClick={() => onOpenChange(false)} aria-label="关闭操作日志">
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            onClick={() => onOpenChange(false)}
+            aria-label="关闭操作日志"
+          >
             <X className="h-4 w-4" />
           </Button>
         </DialogHeader>
 
         <div className="flex items-center gap-2 border-b border-border px-5 py-3">
           <div className="relative min-w-0 flex-1">
-            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <Search className="pointer-events-none absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
             <Input
               value={queryInput}
               onChange={(event) => setQueryInput(event.target.value)}
@@ -167,11 +213,25 @@ export function OperationLogDialog({ module, open, title, onOpenChange }: Operat
               className="pl-9"
             />
           </div>
-          <Button type="button" variant="outline" onClick={submitSearch} disabled={loading}>
+          <Button
+            type="button"
+            variant="outline"
+            onClick={submitSearch}
+            disabled={loading}
+          >
             搜索
           </Button>
-          <Button type="button" variant="outline" size="icon" onClick={() => void load()} disabled={loading} aria-label="刷新操作日志">
-            <RefreshCw className={loading ? "h-4 w-4 animate-spin" : "h-4 w-4"} />
+          <Button
+            type="button"
+            variant="outline"
+            size="icon"
+            onClick={() => void load()}
+            disabled={loading}
+            aria-label="刷新操作日志"
+          >
+            <RefreshCw
+              className={loading ? "h-4 w-4 animate-spin" : "h-4 w-4"}
+            />
           </Button>
         </div>
 
@@ -181,43 +241,74 @@ export function OperationLogDialog({ module, open, title, onOpenChange }: Operat
               <tr>
                 <th className="w-44 px-4 py-3 text-left font-medium">时间</th>
                 <th className="w-36 px-4 py-3 text-left font-medium">操作人</th>
-                <th className="w-28 whitespace-nowrap px-4 py-3 text-left font-medium">动作</th>
+                <th className="w-28 px-4 py-3 text-left font-medium whitespace-nowrap">
+                  动作
+                </th>
                 <th className="w-40 px-4 py-3 text-left font-medium">对象</th>
                 <th className="px-4 py-3 text-left font-medium">修改内容</th>
-                <th className="w-44 px-4 py-3 text-left font-medium">修改字段</th>
+                <th className="w-44 px-4 py-3 text-left font-medium">
+                  修改字段
+                </th>
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
               {loading && items.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="px-4 py-12 text-center text-muted-foreground">正在加载操作日志...</td>
+                  <td
+                    colSpan={6}
+                    className="px-4 py-12 text-center text-muted-foreground"
+                  >
+                    正在加载操作日志...
+                  </td>
                 </tr>
               ) : null}
               {!loading && error ? (
                 <tr>
-                  <td colSpan={6} className="px-4 py-12 text-center text-destructive">{error}</td>
+                  <td
+                    colSpan={6}
+                    className="px-4 py-12 text-center text-destructive"
+                  >
+                    {error}
+                  </td>
                 </tr>
               ) : null}
               {!loading && !error && items.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="px-4 py-12 text-center text-muted-foreground">暂无操作日志</td>
+                  <td
+                    colSpan={6}
+                    className="px-4 py-12 text-center text-muted-foreground"
+                  >
+                    暂无操作日志
+                  </td>
                 </tr>
               ) : null}
               {items.map((item) => (
                 <tr key={item.id} className="align-top hover:bg-muted/35">
-                  <td className="px-4 py-3 text-xs text-muted-foreground">{formatDateTime(item.created_at)}</td>
+                  <td className="px-4 py-3 text-xs text-muted-foreground">
+                    {formatDateTime(item.created_at)}
+                  </td>
                   <td className="px-4 py-3">
                     <p className="font-medium">{actorName(item)}</p>
-                    {item.department_name ? <p className="mt-0.5 text-xs text-muted-foreground">{item.department_name}</p> : null}
+                    {item.department_name ? (
+                      <p className="mt-0.5 text-xs text-muted-foreground">
+                        {item.department_name}
+                      </p>
+                    ) : null}
                   </td>
-                  <td className="whitespace-nowrap px-4 py-3">
-                    <span className="inline-flex whitespace-nowrap rounded-md border border-border bg-background px-2 py-1 text-xs">
+                  <td className="px-4 py-3 whitespace-nowrap">
+                    <span className="inline-flex rounded-md border border-border bg-background px-2 py-1 text-xs whitespace-nowrap">
                       {ACTION_LABELS[item.action] || item.action}
                     </span>
                   </td>
                   <td className="px-4 py-3">
-                    <p className="max-w-40 truncate font-medium">{item.entity_label || "-"}</p>
-                    {item.entity_id ? <p className="mt-0.5 text-xs text-muted-foreground">{item.entity_id}</p> : null}
+                    <p className="max-w-40 truncate font-medium">
+                      {item.entity_label || "-"}
+                    </p>
+                    {item.entity_id ? (
+                      <p className="mt-0.5 text-xs text-muted-foreground">
+                        {item.entity_id}
+                      </p>
+                    ) : null}
                   </td>
                   <td className="px-4 py-3">
                     <p className="break-words">{item.summary}</p>
@@ -234,11 +325,27 @@ export function OperationLogDialog({ module, open, title, onOpenChange }: Operat
         <div className="flex items-center justify-between border-t border-border px-5 py-3 text-sm text-muted-foreground">
           <span>共 {total} 条</span>
           <div className="flex items-center gap-2">
-            <Button type="button" variant="outline" size="sm" onClick={() => setPage((current) => Math.max(1, current - 1))} disabled={page <= 1 || loading}>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setPage((current) => Math.max(1, current - 1))}
+              disabled={page <= 1 || loading}
+            >
               上一页
             </Button>
-            <span className="min-w-20 text-center">第 {page} / {totalPages} 页</span>
-            <Button type="button" variant="outline" size="sm" onClick={() => setPage((current) => Math.min(totalPages, current + 1))} disabled={page >= totalPages || loading}>
+            <span className="min-w-20 text-center">
+              第 {page} / {totalPages} 页
+            </span>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() =>
+                setPage((current) => Math.min(totalPages, current + 1))
+              }
+              disabled={page >= totalPages || loading}
+            >
               下一页
             </Button>
           </div>
