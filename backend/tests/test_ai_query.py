@@ -12,6 +12,7 @@ from api.routes.ai_query import (
     _intent_for,
     _localize_ai_brand_values,
     _permission_set,
+    _recent_sales_ranking_spec,
     _run_product_goods,
     _should_use_business_rules,
     _view_for,
@@ -57,12 +58,73 @@ def test_standard_queries_use_fast_business_rules_and_complex_queries_use_ai():
         None,
         [],
     )
+    ranking_question = "查询千百度女鞋近7天销量前十的商品"
+    assert _recent_sales_ranking_spec(ranking_question) == (7, 10)
+    assert _should_use_business_rules(
+        ranking_question,
+        "product_goods",
+        "cbanner_womens",
+        [],
+    )
     assert not _should_use_business_rules(
         "统计2026年采购单按供应商汇总金额",
         "product_archive",
         None,
         [],
     )
+
+
+def test_recent_sales_ranking_supports_numeric_and_default_limits():
+    assert _recent_sales_ranking_spec("千百度女鞋近14天销量前20") == (14, 20)
+    assert _recent_sales_ranking_spec("千百度女鞋周销量排行") == (7, 10)
+    assert _recent_sales_ranking_spec("千百度女鞋月销量前十") is None
+
+
+def test_product_goods_uses_recent_sales_ranking_fast_path(monkeypatch):
+    calls = []
+
+    def _get_recent_sales_ranking(request, *, brand, days, limit):
+        calls.append((brand, days, limit))
+        return {
+            "items": [
+                {
+                    "rank": 1,
+                    "goods_code": "QC153883D54",
+                    "style_code": "QC153883",
+                    "recent_sales": 36,
+                }
+            ],
+            "date_start": "2026-08-09",
+            "date_end": "2026-08-15",
+            "sales_product_count": 25,
+            "period_sales": 180,
+            "sources": ["jst_daily_sales_2026", "vip_daily_sales_2026"],
+        }
+
+    monkeypatch.setattr(ai_query, "get_recent_sales_ranking", _get_recent_sales_ranking)
+    monkeypatch.setattr(
+        ai_query,
+        "list_product_goods",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("排行查询不应加载完整货品表")
+        ),
+    )
+    request = SimpleNamespace(
+        state=SimpleNamespace(current_user={"permissions": ["product.view"]})
+    )
+
+    payload = _run_product_goods(
+        request,
+        "查询千百度女鞋近7天销量前十的商品",
+        ai_query._base_response("查询千百度女鞋近7天销量前十的商品", "product_goods"),
+        "cbanner_womens",
+        [],
+    )
+
+    assert calls == [("cbanner_womens", 7, 10)]
+    assert payload["title"] == "千百度女鞋近7天销量排行"
+    assert payload["rows"][0]["recent_sales"] == 36
+    assert payload["data_as_of"] == [{"label": "最新销售日期", "value": "2026-08-15"}]
 
 
 def test_product_goods_queries_every_detected_product_code(monkeypatch):

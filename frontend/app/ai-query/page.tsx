@@ -154,6 +154,7 @@ export default function AiQueryPage() {
           MAX_HISTORY_ITEMS
         )
       )
+      setQuestion("")
     } catch (requestError) {
       setResponse(null)
       setError(errorMessage(requestError))
@@ -186,8 +187,8 @@ export default function AiQueryPage() {
 
   return (
     <div className="app-page">
-      <div className="app-content-wide">
-        <div className="mx-auto w-full max-w-[1640px] space-y-5">
+      <div className="app-content-wide min-h-[calc(100svh-2rem)] sm:min-h-[calc(100svh-3rem)]">
+        <div className="mx-auto flex min-h-0 w-full max-w-[1640px] flex-1 flex-col gap-5">
           <header className="flex min-h-14 items-center justify-between gap-4 border-b border-border/80 px-1 pb-4">
             <div className="flex min-w-0 items-center gap-3">
               <div className="flex size-9 shrink-0 items-center justify-center rounded-lg border border-border bg-background text-foreground shadow-xs">
@@ -202,8 +203,8 @@ export default function AiQueryPage() {
             </div>
           </header>
 
-          <div className="grid min-w-0 items-start gap-6 xl:grid-cols-[minmax(0,1fr)_248px]">
-            <main className="min-w-0 space-y-5">
+          <div className="grid min-h-0 min-w-0 flex-1 items-stretch gap-6 xl:grid-cols-[minmax(0,1fr)_248px]">
+            <main className="flex min-h-0 min-w-0 flex-col gap-5">
               {error ? (
                 <div
                   className="flex items-start gap-3 border-y border-destructive/25 bg-destructive/6 px-1 py-3 text-sm text-destructive"
@@ -216,7 +217,7 @@ export default function AiQueryPage() {
 
               {loading ? (
                 <section
-                  className="border-y border-border/80 py-10"
+                  className="flex min-h-48 flex-1 items-center border-y border-border/80 py-10"
                   aria-live="polite"
                   aria-busy="true"
                 >
@@ -240,7 +241,7 @@ export default function AiQueryPage() {
 
               {!response && !loading && !error ? (
                 <section
-                  className="flex min-h-[min(42vh,360px)] items-center justify-center px-6 py-12"
+                  className="flex min-h-48 flex-1 items-center justify-center px-6 py-12"
                   aria-label="等待查询"
                 >
                   <div className="w-full max-w-md text-center">
@@ -447,7 +448,7 @@ export default function AiQueryPage() {
                 </section>
               ) : null}
 
-              <section className="sticky bottom-4 z-20 overflow-hidden rounded-4xl border border-border/90 bg-card shadow-[0_18px_46px_-28px_rgb(15_23_42_/_0.65)] transition-[border-color,box-shadow] focus-within:border-foreground/25 focus-within:shadow-[0_20px_52px_-28px_rgb(15_23_42_/_0.75)]">
+              <section className="sticky bottom-4 z-20 mt-auto overflow-hidden rounded-4xl border border-border/90 bg-card shadow-[0_18px_46px_-28px_rgb(15_23_42_/_0.65)] transition-[border-color,box-shadow] focus-within:border-foreground/25 focus-within:shadow-[0_20px_52px_-28px_rgb(15_23_42_/_0.75)]">
                 <form
                   className="relative"
                   onSubmit={(event) => {

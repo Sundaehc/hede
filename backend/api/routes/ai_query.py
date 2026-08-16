@@ -11,7 +11,11 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from api.operation_log_utils import write_operation_log
 from api.routes.auth import user_has_permission
-from api.routes.product_goods import get_factory_channel_dashboard, list_product_goods
+from api.routes.product_goods import (
+    get_factory_channel_dashboard,
+    get_recent_sales_ranking,
+    list_product_goods,
+)
 from api.routes.products import list_products
 from domain.task_status_schema import SCHEDULED_TASK_STATUS_TABLE
 from domain.ai_query_semantics import referenced_table_names
@@ -111,6 +115,57 @@ def _view_for(question: str) -> str:
     return "goods"
 
 
+def _positive_number(value: str) -> int | None:
+    normalized = value.strip().lower()
+    if normalized.isdigit():
+        return int(normalized)
+    digits = {
+        "一": 1,
+        "二": 2,
+        "两": 2,
+        "三": 3,
+        "四": 4,
+        "五": 5,
+        "六": 6,
+        "七": 7,
+        "八": 8,
+        "九": 9,
+    }
+    if normalized == "十":
+        return 10
+    if "十" in normalized:
+        left, right = normalized.split("十", 1)
+        tens = digits.get(left, 1 if not left else 0)
+        ones = digits.get(right, 0 if not right else -1)
+        return tens * 10 + ones if tens > 0 and ones >= 0 else None
+    return digits.get(normalized)
+
+
+def _recent_sales_ranking_spec(question: str) -> tuple[int, int] | None:
+    normalized = question.lower()
+    if not _contains(normalized, "销量", "销售量", "销售数量"):
+        return None
+    rank_match = re.search(r"(?:top\s*|前\s*)(\d+|[一二两三四五六七八九十]+)", normalized)
+    if rank_match is None:
+        rank_match = re.search(r"(?:最高|最多)(?:的)?\s*(\d+|[一二两三四五六七八九十]+)", normalized)
+    if rank_match is not None:
+        limit = _positive_number(rank_match.group(1))
+    elif _contains(normalized, "排行", "排名", "榜单", "最高", "最多"):
+        limit = 10
+    else:
+        return None
+    period_match = re.search(r"近\s*(\d+|[一二两三四五六七八九十]+)\s*[天日]", normalized)
+    if period_match is not None:
+        days = _positive_number(period_match.group(1))
+    elif _contains(normalized, "近一周", "最近一周", "近7天", "近七天", "周销量", "周销售量"):
+        days = 7
+    else:
+        return None
+    if days is None or limit is None or not 1 <= days <= 31 or not 1 <= limit <= 100:
+        return None
+    return days, limit
+
+
 def _should_use_business_rules(
     question: str,
     intent: str,
@@ -122,7 +177,11 @@ def _should_use_business_rules(
     if intent == "factory_channel":
         return brand in GOODS_BRANDS
     if intent == "product_goods":
-        return brand in GOODS_BRANDS and (bool(codes) or _view_for(question) != "goods")
+        return brand in GOODS_BRANDS and (
+            bool(codes)
+            or _view_for(question) != "goods"
+            or _recent_sales_ranking_spec(question) is not None
+        )
     if intent == "product_archive":
         return bool(brand and codes)
     return False
@@ -297,6 +356,50 @@ def _run_product_goods(request: Request, question: str, payload: dict[str, objec
         raise HTTPException(status_code=403, detail="当前账户没有货品表查询权限")
     if brand not in GOODS_BRANDS:
         return _clarification(question, "货品表初版支持千百度男鞋、千百度女鞋、烟斗和伊伴，请指定其中一个品牌。", intent="product_goods")
+    ranking_spec = _recent_sales_ranking_spec(question)
+    if ranking_spec is not None and not codes:
+        days, limit = ranking_spec
+        result = get_recent_sales_ranking(
+            request,
+            brand=brand,
+            days=days,
+            limit=limit,
+        )
+        rows = list(result.get("items") or [])
+        date_start = _clean_text(result.get("date_start"))
+        date_end = _clean_text(result.get("date_end"))
+        period_label = f"{date_start} 至 {date_end}" if date_start and date_end else f"近{days}天"
+        payload.update(
+            {
+                "title": f"{BRAND_LABELS.get(brand, brand)}近{days}天销量排行",
+                "summary": f"按 {period_label} 的净销量排序，共有 {result.get('sales_product_count', 0)} 个商品产生销量，当前展示前 {len(rows)} 名。",
+                "conditions": [
+                    _condition("品牌", BRAND_LABELS.get(brand, brand)),
+                    _condition("统计周期", period_label),
+                    _condition("排行范围", f"前{limit}名"),
+                ],
+                "metrics": [
+                    {"label": f"近{days}天销量", "value": result.get("period_sales", 0), "tone": "violet"},
+                    {"label": "有销量商品", "value": result.get("sales_product_count", 0), "tone": "blue"},
+                    {"label": "最高销量", "value": rows[0].get("recent_sales", 0) if rows else 0, "tone": "emerald"},
+                ],
+                "columns": [
+                    {"key": "rank", "label": "排名", "type": "number"},
+                    {"key": "goods_code", "label": "货号"},
+                    {"key": "style_code", "label": "款号"},
+                    {"key": "color", "label": "颜色"},
+                    {"key": "factory_sku", "label": "工厂货号"},
+                    {"key": "factory_name", "label": "工厂"},
+                    {"key": "recent_sales", "label": f"近{days}天销量", "type": "number"},
+                ],
+                "rows": rows,
+                "data_as_of": ([{"label": "最新销售日期", "value": date_end}] if date_end else []),
+                "sources": ["商品信息档案", "聚水潭日销", "唯品日销", *(result.get("sources") or [])],
+                "link": {"label": "打开商品货品表", "href": f"/product-goods?brand={brand}&view=goods"},
+                "suggestions": ["查看这批商品的商品档案"],
+            }
+        )
+        return payload
     view = _view_for(question)
     queries = codes or [None]
     result_items: list[dict[str, object]] = []

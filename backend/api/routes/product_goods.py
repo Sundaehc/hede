@@ -2125,6 +2125,180 @@ def list_product_goods_filter_options(
     return payload
 
 
+def get_recent_sales_ranking(
+    request: Request,
+    *,
+    brand: str,
+    days: int = 7,
+    limit: int = 10,
+) -> dict[str, object]:
+    if brand not in PRODUCT_TABLES:
+        raise HTTPException(status_code=400, detail=f"Invalid brand: {brand}")
+    days = min(max(int(days), 1), 31)
+    limit = min(max(int(limit), 1), 100)
+    repository = request.app.state.repository
+    engine = repository.engine
+    inspector = inspect(engine)
+    sales_tables_by_year: dict[int, tuple[object | None, object | None]] = {}
+    with engine.connect() as connection:
+        latest_candidates: list[date] = []
+        for sales_year in range(SALES_PERIOD_START_YEAR, date.today().year + 1):
+            jst_table = jst_daily_sales_table_for_year(sales_year)
+            vip_table = vip_daily_sales_table_for_year(sales_year)
+            available_jst_table = jst_table if inspector.has_table(jst_table.name) else None
+            available_vip_table = vip_table if inspector.has_table(vip_table.name) else None
+            if available_jst_table is None and available_vip_table is None:
+                continue
+            sales_tables_by_year[sales_year] = (available_jst_table, available_vip_table)
+            for table in (available_jst_table, available_vip_table):
+                if table is None:
+                    continue
+                latest_value = connection.execute(select(func.max(table.c.sales_date))).scalar()
+                if isinstance(latest_value, date):
+                    latest_candidates.append(latest_value)
+        latest_sales_date = max(latest_candidates, default=None)
+        if latest_sales_date is None:
+            return {
+                "items": [],
+                "days": days,
+                "limit": limit,
+                "date_start": None,
+                "date_end": None,
+                "sales_product_count": 0,
+                "period_sales": 0,
+                "sources": [],
+            }
+
+        date_start = latest_sales_date - timedelta(days=days - 1)
+        cache_key = (
+            "recent-sales-ranking-v1",
+            brand,
+            days,
+            limit,
+            date_start.isoformat(),
+            latest_sales_date.isoformat(),
+        )
+        cached = get_product_goods_cache(cache_key)
+        if cached is not None:
+            return cached
+
+        product_table = PRODUCT_TABLES[brand]
+        product_rows = [
+            dict(row)
+            for row in connection.execute(
+                select(
+                    product_table.c.sku,
+                    product_table.c.original_sku,
+                    product_table.c.color,
+                    product_table.c.factory_sku,
+                    product_table.c.supplier_name,
+                ).where(product_table.c.deleted_at.is_(None))
+            ).mappings()
+            if str(row.get("sku") or "").strip()
+        ]
+        by_sku, by_prefix, unique_style_matches = _factory_dashboard_product_index(product_rows)
+        sales_by_sku: dict[str, int] = defaultdict(int)
+        vip_product_dates: set[tuple[str, date]] = set()
+        sources: set[str] = set()
+
+        for sales_year, (_, vip_table) in sales_tables_by_year.items():
+            if vip_table is None or sales_year < date_start.year or sales_year > latest_sales_date.year:
+                continue
+            sources.add(vip_table.name)
+            rows = connection.execute(
+                select(
+                    vip_table.c.goods_code,
+                    vip_table.c.style_code,
+                    vip_table.c.sales_date,
+                    func.sum(func.coalesce(vip_table.c.sales_quantity, 0)).label("quantity"),
+                )
+                .where(vip_table.c.sales_date.between(date_start, latest_sales_date))
+                .group_by(vip_table.c.goods_code, vip_table.c.style_code, vip_table.c.sales_date)
+            ).mappings()
+            for row in rows:
+                product = _factory_dashboard_product_for_sale(
+                    row["goods_code"],
+                    row["style_code"],
+                    by_sku=by_sku,
+                    by_prefix=by_prefix,
+                    unique_style_matches=unique_style_matches,
+                )
+                sales_date = row["sales_date"]
+                if product is None or not isinstance(sales_date, date):
+                    continue
+                sku = str(product.get("sku") or "").strip()
+                vip_product_dates.add((sku, sales_date))
+                sales_by_sku[sku] += int(row["quantity"] or 0)
+
+        shop_channel_mappings = _shop_channel_mapping_payload(connection, brand)
+        for sales_year, (jst_table, _) in sales_tables_by_year.items():
+            if jst_table is None or sales_year < date_start.year or sales_year > latest_sales_date.year:
+                continue
+            sources.add(jst_table.name)
+            rows = connection.execute(
+                select(
+                    jst_table.c.product_code,
+                    jst_table.c.style_code,
+                    jst_table.c.sales_date,
+                    jst_table.c.channel,
+                    func.sum(func.coalesce(jst_table.c.net_sales_quantity, 0)).label("quantity"),
+                )
+                .where(jst_table.c.sales_date.between(date_start, latest_sales_date))
+                .group_by(
+                    jst_table.c.product_code,
+                    jst_table.c.style_code,
+                    jst_table.c.sales_date,
+                    jst_table.c.channel,
+                )
+            ).mappings()
+            for row in rows:
+                product = _factory_dashboard_product_for_sale(
+                    row["product_code"],
+                    row["style_code"],
+                    by_sku=by_sku,
+                    by_prefix=by_prefix,
+                    unique_style_matches=unique_style_matches,
+                )
+                sales_date = row["sales_date"]
+                if product is None or not isinstance(sales_date, date):
+                    continue
+                sku = str(product.get("sku") or "").strip()
+                if (
+                    _platform_name(row["channel"], shop_channel_mappings) == "唯品"
+                    and (sku, sales_date) in vip_product_dates
+                ):
+                    continue
+                sales_by_sku[sku] += int(row["quantity"] or 0)
+
+    ranked_sales = sorted(sales_by_sku.items(), key=lambda item: (-item[1], item[0]))
+    items = []
+    for rank, (sku, quantity) in enumerate(ranked_sales[:limit], start=1):
+        product = by_sku[sku]
+        items.append(
+            {
+                "rank": rank,
+                "goods_code": sku,
+                "style_code": product.get("original_sku"),
+                "color": product.get("color"),
+                "factory_sku": product.get("factory_sku"),
+                "factory_name": product.get("supplier_name"),
+                "recent_sales": quantity,
+            }
+        )
+    payload = {
+        "items": items,
+        "days": days,
+        "limit": limit,
+        "date_start": date_start.isoformat(),
+        "date_end": latest_sales_date.isoformat(),
+        "sales_product_count": len(ranked_sales),
+        "period_sales": sum(sales_by_sku.values()),
+        "sources": sorted(sources),
+    }
+    set_product_goods_cache(cache_key, payload)
+    return payload
+
+
 @router.get("/product-goods")
 def list_product_goods(
     request: Request,
