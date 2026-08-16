@@ -182,6 +182,7 @@ export default function AiQueryPage() {
   }
 
   const hasRows = Boolean(response?.rows.length && response.columns.length)
+  const isIdle = !response && !loading && !error
   const visibleConditions =
     response?.conditions.filter(
       (item) => !HIDDEN_CONDITION_LABELS.has(item.label)
@@ -192,7 +193,9 @@ export default function AiQueryPage() {
       <div className="app-content-wide min-h-[calc(100svh-2rem)] sm:min-h-[calc(100svh-3rem)]">
         <div className="mx-auto flex min-h-0 w-full max-w-[1640px] flex-1 flex-col gap-5">
           <div className="grid min-h-0 min-w-0 flex-1 items-stretch gap-6 xl:grid-cols-[minmax(0,1fr)_248px]">
-            <main className="flex min-h-0 min-w-0 flex-col gap-5">
+            <main
+              className={`flex min-h-0 min-w-0 flex-col gap-5 ${isIdle ? "justify-center pb-[8vh]" : ""}`}
+            >
               {error ? (
                 <div
                   className="flex items-start gap-3 border-y border-destructive/25 bg-destructive/6 px-1 py-3 text-sm text-destructive"
@@ -229,21 +232,11 @@ export default function AiQueryPage() {
 
               {!response && !loading && !error ? (
                 <section
-                  className="flex min-h-48 flex-1 items-center justify-center px-6 py-12"
+                  className="flex items-center justify-center px-6 pt-6"
                   aria-label="等待查询"
                 >
-                  <div className="w-full max-w-md text-center">
-                    <div className="mx-auto flex size-12 items-center justify-center rounded-full border border-dashed border-border bg-muted/20 text-muted-foreground">
-                      <Search className="size-5" />
-                    </div>
-                    <div
-                      className="mx-auto mt-7 grid max-w-xs grid-cols-[0.8fr_1.2fr_0.65fr] gap-2 opacity-55"
-                      aria-hidden="true"
-                    >
-                      <span className="h-px bg-border" />
-                      <span className="h-px bg-border" />
-                      <span className="h-px bg-border" />
-                    </div>
+                  <div className="flex size-11 items-center justify-center rounded-full border border-dashed border-border bg-muted/15 text-muted-foreground">
+                    <Search className="size-[18px]" />
                   </div>
                 </section>
               ) : null}
@@ -435,7 +428,9 @@ export default function AiQueryPage() {
                 </section>
               ) : null}
 
-              <section className="sticky bottom-4 z-20 mt-auto overflow-hidden rounded-4xl border border-border/90 bg-card shadow-[0_18px_46px_-28px_rgb(15_23_42_/_0.65)] transition-[border-color,box-shadow] focus-within:border-foreground/25 focus-within:shadow-[0_20px_52px_-28px_rgb(15_23_42_/_0.75)]">
+              <section
+                className={`${isIdle ? "mx-auto w-full max-w-4xl" : "sticky bottom-0 mt-auto"} z-20 overflow-hidden rounded-4xl border border-border/90 bg-card shadow-[0_18px_46px_-28px_rgb(15_23_42_/_0.65)] transition-[border-color,box-shadow] focus-within:border-foreground/25 focus-within:shadow-[0_20px_52px_-28px_rgb(15_23_42_/_0.75)]`}
+              >
                 <form
                   className="relative"
                   onSubmit={(event) => {
