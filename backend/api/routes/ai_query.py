@@ -52,6 +52,7 @@ BRAND_LABELS = {
     "eblan": "伊伴",
     "smiley": "笑脸",
     "ni": "NI",
+    "ns": "NS",
 }
 GOODS_BRANDS = {"cbanner_mens", "cbanner_womens", "yandou", "eblan"}
 CODE_PATTERN = re.compile(
@@ -297,13 +298,35 @@ def _run_product_goods(request: Request, question: str, payload: dict[str, objec
     if brand not in GOODS_BRANDS:
         return _clarification(question, "货品表初版支持千百度男鞋、千百度女鞋、烟斗和伊伴，请指定其中一个品牌。", intent="product_goods")
     view = _view_for(question)
-    query = codes[0] if codes else None
-    result = list_product_goods(request, brand=brand, view=view, query=query, page=1, page_size=50)
-    rows = [_goods_row(dict(item)) for item in result.get("items", [])]
-    daily_dates = result.get("daily_dates") or []
+    queries = codes or [None]
+    result_items: list[dict[str, object]] = []
+    daily_dates: list[object] = []
+    source_total = 0
+    seen_goods_codes: set[str] = set()
+    for query in queries:
+        result = list_product_goods(
+            request,
+            brand=brand,
+            view=view,
+            query=query,
+            page=1,
+            page_size=50,
+        )
+        source_total += int(result.get("total") or 0)
+        daily_dates.extend(result.get("daily_dates") or [])
+        for item in result.get("items", []):
+            item_dict = dict(item)
+            goods_code = _clean_text(item_dict.get("goods_code"))
+            if goods_code and goods_code in seen_goods_codes:
+                continue
+            if goods_code:
+                seen_goods_codes.add(goods_code)
+            result_items.append(item_dict)
+    rows = [_goods_row(item) for item in result_items]
+    matched_total = len(result_items) if codes else source_total
     latest_date = max((_clean_text(item) for item in daily_dates), default="")
     metrics_rows = [
-        {"label": "匹配商品", "value": result.get("total", 0), "tone": "blue"},
+        {"label": "匹配商品", "value": matched_total, "tone": "blue"},
         {"label": "近7天销量", "value": sum(int((row.get("week_sales") or 0)) for row in rows), "tone": "violet"},
         {"label": "在仓合计", "value": sum(int((row.get("stock_total") or 0)) for row in rows), "tone": "emerald"},
         {"label": "在途合计", "value": sum(int((row.get("in_transit_total") or 0)) for row in rows), "tone": "orange"},
@@ -311,8 +334,8 @@ def _run_product_goods(request: Request, question: str, payload: dict[str, objec
     payload.update(
         {
             "title": f"{BRAND_LABELS.get(brand, brand)}货品表",
-            "summary": f"共匹配 {result.get('total', 0)} 条商品，当前结果按货号明细展示。" if view == "goods" else f"共匹配 {result.get('total', 0)} 条结果。",
-            "conditions": [_condition("品牌", BRAND_LABELS.get(brand, brand)), _condition("视图", {"goods": "货号明细", "style_summary": "款号汇总", "shortage_risk": "缺货风险"}[view])] + ([_condition("货号", query)] if query else []),
+            "summary": f"共匹配 {matched_total} 条商品，当前结果按货号明细展示。" if view == "goods" else f"共匹配 {matched_total} 条结果。",
+            "conditions": [_condition("品牌", BRAND_LABELS.get(brand, brand)), _condition("视图", {"goods": "货号明细", "style_summary": "款号汇总", "shortage_risk": "缺货风险"}[view])] + ([_condition("货号", "、".join(codes))] if codes else []),
             "metrics": metrics_rows,
             "columns": [
                 {"key": "goods_code", "label": "货号"},
@@ -331,8 +354,8 @@ def _run_product_goods(request: Request, question: str, payload: dict[str, objec
             "rows": rows,
             "data_as_of": ([{"label": "最新销售日期", "value": latest_date}] if latest_date else []),
             "sources": ["商品货品表", "聚水潭日销", "唯品日销", "库存与在途数据"],
-            "link": {"label": "打开商品货品表", "href": f"/product-goods?brand={brand}&query={query or ''}&view={view}"},
-            "suggestions": ["按款号汇总", "查看缺货风险", "查看这批商品的商品档案"],
+            "link": {"label": "打开商品货品表", "href": f"/product-goods?brand={brand}&query={','.join(codes)}&view={view}"},
+            "suggestions": ["查看这批商品的商品档案"],
         }
     )
     return payload
@@ -455,6 +478,21 @@ def _ai_column_type(rows: list[dict[str, object]], key: str) -> str:
     return "text"
 
 
+def _localize_ai_brand_values(
+    columns: list[str],
+    rows: list[dict[str, object]],
+) -> None:
+    brand_columns = [
+        column
+        for column in columns
+        if "brand" in column.strip().lower() or "品牌" in column
+    ]
+    for row in rows:
+        for column in brand_columns:
+            value = _clean_text(row.get(column))
+            row[column] = BRAND_LABELS.get(value.lower(), value)
+
+
 def _run_ai_sql(
     request: Request,
     question: str,
@@ -569,6 +607,7 @@ def _run_ai_sql(
     if plan is None:
         raise HTTPException(status_code=422, detail="AI 无法生成查询计划")
 
+    _localize_ai_brand_values(columns, rows)
     payload = _base_response(question, "ai_sql")
     summary = plan.summary or "AI 已按自然语言条件完成数据库查询"
     summary = f"{summary}，共返回 {len(rows)} 行数据。"
@@ -633,9 +672,6 @@ def query_with_natural_language(request: Request, body: dict):
     question = _clean_text(body.get("question"))
     if not question:
         raise HTTPException(status_code=400, detail="请输入查询问题")
-    if len(question) > 500:
-        raise HTTPException(status_code=400, detail="查询问题不能超过 500 个字符")
-
     if is_mutation_request(question):
         raise HTTPException(
             status_code=400,
@@ -647,13 +683,23 @@ def query_with_natural_language(request: Request, body: dict):
     codes = _extract_codes(question)
     year = _extract_year(question)
     current_user = getattr(request.state, "current_user", None)
+    brand_clarification = None
+    if intent in {"product_goods", "product_archive"} and codes and not brand:
+        brand, brand_clarification = _resolve_brand(
+            request,
+            question,
+            codes[0],
+            brand,
+        )
     use_business_rules = _should_use_business_rules(
         question,
         intent,
         brand,
         codes,
     )
-    if (
+    if brand_clarification:
+        payload = brand_clarification
+    elif (
         bool(getattr(request.app.state.settings, "ai_sql_enabled", False))
         and _can_use_ai_query(current_user)
         and not use_business_rules

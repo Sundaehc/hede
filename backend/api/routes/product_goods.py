@@ -324,13 +324,21 @@ def _product_goods_conditions(
     source = source_columns or _product_goods_source_columns(product_table)
     conditions = []
     if query:
-        term = f"%{query}%"
-        conditions.append(or_(
-            cast(source["sku"], Text).ilike(term),
-            cast(source["original_sku"], Text).ilike(term),
-            cast(source["factory_sku"], Text).ilike(term),
-            cast(source["color"], Text).ilike(term),
-        ))
+        query_terms = [
+            term.strip()
+            for term in re.split(r"[,，\n]+", query)
+            if term.strip()
+        ]
+        if query_terms:
+            conditions.append(or_(*(
+                or_(
+                    cast(source["sku"], Text).ilike(f"%{term}%"),
+                    cast(source["original_sku"], Text).ilike(f"%{term}%"),
+                    cast(source["factory_sku"], Text).ilike(f"%{term}%"),
+                    cast(source["color"], Text).ilike(f"%{term}%"),
+                )
+                for term in query_terms
+            )))
     if year:
         conditions.append(cast(source["year"], Text).ilike(f"%{year}%"))
     if platform:

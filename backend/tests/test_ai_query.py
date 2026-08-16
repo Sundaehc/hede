@@ -10,11 +10,14 @@ from api.routes.ai_query import (
     _extract_codes,
     _extract_year,
     _intent_for,
+    _localize_ai_brand_values,
     _permission_set,
+    _run_product_goods,
     _should_use_business_rules,
     _view_for,
     clear_query_history,
     list_query_history,
+    query_with_natural_language,
 )
 
 
@@ -60,6 +63,116 @@ def test_standard_queries_use_fast_business_rules_and_complex_queries_use_ai():
         None,
         [],
     )
+
+
+def test_product_goods_queries_every_detected_product_code(monkeypatch):
+    calls = []
+
+    def _list_product_goods(request, *, brand, view, query, page, page_size):
+        calls.append(query)
+        in_transit = 60 if query == "C7763372D01" else 80
+        return {
+            "total": 1,
+            "daily_dates": ["2026-08-15"],
+            "items": [
+                {
+                    "goods_code": query,
+                    "style_code": query,
+                    "metrics": {"week_sales": 0},
+                    "stock_total": 0,
+                    "in_transit_total": in_transit,
+                    "inventory_total": in_transit,
+                }
+            ],
+        }
+
+    monkeypatch.setattr(ai_query, "list_product_goods", _list_product_goods)
+    request = SimpleNamespace(
+        state=SimpleNamespace(current_user={"permissions": ["product.view"]})
+    )
+
+    payload = _run_product_goods(
+        request,
+        "查询两个货号近7天销量和库存",
+        ai_query._base_response("查询两个货号近7天销量和库存", "product_goods"),
+        "cbanner_mens",
+        ["C7763372D01", "C7763373D24"],
+    )
+
+    assert calls == ["C7763372D01", "C7763373D24"]
+    assert [row["goods_code"] for row in payload["rows"]] == calls
+    assert [row["in_transit_total"] for row in payload["rows"]] == [60, 80]
+    assert payload["metrics"][0]["value"] == 2
+    assert payload["link"]["href"].endswith(
+        "query=C7763372D01,C7763373D24&view=goods"
+    )
+    assert payload["suggestions"] == ["查看这批商品的商品档案"]
+
+
+def test_brandless_product_codes_resolve_brand_before_ai_sql(monkeypatch):
+    class _HistoryRepository:
+        def add_ai_query_history(self, user_id, question, *, limit):
+            return None
+
+    request = SimpleNamespace(
+        state=SimpleNamespace(
+            current_user={
+                "id": 7,
+                "permissions": ["product.view", "ai_query.view"],
+            }
+        ),
+        app=SimpleNamespace(
+            state=SimpleNamespace(
+                settings=SimpleNamespace(ai_sql_enabled=True),
+                auth_repository=_HistoryRepository(),
+            )
+        ),
+    )
+    monkeypatch.setattr(
+        ai_query,
+        "_resolve_brand",
+        lambda request, question, code, brand: ("cbanner_mens", None),
+    )
+    monkeypatch.setattr(
+        ai_query,
+        "_run_product_goods",
+        lambda request, question, payload, brand, codes: {
+            **payload,
+            "title": "货品表结果",
+            "rows": [{"goods_code": code} for code in codes],
+            "query_mode": "business_rules",
+        },
+    )
+    monkeypatch.setattr(
+        ai_query,
+        "_run_ai_sql",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("不应调用 AI SQL")
+        ),
+    )
+    monkeypatch.setattr(ai_query, "write_operation_log", lambda *args, **kwargs: None)
+
+    payload = query_with_natural_language(
+        request,
+        {"question": "查询C7763373D24,C7763372D01近7天的销量和库存"},
+    )
+
+    assert payload["query_mode"] == "business_rules"
+    assert [row["goods_code"] for row in payload["rows"]] == [
+        "C7763373D24",
+        "C7763372D01",
+    ]
+
+
+def test_ai_sql_brand_columns_return_chinese_labels():
+    rows = [
+        {"品牌": "cbanner_mens", "货号": "C7763372D01"},
+        {"品牌": "cbanner_womens", "货号": "QC153883D54"},
+    ]
+
+    _localize_ai_brand_values(["品牌", "货号"], rows)
+
+    assert [row["品牌"] for row in rows] == ["千百度男鞋", "千百度女鞋"]
 
 
 def test_query_history_is_scoped_to_current_user():

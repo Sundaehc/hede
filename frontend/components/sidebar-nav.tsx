@@ -27,7 +27,7 @@ import {
 
 const NAV_ITEMS = [
   {
-    section: "商品档案",
+    section: "",
     items: [
       {
         href: "/ai-query",
@@ -35,6 +35,11 @@ const NAV_ITEMS = [
         icon: Sparkles,
         permission: "ai_query.view",
       },
+    ],
+  },
+  {
+    section: "商品档案",
+    items: [
       {
         href: "/products",
         label: "商品信息档案",
@@ -218,9 +223,11 @@ export function SidebarNav() {
       <nav className="sidebar-scroll-area flex-1 space-y-2 overflow-y-auto px-2 py-3 md:space-y-5 md:px-3 md:py-5">
         {visibleGroups.map((group) => (
           <div key={group.section}>
-            <h3 className="mb-2 hidden px-2 text-[11px] font-semibold tracking-wide text-sidebar-foreground/45 md:block">
-              {group.section}
-            </h3>
+            {group.section ? (
+              <h3 className="mb-2 hidden px-2 text-[11px] font-semibold tracking-wide text-sidebar-foreground/45 md:block">
+                {group.section}
+              </h3>
+            ) : null}
             <ul className="space-y-1">
               {group.items.map((item) => {
                 const isActive =
