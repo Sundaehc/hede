@@ -4,6 +4,7 @@ import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { cn } from "@/lib/utils"
 import { listProductGoods } from "@/lib/api"
+import { hasProductGoodsDepartmentAccess } from "@/lib/product-goods-access"
 import { useAuth } from "@/components/auth/auth-provider"
 import { Button } from "@/components/ui/button"
 import { ThemeToggle } from "@/components/theme-toggle"
@@ -161,9 +162,7 @@ function prefetchDefaultProductGoodsPage() {
 export function SidebarNav() {
   const pathname = usePathname()
   const { hasPermission, logout, user } = useAuth()
-  const canAccessProductGoods =
-    user?.role_code === "super_admin" ||
-    ["商品部", "开发部", "运营部"].includes(user?.department_code ?? "")
+  const canAccessProductGoods = hasProductGoodsDepartmentAccess(user)
   const canAccessSizeGroups =
     user?.role_code === "super_admin" ||
     ["商品部", "开发部"].includes(user?.department_code ?? "")

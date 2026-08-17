@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest"
 
 import {
+  getAiQueryFineTableHref,
   getAiQueryPrimaryHref,
   getAiQuerySuggestionHref,
 } from "@/lib/ai-query-navigation"
@@ -20,6 +21,12 @@ describe("getAiQuerySuggestionHref", () => {
       getAiQuerySuggestionHref(productGoodsResponse, "查看这批商品的商品档案")
     ).toBe(
       "/products?brand=cbanner_mens&query=C7763373D24%2CC7763372D01"
+    )
+  })
+
+  it("opens the fine table with the current brand and goods codes", () => {
+    expect(getAiQueryFineTableHref(productGoodsResponse)).toBe(
+      "/fine-table?brand=cbanner_mens&query=C7763373D24%2CC7763372D01"
     )
   })
 

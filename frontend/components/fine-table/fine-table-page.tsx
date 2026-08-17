@@ -1543,6 +1543,22 @@ export function FineTablePage() {
   const maxHistoryDate = getMaxHistoryDate()
   const canExportFineTable = hasPermission("fine_table.export")
 
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    const nextBrand = params.get("brand")
+    const nextQuery = params.get("query") || ""
+    const matchedBrand = FINE_TABLE_BRANDS.find(
+      (item) => item.key === nextBrand
+    )
+    if (!matchedBrand && !nextQuery) return
+    if (matchedBrand) setBrand(matchedBrand.key)
+    if (nextQuery) {
+      setQueryInput(nextQuery)
+      setQuery(nextQuery)
+    }
+    setPage(1)
+  }, [])
+
   function applyPageEntry(entry: FineTablePageCacheEntry) {
     setItems(entry.items)
     setTotal(entry.total)

@@ -12,13 +12,16 @@ import {
   History,
   LoaderCircle,
   Search,
+  TableProperties,
   Trash2,
   X,
 } from "lucide-react"
 
 import { ConfirmDialog } from "@/components/confirm-dialog"
+import { useAuth } from "@/components/auth/auth-provider"
 import { Button } from "@/components/ui/button"
 import {
+  getAiQueryFineTableHref,
   getAiQueryPrimaryHref,
   getAiQuerySuggestionHref,
 } from "@/lib/ai-query-navigation"
@@ -28,6 +31,7 @@ import {
   listAiQueryHistory,
   runAiQuery,
 } from "@/lib/api"
+import { hasProductGoodsDepartmentAccess } from "@/lib/product-goods-access"
 import type { AiQueryColumn, AiQueryResponse } from "@/lib/types"
 
 const MAX_HISTORY_ITEMS = 8
@@ -36,6 +40,28 @@ const AI_QUERY_DRAFT_STORAGE_KEY = "hede.ai-query.draft"
 const HIDDEN_CONDITION_LABELS = new Set(["查询模式", "数据范围"])
 
 const numberFormatter = new Intl.NumberFormat("zh-CN")
+
+function formatSizeQuantities(value: unknown) {
+  let parsed = value
+  if (typeof value === "string" && value.trim().startsWith("{")) {
+    try {
+      parsed = JSON.parse(value)
+    } catch {
+      return null
+    }
+  }
+  if (!parsed || Array.isArray(parsed) || typeof parsed !== "object") {
+    return null
+  }
+  const entries = Object.entries(parsed as Record<string, unknown>).sort(
+    ([left], [right]) =>
+      left.localeCompare(right, "zh-CN", { numeric: true })
+  )
+  if (!entries.length) return "暂无数据"
+  return entries
+    .map(([size, quantity]) => `${size}: ${String(quantity ?? 0)}`)
+    .join("，")
+}
 
 function readAiQueryDraft() {
   if (typeof window === "undefined") return ""
@@ -48,6 +74,10 @@ function readAiQueryDraft() {
 
 function formatCell(value: unknown, column: AiQueryColumn) {
   if (value === null || value === undefined || value === "") return "暂无数据"
+  if (/尺码.*数量|size.*quantit/i.test(`${column.key} ${column.label}`)) {
+    const formatted = formatSizeQuantities(value)
+    if (formatted) return formatted
+  }
   if (column.type === "number" && typeof value === "number")
     return numberFormatter.format(value)
   if (typeof value === "number") return numberFormatter.format(value)
@@ -80,6 +110,22 @@ function metricGridColumns(count: number) {
   return "grid-cols-1"
 }
 
+function resultColumnWidth(column: AiQueryColumn) {
+  if (column.type === "number") return 112
+  if (column.type === "date") return 144
+  if (/尺码.*数量|size.*quantit/i.test(`${column.key} ${column.label}`)) {
+    return 240
+  }
+  if (
+    /摘要|名称|说明|备注|地址|内容|message|description|summary|detail/i.test(
+      `${column.key} ${column.label}`
+    )
+  ) {
+    return 288
+  }
+  return 160
+}
+
 function errorMessage(error: unknown) {
   if (
     error instanceof DOMException &&
@@ -101,6 +147,7 @@ function errorMessage(error: unknown) {
 }
 
 export default function AiQueryPage() {
+  const { hasPermission, user } = useAuth()
   const [question, setQuestion] = useState(readAiQueryDraft)
   const [response, setResponse] = useState<AiQueryResponse | null>(null)
   const [history, setHistory] = useState<string[]>([])
@@ -183,6 +230,38 @@ export default function AiQueryPage() {
 
   const hasRows = Boolean(response?.rows.length && response.columns.length)
   const isIdle = !response && !loading && !error
+  const resultColumnWidths =
+    response?.columns.map((column) => resultColumnWidth(column)) ?? []
+  const resultTableMinWidth = Math.max(
+    720,
+    resultColumnWidths.reduce((total, width) => total + width, 0)
+  )
+  const canOpenProductArchive = hasPermission("product.view")
+  const canOpenFineTable = hasPermission("fine_table.view")
+  const canOpenProductGoods =
+    hasPermission("product.view") && hasProductGoodsDepartmentAccess(user)
+  const resultFineTableHref =
+    response && canOpenFineTable ? getAiQueryFineTableHref(response) : null
+  const resultPrimaryHref = response ? getAiQueryPrimaryHref(response) : null
+  const canOpenResultHref = (href: string) => {
+    const pathname = new URL(href, "http://localhost").pathname
+    if (["/product-goods", "/factory-channel-dashboard"].includes(pathname)) {
+      return canOpenProductGoods
+    }
+    if (pathname === "/products") return canOpenProductArchive
+    if (pathname === "/fine-table") return canOpenFineTable
+    return true
+  }
+  const visibleResultSuggestions =
+    response?.suggestions.filter((item) => {
+      const href = getAiQuerySuggestionHref(response, item)
+      return !href || canOpenResultHref(href)
+    }) ?? []
+  const showPrimaryResultLink = Boolean(
+    response?.link &&
+      resultPrimaryHref &&
+      canOpenResultHref(resultPrimaryHref)
+  )
   const visibleConditions =
     response?.conditions.filter(
       (item) => !HIDDEN_CONDITION_LABELS.has(item.label)
@@ -326,15 +405,28 @@ export default function AiQueryPage() {
                   <div className="mt-5 overflow-hidden rounded-lg border border-border bg-background shadow-[0_10px_30px_-28px_rgb(15_23_42_/_0.7)]">
                     {hasRows ? (
                       <div className="max-h-[min(60vh,560px)] overflow-auto">
-                        <table className="min-w-full border-collapse text-sm">
+                        <table
+                          className="w-full table-fixed border-collapse text-sm"
+                          style={{ minWidth: resultTableMinWidth }}
+                        >
+                          <colgroup>
+                            {response.columns.map((column, index) => (
+                              <col
+                                key={column.key}
+                                style={{ width: resultColumnWidths[index] }}
+                              />
+                            ))}
+                          </colgroup>
                           <thead className="sticky top-0 z-10 border-b border-border bg-muted/95 text-left text-xs text-muted-foreground backdrop-blur">
                             <tr>
                               {response.columns.map((column) => (
                                 <th
                                   key={column.key}
-                                  className="px-4 py-3 font-medium whitespace-nowrap"
+                                  className={`overflow-hidden px-4 py-3 font-medium whitespace-nowrap ${column.type === "number" ? "text-right" : "text-left"}`}
                                 >
-                                  {column.label}
+                                  <span className="block truncate">
+                                    {column.label}
+                                  </span>
                                 </th>
                               ))}
                             </tr>
@@ -348,10 +440,12 @@ export default function AiQueryPage() {
                                 {response.columns.map((column) => (
                                   <td
                                     key={column.key}
-                                    className="max-w-72 px-4 py-3 align-top whitespace-nowrap text-foreground"
+                                    className={`overflow-hidden px-4 py-3 align-top whitespace-nowrap text-foreground ${column.type === "number" ? "text-right tabular-nums" : "text-left"}`}
                                     title={formatCell(row[column.key], column)}
                                   >
-                                    {formatCell(row[column.key], column)}
+                                    <span className="block truncate">
+                                      {formatCell(row[column.key], column)}
+                                    </span>
                                   </td>
                                 ))}
                               </tr>
@@ -381,9 +475,11 @@ export default function AiQueryPage() {
                     </details>
                   ) : null}
 
-                  {response.suggestions.length > 0 || response.link ? (
+                  {visibleResultSuggestions.length > 0 ||
+                  resultFineTableHref ||
+                  showPrimaryResultLink ? (
                     <div className="mt-4 flex flex-wrap items-center justify-end gap-2">
-                      {response.suggestions.slice(0, 3).map((item) => {
+                      {visibleResultSuggestions.slice(0, 3).map((item) => {
                         const href = getAiQuerySuggestionHref(response, item)
                         return href ? (
                           <Button
@@ -410,14 +506,17 @@ export default function AiQueryPage() {
                           </Button>
                         )
                       })}
-                      {response.link ? (
+                      {resultFineTableHref ? (
+                        <Button type="button" variant="outline" size="sm" asChild>
+                          <Link href={resultFineTableHref}>
+                            <TableProperties className="size-3.5" />
+                            打开精细表
+                          </Link>
+                        </Button>
+                      ) : null}
+                      {showPrimaryResultLink && response.link && resultPrimaryHref ? (
                         <Button type="button" size="sm" asChild>
-                          <Link
-                            href={
-                              getAiQueryPrimaryHref(response) ??
-                              response.link.href
-                            }
-                          >
+                          <Link href={resultPrimaryHref}>
                             {response.link.label}
                             <ArrowUpRight className="size-3.5" />
                           </Link>

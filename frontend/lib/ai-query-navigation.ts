@@ -10,6 +10,12 @@ const RESULT_CODE_KEYS = [
   "商品货号",
   "商品编码",
 ]
+const FINE_TABLE_BRANDS = new Set([
+  "cbanner_mens",
+  "cbanner_womens",
+  "yandou",
+  "eblan",
+])
 
 function resultQuery(rows: AiQueryResponse["rows"]) {
   return Array.from(
@@ -76,4 +82,15 @@ export function getAiQueryPrimaryHref(response: SuggestionContext) {
   const source = sourceWithResultQuery(response)
   if (!source) return null
   return `${source.pathname}${source.search}${source.hash}`
+}
+
+export function getAiQueryFineTableHref(response: SuggestionContext) {
+  if (!["product_goods", "product_archive"].includes(response.intent)) {
+    return null
+  }
+  const source = sourceWithResultQuery(response)
+  if (!source) return null
+  const brand = source.searchParams.get("brand")
+  if (!brand || !FINE_TABLE_BRANDS.has(brand)) return null
+  return buildHref("/fine-table", source)
 }
