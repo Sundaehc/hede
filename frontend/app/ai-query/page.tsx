@@ -95,8 +95,8 @@ function readAiQueryContext(storageKey: string): AiQueryContext | null {
       brand: typeof value.brand === "string" ? value.brand : null,
       product_codes: Array.isArray(value.product_codes)
         ? value.product_codes
-            .filter((item): item is string => typeof item === "string")
-            .slice(0, 50)
+          .filter((item): item is string => typeof item === "string")
+          .slice(0, 50)
         : [],
       year: typeof value.year === "number" ? value.year : null,
       intent: typeof value.intent === "string" ? value.intent : null,
@@ -344,8 +344,8 @@ export default function AiQueryPage() {
     }) ?? []
   const showPrimaryResultLink = Boolean(
     response?.link &&
-      resultPrimaryHref &&
-      canOpenResultHref(resultPrimaryHref)
+    resultPrimaryHref &&
+    canOpenResultHref(resultPrimaryHref)
   )
   const visibleConditions =
     response?.conditions.filter(
@@ -582,8 +582,8 @@ export default function AiQueryPage() {
                   ) : null}
 
                   {visibleResultSuggestions.length > 0 ||
-                  resultFineTableHref ||
-                  showPrimaryResultLink ? (
+                    resultFineTableHref ||
+                    showPrimaryResultLink ? (
                     <div className="mt-4 flex flex-wrap items-center justify-end gap-2">
                       {visibleResultSuggestions.slice(0, 3).map((item) => {
                         const href = getAiQuerySuggestionHref(response, item)
@@ -639,9 +639,6 @@ export default function AiQueryPage() {
                 {queryContext && contextQuestion ? (
                   <div className="flex min-w-0 items-center gap-2 border-b border-border/70 bg-muted/20 px-4 py-2 sm:px-5">
                     <Link2 className="size-3.5 shrink-0 text-blue-600 dark:text-blue-400" />
-                    <span className="shrink-0 text-xs font-medium text-foreground/80">
-                      连续追问
-                    </span>
                     <span
                       className="min-w-0 flex-1 truncate text-xs text-muted-foreground"
                       title={contextQuestion}
@@ -655,8 +652,8 @@ export default function AiQueryPage() {
                       className="shrink-0 cursor-pointer"
                       onClick={startNewQuery}
                       disabled={loading}
-                      title="结束连续追问并开始新查询"
-                      aria-label="结束连续追问并开始新查询"
+                      title="新对话"
+                      aria-label="新对话"
                     >
                       <MessageSquarePlus className="size-3.5" />
                     </Button>
