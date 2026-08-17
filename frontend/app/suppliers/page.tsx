@@ -260,7 +260,7 @@ export default function SuppliersPage() {
   const pageTokens = getPageTokens(page, totalPages)
   const hasRows = items.length > 0
   const canCreateSupplier = hasPermission("supplier.create") || hasPermission("inventory.manage")
-  const canManageSuppliers = hasPermission("inventory.manage")
+  const canManageSuppliers = hasPermission("supplier.manage") || hasPermission("inventory.manage")
   const supplierBrandOptions = [{ code: "all", name: "总览" }, ...brands]
 
   return (

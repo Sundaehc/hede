@@ -48,6 +48,7 @@ def test_post_products_creates_product_via_build_admin_record(test_app_client: T
                 "sku": "A1001",
                 "original_sku": "OA1001",
                 "product_name": "女士皮鞋",
+                "category": "女鞋",
                 "color": "黑色",
                 "barcode_build_rule": "货号+颜色代码+尺码",
             },
@@ -61,6 +62,7 @@ def test_post_products_creates_product_via_build_admin_record(test_app_client: T
     assert body["item"]["source_workbook"] == "manual_admin"
     assert body["item"]["raw_payload"]["sku"] == "A1001"
     assert body["item"]["product_name"] == "女士皮鞋"
+    assert body["item"]["category"] == "女鞋"
     assert body["item"]["barcode_build_rule"] == "货号+颜色代码+尺码"
 
 
@@ -274,6 +276,43 @@ def test_import_products_updates_by_original_sku_without_clearing_blank_cells(
 
     listing = repository.list_products("cbanner_mens", query="ORIG-001", page=1, page_size=10)
     assert listing["total"] == 1
+
+
+def test_import_products_keeps_distinct_skus_with_shared_original_sku(
+    test_app_client: TestClient,
+    repository,
+):
+    workbook = Workbook()
+    worksheet = workbook.active
+    worksheet.append(["货号", "原始货号", "颜色", "条码构成逻辑"])
+    worksheet.append(["SHARED-ORIG-01", "ORIG-SHARED", "黑色", "货号+颜色代码+尺码"])
+    worksheet.append(["SHARED-ORIG-02", "ORIG-SHARED", "白色", "货号+颜色代码+尺码"])
+    buffer = io.BytesIO()
+    workbook.save(buffer)
+    buffer.seek(0)
+
+    response = test_app_client.post(
+        "/import",
+        params={"brand": "cbanner_mens"},
+        files={
+            "file": (
+                "shared-original-sku.xlsx",
+                buffer.getvalue(),
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            ),
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["created"] == 2
+    assert response.json()["updated"] == 0
+    first = repository.find_by_sku("cbanner_mens", "SHARED-ORIG-01")
+    second = repository.find_by_sku("cbanner_mens", "SHARED-ORIG-02")
+    assert first is not None
+    assert second is not None
+    assert first["original_sku"] == second["original_sku"] == "ORIG-SHARED"
+    assert first["color"] == "黑色"
+    assert second["color"] == "白色"
 
 
 def test_import_products_rejects_supplier_mismatch_for_existing_product(

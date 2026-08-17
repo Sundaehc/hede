@@ -77,6 +77,8 @@ def test_sync_brand_rows_refreshes_current_launch_year_only(test_database_url: s
         "year": "26年秋季款",
         "product_name": "桌面品名",
         "product_model": "桌面型号",
+        "supplier_name": "档案供应商",
+        "category": "男鞋",
     }
     old_year_existing = {
         "source_workbook": "manual",
@@ -105,6 +107,8 @@ def test_sync_brand_rows_refreshes_current_launch_year_only(test_database_url: s
         "year": "",
         "product_name": "源文件品名",
         "product_model": "源文件型号",
+        "supplier_name": "源文件供应商",
+        "category": "女鞋",
     }
     incoming_old = {
         "source_workbook": "daily",
@@ -152,6 +156,8 @@ def test_sync_brand_rows_refreshes_current_launch_year_only(test_database_url: s
     assert rows["CUR-001"]["year"] == "26年秋季款"
     assert rows["CUR-001"]["product_name"] == "桌面品名"
     assert rows["CUR-001"]["product_model"] == "桌面型号"
+    assert rows["CUR-001"]["supplier_name"] == "档案供应商"
+    assert rows["CUR-001"]["category"] == "男鞋"
 
     assert rows["OLD-001"]["color"] == "旧年份颜色"
     assert rows["OLD-001"]["color_code"] == "KEEP"

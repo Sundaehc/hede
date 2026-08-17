@@ -34,6 +34,7 @@ PRODUCT_FIELDS: tuple[FieldSpec, ...] = (
     FieldSpec("original_sku", "原始货号"),
     FieldSpec("product_name", "品名"),
     FieldSpec("group_name", "组别"),
+    FieldSpec("category", "分类"),
     FieldSpec("product_level", "商品等级", aliases=("等级", "货品等级")),
     FieldSpec("cost", "成本", "numeric"),
     FieldSpec("factory_sku", "工厂货号"),

@@ -223,6 +223,134 @@ def test_fine_table_history_requires_brand_and_snapshot_date():
     }
 
 
+def test_historical_order_attributes_require_longest_product_match():
+    question = "24-25年秋冬每个月各品类新款下单数量"
+    invalid_sql = """
+        SELECT overrides.category_l4, SUM(orders.order_quantity)
+        FROM v_product_goods_historical_orders AS orders
+        JOIN cbanner_womens_products AS product
+          ON orders.original_sku LIKE product.sku || '%'
+        JOIN product_goods_overrides AS overrides
+          ON overrides.brand = orders.brand AND overrides.product_id = product.id
+        WHERE product.deleted_at IS NULL
+          AND product.season_category = '秋冬'
+          AND overrides.product_role = '新品'
+        GROUP BY overrides.category_l4
+    """
+    with pytest.raises(SemanticQueryError, match="最长命中"):
+        validate_semantic_query(question, invalid_sql)
+
+    valid_sql = """
+        SELECT
+          date_trunc('month', orders.order_date) AS 月份,
+          overrides.category_l4 AS 品类,
+          SUM(orders.order_quantity) AS 下单数量
+        FROM v_product_goods_historical_orders AS orders
+        JOIN LATERAL (
+          SELECT product.id, product.sku, product.season_category
+          FROM cbanner_womens_products AS product
+          WHERE product.deleted_at IS NULL
+            AND orders.original_sku LIKE product.sku || '%'
+          ORDER BY LENGTH(product.sku) DESC
+          LIMIT 1
+        ) AS product ON orders.brand = 'cbanner_womens'
+        JOIN product_goods_overrides AS overrides
+          ON overrides.brand = orders.brand AND overrides.product_id = product.id
+        WHERE product.season_category = '秋冬'
+          AND overrides.product_role = '新品'
+        GROUP BY date_trunc('month', orders.order_date), overrides.category_l4
+    """
+    assert validate_semantic_query(question, valid_sql) == {
+        "v_product_goods_historical_orders",
+        "cbanner_womens_products",
+        "product_goods_overrides",
+    }
+
+
+def test_historical_order_row_number_cannot_partition_only_by_annual_id():
+    question = "24-25年秋冬每个月各品类新款下单数量"
+    sql = """
+        WITH matches AS (
+          SELECT orders.id,
+                 orders.original_sku,
+                 product.sku,
+                 ROW_NUMBER() OVER (
+                   PARTITION BY orders.id
+                   ORDER BY LENGTH(product.sku) DESC
+                 ) AS rank_no
+          FROM v_product_goods_historical_orders AS orders
+          JOIN cbanner_womens_products AS product
+            ON orders.original_sku LIKE product.sku || '%'
+          JOIN product_goods_overrides AS overrides
+            ON overrides.brand = orders.brand AND overrides.product_id = product.id
+          WHERE product.deleted_at IS NULL
+            AND product.season_category = '秋冬'
+            AND overrides.category_l4 IS NOT NULL
+            AND overrides.product_role = '新品'
+        )
+        SELECT * FROM matches WHERE rank_no = 1
+    """
+
+    with pytest.raises(SemanticQueryError, match="最长命中"):
+        validate_semantic_query(question, sql)
+
+
+def test_historical_order_distinct_on_cannot_deduplicate_only_by_annual_id():
+    question = "24-25年秋冬每个月各品类新款下单数量"
+    sql = """
+        SELECT DISTINCT ON (orders.id)
+               orders.order_quantity,
+               overrides.category_l4,
+               product.sku
+        FROM v_product_goods_historical_orders AS orders
+        JOIN cbanner_womens_products AS product
+          ON orders.original_sku LIKE product.sku || '%'
+        JOIN product_goods_overrides AS overrides
+          ON overrides.brand = orders.brand AND overrides.product_id = product.id
+        WHERE product.deleted_at IS NULL
+          AND product.season_category = '秋冬'
+          AND overrides.product_role = '新品'
+        ORDER BY orders.id, LENGTH(product.sku) DESC
+    """
+
+    with pytest.raises(SemanticQueryError, match="最长命中"):
+        validate_semantic_query(question, sql)
+
+
+def test_historical_order_row_number_requires_source_composite_partition():
+    question = "24-25年秋冬每个月各品类新款下单数量"
+    sql = """
+        WITH matches AS (
+          SELECT orders.original_sku,
+                 orders.order_quantity,
+                 product.sku,
+                 ROW_NUMBER() OVER (
+                   PARTITION BY orders.original_sku,
+                                orders.source_workbook,
+                                orders.source_sheet,
+                                orders.source_row_number
+                   ORDER BY LENGTH(product.sku) DESC
+                 ) AS rank_no
+          FROM v_product_goods_historical_orders AS orders
+          JOIN cbanner_womens_products AS product
+            ON orders.original_sku LIKE product.sku || '%'
+          JOIN product_goods_overrides AS overrides
+            ON overrides.brand = orders.brand AND overrides.product_id = product.id
+          WHERE product.deleted_at IS NULL
+            AND product.season_category = '秋冬'
+            AND overrides.category_l4 IS NOT NULL
+            AND overrides.product_role = '新品'
+        )
+        SELECT * FROM matches WHERE rank_no = 1
+    """
+
+    assert validate_semantic_query(question, sql) == {
+        "v_product_goods_historical_orders",
+        "cbanner_womens_products",
+        "product_goods_overrides",
+    }
+
+
 def test_referenced_tables_ignore_cte_aliases():
     sql = "WITH sales AS (SELECT * FROM v_jst_daily_sales) SELECT * FROM sales"
     assert referenced_table_names(sql) == {"v_jst_daily_sales"}

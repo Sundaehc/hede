@@ -81,6 +81,29 @@ def test_schema_for_question_limits_product_sales_and_stock_tables():
     assert "scheduled_task_statuses" not in filtered
 
 
+def test_schema_for_question_includes_historical_order_attribute_sources():
+    schema = "\n".join(
+        [
+            "public.cbanner_womens_products (id bigint, sku text, year text, season_category text, deleted_at timestamp)",
+            "public.cbanner_mens_products (id bigint, sku text, year text, season_category text, deleted_at timestamp)",
+            "public.product_goods_overrides (brand text, product_id bigint, category_l4 text, product_role text)",
+            "public.v_product_goods_historical_orders (brand text, order_date date, original_sku text, order_quantity integer)",
+            "public.v_jst_daily_sales (sales_date date, net_sales_quantity integer)",
+        ]
+    )
+
+    filtered = schema_for_question(
+        schema,
+        "24-25年秋冬每个月各品类新款下单数量",
+    )
+
+    assert "v_product_goods_historical_orders" in filtered
+    assert "product_goods_overrides" in filtered
+    assert "cbanner_womens_products" in filtered
+    assert "cbanner_mens_products" in filtered
+    assert "v_jst_daily_sales" not in filtered
+
+
 def test_validate_readonly_sql_enforces_open_table_list_and_allows_cte_aliases():
     sql = "WITH sales AS (SELECT sku FROM public.jst_daily_sales) SELECT * FROM sales"
     assert validate_readonly_sql(

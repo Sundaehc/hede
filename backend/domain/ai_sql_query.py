@@ -303,6 +303,18 @@ def schema_for_question(schema: str, question: str) -> str:
             "清仓",
         )
     )
+    historical_order_request = any(
+        term in normalized
+        for term in (
+            "订单量",
+            "订单数量",
+            "下单量",
+            "下单数量",
+            "订货量",
+            "订货数量",
+            "总订单量",
+        )
+    )
     stock_request = any(
         term in normalized
         for term in (
@@ -328,6 +340,12 @@ def schema_for_question(schema: str, question: str) -> str:
             "季节",
             "上市",
             "工厂",
+            "品类",
+            "分类",
+            "新款",
+            "新品",
+            "秋冬",
+            "春夏",
         )
     )
     document_request = any(
@@ -372,6 +390,12 @@ def schema_for_question(schema: str, question: str) -> str:
                 "v_product_goods_historical_sales",
                 "product_goods_sales_periods",
             )
+    if historical_order_request:
+        include(
+            "v_product_goods_historical_orders",
+            "product_goods_overrides",
+        )
+        selected.update(archive_tables)
     if stock_request:
         include("jst_full_stock", "jst_stock_summary")
         if "尺码" in normalized or "断码" in normalized:
@@ -488,8 +512,9 @@ def generate_plan(
 6. 用户要求新增、编辑、删除、导入、更新或其他写入动作时，返回空 sql，并说明只支持查询。
 7. 优先使用 v_ 开头的标准化视图或统一父表，不要同时查询统一父表和它的年度分表，避免重复统计。
 8. 商品档案按品牌分别存放在 cbanner_mens_products、cbanner_womens_products、yandou_products、eblan_products、smiley_products、ni_products。
-9. 聚水潭销量优先使用 v_jst_daily_sales，唯品销量优先使用 v_vip_daily_sales；title 和 summary 只描述查询口径，不要捏造查询结果。
-10. 结果字段尽量使用简短、明确的中文别名，聚合字段必须提供别名。
+9. 历史订单按商品属性统计时，v_product_goods_historical_orders 的年度表 id 可能重复；最长基础货号匹配优先使用 LATERAL。若使用 ROW_NUMBER 或 DISTINCT ON，必须按 original_sku、source_workbook、source_sheet、source_row_number 等来源复合键分组，不能只按 orders.id 去重。
+10. 聚水潭销量优先使用 v_jst_daily_sales，唯品销量优先使用 v_vip_daily_sales；title 和 summary 只描述查询口径，不要捏造查询结果。
+11. 结果字段尽量使用简短、明确的中文别名，聚合字段必须提供别名。
 
 数据库结构：
 {schema}

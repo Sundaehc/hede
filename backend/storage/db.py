@@ -191,6 +191,17 @@ class Database:
                     func.nullif(func.btrim(table.c.product_model), ""),
                     getattr(excluded, "product_model"),
                 )
+                # Supplier names are maintained through supplier management.
+                # Daily sources may fill a blank archive value, but must not
+                # undo a supplier rename that was synchronized to products.
+                set_values["supplier_name"] = func.coalesce(
+                    func.nullif(func.btrim(table.c.supplier_name), ""),
+                    getattr(excluded, "supplier_name"),
+                )
+                set_values["category"] = func.coalesce(
+                    func.nullif(func.btrim(table.c.category), ""),
+                    getattr(excluded, "category"),
+                )
                 set_values["updated_at"] = func.date_trunc("minute", func.now())
                 stmt = stmt.on_conflict_do_update(
                     index_elements=["sku"],

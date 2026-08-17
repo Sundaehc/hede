@@ -153,6 +153,7 @@ ADMIN_EDITABLE_COLUMNS = (
     "original_sku",
     "product_name",
     "group_name",
+    "category",
     "product_level",
     "cost",
     "factory_sku",

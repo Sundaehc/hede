@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from fastapi.testclient import TestClient
 
+from transform.rows import build_admin_record
+
 
 def test_suppliers_are_scoped_by_brand(test_app_client: TestClient):
     first = test_app_client.post(
@@ -138,3 +140,40 @@ def test_supplier_brand_and_supplier_operation_logs_are_separate(test_app_client
     assert brand_logs["items"][0]["entity_type"] == "supplier_brand"
     assert supplier_logs["total"] == 1
     assert supplier_logs["items"][0]["entity_type"] == "supplier"
+
+
+def test_supplier_rename_updates_only_matching_brand_product_archives(
+    test_app_client: TestClient,
+    repository,
+):
+    mens_supplier = test_app_client.post(
+        "/suppliers",
+        json={"brand": "cbanner_mens", "name": "待改名供应商"},
+    ).json()["item"]
+    test_app_client.post(
+        "/suppliers",
+        json={"brand": "cbanner_womens", "name": "待改名供应商"},
+    )
+    mens_product = repository.create_product(
+        "cbanner_mens",
+        build_admin_record(
+            "cbanner_mens",
+            {"sku": "SUPPLIER-RENAME-M", "supplier_name": "待改名供应商"},
+        ),
+    )
+    womens_product = repository.create_product(
+        "cbanner_womens",
+        build_admin_record(
+            "cbanner_womens",
+            {"sku": "SUPPLIER-RENAME-W", "supplier_name": "待改名供应商"},
+        ),
+    )
+
+    response = test_app_client.put(
+        f"/suppliers/{mens_supplier['id']}",
+        json={**mens_supplier, "name": "改名后供应商"},
+    )
+
+    assert response.status_code == 200
+    assert repository.get_product("cbanner_mens", mens_product["id"])["supplier_name"] == "改名后供应商"
+    assert repository.get_product("cbanner_womens", womens_product["id"])["supplier_name"] == "待改名供应商"

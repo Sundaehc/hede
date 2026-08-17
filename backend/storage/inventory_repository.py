@@ -9,7 +9,7 @@ from pathlib import Path
 
 import orjson
 from openpyxl import load_workbook
-from sqlalchemy import Text, and_, case, create_engine, delete, desc, func, insert, inspect, or_, select, text, union_all, update
+from sqlalchemy import MetaData, Table, Text, and_, case, create_engine, delete, desc, func, insert, inspect, or_, select, text, union_all, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from domain.gj_schema import GJ_MERGED_PRODUCT_INFO_TABLE
@@ -26,6 +26,7 @@ from domain.jst_stock_snapshot_schema import JST_SIZE_STOCK_SNAPSHOT_TABLE, JST_
 from domain.product_goods_schema import PRODUCT_GOODS_OVERRIDES_TABLE
 from domain.product_goods_historical_sales_schema import HISTORICAL_SALES_YEARS, ensure_product_goods_historical_sales_table
 from domain.product_size_group_mapping_schema import PRODUCT_SIZE_GROUP_MAPPINGS_TABLE
+from domain.schema import PRODUCT_ARCHIVE_TABLES
 from domain.size_group_schema import SIZE_GROUP_ITEMS_TABLE, SIZE_GROUPS_TABLE
 from storage.date_normalization import parse_date, parse_month_day
 
@@ -883,10 +884,65 @@ class InventoryRepository:
     def update_supplier(self, supplier_id: int, data: Mapping[str, object]) -> dict[str, object] | None:
         payload = self._prepare_supplier(data)
         payload.pop("id", None)
-        statement = update(SUPPLIER_TABLE).where(SUPPLIER_TABLE.c.id == supplier_id).values(**payload).returning(SUPPLIER_TABLE)
         with self.engine.begin() as connection:
-            row = connection.execute(statement).mappings().first()
+            before = connection.execute(
+                select(SUPPLIER_TABLE)
+                .where(SUPPLIER_TABLE.c.id == supplier_id)
+                .with_for_update()
+            ).mappings().first()
+            if before is None:
+                return None
+
+            row = connection.execute(
+                update(SUPPLIER_TABLE)
+                .where(SUPPLIER_TABLE.c.id == supplier_id)
+                .values(**payload)
+                .returning(SUPPLIER_TABLE)
+            ).mappings().one()
+
+            previous_name = str(before.get("name") or "").strip()
+            current_name = str(row.get("name") or "").strip()
+            if previous_name and current_name and previous_name != current_name:
+                self._rename_product_archive_supplier(
+                    connection,
+                    brand=str(before.get("brand") or "").strip(),
+                    previous_name=previous_name,
+                    current_name=current_name,
+                )
         return None if row is None else dict(row)
+
+    @staticmethod
+    def _rename_product_archive_supplier(
+        connection,
+        *,
+        brand: str,
+        previous_name: str,
+        current_name: str,
+    ) -> int:
+        product_table = PRODUCT_ARCHIVE_TABLES.get(brand)
+        if product_table is None:
+            table_name = connection.execute(
+                select(SUPPLIER_BRAND_TABLE.c.product_table_name)
+                .where(SUPPLIER_BRAND_TABLE.c.code == brand)
+                .where(SUPPLIER_BRAND_TABLE.c.product_archive_enabled.is_(True))
+            ).scalar_one_or_none()
+            normalized_table_name = str(table_name or "").strip()
+            if not normalized_table_name.startswith("manual_product_archive_"):
+                return 0
+            suffix = normalized_table_name.removeprefix("manual_product_archive_")
+            if not suffix.isdigit() or not inspect(connection).has_table(normalized_table_name):
+                return 0
+            product_table = Table(normalized_table_name, MetaData(), autoload_with=connection)
+
+        result = connection.execute(
+            update(product_table)
+            .where(func.btrim(product_table.c.supplier_name) == previous_name)
+            .values(
+                supplier_name=current_name,
+                updated_at=func.date_trunc("minute", func.now()),
+            )
+        )
+        return result.rowcount or 0
 
     def get_supplier(self, supplier_id: int) -> dict[str, object] | None:
         statement = select(SUPPLIER_TABLE).where(SUPPLIER_TABLE.c.id == supplier_id)

@@ -13,7 +13,9 @@ from api.operation_log_utils import write_operation_log
 from api.routes.auth import user_has_permission
 from api.routes.product_goods import (
     get_factory_channel_dashboard,
+    get_historical_order_category_monthly_summary,
     get_recent_sales_ranking,
+    get_seasonal_category_sales_ranking,
     list_product_goods,
 )
 from api.routes.products import list_products
@@ -97,11 +99,71 @@ def _extract_year(question: str) -> int | None:
     return int(match.group(1)) if match else None
 
 
+def _historical_order_summary_spec(question: str) -> dict[str, object] | None:
+    if not _contains(
+        question,
+        "订单量",
+        "订单数量",
+        "下单量",
+        "下单数量",
+        "订货量",
+        "订货数量",
+        "总订单量",
+    ):
+        return None
+    if not _contains(question, "每个月", "每月", "月度", "按月", "月份"):
+        return None
+    if not _contains(question, "品类", "分类"):
+        return None
+    if not _contains(question, "新款", "新品"):
+        return None
+    range_match = re.search(
+        r"(?<!\d)(20\d{2}|\d{2})\s*[-—~～至到]+\s*(20\d{2}|\d{2})\s*年?",
+        question,
+    )
+    if range_match is None:
+        return None
+
+    def normalize_year(value: str) -> int:
+        year = int(value)
+        return year if year >= 2000 else 2000 + year
+
+    start_year = normalize_year(range_match.group(1))
+    end_year = normalize_year(range_match.group(2))
+    if start_year > end_year:
+        start_year, end_year = end_year, start_year
+    season_label = ""
+    season_keywords: tuple[str, ...] = ()
+    for label, keywords in (
+        ("秋冬", ("秋", "冬")),
+        ("春夏", ("春", "夏")),
+        ("春季", ("春",)),
+        ("夏季", ("夏",)),
+        ("秋季", ("秋",)),
+        ("冬季", ("冬",)),
+    ):
+        if label in question:
+            season_label = label
+            season_keywords = keywords
+            break
+    if not season_keywords:
+        return None
+    return {
+        "start_year": start_year,
+        "end_year": end_year,
+        "season_label": season_label,
+        "season_keywords": season_keywords,
+        "product_role": "新品",
+    }
+
+
 def _intent_for(question: str) -> str:
     if _contains(question, "定时任务", "任务执行", "任务情况", "更新任务", "任务有没有", "任务是否"):
         return "task_status"
     if _contains(question, "工厂渠道", "传统赛道", "直播赛道", "清仓赛道", "传统", "直播", "清仓") and _contains(question, "工厂", "渠道", "赛道"):
         return "factory_channel"
+    if _historical_order_summary_spec(question) is not None:
+        return "historical_order_summary"
     if _contains(question, "销量", "销售", "库存", "在途", "缺货", "断码", "补单", "周转", "货品表"):
         return "product_goods"
     return "product_archive"
@@ -141,18 +203,24 @@ def _positive_number(value: str) -> int | None:
     return digits.get(normalized)
 
 
-def _recent_sales_ranking_spec(question: str) -> tuple[int, int] | None:
+def _ranking_limit(question: str) -> int | None:
     normalized = question.lower()
-    if not _contains(normalized, "销量", "销售量", "销售数量"):
-        return None
     rank_match = re.search(r"(?:top\s*|前\s*)(\d+|[一二两三四五六七八九十]+)", normalized)
     if rank_match is None:
         rank_match = re.search(r"(?:最高|最多)(?:的)?\s*(\d+|[一二两三四五六七八九十]+)", normalized)
     if rank_match is not None:
-        limit = _positive_number(rank_match.group(1))
-    elif _contains(normalized, "排行", "排名", "榜单", "最高", "最多"):
-        limit = 10
-    else:
+        return _positive_number(rank_match.group(1))
+    if _contains(normalized, "排行", "排名", "榜单", "最高", "最多"):
+        return 10
+    return None
+
+
+def _recent_sales_ranking_spec(question: str) -> tuple[int, int] | None:
+    normalized = question.lower()
+    if not _contains(normalized, "销量", "销售量", "销售数量"):
+        return None
+    limit = _ranking_limit(normalized)
+    if limit is None:
         return None
     period_match = re.search(r"近\s*(\d+|[一二两三四五六七八九十]+)\s*[天日]", normalized)
     if period_match is not None:
@@ -166,6 +234,33 @@ def _recent_sales_ranking_spec(question: str) -> tuple[int, int] | None:
     return days, limit
 
 
+def _seasonal_category_sales_ranking_spec(question: str) -> dict[str, object] | None:
+    normalized = question.lower()
+    if not _contains(normalized, "销量", "销售量", "销售数量"):
+        return None
+    if not _contains(normalized, "品类", "分类"):
+        return None
+    limit = _ranking_limit(normalized)
+    if limit is None or not 1 <= limit <= 100:
+        return None
+    for season_label, season_keywords in (
+        ("秋冬", ("秋", "冬")),
+        ("春夏", ("春", "夏")),
+        ("春季", ("春",)),
+        ("夏季", ("夏",)),
+        ("秋季", ("秋",)),
+        ("冬季", ("冬",)),
+    ):
+        if season_label in normalized:
+            return {
+                "limit": limit,
+                "season_label": season_label,
+                "season_keywords": season_keywords,
+                "sales_year": _extract_year(question),
+            }
+    return None
+
+
 def _should_use_business_rules(
     question: str,
     intent: str,
@@ -176,11 +271,14 @@ def _should_use_business_rules(
         return True
     if intent == "factory_channel":
         return brand in GOODS_BRANDS
+    if intent == "historical_order_summary":
+        return _historical_order_summary_spec(question) is not None
     if intent == "product_goods":
         return brand in GOODS_BRANDS and (
             bool(codes)
             or _view_for(question) != "goods"
             or _recent_sales_ranking_spec(question) is not None
+            or _seasonal_category_sales_ranking_spec(question) is not None
         )
     if intent == "product_archive":
         return bool(brand and codes)
@@ -356,6 +454,61 @@ def _run_product_goods(request: Request, question: str, payload: dict[str, objec
         raise HTTPException(status_code=403, detail="当前账户没有货品表查询权限")
     if brand not in GOODS_BRANDS:
         return _clarification(question, "货品表初版支持千百度男鞋、千百度女鞋、烟斗和伊伴，请指定其中一个品牌。", intent="product_goods")
+    seasonal_ranking_spec = _seasonal_category_sales_ranking_spec(question)
+    if seasonal_ranking_spec is not None and not codes:
+        result = get_seasonal_category_sales_ranking(
+            request,
+            brand=brand,
+            season_keywords=seasonal_ranking_spec["season_keywords"],
+            season_label=str(seasonal_ranking_spec["season_label"]),
+            limit=int(seasonal_ranking_spec["limit"]),
+            sales_year=seasonal_ranking_spec["sales_year"],
+        )
+        rows = list(result.get("items") or [])
+        result_codes = ",".join(
+            _clean_text(row.get("goods_code"))
+            for row in rows
+            if isinstance(row, dict) and _clean_text(row.get("goods_code"))
+        )
+        resolved_sales_year = result.get("sales_year")
+        season_label = str(seasonal_ranking_spec["season_label"])
+        limit = int(seasonal_ranking_spec["limit"])
+        payload.update(
+            {
+                "title": f"{BRAND_LABELS.get(brand, brand)}{season_label}款销量前{limit}单品",
+                "summary": f"按商品季节筛选{season_label}款，并结合四级分类统计 {resolved_sales_year or '最新年度'} 销量，当前展示前 {len(rows)} 名。",
+                "conditions": [
+                    _condition("品牌", BRAND_LABELS.get(brand, brand)),
+                    _condition("商品季节", season_label),
+                    _condition("销量年度", resolved_sales_year or "暂无"),
+                    _condition("排行范围", f"前{limit}名"),
+                ],
+                "metrics": [
+                    {"label": f"{season_label}款销量", "value": result.get("period_sales", 0), "tone": "violet"},
+                    {"label": "有销量单品", "value": result.get("sales_product_count", 0), "tone": "blue"},
+                    {"label": "最高销量", "value": rows[0].get("sales_quantity", 0) if rows else 0, "tone": "emerald"},
+                ],
+                "columns": [
+                    {"key": "rank", "label": "排名", "type": "number"},
+                    {"key": "category_l4", "label": "细分品类"},
+                    {"key": "goods_code", "label": "货号"},
+                    {"key": "style_code", "label": "原始货号"},
+                    {"key": "product_name", "label": "品名"},
+                    {"key": "color", "label": "颜色"},
+                    {"key": "season", "label": "季节"},
+                    {"key": "sales_quantity", "label": f"{resolved_sales_year or ''}年销量", "type": "number"},
+                ],
+                "rows": rows,
+                "data_as_of": ([{"label": "销量数据截至", "value": result["source_as_of_date"]}] if result.get("source_as_of_date") else []),
+                "sources": ["商品信息档案", "货品表四级分类", "年度销量", *(result.get("sources") or [])],
+                "link": {
+                    "label": "打开商品货品表",
+                    "href": f"/product-goods?brand={brand}&query={result_codes}&view=goods",
+                },
+                "suggestions": ["查看这批商品的商品档案"],
+            }
+        )
+        return payload
     ranking_spec = _recent_sales_ranking_spec(question)
     if ranking_spec is not None and not codes:
         days, limit = ranking_spec
@@ -520,6 +673,70 @@ def _run_factory_channel(request: Request, question: str, payload: dict[str, obj
             "sources": ["工厂渠道看板", "商品档案", "聚水潭日销", "唯品日销"],
             "link": {"label": "打开工厂渠道看板", "href": f"/factory-channel-dashboard?brand={brand}&sales_year={result.get('sales_year')}"},
             "suggestions": ["按工厂筛选", "比较直播和清仓占比", "查看工厂对应商品"],
+        }
+    )
+    return payload
+
+
+def _run_historical_order_summary(
+    request: Request,
+    question: str,
+    payload: dict[str, object],
+    brand: str | None,
+) -> dict[str, object]:
+    current_user = getattr(request.state, "current_user", None)
+    if not _allowed(current_user, "product.view") or not _allowed(
+        current_user, "fine_table.view"
+    ):
+        raise HTTPException(status_code=403, detail="当前账户没有历史订单商品属性查询权限")
+    spec = _historical_order_summary_spec(question)
+    if spec is None:
+        return _clarification(
+            question,
+            "请明确年份范围、季节、按月、品类和新款条件。",
+            intent="historical_order_summary",
+        )
+    selected_brands = {brand} if brand in GOODS_BRANDS else set(GOODS_BRANDS)
+    result = get_historical_order_category_monthly_summary(
+        request,
+        start_year=int(spec["start_year"]),
+        end_year=int(spec["end_year"]),
+        brands=selected_brands,
+        season_keywords=tuple(spec["season_keywords"]),
+        product_role=str(spec["product_role"]),
+    )
+    rows = list(result.get("items") or [])
+    brand_label = BRAND_LABELS.get(brand, brand) if brand else "全部货品表品牌"
+    period_label = f"{spec['start_year']} 至 {spec['end_year']} 年"
+    payload.update(
+        {
+            "title": f"{period_label}{spec['season_label']}新品月度品类下单数量",
+            "summary": f"按历史订单日期汇总 {period_label}各月、各四级品类的{spec['season_label']}新品下单数量，共返回 {len(rows)} 行数据。",
+            "conditions": [
+                _condition("品牌", brand_label),
+                _condition("订单年份", period_label),
+                _condition("季节", spec["season_label"]),
+                _condition("商品角色", spec["product_role"]),
+            ],
+            "metrics": [
+                {"label": "下单数量", "value": result.get("total_order_quantity", 0), "tone": "violet"},
+                {"label": "月份数", "value": len({row.get("month") for row in rows}), "tone": "blue"},
+                {"label": "品类数", "value": len({row.get("category_l4") for row in rows}), "tone": "emerald"},
+            ],
+            "columns": [
+                {"key": "month", "label": "月份", "type": "date"},
+                {"key": "category_l4", "label": "四级品类"},
+                {"key": "order_quantity", "label": "下单数量", "type": "number"},
+            ],
+            "rows": rows,
+            "sources": ["历史订单", "商品信息档案", "货品表手工字段", *(result.get("sources") or [])],
+            "warnings": (
+                [f"有 {result.get('unmatched_orders', 0)} 条订单未匹配到已维护品类的{spec['season_label']}新品。"]
+                if result.get("unmatched_orders")
+                else []
+            ),
+            "link": None,
+            "suggestions": [],
         }
     )
     return payload
@@ -822,6 +1039,13 @@ def query_with_natural_language(request: Request, body: dict):
 
         if intent == "task_status":
             payload = _run_task_status(request, question, payload)
+        elif intent == "historical_order_summary":
+            payload = _run_historical_order_summary(
+                request,
+                question,
+                payload,
+                brand,
+            )
         elif intent == "factory_channel":
             payload = _run_factory_channel(request, question, payload, brand, year)
         else:

@@ -44,7 +44,9 @@ def required_permission_for_request(method: str, path: str) -> str | tuple[str, 
     if path.startswith("/suppliers"):
         if method == "GET":
             return "inventory.view"
-        return "supplier.create" if method == "POST" else "inventory.manage"
+        if method == "POST":
+            return ("supplier.create", "inventory.manage")
+        return ("supplier.manage", "inventory.manage")
     if path.startswith("/warehouses"):
         return "inventory.view" if method == "GET" else "inventory.manage"
     if path.startswith("/inventory/export"):

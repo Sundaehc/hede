@@ -36,6 +36,7 @@ PRODUCT_ARCHIVE_TABLES = {
 
 DAILY_SALES_TABLES = {"v_jst_daily_sales", "v_vip_daily_sales"}
 HISTORICAL_SALES_TABLE = "v_product_goods_historical_sales"
+HISTORICAL_ORDERS_TABLE = "v_product_goods_historical_orders"
 PRECOMPUTED_SALES_TABLE = "product_goods_sales_periods"
 CHANNEL_MAPPING_TABLE = "product_goods_shop_channel_mappings"
 CURRENT_STOCK_TABLES = {"jst_full_stock", "jst_size_stock", "jst_stock_summary"}
@@ -107,6 +108,50 @@ def _question_product_codes(question: str) -> set[str]:
     return set(PRODUCT_CODE_PATTERN.findall(question.upper()))
 
 
+def _historical_order_quantity_request(question: str) -> bool:
+    return any(
+        term in question
+        for term in (
+            "订单量",
+            "订单数量",
+            "下单量",
+            "下单数量",
+            "订货量",
+            "订货数量",
+            "总订单量",
+        )
+    )
+
+
+def _has_safe_historical_order_product_match(normalized_sql: str) -> bool:
+    """Require a product match that cannot collapse duplicate annual-table ids."""
+    if "LATERAL" in normalized_sql:
+        return True
+    required_source_fields = (
+        "ORIGINAL_SKU",
+        "SOURCE_WORKBOOK",
+        "SOURCE_SHEET",
+        "SOURCE_ROW_NUMBER",
+    )
+
+    def has_source_identity(fields: str) -> bool:
+        return all(field in fields for field in required_source_fields)
+
+    distinct_match = re.search(r"DISTINCT\s+ON\s*\((.*?)\)", normalized_sql)
+    if distinct_match is not None:
+        return has_source_identity(distinct_match.group(1))
+    if "ROW_NUMBER" not in normalized_sql:
+        return False
+    partition_match = re.search(
+        r"PARTITION\s+BY\s+(.*?)(?:\)\s*OVER|\bORDER\s+BY)",
+        normalized_sql,
+    )
+    return bool(
+        partition_match
+        and has_source_identity(partition_match.group(1))
+    )
+
+
 def semantic_rules_for_question(question: str) -> str:
     current_year = date.today().year
     return f"""
@@ -126,8 +171,9 @@ def semantic_rules_for_question(question: str) -> str:
 3. 2024、2025 历史工作簿销量唯一入口为 v_product_goods_historical_sales，使用 sales_quantity，并必须按 brand 和 sales_date/sales_year 过滤。
 4. {current_year} 年及没有完整历史工作簿覆盖的年份使用 v_jst_daily_sales 与 v_vip_daily_sales；不能再叠加同年度历史销量。
 5. 同时合并聚水潭与唯品时，唯品日销优先；只有聚水潭记录映射为“唯品”且唯品表中存在同一基础货号、同一 sales_date 的记录时才排除该聚水潭记录，建议使用 NOT EXISTS。不能直接排除全部聚水潭唯品渠道，否则会丢失唯品源缺数日期的销量。
-6. 历史订单量只用 v_product_goods_historical_orders.order_quantity；销量不能替代订单量。
-7. 年度/月度等预计算指标可用 product_goods_sales_periods，但不能与逐日销量再次相加。
+6. 历史订单量只用 v_product_goods_historical_orders.order_quantity；销量不能替代订单量。该视图本身只保存订单事实，按商品属性统计时按 brand 选择对应商品档案表，并用订单 original_sku 前缀匹配商品档案 sku，优先通过 LATERAL 按 LENGTH(sku) 倒序只保留最长基础货号。若使用 ROW_NUMBER 或 DISTINCT ON，分组键必须包含 original_sku、source_workbook、source_sheet、source_row_number 等来源复合键，禁止仅按 orders.id 去重，因为年度订单表的 id 可能重复。商品档案同时过滤 deleted_at IS NULL。
+7. 历史订单按品类或新款统计时，四级分类使用 product_goods_overrides.category_l4，“新款/新品”使用 product_goods_overrides.product_role='新品'，通过 overrides.brand=订单 brand 且 overrides.product_id=商品档案 id 关联；年份和季节分别使用商品档案 year、season_category。不能因为历史订单视图没有这些字段就放弃查询，也不能从订单原始字段猜测品类、角色、年份或季节。
+8. 年度/月度等预计算指标可用 product_goods_sales_periods，但不能与逐日销量再次相加。
 
 三、平台与赛道
 1. 聚水潭平台首先按 product_goods_shop_channel_mappings 查询：mapping.brand 使用上述品牌内部值，mapping.shop_name 对应日销 channel；没有映射时才按 channel 关键词兜底。不要把日销表中的中文 brand 与映射表内部 brand 直接相等关联。
@@ -166,6 +212,7 @@ def validate_semantic_query(question: str, sql: str) -> set[str]:
         term in question for term in ("对比", "比较", "趋势", "变化", "环比", "分别", "按来源")
     )
     sales_request = any(term in question for term in ("销量", "销售", "卖出", "售出"))
+    historical_order_request = _historical_order_quantity_request(question)
     channel_request = any(
         term in question
         for term in ("平台", "渠道", "传统", "直播", "清仓", "唯品", "天猫", "得物", "拼多多", "京东", "商品卡")
@@ -206,6 +253,35 @@ def validate_semantic_query(question: str, sql: str) -> set[str]:
             field in normalized_sql for field in ("SALES_DATE", "SALES_YEAR")
         ):
             errors.append("历史销量必须同时限定 brand 和 sales_date/sales_year")
+
+    if historical_order_request:
+        if HISTORICAL_ORDERS_TABLE not in tables:
+            errors.append("历史订单量必须使用 v_product_goods_historical_orders")
+        elif "ORDER_QUANTITY" not in normalized_sql:
+            errors.append("历史订单量必须使用 order_quantity，不能使用销量字段替代")
+    if HISTORICAL_ORDERS_TABLE in tables and any(
+        term in question
+        for term in ("品类", "分类", "新款", "新品", "秋冬", "春夏", "季节", "商品年份")
+    ):
+        if not archive_tables:
+            errors.append("历史订单按商品属性统计时必须关联对应品牌商品档案")
+        has_longest_prefix_match = (
+            "ORIGINAL_SKU" in normalized_sql
+            and "LIKE" in normalized_sql
+            and "LENGTH(" in normalized_sql
+            and _has_safe_historical_order_product_match(normalized_sql)
+        )
+        if not has_longest_prefix_match:
+            errors.append("历史订单货号必须前缀匹配商品档案 sku，并按 LENGTH(sku) 倒序只保留最长命中")
+        if any(term in question for term in ("品类", "分类", "新款", "新品")):
+            if "product_goods_overrides" not in tables:
+                errors.append("历史订单按品类或新款统计时必须关联 product_goods_overrides")
+            if any(term in question for term in ("品类", "分类")) and "CATEGORY_L4" not in normalized_sql:
+                errors.append("历史订单品类必须使用 product_goods_overrides.category_l4")
+            if any(term in question for term in ("新款", "新品")) and "PRODUCT_ROLE" not in normalized_sql:
+                errors.append("历史订单新款必须使用 product_goods_overrides.product_role='新品'")
+        if any(term in question for term in ("秋冬", "春夏", "季节")) and "SEASON_CATEGORY" not in normalized_sql:
+            errors.append("历史订单季节必须使用商品档案 season_category")
 
     if channel_request and "v_jst_daily_sales" in tables and CHANNEL_MAPPING_TABLE not in tables:
         errors.append("聚水潭平台/赛道查询必须优先关联店铺渠道映射表")

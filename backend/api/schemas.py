@@ -18,6 +18,7 @@ class ProductPayload(BaseModel):
     original_sku: str | None = None
     product_name: str | None = None
     group_name: str | None = None
+    category: str | None = None
     product_level: str | None = None
     cost: str | None = None
     factory_sku: str | None = None

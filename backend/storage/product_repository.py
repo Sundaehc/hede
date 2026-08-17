@@ -244,6 +244,7 @@ class ProductRepository:
         table = self._table_for_brand(code)
         with self.engine.begin() as connection:
             table.create(connection, checkfirst=True)
+            connection.execute(text(f"ALTER TABLE {table.name} ADD COLUMN IF NOT EXISTS category TEXT"))
             connection.execute(text(f"ALTER TABLE {table.name} ADD COLUMN IF NOT EXISTS last_imported_at TIMESTAMPTZ"))
             connection.execute(text(f"ALTER TABLE {table.name} ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ"))
             connection.execute(text(f"CREATE INDEX IF NOT EXISTS idx_{table.name}_last_imported_at ON {table.name} (last_imported_at)"))
@@ -267,6 +268,9 @@ class ProductRepository:
         with self.engine.begin() as connection:
             for table in PRODUCT_ARCHIVE_TABLES.values():
                 table.create(connection, checkfirst=True)
+                connection.execute(text(
+                    f"ALTER TABLE {table.name} ADD COLUMN IF NOT EXISTS category TEXT"
+                ))
                 connection.execute(text(
                     f"ALTER TABLE {table.name} ADD COLUMN IF NOT EXISTS last_imported_at TIMESTAMPTZ"
                 ))

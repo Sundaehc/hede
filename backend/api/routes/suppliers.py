@@ -9,12 +9,14 @@ from openpyxl import Workbook
 from sqlalchemy import text
 
 from api.excel_export import style_excel_worksheet
+from api.fine_table_cache import clear_fine_table_cache
 from api.operation_log_utils import (
     SUPPLIER_FIELD_LABELS,
     build_changed_fields,
     summarize_changes,
     write_operation_log,
 )
+from api.product_goods_cache import clear_product_goods_cache
 from domain.gj_brand import CBANNER_MENS_BRAND, infer_supplier_brand_from_name
 from domain.schema import PRODUCT_ARCHIVE_TABLES
 
@@ -277,6 +279,9 @@ def update_supplier(request: Request, supplier_id: int, payload: dict):
     record = repository.update_supplier(supplier_id, payload)
     if record is None:
         raise HTTPException(status_code=404, detail="Supplier not found")
+    if str(before.get("name") or "").strip() != str(record.get("name") or "").strip():
+        clear_fine_table_cache()
+        clear_product_goods_cache()
     label = str(record.get("name") or before.get("name") or supplier_id).strip()
     changes = build_changed_fields(before, record, SUPPLIER_FIELD_LABELS)
     write_operation_log(

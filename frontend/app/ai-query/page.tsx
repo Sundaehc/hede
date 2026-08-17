@@ -35,7 +35,7 @@ import { hasProductGoodsDepartmentAccess } from "@/lib/product-goods-access"
 import type { AiQueryColumn, AiQueryResponse } from "@/lib/types"
 
 const MAX_HISTORY_ITEMS = 8
-const AI_QUERY_TIMEOUT_MS = 150_000
+const AI_QUERY_TIMEOUT_MS = 190_000
 const AI_QUERY_DRAFT_STORAGE_KEY = "hede.ai-query.draft"
 const HIDDEN_CONDITION_LABELS = new Set(["查询模式", "数据范围"])
 
@@ -229,7 +229,7 @@ export default function AiQueryPage() {
   }
 
   const hasRows = Boolean(response?.rows.length && response.columns.length)
-  const isIdle = !response && !loading && !error
+  const isEntryState = !response && !loading
   const resultColumnWidths =
     response?.columns.map((column) => resultColumnWidth(column)) ?? []
   const resultTableMinWidth = Math.max(
@@ -273,15 +273,36 @@ export default function AiQueryPage() {
         <div className="mx-auto flex min-h-0 w-full max-w-[1640px] flex-1 flex-col gap-5">
           <div className="grid min-h-0 min-w-0 flex-1 items-stretch gap-6 xl:grid-cols-[minmax(0,1fr)_248px]">
             <main
-              className={`flex min-h-0 min-w-0 flex-col gap-5 ${isIdle ? "justify-center pb-[8vh]" : ""}`}
+              className={`flex min-h-0 min-w-0 flex-col gap-5 ${isEntryState ? "justify-center pb-[8vh]" : ""}`}
             >
               {error ? (
                 <div
-                  className="flex items-start gap-3 border-y border-destructive/25 bg-destructive/6 px-1 py-3 text-sm text-destructive"
+                  className="animate-in fade-in-0 slide-in-from-top-1 mx-auto flex w-full max-w-4xl items-start gap-3 rounded-lg border border-destructive/25 bg-card/95 p-3.5 shadow-[0_16px_36px_-30px_rgb(127_29_29_/_0.75)] duration-200"
                   role="alert"
+                  aria-live="assertive"
                 >
-                  <CircleAlert className="mt-0.5 size-4 shrink-0" />
-                  <span className="leading-5">{error}</span>
+                  <span className="flex size-8 shrink-0 items-center justify-center rounded-md bg-destructive/10 text-destructive">
+                    <CircleAlert className="size-4" />
+                  </span>
+                  <div className="min-w-0 flex-1 pt-0.5">
+                    <p className="text-sm font-medium text-foreground">
+                      查询未完成
+                    </p>
+                    <p className="mt-1 text-sm leading-5 text-muted-foreground">
+                      {error}
+                    </p>
+                  </div>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon-sm"
+                    className="-mt-0.5 -mr-0.5 shrink-0 cursor-pointer text-muted-foreground hover:text-foreground"
+                    onClick={() => setError("")}
+                    title="关闭提示"
+                    aria-label="关闭提示"
+                  >
+                    <X className="size-3.5" />
+                  </Button>
                 </div>
               ) : null}
 
@@ -528,7 +549,7 @@ export default function AiQueryPage() {
               ) : null}
 
               <section
-                className={`${isIdle ? "mx-auto w-full max-w-4xl" : "sticky bottom-0 mt-auto"} z-20 overflow-hidden rounded-4xl border border-border/90 bg-card shadow-[0_18px_46px_-28px_rgb(15_23_42_/_0.65)] transition-[border-color,box-shadow] focus-within:border-foreground/25 focus-within:shadow-[0_20px_52px_-28px_rgb(15_23_42_/_0.75)]`}
+                className={`${isEntryState ? "mx-auto w-full max-w-4xl" : "sticky bottom-0 mt-auto"} z-20 overflow-hidden rounded-4xl border border-border/90 bg-card shadow-[0_18px_46px_-28px_rgb(15_23_42_/_0.65)] transition-[border-color,box-shadow] focus-within:border-foreground/25 focus-within:shadow-[0_20px_52px_-28px_rgb(15_23_42_/_0.75)]`}
               >
                 <form
                   className="relative"
@@ -541,7 +562,10 @@ export default function AiQueryPage() {
                     <Search className="mt-1 size-[18px] shrink-0 text-muted-foreground" />
                     <textarea
                       value={question}
-                      onChange={(event) => setQuestion(event.target.value)}
+                      onChange={(event) => {
+                        setQuestion(event.target.value)
+                        if (error) setError("")
+                      }}
                       onKeyDown={(event) => {
                         if (event.key === "Enter" && !event.shiftKey) {
                           event.preventDefault()

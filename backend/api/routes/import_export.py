@@ -748,7 +748,7 @@ def _size_export_style_context(
     archive_extra = _dict_or_empty(archive.get("extra_fields"))
     return {
         "product_name": _first_text(gj.get("goods_full_name"), archive.get("product_name")),
-        "category": _first_text(archive.get("group_name")),
+        "category": _first_text(archive.get("category"), archive.get("group_name")),
         "logo": _first_text(gj.get("brand")),
         "upper_material": _first_text(gj.get("upper_material"), archive.get("upper_material")),
         "product_item_name": _first_text(archive.get("product_name"), archive_extra.get("品名"), gj.get("product_name")),
@@ -861,7 +861,7 @@ def _export_products_with_sizes(
             style_contexts[context_key] = context
 
         product_name = _size_export_product_name(style_code, color_name, product_code)
-        category = "男鞋" if brand == "cbanner_mens" else _first_text(context["category"], raw_payload.get("分类"))
+        category = _first_text(context["category"], "男鞋" if brand == "cbanner_mens" else None, raw_payload.get("分类"))
         logo = _first_text(context["logo"], raw_payload.get("LOGO"), raw_payload.get("品牌"))
         row = [
             _first_text(context["supplier_name"], raw_payload.get("供应商名"), raw_payload.get("供应商")),
@@ -1140,6 +1140,7 @@ async def import_products(
                 raw_sku = payload.get("sku")
                 if raw_sku is not None:
                     payload["sku"] = str(int(raw_sku)) if isinstance(raw_sku, float) and raw_sku.is_integer() else str(raw_sku).strip()
+                has_explicit_sku = bool(str(payload.get("sku") or "").strip())
 
                 raw_orig = payload.get("original_sku")
                 if raw_orig is not None:
@@ -1168,7 +1169,7 @@ async def import_products(
                         detail=f"第 {row_number} 行导入失败：货号 {display_sku} 未填写条码构成逻辑",
                     )
                 existing = repository.find_by_sku(brand, sku_val, connection=connection) if sku_val else None
-                if existing is None and original_sku_val:
+                if existing is None and original_sku_val and not has_explicit_sku:
                     existing = repository.find_by_original_sku(brand, original_sku_val, connection=connection)
                 if sku_val:
                     imported_skus.append(sku_val)

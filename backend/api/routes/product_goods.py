@@ -2299,6 +2299,394 @@ def get_recent_sales_ranking(
     return payload
 
 
+def get_seasonal_category_sales_ranking(
+    request: Request,
+    *,
+    brand: str,
+    season_keywords: tuple[str, ...],
+    season_label: str,
+    limit: int = 10,
+    sales_year: int | None = None,
+) -> dict[str, object]:
+    if brand not in PRODUCT_TABLES:
+        raise HTTPException(status_code=400, detail=f"Invalid brand: {brand}")
+    limit = min(max(int(limit), 1), 100)
+    repository = request.app.state.repository
+    engine = repository.engine
+    if not inspect(engine).has_table(PRODUCT_GOODS_SALES_PERIODS_TABLE.name):
+        return {
+            "items": [],
+            "sales_year": sales_year,
+            "source_as_of_date": None,
+            "sales_product_count": 0,
+            "period_sales": 0,
+            "sources": [],
+        }
+
+    product_table = PRODUCT_TABLES[brand]
+    override = PRODUCT_GOODS_OVERRIDES_TABLE
+    sales_table = PRODUCT_GOODS_SALES_PERIODS_TABLE
+    inspector = inspect(engine)
+    with engine.connect() as connection:
+        period_statement = select(func.max(sales_table.c.period_start)).where(
+            sales_table.c.brand == brand,
+            sales_table.c.period_type == "year",
+        )
+        if sales_year is not None:
+            period_statement = period_statement.where(
+                sales_table.c.period_start == date(sales_year, 1, 1)
+            )
+        period_start = connection.execute(period_statement).scalar()
+        if not isinstance(period_start, date):
+            return {
+                "items": [],
+                "sales_year": sales_year,
+                "source_as_of_date": None,
+                "sales_product_count": 0,
+                "period_sales": 0,
+                "sources": [],
+            }
+
+        source_as_of_date = connection.execute(
+            select(func.max(sales_table.c.source_as_of_date)).where(
+                sales_table.c.brand == brand,
+                sales_table.c.period_type == "year",
+                sales_table.c.period_start == period_start,
+            )
+        ).scalar()
+        daily_sales_tables: tuple[object | None, object | None] = (None, None)
+        latest_daily_sales_date: date | None = None
+        if period_start.year == date.today().year:
+            jst_table = jst_daily_sales_table_for_year(period_start.year)
+            vip_table = vip_daily_sales_table_for_year(period_start.year)
+            available_jst_table = jst_table if inspector.has_table(jst_table.name) else None
+            available_vip_table = vip_table if inspector.has_table(vip_table.name) else None
+            daily_sales_tables = (available_jst_table, available_vip_table)
+            latest_daily_candidates: list[date] = []
+            for table in daily_sales_tables:
+                if table is None:
+                    continue
+                latest_value = connection.execute(select(func.max(table.c.sales_date))).scalar()
+                if isinstance(latest_value, date):
+                    latest_daily_candidates.append(latest_value)
+            latest_daily_sales_date = max(latest_daily_candidates, default=None)
+        cache_key = (
+            "seasonal-category-sales-ranking-v2",
+            brand,
+            tuple(season_keywords),
+            season_label,
+            limit,
+            period_start.isoformat(),
+            source_as_of_date.isoformat() if isinstance(source_as_of_date, date) else None,
+            latest_daily_sales_date.isoformat() if latest_daily_sales_date else None,
+        )
+        cached = get_product_goods_cache(cache_key)
+        if cached is not None:
+            return cached
+
+        product_rows = [
+            dict(row)
+            for row in connection.execute(
+                select(
+                    product_table.c.id,
+                    product_table.c.sku,
+                    product_table.c.original_sku,
+                    product_table.c.product_name,
+                    product_table.c.color,
+                    product_table.c.season_category,
+                    override.c.category_l4,
+                )
+                .select_from(
+                    product_table.join(
+                        override,
+                        (override.c.brand == brand)
+                        & (override.c.product_id == product_table.c.id),
+                    )
+                )
+                .where(product_table.c.deleted_at.is_(None))
+                .where(func.nullif(func.btrim(override.c.category_l4), "").is_not(None))
+                .where(or_(*(
+                    product_table.c.season_category.contains(keyword)
+                    for keyword in season_keywords
+                )))
+            ).mappings()
+            if str(row.get("sku") or "").strip()
+        ]
+        by_sku, by_prefix, unique_style_matches = _factory_dashboard_product_index(product_rows)
+        sales_by_sku: dict[str, int] = defaultdict(int)
+        sales_rows = connection.execute(
+            select(
+                sales_table.c.product_code,
+                sales_table.c.style_code,
+                func.max(sales_table.c.sales_quantity).label("sales_quantity"),
+            )
+            .where(
+                sales_table.c.brand == brand,
+                sales_table.c.period_type == "year",
+                sales_table.c.period_start == period_start,
+            )
+            .group_by(sales_table.c.product_code, sales_table.c.style_code)
+        ).mappings()
+        for row in sales_rows:
+            product = _factory_dashboard_product_for_sale(
+                row["product_code"],
+                row["style_code"],
+                by_sku=by_sku,
+                by_prefix=by_prefix,
+                unique_style_matches=unique_style_matches,
+            )
+            if product is None:
+                continue
+            sku = str(product.get("sku") or "").strip()
+            sales_by_sku[sku] += int(row["sales_quantity"] or 0)
+
+        sources = {PRODUCT_GOODS_SALES_PERIODS_TABLE.name}
+        combined_as_of_date = source_as_of_date if isinstance(source_as_of_date, date) else None
+        if (
+            combined_as_of_date is not None
+            and latest_daily_sales_date is not None
+            and latest_daily_sales_date > combined_as_of_date
+        ):
+            incremental_start = max(combined_as_of_date + timedelta(days=1), period_start)
+            jst_table, vip_table = daily_sales_tables
+            vip_product_dates: set[tuple[str, date]] = set()
+
+            if vip_table is not None:
+                sources.add(vip_table.name)
+                rows = connection.execute(
+                    select(
+                        vip_table.c.goods_code,
+                        vip_table.c.style_code,
+                        vip_table.c.sales_date,
+                        func.sum(func.coalesce(vip_table.c.sales_quantity, 0)).label("quantity"),
+                    )
+                    .where(vip_table.c.sales_date.between(incremental_start, latest_daily_sales_date))
+                    .group_by(vip_table.c.goods_code, vip_table.c.style_code, vip_table.c.sales_date)
+                ).mappings()
+                for row in rows:
+                    product = _factory_dashboard_product_for_sale(
+                        row["goods_code"],
+                        row["style_code"],
+                        by_sku=by_sku,
+                        by_prefix=by_prefix,
+                        unique_style_matches=unique_style_matches,
+                    )
+                    sales_date = row["sales_date"]
+                    if product is None or not isinstance(sales_date, date):
+                        continue
+                    sku = str(product.get("sku") or "").strip()
+                    vip_product_dates.add((sku, sales_date))
+                    sales_by_sku[sku] += int(row["quantity"] or 0)
+
+            if jst_table is not None:
+                sources.add(jst_table.name)
+                shop_channel_mappings = _shop_channel_mapping_payload(connection, brand)
+                rows = connection.execute(
+                    select(
+                        jst_table.c.product_code,
+                        jst_table.c.style_code,
+                        jst_table.c.sales_date,
+                        jst_table.c.channel,
+                        func.sum(func.coalesce(jst_table.c.net_sales_quantity, 0)).label("quantity"),
+                    )
+                    .where(jst_table.c.sales_date.between(incremental_start, latest_daily_sales_date))
+                    .group_by(
+                        jst_table.c.product_code,
+                        jst_table.c.style_code,
+                        jst_table.c.sales_date,
+                        jst_table.c.channel,
+                    )
+                ).mappings()
+                for row in rows:
+                    product = _factory_dashboard_product_for_sale(
+                        row["product_code"],
+                        row["style_code"],
+                        by_sku=by_sku,
+                        by_prefix=by_prefix,
+                        unique_style_matches=unique_style_matches,
+                    )
+                    sales_date = row["sales_date"]
+                    if product is None or not isinstance(sales_date, date):
+                        continue
+                    sku = str(product.get("sku") or "").strip()
+                    if (
+                        _platform_name(row["channel"], shop_channel_mappings) == "唯品"
+                        and (sku, sales_date) in vip_product_dates
+                    ):
+                        continue
+                    sales_by_sku[sku] += int(row["quantity"] or 0)
+
+            combined_as_of_date = latest_daily_sales_date
+
+    ranked_sales = sorted(
+        ((sku, quantity) for sku, quantity in sales_by_sku.items() if quantity > 0),
+        key=lambda item: (-item[1], item[0]),
+    )
+    items = []
+    for rank, (sku, quantity) in enumerate(ranked_sales[:limit], start=1):
+        product = by_sku[sku]
+        items.append(
+            {
+                "rank": rank,
+                "category_l4": product.get("category_l4"),
+                "goods_code": sku,
+                "style_code": product.get("original_sku"),
+                "product_name": product.get("product_name"),
+                "color": product.get("color"),
+                "season": product.get("season_category"),
+                "sales_quantity": quantity,
+            }
+        )
+    payload = {
+        "items": items,
+        "sales_year": period_start.year,
+        "source_as_of_date": combined_as_of_date.isoformat() if combined_as_of_date else None,
+        "sales_product_count": len(ranked_sales),
+        "period_sales": sum(sales_by_sku.values()),
+        "sources": sorted(sources),
+    }
+    set_product_goods_cache(cache_key, payload)
+    return payload
+
+
+def get_historical_order_category_monthly_summary(
+    request: Request,
+    *,
+    start_year: int,
+    end_year: int,
+    brands: set[str] | None = None,
+    season_keywords: tuple[str, ...] = (),
+    product_role: str = "新品",
+) -> dict[str, object]:
+    start_year = max(start_year, HISTORICAL_ORDER_START_YEAR)
+    end_year = min(end_year, date.today().year)
+    selected_brands = sorted((brands or set(PRODUCT_TABLES)) & set(PRODUCT_TABLES))
+    if start_year > end_year or not selected_brands:
+        return {"items": [], "total_order_quantity": 0, "matched_orders": 0, "sources": []}
+    cache_key = (
+        "historical-order-category-monthly-v1",
+        start_year,
+        end_year,
+        tuple(selected_brands),
+        season_keywords,
+        product_role,
+    )
+    cached = get_product_goods_cache(cache_key)
+    if cached is not None:
+        return cached
+
+    repository = request.app.state.repository
+    inspector = inspect(repository.engine)
+    candidates_by_prefix: dict[tuple[str, str], list[dict[str, object]]] = defaultdict(list)
+    monthly_category_quantity: dict[tuple[str, str], int] = defaultdict(int)
+    matched_orders = 0
+    unmatched_orders = 0
+    sources: set[str] = set()
+    with repository.engine.connect() as connection:
+        override_rows = connection.execute(
+            select(
+                PRODUCT_GOODS_OVERRIDES_TABLE.c.brand,
+                PRODUCT_GOODS_OVERRIDES_TABLE.c.product_id,
+                PRODUCT_GOODS_OVERRIDES_TABLE.c.category_l4,
+            )
+            .where(PRODUCT_GOODS_OVERRIDES_TABLE.c.brand.in_(selected_brands))
+            .where(PRODUCT_GOODS_OVERRIDES_TABLE.c.product_role == product_role)
+        ).mappings()
+        overrides_by_brand: dict[str, dict[int, str]] = defaultdict(dict)
+        for row in override_rows:
+            category = str(row["category_l4"] or "").strip()
+            if not category or category == "#N/A":
+                continue
+            overrides_by_brand[str(row["brand"])][int(row["product_id"])] = category
+
+        for brand in selected_brands:
+            eligible_products = overrides_by_brand.get(brand, {})
+            if not eligible_products:
+                continue
+            product_table = PRODUCT_TABLES[brand]
+            product_rows = connection.execute(
+                select(
+                    product_table.c.id,
+                    product_table.c.sku,
+                    product_table.c.season_category,
+                )
+                .where(product_table.c.id.in_(eligible_products))
+                .where(product_table.c.deleted_at.is_(None))
+            ).mappings()
+            for row in product_rows:
+                sku = str(row["sku"] or "").strip()
+                season = str(row["season_category"] or "").strip()
+                if not sku or (
+                    season_keywords
+                    and not any(keyword in season for keyword in season_keywords)
+                ):
+                    continue
+                candidates_by_prefix[(brand, sku[:4])].append(
+                    {
+                        "sku": sku,
+                        "category": eligible_products[int(row["id"])],
+                    }
+                )
+        for candidates in candidates_by_prefix.values():
+            candidates.sort(key=lambda item: len(str(item["sku"])), reverse=True)
+
+        for order_year in range(start_year, end_year + 1):
+            order_table = product_goods_historical_orders_table_for_year(order_year)
+            if not inspector.has_table(order_table.name):
+                continue
+            sources.add(order_table.name)
+            order_start = max(date(start_year, 1, 1), date(order_year, 1, 1))
+            order_end = min(date(end_year + 1, 1, 1), date(order_year + 1, 1, 1))
+            rows = connection.execute(
+                select(
+                    order_table.c.brand,
+                    order_table.c.order_date,
+                    order_table.c.original_sku,
+                    order_table.c.order_quantity,
+                )
+                .where(order_table.c.brand.in_(selected_brands))
+                .where(order_table.c.order_date >= order_start)
+                .where(order_table.c.order_date < order_end)
+            ).mappings()
+            for row in rows:
+                brand = str(row["brand"] or "").strip()
+                order_code = str(row["original_sku"] or "").strip()
+                order_date = row["order_date"]
+                if not order_code or not isinstance(order_date, date):
+                    unmatched_orders += 1
+                    continue
+                product = next(
+                    (
+                        candidate
+                        for candidate in candidates_by_prefix.get((brand, order_code[:4]), [])
+                        if order_code.startswith(str(candidate["sku"]))
+                    ),
+                    None,
+                )
+                if product is None:
+                    unmatched_orders += 1
+                    continue
+                matched_orders += 1
+                month = order_date.strftime("%Y-%m")
+                monthly_category_quantity[(month, str(product["category"]))] += int(
+                    row["order_quantity"] or 0
+                )
+
+    items = [
+        {"month": month, "category_l4": category, "order_quantity": quantity}
+        for (month, category), quantity in sorted(monthly_category_quantity.items())
+    ]
+    payload = {
+        "items": items,
+        "total_order_quantity": sum(monthly_category_quantity.values()),
+        "matched_orders": matched_orders,
+        "unmatched_orders": unmatched_orders,
+        "sources": sorted(sources),
+    }
+    set_product_goods_cache(cache_key, payload)
+    return payload
+
+
 @router.get("/product-goods")
 def list_product_goods(
     request: Request,

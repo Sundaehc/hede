@@ -9,11 +9,14 @@ from api.routes.ai_query import (
     _extract_brand,
     _extract_codes,
     _extract_year,
+    _historical_order_summary_spec,
     _intent_for,
     _localize_ai_brand_values,
     _permission_set,
     _recent_sales_ranking_spec,
+    _seasonal_category_sales_ranking_spec,
     _run_product_goods,
+    _run_historical_order_summary,
     _should_use_business_rules,
     _view_for,
     clear_query_history,
@@ -37,6 +40,123 @@ def test_natural_language_query_parser_identifies_factory_channel_question():
     assert _extract_brand(question) == "cbanner_mens"
     assert _extract_year(question) == 2026
     assert _intent_for(question) == "factory_channel"
+
+
+def test_natural_language_query_parser_identifies_historical_order_summary():
+    question = "24-25年秋冬每个月各品类新款下单数量"
+
+    assert _intent_for(question) == "historical_order_summary"
+    assert _historical_order_summary_spec(question) == {
+        "start_year": 2024,
+        "end_year": 2025,
+        "season_label": "秋冬",
+        "season_keywords": ("秋", "冬"),
+        "product_role": "新品",
+    }
+
+
+def test_historical_order_summary_uses_fixed_business_result(monkeypatch):
+    calls = []
+
+    def _summary(request, **kwargs):
+        calls.append(kwargs)
+        return {
+            "items": [
+                {"month": "2024-09", "category_l4": "板鞋", "order_quantity": 12}
+            ],
+            "total_order_quantity": 12,
+            "matched_orders": 1,
+            "unmatched_orders": 0,
+            "sources": ["product_goods_historical_orders_2024"],
+        }
+
+    monkeypatch.setattr(ai_query, "get_historical_order_category_monthly_summary", _summary)
+    request = SimpleNamespace(
+        state=SimpleNamespace(
+            current_user={"permissions": ["product.view", "fine_table.view"]}
+        )
+    )
+    question = "24-25年秋冬每个月各品类新款下单数量"
+
+    payload = _run_historical_order_summary(
+        request,
+        question,
+        ai_query._base_response(question, "historical_order_summary"),
+        "cbanner_womens",
+    )
+
+    assert calls == [
+        {
+            "start_year": 2024,
+            "end_year": 2025,
+            "brands": {"cbanner_womens"},
+            "season_keywords": ("秋", "冬"),
+            "product_role": "新品",
+        }
+    ]
+    assert payload["rows"] == [
+        {"month": "2024-09", "category_l4": "板鞋", "order_quantity": 12}
+    ]
+    assert payload["metrics"][0]["value"] == 12
+    assert payload["sources"] == [
+        "历史订单",
+        "商品信息档案",
+        "货品表手工字段",
+        "product_goods_historical_orders_2024",
+    ]
+
+
+def test_historical_order_summary_bypasses_ai_sql(monkeypatch):
+    class _HistoryRepository:
+        def add_ai_query_history(self, user_id, question, *, limit):
+            return None
+
+    request = SimpleNamespace(
+        state=SimpleNamespace(
+            current_user={
+                "id": 7,
+                "permissions": [
+                    "product.view",
+                    "fine_table.view",
+                    "ai_query.view",
+                ],
+            }
+        ),
+        app=SimpleNamespace(
+            state=SimpleNamespace(
+                settings=SimpleNamespace(ai_sql_enabled=True),
+                auth_repository=_HistoryRepository(),
+            )
+        ),
+    )
+    monkeypatch.setattr(
+        ai_query,
+        "get_historical_order_category_monthly_summary",
+        lambda *args, **kwargs: {
+            "items": [],
+            "total_order_quantity": 0,
+            "matched_orders": 0,
+            "unmatched_orders": 0,
+            "sources": [],
+        },
+    )
+    monkeypatch.setattr(
+        ai_query,
+        "_run_ai_sql",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("固定历史订单汇总不应调用 AI SQL")
+        ),
+    )
+    monkeypatch.setattr(ai_query, "write_operation_log", lambda *args, **kwargs: None)
+
+    payload = query_with_natural_language(
+        request,
+        {"question": "24-25年秋冬每个月各品类新款下单数量"},
+    )
+
+    assert payload["intent"] == "historical_order_summary"
+    assert payload["query_mode"] == "business_rules"
+    assert payload["generated_sql"] is None
 
 
 def test_natural_language_query_parser_identifies_task_and_risk_views():
@@ -78,6 +198,111 @@ def test_recent_sales_ranking_supports_numeric_and_default_limits():
     assert _recent_sales_ranking_spec("千百度女鞋近14天销量前20") == (14, 20)
     assert _recent_sales_ranking_spec("千百度女鞋周销量排行") == (7, 10)
     assert _recent_sales_ranking_spec("千百度女鞋月销量前十") is None
+
+
+def test_seasonal_category_sales_ranking_supports_compact_top_wording():
+    assert _seasonal_category_sales_ranking_spec(
+        "千百度女鞋细分品类top前10单品是什么款式，秋冬销量是多少"
+    ) == {
+        "limit": 10,
+        "season_label": "秋冬",
+        "season_keywords": ("秋", "冬"),
+        "sales_year": None,
+    }
+    assert _seasonal_category_sales_ranking_spec(
+        "千百度女鞋2025年春夏分类销量前20"
+    ) == {
+        "limit": 20,
+        "season_label": "春夏",
+        "season_keywords": ("春", "夏"),
+        "sales_year": 2025,
+    }
+
+
+def test_seasonal_category_sales_ranking_uses_fast_business_path(monkeypatch):
+    calls = []
+
+    def _get_ranking(request, **kwargs):
+        calls.append(kwargs)
+        return {
+            "items": [
+                {
+                    "rank": 1,
+                    "category_l4": "老爹鞋",
+                    "goods_code": "RI861599D25",
+                    "style_code": "RI861599",
+                    "product_name": "女休闲鞋",
+                    "season": "秋冬",
+                    "sales_quantity": 8717,
+                }
+            ],
+            "sales_year": 2026,
+            "source_as_of_date": "2026-08-16",
+            "sales_product_count": 4686,
+            "period_sales": 471968,
+            "sources": [
+                "product_goods_sales_periods",
+                "jst_daily_sales_2026",
+                "vip_daily_sales_2026",
+            ],
+        }
+
+    class _HistoryRepository:
+        def add_ai_query_history(self, user_id, question, *, limit):
+            return None
+
+    monkeypatch.setattr(
+        ai_query,
+        "get_seasonal_category_sales_ranking",
+        _get_ranking,
+    )
+    monkeypatch.setattr(
+        ai_query,
+        "list_product_goods",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("季节品类排行不应加载完整货品表")
+        ),
+    )
+    monkeypatch.setattr(
+        ai_query,
+        "_run_ai_sql",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("季节品类排行不应调用 AI SQL")
+        ),
+    )
+    monkeypatch.setattr(ai_query, "write_operation_log", lambda *args, **kwargs: None)
+    request = SimpleNamespace(
+        state=SimpleNamespace(
+            current_user={
+                "id": 7,
+                "permissions": ["product.view", "ai_query.view"],
+            }
+        ),
+        app=SimpleNamespace(
+            state=SimpleNamespace(
+                settings=SimpleNamespace(ai_sql_enabled=True),
+                auth_repository=_HistoryRepository(),
+            )
+        ),
+    )
+    question = "千百度女鞋细分品类top前10单品是什么款式，秋冬销量是多少"
+
+    payload = query_with_natural_language(request, {"question": question})
+
+    assert calls == [
+        {
+            "brand": "cbanner_womens",
+            "season_keywords": ("秋", "冬"),
+            "season_label": "秋冬",
+            "limit": 10,
+            "sales_year": None,
+        }
+    ]
+    assert payload["query_mode"] == "business_rules"
+    assert payload["rows"][0]["goods_code"] == "RI861599D25"
+    assert payload["data_as_of"] == [
+        {"label": "销量数据截至", "value": "2026-08-16"}
+    ]
 
 
 def test_product_goods_uses_recent_sales_ranking_fast_path(monkeypatch):
