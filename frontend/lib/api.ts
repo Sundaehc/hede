@@ -19,6 +19,7 @@ import type {
   AuthDepartment,
   AuthRole,
   AuthUser,
+  AiQueryContext,
   AiQueryResponse,
   FineTableResponse,
   FineTableSnapshotListResponse,
@@ -108,7 +109,7 @@ export function getCurrentUser() {
 
 export function runAiQuery(
   question: string,
-  context?: Record<string, unknown>,
+  context?: AiQueryContext | null,
   init: Pick<RequestInit, "signal"> = {}
 ) {
   return request<AiQueryResponse>("/ai-query/query", {

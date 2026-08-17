@@ -10,7 +10,9 @@ import {
   Clock3,
   Database,
   History,
+  Link2,
   LoaderCircle,
+  MessageSquarePlus,
   Search,
   TableProperties,
   Trash2,
@@ -32,11 +34,16 @@ import {
   runAiQuery,
 } from "@/lib/api"
 import { hasProductGoodsDepartmentAccess } from "@/lib/product-goods-access"
-import type { AiQueryColumn, AiQueryResponse } from "@/lib/types"
+import type {
+  AiQueryColumn,
+  AiQueryContext,
+  AiQueryResponse,
+} from "@/lib/types"
 
 const MAX_HISTORY_ITEMS = 8
 const AI_QUERY_TIMEOUT_MS = 190_000
 const AI_QUERY_DRAFT_STORAGE_KEY = "hede.ai-query.draft"
+const AI_QUERY_CONTEXT_STORAGE_KEY = "hede.ai-query.context.v1"
 const HIDDEN_CONDITION_LABELS = new Set(["查询模式", "数据范围"])
 
 const numberFormatter = new Intl.NumberFormat("zh-CN")
@@ -69,6 +76,34 @@ function readAiQueryDraft() {
     return window.localStorage.getItem(AI_QUERY_DRAFT_STORAGE_KEY) ?? ""
   } catch {
     return ""
+  }
+}
+
+function readAiQueryContext(storageKey: string): AiQueryContext | null {
+  if (typeof window === "undefined") return null
+  try {
+    const rawValue = window.sessionStorage.getItem(storageKey)
+    if (!rawValue) return null
+    const value = JSON.parse(rawValue) as Partial<AiQueryContext>
+    if (!Array.isArray(value.questions) || value.questions.length === 0) {
+      return null
+    }
+    return {
+      questions: value.questions
+        .filter((item): item is string => typeof item === "string")
+        .slice(-4),
+      brand: typeof value.brand === "string" ? value.brand : null,
+      product_codes: Array.isArray(value.product_codes)
+        ? value.product_codes
+            .filter((item): item is string => typeof item === "string")
+            .slice(0, 50)
+        : [],
+      year: typeof value.year === "number" ? value.year : null,
+      intent: typeof value.intent === "string" ? value.intent : null,
+      used_previous: Boolean(value.used_previous),
+    }
+  } catch {
+    return null
   }
 }
 
@@ -150,12 +185,19 @@ export default function AiQueryPage() {
   const { hasPermission, user } = useAuth()
   const [question, setQuestion] = useState(readAiQueryDraft)
   const [response, setResponse] = useState<AiQueryResponse | null>(null)
+  const [queryContext, setQueryContext] = useState<AiQueryContext | null>(null)
   const [history, setHistory] = useState<string[]>([])
   const [historyLoading, setHistoryLoading] = useState(true)
   const [historyClearing, setHistoryClearing] = useState(false)
   const [historyClearConfirmOpen, setHistoryClearConfirmOpen] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState("")
+  const [hydratedContextStorageKey, setHydratedContextStorageKey] = useState<
+    string | null
+  >(null)
+  const contextStorageKey = user?.id
+    ? `${AI_QUERY_CONTEXT_STORAGE_KEY}.${user.id}`
+    : null
 
   useEffect(() => {
     try {
@@ -168,6 +210,37 @@ export default function AiQueryPage() {
       return
     }
   }, [question])
+
+  useEffect(() => {
+    if (!contextStorageKey) {
+      setHydratedContextStorageKey(null)
+      setQueryContext(null)
+      return
+    }
+    setQueryContext(readAiQueryContext(contextStorageKey))
+    setHydratedContextStorageKey(contextStorageKey)
+  }, [contextStorageKey])
+
+  useEffect(() => {
+    if (
+      !contextStorageKey ||
+      hydratedContextStorageKey !== contextStorageKey
+    ) {
+      return
+    }
+    try {
+      if (queryContext) {
+        window.sessionStorage.setItem(
+          contextStorageKey,
+          JSON.stringify(queryContext)
+        )
+      } else {
+        window.sessionStorage.removeItem(contextStorageKey)
+      }
+    } catch {
+      return
+    }
+  }, [contextStorageKey, hydratedContextStorageKey, queryContext])
 
   useEffect(() => {
     let cancelled = false
@@ -186,17 +259,21 @@ export default function AiQueryPage() {
     }
   }, [])
 
-  async function submit(nextQuestion = question) {
+  async function submit(
+    nextQuestion = question,
+    nextContext: AiQueryContext | null = queryContext
+  ) {
     const value = nextQuestion.trim()
     if (!value || loading) return
     setQuestion(value)
     setLoading(true)
     setError("")
     try {
-      const result = await runAiQuery(value, undefined, {
+      const result = await runAiQuery(value, nextContext, {
         signal: AbortSignal.timeout(AI_QUERY_TIMEOUT_MS),
       })
       setResponse(result)
+      setQueryContext(result.context ?? null)
       setHistory((current) =>
         [value, ...current.filter((item) => item !== value)].slice(
           0,
@@ -205,11 +282,16 @@ export default function AiQueryPage() {
       )
       setQuestion("")
     } catch (requestError) {
-      setResponse(null)
       setError(errorMessage(requestError))
     } finally {
       setLoading(false)
     }
+  }
+
+  function startNewQuery() {
+    setQueryContext(null)
+    setResponse(null)
+    setError("")
   }
 
   async function clearHistory() {
@@ -229,6 +311,9 @@ export default function AiQueryPage() {
   }
 
   const hasRows = Boolean(response?.rows.length && response.columns.length)
+  const contextQuestion = queryContext?.questions.length
+    ? queryContext.questions[queryContext.questions.length - 1]
+    : ""
   const isEntryState = !response && !loading
   const resultColumnWidths =
     response?.columns.map((column) => resultColumnWidth(column)) ?? []
@@ -551,6 +636,32 @@ export default function AiQueryPage() {
               <section
                 className={`${isEntryState ? "mx-auto w-full max-w-4xl" : "sticky bottom-0 mt-auto"} z-20 overflow-hidden rounded-4xl border border-border/90 bg-card shadow-[0_18px_46px_-28px_rgb(15_23_42_/_0.65)] transition-[border-color,box-shadow] focus-within:border-foreground/25 focus-within:shadow-[0_20px_52px_-28px_rgb(15_23_42_/_0.75)]`}
               >
+                {queryContext && contextQuestion ? (
+                  <div className="flex min-w-0 items-center gap-2 border-b border-border/70 bg-muted/20 px-4 py-2 sm:px-5">
+                    <Link2 className="size-3.5 shrink-0 text-blue-600 dark:text-blue-400" />
+                    <span className="shrink-0 text-xs font-medium text-foreground/80">
+                      连续追问
+                    </span>
+                    <span
+                      className="min-w-0 flex-1 truncate text-xs text-muted-foreground"
+                      title={contextQuestion}
+                    >
+                      {contextQuestion}
+                    </span>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon-sm"
+                      className="shrink-0 cursor-pointer"
+                      onClick={startNewQuery}
+                      disabled={loading}
+                      title="结束连续追问并开始新查询"
+                      aria-label="结束连续追问并开始新查询"
+                    >
+                      <MessageSquarePlus className="size-3.5" />
+                    </Button>
+                  </div>
+                ) : null}
                 <form
                   className="relative"
                   onSubmit={(event) => {
@@ -643,7 +754,10 @@ export default function AiQueryPage() {
                         key={item}
                         type="button"
                         className="group flex w-full cursor-pointer items-start gap-2.5 rounded-md px-2 py-2.5 text-left transition-colors hover:bg-muted/55 disabled:cursor-not-allowed disabled:opacity-60"
-                        onClick={() => void submit(item)}
+                        onClick={() => {
+                          startNewQuery()
+                          void submit(item, null)
+                        }}
                         disabled={loading}
                         title={item}
                       >

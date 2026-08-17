@@ -96,6 +96,15 @@ export type AiQueryMetric = {
   tone?: "slate" | "blue" | "violet" | "orange" | "emerald"
 }
 
+export type AiQueryContext = {
+  questions: string[]
+  brand: string | null
+  product_codes: string[]
+  year: number | null
+  intent: string | null
+  used_previous?: boolean
+}
+
 export type AiQueryResponse = {
   query_id: string
   question: string
@@ -115,6 +124,7 @@ export type AiQueryResponse = {
   warnings: string[]
   link: { label: string; href: string } | null
   suggestions: string[]
+  context?: AiQueryContext
 }
 
 export type ProductListItem = {

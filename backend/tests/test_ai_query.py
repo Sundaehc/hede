@@ -11,6 +11,7 @@ from api.routes.ai_query import (
     _extract_year,
     _historical_order_summary_spec,
     _intent_for,
+    _is_contextual_followup,
     _localize_ai_brand_values,
     _permission_set,
     _recent_sales_ranking_spec,
@@ -32,6 +33,261 @@ def test_natural_language_query_parser_identifies_product_goods_question():
     assert _extract_codes(question) == ["QC153883D54"]
     assert _intent_for(question) == "product_goods"
     assert _view_for(question) == "goods"
+
+
+def test_context_followup_detection_does_not_pollute_complete_new_queries():
+    context = {
+        "questions": ["查询千百度女鞋 QC153883D54 近7天销量和库存"],
+        "brand": "cbanner_womens",
+        "product_codes": ["QC153883D54"],
+        "intent": "product_goods",
+    }
+
+    assert _is_contextual_followup("那库存呢", context)
+    assert _is_contextual_followup("按供应商汇总", context)
+    assert not _is_contextual_followup("查看今天定时任务执行情况", context)
+    assert not _is_contextual_followup("查询千百度男鞋 C7763372D01 库存", context)
+
+
+def test_product_goods_followup_inherits_brand_and_product_codes(monkeypatch):
+    captured = {}
+
+    class _HistoryRepository:
+        def add_ai_query_history(self, user_id, question, *, limit):
+            return None
+
+    def _run_goods(request, question, payload, brand, codes):
+        captured.update(question=question, brand=brand, codes=codes)
+        return {
+            **payload,
+            "title": "库存查询",
+            "rows": [{"goods_code": codes[0], "stock_total": 12}],
+        }
+
+    request = SimpleNamespace(
+        state=SimpleNamespace(
+            current_user={
+                "id": 7,
+                "permissions": ["product.view", "ai_query.view"],
+            }
+        ),
+        app=SimpleNamespace(
+            state=SimpleNamespace(
+                settings=SimpleNamespace(ai_sql_enabled=True),
+                auth_repository=_HistoryRepository(),
+            )
+        ),
+    )
+    monkeypatch.setattr(ai_query, "_run_product_goods", _run_goods)
+    monkeypatch.setattr(
+        ai_query,
+        "_run_ai_sql",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("带货号的库存追问不应调用 AI SQL")
+        ),
+    )
+    monkeypatch.setattr(ai_query, "write_operation_log", lambda *args, **kwargs: None)
+
+    payload = query_with_natural_language(
+        request,
+        {
+            "question": "那库存呢",
+            "context": {
+                "questions": ["查询千百度女鞋 QC153883D54 近7天销量"],
+                "brand": "cbanner_womens",
+                "product_codes": ["QC153883D54"],
+                "year": 2026,
+                "intent": "product_goods",
+            },
+        },
+    )
+
+    assert captured["brand"] == "cbanner_womens"
+    assert captured["codes"] == ["QC153883D54"]
+    assert "千百度女鞋" in captured["question"]
+    assert "QC153883D54" in captured["question"]
+    assert payload["question"] == "那库存呢"
+    assert payload["context"] == {
+        "questions": ["查询千百度女鞋 QC153883D54 近7天销量", "那库存呢"],
+        "brand": "cbanner_womens",
+        "product_codes": ["QC153883D54"],
+        "year": 2026,
+        "intent": "product_goods",
+        "used_previous": True,
+    }
+
+
+def test_product_goods_context_can_switch_to_product_archive(monkeypatch):
+    captured = {}
+
+    class _HistoryRepository:
+        def add_ai_query_history(self, user_id, question, *, limit):
+            return None
+
+    request = SimpleNamespace(
+        state=SimpleNamespace(
+            current_user={
+                "id": 7,
+                "permissions": ["product.view", "ai_query.view"],
+            }
+        ),
+        app=SimpleNamespace(
+            state=SimpleNamespace(
+                settings=SimpleNamespace(ai_sql_enabled=True),
+                auth_repository=_HistoryRepository(),
+            )
+        ),
+    )
+
+    def _run_archive(request, question, payload, brand, codes):
+        captured.update(question=question, brand=brand, codes=codes)
+        return {**payload, "title": "商品档案", "rows": [{"sku": codes[0]}]}
+
+    monkeypatch.setattr(ai_query, "_run_product_archive", _run_archive)
+    monkeypatch.setattr(
+        ai_query,
+        "_run_product_goods",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("商品档案追问不应继续走货品表")
+        ),
+    )
+    monkeypatch.setattr(ai_query, "write_operation_log", lambda *args, **kwargs: None)
+
+    payload = query_with_natural_language(
+        request,
+        {
+            "question": "查看这些商品的商品档案",
+            "context": {
+                "questions": ["查询千百度女鞋近7天销量前10"],
+                "brand": "cbanner_womens",
+                "product_codes": ["QC153883D54"],
+                "year": 2026,
+                "intent": "product_goods",
+            },
+        },
+    )
+
+    assert captured["brand"] == "cbanner_womens"
+    assert captured["codes"] == ["QC153883D54"]
+    assert payload["intent"] == "product_archive"
+
+
+def test_product_goods_context_aggregation_uses_ai_sql(monkeypatch):
+    captured = {}
+
+    class _HistoryRepository:
+        def add_ai_query_history(self, user_id, question, *, limit):
+            return None
+
+    request = SimpleNamespace(
+        state=SimpleNamespace(
+            current_user={
+                "id": 7,
+                "permissions": [
+                    "product.view",
+                    "fine_table.view",
+                    "ai_query.view",
+                ],
+            }
+        ),
+        app=SimpleNamespace(
+            state=SimpleNamespace(
+                settings=SimpleNamespace(ai_sql_enabled=True),
+                auth_repository=_HistoryRepository(),
+            )
+        ),
+    )
+
+    def _run_ai(request, question, permissions):
+        captured.update(question=question, permissions=permissions)
+        return {
+            **ai_query._base_response(question, "ai_sql"),
+            "query_mode": "ai_sql",
+            "rows": [{"供应商": "测试工厂", "销量": 20}],
+        }
+
+    monkeypatch.setattr(ai_query, "_run_ai_sql", _run_ai)
+    monkeypatch.setattr(
+        ai_query,
+        "_run_product_goods",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("上下文聚合追问不应退化为货品明细")
+        ),
+    )
+    monkeypatch.setattr(ai_query, "write_operation_log", lambda *args, **kwargs: None)
+
+    payload = query_with_natural_language(
+        request,
+        {
+            "question": "按供应商汇总",
+            "context": {
+                "questions": ["查询千百度女鞋近7天销量前10"],
+                "brand": "cbanner_womens",
+                "product_codes": ["QC153883D54", "QB652166W24"],
+                "year": 2026,
+                "intent": "product_goods",
+            },
+        },
+    )
+
+    assert "查询千百度女鞋近7天销量前10" in captured["question"]
+    assert "货号=QC153883D54,QB652166W24" in captured["question"]
+    assert payload["query_mode"] == "ai_sql"
+
+
+def test_ai_sql_followup_receives_compact_conversation_context(monkeypatch):
+    captured = {}
+
+    class _HistoryRepository:
+        def add_ai_query_history(self, user_id, question, *, limit):
+            return None
+
+    request = SimpleNamespace(
+        state=SimpleNamespace(
+            current_user={
+                "id": 7,
+                "permissions": ["purchase.view", "ai_query.view"],
+            }
+        ),
+        app=SimpleNamespace(
+            state=SimpleNamespace(
+                settings=SimpleNamespace(ai_sql_enabled=True),
+                auth_repository=_HistoryRepository(),
+            )
+        ),
+    )
+
+    def _run_ai(request, question, permissions):
+        captured.update(question=question, permissions=permissions)
+        return {
+            **ai_query._base_response(question, "ai_sql"),
+            "query_mode": "ai_sql",
+            "title": "采购金额汇总",
+            "rows": [{"供应商": "测试工厂", "金额": 100}],
+        }
+
+    monkeypatch.setattr(ai_query, "_run_ai_sql", _run_ai)
+    monkeypatch.setattr(ai_query, "write_operation_log", lambda *args, **kwargs: None)
+
+    payload = query_with_natural_language(
+        request,
+        {
+            "question": "按供应商汇总",
+            "context": {
+                "questions": ["查询2026年采购单总金额"],
+                "brand": None,
+                "product_codes": [],
+                "year": 2026,
+                "intent": "product_archive",
+            },
+        },
+    )
+
+    assert "查询2026年采购单总金额" in captured["question"]
+    assert "当前追问：按供应商汇总" in captured["question"]
+    assert captured["permissions"] == {"purchase.view", "ai_query.view"}
+    assert payload["question"] == "按供应商汇总"
+    assert payload["context"]["used_previous"] is True
 
 
 def test_natural_language_query_parser_identifies_factory_channel_question():

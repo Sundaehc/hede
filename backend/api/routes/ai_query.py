@@ -36,6 +36,8 @@ from domain.ai_sql_query import (
 
 router = APIRouter(prefix="/ai-query", tags=["ai-query"])
 MAX_QUERY_HISTORY_ITEMS = 8
+MAX_QUERY_CONTEXT_QUESTIONS = 4
+MAX_QUERY_CONTEXT_CODES = 50
 
 BRAND_ALIASES = {
     "千百度男鞋": "cbanner_mens",
@@ -97,6 +99,191 @@ def _extract_codes(question: str) -> list[str]:
 def _extract_year(question: str) -> int | None:
     match = re.search(r"(?:销售|销量|商品)?\s*(20\d{2})\s*(?:年)?", question)
     return int(match.group(1)) if match else None
+
+
+def _sanitize_query_context(value: object) -> dict[str, object]:
+    if not isinstance(value, dict):
+        return {}
+    questions = []
+    raw_questions = value.get("questions")
+    if isinstance(raw_questions, list):
+        for item in raw_questions[-MAX_QUERY_CONTEXT_QUESTIONS:]:
+            question = _clean_text(item)[:500]
+            if question:
+                questions.append(question)
+
+    brand_value = _clean_text(value.get("brand")).lower()
+    brand = brand_value if brand_value in BRAND_LABELS else None
+    product_codes: list[str] = []
+    raw_codes = value.get("product_codes")
+    if isinstance(raw_codes, list):
+        for item in raw_codes:
+            code = _clean_text(item).upper()
+            if not code or not re.fullmatch(r"[A-Z0-9-]{3,64}", code):
+                continue
+            if code not in product_codes:
+                product_codes.append(code)
+            if len(product_codes) >= MAX_QUERY_CONTEXT_CODES:
+                break
+
+    raw_year = value.get("year")
+    try:
+        year = int(raw_year) if raw_year is not None else None
+    except (TypeError, ValueError):
+        year = None
+    if year is not None and not 2000 <= year <= date.today().year + 1:
+        year = None
+
+    intent = _clean_text(value.get("intent"))[:64] or None
+    return {
+        "questions": questions,
+        "brand": brand,
+        "product_codes": product_codes,
+        "year": year,
+        "intent": intent,
+    }
+
+
+def _is_contextual_followup(question: str, context: dict[str, object]) -> bool:
+    if not context.get("questions"):
+        return False
+    normalized = re.sub(r"\s+", "", question.lower())
+    if not normalized:
+        return False
+    if _intent_for(question) == "task_status":
+        return False
+    if re.search(
+        r"(?:^|[，。；,;])(?:那|那么|这些|这批|上述|其中|它们?|再|继续|另外|改成|改为|换成|只看|仅看|按).{0,36}$|(?:呢|怎么样|是多少)$",
+        normalized,
+    ):
+        return True
+    if len(normalized) <= 40 and not _extract_brand(question) and not _extract_codes(question):
+        return _contains(
+            normalized,
+            "销量",
+            "销售",
+            "库存",
+            "在途",
+            "缺货",
+            "断码",
+            "补单",
+            "周转",
+            "成本",
+            "档案",
+            "商品信息",
+            "材质",
+            "颜色",
+            "尺码",
+            "年份",
+            "季节",
+            "品名",
+            "产品型号",
+        )
+    return False
+
+
+def _routing_question(
+    question: str,
+    *,
+    brand: str | None,
+    product_codes: list[str],
+    year: int | None,
+) -> str:
+    parts = [question]
+    if brand and not _extract_brand(question):
+        parts.append(BRAND_LABELS.get(brand, brand))
+    if product_codes and not _extract_codes(question):
+        parts.append("货号 " + ",".join(product_codes))
+    if year is not None and _extract_year(question) is None:
+        parts.append(f"{year}年")
+    return "；".join(parts)
+
+
+def _contextual_ai_question(
+    question: str,
+    context: dict[str, object],
+    *,
+    brand: str | None,
+    product_codes: list[str],
+    year: int | None,
+) -> str:
+    history = "\n".join(
+        f"- {item}" for item in context.get("questions", []) if isinstance(item, str)
+    )
+    resolved_conditions = []
+    if brand:
+        resolved_conditions.append(f"品牌={BRAND_LABELS.get(brand, brand)}")
+    if product_codes:
+        resolved_conditions.append("货号=" + ",".join(product_codes))
+    if year is not None:
+        resolved_conditions.append(f"年份={year}")
+    condition_text = "；".join(resolved_conditions) or "无可继承的结构化条件"
+    return (
+        "这是同一查询会话中的连续追问。当前追问明确给出的条件优先，"
+        "未明确替换的条件沿用历史问题。\n"
+        f"历史问题：\n{history}\n"
+        f"当前追问：{question}\n"
+        f"当前已解析条件：{condition_text}"
+    )
+
+
+def _context_codes_from_payload(payload: dict[str, object]) -> list[str]:
+    rows = payload.get("rows")
+    if not isinstance(rows, list):
+        return []
+    code_keys = (
+        "goods_code",
+        "product_code",
+        "sku",
+        "货号",
+        "商品货号",
+        "原始货号",
+        "款式编码",
+    )
+    codes: list[str] = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        for key in code_keys:
+            code = _clean_text(row.get(key)).upper()
+            if not code or not re.fullmatch(r"[A-Z0-9-]{3,64}", code):
+                continue
+            if code not in codes:
+                codes.append(code)
+            if len(codes) >= MAX_QUERY_CONTEXT_CODES:
+                return codes
+    return codes
+
+
+def _response_query_context(
+    *,
+    question: str,
+    previous_context: dict[str, object],
+    used_previous: bool,
+    brand: str | None,
+    product_codes: list[str],
+    year: int | None,
+    intent: str,
+    payload: dict[str, object],
+) -> dict[str, object]:
+    previous_questions = previous_context.get("questions") if used_previous else []
+    questions = [
+        *(
+            [item for item in previous_questions if isinstance(item, str)]
+            if isinstance(previous_questions, list)
+            else []
+        ),
+        question,
+    ][-MAX_QUERY_CONTEXT_QUESTIONS:]
+    result_codes = _context_codes_from_payload(payload)
+    return {
+        "questions": questions,
+        "brand": brand,
+        "product_codes": result_codes or product_codes[:MAX_QUERY_CONTEXT_CODES],
+        "year": year,
+        "intent": intent,
+        "used_previous": used_previous,
+    }
 
 
 def _historical_order_summary_spec(question: str) -> dict[str, object] | None:
@@ -1006,25 +1193,101 @@ def query_with_natural_language(request: Request, body: dict):
             detail="智能查询仅允许读取数据，不支持新增、编辑、删除、导入或更新操作",
         )
 
-    intent = _intent_for(question)
-    brand = _extract_brand(question)
-    codes = _extract_codes(question)
-    year = _extract_year(question)
+    query_context = _sanitize_query_context(body.get("context"))
+    used_previous_context = _is_contextual_followup(question, query_context)
+    explicit_brand = _extract_brand(question)
+    explicit_codes = _extract_codes(question)
+    explicit_year = _extract_year(question)
+    inherited_brand = (
+        _clean_text(query_context.get("brand")) or None
+        if used_previous_context
+        else None
+    )
+    brand = explicit_brand or inherited_brand
+    brand_changed = bool(
+        explicit_brand and inherited_brand and explicit_brand != inherited_brand
+    )
+    inherited_codes = query_context.get("product_codes")
+    codes = explicit_codes or (
+        [str(code) for code in inherited_codes]
+        if used_previous_context and not brand_changed and isinstance(inherited_codes, list)
+        else []
+    )
+    inherited_year = query_context.get("year")
+    year = explicit_year or (
+        int(inherited_year)
+        if used_previous_context and isinstance(inherited_year, int)
+        else None
+    )
+    routing_question = _routing_question(
+        question,
+        brand=brand,
+        product_codes=codes,
+        year=year,
+    )
+    intent = _intent_for(routing_question)
+    has_archive_focus = _contains(
+        question,
+        "商品档案",
+        "商品信息",
+        "基础信息",
+        "成本",
+        "材质",
+        "颜色",
+        "尺码组",
+        "品名",
+        "产品型号",
+        "工厂货号",
+        "上市日期",
+    )
+    requires_contextual_ai_sql = used_previous_context and _contains(
+        question,
+        "汇总",
+        "统计",
+        "对比",
+        "占比",
+        "趋势",
+        "分组",
+        "分别",
+    )
+    if (
+        used_previous_context
+        and intent == "product_archive"
+        and not has_archive_focus
+        and not requires_contextual_ai_sql
+        and _clean_text(query_context.get("intent")) in {
+            "product_goods",
+            "factory_channel",
+            "historical_order_summary",
+        }
+    ):
+        intent = _clean_text(query_context.get("intent"))
+    ai_question = (
+        _contextual_ai_question(
+            question,
+            query_context,
+            brand=brand,
+            product_codes=codes,
+            year=year,
+        )
+        if used_previous_context
+        else question
+    )
     current_user = getattr(request.state, "current_user", None)
     brand_clarification = None
     if intent in {"product_goods", "product_archive"} and codes and not brand:
         brand, brand_clarification = _resolve_brand(
             request,
-            question,
+            routing_question,
             codes[0],
             brand,
         )
     use_business_rules = _should_use_business_rules(
-        question,
+        routing_question,
         intent,
         brand,
         codes,
-    )
+    ) and not requires_contextual_ai_sql
     if brand_clarification:
         payload = brand_clarification
     elif (
@@ -1032,31 +1295,60 @@ def query_with_natural_language(request: Request, body: dict):
         and _can_use_ai_query(current_user)
         and not use_business_rules
     ):
-        payload = _run_ai_sql(request, question, _permission_set(current_user))
+        payload = _run_ai_sql(request, ai_question, _permission_set(current_user))
     else:
         payload = _base_response(question, intent)
         payload["conditions"] = ([ _condition("品牌", BRAND_LABELS.get(brand, brand)) ] if brand else [])
 
         if intent == "task_status":
-            payload = _run_task_status(request, question, payload)
+            payload = _run_task_status(request, routing_question, payload)
         elif intent == "historical_order_summary":
             payload = _run_historical_order_summary(
                 request,
-                question,
+                routing_question,
                 payload,
                 brand,
             )
         elif intent == "factory_channel":
-            payload = _run_factory_channel(request, question, payload, brand, year)
+            payload = _run_factory_channel(request, routing_question, payload, brand, year)
         else:
-            resolved_brand, clarification = _resolve_brand(request, question, codes[0] if codes else None, brand)
+            resolved_brand, clarification = _resolve_brand(
+                request,
+                routing_question,
+                codes[0] if codes else None,
+                brand,
+            )
             if clarification:
                 payload = clarification
             elif intent == "product_goods":
-                payload = _run_product_goods(request, question, payload, resolved_brand, codes)
+                payload = _run_product_goods(
+                    request,
+                    routing_question,
+                    payload,
+                    resolved_brand,
+                    codes,
+                )
             else:
-                payload = _run_product_archive(request, question, payload, resolved_brand, codes)
+                payload = _run_product_archive(
+                    request,
+                    routing_question,
+                    payload,
+                    resolved_brand,
+                    codes,
+                )
+            brand = resolved_brand
 
+    payload["question"] = question
+    payload["context"] = _response_query_context(
+        question=question,
+        previous_context=query_context,
+        used_previous=used_previous_context,
+        brand=brand,
+        product_codes=codes,
+        year=year,
+        intent=intent,
+        payload=payload,
+    )
     payload = jsonable_encoder(payload)
     request.app.state.auth_repository.add_ai_query_history(
         _current_user_id(request),
@@ -1077,6 +1369,7 @@ def query_with_natural_language(request: Request, body: dict):
             "row_count": len(payload.get("rows") or []),
             "query_mode": payload.get("query_mode"),
             "generated_sql": payload.get("generated_sql"),
+            "used_query_context": used_previous_context,
         },
     )
     return payload
