@@ -927,6 +927,23 @@ export type ImportResult = {
   message: string
 }
 
+export async function downloadProductImportTemplate() {
+  const response = await fetch(`${API_PREFIX}/import/template`, {
+    credentials: "include",
+  })
+  if (!response.ok) {
+    throw new ApiError(response.status, await readApiError(response))
+  }
+
+  const filename = filenameFromContentDisposition(
+    response.headers.get("content-disposition"),
+    "商品信息档案导入模板.xlsx"
+  )
+  const blob = await response.blob()
+  downloadBlob(blob, filename)
+  return { filename, size: blob.size }
+}
+
 export function importProducts(
   brand: ProductArchiveRecordBrandKey,
   file: File

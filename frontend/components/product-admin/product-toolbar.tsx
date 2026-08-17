@@ -1,12 +1,12 @@
 "use client"
 
 import { useEffect, useRef, useState } from "react"
-import { History, ImagePlus, Trash2 } from "lucide-react"
+import { FileDown, History, ImagePlus, Trash2 } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
 import { type ProductArchiveBrandKey } from "@/lib/brands"
-import { assertProductExportAllowed, downloadProductExport, getProductImageRefreshStatus, importProducts, refreshProductImages, type ProductExportProgress } from "@/lib/api"
+import { assertProductExportAllowed, downloadProductExport, downloadProductImportTemplate, getProductImageRefreshStatus, importProducts, refreshProductImages, type ProductExportProgress } from "@/lib/api"
 import type { ProductImageRefreshStatus } from "@/lib/types"
 
 type ProductToolbarProps = {
@@ -70,6 +70,7 @@ export function ProductToolbar({
   const fileInputRef = useRef<HTMLInputElement>(null)
   const submittedImageRefreshAtRef = useRef<number | null>(null)
   const [importing, setImporting] = useState(false)
+  const [downloadingTemplate, setDownloadingTemplate] = useState(false)
   const [refreshingImages, setRefreshingImages] = useState(false)
   const [exporting, setExporting] = useState(false)
   const [exportingMode, setExportingMode] = useState<"default" | "with_sizes" | "today" | "today_with_sizes" | null>(null)
@@ -175,6 +176,17 @@ export function ProductToolbar({
 
     onClear()
     onImportComplete(importedSkus)
+  }
+
+  const handleDownloadTemplate = async () => {
+    setDownloadingTemplate(true)
+    try {
+      await downloadProductImportTemplate()
+    } catch (error) {
+      onMessage("下载失败", error instanceof Error ? error.message : "下载导入模板时发生错误，请重试")
+    } finally {
+      setDownloadingTemplate(false)
+    }
   }
 
   const handleRefreshImages = async () => {
@@ -344,6 +356,10 @@ export function ProductToolbar({
               <div className="flex-1" />
               {canImport ? (
                 <>
+                  <Button type="button" variant="outline" size="sm" onClick={() => void handleDownloadTemplate()} disabled={downloadingTemplate || importing} className="cursor-pointer">
+                    <FileDown className="h-3.5 w-3.5" />
+                    {downloadingTemplate ? "下载中..." : "下载导入模板"}
+                  </Button>
                   <Button type="button" variant="outline" size="sm" onClick={() => fileInputRef.current?.click()} disabled={importing} className="cursor-pointer">
                     {importing ? "导入中..." : "导入 Excel"}
                   </Button>

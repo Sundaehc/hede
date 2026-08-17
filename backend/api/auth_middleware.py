@@ -29,6 +29,8 @@ def required_permission_for_request(method: str, path: str) -> str | tuple[str, 
         return "product.view" if method == "GET" else "product.manage"
     if path == "/export":
         return "product.export"
+    if path == "/import/template":
+        return "product.import"
     if path == "/import":
         return "product.import"
     if path.startswith("/images/refresh-product-images"):

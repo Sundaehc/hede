@@ -16,6 +16,7 @@ from openpyxl.cell import WriteOnlyCell
 from openpyxl.cell.cell import ILLEGAL_CHARACTERS_RE
 from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
+from openpyxl.worksheet.datavalidation import DataValidation
 from sqlalchemy import and_, desc, or_, select
 
 from api.excel_export import DEFAULT_WIDTH_BY_HEADER, style_excel_worksheet
@@ -248,6 +249,73 @@ def _excel_streaming_response(buf: io.BytesIO, filename: str) -> StreamingRespon
             "Content-Length": str(buf.getbuffer().nbytes),
         },
     )
+
+
+def _build_product_import_template() -> io.BytesIO:
+    headers = [EXPORT_LABELS.get(column, column) for column in EXPORT_COLUMNS]
+    workbook = Workbook()
+    worksheet = workbook.active
+    worksheet.title = "商品导入模板"
+    worksheet.append(headers)
+    style_excel_worksheet(
+        worksheet,
+        text_headers=set(headers),
+        width_by_header={
+            "货号": 22,
+            "原始货号": 22,
+            "品名": 20,
+            "供应商名": 22,
+            "条码构成逻辑": 24,
+            "尺码段": 18,
+            "鞋面材质": 24,
+            "卖点": 36,
+        },
+    )
+
+    choice_fill = PatternFill("solid", fgColor="FFF2CC")
+    required_fill = PatternFill("solid", fgColor="FCE8E6")
+    for header in ("货号", "原始货号"):
+        worksheet.cell(row=1, column=headers.index(header) + 1).fill = choice_fill
+
+    barcode_column = headers.index("条码构成逻辑") + 1
+    worksheet.cell(row=1, column=barcode_column).fill = required_fill
+    barcode_validation = DataValidation(
+        type="list",
+        formula1='"货号+颜色代码+尺码,货号+尺码"',
+        allow_blank=False,
+    )
+    barcode_validation.error = "请选择模板提供的条码构成逻辑"
+    barcode_validation.errorTitle = "条码构成逻辑不正确"
+    barcode_validation.promptTitle = "条码构成逻辑"
+    barcode_validation.prompt = "请选择一种条码构成逻辑；固定规则品牌会由系统自动校正"
+    barcode_validation.showErrorMessage = True
+    barcode_validation.showInputMessage = True
+    worksheet.add_data_validation(barcode_validation)
+    barcode_validation.add(
+        f"{get_column_letter(barcode_column)}2:{get_column_letter(barcode_column)}5000"
+    )
+
+    instructions = workbook.create_sheet("填写说明")
+    instructions.append(["项目", "填写要求", "说明", "示例"])
+    instructions.append(["适用品牌", "全部品牌", "本模板可用于所有商品信息档案品牌，实际导入品牌由页面当前选中的Tab决定", "千百度男鞋"])
+    instructions.append(["货号/原始货号", "至少填写一项", "黄色表头的两列至少填写一项；同时填写时优先按货号匹配", "QC153883D54"])
+    instructions.append(["条码构成逻辑", "下拉选择", "千百度男鞋、千百度女鞋、伊伴固定为货号+颜色代码+尺码；笑脸、NI及KT开头货号固定为货号+尺码；其他品牌按填写值", "货号+颜色代码+尺码"])
+    instructions.append(["供应商名", "按需填写", "更新已有商品时，导入供应商必须与档案中的现有供应商一致", "温州示例鞋业"])
+    instructions.append(["尺码段", "按需填写", "填写的尺码段名称必须已存在于尺码组管理中", "女鞋34-40"])
+    instructions.append(["空白单元格", "无需填写", "更新已有商品时，空白单元格不会清空档案中的原值", ""])
+    instructions.append(["图片", "无需填写", "图片不通过模板导入，系统按货号或原始货号从品牌图片目录自动匹配", ""])
+    instructions.append(["导入结果", "整批校验", "任意一行校验失败时整份文件不写入，请根据错误行修正后重新导入", ""])
+    style_excel_worksheet(
+        instructions,
+        width_by_header={"项目": 18, "填写要求": 18, "说明": 64, "示例": 28},
+        auto_filter=False,
+    )
+    instructions.column_dimensions["C"].width = 64
+
+    buffer = io.BytesIO()
+    workbook.save(buffer)
+    buffer.seek(0)
+    return buffer
 
 
 def _export_all_products(
@@ -1035,6 +1103,24 @@ def check_export_products(
     repository = request.app.state.repository
     _validate_product_export_request(repository, brand, mode)
     return Response(status_code=200)
+
+
+@router.get("/import/template")
+def download_product_import_template(
+    request: Request,
+):
+    filename = "商品信息档案通用导入模板.xlsx"
+    buffer = _build_product_import_template()
+    write_operation_log(
+        request,
+        module="product",
+        action="export",
+        entity_type="product_import_template",
+        entity_label="通用导入模板",
+        summary="下载商品信息档案通用导入模板",
+        after_data={"filename": filename},
+    )
+    return _excel_streaming_response(buffer, filename)
 
 
 def _finish_product_import(

@@ -3,9 +3,25 @@ from __future__ import annotations
 import io
 
 from fastapi.testclient import TestClient
-from openpyxl import Workbook
+from openpyxl import Workbook, load_workbook
 
+from api.routes.import_export import _build_product_import_template
 from transform.rows import build_admin_record
+
+
+def test_product_import_template_workbook_contains_headers_and_guidance():
+    buffer = _build_product_import_template()
+    workbook = load_workbook(buffer)
+    worksheet = workbook["商品导入模板"]
+    headers = [cell.value for cell in worksheet[1]]
+
+    assert headers[:4] == ["货号", "原始货号", "品名", "组别"]
+    assert "供应商名" in headers
+    assert "条码构成逻辑" in headers
+    assert "图片" not in headers
+    assert "实际导入品牌由页面当前选中的Tab决定" in workbook["填写说明"]["C2"].value
+    assert workbook["填写说明"]["C3"].value.startswith("黄色表头")
+    assert len(worksheet.data_validations.dataValidation) == 1
 
 
 def test_get_products_returns_paginated_rows(test_app_client: TestClient, repository):
@@ -451,3 +467,27 @@ def test_import_products_requires_barcode_build_rule_when_no_fixed_rule(
     assert "BARCODE-RULE-REQUIRED" in response.json()["detail"]
     assert "未填写条码构成逻辑" in response.json()["detail"]
     assert repository.find_by_sku("yandou", "BARCODE-RULE-REQUIRED") is None
+
+
+def test_download_product_import_template_matches_supported_import_fields(
+    test_app_client: TestClient,
+):
+    response = test_app_client.get(
+        "/import/template",
+    )
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith(
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
+    assert "filename*=UTF-8''" in response.headers["content-disposition"]
+
+    workbook = load_workbook(io.BytesIO(response.content))
+    worksheet = workbook["商品导入模板"]
+    headers = [cell.value for cell in worksheet[1]]
+    assert headers[:4] == ["货号", "原始货号", "品名", "组别"]
+    assert "供应商名" in headers
+    assert "条码构成逻辑" in headers
+    assert "图片" not in headers
+    assert workbook["填写说明"]["C3"].value.startswith("黄色表头")
+    assert len(worksheet.data_validations.dataValidation) == 1
