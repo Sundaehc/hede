@@ -1,11 +1,14 @@
 from types import SimpleNamespace
 
+import pytest
+from fastapi import HTTPException
 from sqlalchemy.exc import SQLAlchemyError
 
-from domain.ai_sql_query import AiSqlPlan, AiSqlQueryError
+from domain.ai_sql_query import AiSqlPlan, AiSqlQueryError, AiSqlTimeoutError
 from api.routes import ai_query
 from api.routes.ai_query import (
     _can_use_ai_query,
+    _current_inventory_summary_spec,
     _extract_brand,
     _extract_codes,
     _extract_year,
@@ -449,11 +452,75 @@ def test_standard_queries_use_fast_business_rules_and_complex_queries_use_ai():
         [],
     )
 
+    inventory_question = "2026年千百度女鞋春季款的库存数量"
+    assert _current_inventory_summary_spec(inventory_question) == {
+        "year": 2026,
+        "season_label": "春季款",
+        "year_label": "26年春季款",
+    }
+    assert _should_use_business_rules(
+        inventory_question,
+        "product_goods",
+        "cbanner_womens",
+        [],
+    )
+
 
 def test_recent_sales_ranking_supports_numeric_and_default_limits():
     assert _recent_sales_ranking_spec("千百度女鞋近14天销量前20") == (14, 20)
     assert _recent_sales_ranking_spec("千百度女鞋周销量排行") == (7, 10)
     assert _recent_sales_ranking_spec("千百度女鞋月销量前十") is None
+
+
+def test_current_inventory_summary_uses_fast_business_path(monkeypatch):
+    calls = []
+
+    def _get_summary(request, **kwargs):
+        calls.append(kwargs)
+        return {
+            "year_label": "26年春季款",
+            "product_count": 2058,
+            "matched_product_count": 1495,
+            "stock_total": 72524,
+            "in_transit_total": 1857,
+            "inventory_total": 74381,
+            "source_as_of_date": "2026-07-23",
+        }
+
+    monkeypatch.setattr(ai_query, "get_current_inventory_summary", _get_summary)
+    monkeypatch.setattr(
+        ai_query,
+        "list_product_goods",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("季节款库存汇总不应加载完整货品表")
+        ),
+    )
+    request = SimpleNamespace(
+        state=SimpleNamespace(current_user={"permissions": ["product.view"]})
+    )
+
+    payload = _run_product_goods(
+        request,
+        "2026年千百度女鞋春季款的库存数量",
+        ai_query._base_response(
+            "2026年千百度女鞋春季款的库存数量",
+            "product_goods",
+        ),
+        "cbanner_womens",
+        [],
+    )
+
+    assert calls == [
+        {"brand": "cbanner_womens", "year_label": "26年春季款"}
+    ]
+    assert payload["query_mode"] == "business_rules"
+    assert payload["metrics"][2]["value"] == 74381
+    assert payload["data_as_of"] == [
+        {"label": "库存数据日期", "value": "2026-07-23"}
+    ]
+    assert payload["warnings"] == [
+        "库存源最新成功更新日期为 2026-07-23，并非今天数据。"
+    ]
 
 
 def test_seasonal_category_sales_ranking_supports_compact_top_wording():
@@ -822,6 +889,76 @@ def test_ai_sql_retries_once_with_validation_feedback(monkeypatch):
     assert any("自动修正" in warning for warning in payload["warnings"])
 
 
+def test_ai_sql_preflight_optimizes_before_database_execution(monkeypatch):
+    settings = SimpleNamespace(
+        ai_api_key="test-key",
+        ai_provider="custom",
+        ai_base_url="https://example.test/v1",
+        ai_model="custom-model",
+        ai_sql_max_rows=100,
+        ai_timeout_seconds=180,
+        ai_sql_preflight_enabled=True,
+        ai_sql_explain_timeout_seconds=5,
+        ai_sql_max_plan_cost=2_000_000,
+        ai_sql_max_plan_rows=10_000_000,
+    )
+    permissions = {"fine_table.view", "ai_query.view"}
+    cache_key = tuple(sorted(permissions))
+    state = SimpleNamespace(
+        settings=settings,
+        repository=SimpleNamespace(engine=object()),
+        ai_sql_schema_cache={
+            cache_key: "public.v_jst_daily_sales (net_sales_quantity integer)"
+        },
+    )
+    request = SimpleNamespace(app=SimpleNamespace(state=state))
+    generated_calls = []
+    plans = iter(
+        [
+            AiSqlPlan(
+                sql="SELECT * FROM v_jst_daily_sales",
+                title="首次",
+                summary="首次",
+                warnings=[],
+            ),
+            AiSqlPlan(
+                sql="SELECT SUM(net_sales_quantity) AS 销量 FROM v_jst_daily_sales",
+                title="优化",
+                summary="优化",
+                warnings=[],
+            ),
+        ]
+    )
+    assessed_sql = []
+    executed_sql = []
+
+    def _generate_plan(**kwargs):
+        generated_calls.append(kwargs)
+        return next(plans)
+
+    def _assess_plan(engine, sql, **kwargs):
+        assessed_sql.append(sql)
+        if len(assessed_sql) == 1:
+            raise AiSqlQueryError("查询计划预计处理的数据量过大")
+        return SimpleNamespace()
+
+    def _execute_readonly_sql(engine, sql, **kwargs):
+        executed_sql.append(sql)
+        return ["销量"], [{"销量": 12}], False
+
+    monkeypatch.setattr(ai_query, "generate_plan", _generate_plan)
+    monkeypatch.setattr(ai_query, "assess_readonly_sql_plan", _assess_plan)
+    monkeypatch.setattr(ai_query, "execute_readonly_sql", _execute_readonly_sql)
+
+    payload = ai_query._run_ai_sql(request, "查询复杂销量汇总", permissions)
+
+    assert len(generated_calls) == 2
+    assert len(assessed_sql) == 2
+    assert executed_sql == [assessed_sql[1]]
+    assert "查询计划预计处理的数据量过大" in generated_calls[1]["correction_error"]
+    assert any("查询计划优化" in warning for warning in payload["warnings"])
+
+
 def test_ai_sql_retries_once_when_database_execution_fails(monkeypatch):
     settings = SimpleNamespace(
         ai_api_key="test-key",
@@ -882,6 +1019,53 @@ def test_ai_sql_retries_once_when_database_execution_fails(monkeypatch):
     assert "missing_column" in generated_calls[1]["correction_error"]
     assert payload["generated_sql"] == execution_calls[1]
     assert any("自动修正" in warning for warning in payload["warnings"])
+
+
+def test_ai_sql_timeout_stops_without_second_generation(monkeypatch):
+    settings = SimpleNamespace(
+        ai_api_key="test-key",
+        ai_provider="custom",
+        ai_base_url="https://example.test/v1",
+        ai_model="custom-model",
+        ai_sql_max_rows=100,
+        ai_timeout_seconds=180,
+    )
+    permissions = {"fine_table.view", "ai_query.view"}
+    cache_key = tuple(sorted(permissions))
+    state = SimpleNamespace(
+        settings=settings,
+        repository=SimpleNamespace(engine=object()),
+        ai_sql_schema_cache={
+            cache_key: "public.v_jst_daily_sales (net_sales_quantity integer)"
+        },
+    )
+    request = SimpleNamespace(app=SimpleNamespace(state=state))
+    generated_calls = []
+    execution_calls = []
+
+    def _generate_plan(**kwargs):
+        generated_calls.append(kwargs)
+        return AiSqlPlan(
+            sql="SELECT net_sales_quantity FROM v_jst_daily_sales",
+            title="销量",
+            summary="销量查询",
+            warnings=[],
+        )
+
+    def _execute_readonly_sql(engine, sql, **kwargs):
+        execution_calls.append(sql)
+        raise AiSqlTimeoutError("查询执行超过 180 秒")
+
+    monkeypatch.setattr(ai_query, "generate_plan", _generate_plan)
+    monkeypatch.setattr(ai_query, "execute_readonly_sql", _execute_readonly_sql)
+
+    with pytest.raises(HTTPException) as error:
+        ai_query._run_ai_sql(request, "查询复杂销量汇总", permissions)
+
+    assert error.value.status_code == 408
+    assert "超过 180 秒" in error.value.detail
+    assert len(generated_calls) == 1
+    assert len(execution_calls) == 1
 
 
 def test_ai_sql_reuses_validated_plan_and_requeries_current_data(monkeypatch):

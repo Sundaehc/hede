@@ -13,6 +13,7 @@ from api.operation_log_utils import write_operation_log
 from api.routes.auth import user_has_permission
 from api.routes.product_goods import (
     get_factory_channel_dashboard,
+    get_current_inventory_summary,
     get_historical_order_category_monthly_summary,
     get_recent_sales_ranking,
     get_seasonal_category_sales_ranking,
@@ -25,6 +26,8 @@ from domain.ai_sql_query import (
     AiProviderError,
     AiSqlPlan,
     AiSqlQueryError,
+    AiSqlTimeoutError,
+    assess_readonly_sql_plan,
     build_database_schema,
     execute_readonly_sql,
     generate_plan,
@@ -448,6 +451,44 @@ def _seasonal_category_sales_ranking_spec(question: str) -> dict[str, object] | 
     return None
 
 
+def _current_inventory_summary_spec(question: str) -> dict[str, object] | None:
+    normalized = question.lower()
+    if not _contains(normalized, "库存", "在仓", "在途"):
+        return None
+    if _contains(
+        normalized,
+        "销量",
+        "销售",
+        "排行",
+        "前十",
+        "top",
+        "历史",
+        "快照",
+        "趋势",
+        "对比",
+        "尺码",
+    ):
+        return None
+    year = _extract_year(question)
+    if year is None:
+        return None
+    season_label = next(
+        (
+            label
+            for label in ("春季款", "夏季款", "秋季款", "冬季款")
+            if label in question
+        ),
+        None,
+    )
+    if season_label is None:
+        return None
+    return {
+        "year": year,
+        "season_label": season_label,
+        "year_label": f"{year % 100:02d}年{season_label}",
+    }
+
+
 def _should_use_business_rules(
     question: str,
     intent: str,
@@ -466,6 +507,7 @@ def _should_use_business_rules(
             or _view_for(question) != "goods"
             or _recent_sales_ranking_spec(question) is not None
             or _seasonal_category_sales_ranking_spec(question) is not None
+            or _current_inventory_summary_spec(question) is not None
         )
     if intent == "product_archive":
         return bool(brand and codes)
@@ -641,6 +683,74 @@ def _run_product_goods(request: Request, question: str, payload: dict[str, objec
         raise HTTPException(status_code=403, detail="当前账户没有货品表查询权限")
     if brand not in GOODS_BRANDS:
         return _clarification(question, "货品表初版支持千百度男鞋、千百度女鞋、烟斗和伊伴，请指定其中一个品牌。", intent="product_goods")
+    inventory_summary_spec = _current_inventory_summary_spec(question)
+    if inventory_summary_spec is not None and not codes:
+        result = get_current_inventory_summary(
+            request,
+            brand=brand,
+            year_label=str(inventory_summary_spec["year_label"]),
+        )
+        year = int(inventory_summary_spec["year"])
+        season_label = str(inventory_summary_spec["season_label"])
+        year_label = str(result.get("year_label") or inventory_summary_spec["year_label"])
+        stock_date = _clean_text(result.get("source_as_of_date"))
+        product_count = int(result.get("product_count") or 0)
+        matched_product_count = int(result.get("matched_product_count") or 0)
+        stock_total = int(result.get("stock_total") or 0)
+        in_transit_total = int(result.get("in_transit_total") or 0)
+        inventory_total = int(result.get("inventory_total") or 0)
+        warnings: list[str] = []
+        if stock_date and stock_date < date.today().isoformat():
+            warnings.append(f"库存源最新成功更新日期为 {stock_date}，并非今天数据。")
+        payload.update(
+            {
+                "title": f"{year}年{BRAND_LABELS.get(brand, brand)}{season_label}库存",
+                "summary": (
+                    f"商品档案共匹配 {product_count} 个商品，其中 {matched_product_count} 个在库存源中有记录。"
+                ),
+                "conditions": [
+                    _condition("品牌", BRAND_LABELS.get(brand, brand)),
+                    _condition("年份季节", year_label),
+                ],
+                "metrics": [
+                    {"label": "在仓库存", "value": stock_total, "tone": "emerald"},
+                    {"label": "在途库存", "value": in_transit_total, "tone": "orange"},
+                    {"label": "整体库存", "value": inventory_total, "tone": "blue"},
+                    {"label": "库存源命中商品", "value": matched_product_count, "tone": "slate"},
+                ],
+                "columns": [
+                    {"key": "year_season", "label": "年份季节"},
+                    {"key": "product_count", "label": "档案商品数", "type": "number"},
+                    {"key": "matched_product_count", "label": "库存源命中商品", "type": "number"},
+                    {"key": "stock_total", "label": "在仓库存", "type": "number"},
+                    {"key": "in_transit_total", "label": "在途库存", "type": "number"},
+                    {"key": "inventory_total", "label": "整体库存", "type": "number"},
+                ],
+                "rows": [
+                    {
+                        "year_season": year_label,
+                        "product_count": product_count,
+                        "matched_product_count": matched_product_count,
+                        "stock_total": stock_total,
+                        "in_transit_total": in_transit_total,
+                        "inventory_total": inventory_total,
+                    }
+                ],
+                "data_as_of": (
+                    [{"label": "库存数据日期", "value": stock_date}]
+                    if stock_date
+                    else []
+                ),
+                "sources": ["商品信息档案", "聚水潭全量库存"],
+                "warnings": warnings,
+                "link": {
+                    "label": "打开商品货品表",
+                    "href": f"/product-goods?brand={brand}&year={year_label}&view=goods",
+                },
+                "suggestions": [],
+            }
+        )
+        return payload
     seasonal_ranking_spec = _seasonal_category_sales_ranking_spec(question)
     if seasonal_ranking_spec is not None and not codes:
         result = get_seasonal_category_sales_ranking(
@@ -1038,6 +1148,18 @@ def _run_ai_sql(
 
     max_rows = int(getattr(settings, "ai_sql_max_rows", 500))
     timeout_seconds = int(getattr(settings, "ai_timeout_seconds", 30))
+    preflight_enabled = bool(
+        getattr(settings, "ai_sql_preflight_enabled", False)
+    )
+    explain_timeout_seconds = int(
+        getattr(settings, "ai_sql_explain_timeout_seconds", 5)
+    )
+    max_plan_cost = int(
+        getattr(settings, "ai_sql_max_plan_cost", 2_000_000)
+    )
+    max_plan_rows = int(
+        getattr(settings, "ai_sql_max_plan_rows", 10_000_000)
+    )
     plan_cache = getattr(request.app.state, "ai_sql_plan_cache", None)
     if not isinstance(plan_cache, dict):
         plan_cache = {}
@@ -1065,6 +1187,9 @@ def _run_ai_sql(
                     allowed_tables=schema_table_names(schema),
                     question=question,
                 )
+            except AiSqlTimeoutError:
+                plan_cache.pop(plan_cache_key, None)
+                raise
             except (AiSqlQueryError, SQLAlchemyError):
                 plan_cache.pop(plan_cache_key, None)
                 plan = None
@@ -1087,6 +1212,17 @@ def _run_ai_sql(
                     if not plan.sql:
                         detail = plan.warnings[0] if plan.warnings else "AI 无法根据当前问题生成查询 SQL"
                         raise AiSqlQueryError(detail)
+                    if preflight_enabled:
+                        assess_readonly_sql_plan(
+                            engine,
+                            plan.sql,
+                            max_rows=max_rows,
+                            timeout_seconds=explain_timeout_seconds,
+                            max_plan_cost=max_plan_cost,
+                            max_plan_rows=max_plan_rows,
+                            allowed_tables=schema_table_names(schema),
+                            question=question,
+                        )
                     columns, rows, truncated = execute_readonly_sql(
                         engine,
                         plan.sql,
@@ -1100,6 +1236,9 @@ def _run_ai_sql(
                     while len(plan_cache) > 128:
                         plan_cache.pop(next(iter(plan_cache)))
                     break
+                except AiSqlTimeoutError:
+                    plan_cache.pop(plan_cache_key, None)
+                    raise
                 except (AiSqlQueryError, SQLAlchemyError) as exc:
                     if attempt > 0:
                         raise
@@ -1111,6 +1250,8 @@ def _run_ai_sql(
                         correction_error = str(exc)
     except AiProviderError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
+    except AiSqlTimeoutError as exc:
+        raise HTTPException(status_code=408, detail=str(exc)) from exc
     except AiSqlQueryError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     except SQLAlchemyError as exc:
@@ -1130,7 +1271,7 @@ def _run_ai_sql(
     if used_cached_plan:
         warnings.append("已复用校验通过的查询计划，数据已按当前数据库重新查询。")
     if corrected:
-        warnings.append("首次 SQL 未通过业务口径校验，系统已自动修正后执行。")
+        warnings.append("首次 SQL 未通过业务口径或执行计划检查，系统已自动修正并完成查询计划优化后执行。")
     if truncated:
         warnings.append(f"结果超过 {max_rows} 行，当前仅展示前 {max_rows} 行。")
     warnings.append(f"数据库执行超时为 {timeout_seconds} 秒。")

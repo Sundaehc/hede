@@ -5,6 +5,9 @@ import pytest
 from domain import ai_sql_query
 from domain.ai_sql_query import (
     AiSqlQueryError,
+    AiSqlTimeoutError,
+    assess_readonly_sql_plan,
+    build_database_schema,
     execute_readonly_sql,
     expand_permission_views,
     is_mutation_request,
@@ -12,6 +15,39 @@ from domain.ai_sql_query import (
     table_allowed_for_permissions,
     validate_readonly_sql,
 )
+
+
+class _SchemaResult:
+    def __init__(self, rows):
+        self.rows = rows
+
+    def mappings(self):
+        return self.rows
+
+
+class _SchemaContext:
+    def __init__(self, value):
+        self.value = value
+
+    def __enter__(self):
+        return self.value
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        return False
+
+
+class _SchemaEngine:
+    def __init__(self, rows):
+        self.rows = rows
+
+    def connect(self):
+        engine = self
+
+        class _Connection:
+            def execute(self, statement):
+                return _SchemaResult(engine.rows)
+
+        return _SchemaContext(_Connection())
 
 
 @pytest.mark.parametrize(
@@ -78,6 +114,68 @@ def test_schema_for_question_limits_product_sales_and_stock_tables():
     assert "product_goods_shop_channel_mappings" in filtered
     assert "jst_full_stock" in filtered
     assert "inventory_records" not in filtered
+    assert "scheduled_task_statuses" not in filtered
+
+
+def test_database_schema_includes_field_meanings_and_keeps_permission_filtering():
+    engine = _SchemaEngine(
+        [
+            {
+                "table_schema": "public",
+                "table_name": "cbanner_womens_products",
+                "column_name": "sku",
+                "data_type": "text",
+            },
+            {
+                "table_schema": "public",
+                "table_name": "cbanner_womens_products",
+                "column_name": "unknown_field",
+                "data_type": "text",
+            },
+            {
+                "table_schema": "public",
+                "table_name": "inventory_records",
+                "column_name": "document_number",
+                "data_type": "text",
+            },
+        ]
+    )
+
+    schema = build_database_schema(
+        engine,
+        permissions={"product.view", "ai_query.view"},
+    )
+
+    assert "sku text [含义：商品档案当前基础货号" in schema
+    assert "unknown_field text" in schema
+    assert "unknown_field text [含义" not in schema
+    assert "[表用途：千百度女鞋商品档案" in schema
+    assert "inventory_records" not in schema
+
+
+def test_database_schema_descriptions_survive_question_level_trimming():
+    engine = _SchemaEngine(
+        [
+            {
+                "table_schema": "public",
+                "table_name": "v_jst_daily_sales",
+                "column_name": "net_sales_quantity",
+                "data_type": "integer",
+            },
+            {
+                "table_schema": "public",
+                "table_name": "scheduled_task_statuses",
+                "column_name": "status",
+                "data_type": "text",
+            },
+        ]
+    )
+    full_schema = build_database_schema(engine, permissions={"*"})
+
+    filtered = schema_for_question(full_schema, "查询近7天销量")
+
+    assert "净销量" in filtered
+    assert "v_jst_daily_sales" in filtered
     assert "scheduled_task_statuses" not in filtered
 
 
@@ -265,6 +363,149 @@ def test_execute_sql_with_percent_literal_uses_sqlalchemy_text():
     assert columns == ["渠道"]
     assert rows == [{"渠道": "唯品"}]
     assert truncated is False
+
+
+def test_execute_sql_converts_database_statement_timeout_to_query_timeout():
+    class _Context:
+        def __init__(self, value):
+            self.value = value
+
+        def __enter__(self):
+            return self.value
+
+        def __exit__(self, exc_type, exc_value, traceback):
+            return False
+
+    class _Connection:
+        def begin(self):
+            return _Context(None)
+
+        def exec_driver_sql(self, statement):
+            return None
+
+        def execute(self, statement):
+            raise ai_sql_query.SQLAlchemyError(
+                "canceling statement due to statement timeout"
+            )
+
+    class _Engine:
+        def connect(self):
+            return _Context(_Connection())
+
+    with pytest.raises(AiSqlTimeoutError, match="超过 5 秒"):
+        execute_readonly_sql(
+            _Engine(),
+            "SELECT 1",
+            max_rows=10,
+            timeout_seconds=5,
+        )
+
+
+def test_query_plan_preflight_accepts_bounded_plan():
+    class _Result:
+        def scalar_one(self):
+            return [{
+                "Plan": {
+                    "Node Type": "Limit",
+                    "Total Cost": 1200,
+                    "Plan Rows": 101,
+                    "Plans": [
+                        {
+                            "Node Type": "Seq Scan",
+                            "Total Cost": 1100,
+                            "Plan Rows": 200_000,
+                        }
+                    ],
+                }
+            }]
+
+    class _Context:
+        def __init__(self, value):
+            self.value = value
+
+        def __enter__(self):
+            return self.value
+
+        def __exit__(self, exc_type, exc_value, traceback):
+            return False
+
+    class _Connection:
+        def begin(self):
+            return _Context(None)
+
+        def exec_driver_sql(self, statement):
+            return None
+
+        def execute(self, statement):
+            assert statement.text.startswith("EXPLAIN (FORMAT JSON)")
+            return _Result()
+
+    class _Engine:
+        def connect(self):
+            return _Context(_Connection())
+
+    estimate = assess_readonly_sql_plan(
+        _Engine(),
+        "SELECT 1 AS value",
+        max_rows=100,
+        timeout_seconds=5,
+        max_plan_cost=2_000_000,
+        max_plan_rows=10_000_000,
+    )
+
+    assert estimate.total_cost == 1200
+    assert estimate.max_plan_rows == 200_000
+    assert estimate.max_nested_loop_rows == 0
+
+
+def test_query_plan_preflight_rejects_large_nested_loop():
+    class _Result:
+        def scalar_one(self):
+            return [{
+                "Plan": {
+                    "Node Type": "Nested Loop",
+                    "Total Cost": 8_000_000,
+                    "Plan Rows": 2_000_000,
+                    "Plans": [
+                        {"Node Type": "Seq Scan", "Plan Rows": 2058},
+                        {"Node Type": "Seq Scan", "Plan Rows": 239_613},
+                    ],
+                }
+            }]
+
+    class _Context:
+        def __init__(self, value):
+            self.value = value
+
+        def __enter__(self):
+            return self.value
+
+        def __exit__(self, exc_type, exc_value, traceback):
+            return False
+
+    class _Connection:
+        def begin(self):
+            return _Context(None)
+
+        def exec_driver_sql(self, statement):
+            return None
+
+        def execute(self, statement):
+            return _Result()
+
+    class _Engine:
+        def connect(self):
+            return _Context(_Connection())
+
+    with pytest.raises(AiSqlQueryError, match="查询计划预计处理的数据量过大"):
+        assess_readonly_sql_plan(
+            _Engine(),
+            "SELECT 1 AS value",
+            max_rows=100,
+            timeout_seconds=5,
+            max_plan_cost=2_000_000,
+            max_plan_rows=10_000_000,
+        )
 
 
 def test_table_permissions_follow_existing_module_permissions():

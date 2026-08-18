@@ -51,6 +51,48 @@ def test_product_archive_query_requires_active_rows():
     assert tables == {"cbanner_womens_products"}
 
 
+def test_product_archive_year_season_uses_archive_display_label():
+    question = "2026年千百度女鞋春季款当前库存"
+    invalid_sql = """
+        SELECT SUM(stock.actual_stock_qty)
+        FROM cbanner_womens_products AS product
+        JOIN jst_full_stock AS stock
+          ON stock.product_code LIKE product.sku || '%'
+        WHERE product.deleted_at IS NULL
+          AND product.year = '2026'
+          AND product.season_category = '春季'
+          AND stock.sync_date = (SELECT MAX(sync_date) FROM jst_full_stock)
+    """
+    with pytest.raises(SemanticQueryError, match="26年春季款"):
+        validate_semantic_query(question, invalid_sql)
+
+    valid_sql = """
+        SELECT SUM(stock.actual_stock_qty)
+        FROM cbanner_womens_products AS product
+        JOIN jst_full_stock AS stock
+          ON stock.product_code LIKE product.sku || '%'
+        WHERE product.deleted_at IS NULL
+          AND product.year LIKE '%26年春季款%'
+          AND stock.sync_date = (SELECT MAX(sync_date) FROM jst_full_stock)
+    """
+    assert validate_semantic_query(question, valid_sql) == {
+        "cbanner_womens_products",
+        "jst_full_stock",
+    }
+
+
+def test_product_archive_season_label_cannot_use_season_category():
+    sql = """
+        SELECT sku
+        FROM cbanner_womens_products
+        WHERE deleted_at IS NULL
+          AND year LIKE '%春季款%'
+          AND season_category = '春季'
+    """
+    with pytest.raises(SemanticQueryError, match="season_category"):
+        validate_semantic_query("查询千百度女鞋春季款", sql)
+
+
 def test_jst_sales_uses_net_quantity_and_channel_mapping():
     with pytest.raises(SemanticQueryError):
         validate_semantic_query(

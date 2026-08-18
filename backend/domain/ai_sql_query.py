@@ -10,6 +10,7 @@ from decimal import Decimal
 from typing import Any
 
 from sqlalchemy import Engine, text
+from sqlalchemy.exc import SQLAlchemyError
 from sqlglot import exp, parse, parse_one
 from sqlglot.errors import ParseError
 
@@ -20,6 +21,7 @@ from domain.ai_query_semantics import (
     semantic_rules_for_question,
     validate_semantic_query,
 )
+from domain.ai_query_field_catalog import field_description, table_description
 
 
 PROTECTED_TABLES = {
@@ -110,12 +112,23 @@ class AiProviderError(AiSqlQueryError):
     pass
 
 
+class AiSqlTimeoutError(AiSqlQueryError):
+    pass
+
+
 @dataclass(frozen=True)
 class AiSqlPlan:
     sql: str
     title: str
     summary: str
     warnings: list[str]
+
+
+@dataclass(frozen=True)
+class AiSqlPlanEstimate:
+    total_cost: float
+    max_plan_rows: int
+    max_nested_loop_rows: int
 
 
 def is_mutation_request(question: str) -> bool:
@@ -218,13 +231,20 @@ def build_database_schema(
             ):
                 continue
             key = (str(row["table_schema"]), output_table_name)
-            grouped.setdefault(key, []).append(
-                f"{row['column_name']} {row['data_type']}"
-            )
+            column_name = str(row["column_name"])
+            description = field_description(output_table_name, column_name)
+            column_schema = f"{column_name} {row['data_type']}"
+            if description:
+                column_schema += f" [含义：{description}]"
+            grouped.setdefault(key, []).append(column_schema)
 
     lines = []
     for (schema_name, table_name), columns in grouped.items():
-        lines.append(f"{schema_name}.{table_name} ({', '.join(columns)})")
+        purpose = table_description(table_name)
+        purpose_suffix = f" [表用途：{purpose}]" if purpose else ""
+        lines.append(
+            f"{schema_name}.{table_name} ({', '.join(columns)}){purpose_suffix}"
+        )
     if not lines:
         raise AiSqlQueryError("数据库中没有可供查询的业务表结构")
     return "\n".join(lines)
@@ -515,6 +535,9 @@ def generate_plan(
 9. 历史订单按商品属性统计时，v_product_goods_historical_orders 的年度表 id 可能重复；最长基础货号匹配优先使用 LATERAL。若使用 ROW_NUMBER 或 DISTINCT ON，必须按 original_sku、source_workbook、source_sheet、source_row_number 等来源复合键分组，不能只按 orders.id 去重。
 10. 聚水潭销量优先使用 v_jst_daily_sales，唯品销量优先使用 v_vip_daily_sales；title 和 summary 只描述查询口径，不要捏造查询结果。
 11. 结果字段尽量使用简短、明确的中文别名，聚合字段必须提供别名。
+12. 临时复杂分析必须分层处理：先用 product_scope CTE 按品牌、年份、季节、货号等缩小商品范围；再在每个销量、库存、订单事实来源内部按日期过滤并聚合到最终需要的粒度；最后才关联各聚合结果。禁止把两个未聚合的大事实表直接 JOIN，也禁止让完整库存/销量表对商品档案逐行做前缀匹配。
+13. 只选择回答问题需要的字段。跨年度时优先在各年度或统一视图内先聚合再 UNION ALL；只需要汇总结果时不能先展开全部明细后再聚合。
+14. 数据库结构中的“[含义：...]”和“[表用途：...]”是业务注释，不是字段名；生成 SQL 时只能引用注释前实际存在的英文字段名。
 
 数据库结构：
 {schema}
@@ -690,6 +713,93 @@ def expand_permission_views(sql: str) -> str:
     return expression.transform(_replace).sql(dialect="postgres")
 
 
+def assess_readonly_sql_plan(
+    engine: Engine,
+    sql: str,
+    *,
+    max_rows: int,
+    timeout_seconds: int,
+    max_plan_cost: int,
+    max_plan_rows: int,
+    allowed_tables: set[str] | None = None,
+    question: str | None = None,
+) -> AiSqlPlanEstimate:
+    checked_sql = validate_readonly_sql(
+        sql,
+        allowed_tables=allowed_tables,
+        question=question,
+    )
+    executable_sql = expand_permission_views(checked_sql)
+    bounded_sql = (
+        f"SELECT * FROM ({executable_sql}) AS ai_query_result "
+        f"LIMIT {int(max_rows) + 1}"
+    )
+    try:
+        with engine.connect() as connection:
+            with connection.begin():
+                connection.exec_driver_sql("SET TRANSACTION READ ONLY")
+                connection.exec_driver_sql(
+                    f"SET LOCAL statement_timeout = {int(timeout_seconds * 1000)}"
+                )
+                raw_plan = connection.execute(
+                    text(f"EXPLAIN (FORMAT JSON) {bounded_sql}")
+                ).scalar_one()
+    except SQLAlchemyError as exc:
+        raise AiSqlQueryError(
+            "查询计划分析失败，请缩小日期范围或减少同时关联的数据来源"
+        ) from exc
+
+    if isinstance(raw_plan, str):
+        try:
+            raw_plan = json.loads(raw_plan)
+        except json.JSONDecodeError as exc:
+            raise AiSqlQueryError("数据库返回了无法识别的查询计划") from exc
+    try:
+        root = raw_plan[0]["Plan"]
+    except (KeyError, IndexError, TypeError) as exc:
+        raise AiSqlQueryError("数据库返回了无法识别的查询计划") from exc
+
+    total_cost = float(root.get("Total Cost") or 0)
+    largest_node_rows = 0
+    largest_nested_loop_rows = 0
+    pending = [root]
+    while pending:
+        node = pending.pop()
+        node_rows = max(int(node.get("Plan Rows") or 0), 0)
+        largest_node_rows = max(largest_node_rows, node_rows)
+        child_plans = [
+            child
+            for child in (node.get("Plans") or [])
+            if isinstance(child, dict)
+        ]
+        if node.get("Node Type") == "Nested Loop" and len(child_plans) >= 2:
+            nested_rows = 1
+            for child in child_plans:
+                nested_rows *= max(int(child.get("Plan Rows") or 0), 1)
+            largest_nested_loop_rows = max(largest_nested_loop_rows, nested_rows)
+        pending.extend(child_plans)
+
+    estimate = AiSqlPlanEstimate(
+        total_cost=total_cost,
+        max_plan_rows=largest_node_rows,
+        max_nested_loop_rows=largest_nested_loop_rows,
+    )
+    if (
+        total_cost > max_plan_cost
+        or largest_node_rows > max_plan_rows
+        or largest_nested_loop_rows > max_plan_rows
+    ):
+        raise AiSqlQueryError(
+            "查询计划预计处理的数据量过大"
+            f"（成本 {total_cost:,.0f}，最大节点 {largest_node_rows:,} 行，"
+            f"嵌套循环候选 {largest_nested_loop_rows:,} 行）。"
+            "请先按品牌、日期和商品范围建立 product_scope，"
+            "再分别聚合销量、库存或订单来源，最后关联聚合结果；"
+            "不要在完整事实表之间逐行关联。"
+        )
+    return estimate
+
+
 def execute_readonly_sql(
     engine: Engine,
     sql: str,
@@ -706,17 +816,39 @@ def execute_readonly_sql(
     )
     executable_sql = expand_permission_views(checked_sql)
     bounded_sql = f"SELECT * FROM ({executable_sql}) AS ai_query_result LIMIT {int(max_rows) + 1}"
-    with engine.connect() as connection:
-        with connection.begin():
-            connection.exec_driver_sql("SET TRANSACTION READ ONLY")
-            connection.exec_driver_sql(
-                f"SET LOCAL statement_timeout = {int(timeout_seconds * 1000)}"
+    try:
+        with engine.connect() as connection:
+            with connection.begin():
+                connection.exec_driver_sql("SET TRANSACTION READ ONLY")
+                connection.exec_driver_sql(
+                    f"SET LOCAL statement_timeout = {int(timeout_seconds * 1000)}"
+                )
+                result = connection.execute(text(bounded_sql))
+                columns = list(result.keys())
+                fetched_rows = [
+                    {key: _json_value(value) for key, value in row.items()}
+                    for row in result.mappings()
+                ]
+    except SQLAlchemyError as exc:
+        current: BaseException | None = exc
+        is_timeout = False
+        visited: set[int] = set()
+        while current is not None and id(current) not in visited:
+            visited.add(id(current))
+            sqlstate = str(getattr(current, "sqlstate", "") or "")
+            message = str(current).lower()
+            if sqlstate == "57014" or "statement timeout" in message:
+                is_timeout = True
+                break
+            current = (
+                getattr(current, "orig", None)
+                or getattr(current, "__cause__", None)
             )
-            result = connection.execute(text(bounded_sql))
-            columns = list(result.keys())
-            fetched_rows = [
-                {key: _json_value(value) for key, value in row.items()}
-                for row in result.mappings()
-            ]
+        if is_timeout:
+            raise AiSqlTimeoutError(
+                f"查询执行超过 {timeout_seconds} 秒，系统已停止本次查询。"
+                "请缩小日期范围、指定品牌或货号，或改为按月/按品牌分段查询。"
+            ) from exc
+        raise
     truncated = len(fetched_rows) > max_rows
     return columns, fetched_rows[:max_rows], truncated

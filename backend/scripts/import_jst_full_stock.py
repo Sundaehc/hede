@@ -17,6 +17,8 @@ def main() -> None:
 
     result = VipRepository(settings.database_url).import_full_stock(source_file)
     print(result["message"])
+    if int(result.get("imported") or 0) <= 0:
+        raise RuntimeError(str(result.get("message") or "聚水潭库存未导入任何数据"))
 
 
 if __name__ == "__main__":

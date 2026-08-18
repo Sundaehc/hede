@@ -65,6 +65,7 @@ SOURCE_PRODUCT_TABLES = DAILY_SALES_TABLES | {
 PRODUCT_CODE_PATTERN = re.compile(
     r"(?<![A-Z0-9])(?=[A-Z0-9]{7,}(?![A-Z0-9]))(?=[A-Z0-9]*[A-Z])(?=[A-Z0-9]*\d)[A-Z0-9]+"
 )
+ARCHIVE_YEAR_PATTERN = re.compile(r"(?P<year>20\d{2})年")
 
 
 class SemanticQueryError(ValueError):
@@ -106,6 +107,16 @@ def _question_brand_code(question: str) -> str | None:
 
 def _question_product_codes(question: str) -> set[str]:
     return set(PRODUCT_CODE_PATTERN.findall(question.upper()))
+
+
+def _archive_season_request(question: str) -> tuple[str | None, str] | None:
+    """Return the archive year suffix and label for questions such as 2026年春季款."""
+    for season in ("春季款", "夏季款", "秋季款", "冬季款"):
+        if season in question:
+            year_match = ARCHIVE_YEAR_PATTERN.search(question)
+            year_suffix = year_match.group("year")[2:] if year_match else None
+            return year_suffix, season
+    return None
 
 
 def _historical_order_quantity_request(question: str) -> bool:
@@ -161,9 +172,10 @@ def semantic_rules_for_question(question: str) -> str:
 1. 先确定品牌、业务日期、货号/款号、尺码、平台和统计粒度；问题未指定日期时，以相关来源 MAX(业务日期) 为截至日，不直接使用 CURRENT_DATE 假设数据已更新。
 2. 品牌内部值固定为：千百度男鞋=cbanner_mens、千百度女鞋=cbanner_womens、烟斗=yandou、伊伴=eblan、笑脸=smiley、NI=ni。brand 条件和店铺映射必须使用内部值，不能写中文品牌简称。
 3. 所有商品档案表必须过滤 deleted_at IS NULL。商品档案 sku 使用精确匹配；销售/库存来源中的 product_code、goods_code 往往是“基础货号+颜色/尺码后缀”，查询基础货号时必须用前缀匹配，并在多货号时取最长基础货号命中，不能对来源编码直接等值匹配。
-4. 空值表示暂无数据，不能用 0 代替；只有源记录明确为 0 时才能返回 0。例外仅限已有业务公式明确规定的组成字段，例如库存数量各组成列在加法前使用 COALESCE(列, 0)。
-5. 当前表和历史快照不能混合求和。需要比较时，必须分别聚合并标明各自日期。
-6. 只能使用下方数据库结构中开放的统一视图和业务表，禁止猜测年度分表、父表或底层快照载荷表。
+4. 商品档案的 year 是展示标签，不是纯数字年份，值通常为“26年春季款”“26年夏季款”等。问题中的“2026年春季款”必须匹配 year LIKE '%26年春季款%'（年份取后两位）；不能写 year='2026'。问题中的“春季款/夏季款/秋季款/冬季款”也必须匹配 year，不能写 season_category='春季'等。season_category 只用于“春夏”“春秋”“秋冬”“冬季”等季节分类字段。
+5. 空值表示暂无数据，不能用 0 代替；只有源记录明确为 0 时才能返回 0。例外仅限已有业务公式明确规定的组成字段，例如库存数量各组成列在加法前使用 COALESCE(列, 0)。
+6. 当前表和历史快照不能混合求和。需要比较时，必须分别聚合并标明各自日期。
+7. 只能使用下方数据库结构中开放的统一视图和业务表，禁止猜测年度分表、父表或底层快照载荷表。
 
 二、销量与订单
 1. 聚水潭逐日销量唯一入口为 v_jst_daily_sales，默认销量字段为 net_sales_quantity；sales_quantity 只能表示未扣退货的毛销量。
@@ -223,6 +235,26 @@ def validate_semantic_query(question: str, sql: str) -> set[str]:
         "DELETED_AT" in normalized_sql and re.search(r"DELETED_AT\s+IS\s+NULL", normalized_sql)
     ):
         errors.append("商品档案查询必须过滤 deleted_at IS NULL")
+
+    archive_season_request = _archive_season_request(question)
+    if archive_tables and archive_season_request:
+        year_suffix, season_label = archive_season_request
+        if "YEAR" not in normalized_sql:
+            errors.append("商品季节款必须使用商品档案 year 字段匹配展示标签")
+        if year_suffix and f"{year_suffix}年{season_label}" not in normalized_sql:
+            errors.append(
+                f"{question}必须匹配 year 中的展示标签 {year_suffix}年{season_label}，不能使用纯数字年份"
+            )
+        if re.search(
+            r"(?:[A-Z_][A-Z0-9_]*\.)?YEAR\s*=\s*'20\d{2}'",
+            normalized_sql,
+        ):
+            errors.append("商品档案 year 不是纯数字年份，不能使用 year='2026' 这类条件")
+        if re.search(
+            r"(?:[A-Z_][A-Z0-9_]*\.)?SEASON_CATEGORY\s*=\s*'[^']*季(?:节)?'",
+            normalized_sql,
+        ):
+            errors.append("春季款等商品季节必须匹配 year，不能把季节款写入 season_category")
 
     brand_code = _question_brand_code(question)
     if CHANNEL_MAPPING_TABLE in tables:

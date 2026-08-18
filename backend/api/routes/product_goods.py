@@ -901,6 +901,67 @@ def _current_full_stock_payload(
     return result
 
 
+def get_current_inventory_summary(
+    request: Request,
+    *,
+    brand: str,
+    year_label: str,
+) -> dict[str, object]:
+    """Summarize current stock without joining every stock row to every product."""
+    if brand not in PRODUCT_TABLES:
+        raise HTTPException(status_code=400, detail=f"Invalid brand: {brand}")
+    normalized_year_label = str(year_label or "").strip()
+    if not normalized_year_label:
+        raise HTTPException(status_code=400, detail="商品年份季节不能为空")
+
+    product_table = PRODUCT_TABLES[brand]
+    repository = request.app.state.repository
+    with repository.engine.connect() as connection:
+        stock_date = connection.execute(
+            select(func.max(JST_FULL_STOCK_TABLE.c.sync_date))
+        ).scalar()
+        cache_key = (
+            "current-inventory-summary-v1",
+            brand,
+            normalized_year_label,
+            stock_date.isoformat() if isinstance(stock_date, date) else None,
+        )
+        cached = get_product_goods_cache(cache_key)
+        if cached is not None:
+            return cached
+
+        product_codes = sorted(
+            {
+                str(value or "").strip()
+                for value in connection.execute(
+                    select(product_table.c.sku).where(
+                        product_table.c.deleted_at.is_(None),
+                        product_table.c.year == normalized_year_label,
+                    )
+                ).scalars()
+                if str(value or "").strip()
+            }
+        )
+        stock_by_product = _current_full_stock_payload(connection, product_codes)
+
+    stock_total = sum(int(item.get("stock_total") or 0) for item in stock_by_product.values())
+    in_transit_total = sum(
+        int(item.get("in_transit_total") or 0)
+        for item in stock_by_product.values()
+    )
+    payload: dict[str, object] = {
+        "year_label": normalized_year_label,
+        "product_count": len(product_codes),
+        "matched_product_count": len(stock_by_product),
+        "stock_total": stock_total,
+        "in_transit_total": in_transit_total,
+        "inventory_total": stock_total + in_transit_total,
+        "source_as_of_date": stock_date.isoformat() if isinstance(stock_date, date) else None,
+    }
+    set_product_goods_cache(cache_key, payload)
+    return payload
+
+
 def _manual_size_quantities(
     value: object,
     *,

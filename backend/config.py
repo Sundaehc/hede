@@ -73,6 +73,10 @@ class Settings:
     ai_model: str = "gpt-4.1-mini"
     ai_timeout_seconds: int = 180
     ai_sql_max_rows: int = 500
+    ai_sql_preflight_enabled: bool = True
+    ai_sql_explain_timeout_seconds: int = 5
+    ai_sql_max_plan_cost: int = 2_000_000
+    ai_sql_max_plan_rows: int = 10_000_000
 
     @property
     def image_roots(self) -> dict[str, Path]:
@@ -241,5 +245,17 @@ def load_settings(require_database: bool = True) -> Settings:
         ),
         ai_sql_max_rows=_int_from_env(
             "AI_SQL_MAX_ROWS", 500, minimum=1, maximum=2000
+        ),
+        ai_sql_preflight_enabled=_bool_from_env(
+            "AI_SQL_PREFLIGHT_ENABLED", True
+        ),
+        ai_sql_explain_timeout_seconds=_int_from_env(
+            "AI_SQL_EXPLAIN_TIMEOUT_SECONDS", 5, minimum=1, maximum=30
+        ),
+        ai_sql_max_plan_cost=_int_from_env(
+            "AI_SQL_MAX_PLAN_COST", 2_000_000, minimum=10_000, maximum=100_000_000
+        ),
+        ai_sql_max_plan_rows=_int_from_env(
+            "AI_SQL_MAX_PLAN_ROWS", 10_000_000, minimum=100_000, maximum=1_000_000_000
         ),
     )
