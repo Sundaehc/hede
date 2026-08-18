@@ -202,6 +202,11 @@ class Database:
                     func.nullif(func.btrim(table.c.category), ""),
                     getattr(excluded, "category"),
                 )
+                # Cost is maintained from the latest combined-footwear preset
+                # price. The daily product archive source may contain an older
+                # value, so an archive sync must not overwrite the persisted
+                # canonical cost before the price reconciliation runs.
+                set_values["cost"] = table.c.cost
                 set_values["updated_at"] = func.date_trunc("minute", func.now())
                 stmt = stmt.on_conflict_do_update(
                     index_elements=["sku"],

@@ -5,6 +5,7 @@ from domain.ai_query_semantics import (
     is_semantic_source_exposed,
     referenced_table_names,
     validate_semantic_query,
+    validate_staged_query_coverage,
 )
 
 
@@ -21,6 +22,38 @@ from domain.ai_query_semantics import (
 )
 def test_raw_or_duplicate_sources_are_hidden_from_ai(raw_table: str):
     assert is_semantic_source_exposed(raw_table) is False
+
+
+def test_partial_stage_validates_its_own_metric_without_requiring_other_facts():
+    question = "查询总订单量和当前库存"
+    stock_sql = """
+        SELECT SUM(COALESCE(actual_stock_qty, 0)) AS 在仓库存
+        FROM jst_full_stock
+        WHERE sync_date = (SELECT MAX(sync_date) FROM jst_full_stock)
+    """
+
+    assert validate_semantic_query(
+        question,
+        stock_sql,
+        partial_stage=True,
+    ) == {"jst_full_stock"}
+
+
+def test_staged_coverage_requires_every_requested_fact_domain():
+    question = "查询总订单量和当前库存"
+    with pytest.raises(SemanticQueryError, match="历史订单量阶段"):
+        validate_staged_query_coverage(
+            question,
+            ["SELECT product_code FROM jst_full_stock"],
+        )
+
+    assert validate_staged_query_coverage(
+        question,
+        [
+            "SELECT product_code FROM jst_full_stock",
+            "SELECT original_sku FROM v_product_goods_historical_orders",
+        ],
+    ) == {"jst_full_stock", "v_product_goods_historical_orders"}
 
 
 @pytest.mark.parametrize(

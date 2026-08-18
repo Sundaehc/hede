@@ -20,6 +20,7 @@ from domain.ai_query_semantics import (
     referenced_table_names,
     semantic_rules_for_question,
     validate_semantic_query,
+    validate_staged_query_coverage,
 )
 from domain.ai_query_field_catalog import field_description, table_description
 
@@ -122,6 +123,24 @@ class AiSqlPlan:
     title: str
     summary: str
     warnings: list[str]
+
+
+@dataclass(frozen=True)
+class AiSqlStage:
+    name: str
+    sql: str
+
+
+@dataclass(frozen=True)
+class AiStagedPlan:
+    stages: tuple[AiSqlStage, ...]
+    join_keys: tuple[str, ...]
+    title: str
+    summary: str
+    warnings: list[str]
+    sort_by: str | None
+    sort_descending: bool
+    result_limit: int
 
 
 @dataclass(frozen=True)
@@ -456,6 +475,229 @@ def schema_for_question(schema: str, question: str) -> str:
     return "\n".join(filtered_lines) if filtered_lines else schema
 
 
+STAGED_ARCHIVE_COLUMNS = {
+    "id",
+    "sku",
+    "original_sku",
+    "product_name",
+    "product_model",
+    "year",
+    "season_category",
+    "color",
+    "factory_sku",
+    "supplier_name",
+    "deleted_at",
+}
+
+STAGED_TABLE_COLUMNS = {
+    "product_goods_overrides": {
+        "brand",
+        "product_id",
+        "platform",
+        "category_l4",
+        "product_role",
+        "product_type",
+        "clearance",
+    },
+    "product_goods_shop_channel_mappings": {"brand", "shop_name", "channel"},
+    "product_goods_sales_periods": {
+        "brand",
+        "product_code",
+        "style_code",
+        "period_type",
+        "period_start",
+        "sales_quantity",
+        "source_as_of_date",
+    },
+    "v_jst_daily_sales": {
+        "sales_date",
+        "channel",
+        "product_code",
+        "style_code",
+        "sales_quantity",
+        "return_quantity",
+        "net_sales_quantity",
+        "sales_amount",
+        "net_sales_amount",
+    },
+    "v_vip_daily_sales": {
+        "sales_date",
+        "goods_code",
+        "style_code",
+        "size_name",
+        "sales_quantity",
+        "sales_amount",
+    },
+    "v_product_goods_historical_sales": {
+        "brand",
+        "sales_year",
+        "sales_date",
+        "channel",
+        "style_code",
+        "product_code",
+        "original_sku",
+        "size",
+        "sales_quantity",
+        "sales_amount",
+    },
+    "v_product_goods_historical_orders": {
+        "brand",
+        "order_date",
+        "original_sku",
+        "channel",
+        "order_quantity",
+        "source_workbook",
+        "source_sheet",
+        "source_row_number",
+    },
+    "jst_full_stock": {
+        "sync_date",
+        "product_code",
+        "style_code",
+        "size",
+        "actual_stock_qty",
+        "purchase_warehouse_stock_qty",
+        "purchase_in_transit_qty",
+        "transfer_in_transit_qty",
+        "return_in_transit_qty",
+        "available_qty",
+        "stock_sale_days",
+    },
+    "jst_size_stock": {"product_code", "size", "stock_qty"},
+    "jst_stock_summary": {
+        "stock_date_value",
+        "product_code",
+        "defect_stock_qty",
+        "purchase_in_transit_qty",
+        "off_shelf_qty",
+        "order_occupy_qty",
+    },
+    "inventory_records": {
+        "id",
+        "date_value",
+        "supplier",
+        "total_count",
+        "amount",
+        "warehouse",
+        "document_type",
+        "summary",
+        "handler",
+        "document_number",
+        "deleted_at",
+    },
+    "v_inventory_records_normalized": {
+        "id",
+        "business_date",
+        "supplier",
+        "total_count",
+        "amount",
+        "warehouse",
+        "document_type",
+        "summary",
+        "handler",
+        "document_number",
+        "deleted_at",
+    },
+    "ai_purchase_records": {
+        "id",
+        "date_value",
+        "supplier",
+        "total_count",
+        "amount",
+        "warehouse",
+        "document_number",
+    },
+    "inventory_details": {
+        "document_id",
+        "product_code",
+        "quantity",
+        "unit_price",
+        "amount",
+        "size_quantities",
+    },
+    "ai_purchase_details": {
+        "document_id",
+        "product_code",
+        "quantity",
+        "unit_price",
+        "amount",
+        "size_quantities",
+    },
+    "v_vip_product_daily_normalized": {
+        "goods_code",
+        "style_code",
+        "detail_uv",
+        "ctr",
+        "fav_count",
+        "sales_amount",
+        "sales_volume",
+        "customer_count",
+        "purchase_conversion",
+        "reject_count",
+        "reject_rate",
+        "report_type",
+        "period",
+        "report_start_date",
+        "report_end_date",
+    },
+}
+
+
+def schema_for_staged_plan(schema: str, question: str) -> str:
+    normalized = question.lower()
+    archive_columns = set(STAGED_ARCHIVE_COLUMNS)
+    if "材质" in normalized:
+        archive_columns.update(
+            {"upper_material", "lining_material", "outsole_material", "insole_material"}
+        )
+    if "成本" in normalized:
+        archive_columns.add("cost")
+    if "颜色" in normalized:
+        archive_columns.add("color_code")
+    if "尺码" in normalized:
+        archive_columns.add("size_range")
+    if "上市" in normalized:
+        archive_columns.add("launch_date")
+
+    compact_lines: list[str] = []
+    for line in schema.splitlines():
+        qualified_name = line.split(" (", 1)[0].strip()
+        table_name = qualified_name.rsplit(".", 1)[-1].lower()
+        desired_columns = STAGED_TABLE_COLUMNS.get(table_name)
+        if table_name in {
+            "cbanner_mens_products",
+            "cbanner_womens_products",
+            "yandou_products",
+            "eblan_products",
+            "smiley_products",
+            "ni_products",
+        } or table_name.startswith("manual_product_archive_"):
+            desired_columns = archive_columns
+        if desired_columns is None or " (" not in line:
+            compact_lines.append(line)
+            continue
+
+        remainder = line.split(" (", 1)[1]
+        purpose_marker = ") [表用途："
+        if purpose_marker in remainder:
+            columns_text, purpose_text = remainder.split(purpose_marker, 1)
+            suffix = f") [表用途：{purpose_text}"
+        else:
+            closing_index = remainder.rfind(")")
+            if closing_index < 0:
+                compact_lines.append(line)
+                continue
+            columns_text = remainder[:closing_index]
+            suffix = remainder[closing_index:]
+        columns = [
+            item
+            for item in columns_text.split(", ")
+            if item.split(" ", 1)[0].lower() in desired_columns
+        ]
+        compact_lines.append(f"{qualified_name} ({', '.join(columns)}{suffix}")
+    return "\n".join(compact_lines)
+
+
 def _extract_json(content: str) -> dict[str, Any]:
     value = content.strip()
     if value.startswith("```"):
@@ -507,6 +749,57 @@ def _provider_error_message(body: str) -> str:
     return "AI 服务请求失败"
 
 
+def _request_ai_json(
+    *,
+    system_prompt: str,
+    user_prompt: str,
+    api_key: str,
+    provider: str,
+    base_url: str,
+    model: str,
+    timeout_seconds: int,
+) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "model": model,
+        "temperature": 0,
+        "messages": [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt},
+        ],
+    }
+    if provider != "custom":
+        payload["response_format"] = {"type": "json_object"}
+    normalized_base_url = base_url.rstrip("/")
+    endpoint = (
+        normalized_base_url
+        if normalized_base_url.endswith("/chat/completions")
+        else normalized_base_url + "/chat/completions"
+    )
+    request = urllib.request.Request(
+        endpoint,
+        data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
+        headers={
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        },
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=timeout_seconds) as response:
+            response_body = response.read().decode("utf-8")
+    except urllib.error.HTTPError as exc:
+        body = exc.read().decode("utf-8", errors="replace")
+        detail = _provider_error_message(body)
+        raise AiProviderError(f"AI 服务请求失败（HTTP {exc.code}）：{detail}") from exc
+    except (urllib.error.URLError, TimeoutError) as exc:
+        raise AiProviderError("AI 服务连接失败，请检查地址、网络或超时配置") from exc
+    try:
+        result = json.loads(response_body)
+    except json.JSONDecodeError as exc:
+        raise AiSqlQueryError("AI 服务返回了无法解析的结果") from exc
+    return _extract_json(_message_content(result))
+
+
 def generate_plan(
     *,
     question: str,
@@ -552,46 +845,15 @@ def generate_plan(
             f"\n上一次 SQL：{previous_sql or '(空)'}"
             f"\n校验错误：{correction_error[:500]}"
         )
-    payload: dict[str, Any] = {
-        "model": model,
-        "temperature": 0,
-        "messages": [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_prompt},
-        ],
-    }
-    if provider != "custom":
-        payload["response_format"] = {"type": "json_object"}
-    normalized_base_url = base_url.rstrip("/")
-    endpoint = (
-        normalized_base_url
-        if normalized_base_url.endswith("/chat/completions")
-        else normalized_base_url + "/chat/completions"
+    data = _request_ai_json(
+        system_prompt=system_prompt,
+        user_prompt=user_prompt,
+        api_key=api_key,
+        provider=provider,
+        base_url=base_url,
+        model=model,
+        timeout_seconds=timeout_seconds,
     )
-    request = urllib.request.Request(
-        endpoint,
-        data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
-        headers={
-            "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json",
-        },
-        method="POST",
-    )
-    try:
-        with urllib.request.urlopen(request, timeout=timeout_seconds) as response:
-            response_body = response.read().decode("utf-8")
-    except urllib.error.HTTPError as exc:
-        body = exc.read().decode("utf-8", errors="replace")
-        detail = _provider_error_message(body)
-        raise AiProviderError(f"AI 服务请求失败（HTTP {exc.code}）：{detail}") from exc
-    except (urllib.error.URLError, TimeoutError) as exc:
-        raise AiProviderError("AI 服务连接失败，请检查地址、网络或超时配置") from exc
-    try:
-        result = json.loads(response_body)
-    except json.JSONDecodeError as exc:
-        raise AiSqlQueryError("AI 服务返回了无法解析的结果") from exc
-
-    data = _extract_json(_message_content(result))
     return AiSqlPlan(
         sql=str(data.get("sql") or "").strip(),
         title=str(data.get("title") or "AI 数据查询").strip()[:80],
@@ -600,11 +862,123 @@ def generate_plan(
     )
 
 
+def generate_staged_plan(
+    *,
+    question: str,
+    schema: str,
+    api_key: str,
+    provider: str,
+    base_url: str,
+    model: str,
+    timeout_seconds: int,
+    max_rows: int,
+    failed_sql: str,
+    failure_reason: str,
+    previous_plan: AiStagedPlan | None = None,
+) -> AiStagedPlan:
+    system_prompt = f"""
+你是企业商品数据库的分阶段只读查询规划器。单条跨表 SQL 已因执行计划过大而失败，请把用户问题拆成 2 至 6 个可独立执行的 PostgreSQL 聚合阶段，再由后端合并结果。
+
+严格规则：
+1. 每个阶段只能生成单条 SELECT 或 WITH 查询，禁止写入、DDL、多语句、分号、注释、系统表和副作用函数。
+2. 只能使用下方开放的真实表和字段。数据库结构中的“[含义：...]”和“[表用途：...]”只是注释。
+3. 每个阶段最多读取一个大事实领域：销量、库存、订单、经营单据或唯品指标。商品档案、人工字段和渠道映射可以作为该阶段的维度表。
+4. 每个事实阶段都要先在 product_scope CTE 中按品牌、日期、年份、季节、货号等缩小商品范围，再在事实表内部聚合到最终粒度；禁止完整事实表之间直接 JOIN。
+5. 所有阶段必须返回完全相同的 join_keys 字段别名，并保证每个阶段中 join_keys 组合唯一。非键指标别名在不同阶段之间不得重复。
+6. join_keys 为空时，每个阶段只能返回一行汇总结果；需要按货号、月份、平台等展示多行时必须把这些中文别名写入 join_keys。
+7. 不要在 SQL 中写 LIMIT，服务端会统一限制阶段最多 2000 行、最终最多 {max_rows} 行。只返回回答问题需要的字段。
+8. 结果需要排序时填写 sort_by 和 sort_direction；sort_by 必须是阶段输出的非键指标别名。result_limit 为 1 至 {max_rows}。
+9. 只查询年度、月度或跨年总销量且不需要平台、尺码、每日趋势时，销量阶段优先使用 product_goods_sales_periods，按 period_type 和 period_start 过滤后聚合；不能再混入逐日销量。只有问题明确要求平台、渠道、尺码或逐日趋势时才展开历史销量和日销来源。
+10. 只返回 JSON，不要 Markdown。格式：
+{{"title":"...","summary":"...","warnings":["..."],"join_keys":["货号"],"sort_by":"总销量","sort_direction":"desc","result_limit":100,"stages":[{{"name":"商品销量","sql":"WITH product_scope AS (...) SELECT ..."}},{{"name":"商品库存","sql":"WITH product_scope AS (...) SELECT ..."}}]}}
+
+数据库结构：
+{schema}
+
+{semantic_rules_for_question(question)}
+""".strip()
+    user_prompt = (
+        f"用户问题：{question}\n"
+        f"失败的单 SQL：{failed_sql[:12000]}\n"
+        f"失败原因：{failure_reason[:1000]}"
+    )
+    if previous_plan is not None:
+        previous_payload = {
+            "join_keys": list(previous_plan.join_keys),
+            "stages": [
+                {"name": stage.name, "sql": stage.sql}
+                for stage in previous_plan.stages
+            ],
+        }
+        user_prompt += (
+            "\n上一次分阶段计划仍未通过校验，请继续修正，不要退回单条跨事实表 SQL。"
+            f"\n上一次分阶段计划：{json.dumps(previous_payload, ensure_ascii=False)[:12000]}"
+        )
+    data = _request_ai_json(
+        system_prompt=system_prompt,
+        user_prompt=user_prompt,
+        api_key=api_key,
+        provider=provider,
+        base_url=base_url,
+        model=model,
+        timeout_seconds=timeout_seconds,
+    )
+    raw_stages = data.get("stages")
+    if not isinstance(raw_stages, list) or not 2 <= len(raw_stages) <= 6:
+        raise AiSqlQueryError("AI 分阶段计划必须包含 2 至 6 个查询阶段")
+    stages: list[AiSqlStage] = []
+    stage_names: set[str] = set()
+    for index, item in enumerate(raw_stages, start=1):
+        if not isinstance(item, dict):
+            raise AiSqlQueryError("AI 分阶段计划格式不正确")
+        name = str(item.get("name") or f"阶段{index}").strip()[:40]
+        sql = str(item.get("sql") or "").strip()
+        if not sql:
+            raise AiSqlQueryError(f"AI 分阶段计划中的{name}没有 SQL")
+        if name in stage_names:
+            name = f"{name}{index}"
+        stage_names.add(name)
+        stages.append(AiSqlStage(name=name, sql=sql))
+
+    raw_join_keys = data.get("join_keys")
+    if raw_join_keys is None:
+        raw_join_keys = []
+    if not isinstance(raw_join_keys, list) or len(raw_join_keys) > 4:
+        raise AiSqlQueryError("AI 分阶段计划的关联键格式不正确")
+    join_keys = tuple(
+        dict.fromkeys(
+            str(item).strip()[:80]
+            for item in raw_join_keys
+            if str(item).strip()
+        )
+    )
+    try:
+        result_limit = int(data.get("result_limit") or max_rows)
+    except (TypeError, ValueError):
+        result_limit = max_rows
+    result_limit = min(max(result_limit, 1), max_rows)
+    sort_by = str(data.get("sort_by") or "").strip()[:80] or None
+    sort_direction = str(data.get("sort_direction") or "desc").strip().lower()
+    return AiStagedPlan(
+        stages=tuple(stages),
+        join_keys=join_keys,
+        title=str(data.get("title") or "AI 复杂数据分析").strip()[:80],
+        summary=str(data.get("summary") or "").strip()[:300],
+        warnings=[
+            str(item) for item in data.get("warnings", []) if str(item).strip()
+        ],
+        sort_by=sort_by,
+        sort_descending=sort_direction != "asc",
+        result_limit=result_limit,
+    )
+
+
 def validate_readonly_sql(
     sql: str,
     *,
     allowed_tables: set[str] | None = None,
     question: str | None = None,
+    partial_stage: bool = False,
 ) -> str:
     value = sql.strip()
     if not value:
@@ -670,7 +1044,11 @@ def validate_readonly_sql(
             raise AiSqlQueryError(f"查询引用了未开放的数据表：{qualified_name}")
     if question:
         try:
-            validate_semantic_query(question, value)
+            validate_semantic_query(
+                question,
+                value,
+                partial_stage=partial_stage,
+            )
         except SemanticQueryError as exc:
             raise AiSqlQueryError(str(exc)) from exc
     return value
@@ -723,11 +1101,13 @@ def assess_readonly_sql_plan(
     max_plan_rows: int,
     allowed_tables: set[str] | None = None,
     question: str | None = None,
+    partial_stage: bool = False,
 ) -> AiSqlPlanEstimate:
     checked_sql = validate_readonly_sql(
         sql,
         allowed_tables=allowed_tables,
         question=question,
+        partial_stage=partial_stage,
     )
     executable_sql = expand_permission_views(checked_sql)
     bounded_sql = (
@@ -808,11 +1188,13 @@ def execute_readonly_sql(
     timeout_seconds: int,
     allowed_tables: set[str] | None = None,
     question: str | None = None,
+    partial_stage: bool = False,
 ) -> tuple[list[str], list[dict[str, Any]], bool]:
     checked_sql = validate_readonly_sql(
         sql,
         allowed_tables=allowed_tables,
         question=question,
+        partial_stage=partial_stage,
     )
     executable_sql = expand_permission_views(checked_sql)
     bounded_sql = f"SELECT * FROM ({executable_sql}) AS ai_query_result LIMIT {int(max_rows) + 1}"
@@ -852,3 +1234,159 @@ def execute_readonly_sql(
         raise
     truncated = len(fetched_rows) > max_rows
     return columns, fetched_rows[:max_rows], truncated
+
+
+def _hashable_join_value(value: Any) -> Any:
+    if isinstance(value, (dict, list)):
+        return json.dumps(value, ensure_ascii=False, sort_keys=True)
+    return value
+
+
+def merge_staged_query_results(
+    plan: AiStagedPlan,
+    stage_results: list[
+        tuple[AiSqlStage, list[str], list[dict[str, Any]], bool]
+    ],
+    *,
+    max_rows: int,
+) -> tuple[list[str], list[dict[str, Any]], bool]:
+    output_columns = list(plan.join_keys)
+    merged_by_key: dict[tuple[Any, ...], dict[str, Any]] = {}
+    ordered_keys: list[tuple[Any, ...]] = []
+    scalar_row: dict[str, Any] = {}
+    any_stage_rows = False
+    stage_truncated = False
+
+    for stage, columns, rows, truncated in stage_results:
+        stage_truncated = stage_truncated or truncated
+        missing_keys = [key for key in plan.join_keys if key not in columns]
+        if missing_keys:
+            raise AiSqlQueryError(
+                f"分阶段查询“{stage.name}”缺少关联字段：{', '.join(missing_keys)}"
+            )
+        if not plan.join_keys and len(rows) > 1:
+            raise AiSqlQueryError(
+                f"分阶段查询“{stage.name}”未声明关联键，但返回了多行结果"
+            )
+
+        column_aliases: dict[str, str] = {}
+        for column in columns:
+            if column in plan.join_keys:
+                continue
+            output_column = column
+            if output_column in output_columns:
+                output_column = f"{stage.name}_{column}"
+            suffix = 2
+            while output_column in output_columns:
+                output_column = f"{stage.name}_{column}_{suffix}"
+                suffix += 1
+            output_columns.append(output_column)
+            column_aliases[column] = output_column
+
+        seen_stage_keys: set[tuple[Any, ...]] = set()
+        for row in rows:
+            any_stage_rows = True
+            if plan.join_keys:
+                key = tuple(
+                    _hashable_join_value(row.get(column))
+                    for column in plan.join_keys
+                )
+                if key in seen_stage_keys:
+                    raise AiSqlQueryError(
+                        f"分阶段查询“{stage.name}”的关联键不是唯一结果"
+                    )
+                seen_stage_keys.add(key)
+                target = merged_by_key.get(key)
+                if target is None:
+                    target = {
+                        column: row.get(column)
+                        for column in plan.join_keys
+                    }
+                    merged_by_key[key] = target
+                    ordered_keys.append(key)
+            else:
+                target = scalar_row
+            for column, output_column in column_aliases.items():
+                target[output_column] = row.get(column)
+
+    if not any_stage_rows:
+        return output_columns, [], stage_truncated
+    rows = (
+        [merged_by_key[key] for key in ordered_keys]
+        if plan.join_keys
+        else [scalar_row]
+    )
+    for row in rows:
+        for column in output_columns:
+            row.setdefault(column, None)
+
+    if plan.sort_by and plan.sort_by in output_columns:
+        present_rows = [row for row in rows if row.get(plan.sort_by) is not None]
+        missing_rows = [row for row in rows if row.get(plan.sort_by) is None]
+
+        def sort_value(row: dict[str, Any]) -> tuple[int, Any]:
+            value = row.get(plan.sort_by)
+            if isinstance(value, (int, float, Decimal)):
+                return (0, float(value))
+            return (1, str(value))
+
+        present_rows.sort(key=sort_value, reverse=plan.sort_descending)
+        rows = present_rows + missing_rows
+
+    result_limit = min(plan.result_limit, max_rows)
+    final_truncated = stage_truncated or len(rows) > result_limit
+    return output_columns, rows[:result_limit], final_truncated
+
+
+def execute_staged_readonly_plan(
+    engine: Engine,
+    plan: AiStagedPlan,
+    *,
+    max_rows: int,
+    timeout_seconds: int,
+    preflight_enabled: bool,
+    explain_timeout_seconds: int,
+    max_plan_cost: int,
+    max_plan_rows: int,
+    allowed_tables: set[str],
+    question: str,
+) -> tuple[list[str], list[dict[str, Any]], bool]:
+    stage_max_rows = min(max(max_rows * 4, max_rows), 2000)
+    try:
+        validate_staged_query_coverage(
+            question,
+            [stage.sql for stage in plan.stages],
+        )
+    except SemanticQueryError as exc:
+        raise AiSqlQueryError(str(exc)) from exc
+    stage_results: list[
+        tuple[AiSqlStage, list[str], list[dict[str, Any]], bool]
+    ] = []
+    for stage in plan.stages:
+        if preflight_enabled:
+            assess_readonly_sql_plan(
+                engine,
+                stage.sql,
+                max_rows=stage_max_rows,
+                timeout_seconds=explain_timeout_seconds,
+                max_plan_cost=max_plan_cost,
+                max_plan_rows=max_plan_rows,
+                allowed_tables=allowed_tables,
+                question=question,
+                partial_stage=True,
+            )
+        columns, rows, truncated = execute_readonly_sql(
+            engine,
+            stage.sql,
+            max_rows=stage_max_rows,
+            timeout_seconds=timeout_seconds,
+            allowed_tables=allowed_tables,
+            question=question,
+            partial_stage=True,
+        )
+        stage_results.append((stage, columns, rows, truncated))
+    return merge_staged_query_results(
+        plan,
+        stage_results,
+        max_rows=max_rows,
+    )

@@ -287,7 +287,12 @@ class ImportPipeline:
         if mode == "sync" and not dry_run:
             # 管家婆同步写入使用 Database；补齐空颜色代码时复用商品档案
             # 的唯一颜色映射，且不会覆盖已有的手工颜色代码。
-            ProductRepository(self.settings.database_url).backfill_missing_color_codes()
+            repository = ProductRepository(self.settings.database_url)
+            repository.backfill_missing_color_codes()
+            # The product and price tasks both start at 08:00. Reconcile costs
+            # after product upserts so task completion order cannot leave old
+            # archive costs in the product tables.
+            repository.sync_costs_from_latest_combined_footwear_price()
 
         return summaries
 

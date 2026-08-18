@@ -321,6 +321,12 @@ def test_normalize_admin_payload_keeps_only_editable_columns_and_normalizes_valu
     }
 
 
+def test_normalize_admin_payload_preserves_two_decimal_cost_precision():
+    normalized = normalize_admin_payload({"cost": "99.25"})
+
+    assert normalized["cost"] == Decimal("99.25")
+
+
 
 def test_build_admin_record_sets_manual_metadata_and_raw_payload_from_normalized_payload():
     payload = {

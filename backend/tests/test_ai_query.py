@@ -4,7 +4,13 @@ import pytest
 from fastapi import HTTPException
 from sqlalchemy.exc import SQLAlchemyError
 
-from domain.ai_sql_query import AiSqlPlan, AiSqlQueryError, AiSqlTimeoutError
+from domain.ai_sql_query import (
+    AiStagedPlan,
+    AiSqlPlan,
+    AiSqlQueryError,
+    AiSqlStage,
+    AiSqlTimeoutError,
+)
 from api.routes import ai_query
 from api.routes.ai_query import (
     _can_use_ai_query,
@@ -18,7 +24,9 @@ from api.routes.ai_query import (
     _localize_ai_brand_values,
     _permission_set,
     _recent_sales_ranking_spec,
+    _requires_staged_ai_plan,
     _seasonal_category_sales_ranking_spec,
+    _seasonal_product_sales_spec,
     _run_product_goods,
     _run_historical_order_summary,
     _should_use_business_rules,
@@ -437,6 +445,10 @@ def test_standard_queries_use_fast_business_rules_and_complex_queries_use_ai():
         None,
         [],
     )
+    assert _requires_staged_ai_plan(
+        "查询千百度女鞋各货号的销量、订单量、库存和在途"
+    )
+    assert not _requires_staged_ai_plan("查询千百度女鞋2026秋季款的销量")
     ranking_question = "查询千百度女鞋近7天销量前十的商品"
     assert _recent_sales_ranking_spec(ranking_question) == (7, 10)
     assert _should_use_business_rules(
@@ -540,6 +552,86 @@ def test_seasonal_category_sales_ranking_supports_compact_top_wording():
         "season_keywords": ("春", "夏"),
         "sales_year": 2025,
     }
+
+
+def test_year_season_sales_uses_archive_year_label_fast_path():
+    question = "查询千百度女鞋2026秋季款的销量"
+
+    assert _seasonal_product_sales_spec(question) == {
+        "limit": 100,
+        "explicit_ranking": False,
+        "season_label": "秋季款",
+        "sales_year": 2026,
+        "archive_year_label": "26年秋季款",
+    }
+    assert _should_use_business_rules(
+        question,
+        "product_goods",
+        "cbanner_womens",
+        [],
+    )
+    assert _seasonal_product_sales_spec(
+        "查询千百度女鞋2026秋季款按平台统计销量、库存和订单量"
+    ) is None
+
+
+def test_year_season_sales_runs_without_ai_sql(monkeypatch):
+    calls = []
+
+    def _get_ranking(request, **kwargs):
+        calls.append(kwargs)
+        return {
+            "items": [
+                {
+                    "rank": 1,
+                    "category_l4": None,
+                    "goods_code": "QC153883D54",
+                    "style_code": "QC153883",
+                    "product_name": "女单鞋",
+                    "color": "黑色",
+                    "season": "26年秋季款",
+                    "sales_quantity": 32,
+                }
+            ],
+            "sales_year": 2026,
+            "source_as_of_date": "2026-08-17",
+            "sales_product_count": 1,
+            "period_sales": 32,
+            "sources": ["product_goods_sales_periods"],
+        }
+
+    monkeypatch.setattr(
+        ai_query,
+        "get_seasonal_category_sales_ranking",
+        _get_ranking,
+    )
+    request = SimpleNamespace(
+        state=SimpleNamespace(current_user={"permissions": ["product.view"]})
+    )
+    question = "查询千百度女鞋2026秋季款的销量"
+
+    payload = _run_product_goods(
+        request,
+        question,
+        ai_query._base_response(question, "product_goods"),
+        "cbanner_womens",
+        [],
+    )
+
+    assert calls == [
+        {
+            "brand": "cbanner_womens",
+            "season_keywords": (),
+            "season_label": "秋季款",
+            "limit": 100,
+            "sales_year": 2026,
+            "archive_year_label": "26年秋季款",
+            "require_category": False,
+        }
+    ]
+    assert payload["query_mode"] == "business_rules"
+    assert payload["metrics"][0]["value"] == 32
+    assert payload["rows"][0]["season"] == "26年秋季款"
 
 
 def test_seasonal_category_sales_ranking_uses_fast_business_path(monkeypatch):
@@ -957,6 +1049,111 @@ def test_ai_sql_preflight_optimizes_before_database_execution(monkeypatch):
     assert executed_sql == [assessed_sql[1]]
     assert "查询计划预计处理的数据量过大" in generated_calls[1]["correction_error"]
     assert any("查询计划优化" in warning for warning in payload["warnings"])
+
+
+def test_ai_sql_large_plan_automatically_falls_back_to_staged_queries(monkeypatch):
+    settings = SimpleNamespace(
+        ai_api_key="test-key",
+        ai_provider="custom",
+        ai_base_url="https://example.test/v1",
+        ai_model="custom-model",
+        ai_sql_max_rows=100,
+        ai_timeout_seconds=180,
+        ai_sql_preflight_enabled=True,
+        ai_sql_explain_timeout_seconds=5,
+        ai_sql_max_plan_cost=2_000_000,
+        ai_sql_max_plan_rows=10_000_000,
+    )
+    permissions = {"fine_table.view", "ai_query.view"}
+    cache_key = tuple(sorted(permissions))
+    state = SimpleNamespace(
+        settings=settings,
+        repository=SimpleNamespace(engine=object()),
+        ai_sql_schema_cache={
+            cache_key: "\n".join(
+                [
+                    "public.v_jst_daily_sales (product_code text, net_sales_quantity integer)",
+                    "public.jst_full_stock (product_code text, actual_stock_qty integer)",
+                ]
+            )
+        },
+    )
+    request = SimpleNamespace(app=SimpleNamespace(state=state))
+    single_plans = [
+        AiSqlPlan(
+            sql="SELECT * FROM v_jst_daily_sales JOIN jst_full_stock ON true",
+            title="首次",
+            summary="首次",
+            warnings=[],
+        ),
+        AiSqlPlan(
+            sql="SELECT * FROM v_jst_daily_sales JOIN jst_full_stock ON true",
+            title="再次优化",
+            summary="再次优化",
+            warnings=[],
+        ),
+    ]
+    staged_plan = AiStagedPlan(
+        stages=(
+            AiSqlStage(
+                name="销量",
+                sql="SELECT product_code AS 货号, SUM(net_sales_quantity) AS 总销量 FROM v_jst_daily_sales GROUP BY product_code",
+            ),
+            AiSqlStage(
+                name="库存",
+                sql="SELECT product_code AS 货号, SUM(actual_stock_qty) AS 在仓库存 FROM jst_full_stock GROUP BY product_code",
+            ),
+        ),
+        join_keys=("货号",),
+        title="销量库存分析",
+        summary="已分阶段查询",
+        warnings=[],
+        sort_by="总销量",
+        sort_descending=True,
+        result_limit=100,
+    )
+    staged_calls = []
+
+    monkeypatch.setattr(
+        ai_query,
+        "generate_plan",
+        lambda **kwargs: single_plans.pop(0),
+    )
+    monkeypatch.setattr(
+        ai_query,
+        "assess_readonly_sql_plan",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AiSqlQueryError("查询计划预计处理的数据量过大")
+        ),
+    )
+
+    def _generate_staged_plan(**kwargs):
+        staged_calls.append(kwargs)
+        return staged_plan
+
+    monkeypatch.setattr(ai_query, "generate_staged_plan", _generate_staged_plan)
+    monkeypatch.setattr(
+        ai_query,
+        "execute_staged_readonly_plan",
+        lambda *args, **kwargs: (
+            ["货号", "总销量", "在仓库存"],
+            [{"货号": "A", "总销量": 12, "在仓库存": 20}],
+            False,
+        ),
+    )
+
+    payload = ai_query._run_ai_sql(
+        request,
+        "按货号查询复杂销量汇总",
+        permissions,
+    )
+
+    assert len(staged_calls) == 1
+    assert payload["query_mode"] == "ai_staged_sql"
+    assert payload["rows"] == [{"货号": "A", "总销量": 12, "在仓库存": 20}]
+    assert payload["metrics"][2]["value"] == 2
+    assert "阶段 1：销量" in payload["generated_sql"]
+    assert any("自动拆分为 2 个" in warning for warning in payload["warnings"])
 
 
 def test_ai_sql_retries_once_when_database_execution_fails(monkeypatch):

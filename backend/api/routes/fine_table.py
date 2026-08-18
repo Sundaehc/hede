@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections import defaultdict
 from datetime import date, datetime, time, timedelta
 from decimal import Decimal
 import json
@@ -37,7 +38,6 @@ from domain.inventory_schema import SUPPLIER_TABLE
 from domain.product_defaults import apply_product_defaults
 from domain.schema import PRODUCT_TABLES
 from domain.vip_schema import (
-    JST_PRICE_TABLE,
     JST_PURCHASE_DIFF_TABLE,
     JST_STOCK_SUMMARY_TABLE,
     JST_SIZE_STOCK_TABLE,
@@ -185,15 +185,14 @@ FINE_TABLE_FILTER_FIELDS = {
 }
 
 # These fields can be narrowed before the expensive sales/inventory assembly.
-# The displayed value of cost is sourced from the latest price row, so it is
-# deliberately evaluated against the assembled payload instead.
+# Cost is the product archive value in both the archive and fine-table modules.
 FINE_TABLE_SQL_FILTER_FIELDS = FINE_TABLE_FILTER_FIELDS - {
     field for field in FINE_TABLE_FILTER_FIELDS
     if field not in {
         "sku", "original_sku", "group_name", "product_level", "year",
         "season_category", "factory_code", "factory_name", "factory_sku",
         "upper_material", "lining_material", "outsole_material",
-        "insole_material", "first_order_time",
+        "insole_material", "first_order_time", "cost",
     }
 }
 # These fields are sourced from the product archive in the GJ-backed fine
@@ -206,6 +205,7 @@ FINE_TABLE_GJ_SQL_FILTER_FIELDS = {
     "year",
     "season_category",
     "first_order_time",
+    "cost",
 }
 FINE_TABLE_VIP_OPS_FILTER_COLUMNS = {
     "goods_id": VIP_OPS_TABLE.c.goods_id,
@@ -735,6 +735,72 @@ def _hydrate_snapshot_image_urls(
             item["image_url"] = image_url_for(brand, image_path, settings)
 
 
+def _hydrate_snapshot_archive_costs(
+    *,
+    connection,
+    items: list[dict[str, Any]],
+    brand: BrandKey,
+) -> None:
+    product_table = PRODUCT_TABLES.get(brand)
+    if product_table is None or not items:
+        return
+
+    codes = {
+        code
+        for item in items
+        for code in (
+            str(item.get("sku") or "").strip(),
+            str(item.get("original_sku") or "").strip(),
+        )
+        if code
+    }
+    if not codes:
+        return
+
+    cost_by_sku: dict[str, Any] = {}
+    costs_by_original_sku: dict[str, set[Any]] = defaultdict(set)
+    for row in connection.execute(
+        select(product_table.c.sku, product_table.c.original_sku, product_table.c.cost)
+        .where(or_(
+            product_table.c.sku.in_(codes),
+            product_table.c.original_sku.in_(codes),
+        ))
+        .where(product_table.c.deleted_at.is_(None))
+        .where(product_table.c.cost.isnot(None))
+        .order_by(desc(product_table.c.id))
+    ).mappings():
+        sku = str(row.get("sku") or "").strip()
+        original_sku = str(row.get("original_sku") or "").strip()
+        if sku:
+            cost_by_sku.setdefault(sku, row["cost"])
+        if original_sku:
+            costs_by_original_sku[original_sku].add(row["cost"])
+
+    unique_original_costs = {
+        original_sku: next(iter(costs))
+        for original_sku, costs in costs_by_original_sku.items()
+        if len(costs) == 1
+    }
+    for item in items:
+        sku = str(item.get("sku") or "").strip()
+        original_sku = str(item.get("original_sku") or "").strip()
+        archive_cost = next(
+            (
+                value
+                for value in (
+                    cost_by_sku.get(sku),
+                    cost_by_sku.get(original_sku),
+                    unique_original_costs.get(original_sku),
+                    unique_original_costs.get(sku),
+                )
+                if value is not None
+            ),
+            None,
+        )
+        if archive_cost is not None:
+            item["latest_purchase_price"] = _to_float(archive_cost)
+
+
 def _gj_fine_table_brand(brand: BrandKey) -> str | None:
     return brand if brand in {CBANNER_MENS_BRAND, CBANNER_WOMENS_BRAND} else None
 
@@ -987,6 +1053,11 @@ def get_fine_table_snapshot(
                     page_size=page_size,
                 )
                 with repository.engine.connect() as connection:
+                    _hydrate_snapshot_archive_costs(
+                        connection=connection,
+                        items=items,
+                        brand=batch["brand"],
+                    )
                     _hydrate_snapshot_image_urls(
                         connection=connection,
                         items=items,
@@ -1008,6 +1079,14 @@ def get_fine_table_snapshot(
                 page=1,
                 page_size=1_000_000,
             )
+            costs_hydrated = any(condition.field == "cost" for condition in parsed_filters)
+            if costs_hydrated:
+                with repository.engine.connect() as connection:
+                    _hydrate_snapshot_archive_costs(
+                        connection=connection,
+                        items=all_rows,
+                        brand=batch["brand"],
+                    )
             query_terms = _normalized_terms(query)
             prefix_terms = _normalized_terms(sku_prefix)
             filtered_rows = []
@@ -1027,6 +1106,12 @@ def get_fine_table_snapshot(
             offset = (page - 1) * page_size
             items = filtered_rows[offset:offset + page_size]
             with repository.engine.connect() as connection:
+                if not costs_hydrated:
+                    _hydrate_snapshot_archive_costs(
+                        connection=connection,
+                        items=items,
+                        brand=batch["brand"],
+                    )
                 _hydrate_snapshot_image_urls(
                     connection=connection,
                     items=items,
@@ -1047,6 +1132,13 @@ def get_fine_table_snapshot(
             .where(snapshot_row_table.c.batch_id == batch_id)
             .order_by(snapshot_row_table.c.row_index)
         ).mappings()]
+        costs_hydrated = any(condition.field == "cost" for condition in parsed_filters)
+        if costs_hydrated:
+            _hydrate_snapshot_archive_costs(
+                connection=connection,
+                items=all_rows,
+                brand=batch["brand"],
+            )
         query_terms = _normalized_terms(query)
         prefix_terms = _normalized_terms(sku_prefix)
         filtered_rows = []
@@ -1065,6 +1157,12 @@ def get_fine_table_snapshot(
         total = len(filtered_rows)
         offset = (page - 1) * page_size
         items = filtered_rows[offset:offset + page_size]
+        if not costs_hydrated:
+            _hydrate_snapshot_archive_costs(
+                connection=connection,
+                items=items,
+                brand=batch["brand"],
+            )
         _hydrate_snapshot_image_urls(
             connection=connection,
             items=items,
@@ -1315,6 +1413,13 @@ def list_fine_table_filter_options(
                     .where(snapshot_row_table.c.batch_id == int(batch["id"]))
                     .order_by(snapshot_row_table.c.row_index)
                 ).mappings()]
+        if field == "cost" or any(condition.field == "cost" for condition in other_filters):
+            with repository.engine.connect() as connection:
+                _hydrate_snapshot_archive_costs(
+                    connection=connection,
+                    items=rows,
+                    brand=brand,
+                )
         filtered_rows = []
         for row in rows:
             sku = str(row.get("sku") or "")
@@ -1681,27 +1786,6 @@ def list_fine_table(
         ).mappings():
             ops_by_sku.setdefault(str(row["goods_code"]), dict(row))
 
-        price_by_sku: dict[str, dict[str, Any]] = {}
-        for row in conn.execute(
-            select(
-                JST_PRICE_TABLE.c.goods_code,
-                JST_PRICE_TABLE.c.cost_unit_price,
-            )
-            .where(JST_PRICE_TABLE.c.goods_code.in_(skus))
-            .order_by(
-                JST_PRICE_TABLE.c.goods_code,
-                JST_PRICE_TABLE.c.source_date_value.desc().nulls_last(),
-                desc(JST_PRICE_TABLE.c.updated_at),
-                desc(JST_PRICE_TABLE.c.id),
-            )
-        ).mappings():
-            cost_unit_price = row.get("cost_unit_price")
-            if cost_unit_price is None:
-                continue
-            if isinstance(cost_unit_price, str) and not cost_unit_price.strip():
-                continue
-            price_by_sku.setdefault(str(row["goods_code"]), dict(row))
-
         daily_by_sku: dict[str, dict[tuple[str, str], dict[str, Any]]] = {sku: {} for sku in skus}
         daily_lookup_codes = sorted({*skus, *original_skus})
         for row in conn.execute(
@@ -1909,7 +1993,6 @@ def list_fine_table(
     for product in product_rows:
         sku = str(product.get("sku") or "").strip()
         ops = ops_by_sku.get(sku, {})
-        price = price_by_sku.get(sku, {})
         daily = daily_by_sku.get(sku, {})
         gj_info = gj_info_by_sku.get(sku, {})
         orders = orders_by_sku.get(sku, {})
@@ -1938,7 +2021,7 @@ def list_fine_table(
         original_stock_summary = original_stock_summary_by_code.get(original_sku, {})
         original_inbound_qty = original_stock_summary.get("purchase_in_transit_qty", 0)
         original_defect_in_transit_qty = original_defect_in_transit_by_code.get(original_sku, 0)
-        cost = _to_float(price.get("cost_unit_price")) or _to_float(product.get("cost"))
+        cost = _to_float(product.get("cost"))
         final_price = _to_float(ops.get("final_price"))
         market_price = _to_float(ops.get("market_price"))
         vip_price = _to_float(ops.get("vip_price"))

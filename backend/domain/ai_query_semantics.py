@@ -216,7 +216,12 @@ def semantic_rules_for_question(question: str) -> str:
 """.strip()
 
 
-def validate_semantic_query(question: str, sql: str) -> set[str]:
+def validate_semantic_query(
+    question: str,
+    sql: str,
+    *,
+    partial_stage: bool = False,
+) -> set[str]:
     tables = referenced_table_names(sql)
     normalized_sql = re.sub(r"\s+", " ", sql).upper()
     errors: list[str] = []
@@ -288,7 +293,8 @@ def validate_semantic_query(question: str, sql: str) -> set[str]:
 
     if historical_order_request:
         if HISTORICAL_ORDERS_TABLE not in tables:
-            errors.append("历史订单量必须使用 v_product_goods_historical_orders")
+            if not partial_stage:
+                errors.append("历史订单量必须使用 v_product_goods_historical_orders")
         elif "ORDER_QUANTITY" not in normalized_sql:
             errors.append("历史订单量必须使用 order_quantity，不能使用销量字段替代")
     if HISTORICAL_ORDERS_TABLE in tables and any(
@@ -387,4 +393,38 @@ def validate_semantic_query(question: str, sql: str) -> set[str]:
     if errors:
         raise SemanticQueryError("；".join(dict.fromkeys(errors)))
 
+    return tables
+
+
+def validate_staged_query_coverage(question: str, stage_sqls: list[str]) -> set[str]:
+    tables: set[str] = set()
+    for sql in stage_sqls:
+        tables.update(referenced_table_names(sql))
+    errors: list[str] = []
+    sales_request = any(term in question for term in ("销量", "销售量", "销售额", "净销量", "毛销量"))
+    stock_request = any(term in question for term in ("库存", "在仓", "在途", "缺货", "断码", "周转"))
+    document_request = any(
+        term in question
+        for term in ("经营历程", "采购单", "进货单", "调拨单", "报溢单", "报损单")
+    )
+    sales_sources = DAILY_SALES_TABLES | {
+        HISTORICAL_SALES_TABLE,
+        PRECOMPUTED_SALES_TABLE,
+    }
+    if sales_request and not tables & sales_sources:
+        errors.append("分阶段计划缺少销量数据阶段")
+    if _historical_order_quantity_request(question) and HISTORICAL_ORDERS_TABLE not in tables:
+        errors.append("分阶段计划缺少历史订单量阶段")
+    if stock_request and not tables & (CURRENT_STOCK_TABLES | STOCK_SNAPSHOT_TABLES):
+        errors.append("分阶段计划缺少库存数据阶段")
+    if document_request and not tables & {
+        "inventory_records",
+        "inventory_details",
+        "v_inventory_records_normalized",
+        "ai_purchase_records",
+        "ai_purchase_details",
+    }:
+        errors.append("分阶段计划缺少采购或经营历程单据阶段")
+    if errors:
+        raise SemanticQueryError("；".join(errors))
     return tables

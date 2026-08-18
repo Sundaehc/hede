@@ -4,13 +4,17 @@ import pytest
 
 from domain import ai_sql_query
 from domain.ai_sql_query import (
+    AiStagedPlan,
     AiSqlQueryError,
+    AiSqlStage,
     AiSqlTimeoutError,
     assess_readonly_sql_plan,
     build_database_schema,
     execute_readonly_sql,
     expand_permission_views,
     is_mutation_request,
+    merge_staged_query_results,
+    schema_for_staged_plan,
     schema_for_question,
     table_allowed_for_permissions,
     validate_readonly_sql,
@@ -202,6 +206,25 @@ def test_schema_for_question_includes_historical_order_attribute_sources():
     assert "v_jst_daily_sales" not in filtered
 
 
+def test_staged_schema_keeps_only_question_relevant_business_columns():
+    schema = "\n".join(
+        [
+            "public.cbanner_womens_products (id bigint, sku text, year text, season_category text, upper_material text, shoe_box_spec text, deleted_at timestamp) [表用途：千百度女鞋商品档案]",
+            "public.jst_full_stock (sync_date date, product_code text, actual_stock_qty integer, purchase_in_transit_qty integer, live_warehouse_qty integer) [表用途：当前库存]",
+        ]
+    )
+
+    compact = schema_for_staged_plan(schema, "按货号查询年份、销量和库存")
+
+    assert "sku text" in compact
+    assert "year text" in compact
+    assert "actual_stock_qty integer" in compact
+    assert "shoe_box_spec" not in compact
+    assert "upper_material" not in compact
+    assert "live_warehouse_qty" not in compact
+    assert "[表用途：当前库存]" in compact
+
+
 def test_validate_readonly_sql_enforces_open_table_list_and_allows_cte_aliases():
     sql = "WITH sales AS (SELECT sku FROM public.jst_daily_sales) SELECT * FROM sales"
     assert validate_readonly_sql(
@@ -268,6 +291,107 @@ def test_custom_provider_uses_chat_completions_without_response_format(monkeypat
     assert plan.sql == "SELECT 1 AS count"
     assert captured["url"] == "https://example.test/v1/chat/completions"
     assert "response_format" not in captured["payload"]
+
+
+def test_staged_plan_parser_accepts_independent_aggregate_queries(monkeypatch):
+    class _Response:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc_value, traceback):
+            return False
+
+        def read(self):
+            content = {
+                "title": "销量库存分析",
+                "summary": "按货号合并销量和库存",
+                "warnings": [],
+                "join_keys": ["货号"],
+                "sort_by": "总销量",
+                "sort_direction": "desc",
+                "result_limit": 100,
+                "stages": [
+                    {
+                        "name": "销量",
+                        "sql": "SELECT product_code AS 货号, SUM(net_sales_quantity) AS 总销量 FROM v_jst_daily_sales GROUP BY product_code",
+                    },
+                    {
+                        "name": "库存",
+                        "sql": "SELECT product_code AS 货号, SUM(actual_stock_qty) AS 在仓库存 FROM jst_full_stock GROUP BY product_code",
+                    },
+                ],
+            }
+            return json.dumps({
+                "choices": [{"message": {"content": json.dumps(content, ensure_ascii=False)}}]
+            }).encode("utf-8")
+
+    monkeypatch.setattr(ai_sql_query.urllib.request, "urlopen", lambda *args, **kwargs: _Response())
+
+    plan = ai_sql_query.generate_staged_plan(
+        question="按货号查询销量和库存",
+        schema="public.v_jst_daily_sales (product_code text)\npublic.jst_full_stock (product_code text)",
+        api_key="test-key",
+        provider="custom",
+        base_url="https://example.test/v1",
+        model="custom-model",
+        timeout_seconds=20,
+        max_rows=500,
+        failed_sql="SELECT 1",
+        failure_reason="查询计划预计处理的数据量过大",
+    )
+
+    assert plan.join_keys == ("货号",)
+    assert len(plan.stages) == 2
+    assert plan.sort_by == "总销量"
+    assert plan.sort_descending is True
+
+
+def test_staged_results_outer_join_and_sort_without_fact_table_cross_join():
+    sales_stage = AiSqlStage(name="销量", sql="SELECT 1")
+    stock_stage = AiSqlStage(name="库存", sql="SELECT 1")
+    plan = AiStagedPlan(
+        stages=(sales_stage, stock_stage),
+        join_keys=("货号",),
+        title="销量库存",
+        summary="",
+        warnings=[],
+        sort_by="总销量",
+        sort_descending=True,
+        result_limit=10,
+    )
+
+    columns, rows, truncated = merge_staged_query_results(
+        plan,
+        [
+            (
+                sales_stage,
+                ["货号", "总销量"],
+                [
+                    {"货号": "B", "总销量": 8},
+                    {"货号": "A", "总销量": 12},
+                ],
+                False,
+            ),
+            (
+                stock_stage,
+                ["货号", "在仓库存"],
+                [
+                    {"货号": "A", "在仓库存": 20},
+                    {"货号": "C", "在仓库存": 5},
+                ],
+                False,
+            ),
+        ],
+        max_rows=500,
+    )
+
+    assert columns == ["货号", "总销量", "在仓库存"]
+    assert rows == [
+        {"货号": "A", "总销量": 12, "在仓库存": 20},
+        {"货号": "B", "总销量": 8, "在仓库存": None},
+        {"货号": "C", "总销量": None, "在仓库存": 5},
+    ]
+    assert truncated is False
 
 
 def test_correction_feedback_is_sent_to_provider(monkeypatch):

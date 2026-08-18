@@ -73,6 +73,7 @@ class BackfillStats:
     unmatched_rows: dict[int, int]
     written_rows: dict[tuple[int, str], int]
     skipped_authoritative: dict[str, dict[str, list[int]]]
+    skipped_authoritative_rows: int
 
 
 def _brand_matchers(connection) -> dict[str, BrandMatcher]:
@@ -118,11 +119,32 @@ def _authoritative_years(connection) -> dict[tuple[str, str], set[int]]:
     return years
 
 
-def _target_years(authoritative_years: dict[tuple[str, str], set[int]]) -> dict[str, dict[str, set[int]]]:
-    source_years = {*HISTORICAL_SALES_YEARS, DAILY_SALES_YEAR}
+def _authoritative_period_keys(connection) -> set[tuple[str, str, date, str]]:
+    keys: set[tuple[str, str, date, str]] = set()
+    rows = connection.execute(
+        select(
+            PRODUCT_GOODS_SALES_PERIODS_TABLE.c.brand,
+            PRODUCT_GOODS_SALES_PERIODS_TABLE.c.period_type,
+            PRODUCT_GOODS_SALES_PERIODS_TABLE.c.period_start,
+            PRODUCT_GOODS_SALES_PERIODS_TABLE.c.product_code,
+        )
+        .where(PRODUCT_GOODS_SALES_PERIODS_TABLE.c.period_type.in_(PERIOD_TYPES))
+        .where(PRODUCT_GOODS_SALES_PERIODS_TABLE.c.source_workbook != BACKFILL_SOURCE_WORKBOOK)
+    ).mappings()
+    for row in rows:
+        period_start = row["period_start"]
+        product_code = str(row["product_code"] or "").strip()
+        if isinstance(period_start, date) and product_code:
+            keys.add((str(row["brand"]), str(row["period_type"]), period_start, product_code))
+    return keys
+
+
+def _target_years(sales_years: set[int] | None = None) -> dict[str, dict[str, set[int]]]:
+    available_years = {*HISTORICAL_SALES_YEARS, DAILY_SALES_YEAR}
+    source_years = available_years if sales_years is None else available_years.intersection(sales_years)
     return {
         brand: {
-            period_type: source_years.difference(authoritative_years.get((brand, period_type), set()))
+            period_type: set(source_years)
             for period_type in PERIOD_TYPES
         }
         for brand in PRODUCT_TABLES
@@ -160,6 +182,8 @@ def _add_sale(
 def _history_totals(connection, matchers: dict[str, BrandMatcher], target_years: dict[str, dict[str, set[int]]], stats: BackfillStats) -> dict[tuple[str, str, date, str], int]:
     totals: dict[tuple[str, str, date, str], int] = defaultdict(int)
     for sales_year in HISTORICAL_SALES_YEARS:
+        if not any(sales_year in years for periods in target_years.values() for years in periods.values()):
+            continue
         table = product_goods_historical_sales_table_for_year(sales_year)
         if not inspect(connection).has_table(table.name):
             continue
@@ -224,9 +248,12 @@ def _rows_to_write(
     matchers: dict[str, BrandMatcher],
     *,
     daily_as_of_date: date | None,
+    authoritative_period_keys: set[tuple[str, str, date, str]],
 ) -> list[dict[str, object]]:
     rows: list[dict[str, object]] = []
     for (brand, period_type, period_start, sku), quantity in sorted(totals.items()):
+        if (brand, period_type, period_start, sku) in authoritative_period_keys:
+            continue
         sales_year = period_start.year
         source_as_of_date = daily_as_of_date if sales_year == DAILY_SALES_YEAR else date(sales_year, 12, 31)
         rows.append(
@@ -277,7 +304,7 @@ def _write_rows(connection, rows: list[dict[str, object]]) -> int:
     return written
 
 
-def backfill(*, dry_run: bool) -> BackfillStats:
+def backfill(*, dry_run: bool, sales_years: set[int] | None = None) -> BackfillStats:
     settings = load_settings(require_database=True)
     assert settings.database_url is not None
     database = Database(settings.database_url)
@@ -289,11 +316,13 @@ def backfill(*, dry_run: bool) -> BackfillStats:
         unmatched_rows=defaultdict(int),
         written_rows=defaultdict(int),
         skipped_authoritative={},
+        skipped_authoritative_rows=0,
     )
     with engine.begin() as connection:
         matchers = _brand_matchers(connection)
         authoritative_years = _authoritative_years(connection)
-        target_years = _target_years(authoritative_years)
+        authoritative_period_keys = _authoritative_period_keys(connection)
+        target_years = _target_years(sales_years)
         stats.skipped_authoritative = {
             brand: {
                 period_type: sorted(authoritative_years.get((brand, period_type), set()).intersection({*HISTORICAL_SALES_YEARS, DAILY_SALES_YEAR}))
@@ -306,7 +335,13 @@ def backfill(*, dry_run: bool) -> BackfillStats:
         totals = _history_totals(connection, matchers, target_years, stats)
         for key, quantity in _daily_totals(connection, matchers, target_years, stats).items():
             totals[key] += quantity
-        rows = _rows_to_write(totals, matchers, daily_as_of_date=_daily_as_of_date(connection))
+        stats.skipped_authoritative_rows = sum(key in authoritative_period_keys for key in totals)
+        rows = _rows_to_write(
+            totals,
+            matchers,
+            daily_as_of_date=_daily_as_of_date(connection),
+            authoritative_period_keys=authoritative_period_keys,
+        )
         for row in rows:
             stats.written_rows[(int(row["period_start"].year), str(row["period_type"]))] += 1
         if not dry_run:
@@ -317,9 +352,12 @@ def backfill(*, dry_run: bool) -> BackfillStats:
 def main() -> int:
     parser = argparse.ArgumentParser(description="Backfill annual and monthly product-goods sales from database sales sources")
     parser.add_argument("--dry-run", action="store_true", help="Report the backfill without writing")
+    parser.add_argument("--year", action="append", type=int, help="Only refresh one sales year; may be repeated")
     args = parser.parse_args()
-    stats = backfill(dry_run=args.dry_run)
-    for sales_year in sorted({*HISTORICAL_SALES_YEARS, DAILY_SALES_YEAR}):
+    selected_years = set(args.year) if args.year else None
+    stats = backfill(dry_run=args.dry_run, sales_years=selected_years)
+    report_years = selected_years or {*HISTORICAL_SALES_YEARS, DAILY_SALES_YEAR}
+    for sales_year in sorted(report_years):
         print(
             f"{sales_year}: source_rows={stats.source_rows[sales_year]} "
             f"matched_rows={stats.matched_rows[sales_year]} "
@@ -328,6 +366,7 @@ def main() -> int:
             f"{'would_write' if args.dry_run else 'written'}_monthly={stats.written_rows[(sales_year, 'month')]}"
         )
     print(f"skipped_authoritative={stats.skipped_authoritative}")
+    print(f"skipped_authoritative_rows={stats.skipped_authoritative_rows}")
     return 0
 
 

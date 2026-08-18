@@ -158,14 +158,17 @@ function FineTableHeaderFilterButton({
     <button
       type="button"
       className={cn(
-        "shrink-0 cursor-pointer rounded p-0.5 transition-colors hover:bg-muted",
-        active ? "text-primary" : "text-muted-foreground/80",
+        "inline-flex h-5 w-5 shrink-0 cursor-pointer items-center justify-center rounded-[5px] border transition-colors",
+        active
+          ? "border-primary bg-primary text-primary-foreground shadow-sm hover:bg-primary/90"
+          : "border-transparent text-muted-foreground/70 hover:border-border hover:bg-muted hover:text-foreground",
       )}
       onClick={(event) => onOpen(field, label, event.currentTarget)}
-      aria-label={`筛选${label}`}
-      title={`筛选${label}`}
+      aria-label={active ? `${label}已筛选` : `筛选${label}`}
+      aria-pressed={active}
+      title={active ? `${label}：已应用筛选` : `筛选${label}`}
     >
-      <Filter className="h-3 w-3" />
+      <Filter className={cn("h-3 w-3", active && "fill-current")} />
     </button>
   )
 }
@@ -1264,8 +1267,8 @@ const FineTableGrid = memo(function FineTableGrid({
           column.className,
         )}
       >
-        <div className={cn("flex items-center gap-0.5", tableHeaderContentAlignClass(column.align))}>
-          <span className="block whitespace-nowrap">{column.label}</span>
+        <div className={cn("flex items-center gap-1", tableHeaderContentAlignClass(column.align))}>
+          <span className={cn("block whitespace-nowrap", column.filterField && activeFilterFields.has(column.filterField) && "font-semibold text-foreground")}>{column.label}</span>
           {filtersEnabled && column.filterField && (
             <FineTableHeaderFilterButton
               field={column.filterField}
@@ -1288,9 +1291,9 @@ const FineTableGrid = memo(function FineTableGrid({
         >
           <thead className="sticky top-0 z-[60] bg-card">
             <tr className="text-xs text-muted-foreground">
-              <th rowSpan={hasDailyColumns ? 2 : 1} className="sticky left-0 z-[70] w-20 min-w-[5rem] max-w-[5rem] border-b border-border bg-card px-3 py-2.5 text-center font-medium"><div className="flex items-center justify-center gap-0.5"><span>图片</span>{filtersEnabled && <FineTableHeaderFilterButton field="image" label="图片" active={activeFilterFields.has("image")} onOpen={onOpenColumnFilter} />}</div></th>
-              <th rowSpan={hasDailyColumns ? 2 : 1} className="sticky left-20 z-[70] w-40 min-w-[10rem] max-w-[10rem] border-b border-border bg-card px-3 py-2.5 text-left font-medium"><div className="flex items-center justify-between gap-1"><span>货号</span>{filtersEnabled && <FineTableHeaderFilterButton field="sku" label="货号" active={activeFilterFields.has("sku")} onOpen={onOpenColumnFilter} />}</div></th>
-              <th rowSpan={hasDailyColumns ? 2 : 1} className="sticky left-60 z-[70] w-40 min-w-[10rem] max-w-[10rem] border-b border-border bg-card px-3 py-2.5 text-left font-medium"><div className="flex items-center justify-between gap-1"><span>原始货号</span>{filtersEnabled && <FineTableHeaderFilterButton field="original_sku" label="原始货号" active={activeFilterFields.has("original_sku")} onOpen={onOpenColumnFilter} />}</div></th>
+              <th rowSpan={hasDailyColumns ? 2 : 1} className="sticky left-0 z-[70] w-20 min-w-[5rem] max-w-[5rem] border-b border-border bg-card px-3 py-2.5 text-center font-medium"><div className="flex items-center justify-center gap-1"><span className={cn(activeFilterFields.has("image") && "font-semibold text-foreground")}>图片</span>{filtersEnabled && <FineTableHeaderFilterButton field="image" label="图片" active={activeFilterFields.has("image")} onOpen={onOpenColumnFilter} />}</div></th>
+              <th rowSpan={hasDailyColumns ? 2 : 1} className="sticky left-20 z-[70] w-40 min-w-[10rem] max-w-[10rem] border-b border-border bg-card px-3 py-2.5 text-left font-medium"><div className="flex items-center justify-between gap-1"><span className={cn(activeFilterFields.has("sku") && "font-semibold text-foreground")}>货号</span>{filtersEnabled && <FineTableHeaderFilterButton field="sku" label="货号" active={activeFilterFields.has("sku")} onOpen={onOpenColumnFilter} />}</div></th>
+              <th rowSpan={hasDailyColumns ? 2 : 1} className="sticky left-60 z-[70] w-40 min-w-[10rem] max-w-[10rem] border-b border-border bg-card px-3 py-2.5 text-left font-medium"><div className="flex items-center justify-between gap-1"><span className={cn(activeFilterFields.has("original_sku") && "font-semibold text-foreground")}>原始货号</span>{filtersEnabled && <FineTableHeaderFilterButton field="original_sku" label="原始货号" active={activeFilterFields.has("original_sku")} onOpen={onOpenColumnFilter} />}</div></th>
               {headerCells}
               <th rowSpan={hasDailyColumns ? 2 : 1} className="sticky right-0 z-[70] w-20 border-b border-border bg-card px-3 py-3 text-center font-medium">详情</th>
             </tr>
@@ -1304,8 +1307,8 @@ const FineTableGrid = memo(function FineTableGrid({
                       column.className,
                     )}
                   >
-                    <div className="flex items-center justify-center gap-0.5">
-                      <span>{column.dailyMetricLabel}</span>
+                    <div className="flex items-center justify-center gap-1">
+                      <span className={cn(column.filterField && activeFilterFields.has(column.filterField) && "font-semibold text-foreground")}>{column.dailyMetricLabel}</span>
                       {filtersEnabled && column.filterField && (
                         <FineTableHeaderFilterButton
                           field={column.filterField}
@@ -1757,8 +1760,8 @@ export function FineTablePage() {
     () => new Set(draftColumnValues ?? columnFilterData?.options.map((item) => item.value) ?? []),
     [columnFilterData, draftColumnValues],
   )
-  const allVisibleColumnOptionsSelected = visibleColumnFilterOptions.length > 0
-    && visibleColumnFilterOptions.every((item) => selectedColumnValues.has(item.value))
+  const allMatchingColumnOptionsSelected = matchingColumnFilterOptions.length > 0
+    && matchingColumnFilterOptions.every((item) => selectedColumnValues.has(item.value))
   const isDateColumnFilter = activeColumnFilter?.field === "first_order_time"
   const dateColumnFilterTree = useMemo(() => {
     if (!isDateColumnFilter) return { years: [] as FineTableDateFilterYear[], otherOptions: [] as FineTableFilterOption[] }
@@ -1879,11 +1882,11 @@ export function FineTablePage() {
     setExpandedDateFilterMonths((current) => current.includes(key) ? current.filter((item) => item !== key) : [...current, key])
   }
 
-  function toggleAllVisibleFineTableColumnFilterOptions() {
+  function toggleAllMatchingFineTableColumnFilterOptions() {
     setDraftColumnValues((current) => {
       const values = new Set(current ?? columnFilterData?.options.map((item) => item.value) ?? [])
-      if (allVisibleColumnOptionsSelected) visibleColumnFilterOptions.forEach((item) => values.delete(item.value))
-      else visibleColumnFilterOptions.forEach((item) => values.add(item.value))
+      if (allMatchingColumnOptionsSelected) matchingColumnFilterOptions.forEach((item) => values.delete(item.value))
+      else matchingColumnFilterOptions.forEach((item) => values.add(item.value))
       return [...values]
     })
   }
@@ -2469,13 +2472,13 @@ export function FineTablePage() {
             </div>
           </div>
           <div className="flex items-center justify-between border-b border-border bg-muted/20 px-3 py-2 text-xs">
-            <label className="flex cursor-pointer items-center gap-2"><input type="checkbox" checked={allVisibleColumnOptionsSelected} onChange={toggleAllVisibleFineTableColumnFilterOptions} disabled={!visibleColumnFilterOptions.length || columnFilterLoading} /><span>全选/反选</span></label>
-            <span className="text-muted-foreground">已选 {selectedColumnValues.size}</span>
+            <label className="flex cursor-pointer items-center gap-2"><input type="checkbox" checked={allMatchingColumnOptionsSelected} onChange={toggleAllMatchingFineTableColumnFilterOptions} disabled={!matchingColumnFilterOptions.length || columnFilterLoading} /><span>全选/反选</span></label>
+            <span className="text-muted-foreground">已选 {selectedColumnValues.size} / {columnFilterData?.options.length ?? 0}</span>
           </div>
           <div className="min-h-[15rem] max-h-[21rem] overflow-y-auto px-3 py-2">
             {columnFilterLoading && <p className="px-1 py-8 text-center text-sm text-muted-foreground">正在加载筛选项...</p>}
             {!columnFilterLoading && columnFilterError && <p className="px-1 py-8 text-center text-sm text-destructive">{columnFilterError}</p>}
-            {!columnFilterLoading && !columnFilterError && hasHiddenColumnFilterOptions && <p className="mb-2 border border-border bg-muted/40 px-2 py-1.5 text-xs text-muted-foreground">当前展示前 300 项，请输入货号搜索更多结果。</p>}
+            {!columnFilterLoading && !columnFilterError && hasHiddenColumnFilterOptions && <p className="mb-2 rounded border border-border bg-muted/40 px-2 py-1.5 text-xs text-muted-foreground">当前展示前 300 项，可搜索后全选或反选全部匹配项。</p>}
             {!columnFilterLoading && !columnFilterError && !visibleColumnFilterOptions.length && <p className="px-1 py-8 text-center text-sm text-muted-foreground">没有匹配的筛选项</p>}
             {!columnFilterLoading && !columnFilterError && isDateColumnFilter && dateColumnFilterTree.years.map((year) => {
               const yearValues = year.months.flatMap((month) => month.days.flatMap((day) => day.options.map((option) => option.value)))

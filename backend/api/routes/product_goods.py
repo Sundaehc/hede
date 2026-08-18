@@ -2368,6 +2368,8 @@ def get_seasonal_category_sales_ranking(
     season_label: str,
     limit: int = 10,
     sales_year: int | None = None,
+    archive_year_label: str | None = None,
+    require_category: bool = True,
 ) -> dict[str, object]:
     if brand not in PRODUCT_TABLES:
         raise HTTPException(status_code=400, detail=f"Invalid brand: {brand}")
@@ -2432,7 +2434,7 @@ def get_seasonal_category_sales_ranking(
                     latest_daily_candidates.append(latest_value)
             latest_daily_sales_date = max(latest_daily_candidates, default=None)
         cache_key = (
-            "seasonal-category-sales-ranking-v2",
+            "seasonal-category-sales-ranking-v3",
             brand,
             tuple(season_keywords),
             season_label,
@@ -2440,36 +2442,50 @@ def get_seasonal_category_sales_ranking(
             period_start.isoformat(),
             source_as_of_date.isoformat() if isinstance(source_as_of_date, date) else None,
             latest_daily_sales_date.isoformat() if latest_daily_sales_date else None,
+            archive_year_label,
+            require_category,
         )
         cached = get_product_goods_cache(cache_key)
         if cached is not None:
             return cached
 
+        product_statement = (
+            select(
+                product_table.c.id,
+                product_table.c.sku,
+                product_table.c.original_sku,
+                product_table.c.product_name,
+                product_table.c.color,
+                product_table.c.season_category,
+                product_table.c.year,
+                override.c.category_l4,
+            )
+            .select_from(
+                product_table.outerjoin(
+                    override,
+                    (override.c.brand == brand)
+                    & (override.c.product_id == product_table.c.id),
+                )
+            )
+            .where(product_table.c.deleted_at.is_(None))
+        )
+        if require_category:
+            product_statement = product_statement.where(
+                func.nullif(func.btrim(override.c.category_l4), "").is_not(None)
+            )
+        if archive_year_label:
+            product_statement = product_statement.where(
+                product_table.c.year.contains(archive_year_label)
+            )
+        else:
+            product_statement = product_statement.where(or_(*(
+                product_table.c.season_category.contains(keyword)
+                for keyword in season_keywords
+            )))
         product_rows = [
             dict(row)
             for row in connection.execute(
-                select(
-                    product_table.c.id,
-                    product_table.c.sku,
-                    product_table.c.original_sku,
-                    product_table.c.product_name,
-                    product_table.c.color,
-                    product_table.c.season_category,
-                    override.c.category_l4,
-                )
-                .select_from(
-                    product_table.join(
-                        override,
-                        (override.c.brand == brand)
-                        & (override.c.product_id == product_table.c.id),
-                    )
-                )
-                .where(product_table.c.deleted_at.is_(None))
-                .where(func.nullif(func.btrim(override.c.category_l4), "").is_not(None))
-                .where(or_(*(
-                    product_table.c.season_category.contains(keyword)
-                    for keyword in season_keywords
-                )))
+                product_statement
             ).mappings()
             if str(row.get("sku") or "").strip()
         ]
@@ -2594,7 +2610,11 @@ def get_seasonal_category_sales_ranking(
                 "style_code": product.get("original_sku"),
                 "product_name": product.get("product_name"),
                 "color": product.get("color"),
-                "season": product.get("season_category"),
+                "season": (
+                    product.get("year")
+                    if archive_year_label
+                    else product.get("season_category")
+                ),
                 "sales_quantity": quantity,
             }
         )

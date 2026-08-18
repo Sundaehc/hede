@@ -24,15 +24,19 @@ from domain.task_status_schema import SCHEDULED_TASK_STATUS_TABLE
 from domain.ai_query_semantics import referenced_table_names
 from domain.ai_sql_query import (
     AiProviderError,
+    AiStagedPlan,
     AiSqlPlan,
     AiSqlQueryError,
     AiSqlTimeoutError,
     assess_readonly_sql_plan,
     build_database_schema,
     execute_readonly_sql,
+    execute_staged_readonly_plan,
     generate_plan,
+    generate_staged_plan,
     is_mutation_request,
     schema_for_question,
+    schema_for_staged_plan,
     schema_table_names,
 )
 
@@ -451,6 +455,44 @@ def _seasonal_category_sales_ranking_spec(question: str) -> dict[str, object] | 
     return None
 
 
+def _seasonal_product_sales_spec(question: str) -> dict[str, object] | None:
+    normalized = question.lower()
+    if not _contains(normalized, "销量", "销售量", "销售数量"):
+        return None
+    if _contains(
+        normalized,
+        "库存",
+        "在仓",
+        "在途",
+        "缺货",
+        "断码",
+        "订单",
+        "平台",
+        "渠道",
+        "工厂",
+        "尺码",
+        "成本",
+        "退货",
+    ):
+        return None
+    sales_year = _extract_year(question)
+    if sales_year is None:
+        return None
+    for season_label in ("春季款", "夏季款", "秋季款", "冬季款"):
+        if season_label not in normalized:
+            continue
+        requested_limit = _ranking_limit(normalized)
+        limit = requested_limit or 100
+        return {
+            "limit": limit,
+            "explicit_ranking": requested_limit is not None,
+            "season_label": season_label,
+            "sales_year": sales_year,
+            "archive_year_label": f"{sales_year % 100:02d}年{season_label}",
+        }
+    return None
+
+
 def _current_inventory_summary_spec(question: str) -> dict[str, object] | None:
     normalized = question.lower()
     if not _contains(normalized, "库存", "在仓", "在途"):
@@ -507,11 +549,32 @@ def _should_use_business_rules(
             or _view_for(question) != "goods"
             or _recent_sales_ranking_spec(question) is not None
             or _seasonal_category_sales_ranking_spec(question) is not None
+            or _seasonal_product_sales_spec(question) is not None
             or _current_inventory_summary_spec(question) is not None
         )
     if intent == "product_archive":
         return bool(brand and codes)
     return False
+
+
+def _requires_staged_ai_plan(question: str) -> bool:
+    normalized = question.lower()
+    fact_domains = (
+        _contains(normalized, "销量", "销售量", "销售额", "净销量", "毛销量"),
+        _contains(normalized, "库存", "在仓", "在途", "缺货", "断码", "周转"),
+        _contains(
+            normalized,
+            "订单量",
+            "订单数量",
+            "下单量",
+            "下单数量",
+            "订货量",
+            "订货数量",
+        ),
+        _contains(normalized, "唯品罗盘", "拒退", "uv", "ctr", "收藏数"),
+        _contains(normalized, "经营历程", "采购单", "进货单", "调拨单", "报溢单", "报损单"),
+    )
+    return sum(fact_domains) >= 2
 
 
 def _condition(label: str, value: object) -> dict[str, str]:
@@ -748,6 +811,79 @@ def _run_product_goods(request: Request, question: str, payload: dict[str, objec
                     "href": f"/product-goods?brand={brand}&year={year_label}&view=goods",
                 },
                 "suggestions": [],
+            }
+        )
+        return payload
+    seasonal_product_spec = _seasonal_product_sales_spec(question)
+    if seasonal_product_spec is not None and not codes:
+        result = get_seasonal_category_sales_ranking(
+            request,
+            brand=brand,
+            season_keywords=(),
+            season_label=str(seasonal_product_spec["season_label"]),
+            limit=int(seasonal_product_spec["limit"]),
+            sales_year=int(seasonal_product_spec["sales_year"]),
+            archive_year_label=str(seasonal_product_spec["archive_year_label"]),
+            require_category=False,
+        )
+        rows = list(result.get("items") or [])
+        result_codes = ",".join(
+            _clean_text(row.get("goods_code"))
+            for row in rows
+            if isinstance(row, dict) and _clean_text(row.get("goods_code"))
+        )
+        sales_year = int(seasonal_product_spec["sales_year"])
+        season_label = str(seasonal_product_spec["season_label"])
+        archive_year_label = str(seasonal_product_spec["archive_year_label"])
+        explicit_ranking = bool(seasonal_product_spec["explicit_ranking"])
+        limit = int(seasonal_product_spec["limit"])
+        total_products = int(result.get("sales_product_count") or 0)
+        warnings: list[str] = []
+        if total_products > len(rows):
+            warnings.append(f"共有 {total_products} 个商品产生销量，当前展示销量前 {len(rows)} 个。")
+        payload.update(
+            {
+                "title": (
+                    f"{BRAND_LABELS.get(brand, brand)}{sales_year}年{season_label}"
+                    + (f"销量前{limit}" if explicit_ranking else "销量")
+                ),
+                "summary": (
+                    f"按商品档案年份季节“{archive_year_label}”筛选商品，"
+                    f"统计 {sales_year} 年销量，共有 {total_products} 个商品产生销量。"
+                ),
+                "conditions": [
+                    _condition("品牌", BRAND_LABELS.get(brand, brand)),
+                    _condition("年份季节", archive_year_label),
+                    _condition("销量年度", sales_year),
+                ],
+                "metrics": [
+                    {"label": f"{sales_year}年销量", "value": result.get("period_sales", 0), "tone": "violet"},
+                    {"label": "有销量商品", "value": total_products, "tone": "blue"},
+                    {"label": "当前展示", "value": len(rows), "tone": "slate"},
+                ],
+                "columns": [
+                    {"key": "rank", "label": "排名", "type": "number"},
+                    {"key": "goods_code", "label": "货号"},
+                    {"key": "style_code", "label": "原始货号"},
+                    {"key": "product_name", "label": "品名"},
+                    {"key": "color", "label": "颜色"},
+                    {"key": "season", "label": "年份季节"},
+                    {"key": "category_l4", "label": "四级分类"},
+                    {"key": "sales_quantity", "label": f"{sales_year}年销量", "type": "number"},
+                ],
+                "rows": rows,
+                "data_as_of": (
+                    [{"label": "销量数据截至", "value": result["source_as_of_date"]}]
+                    if result.get("source_as_of_date")
+                    else []
+                ),
+                "sources": ["商品信息档案", "年度销量", *(result.get("sources") or [])],
+                "warnings": warnings,
+                "link": {
+                    "label": "打开商品货品表",
+                    "href": f"/product-goods?brand={brand}&query={result_codes}&view=goods",
+                },
+                "suggestions": ["查看这批商品的商品档案"],
             }
         )
         return payload
@@ -1160,6 +1296,10 @@ def _run_ai_sql(
     max_plan_rows = int(
         getattr(settings, "ai_sql_max_plan_rows", 10_000_000)
     )
+    planner_model = str(
+        getattr(settings, "ai_sql_planner_model", None)
+        or getattr(settings, "ai_model", "gpt-4.1-mini")
+    )
     plan_cache = getattr(request.app.state, "ai_sql_plan_cache", None)
     if not isinstance(plan_cache, dict):
         plan_cache = {}
@@ -1170,23 +1310,59 @@ def _run_ai_sql(
         hash(schema),
     )
     plan = plan_cache.get(plan_cache_key)
-    used_cached_plan = isinstance(plan, AiSqlPlan)
+    used_cached_plan = isinstance(plan, (AiSqlPlan, AiStagedPlan))
     if not used_cached_plan:
         plan = None
-    previous_sql = None
-    correction_error = None
     corrected = False
+    used_staged_plan = isinstance(plan, AiStagedPlan)
+    allowed_tables = schema_table_names(schema)
+    proactive_staged = _requires_staged_ai_plan(question)
+
+    def execute_plan(
+        query_plan: AiSqlPlan | AiStagedPlan,
+    ) -> tuple[list[str], list[dict[str, object]], bool]:
+        if isinstance(query_plan, AiStagedPlan):
+            return execute_staged_readonly_plan(
+                engine,
+                query_plan,
+                max_rows=max_rows,
+                timeout_seconds=timeout_seconds,
+                preflight_enabled=preflight_enabled,
+                explain_timeout_seconds=explain_timeout_seconds,
+                max_plan_cost=max_plan_cost,
+                max_plan_rows=max_plan_rows,
+                allowed_tables=allowed_tables,
+                question=question,
+            )
+        return execute_readonly_sql(
+            engine,
+            query_plan.sql,
+            max_rows=max_rows,
+            timeout_seconds=timeout_seconds,
+            allowed_tables=allowed_tables,
+            question=question,
+        )
+
+    def failure_text(exc: BaseException) -> str:
+        if isinstance(exc, SQLAlchemyError):
+            database_error = getattr(exc, "orig", None) or exc
+            return f"数据库执行失败：{str(database_error)[:500]}"
+        return str(exc)
+
+    def is_complex_plan_failure(exc: BaseException) -> bool:
+        message = str(exc)
+        return any(
+            marker in message
+            for marker in (
+                "查询计划预计处理的数据量过大",
+                "查询计划分析失败",
+            )
+        )
+
     try:
         if used_cached_plan:
             try:
-                columns, rows, truncated = execute_readonly_sql(
-                    engine,
-                    plan.sql,
-                    max_rows=max_rows,
-                    timeout_seconds=timeout_seconds,
-                    allowed_tables=schema_table_names(schema),
-                    question=question,
-                )
+                columns, rows, truncated = execute_plan(plan)
             except AiSqlTimeoutError:
                 plan_cache.pop(plan_cache_key, None)
                 raise
@@ -1195,42 +1371,45 @@ def _run_ai_sql(
                 plan = None
                 used_cached_plan = False
         if plan is None:
-            for attempt in range(2):
-                plan = generate_plan(
+            previous_sql = None
+            correction_error = None
+            complex_failure_seen = proactive_staged
+            failed_sql = "未执行单条 SQL" if proactive_staged else ""
+            staged_failure_reason = (
+                "问题同时包含多个事实领域，直接使用分阶段聚合计划"
+                if proactive_staged
+                else ""
+            )
+            for attempt in range(0 if proactive_staged else 2):
+                candidate = generate_plan(
                     question=question,
                     schema=schema,
                     api_key=api_key,
                     provider=str(getattr(settings, "ai_provider", "openai")),
                     base_url=str(getattr(settings, "ai_base_url", "https://api.openai.com/v1")),
-                    model=str(getattr(settings, "ai_model", "gpt-4.1-mini")),
+                    model=planner_model,
                     timeout_seconds=timeout_seconds,
                     max_rows=max_rows,
                     previous_sql=previous_sql,
                     correction_error=correction_error,
                 )
                 try:
-                    if not plan.sql:
-                        detail = plan.warnings[0] if plan.warnings else "AI 无法根据当前问题生成查询 SQL"
+                    if not candidate.sql:
+                        detail = candidate.warnings[0] if candidate.warnings else "AI 无法根据当前问题生成查询 SQL"
                         raise AiSqlQueryError(detail)
                     if preflight_enabled:
                         assess_readonly_sql_plan(
                             engine,
-                            plan.sql,
+                            candidate.sql,
                             max_rows=max_rows,
                             timeout_seconds=explain_timeout_seconds,
                             max_plan_cost=max_plan_cost,
                             max_plan_rows=max_plan_rows,
-                            allowed_tables=schema_table_names(schema),
+                            allowed_tables=allowed_tables,
                             question=question,
                         )
-                    columns, rows, truncated = execute_readonly_sql(
-                        engine,
-                        plan.sql,
-                        max_rows=max_rows,
-                        timeout_seconds=timeout_seconds,
-                        allowed_tables=schema_table_names(schema),
-                        question=question,
-                    )
+                    columns, rows, truncated = execute_plan(candidate)
+                    plan = candidate
                     corrected = attempt > 0
                     plan_cache[plan_cache_key] = plan
                     while len(plan_cache) > 128:
@@ -1240,14 +1419,52 @@ def _run_ai_sql(
                     plan_cache.pop(plan_cache_key, None)
                     raise
                 except (AiSqlQueryError, SQLAlchemyError) as exc:
-                    if attempt > 0:
+                    failed_sql = candidate.sql
+                    staged_failure_reason = failure_text(exc)
+                    complex_failure_seen = (
+                        complex_failure_seen or is_complex_plan_failure(exc)
+                    )
+                    if attempt == 0:
+                        previous_sql = candidate.sql
+                        correction_error = staged_failure_reason
+                        continue
+                    if not complex_failure_seen:
                         raise
-                    previous_sql = plan.sql
-                    if isinstance(exc, SQLAlchemyError):
-                        database_error = getattr(exc, "orig", None) or exc
-                        correction_error = f"数据库执行失败：{str(database_error)[:500]}"
-                    else:
-                        correction_error = str(exc)
+                    plan = None
+
+            if plan is None and complex_failure_seen:
+                staged_schema = schema_for_staged_plan(schema, question)
+                previous_staged_plan: AiStagedPlan | None = None
+                for attempt in range(2):
+                    staged_candidate = generate_staged_plan(
+                        question=question,
+                        schema=staged_schema,
+                        api_key=api_key,
+                        provider=str(getattr(settings, "ai_provider", "openai")),
+                        base_url=str(getattr(settings, "ai_base_url", "https://api.openai.com/v1")),
+                        model=planner_model,
+                        timeout_seconds=timeout_seconds,
+                        max_rows=max_rows,
+                        failed_sql=failed_sql,
+                        failure_reason=staged_failure_reason,
+                        previous_plan=previous_staged_plan,
+                    )
+                    try:
+                        columns, rows, truncated = execute_plan(staged_candidate)
+                        plan = staged_candidate
+                        used_staged_plan = True
+                        plan_cache[plan_cache_key] = plan
+                        while len(plan_cache) > 128:
+                            plan_cache.pop(next(iter(plan_cache)))
+                        break
+                    except AiSqlTimeoutError:
+                        plan_cache.pop(plan_cache_key, None)
+                        raise
+                    except (AiSqlQueryError, SQLAlchemyError) as exc:
+                        staged_failure_reason = failure_text(exc)
+                        if attempt > 0:
+                            raise
+                        previous_staged_plan = staged_candidate
     except AiProviderError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
     except AiSqlTimeoutError as exc:
@@ -1272,23 +1489,61 @@ def _run_ai_sql(
         warnings.append("已复用校验通过的查询计划，数据已按当前数据库重新查询。")
     if corrected:
         warnings.append("首次 SQL 未通过业务口径或执行计划检查，系统已自动修正并完成查询计划优化后执行。")
+    if used_staged_plan:
+        warnings.append(
+            (
+                f"问题包含多个事实领域，系统已直接拆分为 {len(plan.stages)} 个只读聚合阶段后合并。"
+                if proactive_staged
+                else f"单条跨表 SQL 执行计划过大，系统已自动拆分为 {len(plan.stages)} 个只读聚合阶段后合并。"
+            )
+        )
     if truncated:
         warnings.append(f"结果超过 {max_rows} 行，当前仅展示前 {max_rows} 行。")
-    warnings.append(f"数据库执行超时为 {timeout_seconds} 秒。")
+    warnings.append(
+        f"每个数据库查询阶段的执行超时为 {timeout_seconds} 秒。"
+        if used_staged_plan
+        else f"数据库执行超时为 {timeout_seconds} 秒。"
+    )
+    if isinstance(plan, AiStagedPlan):
+        generated_sql = "\n\n".join(
+            f"阶段 {index}：{stage.name}\n{stage.sql}"
+            for index, stage in enumerate(plan.stages, start=1)
+        )
+        source_tables = sorted({
+            table
+            for stage in plan.stages
+            for table in referenced_table_names(stage.sql)
+        })
+        query_mode = "ai_staged_sql"
+        mode_label = "AI 分阶段只读查询"
+        stage_metric = {
+            "label": "查询阶段",
+            "value": len(plan.stages),
+            "tone": "violet",
+        }
+    else:
+        generated_sql = plan.sql
+        source_tables = sorted(referenced_table_names(plan.sql))
+        query_mode = "ai_sql"
+        mode_label = "AI 只读 SQL"
+        stage_metric = None
+    metrics = [
+        {"label": "返回行数", "value": len(rows), "tone": "blue"},
+        {"label": "字段数", "value": len(columns), "tone": "slate"},
+    ]
+    if stage_metric is not None:
+        metrics.append(stage_metric)
     payload.update(
         {
-            "query_mode": "ai_sql",
-            "generated_sql": plan.sql,
+            "query_mode": query_mode,
+            "generated_sql": generated_sql,
             "title": plan.title or "AI 数据查询",
             "summary": summary,
             "conditions": [
-                _condition("查询模式", "AI 只读 SQL"),
+                _condition("查询模式", mode_label),
                 _condition("数据范围", "当前账户已有权限"),
             ],
-            "metrics": [
-                {"label": "返回行数", "value": len(rows), "tone": "blue"},
-                {"label": "字段数", "value": len(columns), "tone": "slate"},
-            ],
+            "metrics": metrics,
             "columns": [
                 {"key": key, "label": key, "type": _ai_column_type(rows, key)}
                 for key in columns
@@ -1296,7 +1551,7 @@ def _run_ai_sql(
             "rows": rows,
             "sources": [
                 "规范化业务查询",
-                *sorted(referenced_table_names(plan.sql)),
+                *source_tables,
             ],
             "warnings": warnings,
         }

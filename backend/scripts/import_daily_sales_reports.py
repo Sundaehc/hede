@@ -10,6 +10,7 @@ from datetime import date
 from pathlib import Path
 
 from config import load_settings
+from scripts.backfill_product_goods_annual_sales import backfill as backfill_product_goods_sales
 from storage.daily_sales_repository import DailySalesRepository, JST_FILE_NAME, VIP_FILE_NAME
 from storage.task_status_repository import ScheduledTaskStatusRepository
 
@@ -46,14 +47,31 @@ def main() -> int:
     repository = DailySalesRepository(settings.database_url)
     status_repo = ScheduledTaskStatusRepository(settings.database_url)
     failed = False
+    imported_any = False
     for task_name, source_file, source in files:
         try:
             result = repository.import_jst_daily_sales(source_file) if source == "jst" else repository.import_vip_daily_sales(source_file)
             _record_status(status_repo, task_name, result, source_file)
+            imported_any = True
             print(f"[OK] {source_file.name}: {result}")
         except Exception as exc:  # pragma: no cover - scheduled task diagnostics
             failed = True
             print(f"[FAILED] {source_file}: {type(exc).__name__}: {exc}\n{traceback.format_exc()}")
+    if imported_any:
+        try:
+            stats = backfill_product_goods_sales(dry_run=False, sales_years={date.today().year})
+            print(
+                "[OK] refreshed product-goods sales periods: "
+                f"annual={stats.written_rows[(date.today().year, 'year')]} "
+                f"monthly={stats.written_rows[(date.today().year, 'month')]} "
+                f"preserved={stats.skipped_authoritative_rows}"
+            )
+        except Exception as exc:  # pragma: no cover - scheduled task diagnostics
+            failed = True
+            print(
+                "[FAILED] product-goods sales period refresh: "
+                f"{type(exc).__name__}: {exc}\n{traceback.format_exc()}"
+            )
     return 1 if failed else 0
 
 

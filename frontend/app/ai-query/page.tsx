@@ -571,7 +571,7 @@ export default function AiQueryPage() {
                       <summary className="flex cursor-pointer list-none items-center gap-2 px-4 py-3 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground">
                         <ChevronRight className="size-3.5 transition-transform group-open:rotate-90" />
                         <Database className="size-3.5" />
-                        执行 SQL
+                        {response.query_mode === "ai_staged_sql" ? "分阶段 SQL" : "执行 SQL"}
                       </summary>
                       <div className="px-4 pb-4">
                         <pre className="max-h-64 overflow-auto border-t border-border/80 pt-3 text-xs leading-5 whitespace-pre-wrap text-foreground">

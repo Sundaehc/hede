@@ -65,6 +65,11 @@ def test_optimized_snapshot_returns_filtered_total(monkeypatch):
         lambda engine, value, batch_id, *, conditions, page, page_size: ([{"sku": "A-1"}], 7),
     )
     monkeypatch.setattr(fine_table_routes, "_hydrate_snapshot_image_urls", lambda **kwargs: None)
+    monkeypatch.setattr(
+        fine_table_routes,
+        "_hydrate_snapshot_archive_costs",
+        lambda **kwargs: kwargs["items"][0].update(latest_purchase_price=99.2),
+    )
 
     response = fine_table_routes.get_fine_table_snapshot(
         request,
@@ -77,3 +82,4 @@ def test_optimized_snapshot_returns_filtered_total(monkeypatch):
 
     assert response["total"] == 7
     assert response["snapshot"]["total_rows"] == 10
+    assert response["items"][0]["latest_purchase_price"] == 99.2

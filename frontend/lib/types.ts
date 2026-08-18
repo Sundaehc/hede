@@ -109,7 +109,7 @@ export type AiQueryResponse = {
   query_id: string
   question: string
   intent: string
-  query_mode?: "business_rules" | "ai_sql"
+  query_mode?: "business_rules" | "ai_sql" | "ai_staged_sql"
   generated_sql?: string | null
   supported: boolean
   needs_clarification: boolean
