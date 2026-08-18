@@ -242,16 +242,25 @@ export function CounterpartyLedgerDialog({ open, counterpartyType, name, onOpenC
           )}
 
           <div className="max-h-[46vh] overflow-auto rounded-lg border border-border">
-            <table className="w-full min-w-[980px] text-sm">
+            <table className="w-full min-w-[1120px] table-fixed text-sm">
+              <colgroup>
+                <col className="w-14" />
+                <col className="w-28" />
+                <col className="w-44" />
+                <col />
+                <col className="w-28" />
+                <col className="w-28" />
+                <col className="w-28" />
+              </colgroup>
               <thead className="sticky top-0 z-10">
                 <tr className="border-b border-border bg-muted text-left text-muted-foreground">
-                  <th className="px-3 py-2 font-medium">行号</th>
-                  <th className="px-3 py-2 font-medium">日期</th>
-                  <th className="px-3 py-2 font-medium">单据编号</th>
-                  <th className="px-3 py-2 font-medium">单据摘要</th>
-                  <th className="px-3 py-2 text-right font-medium">增加金额</th>
-                  <th className="px-3 py-2 text-right font-medium">减少金额</th>
-                  <th className="px-3 py-2 text-right font-medium">余额</th>
+                  <th className="whitespace-nowrap px-3 py-2 font-medium">行号</th>
+                  <th className="whitespace-nowrap px-3 py-2 font-medium">日期</th>
+                  <th className="whitespace-nowrap px-3 py-2 font-medium">单据编号</th>
+                  <th className="whitespace-nowrap px-3 py-2 font-medium">单据摘要</th>
+                  <th className="whitespace-nowrap px-3 py-2 text-right font-medium">增加金额</th>
+                  <th className="whitespace-nowrap px-3 py-2 text-right font-medium">减少金额</th>
+                  <th className="whitespace-nowrap px-3 py-2 text-right font-medium">余额</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
@@ -282,16 +291,16 @@ export function CounterpartyLedgerDialog({ open, counterpartyType, name, onOpenC
                       >
                         <td className="px-3 py-2 text-muted-foreground tabular-nums">{item.row_number}</td>
                         <td className="px-3 py-2 whitespace-nowrap tabular-nums">{item.date || "-"}</td>
-                        <td className="px-3 py-2 font-mono text-xs">{item.document_number || item.id}</td>
+                        <td className="px-3 py-2 font-mono text-xs leading-5 break-words">{item.document_number || item.id}</td>
                         <td className="px-3 py-2">
                           <div className="min-w-0">
                             <p className="truncate" title={item.summary || ""}>{item.summary || "-"}</p>
                             <p className="mt-0.5 text-xs text-muted-foreground">{item.document_type || "-"}</p>
                           </div>
                         </td>
-                        <td className="px-3 py-2 text-right font-mono tabular-nums">{formatMoney(item.increase_amount)}</td>
-                        <td className="px-3 py-2 text-right font-mono tabular-nums">{formatMoney(item.decrease_amount)}</td>
-                        <td className="px-3 py-2 text-right font-mono tabular-nums">{formatMoney(item.balance)}</td>
+                        <td className="whitespace-nowrap px-3 py-2 text-right font-mono tabular-nums">{formatMoney(item.increase_amount)}</td>
+                        <td className="whitespace-nowrap px-3 py-2 text-right font-mono tabular-nums">{formatMoney(item.decrease_amount)}</td>
+                        <td className="whitespace-nowrap px-3 py-2 text-right font-mono tabular-nums">{formatMoney(item.balance)}</td>
                       </tr>
                       {isExpanded && (
                         <tr className="bg-muted/20">
