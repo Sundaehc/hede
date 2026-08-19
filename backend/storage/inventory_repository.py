@@ -121,73 +121,96 @@ class InventoryRepository:
             conditions.append(table.c.summary.ilike(f"%{summary.strip()}%"))
         if handler:
             conditions.append(table.c.handler.ilike(f"%{handler.strip()}%"))
+        is_internal_sales_customer = (
+            select(GENERAL_CUSTOMER_SHOP_TABLE.c.id)
+            .select_from(
+                GENERAL_CUSTOMER_SHOP_TABLE.outerjoin(
+                    GENERAL_CUSTOMER_UNIT_TABLE,
+                    GENERAL_CUSTOMER_UNIT_TABLE.c.shop_id == GENERAL_CUSTOMER_SHOP_TABLE.c.id,
+                )
+            )
+            .where(
+                GENERAL_CUSTOMER_SHOP_TABLE.c.shop_name.ilike("%内销客户%"),
+                or_(
+                    GENERAL_CUSTOMER_SHOP_TABLE.c.shop_name == table.c.supplier,
+                    GENERAL_CUSTOMER_UNIT_TABLE.c.unit_name == table.c.supplier,
+                ),
+            )
+            .correlate(table)
+            .exists()
+        )
         if completion_status == "incomplete":
             is_accounting_document = table.c.document_type.in_(ACCOUNTING_DOCUMENT_TYPES)
             is_product_document = or_(table.c.document_type.is_(None), ~is_accounting_document)
-            conditions.append(or_(
-                ~select(detail.c.id)
-                .where(detail.c.document_id == table.c.id)
-                .exists(),
-                and_(
-                    is_accounting_document,
-                    select(detail.c.id)
-                    .where(
-                        detail.c.document_id == table.c.id,
-                        or_(
-                            detail.c.amount.is_(None),
-                            detail.c.amount == 0,
-                        ),
-                    )
+            conditions.append(and_(
+                ~is_internal_sales_customer,
+                or_(
+                    ~select(detail.c.id)
+                    .where(detail.c.document_id == table.c.id)
                     .exists(),
-                ),
-                and_(
-                    is_product_document,
-                    select(detail.c.id)
-                    .where(
-                        detail.c.document_id == table.c.id,
-                        or_(
-                            detail.c.unit_price.is_(None),
-                            detail.c.unit_price == 0,
-                        ),
-                    )
-                    .exists(),
+                    and_(
+                        is_accounting_document,
+                        select(detail.c.id)
+                        .where(
+                            detail.c.document_id == table.c.id,
+                            or_(
+                                detail.c.amount.is_(None),
+                                detail.c.amount == 0,
+                            ),
+                        )
+                        .exists(),
+                    ),
+                    and_(
+                        is_product_document,
+                        select(detail.c.id)
+                        .where(
+                            detail.c.document_id == table.c.id,
+                            or_(
+                                detail.c.unit_price.is_(None),
+                                detail.c.unit_price == 0,
+                            ),
+                        )
+                        .exists(),
+                    ),
                 ),
             ))
         elif completion_status == "completed":
             is_accounting_document = table.c.document_type.in_(ACCOUNTING_DOCUMENT_TYPES)
             is_product_document = or_(table.c.document_type.is_(None), ~is_accounting_document)
-            conditions.append(
-                select(detail.c.id)
-                .where(detail.c.document_id == table.c.id)
-                .exists()
-            )
             conditions.append(or_(
+                is_internal_sales_customer,
                 and_(
-                    is_accounting_document,
-                    ~select(detail.c.id)
-                    .where(
-                        detail.c.document_id == table.c.id,
-                        or_(
-                            detail.c.amount.is_(None),
-                            detail.c.amount == 0,
-                        ),
-                    )
+                    select(detail.c.id)
+                    .where(detail.c.document_id == table.c.id)
                     .exists(),
-                ),
-                and_(
-                    is_product_document,
-                    ~select(detail.c.id)
-                    .where(
-                        detail.c.document_id == table.c.id,
-                        or_(
-                            detail.c.unit_price.is_(None),
-                            detail.c.unit_price == 0,
+                    or_(
+                        and_(
+                            is_accounting_document,
+                            ~select(detail.c.id)
+                            .where(
+                                detail.c.document_id == table.c.id,
+                                or_(
+                                    detail.c.amount.is_(None),
+                                    detail.c.amount == 0,
+                                ),
+                            )
+                            .exists(),
                         ),
-                    )
-                    .exists(),
+                        and_(
+                            is_product_document,
+                            ~select(detail.c.id)
+                            .where(
+                                detail.c.document_id == table.c.id,
+                                or_(
+                                    detail.c.unit_price.is_(None),
+                                    detail.c.unit_price == 0,
+                                ),
+                            )
+                            .exists(),
+                        ),
+                    ),
                 ),
-            )
-            )
+            ))
         if original_sku:
             original_like = f"%{original_sku.strip()}%"
             conditions.append(
@@ -1384,6 +1407,28 @@ class InventoryRepository:
         with self.engine.connect() as connection:
             row = connection.execute(statement).mappings().first()
         return None if row is None else dict(row)
+
+    def is_internal_sales_customer(self, name: object) -> bool:
+        customer_name = str(name or "").strip()
+        if not customer_name:
+            return False
+        statement = (
+            select(GENERAL_CUSTOMER_SHOP_TABLE.c.id)
+            .outerjoin(
+                GENERAL_CUSTOMER_UNIT_TABLE,
+                GENERAL_CUSTOMER_UNIT_TABLE.c.shop_id == GENERAL_CUSTOMER_SHOP_TABLE.c.id,
+            )
+            .where(
+                GENERAL_CUSTOMER_SHOP_TABLE.c.shop_name.ilike("%内销客户%"),
+                or_(
+                    GENERAL_CUSTOMER_SHOP_TABLE.c.shop_name == customer_name,
+                    GENERAL_CUSTOMER_UNIT_TABLE.c.unit_name == customer_name,
+                ),
+            )
+            .limit(1)
+        )
+        with self.engine.connect() as connection:
+            return connection.execute(statement).first() is not None
 
     def reorder_general_customer_shops(self, user_id: int, customer_name: str, ordered_ids: list[int]) -> bool:
         with self.engine.connect() as connection:

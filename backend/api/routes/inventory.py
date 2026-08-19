@@ -384,6 +384,23 @@ def _to_decimal(value: object) -> Decimal:
         return Decimal("0")
 
 
+def _has_explicit_zero_unit_price(payload: dict[str, object]) -> bool:
+    value = _cell_text(payload.get("unit_price"))
+    if not value:
+        return False
+    try:
+        return Decimal(value) == 0
+    except Exception:
+        return False
+
+
+def _allows_zero_unit_price(repository, record: dict[str, object]) -> bool:
+    document_type = normalize_document_type(record.get("document_type"))
+    if document_type not in WHOLESALE_DOCUMENT_TYPES:
+        return False
+    return repository.is_internal_sales_customer(record.get("supplier"))
+
+
 def _purchase_lookup_price(*values: object) -> object | None:
     """Return the first plausible source price; corrupted source values are ignored."""
     for value in values:
@@ -2741,6 +2758,8 @@ def _build_purchase_detail_lookup(connection, product_code: str, quantity: Decim
 
 def _gendered_detail_payloads(repository, record: dict[str, object], payload: dict[str, object]) -> list[dict[str, object]]:
     """Apply NI gender prices to manual detail saves as well as Excel imports."""
+    if _has_explicit_zero_unit_price(payload) and _allows_zero_unit_price(repository, record):
+        return [payload]
     product_code = _cell_text(payload.get("product_code"))
     raw_sizes = payload.get("size_quantities")
     if not product_code or not isinstance(raw_sizes, dict) or not raw_sizes:
@@ -2781,6 +2800,11 @@ def _gendered_detail_payloads(repository, record: dict[str, object], payload: di
 
 def _apply_product_archive_cost(repository, record: dict[str, object], payload: dict[str, object]) -> dict[str, object]:
     """Use the matched product archive cost for manually saved details."""
+    if _has_explicit_zero_unit_price(payload) and _allows_zero_unit_price(repository, record):
+        normalized = dict(payload)
+        normalized["unit_price"] = "0"
+        normalized["amount"] = "0"
+        return normalized
     product_code = _cell_text(payload.get("product_code"))
     if not product_code:
         return payload
@@ -2811,6 +2835,7 @@ def _build_purchase_details_from_rows(
     fallback_unit_price: Decimal,
     prefer_lookup_unit_price: bool = False,
     require_archive_product_code: bool = False,
+    preserve_explicit_zero_price: bool = False,
 ) -> list[dict[str, object]]:
     if not rows:
         raise HTTPException(status_code=400, detail="Excel 中没有可导入的明细")
@@ -2937,9 +2962,15 @@ def _build_purchase_details_from_rows(
         elif size:
             normalized_size_quantities[size] = quantity
 
-        imported_unit_price = _to_decimal(row.get("unit_price"))
+        imported_unit_price_text = _cell_text(row.get("unit_price"))
+        imported_unit_price = _to_decimal(imported_unit_price_text)
         lookup_unit_price = _to_decimal(product_info.get("unit_price"))
-        should_apply_gender_price = prefer_lookup_unit_price or not imported_unit_price
+        explicit_zero_price = (
+            preserve_explicit_zero_price
+            and imported_unit_price_text != ""
+            and imported_unit_price == 0
+        )
+        should_apply_gender_price = not explicit_zero_price and (prefer_lookup_unit_price or not imported_unit_price)
         gendered_size_groups = (
             split_sizes_by_gender(normalized_size_quantities)
             if should_apply_gender_price and product_info.get(GENDER_COSTS_FIELD)
@@ -2962,7 +2993,9 @@ def _build_purchase_details_from_rows(
             bucket_quantity = sum(bucket_sizes.values(), Decimal("0")) or quantity
             gendered_unit_price = price_for_sizes(product_info.get(GENDER_COSTS_FIELD), bucket_sizes)
             lookup_price = gendered_unit_price or lookup_unit_price
-            if prefer_lookup_unit_price:
+            if explicit_zero_price:
+                unit_price = Decimal("0")
+            elif prefer_lookup_unit_price:
                 unit_price = lookup_price or fallback_unit_price
             else:
                 unit_price = imported_unit_price or lookup_price or fallback_unit_price
@@ -2978,6 +3011,7 @@ def _build_purchase_details_from_rows(
                     "size_quantities": defaultdict(Decimal),
                     "quantity": Decimal("0"),
                     "unit_price": unit_price,
+                    "explicit_zero_price": explicit_zero_price,
                     "remark": _cell_text(row.get("remark")),
                     "extra_fields": extra_fields,
                     "raw_codes": [],
@@ -3017,6 +3051,7 @@ def _build_purchase_details_from_rows(
             for size in item_size_labels
             if item["size_quantities"].get(size, Decimal("0")) != 0
         }
+        has_unit_price = bool(item.get("explicit_zero_price")) or item_unit_price != 0
         details.append({
             "product_code": item["product_code"],
             "product_name": item["product_name"],
@@ -3024,8 +3059,8 @@ def _build_purchase_details_from_rows(
             "color_barcode": item["color_barcode"],
             "color_name": item["color_name"],
             "quantity": _fmt_decimal(quantity),
-            "unit_price": _fmt_decimal(item_unit_price) if item_unit_price else None,
-            "amount": _fmt_decimal(amount) if amount else None,
+            "unit_price": _fmt_decimal(item_unit_price) if has_unit_price else None,
+            "amount": _fmt_decimal(amount) if has_unit_price else None,
             "remark": item.get("remark") or "",
             "size_quantities": size_quantities,
             "extra_fields": extra_fields,
@@ -3040,6 +3075,7 @@ def _build_purchase_details_from_excel(
     brand: str,
     fallback_unit_price: Decimal,
     prefer_lookup_unit_price: bool = False,
+    preserve_explicit_zero_price: bool = False,
 ) -> tuple[list[dict[str, object]], str]:
     rows, sheet_name = _read_purchase_import_rows(content)
     details = _build_purchase_details_from_rows(
@@ -3048,6 +3084,7 @@ def _build_purchase_details_from_excel(
         brand=brand,
         fallback_unit_price=fallback_unit_price,
         prefer_lookup_unit_price=prefer_lookup_unit_price,
+        preserve_explicit_zero_price=preserve_explicit_zero_price,
     )
     return details, sheet_name
 
@@ -3650,6 +3687,10 @@ async def import_purchase_inventory(request: Request, file: UploadFile = None):
             "brand": group_brand,
             "rows": group_rows,
             "existing_record": existing_record,
+            "preserve_explicit_zero_price": _allows_zero_unit_price(
+                repository,
+                {"document_type": document_type, "supplier": group_supplier},
+            ),
         })
 
     for plan in plans:
@@ -3660,6 +3701,7 @@ async def import_purchase_inventory(request: Request, file: UploadFile = None):
             fallback_unit_price=fallback_unit_price,
             prefer_lookup_unit_price=document_type != "批发销售单",
             require_archive_product_code=is_purchase_order_import,
+            preserve_explicit_zero_price=bool(plan["preserve_explicit_zero_price"]),
         )
 
     created_docs = 0
@@ -4632,6 +4674,7 @@ async def reimport_inventory_details_from_excel(request: Request, record_id: int
         brand=brand,
         fallback_unit_price=fallback_unit_price,
         prefer_lookup_unit_price=document_type != "批发销售单",
+        preserve_explicit_zero_price=_allows_zero_unit_price(repository, record),
     )
     detail_payloads = []
     for detail in details:
@@ -4939,11 +4982,18 @@ async def import_inventory(request: Request, file: UploadFile = None):
                 if len(size_labels) == 1 and detail_payload.get("quantity"):
                     detail_payload["size_quantities"] = {size_labels[0]: str(detail_payload["quantity"])}
             imported_unit_price = _to_decimal(detail_payload.get("unit_price"))
-            if imported_unit_price <= 0 and lookup_unit_price > 0:
+            preserve_explicit_zero_price = (
+                _has_explicit_zero_unit_price(detail_payload)
+                and _allows_zero_unit_price(repository, doc_payload)
+            )
+            if not preserve_explicit_zero_price and imported_unit_price <= 0 and lookup_unit_price > 0:
                 detail_payload["unit_price"] = _fmt_decimal(lookup_unit_price)
                 quantity = _to_decimal(detail_payload.get("quantity"))
                 if quantity:
                     detail_payload["amount"] = _fmt_decimal(quantity * lookup_unit_price)
+            elif preserve_explicit_zero_price:
+                detail_payload["unit_price"] = "0"
+                detail_payload["amount"] = "0"
             if extra_fields:
                 detail_payload["extra_fields"] = {
                     **(detail_payload.get("extra_fields") or {}),

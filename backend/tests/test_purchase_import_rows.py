@@ -450,6 +450,99 @@ def test_purchase_import_uses_product_size_group_labels(monkeypatch) -> None:
     assert details[0]["size_quantities"] == {"34": "3"}
 
 
+def test_internal_sales_import_preserves_explicit_zero_price(monkeypatch) -> None:
+    monkeypatch.setattr(inventory_routes, "_load_color_barcodes", lambda connection: [])
+    monkeypatch.setattr(
+        inventory_routes,
+        "_load_purchase_product_lookup",
+        lambda connection, brand, product_codes: {
+            "RCT63957D06": {
+                "original_goods_code": "RCT63957D06",
+                "unit_price": "199",
+            },
+        },
+    )
+    monkeypatch.setattr(inventory_routes, "_load_purchase_size_group_items", lambda connection, size_ranges: {})
+
+    details = _build_purchase_details_from_rows(
+        _StubRepository(),
+        [{"product_code": "RCT63957D06", "quantity": "3", "unit_price": "0"}],
+        brand="cbanner_womens",
+        fallback_unit_price=0,
+        prefer_lookup_unit_price=True,
+        preserve_explicit_zero_price=True,
+    )
+
+    assert details[0]["unit_price"] == "0"
+    assert details[0]["amount"] == "0"
+
+
+def test_internal_sales_manual_detail_preserves_explicit_zero_price() -> None:
+    class _InternalSalesRepository:
+        def is_internal_sales_customer(self, name):
+            return name == "千百度-内销客户"
+
+    payload = inventory_routes._apply_product_archive_cost(
+        _InternalSalesRepository(),
+        {
+            "document_type": "批发销售单",
+            "supplier": "千百度-内销客户",
+        },
+        {
+            "product_code": "RCT63957D06",
+            "quantity": "3",
+            "unit_price": "0.00",
+            "amount": "597",
+        },
+    )
+
+    assert payload["unit_price"] == "0"
+    assert payload["amount"] == "0"
+
+
+def test_internal_sales_import_still_fills_blank_price(monkeypatch) -> None:
+    monkeypatch.setattr(inventory_routes, "_load_color_barcodes", lambda connection: [])
+    monkeypatch.setattr(
+        inventory_routes,
+        "_load_purchase_product_lookup",
+        lambda connection, brand, product_codes: {
+            "RCT63957D06": {
+                "original_goods_code": "RCT63957D06",
+                "unit_price": "199",
+            },
+        },
+    )
+    monkeypatch.setattr(inventory_routes, "_load_purchase_size_group_items", lambda connection, size_ranges: {})
+
+    details = _build_purchase_details_from_rows(
+        _StubRepository(),
+        [{"product_code": "RCT63957D06", "quantity": "3", "unit_price": ""}],
+        brand="cbanner_womens",
+        fallback_unit_price=0,
+        prefer_lookup_unit_price=True,
+        preserve_explicit_zero_price=True,
+    )
+
+    assert details[0]["unit_price"] == "199"
+    assert details[0]["amount"] == "597"
+
+
+def test_blank_price_without_archive_cost_remains_empty(monkeypatch) -> None:
+    monkeypatch.setattr(inventory_routes, "_load_color_barcodes", lambda connection: [])
+    monkeypatch.setattr(inventory_routes, "_load_purchase_product_lookup", lambda connection, brand, product_codes: {})
+
+    details = _build_purchase_details_from_rows(
+        _StubRepository(),
+        [{"product_code": "UNKNOWN", "quantity": "3", "unit_price": ""}],
+        brand="cbanner_womens",
+        fallback_unit_price=0,
+        preserve_explicit_zero_price=True,
+    )
+
+    assert details[0]["unit_price"] is None
+    assert details[0]["amount"] is None
+
+
 def test_purchase_import_splits_ni_mixed_gender_sizes_for_costs(monkeypatch) -> None:
     monkeypatch.setattr(inventory_routes, "_load_color_barcodes", lambda connection: [])
     monkeypatch.setattr(
