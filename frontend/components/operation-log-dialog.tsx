@@ -68,7 +68,7 @@ function formatDateTime(value: string | null) {
   if (!value) return "-"
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return value
-  return date.toLocaleString("zh-CN", { hour12: false })
+  return `${date.toLocaleDateString("zh-CN")}\n${date.toLocaleTimeString("zh-CN", { hour12: false })}`
 }
 
 function formatValue(value: unknown) {
@@ -195,6 +195,7 @@ export function OperationLogDialog({
             size="icon"
             onClick={() => onOpenChange(false)}
             aria-label="关闭操作日志"
+            className="cursor-pointer"
           >
             <X className="h-4 w-4" />
           </Button>
@@ -218,6 +219,7 @@ export function OperationLogDialog({
             variant="outline"
             onClick={submitSearch}
             disabled={loading}
+            className="cursor-pointer disabled:cursor-not-allowed"
           >
             搜索
           </Button>
@@ -228,6 +230,7 @@ export function OperationLogDialog({
             onClick={() => void load()}
             disabled={loading}
             aria-label="刷新操作日志"
+            className="cursor-pointer disabled:cursor-not-allowed"
           >
             <RefreshCw
               className={loading ? "h-4 w-4 animate-spin" : "h-4 w-4"}
@@ -236,17 +239,25 @@ export function OperationLogDialog({
         </div>
 
         <div className="min-h-0 flex-1 overflow-auto">
-          <table className="w-full min-w-[980px] text-sm">
-            <thead className="sticky top-0 z-10 border-b border-border bg-muted/70 text-xs text-muted-foreground">
+          <table className="w-full min-w-[900px] table-fixed text-sm">
+            <colgroup>
+              <col className="w-[120px]" />
+              <col className="w-[112px]" />
+              <col className="w-[84px]" />
+              <col className="w-[150px]" />
+              <col />
+              <col className="w-[168px]" />
+            </colgroup>
+            <thead className="sticky top-0 z-10 border-b border-border bg-muted text-xs text-muted-foreground">
               <tr>
-                <th className="w-44 px-4 py-3 text-left font-medium">时间</th>
-                <th className="w-36 px-4 py-3 text-left font-medium">操作人</th>
-                <th className="w-28 px-4 py-3 text-left font-medium whitespace-nowrap">
+                <th className="px-4 py-3 text-left font-medium">时间</th>
+                <th className="px-4 py-3 text-left font-medium">操作人</th>
+                <th className="px-4 py-3 text-left font-medium whitespace-nowrap">
                   动作
                 </th>
-                <th className="w-40 px-4 py-3 text-left font-medium">对象</th>
+                <th className="px-4 py-3 text-left font-medium">对象</th>
                 <th className="px-4 py-3 text-left font-medium">修改内容</th>
-                <th className="w-44 px-4 py-3 text-left font-medium">
+                <th className="px-4 py-3 text-left font-medium">
                   修改字段
                 </th>
               </tr>
@@ -284,13 +295,13 @@ export function OperationLogDialog({
               ) : null}
               {items.map((item) => (
                 <tr key={item.id} className="align-top hover:bg-muted/35">
-                  <td className="px-4 py-3 text-xs text-muted-foreground">
+                  <td className="px-4 py-3 text-xs leading-5 whitespace-pre-line text-muted-foreground">
                     {formatDateTime(item.created_at)}
                   </td>
-                  <td className="px-4 py-3">
-                    <p className="font-medium">{actorName(item)}</p>
+                  <td className="px-4 py-3 whitespace-nowrap">
+                    <p className="truncate font-medium" title={actorName(item)}>{actorName(item)}</p>
                     {item.department_name ? (
-                      <p className="mt-0.5 text-xs text-muted-foreground">
+                      <p className="mt-0.5 truncate text-xs text-muted-foreground" title={item.department_name}>
                         {item.department_name}
                       </p>
                     ) : null}
@@ -301,19 +312,19 @@ export function OperationLogDialog({
                     </span>
                   </td>
                   <td className="px-4 py-3">
-                    <p className="max-w-40 truncate font-medium">
+                    <p className="truncate font-medium" title={item.entity_label || "-"}>
                       {item.entity_label || "-"}
                     </p>
                     {item.entity_id ? (
-                      <p className="mt-0.5 text-xs text-muted-foreground">
+                      <p className="mt-0.5 truncate text-xs text-muted-foreground" title={String(item.entity_id)}>
                         {item.entity_id}
                       </p>
                     ) : null}
                   </td>
-                  <td className="px-4 py-3">
-                    <p className="break-words">{item.summary}</p>
+                  <td className="px-4 py-3 leading-6">
+                    <p className="[overflow-wrap:anywhere]">{item.summary}</p>
                   </td>
-                  <td className="px-4 py-3">
+                  <td className="px-4 py-3 [overflow-wrap:anywhere]">
                     <ChangeList changes={item.changed_fields} />
                   </td>
                 </tr>
@@ -331,6 +342,7 @@ export function OperationLogDialog({
               size="sm"
               onClick={() => setPage((current) => Math.max(1, current - 1))}
               disabled={page <= 1 || loading}
+              className="cursor-pointer disabled:cursor-not-allowed"
             >
               上一页
             </Button>
@@ -345,6 +357,7 @@ export function OperationLogDialog({
                 setPage((current) => Math.min(totalPages, current + 1))
               }
               disabled={page >= totalPages || loading}
+              className="cursor-pointer disabled:cursor-not-allowed"
             >
               下一页
             </Button>
