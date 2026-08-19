@@ -46,6 +46,17 @@ from domain.jst_stock_snapshot_schema import JST_SIZE_STOCK_SNAPSHOT_TABLE, JST_
 
 
 router = APIRouter()
+
+
+def _consumer_sales_channel_condition(channel_column):
+    channel = func.coalesce(channel_column, "")
+    return and_(
+        ~channel.ilike("%采购%"),
+        ~channel.ilike("%-公司"),
+        ~channel.ilike("%VMI%"),
+    )
+
+
 DEFAULT_BRAND = "cbanner_womens"
 STANDARD_SIZE_COLUMNS = ["34", "35", "36", "37", "38", "39", "40", "41", "42", "43", "44"]
 CLOG_SIZE_COLUMNS = ["225-230", "230-235", "235-240", "240-245", "245-250", "250-255"]
@@ -1259,6 +1270,7 @@ def _factory_dashboard_sales_rows(
                 jst_table.c.channel,
                 jst_table.c.sales_date,
             )
+            .where(_consumer_sales_channel_condition(jst_table.c.channel))
         )
         if date_start is not None:
             statement = statement.where(jst_table.c.sales_date >= date_start)
@@ -1718,6 +1730,7 @@ def _sales_matrix_payload(
             )
             .where(or_(*code_conditions))
             .where(table.c.sales_date <= latest)
+            .where(_consumer_sales_channel_condition(table.c.channel))
             .group_by(table.c.product_code, table.c.style_code, table.c.sales_date, table.c.channel, table.c.color_spec)
         ).mappings()
         for row in rows:
@@ -1869,6 +1882,7 @@ def _recent_sales_payload(
             )
             .where(or_(*code_conditions))
             .where(table.c.sales_date.between(start_30_date, latest))
+            .where(_consumer_sales_channel_condition(table.c.channel))
             .group_by(
                 table.c.goods_code,
                 table.c.style_code,
@@ -2232,7 +2246,7 @@ def get_recent_sales_ranking(
 
         date_start = latest_sales_date - timedelta(days=days - 1)
         cache_key = (
-            "recent-sales-ranking-v1",
+            "recent-sales-ranking-v2",
             brand,
             days,
             limit,
@@ -2305,6 +2319,7 @@ def get_recent_sales_ranking(
                     func.sum(func.coalesce(jst_table.c.net_sales_quantity, 0)).label("quantity"),
                 )
                 .where(jst_table.c.sales_date.between(date_start, latest_sales_date))
+                .where(_consumer_sales_channel_condition(jst_table.c.channel))
                 .group_by(
                     jst_table.c.product_code,
                     jst_table.c.style_code,
@@ -2434,7 +2449,7 @@ def get_seasonal_category_sales_ranking(
                     latest_daily_candidates.append(latest_value)
             latest_daily_sales_date = max(latest_daily_candidates, default=None)
         cache_key = (
-            "seasonal-category-sales-ranking-v3",
+            "seasonal-category-sales-ranking-v4",
             brand,
             tuple(season_keywords),
             season_label,
@@ -2567,6 +2582,7 @@ def get_seasonal_category_sales_ranking(
                         func.sum(func.coalesce(jst_table.c.net_sales_quantity, 0)).label("quantity"),
                     )
                     .where(jst_table.c.sales_date.between(incremental_start, latest_daily_sales_date))
+                    .where(_consumer_sales_channel_condition(jst_table.c.channel))
                     .group_by(
                         jst_table.c.product_code,
                         jst_table.c.style_code,

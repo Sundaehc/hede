@@ -1254,6 +1254,30 @@ def _localize_ai_brand_values(
             row[column] = BRAND_LABELS.get(value.lower(), value)
 
 
+AI_SOURCE_LABELS = {
+    "v_jst_daily_sales": "聚水潭日销统一视图",
+    "v_vip_daily_sales": "唯品日销统一视图",
+    "v_product_goods_historical_sales": "货品历史销量统一视图",
+}
+
+
+def _ai_source_label(table_name: str) -> str:
+    normalized = table_name.strip().lower().split(".")[-1]
+    return AI_SOURCE_LABELS.get(normalized, normalized)
+
+
+def _sanitize_ai_description(value: str) -> str:
+    text = value
+    replacements = (
+        (r"(?:(?:[a-z0-9_]+\.)?public\.)?(?:v_)?jst_daily_sales(?:_\d{4})?(?![a-z0-9_])", "聚水潭日销统一视图"),
+        (r"(?:(?:[a-z0-9_]+\.)?public\.)?(?:v_)?vip_daily_sales(?:_\d{4})?(?![a-z0-9_])", "唯品日销统一视图"),
+        (r"(?:(?:[a-z0-9_]+\.)?public\.)?(?:v_)?product_goods_historical_sales(?:_\d{4})?(?![a-z0-9_])", "货品历史销量统一视图"),
+    )
+    for pattern, label in replacements:
+        text = re.sub(pattern, label, text, flags=re.IGNORECASE)
+    return text
+
+
 def _run_ai_sql(
     request: Request,
     question: str,
@@ -1482,7 +1506,7 @@ def _run_ai_sql(
 
     _localize_ai_brand_values(columns, rows)
     payload = _base_response(question, "ai_sql")
-    summary = plan.summary or "AI 已按自然语言条件完成数据库查询"
+    summary = _sanitize_ai_description(plan.summary or "AI 已按自然语言条件完成数据库查询")
     summary = f"{summary}，共返回 {len(rows)} 行数据。"
     warnings = list(plan.warnings)
     if used_cached_plan:
@@ -1537,7 +1561,7 @@ def _run_ai_sql(
         {
             "query_mode": query_mode,
             "generated_sql": generated_sql,
-            "title": plan.title or "AI 数据查询",
+            "title": _sanitize_ai_description(plan.title or "AI 数据查询"),
             "summary": summary,
             "conditions": [
                 _condition("查询模式", mode_label),
@@ -1551,7 +1575,7 @@ def _run_ai_sql(
             "rows": rows,
             "sources": [
                 "规范化业务查询",
-                *source_tables,
+                *[_ai_source_label(table) for table in source_tables],
             ],
             "warnings": warnings,
         }

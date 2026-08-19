@@ -981,6 +981,13 @@ def test_ai_sql_retries_once_with_validation_feedback(monkeypatch):
     assert any("自动修正" in warning for warning in payload["warnings"])
 
 
+def test_ai_response_localizes_physical_sales_source_names():
+    assert ai_query._sanitize_ai_description(
+        "数据源为 commodity_department.public.jst_daily_sales_2026"
+    ) == "数据源为 聚水潭日销统一视图"
+    assert ai_query._ai_source_label("v_jst_daily_sales") == "聚水潭日销统一视图"
+
+
 def test_ai_sql_preflight_optimizes_before_database_execution(monkeypatch):
     settings = SimpleNamespace(
         ai_api_key="test-key",

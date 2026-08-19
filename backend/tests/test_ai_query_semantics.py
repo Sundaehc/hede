@@ -429,3 +429,43 @@ def test_historical_order_row_number_requires_source_composite_partition():
 def test_referenced_tables_ignore_cte_aliases():
     sql = "WITH sales AS (SELECT * FROM v_jst_daily_sales) SELECT * FROM sales"
     assert referenced_table_names(sql) == {"v_jst_daily_sales"}
+
+
+def test_sales_ranking_requires_internal_channel_exclusions():
+    sql = """
+        SELECT style_code, SUM(net_sales_quantity) AS net_sales
+        FROM v_jst_daily_sales
+        GROUP BY style_code
+        ORDER BY net_sales DESC
+        LIMIT 10
+    """
+
+    with pytest.raises(SemanticQueryError, match="内部流转"):
+        validate_semantic_query("千百度女鞋近30天净销量 Top10", sql)
+
+
+def test_sales_ranking_accepts_internal_channel_exclusions():
+    sql = """
+        SELECT style_code, SUM(net_sales_quantity) AS net_sales
+        FROM v_jst_daily_sales
+        WHERE channel NOT ILIKE '%采购%'
+          AND channel NOT ILIKE '%-公司'
+          AND channel NOT ILIKE '%VMI%'
+        GROUP BY style_code
+        ORDER BY net_sales DESC
+        LIMIT 10
+    """
+
+    assert validate_semantic_query("千百度女鞋近30天净销量 Top10", sql) == {
+        "v_jst_daily_sales"
+    }
+
+
+def test_net_sales_amount_cannot_fall_back_to_gross_amount():
+    sql = """
+        SELECT SUM(COALESCE(net_sales_amount, sales_amount, 0)) AS 净销售额
+        FROM v_jst_daily_sales
+    """
+
+    with pytest.raises(SemanticQueryError, match="不能回退"):
+        validate_semantic_query("查询净销售额", sql)

@@ -186,6 +186,8 @@ def semantic_rules_for_question(question: str) -> str:
 6. 历史订单量只用 v_product_goods_historical_orders.order_quantity；销量不能替代订单量。该视图本身只保存订单事实，按商品属性统计时按 brand 选择对应商品档案表，并用订单 original_sku 前缀匹配商品档案 sku，优先通过 LATERAL 按 LENGTH(sku) 倒序只保留最长基础货号。若使用 ROW_NUMBER 或 DISTINCT ON，分组键必须包含 original_sku、source_workbook、source_sheet、source_row_number 等来源复合键，禁止仅按 orders.id 去重，因为年度订单表的 id 可能重复。商品档案同时过滤 deleted_at IS NULL。
 7. 历史订单按品类或新款统计时，四级分类使用 product_goods_overrides.category_l4，“新款/新品”使用 product_goods_overrides.product_role='新品'，通过 overrides.brand=订单 brand 且 overrides.product_id=商品档案 id 关联；年份和季节分别使用商品档案 year、season_category。不能因为历史订单视图没有这些字段就放弃查询，也不能从订单原始字段猜测品类、角色、年份或季节。
 8. 年度/月度等预计算指标可用 product_goods_sales_periods，但不能与逐日销量再次相加。
+9. 常规消费者销量、销售额及 Top/排行查询必须排除聚水潭内部流转渠道：channel 含“采购”、以“-公司”结尾或含“VMI”的记录均不属于真实销售。只有用户明确查询这些内部渠道时才可保留。
+10. 聚水潭净销售额只能使用 net_sales_amount，毛销售额使用 sales_amount；禁止用 COALESCE(net_sales_amount, sales_amount, 0) 把缺失净销售额伪装成毛销售额或 0。SUM(net_sales_amount) 全部为空时必须保持为空。
 
 三、平台与赛道
 1. 聚水潭平台首先按 product_goods_shop_channel_mappings 查询：mapping.brand 使用上述品牌内部值，mapping.shop_name 对应日销 channel；没有映射时才按 channel 关键词兜底。不要把日销表中的中文 brand 与映射表内部 brand 直接相等关联。
@@ -281,6 +283,19 @@ def validate_semantic_query(
 
     if "v_jst_daily_sales" in tables and sales_request and "NET_SALES_QUANTITY" not in normalized_sql:
         errors.append("聚水潭销量必须默认使用 net_sales_quantity 净销量")
+    ranking_request = any(term in question.lower() for term in ("top", "排行", "排名", "榜单", "前十", "最高", "最多"))
+    internal_channel_request = any(term in question for term in ("采购渠道", "公司渠道", "VMI", "内部流转"))
+    if "v_jst_daily_sales" in tables and sales_request and ranking_request and not internal_channel_request:
+        required_exclusions = ("采购", "公司", "VMI")
+        if "CHANNEL" not in normalized_sql or any(term not in normalized_sql for term in required_exclusions):
+            errors.append("常规销量排行必须排除 channel 含采购、以-公司结尾或含 VMI 的内部流转记录")
+    if "v_jst_daily_sales" in tables and "净销售额" in sql and "NET_SALES_AMOUNT" not in normalized_sql:
+        errors.append("聚水潭净销售额必须使用 net_sales_amount")
+    if re.search(
+        r"COALESCE\s*\(\s*(?:[A-Z_][A-Z0-9_]*\.)?NET_SALES_AMOUNT\s*,\s*(?:[A-Z_][A-Z0-9_]*\.)?SALES_AMOUNT",
+        normalized_sql,
+    ):
+        errors.append("净销售额缺失时必须保持为空，不能回退到 sales_amount")
     if "v_vip_daily_sales" in tables and sales_request and "SALES_QUANTITY" not in normalized_sql:
         errors.append("唯品销量必须使用 sales_quantity")
     if HISTORICAL_SALES_TABLE in tables and sales_request and "SALES_QUANTITY" not in normalized_sql:
