@@ -175,6 +175,8 @@ def required_permissions_for_table(table_name: str) -> set[str]:
         return {"inventory.view"}
     if name in {VIRTUAL_PURCHASE_RECORDS, VIRTUAL_PURCHASE_DETAILS}:
         return {"purchase.view"}
+    if name == "dewu_orders":
+        return {"fine_table.view"}
     if name in INVENTORY_TABLES or name.startswith("general_customer_") or name.startswith("warehouse_"):
         return {"inventory.view"}
     if name in PURCHASE_TABLES or name.startswith("purchase_"):
@@ -365,6 +367,7 @@ def schema_for_question(schema: str, question: str) -> str:
             "周转",
         )
     )
+    dewu_order_request = "得物" in normalized and "订单" in normalized
     archive_request = any(
         term in normalized
         for term in (
@@ -435,6 +438,8 @@ def schema_for_question(schema: str, question: str) -> str:
             "product_goods_overrides",
         )
         selected.update(archive_tables)
+    if dewu_order_request:
+        include("dewu_orders")
     if stock_request:
         include("jst_full_stock", "jst_stock_summary")
         if "尺码" in normalized or "断码" in normalized:

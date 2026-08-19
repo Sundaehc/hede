@@ -65,6 +65,7 @@ def test_optimized_snapshot_returns_filtered_total(monkeypatch):
         lambda engine, value, batch_id, *, conditions, page, page_size: ([{"sku": "A-1"}], 7),
     )
     monkeypatch.setattr(fine_table_routes, "_hydrate_snapshot_image_urls", lambda **kwargs: None)
+    monkeypatch.setattr(fine_table_routes, "_hydrate_fine_table_platforms", lambda **kwargs: None)
     monkeypatch.setattr(
         fine_table_routes,
         "_hydrate_snapshot_archive_costs",

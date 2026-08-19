@@ -35,6 +35,7 @@ from domain.fine_table_snapshot_schema import (
 from domain.gj_brand import CBANNER_MENS_BRAND, CBANNER_WOMENS_BRAND
 from domain.gj_schema import GJ_MERGED_PRODUCT_INFO_TABLE
 from domain.inventory_schema import SUPPLIER_TABLE
+from domain.product_goods_schema import PRODUCT_GOODS_OVERRIDES_TABLE
 from domain.product_defaults import apply_product_defaults
 from domain.schema import PRODUCT_TABLES
 from domain.vip_schema import (
@@ -101,6 +102,7 @@ FINE_TABLE_FILTER_FIELDS = {
     "product_level",
     "year",
     "season_category",
+    "platform",
     "factory_code",
     "factory_name",
     "product_name",
@@ -190,7 +192,7 @@ FINE_TABLE_SQL_FILTER_FIELDS = FINE_TABLE_FILTER_FIELDS - {
     field for field in FINE_TABLE_FILTER_FIELDS
     if field not in {
         "sku", "original_sku", "group_name", "product_level", "year",
-        "season_category", "factory_code", "factory_name", "factory_sku",
+        "season_category", "platform", "factory_code", "factory_name", "factory_sku",
         "upper_material", "lining_material", "outsole_material",
         "insole_material", "first_order_time", "cost",
     }
@@ -204,6 +206,7 @@ FINE_TABLE_GJ_SQL_FILTER_FIELDS = {
     "product_level",
     "year",
     "season_category",
+    "platform",
     "first_order_time",
     "cost",
 }
@@ -272,6 +275,13 @@ def _fine_table_filter_columns(product_table, brand: BrandKey):
         .limit(1)
         .scalar_subquery()
     )
+    platform_column = (
+        select(PRODUCT_GOODS_OVERRIDES_TABLE.c.platform)
+        .where(PRODUCT_GOODS_OVERRIDES_TABLE.c.brand == brand)
+        .where(PRODUCT_GOODS_OVERRIDES_TABLE.c.product_id == product_table.c.id)
+        .limit(1)
+        .scalar_subquery()
+    )
     return {
         "sku": product_table.c.sku,
         "original_sku": product_table.c.original_sku,
@@ -279,6 +289,7 @@ def _fine_table_filter_columns(product_table, brand: BrandKey):
         "product_level": product_table.c.product_level,
         "year": product_table.c.year,
         "season_category": product_table.c.season_category,
+        "platform": platform_column,
         "factory_code": factory_code_column,
         "factory_name": product_table.c.supplier_name,
         "factory_sku": product_table.c.factory_sku,
@@ -801,6 +812,95 @@ def _hydrate_snapshot_archive_costs(
             item["latest_purchase_price"] = _to_float(archive_cost)
 
 
+def _hydrate_fine_table_platforms(
+    *,
+    connection,
+    items: list[dict[str, Any]],
+    brand: BrandKey,
+) -> None:
+    product_table = PRODUCT_TABLES.get(brand)
+    if product_table is None or not items:
+        return
+
+    codes = {
+        code
+        for item in items
+        for code in (
+            str(item.get("sku") or "").strip(),
+            str(item.get("original_sku") or "").strip(),
+        )
+        if code
+    }
+    if not codes:
+        return
+
+    platform_by_product_id: dict[int, str] = {}
+    platform_by_sku: dict[str, str] = {}
+    platforms_by_original_sku: dict[str, set[str]] = defaultdict(set)
+    for row in connection.execute(
+        select(
+            product_table.c.id,
+            product_table.c.sku,
+            product_table.c.original_sku,
+            PRODUCT_GOODS_OVERRIDES_TABLE.c.platform,
+        )
+        .join(
+            PRODUCT_GOODS_OVERRIDES_TABLE,
+            and_(
+                PRODUCT_GOODS_OVERRIDES_TABLE.c.brand == brand,
+                PRODUCT_GOODS_OVERRIDES_TABLE.c.product_id == product_table.c.id,
+            ),
+        )
+        .where(or_(
+            product_table.c.sku.in_(codes),
+            product_table.c.original_sku.in_(codes),
+        ))
+        .where(product_table.c.deleted_at.is_(None))
+        .where(PRODUCT_GOODS_OVERRIDES_TABLE.c.platform.isnot(None))
+        .order_by(desc(product_table.c.id))
+    ).mappings():
+        platform = str(row.get("platform") or "").strip()
+        if not platform:
+            continue
+        product_id = int(row["id"])
+        sku = str(row.get("sku") or "").strip()
+        original_sku = str(row.get("original_sku") or "").strip()
+        platform_by_product_id[product_id] = platform
+        if sku:
+            platform_by_sku.setdefault(sku, platform)
+        if original_sku:
+            platforms_by_original_sku[original_sku].add(platform)
+
+    unique_original_platforms = {
+        original_sku: next(iter(platforms))
+        for original_sku, platforms in platforms_by_original_sku.items()
+        if len(platforms) == 1
+    }
+    for item in items:
+        if str(item.get("platform") or "").strip():
+            continue
+        item_id = item.get("id")
+        product_id = int(item_id) if isinstance(item_id, int) and item_id > 0 else None
+        sku = str(item.get("sku") or "").strip()
+        original_sku = str(item.get("original_sku") or "").strip()
+        platform = next(
+            (
+                value
+                for value in (
+                    platform_by_product_id.get(product_id) if product_id is not None else None,
+                    platform_by_sku.get(sku),
+                    platform_by_sku.get(original_sku),
+                    unique_original_platforms.get(original_sku),
+                    unique_original_platforms.get(sku),
+                )
+                if value
+            ),
+            None,
+        )
+        if platform:
+            item["platform"] = platform
+
+
 def _gj_fine_table_brand(brand: BrandKey) -> str | None:
     return brand if brand in {CBANNER_MENS_BRAND, CBANNER_WOMENS_BRAND} else None
 
@@ -1058,6 +1158,11 @@ def get_fine_table_snapshot(
                         items=items,
                         brand=batch["brand"],
                     )
+                    _hydrate_fine_table_platforms(
+                        connection=connection,
+                        items=items,
+                        brand=batch["brand"],
+                    )
                     _hydrate_snapshot_image_urls(
                         connection=connection,
                         items=items,
@@ -1087,6 +1192,14 @@ def get_fine_table_snapshot(
                         items=all_rows,
                         brand=batch["brand"],
                     )
+            platforms_hydrated = any(condition.field == "platform" for condition in parsed_filters)
+            if platforms_hydrated:
+                with repository.engine.connect() as connection:
+                    _hydrate_fine_table_platforms(
+                        connection=connection,
+                        items=all_rows,
+                        brand=batch["brand"],
+                    )
             query_terms = _normalized_terms(query)
             prefix_terms = _normalized_terms(sku_prefix)
             filtered_rows = []
@@ -1108,6 +1221,12 @@ def get_fine_table_snapshot(
             with repository.engine.connect() as connection:
                 if not costs_hydrated:
                     _hydrate_snapshot_archive_costs(
+                        connection=connection,
+                        items=items,
+                        brand=batch["brand"],
+                    )
+                if not platforms_hydrated:
+                    _hydrate_fine_table_platforms(
                         connection=connection,
                         items=items,
                         brand=batch["brand"],
@@ -1139,6 +1258,13 @@ def get_fine_table_snapshot(
                 items=all_rows,
                 brand=batch["brand"],
             )
+        platforms_hydrated = any(condition.field == "platform" for condition in parsed_filters)
+        if platforms_hydrated:
+            _hydrate_fine_table_platforms(
+                connection=connection,
+                items=all_rows,
+                brand=batch["brand"],
+            )
         query_terms = _normalized_terms(query)
         prefix_terms = _normalized_terms(sku_prefix)
         filtered_rows = []
@@ -1159,6 +1285,12 @@ def get_fine_table_snapshot(
         items = filtered_rows[offset:offset + page_size]
         if not costs_hydrated:
             _hydrate_snapshot_archive_costs(
+                connection=connection,
+                items=items,
+                brand=batch["brand"],
+            )
+        if not platforms_hydrated:
+            _hydrate_fine_table_platforms(
                 connection=connection,
                 items=items,
                 brand=batch["brand"],
@@ -1416,6 +1548,13 @@ def list_fine_table_filter_options(
         if field == "cost" or any(condition.field == "cost" for condition in other_filters):
             with repository.engine.connect() as connection:
                 _hydrate_snapshot_archive_costs(
+                    connection=connection,
+                    items=rows,
+                    brand=brand,
+                )
+        if field == "platform" or any(condition.field == "platform" for condition in other_filters):
+            with repository.engine.connect() as connection:
+                _hydrate_fine_table_platforms(
                     connection=connection,
                     items=rows,
                     brand=brand,
@@ -1723,6 +1862,11 @@ def list_fine_table(
             if fetch_all_rows:
                 total = len(product_rows)
 
+        _hydrate_fine_table_platforms(
+            connection=conn,
+            items=product_rows,
+            brand=brand,
+        )
         skus = [str(row.get("sku") or "").strip() for row in product_rows if row.get("sku")]
         if not skus:
             payload = {"items": [], "total": total, "page": page, "page_size": page_size}

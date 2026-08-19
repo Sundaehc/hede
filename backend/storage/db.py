@@ -22,6 +22,7 @@ from domain import product_goods_historical_sales_schema  # noqa: F401 - registe
 from domain import product_size_group_mapping_schema  # noqa: F401 - register product size group mappings on METADATA
 from domain import master_data_schema  # noqa: F401 - register master-data tables on METADATA
 from domain import data_governance_schema  # noqa: F401 - register data-governance tables on METADATA
+from domain import dewu_order_schema  # noqa: F401 - register Dewu order tables on METADATA
 
 
 def _json_serializer(value):

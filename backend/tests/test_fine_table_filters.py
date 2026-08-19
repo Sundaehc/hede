@@ -18,16 +18,20 @@ def test_fine_table_snapshot_filter_cache_covers_expensive_derived_fields():
     assert "cost" not in fields
     assert "cost" in FINE_TABLE_SQL_FILTER_FIELDS
     assert "cost" in FINE_TABLE_GJ_SQL_FILTER_FIELDS
+    assert "platform" in FINE_TABLE_SQL_FILTER_FIELDS
+    assert "platform" in FINE_TABLE_GJ_SQL_FILTER_FIELDS
 
 
 def test_fine_table_filters_accept_in_and_not_in_values():
     filters = _parse_fine_table_filters(
         '[{"field":"year","operator":"in","values":["2026"]},'
+        '{"field":"platform","operator":"in","values":["唯品"]},'
         '{"field":"factory_name","operator":"not_in","values":[""]}]'
     )
 
     assert [(item.field, item.operator, item.values) for item in filters] == [
         ("year", "in", ["2026"]),
+        ("platform", "in", ["唯品"]),
         ("factory_name", "not_in", [""]),
     ]
 

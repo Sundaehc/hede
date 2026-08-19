@@ -265,6 +265,7 @@ export type FineTableFilterField =
   | "product_level"
   | "year"
   | "season_category"
+  | "platform"
   | "factory_code"
   | "factory_name"
   | "product_name"

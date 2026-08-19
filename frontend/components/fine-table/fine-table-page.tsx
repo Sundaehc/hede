@@ -707,6 +707,7 @@ function createTableColumns(dailyLabels: string[]): TableColumn[] {
     { key: "product_level", label: "商品等级", group: "基础", className: "min-w-28", defaultVisible: true, render: (row) => row.product_level || "-" },
     { key: "year", label: "年份", group: "基础", className: "min-w-24", defaultVisible: true, render: (row) => row.year || "-" },
     { key: "season_category", label: "季节", group: "基础", className: "min-w-24", defaultVisible: true, render: (row) => row.season_category || "-" },
+    { key: "platform", label: "所属平台", group: "基础", className: "min-w-28", defaultVisible: true, render: (row) => row.platform || "-" },
     { key: "factory_code", label: "工厂代码", group: "基础", className: "min-w-28", defaultVisible: true, render: (row) => row.factory_code || "-" },
     { key: "factory_name", label: "工厂名称", group: "基础", className: "min-w-36", defaultVisible: true, render: (row) => row.factory_name || "-" },
     { key: "product_name", label: "品名", group: "基础", className: "min-w-28", defaultVisible: true, render: (row) => row.product_name || "-" },
@@ -1082,6 +1083,7 @@ function DetailDrawer({ row, onClose }: { row: FineTableItem | null; onClose: ()
                   <DetailFieldCard label="商品等级" value={row.product_level} />
                   <DetailFieldCard label="年份" value={row.year} />
                   <DetailFieldCard label="季节" value={row.season_category} />
+                  <DetailFieldCard label="所属平台" value={row.platform} />
                   <DetailFieldCard label="主款式" value={row.main_style} />
                 </div>
               </DetailSection>

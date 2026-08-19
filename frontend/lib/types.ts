@@ -218,6 +218,7 @@ export type FineTableDailySale = {
 }
 
 export type FineTableItem = ProductListItem & {
+  platform: string | null
   factory_code: string | null
   factory_name: string | null
   goods_id: string | null
