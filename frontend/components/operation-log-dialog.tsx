@@ -243,8 +243,8 @@ export function OperationLogDialog({
             <colgroup>
               <col className="w-[120px]" />
               <col className="w-[112px]" />
-              <col className="w-[84px]" />
-              <col className="w-[150px]" />
+              <col className="w-[132px]" />
+              <col className="w-[170px]" />
               <col />
               <col className="w-[168px]" />
             </colgroup>
@@ -306,12 +306,15 @@ export function OperationLogDialog({
                       </p>
                     ) : null}
                   </td>
-                  <td className="px-4 py-3 whitespace-nowrap">
-                    <span className="inline-flex rounded-md border border-border bg-background px-2 py-1 text-xs whitespace-nowrap">
+                  <td className="overflow-hidden px-4 py-3 whitespace-nowrap">
+                    <span
+                      className="inline-block max-w-full overflow-hidden rounded-md border border-border bg-background px-2 py-1 text-xs text-ellipsis whitespace-nowrap align-top"
+                      title={ACTION_LABELS[item.action] || item.action}
+                    >
                       {ACTION_LABELS[item.action] || item.action}
                     </span>
                   </td>
-                  <td className="px-4 py-3">
+                  <td className="min-w-0 overflow-hidden px-4 py-3">
                     <p className="truncate font-medium" title={item.entity_label || "-"}>
                       {item.entity_label || "-"}
                     </p>
