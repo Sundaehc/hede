@@ -51,6 +51,11 @@ SUPPLIER_LEDGER_DECREASE_TYPES = ("进货退货单", "应付款减少")
 SUPPLIER_LEDGER_NEUTRAL_TYPES = ("同价调拨单",)
 CUSTOMER_LEDGER_INCREASE_TYPES = ("批发销售单", "应收款增加")
 CUSTOMER_LEDGER_DECREASE_TYPES = ("批发销售退货单", "应收款减少")
+NON_SUPPLIER_COUNTERPARTY_TYPES = (
+    *CUSTOMER_LEDGER_INCREASE_TYPES,
+    *CUSTOMER_LEDGER_DECREASE_TYPES,
+    *SUPPLIER_LEDGER_NEUTRAL_TYPES,
+)
 NEGATIVE_TOTAL_DOCUMENT_TYPES = {"进货退货单"}
 PURCHASE_INBOUND_DETAIL_TYPES = ("进货单", "进货退货单")
 GENERAL_CUSTOMER_SORT_SCOPE_BRAND = "brand"
@@ -932,6 +937,11 @@ class InventoryRepository:
                     previous_name=previous_name,
                     current_name=current_name,
                 )
+                self._rename_inventory_supplier_references(
+                    connection,
+                    previous_name=previous_name,
+                    current_name=current_name,
+                )
         return None if row is None else dict(row)
 
     @staticmethod
@@ -962,6 +972,29 @@ class InventoryRepository:
             .where(func.btrim(product_table.c.supplier_name) == previous_name)
             .values(
                 supplier_name=current_name,
+                updated_at=func.date_trunc("minute", func.now()),
+            )
+        )
+        return result.rowcount or 0
+
+    @staticmethod
+    def _rename_inventory_supplier_references(
+        connection,
+        *,
+        previous_name: str,
+        current_name: str,
+    ) -> int:
+        result = connection.execute(
+            update(INVENTORY_TABLE)
+            .where(
+                func.btrim(INVENTORY_TABLE.c.supplier) == previous_name,
+                or_(
+                    INVENTORY_TABLE.c.document_type.is_(None),
+                    INVENTORY_TABLE.c.document_type.not_in(NON_SUPPLIER_COUNTERPARTY_TYPES),
+                ),
+            )
+            .values(
+                supplier=current_name,
                 updated_at=func.date_trunc("minute", func.now()),
             )
         )

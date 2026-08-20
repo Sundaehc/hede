@@ -1,6 +1,16 @@
 from storage.auth_repository import DEFAULT_ROLE_BY_DEPARTMENT, DEFAULT_ROLES, DEPARTMENTS
 
 
+def test_finance_department_has_read_only_product_archive_permission():
+    role = next(item for item in DEFAULT_ROLES if item["code"] == "finance_user")
+    permissions = set(role["permissions"].split(","))
+
+    assert "product.view" in permissions
+    assert "product.manage" not in permissions
+    assert "product.import" not in permissions
+    assert "product.export" not in permissions
+
+
 def test_customer_service_department_has_product_view_only_role():
     assert {item["code"] for item in DEPARTMENTS} >= {"客服部"}
     assert DEFAULT_ROLE_BY_DEPARTMENT["客服部"] == "customer_service_viewer"

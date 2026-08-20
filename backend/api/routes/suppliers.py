@@ -296,7 +296,7 @@ def update_supplier(request: Request, supplier_id: int, payload: dict):
         before_data=before,
         after_data=record,
     )
-    return {"item": record, "message": "更新成功"}
+    return {"item": record, "message": "更新成功，相关商品资料和供应商单据已同步"}
 
 
 @router.delete("/suppliers/{supplier_id}")

@@ -108,6 +108,8 @@ export default function SuppliersPage() {
     notes: "",
   })
   const [editingId, setEditingId] = useState<number | null>(null)
+  const [editingOriginalName, setEditingOriginalName] = useState("")
+  const [renameConfirmOpen, setRenameConfirmOpen] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
 
   const [deleteTarget, setDeleteTarget] = useState<SupplierItem | null>(null)
@@ -179,12 +181,14 @@ export default function SuppliersPage() {
       notes: "",
     })
     setEditingId(null)
+    setEditingOriginalName("")
     setFormOpen(true)
   }
 
   const openEdit = (item: SupplierItem) => {
     setFormMode("edit")
     setEditingId(item.id)
+    setEditingOriginalName(item.name)
     setFormData({
       brand: item.brand,
       name: item.name,
@@ -198,11 +202,7 @@ export default function SuppliersPage() {
     setFormOpen(true)
   }
 
-  const handleSave = async () => {
-    if (!formData.name.trim()) {
-      showMessage("保存失败", "供应商名称不能为空")
-      return
-    }
+  const saveSupplier = async () => {
     setIsSaving(true)
     try {
       if (formMode === "create") {
@@ -221,6 +221,24 @@ export default function SuppliersPage() {
     } finally {
       setIsSaving(false)
     }
+  }
+
+  const handleSave = () => {
+    const nextName = formData.name.trim()
+    if (!nextName) {
+      showMessage("保存失败", "供应商名称不能为空")
+      return
+    }
+    if (formMode === "edit" && formData.name !== editingOriginalName) {
+      setRenameConfirmOpen(true)
+      return
+    }
+    void saveSupplier()
+  }
+
+  const handleConfirmRename = () => {
+    setRenameConfirmOpen(false)
+    void saveSupplier()
   }
 
   const handleDelete = async () => {
@@ -544,6 +562,15 @@ export default function SuppliersPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <ConfirmDialog
+        open={renameConfirmOpen}
+        title="确认修改供应商名称"
+        description="修改供应商名称，会同步更新对应的商品信息和历史单据，请确定是否修改。"
+        confirmLabel={isSaving ? "修改中..." : "确认修改"}
+        onConfirm={handleConfirmRename}
+        onCancel={() => setRenameConfirmOpen(false)}
+      />
 
       <ConfirmDialog
         open={deleteTarget !== null}
