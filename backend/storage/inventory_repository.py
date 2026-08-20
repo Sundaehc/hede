@@ -2164,6 +2164,69 @@ class InventoryRepository:
         with self.engine.connect() as connection:
             return [dict(row) for row in connection.execute(statement).mappings()]
 
+    def latest_wholesale_sales_prices(
+        self,
+        *,
+        customer: object,
+        product_codes: set[str],
+        as_of_date: object | None = None,
+        exclude_document_id: object | None = None,
+    ) -> dict[str, Decimal]:
+        customer_name = str(customer or "").strip()
+        normalized_codes = {
+            str(product_code or "").strip()
+            for product_code in product_codes
+            if str(product_code or "").strip()
+        }
+        if not customer_name or not normalized_codes:
+            return {}
+
+        record = INVENTORY_TABLE
+        detail = INVENTORY_DETAIL_TABLE
+        conditions = [
+            record.c.deleted_at.is_(None),
+            record.c.document_type == "批发销售单",
+            record.c.supplier == customer_name,
+            detail.c.product_code.in_(normalized_codes),
+            detail.c.unit_price.is_not(None),
+        ]
+        parsed_date = parse_date(as_of_date)
+        if parsed_date is not None:
+            date_text = parsed_date.isoformat()
+            conditions.append(or_(
+                record.c.date_value <= parsed_date,
+                and_(record.c.date_value.is_(None), record.c.date <= date_text),
+            ))
+        try:
+            excluded_id = int(exclude_document_id) if exclude_document_id is not None else None
+        except (TypeError, ValueError):
+            excluded_id = None
+        if excluded_id is not None:
+            conditions.append(record.c.id != excluded_id)
+
+        statement = (
+            select(
+                detail.c.product_code,
+                detail.c.unit_price,
+            )
+            .select_from(detail.join(record, detail.c.document_id == record.c.id))
+            .where(and_(*conditions))
+            .order_by(
+                detail.c.product_code,
+                record.c.date_value.desc().nulls_last(),
+                record.c.date.desc().nulls_last(),
+                record.c.id.desc(),
+                detail.c.id.desc(),
+            )
+        )
+        prices: dict[str, Decimal] = {}
+        with self.engine.connect() as connection:
+            for row in connection.execute(statement).mappings():
+                product_code = str(row.get("product_code") or "").strip()
+                if product_code and product_code not in prices:
+                    prices[product_code] = Decimal(str(row["unit_price"]))
+        return prices
+
     def create_detail(self, data: Mapping[str, object]) -> dict[str, object]:
         table = INVENTORY_DETAIL_TABLE
         payload = self._filter_table_payload(table, self._coerce_empty(data))

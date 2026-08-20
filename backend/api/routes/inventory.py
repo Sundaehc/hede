@@ -2836,6 +2836,9 @@ def _build_purchase_details_from_rows(
     prefer_lookup_unit_price: bool = False,
     require_archive_product_code: bool = False,
     preserve_explicit_zero_price: bool = False,
+    wholesale_customer: str = "",
+    wholesale_price_date: object | None = None,
+    wholesale_exclude_document_id: object | None = None,
 ) -> list[dict[str, object]]:
     if not rows:
         raise HTTPException(status_code=400, detail="Excel 中没有可导入的明细")
@@ -2875,7 +2878,7 @@ def _build_purchase_details_from_rows(
             "color_barcode": color_barcode,
             "color_name": color_name,
             "size": size,
-            "unit_price": row.get("unit_price") or "",
+            "unit_price": _cell_text(row.get("unit_price")),
             "remark": _cell_text(row.get("remark")),
             "size_quantities": normalized_sizes,
             "extra_fields": row.get("extra_fields") if isinstance(row.get("extra_fields"), dict) else {},
@@ -2897,6 +2900,36 @@ def _build_purchase_details_from_rows(
             if _cell_text(product_info.get("size_range"))
         }
         size_group_items_by_range = _load_purchase_size_group_items(connection, size_ranges)
+
+    use_wholesale_price_history = bool(_cell_text(wholesale_customer))
+    wholesale_price_candidates = {
+        code
+        for code in (
+            *product_codes,
+            *(
+                _cell_text(product_info.get(field))
+                for product_info in product_lookup.values()
+                for field in (
+                    "_archive_sku",
+                    "goods_code",
+                    "sku",
+                    "_archive_original_sku",
+                    "original_goods_code",
+                )
+            ),
+        )
+        if code
+    }
+    wholesale_price_history = (
+        repository.latest_wholesale_sales_prices(
+            customer=wholesale_customer,
+            product_codes=wholesale_price_candidates,
+            as_of_date=wholesale_price_date,
+            exclude_document_id=wholesale_exclude_document_id,
+        )
+        if use_wholesale_price_history
+        else {}
+    )
 
     grouped: dict[tuple[str, str, str], dict[str, object]] = {}
     for row in parsed_rows:
@@ -2970,7 +3003,25 @@ def _build_purchase_details_from_rows(
             and imported_unit_price_text != ""
             and imported_unit_price == 0
         )
-        should_apply_gender_price = not explicit_zero_price and (prefer_lookup_unit_price or not imported_unit_price)
+        historical_price: Decimal | None = None
+        if use_wholesale_price_history and not imported_unit_price_text:
+            for candidate in (
+                original_sku,
+                _cell_text(product_info.get("_archive_original_sku")),
+                _cell_text(product_info.get("original_goods_code")),
+                _cell_text(row.get("original_sku")),
+                _cell_text(row.get("style_color_code")),
+                _cell_text(row.get("sku")),
+                _cell_text(raw_code),
+            ):
+                if candidate in wholesale_price_history:
+                    historical_price = wholesale_price_history[candidate]
+                    break
+        should_apply_gender_price = (
+            not use_wholesale_price_history
+            and not explicit_zero_price
+            and (prefer_lookup_unit_price or not imported_unit_price)
+        )
         gendered_size_groups = (
             split_sizes_by_gender(normalized_size_quantities)
             if should_apply_gender_price and product_info.get(GENDER_COSTS_FIELD)
@@ -2995,11 +3046,24 @@ def _build_purchase_details_from_rows(
             lookup_price = gendered_unit_price or lookup_unit_price
             if explicit_zero_price:
                 unit_price = Decimal("0")
+                has_unit_price = True
+            elif use_wholesale_price_history and imported_unit_price > 0:
+                unit_price = imported_unit_price
+                has_unit_price = True
+            elif use_wholesale_price_history and historical_price is not None:
+                unit_price = historical_price
+                has_unit_price = True
+            elif use_wholesale_price_history:
+                unit_price = Decimal("0")
+                has_unit_price = False
             elif prefer_lookup_unit_price:
                 unit_price = lookup_price or fallback_unit_price
+                has_unit_price = unit_price != 0
             else:
                 unit_price = imported_unit_price or lookup_price or fallback_unit_price
-            key = (original_sku, color_barcode, _fmt_decimal(_to_decimal(unit_price)))
+                has_unit_price = unit_price != 0
+            price_key = _fmt_decimal(_to_decimal(unit_price)) if has_unit_price else "__missing__"
+            key = (original_sku, color_barcode, price_key)
             item = grouped.setdefault(
                 key,
                 {
@@ -3012,6 +3076,7 @@ def _build_purchase_details_from_rows(
                     "quantity": Decimal("0"),
                     "unit_price": unit_price,
                     "explicit_zero_price": explicit_zero_price,
+                    "has_unit_price": has_unit_price,
                     "remark": _cell_text(row.get("remark")),
                     "extra_fields": extra_fields,
                     "raw_codes": [],
@@ -3051,7 +3116,7 @@ def _build_purchase_details_from_rows(
             for size in item_size_labels
             if item["size_quantities"].get(size, Decimal("0")) != 0
         }
-        has_unit_price = bool(item.get("explicit_zero_price")) or item_unit_price != 0
+        has_unit_price = bool(item.get("has_unit_price"))
         details.append({
             "product_code": item["product_code"],
             "product_name": item["product_name"],
@@ -3076,6 +3141,9 @@ def _build_purchase_details_from_excel(
     fallback_unit_price: Decimal,
     prefer_lookup_unit_price: bool = False,
     preserve_explicit_zero_price: bool = False,
+    wholesale_customer: str = "",
+    wholesale_price_date: object | None = None,
+    wholesale_exclude_document_id: object | None = None,
 ) -> tuple[list[dict[str, object]], str]:
     rows, sheet_name = _read_purchase_import_rows(content)
     details = _build_purchase_details_from_rows(
@@ -3085,6 +3153,9 @@ def _build_purchase_details_from_excel(
         fallback_unit_price=fallback_unit_price,
         prefer_lookup_unit_price=prefer_lookup_unit_price,
         preserve_explicit_zero_price=preserve_explicit_zero_price,
+        wholesale_customer=wholesale_customer,
+        wholesale_price_date=wholesale_price_date,
+        wholesale_exclude_document_id=wholesale_exclude_document_id,
     )
     return details, sheet_name
 
@@ -3694,14 +3765,22 @@ async def import_purchase_inventory(request: Request, file: UploadFile = None):
         })
 
     for plan in plans:
+        is_wholesale_import = document_type in WHOLESALE_DOCUMENT_TYPES
         plan["details"] = _build_purchase_details_from_rows(
             repository,
             plan["rows"],
             brand=str(plan["brand"]),
             fallback_unit_price=fallback_unit_price,
-            prefer_lookup_unit_price=document_type != "批发销售单",
+            prefer_lookup_unit_price=not is_wholesale_import,
             require_archive_product_code=is_purchase_order_import,
             preserve_explicit_zero_price=bool(plan["preserve_explicit_zero_price"]),
+            wholesale_customer=_cell_text(plan["supplier"]) if is_wholesale_import else "",
+            wholesale_price_date=plan["date"] if is_wholesale_import else None,
+            wholesale_exclude_document_id=(
+                plan["existing_record"].get("id")
+                if is_wholesale_import and isinstance(plan.get("existing_record"), dict)
+                else None
+            ),
         )
 
     created_docs = 0
@@ -4673,8 +4752,17 @@ async def reimport_inventory_details_from_excel(request: Request, record_id: int
         content,
         brand=brand,
         fallback_unit_price=fallback_unit_price,
-        prefer_lookup_unit_price=document_type != "批发销售单",
+        prefer_lookup_unit_price=document_type not in WHOLESALE_DOCUMENT_TYPES,
         preserve_explicit_zero_price=_allows_zero_unit_price(repository, record),
+        wholesale_customer=_cell_text(record.get("supplier")) if document_type in WHOLESALE_DOCUMENT_TYPES else "",
+        wholesale_price_date=(
+            record.get("date_value") or record.get("date")
+            if document_type in WHOLESALE_DOCUMENT_TYPES
+            else None
+        ),
+        wholesale_exclude_document_id=(
+            record_id if document_type in WHOLESALE_DOCUMENT_TYPES else None
+        ),
     )
     detail_payloads = []
     for detail in details:
@@ -4981,19 +5069,50 @@ async def import_inventory(request: Request, file: UploadFile = None):
                 extra_fields["size_labels"] = "|".join(size_labels)
                 if len(size_labels) == 1 and detail_payload.get("quantity"):
                     detail_payload["size_quantities"] = {size_labels[0]: str(detail_payload["quantity"])}
-            imported_unit_price = _to_decimal(detail_payload.get("unit_price"))
+            imported_unit_price_text = _cell_text(detail_payload.get("unit_price"))
+            imported_unit_price = _to_decimal(imported_unit_price_text)
             preserve_explicit_zero_price = (
                 _has_explicit_zero_unit_price(detail_payload)
                 and _allows_zero_unit_price(repository, doc_payload)
             )
-            if not preserve_explicit_zero_price and imported_unit_price <= 0 and lookup_unit_price > 0:
-                detail_payload["unit_price"] = _fmt_decimal(lookup_unit_price)
-                quantity = _to_decimal(detail_payload.get("quantity"))
-                if quantity:
-                    detail_payload["amount"] = _fmt_decimal(quantity * lookup_unit_price)
-            elif preserve_explicit_zero_price:
+            is_wholesale_import = doc_type in WHOLESALE_DOCUMENT_TYPES
+            quantity = _to_decimal(detail_payload.get("quantity"))
+            if preserve_explicit_zero_price:
                 detail_payload["unit_price"] = "0"
                 detail_payload["amount"] = "0"
+            elif is_wholesale_import and imported_unit_price > 0:
+                detail_payload["unit_price"] = _fmt_decimal(imported_unit_price)
+                detail_payload["amount"] = _fmt_decimal(quantity * imported_unit_price) if quantity else None
+            elif is_wholesale_import and not imported_unit_price_text:
+                price_candidates = tuple(dict.fromkeys(
+                    candidate
+                    for candidate in (product_code, _cell_text(lookup.get("product_code")))
+                    if candidate
+                ))
+                historical_prices = repository.latest_wholesale_sales_prices(
+                    customer=doc_payload.get("supplier"),
+                    product_codes=set(price_candidates),
+                    as_of_date=doc_payload.get("date"),
+                )
+                historical_price = next(
+                    (historical_prices[candidate] for candidate in price_candidates if candidate in historical_prices),
+                    None,
+                )
+                detail_payload["unit_price"] = (
+                    _fmt_decimal(historical_price) if historical_price is not None else None
+                )
+                detail_payload["amount"] = (
+                    _fmt_decimal(quantity * historical_price)
+                    if quantity and historical_price is not None
+                    else None
+                )
+            elif is_wholesale_import:
+                detail_payload["unit_price"] = None
+                detail_payload["amount"] = None
+            elif imported_unit_price <= 0 and lookup_unit_price > 0:
+                detail_payload["unit_price"] = _fmt_decimal(lookup_unit_price)
+                if quantity:
+                    detail_payload["amount"] = _fmt_decimal(quantity * lookup_unit_price)
             if extra_fields:
                 detail_payload["extra_fields"] = {
                     **(detail_payload.get("extra_fields") or {}),
