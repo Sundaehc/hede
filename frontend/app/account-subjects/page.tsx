@@ -39,6 +39,7 @@ export default function AccountSubjectsPage() {
     null
   )
   const [editName, setEditName] = useState("")
+  const [renameConfirmOpen, setRenameConfirmOpen] = useState(false)
   const [deleteTarget, setDeleteTarget] =
     useState<InventoryAccountSubject | null>(null)
   const [operationLogOpen, setOperationLogOpen] = useState(false)
@@ -107,23 +108,37 @@ export default function AccountSubjectsPage() {
     setEditName(item.name)
   }
 
-  const handleUpdate = async () => {
+  const saveUpdate = async () => {
+    if (!editTarget) return
+    const nextName = editName.trim()
+    setIsSaving(true)
+    try {
+      const response = await updateInventoryAccountSubject(editTarget.id, {
+        name: nextName,
+      })
+      setRenameConfirmOpen(false)
+      setEditTarget(null)
+      await load()
+      showMessage("保存成功", response.message)
+    } catch (error) {
+      showMessage("保存失败", getErrorMessage(error))
+    } finally {
+      setIsSaving(false)
+    }
+  }
+
+  const handleUpdate = () => {
     if (!editTarget) return
     const nextName = editName.trim()
     if (!nextName) {
       showMessage("保存失败", "科目名称不能为空")
       return
     }
-    setIsSaving(true)
-    try {
-      await updateInventoryAccountSubject(editTarget.id, { name: nextName })
+    if (nextName === editTarget.name.trim()) {
       setEditTarget(null)
-      await load()
-    } catch (error) {
-      showMessage("保存失败", getErrorMessage(error))
-    } finally {
-      setIsSaving(false)
+      return
     }
+    setRenameConfirmOpen(true)
   }
 
   return (
@@ -269,7 +284,7 @@ export default function AccountSubjectsPage() {
               onKeyDown={(event) => {
                 if (event.key === "Enter") {
                   event.preventDefault()
-                  void handleUpdate()
+                  handleUpdate()
                 }
               }}
               className="mt-1.5"
@@ -286,7 +301,7 @@ export default function AccountSubjectsPage() {
               取消
             </Button>
             <Button
-              onClick={() => void handleUpdate()}
+              onClick={handleUpdate}
               disabled={isSaving}
               className="cursor-pointer"
             >
@@ -295,6 +310,15 @@ export default function AccountSubjectsPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <ConfirmDialog
+        open={renameConfirmOpen}
+        title="确认修改科目名称"
+        description={`将科目“${editTarget?.name || ""}”修改为“${editName.trim()}”，会同步更新对应的历史经营历程明细，请确定是否修改。`}
+        confirmLabel={isSaving ? "修改中..." : "确认修改"}
+        onConfirm={() => void saveUpdate()}
+        onCancel={() => setRenameConfirmOpen(false)}
+      />
 
       <ConfirmDialog
         open={deleteTarget !== null}

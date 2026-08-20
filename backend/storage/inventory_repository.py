@@ -1652,19 +1652,60 @@ class InventoryRepository:
             row = connection.execute(statement).mappings().first()
         return None if row is None else dict(row)
 
-    def update_account_subject(self, subject_id: int, data: Mapping[str, object]) -> dict[str, object] | None:
-        payload = {
-            "name": str(data.get("name") or "").strip(),
-        }
-        statement = (
-            update(INVENTORY_ACCOUNT_SUBJECT_TABLE)
-            .where(INVENTORY_ACCOUNT_SUBJECT_TABLE.c.id == subject_id)
-            .values(**payload)
-            .returning(INVENTORY_ACCOUNT_SUBJECT_TABLE)
-        )
+    def update_account_subject(
+        self,
+        subject_id: int,
+        data: Mapping[str, object],
+    ) -> tuple[dict[str, object] | None, int]:
+        current_name = str(data.get("name") or "").strip()
         with self.engine.begin() as connection:
-            row = connection.execute(statement).mappings().first()
-        return None if row is None else dict(row)
+            before = connection.execute(
+                select(INVENTORY_ACCOUNT_SUBJECT_TABLE)
+                .where(INVENTORY_ACCOUNT_SUBJECT_TABLE.c.id == subject_id)
+                .with_for_update()
+            ).mappings().first()
+            if before is None:
+                return None, 0
+
+            row = connection.execute(
+                update(INVENTORY_ACCOUNT_SUBJECT_TABLE)
+                .where(INVENTORY_ACCOUNT_SUBJECT_TABLE.c.id == subject_id)
+                .values(name=current_name)
+                .returning(INVENTORY_ACCOUNT_SUBJECT_TABLE)
+            ).mappings().one()
+
+            previous_name = str(before.get("name") or "").strip()
+            synced_detail_count = 0
+            if previous_name and current_name and previous_name != current_name:
+                synced_detail_count = self._rename_account_subject_references(
+                    connection,
+                    previous_name=previous_name,
+                    current_name=current_name,
+                )
+        return dict(row), synced_detail_count
+
+    @staticmethod
+    def _rename_account_subject_references(
+        connection,
+        *,
+        previous_name: str,
+        current_name: str,
+    ) -> int:
+        accounting_document_ids = select(INVENTORY_TABLE.c.id).where(
+            INVENTORY_TABLE.c.document_type.in_(ACCOUNTING_DOCUMENT_TYPES),
+        )
+        result = connection.execute(
+            update(INVENTORY_DETAIL_TABLE)
+            .where(
+                INVENTORY_DETAIL_TABLE.c.document_id.in_(accounting_document_ids),
+                func.btrim(INVENTORY_DETAIL_TABLE.c.product_name) == previous_name,
+            )
+            .values(
+                product_name=current_name,
+                updated_at=func.date_trunc("minute", func.now()),
+            )
+        )
+        return result.rowcount or 0
 
     def delete_account_subject(self, subject_id: int) -> bool:
         statement = delete(INVENTORY_ACCOUNT_SUBJECT_TABLE).where(INVENTORY_ACCOUNT_SUBJECT_TABLE.c.id == subject_id)

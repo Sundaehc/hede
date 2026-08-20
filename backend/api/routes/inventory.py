@@ -4013,13 +4013,16 @@ def update_inventory_account_subject(request: Request, subject_id: int, payload:
     if before is None:
         raise HTTPException(status_code=404, detail="Subject not found")
     try:
-        record = repository.update_account_subject(subject_id, {"name": name})
+        record, synced_detail_count = repository.update_account_subject(subject_id, {"name": name})
     except Exception as error:
         raise HTTPException(status_code=400, detail=f"科目 '{name}' 已存在或无法保存") from error
     if record is None:
         raise HTTPException(status_code=404, detail="Subject not found")
     label = str(record.get("name") or before.get("name") or subject_id).strip()
     changes = build_changed_fields(before, record, ACCOUNT_SUBJECT_FIELD_LABELS)
+    summary = summarize_changes("编辑科目", label, changes)
+    if synced_detail_count:
+        summary = f"{summary}；同步更新 {synced_detail_count} 条经营历程明细"
     write_operation_log(
         request,
         module="account_subject",
@@ -4027,12 +4030,16 @@ def update_inventory_account_subject(request: Request, subject_id: int, payload:
         entity_type="inventory_account_subject",
         entity_id=subject_id,
         entity_label=label,
-        summary=summarize_changes("编辑科目", label, changes),
+        summary=summary,
         changed_fields=changes,
         before_data=before,
         after_data=record,
     )
-    return {"item": record, "message": "更新成功"}
+    return {
+        "item": record,
+        "synced_detail_count": synced_detail_count,
+        "message": f"更新成功，同步修改 {synced_detail_count} 条经营历程明细",
+    }
 
 
 @router.delete("/inventory/account-subjects/{subject_id}")

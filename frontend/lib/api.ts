@@ -1596,7 +1596,11 @@ export function updateInventoryAccountSubject(
   id: number,
   payload: Record<string, unknown>
 ) {
-  return request<{ item: InventoryAccountSubject; message: string }>(
+  return request<{
+    item: InventoryAccountSubject
+    message: string
+    synced_detail_count: number
+  }>(
     `/inventory/account-subjects/${id}`,
     {
       method: "PUT",
