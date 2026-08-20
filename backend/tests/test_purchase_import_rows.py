@@ -500,6 +500,62 @@ def test_internal_sales_manual_detail_preserves_explicit_zero_price() -> None:
     assert payload["amount"] == "0"
 
 
+def test_wholesale_manual_detail_preserves_entered_price() -> None:
+    payload = inventory_routes._apply_product_archive_cost(
+        object(),
+        {
+            "document_type": "批发销售单",
+            "supplier": "普通客户",
+        },
+        {
+            "product_code": "RCT63957D06",
+            "quantity": "3",
+            "unit_price": "168.25",
+            "amount": "1",
+        },
+    )
+
+    assert payload["unit_price"] == "168.25"
+    assert payload["amount"] == "504.75"
+
+
+def test_wholesale_return_manual_detail_preserves_entered_price() -> None:
+    payload = inventory_routes._apply_product_archive_cost(
+        object(),
+        {
+            "document_type": "批发销售退货单",
+            "supplier": "普通客户",
+        },
+        {
+            "product_code": "RCT63957D06",
+            "quantity": "2",
+            "unit_price": "150",
+            "amount": "0",
+        },
+    )
+
+    assert payload["unit_price"] == "150"
+    assert payload["amount"] == "300"
+
+
+def test_wholesale_manual_price_is_not_replaced_by_gender_costs() -> None:
+    payload = {
+        "product_code": "NIA2253A020115",
+        "quantity": "2",
+        "unit_price": "190",
+        "amount": "380",
+        "size_quantities": {"35": "1", "40": "1"},
+    }
+
+    details = inventory_routes._gendered_detail_payloads(
+        object(),
+        {"document_type": "批发销售单", "supplier": "普通客户"},
+        payload,
+    )
+
+    assert details == [payload]
+
+
 def test_internal_sales_import_still_fills_blank_price(monkeypatch) -> None:
     monkeypatch.setattr(inventory_routes, "_load_color_barcodes", lambda connection: [])
     monkeypatch.setattr(

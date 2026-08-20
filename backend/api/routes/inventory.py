@@ -2758,6 +2758,8 @@ def _build_purchase_detail_lookup(connection, product_code: str, quantity: Decim
 
 def _gendered_detail_payloads(repository, record: dict[str, object], payload: dict[str, object]) -> list[dict[str, object]]:
     """Apply NI gender prices to manual detail saves as well as Excel imports."""
+    if _cell_text(record.get("document_type")) in WHOLESALE_DOCUMENT_TYPES:
+        return [payload]
     if _has_explicit_zero_unit_price(payload) and _allows_zero_unit_price(repository, record):
         return [payload]
     product_code = _cell_text(payload.get("product_code"))
@@ -2805,6 +2807,16 @@ def _apply_product_archive_cost(repository, record: dict[str, object], payload: 
         normalized["unit_price"] = "0"
         normalized["amount"] = "0"
         return normalized
+    if _cell_text(record.get("document_type")) in WHOLESALE_DOCUMENT_TYPES:
+        manual_price_text = _cell_text(payload.get("unit_price"))
+        manual_price = _to_decimal(manual_price_text)
+        if manual_price_text and manual_price > 0:
+            normalized = dict(payload)
+            normalized["unit_price"] = _fmt_decimal(manual_price)
+            normalized["amount"] = _fmt_decimal(
+                _to_decimal(normalized.get("quantity")) * manual_price
+            )
+            return normalized
     product_code = _cell_text(payload.get("product_code"))
     if not product_code:
         return payload
