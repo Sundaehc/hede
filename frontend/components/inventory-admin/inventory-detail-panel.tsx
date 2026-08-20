@@ -688,7 +688,12 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
   const totalPages = Math.max(1, Math.ceil(detailTotal / DETAIL_PAGE_SIZE))
   const firstDetailIndex = detailTotal === 0 ? 0 : (detailPage - 1) * DETAIL_PAGE_SIZE + 1
   const lastDetailIndex = Math.min(detailPage * DETAIL_PAGE_SIZE, detailTotal)
-  const tableClassName = isPurchaseOrder ? "w-[2360px] table-fixed text-xs" : "w-full text-sm"
+  const inventoryTableMinWidth = 880 + tableSizeColumns.length * 72
+  const tableClassName = isPurchaseOrder
+    ? "w-[2360px] table-fixed text-xs"
+    : isAccountingDocument
+      ? "w-full text-sm"
+      : "w-full table-fixed text-sm"
   const purchaseHeaderClassName = "px-3 py-2.5 font-medium whitespace-nowrap"
   const purchaseCodeCellClassName = "px-3 py-2.5 whitespace-nowrap font-mono text-[11px]"
   const purchaseTextCellClassName = "px-3 py-2.5 truncate whitespace-nowrap"
@@ -786,11 +791,14 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
 
         {/* Table */}
         <div className="flex-1 overflow-auto">
-          <table className={tableClassName}>
+          <table
+            className={tableClassName}
+            style={!isPurchaseOrder && !isAccountingDocument ? { minWidth: inventoryTableMinWidth } : undefined}
+          >
             <thead>
               {isAccountingDocument ? (
                 <tr className="sticky top-0 z-20 border-b border-border bg-muted text-left text-muted-foreground shadow-sm">
-                  <th className="w-10 px-3 py-2.5 font-medium">
+                  <th className="w-10 px-3 py-2.5 font-medium whitespace-nowrap">
                     <input
                       type="checkbox"
                       checked={allSelected}
@@ -850,17 +858,17 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
                       aria-label="选择全部明细"
                     />
                   </th>
-                  <th className="px-3 py-2.5 font-medium">货号</th>
-                  <th className="px-3 py-2.5 font-medium">商品全名</th>
-                  <th className="px-3 py-2.5 font-medium">颜色条码</th>
-                  <th className="px-3 py-2.5 font-medium">颜色名称</th>
+                  <th className="w-[140px] px-3 py-2.5 font-medium whitespace-nowrap">货号</th>
+                  <th className="w-[180px] px-3 py-2.5 font-medium whitespace-nowrap">商品全名</th>
+                  <th className="w-[96px] px-3 py-2.5 font-medium whitespace-nowrap">颜色条码</th>
+                  <th className="w-[104px] px-3 py-2.5 font-medium whitespace-nowrap">颜色名称</th>
                   {tableSizeColumns.map((size) => (
-                    <th key={size} className="px-2 py-2.5 text-right font-medium">{size}</th>
+                    <th key={size} className="w-[72px] px-2 py-2.5 text-right font-medium whitespace-nowrap">{size}</th>
                   ))}
-                  <th className="px-3 py-2.5 text-right font-medium">数量</th>
-                  <th className="px-3 py-2.5 text-right font-medium">单价</th>
-                  <th className="px-3 py-2.5 text-right font-medium">金额</th>
-                  <th className="sticky right-0 z-30 w-20 border-l border-border bg-muted px-4 py-2.5 font-medium shadow-[-5px_0_10px_-9px_rgb(0_0_0_/_0.45)]">操作</th>
+                  <th className="w-[72px] px-3 py-2.5 text-right font-medium whitespace-nowrap">数量</th>
+                  <th className="w-[80px] px-3 py-2.5 text-right font-medium whitespace-nowrap">单价</th>
+                  <th className="w-[90px] px-3 py-2.5 text-right font-medium whitespace-nowrap">金额</th>
+                  <th className="sticky right-0 z-30 w-20 border-l border-border bg-muted px-4 py-2.5 font-medium whitespace-nowrap shadow-[-5px_0_10px_-9px_rgb(0_0_0_/_0.45)]">操作</th>
                 </tr>
               )}
             </thead>
@@ -920,18 +928,18 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
                     </>
                   ) : (
                     <>
-                      <td className="px-3 py-2.5 font-mono text-xs">{item.product_code || "-"}</td>
-                      <td className="px-3 py-2.5">{item.product_name || "-"}</td>
-                      <td className="px-3 py-2.5 font-mono text-xs">{item.color_barcode || "-"}</td>
-                      <td className="px-3 py-2.5">{item.color_name || item.color_spec || "-"}</td>
+                      <td className="truncate px-3 py-2.5 font-mono text-xs whitespace-nowrap" title={item.product_code || ""}>{item.product_code || "-"}</td>
+                      <td className="truncate px-3 py-2.5 whitespace-nowrap" title={item.product_name || ""}>{item.product_name || "-"}</td>
+                      <td className="truncate px-3 py-2.5 font-mono text-xs whitespace-nowrap" title={item.color_barcode || ""}>{item.color_barcode || "-"}</td>
+                      <td className="truncate px-3 py-2.5 whitespace-nowrap" title={item.color_name || item.color_spec || ""}>{item.color_name || item.color_spec || "-"}</td>
                       {tableSizeColumns.map((size) => (
-                        <td key={size} className="px-2 py-2.5 text-right tabular-nums">
+                        <td key={size} className="px-2 py-2.5 text-right whitespace-nowrap tabular-nums">
                           {getSizeQuantity(item.size_quantities, size, inventorySizeBrand) || "-"}
                         </td>
                       ))}
-                      <td className="px-3 py-2.5 text-right tabular-nums">{item.quantity || "-"}</td>
-                      <td className="px-3 py-2.5 text-right tabular-nums">{item.unit_price || "-"}</td>
-                      <td className="px-3 py-2.5 text-right tabular-nums">{item.amount || "-"}</td>
+                      <td className="px-3 py-2.5 text-right whitespace-nowrap tabular-nums">{item.quantity || "-"}</td>
+                      <td className="px-3 py-2.5 text-right whitespace-nowrap tabular-nums">{item.unit_price || "-"}</td>
+                      <td className="px-3 py-2.5 text-right whitespace-nowrap tabular-nums">{item.amount || "-"}</td>
                     </>
                   )}
                   <td className="sticky right-0 z-10 border-l border-border bg-background px-4 py-2.5 shadow-[-5px_0_10px_-9px_rgb(0_0_0_/_0.45)] transition-colors group-hover:bg-muted">
