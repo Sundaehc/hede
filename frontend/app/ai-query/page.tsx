@@ -633,88 +633,91 @@ export default function AiQueryPage() {
                 </section>
               ) : null}
 
-              <section
-                className={`${isEntryState ? "mx-auto w-full max-w-4xl" : "sticky bottom-0 mt-auto"} z-20 overflow-hidden rounded-4xl border border-border/90 bg-card shadow-[0_18px_46px_-28px_rgb(15_23_42_/_0.65)] transition-[border-color,box-shadow] focus-within:border-foreground/25 focus-within:shadow-[0_20px_52px_-28px_rgb(15_23_42_/_0.75)]`}
+              <div
+                className={`${isEntryState ? "mx-auto w-full max-w-4xl" : "sticky bottom-0 mt-auto"} z-20`}
               >
                 {queryContext && contextQuestion ? (
-                  <div className="flex min-w-0 items-center gap-2 border-b border-border/70 bg-muted/20 px-4 py-2 sm:px-5">
-                    <Link2 className="size-3.5 shrink-0 text-blue-600 dark:text-blue-400" />
-                    <span
-                      className="min-w-0 flex-1 truncate text-xs text-muted-foreground"
-                      title={contextQuestion}
-                    >
-                      {contextQuestion}
-                    </span>
+                  <div className="mb-1.5 flex min-w-0 items-center justify-between gap-3 px-1">
+                    <div className="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
+                      <Link2 className="size-3.5 shrink-0" />
+                      <span className="truncate" title={contextQuestion}>
+                        {contextQuestion}
+                      </span>
+                    </div>
                     <Button
                       type="button"
                       variant="ghost"
-                      size="icon-sm"
-                      className="shrink-0 cursor-pointer"
+                      size="sm"
+                      className="h-7 shrink-0 cursor-pointer gap-1.5 px-2 text-xs text-muted-foreground hover:text-foreground"
                       onClick={startNewQuery}
                       disabled={loading}
                       title="新对话"
-                      aria-label="新对话"
                     >
                       <MessageSquarePlus className="size-3.5" />
+                      新对话
                     </Button>
                   </div>
                 ) : null}
-                <form
-                  className="relative"
-                  onSubmit={(event) => {
-                    event.preventDefault()
-                    void submit()
-                  }}
+                <section
+                  className="overflow-hidden rounded-4xl border border-border/90 bg-card shadow-[0_18px_46px_-28px_rgb(15_23_42_/_0.65)] transition-[border-color,box-shadow] focus-within:border-foreground/25 focus-within:shadow-[0_20px_52px_-28px_rgb(15_23_42_/_0.75)]"
                 >
-                  <div className="flex min-h-[96px] items-start gap-3 px-4 pt-4 pr-14 pb-3 sm:px-5 sm:pt-4 sm:pr-16">
-                    <Search className="mt-1 size-[18px] shrink-0 text-muted-foreground" />
-                    <textarea
-                      value={question}
-                      onChange={(event) => {
-                        setQuestion(event.target.value)
-                        if (error) setError("")
-                      }}
-                      onKeyDown={(event) => {
-                        if (event.key === "Enter" && !event.shiftKey) {
-                          event.preventDefault()
-                          void submit()
-                        }
-                      }}
-                      placeholder="例如：查询千百度女鞋 QC153883D54 近7天销量和库存"
-                      className="block min-h-[64px] min-w-0 flex-1 resize-none bg-transparent pb-2 text-[15px] leading-7 outline-none placeholder:text-muted-foreground/55"
-                      aria-label="自然语言查询问题"
-                    />
-                    {question ? (
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon-sm"
-                        className="shrink-0"
-                        onClick={() => setQuestion("")}
-                        disabled={loading}
-                        title="清空输入"
-                        aria-label="清空输入"
-                      >
-                        <X className="size-3.5" />
-                      </Button>
-                    ) : null}
-                  </div>
-                  <Button
-                    type="submit"
-                    size="icon"
-                    disabled={!question.trim() || loading}
-                    className="absolute right-3 bottom-3 size-9 shrink-0 cursor-pointer rounded-full disabled:cursor-not-allowed sm:right-4"
-                    title={loading ? "查询中" : "提交查询"}
-                    aria-label={loading ? "查询中" : "提交查询"}
+                  <form
+                    className="relative"
+                    onSubmit={(event) => {
+                      event.preventDefault()
+                      void submit()
+                    }}
                   >
-                    {loading ? (
-                      <LoaderCircle className="size-4 animate-spin" />
-                    ) : (
-                      <ArrowUp className="size-4" />
-                    )}
-                  </Button>
-                </form>
-              </section>
+                    <div className="flex min-h-[96px] items-start gap-3 px-4 pt-4 pr-14 pb-3 sm:px-5 sm:pt-4 sm:pr-16">
+                      <Search className="mt-1 size-[18px] shrink-0 text-muted-foreground" />
+                      <textarea
+                        value={question}
+                        onChange={(event) => {
+                          setQuestion(event.target.value)
+                          if (error) setError("")
+                        }}
+                        onKeyDown={(event) => {
+                          if (event.key === "Enter" && !event.shiftKey) {
+                            event.preventDefault()
+                            void submit()
+                          }
+                        }}
+                        placeholder="例如：查询千百度女鞋 QC153883D54 近7天销量和库存"
+                        className="block min-h-[64px] min-w-0 flex-1 resize-none bg-transparent pb-2 text-[15px] leading-7 outline-none placeholder:text-muted-foreground/55"
+                        aria-label="自然语言查询问题"
+                      />
+                      {question ? (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon-sm"
+                          className="shrink-0"
+                          onClick={() => setQuestion("")}
+                          disabled={loading}
+                          title="清空输入"
+                          aria-label="清空输入"
+                        >
+                          <X className="size-3.5" />
+                        </Button>
+                      ) : null}
+                    </div>
+                    <Button
+                      type="submit"
+                      size="icon"
+                      disabled={!question.trim() || loading}
+                      className="absolute right-3 bottom-3 size-9 shrink-0 cursor-pointer rounded-full disabled:cursor-not-allowed sm:right-4"
+                      title={loading ? "查询中" : "提交查询"}
+                      aria-label={loading ? "查询中" : "提交查询"}
+                    >
+                      {loading ? (
+                        <LoaderCircle className="size-4 animate-spin" />
+                      ) : (
+                        <ArrowUp className="size-4" />
+                      )}
+                    </Button>
+                  </form>
+                </section>
+              </div>
             </main>
 
             <aside className="min-w-0 xl:sticky xl:top-5 xl:self-start">
