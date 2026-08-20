@@ -848,7 +848,7 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
                 </tr>
               ) : (
                 <tr className="sticky top-0 z-20 border-b border-border bg-muted text-left text-muted-foreground shadow-sm">
-                  <th className="w-10 px-3 py-2.5 font-medium">
+                  <th className="sticky left-0 z-40 w-10 bg-muted px-3 py-2.5 font-medium">
                     <input
                       type="checkbox"
                       checked={allSelected}
@@ -858,7 +858,7 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
                       aria-label="选择全部明细"
                     />
                   </th>
-                  <th className="w-[140px] px-3 py-2.5 font-medium whitespace-nowrap">货号</th>
+                  <th className="sticky left-10 z-40 w-[140px] bg-muted px-3 py-2.5 font-medium whitespace-nowrap">货号</th>
                   <th className="w-[180px] px-3 py-2.5 font-medium whitespace-nowrap">商品全名</th>
                   <th className="w-[96px] px-3 py-2.5 font-medium whitespace-nowrap">颜色条码</th>
                   <th className="w-[104px] px-3 py-2.5 font-medium whitespace-nowrap">颜色名称</th>
@@ -885,7 +885,7 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
               )}
               {items.map((item, index) => (
                 <tr key={item.id} className="group hover:bg-muted/30 transition-colors">
-                  <td className={isPurchaseOrder
+                  <td className={!isAccountingDocument
                     ? "sticky left-0 z-20 w-10 bg-background px-3 py-2.5 group-hover:bg-muted"
                     : "px-3 py-2.5"}>
                     <input
@@ -928,7 +928,7 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
                     </>
                   ) : (
                     <>
-                      <td className="truncate px-3 py-2.5 font-mono text-xs whitespace-nowrap" title={item.product_code || ""}>{item.product_code || "-"}</td>
+                      <td className="sticky left-10 z-20 w-[140px] truncate bg-background px-3 py-2.5 font-mono text-xs whitespace-nowrap group-hover:bg-muted" title={item.product_code || ""}>{item.product_code || "-"}</td>
                       <td className="truncate px-3 py-2.5 whitespace-nowrap" title={item.product_name || ""}>{item.product_name || "-"}</td>
                       <td className="truncate px-3 py-2.5 font-mono text-xs whitespace-nowrap" title={item.color_barcode || ""}>{item.color_barcode || "-"}</td>
                       <td className="truncate px-3 py-2.5 whitespace-nowrap" title={item.color_name || item.color_spec || ""}>{item.color_name || item.color_spec || "-"}</td>
