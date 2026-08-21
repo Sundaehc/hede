@@ -13,6 +13,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from domain.daily_sales_schema import ensure_jst_daily_sales_table, ensure_vip_daily_sales_table
 from storage.date_normalization import parse_date
+from storage.vip_repository import _xlsx_sheet_rows
 
 
 JST_FILE_NAME = "聚水潭日销售报表.xlsx"
@@ -81,6 +82,141 @@ class DailySalesRepository:
 
     def import_vip_daily_sales(self, file_path: Path) -> dict[str, object]:
         return self._import(file_path, source="vip")
+
+    def import_jst_daily_sales_range(
+        self,
+        file_path: Path,
+        *,
+        date_start: date,
+        date_end: date,
+        batch_size: int = 1_000,
+    ) -> dict[str, object]:
+        return self._import_range(
+            file_path,
+            source="jst",
+            date_start=date_start,
+            date_end=date_end,
+            batch_size=batch_size,
+        )
+
+    def import_vip_daily_sales_range(
+        self,
+        file_path: Path,
+        *,
+        date_start: date,
+        date_end: date,
+        batch_size: int = 1_000,
+    ) -> dict[str, object]:
+        return self._import_range(
+            file_path,
+            source="vip",
+            date_start=date_start,
+            date_end=date_end,
+            batch_size=batch_size,
+        )
+
+    def _import_range(
+        self,
+        file_path: Path,
+        *,
+        source: str,
+        date_start: date,
+        date_end: date,
+        batch_size: int,
+    ) -> dict[str, object]:
+        if not file_path.exists():
+            raise FileNotFoundError(file_path)
+        if source not in {"jst", "vip"}:
+            raise ValueError(f"Unsupported daily sales source: {source}")
+        if date_start > date_end:
+            raise ValueError("date_start cannot be later than date_end")
+        if date_start.year != date_end.year:
+            raise ValueError("Daily sales range import must stay within one calendar year")
+
+        row_iterator = _xlsx_sheet_rows(file_path)
+        try:
+            _, header_values = next(row_iterator)
+        except StopIteration:
+            return {
+                "source": source,
+                "source_file": str(file_path),
+                "read": 0,
+                "matched": 0,
+                "upserted": 0,
+                "skipped": 0,
+                "duplicate_keys_in_batch": 0,
+                "sales_dates": [],
+            }
+
+        headers = {index: _header(value) for index, value in header_values.items() if _header(value)}
+        date_column = next((index for index, header in headers.items() if header == "日期"), None)
+        if date_column is None:
+            raise ValueError("缺少必要列: 日期")
+
+        if source == "jst":
+            table = ensure_jst_daily_sales_table(self.engine, date_start.year)
+            mapper = self._map_jst
+            key_builder = self._jst_key
+            key_columns = self._jst_key_columns
+        else:
+            table = ensure_vip_daily_sales_table(self.engine, date_start.year)
+            mapper = self._map_vip
+            key_builder = self._vip_key
+            key_columns = self._vip_key_columns
+        rows_read = matched_rows = skipped_rows = duplicate_rows = upserted_rows = 0
+        sales_dates: set[date] = set()
+        batch: dict[tuple[object, ...], dict[str, object]] = {}
+
+        def flush() -> None:
+            nonlocal upserted_rows
+            if not batch:
+                return
+            rows = list(batch.values())
+            self._upsert(table, rows, key_columns)
+            upserted_rows += len(rows)
+            batch.clear()
+
+        for row_number, values in row_iterator:
+            if not values:
+                continue
+            rows_read += 1
+            sales_date = parse_date(values.get(date_column, ""))
+            if sales_date is None or sales_date < date_start or sales_date > date_end:
+                skipped_rows += 1
+                continue
+
+            raw = {
+                header: _payload_value(values.get(index, ""))
+                for index, header in headers.items()
+            }
+            mapped = mapper(raw)
+            mapped.update({
+                "sales_date": sales_date,
+                "source_workbook": file_path.name,
+                "source_sheet": "Sheet1",
+                "source_row_number": row_number,
+                "raw_payload": raw,
+            })
+            key = key_builder(mapped)
+            if key in batch:
+                duplicate_rows += 1
+            batch[key] = mapped
+            matched_rows += 1
+            sales_dates.add(sales_date)
+            if len(batch) >= batch_size:
+                flush()
+        flush()
+
+        return {
+            "source": source,
+            "source_file": str(file_path),
+            "read": rows_read,
+            "matched": matched_rows,
+            "upserted": upserted_rows,
+            "skipped": skipped_rows,
+            "duplicate_keys_in_batch": duplicate_rows,
+            "sales_dates": sorted(value.isoformat() for value in sales_dates),
+        }
 
     def _import(self, file_path: Path, *, source: str) -> dict[str, object]:
         if not file_path.exists():
@@ -173,8 +309,8 @@ class DailySalesRepository:
             "net_sales_quantity": _integer(_value(row, "净销量")),
             "sales_amount": _decimal(_value(row, "销售金额")),
             "net_sales_amount": _decimal(_value(row, "净销售额")),
-            "cost_amount": _decimal(_value(row, "成本", "成本金额")),
-            "gross_profit": _decimal(_value(row, "毛利")),
+            "cost_amount": _decimal(_value(row, "销售成本", "成本", "成本金额")),
+            "gross_profit": _decimal(_value(row, "销售毛利", "毛利")),
         }
 
     @staticmethod

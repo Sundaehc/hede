@@ -11,6 +11,7 @@ from pathlib import Path
 import orjson
 import xlrd
 from openpyxl import load_workbook
+from openpyxl.utils.escape import unescape as unescape_xlsx_text
 from openpyxl.utils.exceptions import InvalidFileException
 from sqlalchemy import create_engine, func as sa_func, text
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -69,6 +70,7 @@ JST_FULL_STOCK_HEADER_TO_COLUMN = {
     "颜色": "color",
     "规格": "size",
     "商品标签": "product_tag",
+    "品牌": "brand",
     "实际库存数": "actual_stock_qty",
     "订单占有数": "order_occupy_qty",
     "可用数": "available_qty",
@@ -111,6 +113,10 @@ JST_FULL_STOCK_INTEGER_COLUMNS = {
 XLSX_NAMESPACE = "{http://schemas.openxmlformats.org/spreadsheetml/2006/main}"
 
 
+def _decode_xlsx_text(value: str) -> str:
+    return unescape_xlsx_text(value)
+
+
 def _xlsx_column_index(reference: str) -> int:
     index = 0
     for character in reference:
@@ -127,7 +133,10 @@ def _xlsx_shared_strings(archive: ZipFile) -> list[str]:
         return []
     with source:
         root = ET.parse(source).getroot()
-    return ["".join(item.itertext()) for item in root.findall(f"{XLSX_NAMESPACE}si")]
+    return [
+        _decode_xlsx_text("".join(item.itertext()))
+        for item in root.findall(f"{XLSX_NAMESPACE}si")
+    ]
 
 
 def _xlsx_sheet_rows(file_path: Path) -> Iterator[tuple[int, dict[int, str]]]:
@@ -151,7 +160,7 @@ def _xlsx_sheet_rows(file_path: Path) -> Iterator[tuple[int, dict[int, str]]]:
                         continue
                     cell_type = cell.attrib.get("t")
                     if cell_type == "inlineStr":
-                        value = "".join(cell.itertext())
+                        value = _decode_xlsx_text("".join(cell.itertext()))
                     else:
                         node = cell.find(value_tag)
                         value = node.text if node is not None and node.text is not None else ""

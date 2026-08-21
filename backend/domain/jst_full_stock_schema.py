@@ -21,6 +21,7 @@ JST_FULL_STOCK_TABLE = Table(
     Column("color", Text, nullable=True),
     Column("size", Text, nullable=True),
     Column("product_tag", Text, nullable=True),
+    Column("brand", Text, nullable=True),
     Column("actual_stock_qty", Integer, nullable=True),
     Column("order_occupy_qty", Integer, nullable=True),
     Column("available_qty", Integer, nullable=True),
@@ -65,3 +66,4 @@ Index(
 )
 Index("idx_jst_full_stock_product_size", JST_FULL_STOCK_TABLE.c.product_code, JST_FULL_STOCK_TABLE.c.size)
 Index("idx_jst_full_stock_style_code", JST_FULL_STOCK_TABLE.c.style_code)
+Index("idx_jst_full_stock_brand", JST_FULL_STOCK_TABLE.c.brand)

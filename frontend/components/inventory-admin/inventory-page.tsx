@@ -1735,7 +1735,7 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
                   </Tabs>
                 </div>
               )}
-              <div className="surface-panel p-4">
+              <div className="surface-panel relative z-30 p-4">
                 <div className="grid gap-3 xl:grid-cols-[1fr_auto] xl:items-end">
                   <div className="grid gap-3 lg:grid-cols-12">
                     <div className="space-y-1.5 lg:col-span-6 xl:col-span-5">

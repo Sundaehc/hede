@@ -1,5 +1,7 @@
 from api.routes.import_export import (
     EXPORT_LABELS,
+    _export_columns_for_brand,
+    _export_label,
     _size_export_fallback_profiles,
     _size_export_product_name,
     _size_export_profiles_from_size_groups,
@@ -10,6 +12,28 @@ def test_product_export_headers_use_field_labels():
     assert EXPORT_LABELS["shoe_box_type"] == "鞋盒类型"
     assert EXPORT_LABELS["selling_points"] == "卖点"
     assert EXPORT_LABELS["barcode_build_rule"] == "条码构成逻辑"
+
+
+def test_cbanner_womens_export_includes_style_fields_and_brand_labels():
+    columns = _export_columns_for_brand("cbanner_womens")
+
+    assert "sole_style" in columns
+    assert "fashion_elements" in columns
+    assert "opening_depth" in columns
+    assert "boot_shaft" in columns
+    assert "mesh_upper_type" in columns
+    assert _export_label("heel_height", "cbanner_womens") == "后跟高"
+    assert _export_label("upper_height", "cbanner_womens") == "鞋帮高度"
+
+
+def test_other_brand_exports_omit_cbanner_womens_only_fields():
+    columns = _export_columns_for_brand("cbanner_mens")
+
+    assert "sole_style" not in columns
+    assert "fashion_elements" not in columns
+    assert "opening_depth" not in columns
+    assert "boot_shaft" not in columns
+    assert "mesh_upper_type" not in columns
 
 
 def test_size_export_uses_archive_fallback_when_profile_is_missing():

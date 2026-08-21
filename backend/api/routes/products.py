@@ -304,7 +304,14 @@ def update_product(request: Request, brand: ProductArchiveBrandKey, product_id: 
     clear_fine_table_cache()
     clear_product_goods_cache()
     label = product_entity_label(item)
-    changes = build_changed_fields(existing, item, PRODUCT_FIELD_LABELS)
+    field_labels = PRODUCT_FIELD_LABELS
+    if brand == "cbanner_womens":
+        field_labels = {
+            **PRODUCT_FIELD_LABELS,
+            "heel_height": "后跟高",
+            "upper_height": "鞋帮高度",
+        }
+    changes = build_changed_fields(existing, item, field_labels)
     write_operation_log(
         request,
         module="product",

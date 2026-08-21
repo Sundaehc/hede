@@ -149,6 +149,8 @@ export type ProductListItem = {
   insole_material: string | null
   execution_standard: string | null
   heel_height: string | null
+  sole_style?: string | null
+  fashion_elements?: string | null
   shoe_width: string | null
   shoe_length: string | null
   shaft_circumference: string | null
@@ -156,8 +158,11 @@ export type ProductListItem = {
   internal_height_increase: string | null
   internal_height_note: string | null
   upper_height: string | null
+  opening_depth?: string | null
+  boot_shaft?: string | null
   toe_shape: string | null
   closure_type: string | null
+  mesh_upper_type?: string | null
   shoe_box_spec: string | null
   shoe_box_type: string | null
   selling_points: string | null
@@ -538,6 +543,8 @@ export type ProductFormValues = {
   insole_material: string
   execution_standard: string
   heel_height: string
+  sole_style: string
+  fashion_elements: string
   shoe_width: string
   shoe_length: string
   shaft_circumference: string
@@ -545,8 +552,11 @@ export type ProductFormValues = {
   internal_height_increase: string
   internal_height_note: string
   upper_height: string
+  opening_depth: string
+  boot_shaft: string
   toe_shape: string
   closure_type: string
+  mesh_upper_type: string
   shoe_box_spec: string
   shoe_box_type: string
   selling_points: string
@@ -578,6 +588,8 @@ export type ProductMutationPayload = Record<string, unknown> & {
   insole_material?: string | null
   execution_standard?: string | null
   heel_height?: string | null
+  sole_style?: string | null
+  fashion_elements?: string | null
   shoe_width?: string | null
   shoe_length?: string | null
   shaft_circumference?: string | null
@@ -585,8 +597,11 @@ export type ProductMutationPayload = Record<string, unknown> & {
   internal_height_increase?: string | null
   internal_height_note?: string | null
   upper_height?: string | null
+  opening_depth?: string | null
+  boot_shaft?: string | null
   toe_shape?: string | null
   closure_type?: string | null
+  mesh_upper_type?: string | null
   shoe_box_spec?: string | null
   shoe_box_type?: string | null
   selling_points?: string | null

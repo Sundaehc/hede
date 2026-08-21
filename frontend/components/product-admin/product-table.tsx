@@ -1,7 +1,7 @@
 import { Check, Copy, Edit, RefreshCw, Trash2 } from "lucide-react"
 import { useState } from "react"
 import type { ProductListItem } from "@/lib/types"
-import { FIELD_GROUPS, FIELD_LABELS } from "@/lib/fields"
+import { getProductFieldGroups, getProductFieldLabel } from "@/lib/fields"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
 import {
@@ -275,7 +275,7 @@ function ProductCard({ item, selectable, selectedIds, onToggleSelect, onEdit, on
 
         {/* Grouped fields */}
         <div className="space-y-2 border-t border-border pt-2">
-          {FIELD_GROUPS.map((group) => {
+          {getProductFieldGroups(item.brand).map((group) => {
             const visibleFields = group.fields.filter((field) => {
               if (field === "sku" || field === "original_sku") return false
               if (field === "season_category" || field === "year" || field === "color" || field === "cost" || field === "size_range") return false
@@ -291,7 +291,7 @@ function ProductCard({ item, selectable, selectedIds, onToggleSelect, onEdit, on
                     const value = item[field as keyof ProductListItem]
                     return (
                       <div key={field} className="flex gap-1">
-                        <span className="shrink-0 text-muted-foreground">{FIELD_LABELS[field]}:</span>
+                        <span className="shrink-0 text-muted-foreground">{getProductFieldLabel(field, item.brand)}:</span>
                         <span className="truncate">{String(value)}</span>
                       </div>
                     )

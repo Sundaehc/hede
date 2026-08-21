@@ -48,6 +48,13 @@ EXPORT_LABELS = {field.name: field.label for field in PRODUCT_FIELDS}
 EXPORT_LABELS["toe_shape"] = "鞋头款式"
 
 EXPORT_COLUMNS = [c for c in CANONICAL_COLUMNS if c != "image_path"]
+CBANNER_WOMENS_ONLY_EXPORT_COLUMNS = {
+    "sole_style",
+    "fashion_elements",
+    "opening_depth",
+    "boot_shaft",
+    "mesh_upper_type",
+}
 CN_TO_FIELD = {cn: en for cn, en in COLUMN_ALIASES.items() if en in EXPORT_COLUMNS}
 SIZE_EXPORT_MODE = "with_sizes"
 SIZE_EXPORT_HEADERS = [
@@ -124,6 +131,21 @@ BRAND_LABELS = {
     "ni": "NI",
     "all": "总览",
 }
+
+
+def _export_columns_for_brand(brand: str) -> list[str]:
+    if brand == "cbanner_womens":
+        return EXPORT_COLUMNS
+    return [column for column in EXPORT_COLUMNS if column not in CBANNER_WOMENS_ONLY_EXPORT_COLUMNS]
+
+
+def _export_label(column: str, brand: str | None = None) -> str:
+    if brand == "cbanner_womens":
+        if column == "heel_height":
+            return "后跟高"
+        if column == "upper_height":
+            return "鞋帮高度"
+    return EXPORT_LABELS.get(column, column)
 
 
 def _activity_date_export_condition(table, activity_date: date_type):
@@ -1057,11 +1079,12 @@ def export_products(
     ws = wb.active
     ws.title = BRAND_LABELS.get(brand, brand)
 
-    headers = [EXPORT_LABELS.get(c, c) for c in EXPORT_COLUMNS]
+    export_columns = _export_columns_for_brand(brand)
+    headers = [_export_label(column, brand) for column in export_columns]
     ws.append(headers)
 
     for item in items:
-        row = [_excel_cell_value(item.get(c)) for c in EXPORT_COLUMNS]
+        row = [_excel_cell_value(item.get(column)) for column in export_columns]
         ws.append(row)
 
     style_excel_worksheet(ws)

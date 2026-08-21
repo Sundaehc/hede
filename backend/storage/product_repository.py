@@ -25,6 +25,13 @@ def _json_serializer(value: object) -> bytes:
 PRICE_LOOKUP_CHUNK_SIZE = 20000
 IMPORT_MARK_CHUNK_SIZE = 2000
 PRODUCT_RECYCLE_BIN_RETENTION_DAYS = 10
+PRODUCT_STYLE_DETAIL_COLUMNS = (
+    "sole_style",
+    "fashion_elements",
+    "opening_depth",
+    "boot_shaft",
+    "mesh_upper_type",
+)
 PRODUCT_COLOR_BARCODE_SOURCE_BRANDS = {
     "cbanner_mens": "cbanner_mens",
     "cbanner_womens": "cbanner_womens",
@@ -245,6 +252,10 @@ class ProductRepository:
         with self.engine.begin() as connection:
             table.create(connection, checkfirst=True)
             connection.execute(text(f"ALTER TABLE {table.name} ADD COLUMN IF NOT EXISTS category TEXT"))
+            for column_name in PRODUCT_STYLE_DETAIL_COLUMNS:
+                connection.execute(text(
+                    f"ALTER TABLE {table.name} ADD COLUMN IF NOT EXISTS {column_name} TEXT"
+                ))
             connection.execute(text(f"ALTER TABLE {table.name} ADD COLUMN IF NOT EXISTS last_imported_at TIMESTAMPTZ"))
             connection.execute(text(f"ALTER TABLE {table.name} ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ"))
             connection.execute(text(f"CREATE INDEX IF NOT EXISTS idx_{table.name}_last_imported_at ON {table.name} (last_imported_at)"))
@@ -271,6 +282,10 @@ class ProductRepository:
                 connection.execute(text(
                     f"ALTER TABLE {table.name} ADD COLUMN IF NOT EXISTS category TEXT"
                 ))
+                for column_name in PRODUCT_STYLE_DETAIL_COLUMNS:
+                    connection.execute(text(
+                        f"ALTER TABLE {table.name} ADD COLUMN IF NOT EXISTS {column_name} TEXT"
+                    ))
                 connection.execute(text(
                     f"ALTER TABLE {table.name} ADD COLUMN IF NOT EXISTS last_imported_at TIMESTAMPTZ"
                 ))

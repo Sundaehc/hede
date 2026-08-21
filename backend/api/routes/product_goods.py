@@ -40,6 +40,16 @@ from domain.gj_schema import GJ_MERGED_PRODUCT_INFO_TABLE
 from domain.schema import PRODUCT_TABLES
 from domain.vip_schema import JST_SIZE_STOCK_TABLE, JST_STOCK_SUMMARY_TABLE
 from domain.daily_sales_schema import jst_daily_sales_table_for_year, vip_daily_sales_table_for_year
+from domain.factory_channel_sales import (
+    channel_group as factory_channel_group,
+    is_clearance_channel,
+    platform_name,
+    product_for_sale,
+    product_index,
+    season_group,
+    shop_channel_key,
+)
+from domain.factory_channel_sales_summary_schema import FACTORY_CHANNEL_SALES_DAILY_SUMMARY_TABLE
 from domain.inventory_schema import SUPPLIER_TABLE
 from domain.jst_full_stock_schema import JST_FULL_STOCK_TABLE
 from domain.jst_stock_snapshot_schema import JST_SIZE_STOCK_SNAPSHOT_TABLE, JST_STOCK_SUMMARY_SNAPSHOT_TABLE
@@ -1079,7 +1089,7 @@ def _size_from_color_spec(value: object) -> str | None:
 
 
 def _shop_channel_key(value: object) -> str:
-    return re.sub(r"\s+", "", str(value or "").strip())
+    return shop_channel_key(value)
 
 
 def _shop_channel_mapping_payload(connection, brand: str) -> dict[str, str]:
@@ -1099,51 +1109,19 @@ def _shop_channel_mapping_payload(connection, brand: str) -> dict[str, str]:
 
 
 def _platform_name(channel: object, shop_channel_mappings: dict[str, str] | None = None) -> str:
-    value = str(channel or "").strip()
-    mapped_channel = (shop_channel_mappings or {}).get(_shop_channel_key(value))
-    if mapped_channel:
-        return mapped_channel
-    if "唯品" in value:
-        return "唯品"
-    if "天猫" in value:
-        return "天猫"
-    if "得物" in value:
-        return "得物"
-    if "拼多多" in value and "清仓" in value:
-        return "拼多多清仓"
-    if "拼多多" in value:
-        return "拼多多"
-    if "京东" in value:
-        return "京东"
-    if "商品卡" in value:
-        return "商品卡"
-    if "达播" in value and "清仓" in value:
-        return "达播清仓"
-    if "直播" in value:
-        return "直播赛道"
-    return "其他"
+    return platform_name(channel, shop_channel_mappings)
 
 
 def _is_clearance_channel(channel: object, platform: str) -> bool:
-    return "清仓" in str(channel or "") or platform in {"达播清仓", "拼多多清仓"}
+    return is_clearance_channel(channel, platform)
 
 
 def _factory_dashboard_season(value: object) -> str | None:
-    normalized = re.sub(r"\s+", "", str(value or "").strip())
-    if "春夏" in normalized or "春" in normalized or "夏" in normalized:
-        return "spring_summer"
-    if "秋冬" in normalized or "秋" in normalized or "冬" in normalized:
-        return "autumn_winter"
-    return None
+    return season_group(value)
 
 
 def _factory_dashboard_channel_group(channel: object, shop_channel_mappings: dict[str, str]) -> str:
-    platform = _platform_name(channel, shop_channel_mappings)
-    if _is_clearance_channel(channel, platform):
-        return "clearance"
-    if platform == "直播赛道":
-        return "live"
-    return "traditional"
+    return factory_channel_group(channel, shop_channel_mappings)
 
 
 def _factory_dashboard_product_index(rows: list[dict[str, object]]) -> tuple[
@@ -1151,26 +1129,7 @@ def _factory_dashboard_product_index(rows: list[dict[str, object]]) -> tuple[
     dict[str, list[dict[str, object]]],
     dict[str, str],
 ]:
-    by_sku: dict[str, dict[str, object]] = {}
-    by_prefix: dict[str, list[dict[str, object]]] = defaultdict(list)
-    style_matches: dict[str, list[str]] = defaultdict(list)
-    for row in rows:
-        sku = str(row.get("sku") or "").strip()
-        if not sku:
-            continue
-        by_sku[sku] = row
-        by_prefix[sku[:4]].append(row)
-        style_code = str(row.get("original_sku") or "").strip()
-        if style_code:
-            style_matches[style_code].append(sku)
-    for candidates in by_prefix.values():
-        candidates.sort(key=lambda item: len(str(item.get("sku") or "")), reverse=True)
-    unique_style_matches = {
-        style_code: skus[0]
-        for style_code, skus in style_matches.items()
-        if len(skus) == 1
-    }
-    return by_sku, by_prefix, unique_style_matches
+    return product_index(rows)
 
 
 def _factory_dashboard_product_for_sale(
@@ -1181,17 +1140,13 @@ def _factory_dashboard_product_for_sale(
     by_prefix: dict[str, list[dict[str, object]]],
     unique_style_matches: dict[str, str],
 ) -> dict[str, object] | None:
-    code = str(product_code or "").strip()
-    if code:
-        exact = by_sku.get(code)
-        if exact is not None:
-            return exact
-        for candidate in by_prefix.get(code[:4], []):
-            sku = str(candidate.get("sku") or "").strip()
-            if sku and code.startswith(sku):
-                return candidate
-    matched_sku = unique_style_matches.get(str(style_code or "").strip())
-    return by_sku.get(matched_sku) if matched_sku else None
+    return product_for_sale(
+        product_code,
+        style_code,
+        by_sku=by_sku,
+        by_prefix=by_prefix,
+        unique_style_matches=unique_style_matches,
+    )
 
 
 def _factory_dashboard_available_sales_years(engine) -> list[int]:
@@ -1255,6 +1210,67 @@ def _factory_dashboard_sales_rows(
         collect(statement, source="historical")
         return rows, latest_date
 
+    if inspector.has_table(FACTORY_CHANNEL_SALES_DAILY_SUMMARY_TABLE.name):
+        summary_conditions = [
+            FACTORY_CHANNEL_SALES_DAILY_SUMMARY_TABLE.c.brand == brand,
+            FACTORY_CHANNEL_SALES_DAILY_SUMMARY_TABLE.c.sales_date >= date(sales_year, 1, 1),
+            FACTORY_CHANNEL_SALES_DAILY_SUMMARY_TABLE.c.sales_date <= date(sales_year, 12, 31),
+        ]
+        if date_start is not None:
+            summary_conditions.append(FACTORY_CHANNEL_SALES_DAILY_SUMMARY_TABLE.c.sales_date >= date_start)
+        if date_end is not None:
+            summary_conditions.append(FACTORY_CHANNEL_SALES_DAILY_SUMMARY_TABLE.c.sales_date <= date_end)
+        summary_bounds = connection.execute(
+            select(
+                func.min(FACTORY_CHANNEL_SALES_DAILY_SUMMARY_TABLE.c.sales_date),
+                func.max(FACTORY_CHANNEL_SALES_DAILY_SUMMARY_TABLE.c.sales_date),
+            )
+            .where(*summary_conditions)
+            .where(FACTORY_CHANNEL_SALES_DAILY_SUMMARY_TABLE.c.match_status == "date_marker")
+        ).one()
+        raw_bounds: list[tuple[date, date]] = []
+        for raw_table in (jst_table, vip_table):
+            if not inspector.has_table(raw_table.name):
+                continue
+            raw_conditions = [
+                raw_table.c.sales_date >= date(sales_year, 1, 1),
+                raw_table.c.sales_date <= date(sales_year, 12, 31),
+            ]
+            if date_start is not None:
+                raw_conditions.append(raw_table.c.sales_date >= date_start)
+            if date_end is not None:
+                raw_conditions.append(raw_table.c.sales_date <= date_end)
+            raw_min, raw_max = connection.execute(
+                select(func.min(raw_table.c.sales_date), func.max(raw_table.c.sales_date)).where(*raw_conditions)
+            ).one()
+            if isinstance(raw_min, date) and isinstance(raw_max, date):
+                raw_bounds.append((raw_min, raw_max))
+        expected_bounds = (
+            min(bounds[0] for bounds in raw_bounds),
+            max(bounds[1] for bounds in raw_bounds),
+        ) if raw_bounds else (None, None)
+        if tuple(summary_bounds) == expected_bounds and isinstance(summary_bounds[1], date):
+            latest_date = summary_bounds[1]
+            statement = (
+                select(
+                    FACTORY_CHANNEL_SALES_DAILY_SUMMARY_TABLE.c.product_code,
+                    FACTORY_CHANNEL_SALES_DAILY_SUMMARY_TABLE.c.channel_group,
+                    FACTORY_CHANNEL_SALES_DAILY_SUMMARY_TABLE.c.match_status,
+                    func.max(FACTORY_CHANNEL_SALES_DAILY_SUMMARY_TABLE.c.sales_date).label("sales_date"),
+                    func.sum(FACTORY_CHANNEL_SALES_DAILY_SUMMARY_TABLE.c.quantity).label("quantity"),
+                )
+                .where(*summary_conditions)
+                .where(FACTORY_CHANNEL_SALES_DAILY_SUMMARY_TABLE.c.match_status != "date_marker")
+                .group_by(
+                    FACTORY_CHANNEL_SALES_DAILY_SUMMARY_TABLE.c.product_code,
+                    FACTORY_CHANNEL_SALES_DAILY_SUMMARY_TABLE.c.channel_group,
+                    FACTORY_CHANNEL_SALES_DAILY_SUMMARY_TABLE.c.match_status,
+                )
+            )
+            for row in connection.execute(statement).mappings():
+                rows.append({**dict(row), "source": "summary", "preaggregated": True})
+            return rows, latest_date
+
     if inspector.has_table(jst_table.name):
         statement = (
             select(
@@ -1271,6 +1287,7 @@ def _factory_dashboard_sales_rows(
                 jst_table.c.sales_date,
             )
             .where(_consumer_sales_channel_condition(jst_table.c.channel))
+            .where(func.coalesce(jst_table.c.net_sales_quantity, 0) != 0)
         )
         if date_start is not None:
             statement = statement.where(jst_table.c.sales_date >= date_start)
@@ -1291,6 +1308,7 @@ def _factory_dashboard_sales_rows(
                 vip_table.c.style_code,
                 vip_table.c.sales_date,
             )
+            .where(func.coalesce(vip_table.c.sales_quantity, 0) != 0)
         )
         if date_start is not None:
             statement = statement.where(vip_table.c.sales_date >= date_start)
@@ -1326,7 +1344,7 @@ def get_factory_channel_dashboard(
         raise HTTPException(status_code=400, detail="销售年份无效")
     normalized_product_year = str(product_year or "").strip()
     cache_key = (
-        "factory-channel-dashboard-v1",
+        "factory-channel-dashboard-v2",
         brand,
         selected_sales_year,
         normalized_product_year,
@@ -1408,12 +1426,19 @@ def get_factory_channel_dashboard(
     unclassified_sales = 0
     for sale in sales_rows:
         quantity = int(sale.get("quantity") or 0)
-        product = _factory_dashboard_product_for_sale(
-            sale.get("product_code"),
-            sale.get("style_code"),
-            by_sku=by_sku,
-            by_prefix=by_prefix,
-            unique_style_matches=unique_style_matches,
+        if sale.get("preaggregated") and sale.get("match_status") == "unmatched":
+            unmatched_sales += quantity
+            continue
+        product = (
+            by_sku.get(str(sale.get("product_code") or "").strip())
+            if sale.get("preaggregated")
+            else _factory_dashboard_product_for_sale(
+                sale.get("product_code"),
+                sale.get("style_code"),
+                by_sku=by_sku,
+                by_prefix=by_prefix,
+                unique_style_matches=unique_style_matches,
+            )
         )
         if product is None:
             unmatched_sales += quantity
@@ -1428,14 +1453,17 @@ def get_factory_channel_dashboard(
         if not season:
             unclassified_sales += quantity
             continue
-        platform = _platform_name(sale.get("channel"), shop_channel_mappings)
-        if (
-            sale.get("source") == "jst"
-            and platform == "唯品"
-            and isinstance(sale.get("sales_date"), date)
-            and (str(product.get("sku") or ""), sale["sales_date"]) in vip_product_dates
-        ):
+        if sale.get("preaggregated") and sale.get("match_status") == "duplicate_vip":
             continue
+        platform = _platform_name(sale.get("channel"), shop_channel_mappings)
+        if not sale.get("preaggregated"):
+            if (
+                sale.get("source") == "jst"
+                and platform == "唯品"
+                and isinstance(sale.get("sales_date"), date)
+                and (str(product.get("sku") or ""), sale["sales_date"]) in vip_product_dates
+            ):
+                continue
         factory_name = str(product.get("supplier_name") or "").strip() or "未维护工厂"
         factory_code = supplier_codes.get(factory_name)
         item = season_items[season].setdefault((factory_name, factory_code), {
@@ -1447,7 +1475,11 @@ def get_factory_channel_dashboard(
             "live_sales": 0,
             "clearance_sales": 0,
         })
-        channel_group = "clearance" if _is_clearance_channel(sale.get("channel"), platform) else "live" if platform == "直播赛道" else "traditional"
+        channel_group = (
+            str(sale.get("channel_group"))
+            if sale.get("preaggregated")
+            else "clearance" if _is_clearance_channel(sale.get("channel"), platform) else "live" if platform == "直播赛道" else "traditional"
+        )
         item["total_sales"] = int(item["total_sales"]) + quantity
         item[f"{channel_group}_sales"] = int(item[f"{channel_group}_sales"]) + quantity
 

@@ -17,7 +17,7 @@ import { Label } from "@/components/ui/label"
 import { Select } from "@/components/ui/select"
 import { ApiError, createProduct, listProductColorBarcodes, listSizeGroups, lookupImage, updateProduct } from "@/lib/api"
 import { PRODUCT_ARCHIVE_BRANDS, type BrandKey, type ProductArchiveBrand, type ProductArchiveRecordBrandKey } from "@/lib/brands"
-import { ALL_PRODUCT_FIELDS, BARCODE_BUILD_RULE_OPTIONS, FIELD_GROUPS, FIELD_LABELS, SEASON_OPTIONS } from "@/lib/fields"
+import { ALL_PRODUCT_FIELDS, BARCODE_BUILD_RULE_OPTIONS, FIELD_LABELS, SEASON_OPTIONS, getProductFieldGroups, getProductFieldLabel } from "@/lib/fields"
 import type { ImageLookupStatusState, ProductColorBarcodeItem, ProductFormValues, ProductListItem, ProductMutationPayload, SizeGroup } from "@/lib/types"
 import { cn } from "@/lib/utils"
 
@@ -227,7 +227,11 @@ function toPayload(values: ProductFormValues): ProductMutationPayload {
   }
 
   const payload: Record<string, unknown> = {}
-  for (const field of PAYLOAD_FIELDS) {
+  const payloadFields = [
+    ...getProductFieldGroups(values.brand).flatMap((group) => group.fields),
+    "image_path",
+  ]
+  for (const field of payloadFields) {
     const value = values[field as keyof ProductFormValues]
     if (typeof value === "string") {
       payload[field] = normalize(value)
@@ -556,7 +560,7 @@ export function ProductFormDialog({ brands = PRODUCT_ARCHIVE_BRANDS, item, mode,
                   </div>
                 </div>
 
-                {FIELD_GROUPS.map((group) => {
+                {getProductFieldGroups(values.brand).map((group) => {
                   const fields = group.fields.filter((f) => f !== "sku" && f !== "original_sku")
                   return (
                     <div key={group.label}>
@@ -564,7 +568,7 @@ export function ProductFormDialog({ brands = PRODUCT_ARCHIVE_BRANDS, item, mode,
                       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
                         {fields.map((field) => (
                           <div key={field} className="space-y-1.5">
-                            <Label htmlFor={`product-form-${field}`} className="text-xs">{FIELD_LABELS[field]}</Label>
+                            <Label htmlFor={`product-form-${field}`} className="text-xs">{getProductFieldLabel(field, values.brand)}</Label>
                             {field === "season_category" ? (
                               <Select
                                 id={`product-form-${field}`}
@@ -626,7 +630,7 @@ export function ProductFormDialog({ brands = PRODUCT_ARCHIVE_BRANDS, item, mode,
                               <Input
                                 id={`product-form-${field}`}
                                 value={values[field as keyof ProductFormValues] as string}
-                                placeholder={`请输入${FIELD_LABELS[field]}`}
+                                placeholder={`请输入${getProductFieldLabel(field, values.brand)}`}
                                 onChange={(event) => handleFieldChange(field as keyof ProductFormValues, event.target.value)}
                                 autoComplete="off"
                                 spellCheck={false}

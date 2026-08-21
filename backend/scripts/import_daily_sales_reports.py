@@ -12,6 +12,7 @@ from pathlib import Path
 from config import load_settings
 from scripts.backfill_product_goods_annual_sales import backfill as backfill_product_goods_sales
 from storage.daily_sales_repository import DailySalesRepository, JST_FILE_NAME, VIP_FILE_NAME
+from storage.factory_channel_sales_summary_repository import FactoryChannelSalesSummaryRepository
 from storage.task_status_repository import ScheduledTaskStatusRepository
 
 
@@ -48,16 +49,39 @@ def main() -> int:
     status_repo = ScheduledTaskStatusRepository(settings.database_url)
     failed = False
     imported_any = False
+    imported_dates: set[date] = set()
     for task_name, source_file, source in files:
         try:
             result = repository.import_jst_daily_sales(source_file) if source == "jst" else repository.import_vip_daily_sales(source_file)
             _record_status(status_repo, task_name, result, source_file)
             imported_any = True
+            imported_dates.update(
+                date.fromisoformat(value)
+                for value in result.get("sales_dates", [])
+            )
             print(f"[OK] {source_file.name}: {result}")
         except Exception as exc:  # pragma: no cover - scheduled task diagnostics
             failed = True
             print(f"[FAILED] {source_file}: {type(exc).__name__}: {exc}\n{traceback.format_exc()}")
     if imported_any:
+        try:
+            summary_repository = FactoryChannelSalesSummaryRepository(settings.database_url)
+            dates_by_year: dict[int, set[date]] = {}
+            for imported_date in imported_dates or {date.today()}:
+                dates_by_year.setdefault(imported_date.year, set()).add(imported_date)
+            for summary_year, summary_dates in sorted(dates_by_year.items()):
+                summary_result = summary_repository.refresh(
+                    sales_year=summary_year,
+                    date_start=min(summary_dates),
+                    date_end=max(summary_dates),
+                )
+                print(f"[OK] refreshed factory-channel summary: {summary_result}")
+        except Exception as exc:  # pragma: no cover - scheduled task diagnostics
+            failed = True
+            print(
+                "[FAILED] factory-channel summary refresh: "
+                f"{type(exc).__name__}: {exc}\n{traceback.format_exc()}"
+            )
         try:
             stats = backfill_product_goods_sales(dry_run=False, sales_years={date.today().year})
             print(

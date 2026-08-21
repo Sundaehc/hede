@@ -31,6 +31,8 @@ class ProductPayload(BaseModel):
     insole_material: str | None = None
     execution_standard: str | None = None
     heel_height: str | None = None
+    sole_style: str | None = None
+    fashion_elements: str | None = None
     shoe_width: str | None = None
     shoe_length: str | None = None
     shaft_circumference: str | None = None
@@ -38,8 +40,11 @@ class ProductPayload(BaseModel):
     internal_height_increase: str | None = None
     internal_height_note: str | None = None
     upper_height: str | None = None
+    opening_depth: str | None = None
+    boot_shaft: str | None = None
     toe_shape: str | None = None
     closure_type: str | None = None
+    mesh_upper_type: str | None = None
     shoe_box_spec: str | None = None
     shoe_box_type: str | None = None
     selling_points: str | None = None

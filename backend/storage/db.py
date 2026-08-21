@@ -23,6 +23,7 @@ from domain import product_size_group_mapping_schema  # noqa: F401 - register pr
 from domain import master_data_schema  # noqa: F401 - register master-data tables on METADATA
 from domain import data_governance_schema  # noqa: F401 - register data-governance tables on METADATA
 from domain import dewu_order_schema  # noqa: F401 - register Dewu order tables on METADATA
+from domain import factory_channel_sales_summary_schema  # noqa: F401 - register factory-channel summaries on METADATA
 
 
 def _json_serializer(value):

@@ -26,6 +26,8 @@ def test_jst_daily_sales_mapping_and_key_are_stable():
             "销售数量": 3,
             "净销量": 2,
             "销售金额": "599.00",
+            "销售成本": "320.50",
+            "销售毛利": "278.50",
         }
     )
     mapped["sales_date"] = date(2026, 7, 18)
@@ -33,6 +35,8 @@ def test_jst_daily_sales_mapping_and_key_are_stable():
     assert mapped["sales_quantity"] == 3
     assert mapped["net_sales_quantity"] == 2
     assert str(mapped["sales_amount"]) == "599.00"
+    assert str(mapped["cost_amount"]) == "320.50"
+    assert str(mapped["gross_profit"]) == "278.50"
     assert DailySalesRepository._jst_key(mapped) == (
         date(2026, 7, 18), "天猫", "SKU-34", "STYLE-1", "黑色/34", "TMALL", "690000000001"
     )

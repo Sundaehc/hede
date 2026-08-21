@@ -20,6 +20,8 @@ export const FIELD_LABELS: Record<string, string> = {
   insole_material: "鞋垫材质",
   execution_standard: "执行标准",
   heel_height: "跟高",
+  sole_style: "跟底款式",
+  fashion_elements: "流行元素",
   shoe_width: "鞋宽",
   shoe_length: "鞋长",
   shaft_circumference: "筒围",
@@ -27,8 +29,11 @@ export const FIELD_LABELS: Record<string, string> = {
   internal_height_increase: "内增高",
   internal_height_note: "内增高备注",
   upper_height: "鞋帮",
+  opening_depth: "开口深度",
+  boot_shaft: "靴筒",
   toe_shape: "鞋头款式",
   closure_type: "闭合方式",
+  mesh_upper_type: "鞋网面类型",
   shoe_box_spec: "鞋盒规格",
   shoe_box_type: "鞋盒类型",
   selling_points: "卖点",
@@ -69,6 +74,49 @@ export const FIELD_GROUPS = [
   },
 ] as const
 
-export const CARD_DISPLAY_FIELDS = FIELD_GROUPS.flatMap((g) => g.fields)
+const CBANNER_WOMENS_STYLE_GROUP = {
+  label: "女鞋款式信息",
+  fields: [
+    "sole_style",
+    "fashion_elements",
+    "heel_height",
+    "upper_height",
+    "opening_depth",
+    "boot_shaft",
+    "closure_type",
+    "mesh_upper_type",
+  ],
+} as const
 
-export const ALL_PRODUCT_FIELDS = FIELD_GROUPS.flatMap((g) => g.fields)
+const CBANNER_WOMENS_RELOCATED_FIELDS = new Set<string>([
+  "heel_height",
+  "upper_height",
+  "closure_type",
+])
+
+export function getProductFieldGroups(brand?: string | null) {
+  if (brand !== "cbanner_womens") {
+    return FIELD_GROUPS
+  }
+
+  const baseGroups = FIELD_GROUPS.map((group) => ({
+    ...group,
+    fields: group.fields.filter((field) => !CBANNER_WOMENS_RELOCATED_FIELDS.has(field)),
+  }))
+  return [baseGroups[0], baseGroups[1], CBANNER_WOMENS_STYLE_GROUP, ...baseGroups.slice(2)]
+}
+
+export function getProductFieldLabel(field: string, brand?: string | null) {
+  if (brand === "cbanner_womens") {
+    if (field === "heel_height") return "后跟高"
+    if (field === "upper_height") return "鞋帮高度"
+  }
+  return FIELD_LABELS[field] ?? field
+}
+
+export const CARD_DISPLAY_FIELDS = Array.from(new Set([
+  ...FIELD_GROUPS.flatMap((group) => group.fields),
+  ...CBANNER_WOMENS_STYLE_GROUP.fields,
+]))
+
+export const ALL_PRODUCT_FIELDS = CARD_DISPLAY_FIELDS

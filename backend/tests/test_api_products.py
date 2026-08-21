@@ -18,6 +18,11 @@ def test_product_import_template_workbook_contains_headers_and_guidance():
     assert headers[:4] == ["货号", "原始货号", "品名", "组别"]
     assert "供应商名" in headers
     assert "条码构成逻辑" in headers
+    assert "跟底款式" in headers
+    assert "流行元素" in headers
+    assert "开口深度" in headers
+    assert "靴筒" in headers
+    assert "鞋网面类型" in headers
     assert "图片" not in headers
     assert "实际导入品牌由页面当前选中的Tab决定" in workbook["填写说明"]["C2"].value
     assert workbook["填写说明"]["C3"].value.startswith("黄色表头")
@@ -80,6 +85,39 @@ def test_post_products_creates_product_via_build_admin_record(test_app_client: T
     assert body["item"]["product_name"] == "女士皮鞋"
     assert body["item"]["category"] == "女鞋"
     assert body["item"]["barcode_build_rule"] == "货号+颜色代码+尺码"
+
+
+def test_cbanner_womens_product_style_fields_can_be_created(test_app_client: TestClient):
+    response = test_app_client.post(
+        "/products",
+        json={
+            "brand": "cbanner_womens",
+            "payload": {
+                "sku": "WOMENS-STYLE-001",
+                "original_sku": "WOMENS-STYLE-001",
+                "sole_style": "粗跟",
+                "fashion_elements": "金属装饰",
+                "heel_height": "5cm",
+                "upper_height": "低帮",
+                "opening_depth": "浅口",
+                "boot_shaft": "短筒",
+                "closure_type": "套脚",
+                "mesh_upper_type": "单网面",
+                "barcode_build_rule": "货号+颜色代码+尺码",
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    item = response.json()["item"]
+    assert item["sole_style"] == "粗跟"
+    assert item["fashion_elements"] == "金属装饰"
+    assert item["heel_height"] == "5cm"
+    assert item["upper_height"] == "低帮"
+    assert item["opening_depth"] == "浅口"
+    assert item["boot_shaft"] == "短筒"
+    assert item["closure_type"] == "套脚"
+    assert item["mesh_upper_type"] == "单网面"
 
 
 def test_put_products_preserves_existing_metadata(test_app_client: TestClient, repository):
