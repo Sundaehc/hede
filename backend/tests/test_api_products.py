@@ -87,6 +87,60 @@ def test_import_products_uses_brand_specific_heel_height_label(
     assert mens_product["heel_height"] == "4cm"
 
 
+def test_import_cbanner_womens_preserves_style_detail_fields(
+    test_app_client: TestClient,
+    repository,
+):
+    workbook = Workbook()
+    worksheet = workbook.active
+    worksheet.append([
+        "货号",
+        "跟底款式",
+        "流行元素",
+        "鞋帮高度",
+        "开口深度",
+        "靴筒",
+        "闭合方式",
+        "鞋网面类型",
+    ])
+    worksheet.append([
+        "WOMENS-STYLE-DETAIL-001",
+        "平底",
+        "钉珠",
+        "低帮",
+        "深口",
+        "短筒",
+        "系带",
+        "网面",
+    ])
+    buffer = io.BytesIO()
+    workbook.save(buffer)
+    buffer.seek(0)
+
+    response = test_app_client.post(
+        "/import",
+        params={"brand": "cbanner_womens"},
+        files={
+            "file": (
+                "womens-style-detail.xlsx",
+                buffer.getvalue(),
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            ),
+        },
+    )
+
+    assert response.status_code == 200
+    product = repository.find_by_sku("cbanner_womens", "WOMENS-STYLE-DETAIL-001")
+    assert product is not None
+    assert product["sole_style"] == "平底"
+    assert product["fashion_elements"] == "钉珠"
+    assert product["upper_height"] == "低帮"
+    assert product["opening_depth"] == "深口"
+    assert product["boot_shaft"] == "短筒"
+    assert product["closure_type"] == "系带"
+    assert product["mesh_upper_type"] == "网面"
+
+
 def test_get_products_returns_paginated_rows(test_app_client: TestClient, repository):
     repository.create_product(
         "cbanner_mens",

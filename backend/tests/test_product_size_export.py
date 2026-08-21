@@ -3,8 +3,10 @@ from api.routes.import_export import (
     _export_columns_for_brand,
     _export_label,
     _size_export_fallback_profiles,
+    _size_export_headers_for_brand,
     _size_export_product_name,
     _size_export_profiles_from_size_groups,
+    _size_export_style_context,
 )
 
 
@@ -34,6 +36,50 @@ def test_other_brand_exports_omit_cbanner_womens_only_fields():
     assert "opening_depth" not in columns
     assert "boot_shaft" not in columns
     assert "mesh_upper_type" not in columns
+
+
+def test_cbanner_womens_size_export_includes_new_style_fields():
+    headers = _size_export_headers_for_brand("cbanner_womens")
+
+    assert headers[-7:] == [
+        "跟底款式",
+        "流行元素",
+        "鞋帮高度",
+        "开口深度",
+        "靴筒",
+        "闭合方式",
+        "鞋网面类型",
+    ]
+    assert "跟底款式" not in _size_export_headers_for_brand("cbanner_mens")
+
+
+def test_cbanner_womens_size_export_style_context_reads_archive_fields():
+    context = _size_export_style_context(
+        "STYLE-001",
+        "SKU-001",
+        {
+            "STYLE-001": {
+                "sole_style": "厚底",
+                "fashion_elements": "蝴蝶结",
+                "upper_height": "低帮",
+                "opening_depth": "浅口",
+                "boot_shaft": "短筒",
+                "closure_type": "系带",
+                "mesh_upper_type": "网面",
+            }
+        },
+        {},
+    )
+
+    assert [
+        context["sole_style"],
+        context["fashion_elements"],
+        context["upper_height"],
+        context["opening_depth"],
+        context["boot_shaft"],
+        context["closure_type"],
+        context["mesh_upper_type"],
+    ] == ["厚底", "蝴蝶结", "低帮", "浅口", "短筒", "系带", "网面"]
 
 
 def test_size_export_uses_archive_fallback_when_profile_is_missing():

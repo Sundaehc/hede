@@ -79,6 +79,15 @@ SIZE_EXPORT_HEADERS = [
     "成本价",
     "LOGO",
 ]
+SIZE_EXPORT_CBANNER_WOMENS_EXTRA_COLUMNS = (
+    "sole_style",
+    "fashion_elements",
+    "upper_height",
+    "opening_depth",
+    "boot_shaft",
+    "closure_type",
+    "mesh_upper_type",
+)
 LOOKUP_CHUNK_SIZE = 2000
 SHANGHAI_TIME_ZONE = ZoneInfo("Asia/Shanghai")
 SIZE_EXPORT_MAX_WIDTH = 42
@@ -146,6 +155,15 @@ def _export_label(column: str, brand: str | None = None) -> str:
         if column == "upper_height":
             return "鞋帮高度"
     return EXPORT_LABELS.get(column, column)
+
+
+def _size_export_headers_for_brand(brand: str) -> list[str]:
+    if brand != "cbanner_womens":
+        return list(SIZE_EXPORT_HEADERS)
+    return [
+        *SIZE_EXPORT_HEADERS,
+        *(_export_label(column, brand) for column in SIZE_EXPORT_CBANNER_WOMENS_EXTRA_COLUMNS),
+    ]
 
 
 def _activity_date_export_condition(table, activity_date: date_type):
@@ -862,6 +880,13 @@ def _size_export_style_context(
         "supplier_name": _first_text(archive.get("supplier_name")),
         "brand": _first_text(gj.get("brand")),
         "cost": _first_text(archive.get("cost")),
+        "sole_style": _first_text(archive.get("sole_style"), archive_extra.get("跟底款式")),
+        "fashion_elements": _first_text(archive.get("fashion_elements"), archive_extra.get("流行元素")),
+        "upper_height": _first_text(archive.get("upper_height"), archive_extra.get("鞋帮高度")),
+        "opening_depth": _first_text(archive.get("opening_depth"), archive_extra.get("开口深度")),
+        "boot_shaft": _first_text(archive.get("boot_shaft"), archive_extra.get("靴筒")),
+        "closure_type": _first_text(archive.get("closure_type"), archive_extra.get("闭合方式")),
+        "mesh_upper_type": _first_text(archive.get("mesh_upper_type"), archive_extra.get("鞋网面类型")),
     }
 
 
@@ -893,17 +918,18 @@ def _export_products_with_sizes(
     wb = Workbook(write_only=True)
     brand_label = BRAND_LABELS.get(brand, brand)
     ws = wb.create_sheet(title=f"{brand_label}带尺码")
+    export_headers = _size_export_headers_for_brand(brand)
     column_widths = [
         max(
             SIZE_EXPORT_WIDTH_BY_HEADER.get(header, DEFAULT_WIDTH_BY_HEADER.get(header, SIZE_EXPORT_MIN_WIDTH)),
             _display_width(header) + 2,
         )
-        for header in SIZE_EXPORT_HEADERS
+        for header in export_headers
     ]
     for index, width in enumerate(column_widths, start=1):
         ws.column_dimensions[get_column_letter(index)].width = max(SIZE_EXPORT_MIN_WIDTH, min(width, SIZE_EXPORT_MAX_WIDTH))
     ws.freeze_panes = "A2"
-    ws.append(_write_only_header_cells(ws, SIZE_EXPORT_HEADERS))
+    ws.append(_write_only_header_cells(ws, export_headers))
 
     with repository.engine.connect() as connection:
         profiles = _load_product_profile_rows(connection, selected_codes)
@@ -985,11 +1011,16 @@ def _export_products_with_sizes(
             _first_text(context["cost"], raw_payload.get("成本价"), raw_payload.get("成本")),
             logo,
         ]
+        if brand == "cbanner_womens":
+            row.extend(
+                _first_text(context[column], raw_payload.get(_export_label(column, brand)))
+                for column in SIZE_EXPORT_CBANNER_WOMENS_EXTRA_COLUMNS
+            )
         row = [_excel_cell_value(value) for value in row]
         ws.append(row)
         row_count += 1
 
-    ws.auto_filter.ref = f"A1:{get_column_letter(len(SIZE_EXPORT_HEADERS))}{row_count}"
+    ws.auto_filter.ref = f"A1:{get_column_letter(len(export_headers))}{row_count}"
 
     buf = io.BytesIO()
     wb.save(buf)

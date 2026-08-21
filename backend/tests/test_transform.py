@@ -354,6 +354,30 @@ def test_build_admin_record_sets_manual_metadata_and_raw_payload_from_normalized
     }
 
 
+def test_build_admin_record_preserves_cbanner_womens_style_detail_fields():
+    record = build_admin_record(
+        "cbanner_womens",
+        {
+            "sku": "WOMENS-STYLE-001",
+            "sole_style": "平底",
+            "fashion_elements": "钉珠",
+            "upper_height": "低帮",
+            "opening_depth": "深口",
+            "boot_shaft": "短筒",
+            "closure_type": "系带",
+            "mesh_upper_type": "网面",
+        },
+    )
+
+    assert record["sole_style"] == "平底"
+    assert record["fashion_elements"] == "钉珠"
+    assert record["upper_height"] == "低帮"
+    assert record["opening_depth"] == "深口"
+    assert record["boot_shaft"] == "短筒"
+    assert record["closure_type"] == "系带"
+    assert record["mesh_upper_type"] == "网面"
+
+
 
 def test_build_admin_record_preserves_existing_source_metadata_when_supplied():
     payload = {
