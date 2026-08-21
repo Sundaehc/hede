@@ -51,6 +51,7 @@ SUPPLIER_LEDGER_DECREASE_TYPES = ("进货退货单", "应付款减少")
 SUPPLIER_LEDGER_NEUTRAL_TYPES = ("同价调拨单",)
 CUSTOMER_LEDGER_INCREASE_TYPES = ("批发销售单", "应收款增加")
 CUSTOMER_LEDGER_DECREASE_TYPES = ("批发销售退货单", "应收款减少")
+WHOLESALE_DOCUMENT_TYPES = ("批发销售单", "批发销售退货单")
 NON_SUPPLIER_COUNTERPARTY_TYPES = (
     *CUSTOMER_LEDGER_INCREASE_TYPES,
     *CUSTOMER_LEDGER_DECREASE_TYPES,
@@ -144,11 +145,20 @@ class InventoryRepository:
             .correlate(table)
             .exists()
         )
+        is_headquarters_procurement_wholesale = and_(
+            table.c.document_type.is_not(None),
+            table.c.document_type.in_(WHOLESALE_DOCUMENT_TYPES),
+            func.replace(func.coalesce(table.c.supplier, ""), " ", "").like("%总部采购%"),
+        )
+        is_always_completed_customer = or_(
+            is_internal_sales_customer,
+            is_headquarters_procurement_wholesale,
+        )
         if completion_status == "incomplete":
             is_accounting_document = table.c.document_type.in_(ACCOUNTING_DOCUMENT_TYPES)
             is_product_document = or_(table.c.document_type.is_(None), ~is_accounting_document)
             conditions.append(and_(
-                ~is_internal_sales_customer,
+                ~is_always_completed_customer,
                 or_(
                     ~select(detail.c.id)
                     .where(detail.c.document_id == table.c.id)
@@ -183,7 +193,7 @@ class InventoryRepository:
             is_accounting_document = table.c.document_type.in_(ACCOUNTING_DOCUMENT_TYPES)
             is_product_document = or_(table.c.document_type.is_(None), ~is_accounting_document)
             conditions.append(or_(
-                is_internal_sales_customer,
+                is_always_completed_customer,
                 and_(
                     select(detail.c.id)
                     .where(detail.c.document_id == table.c.id)
@@ -1462,6 +1472,13 @@ class InventoryRepository:
         )
         with self.engine.connect() as connection:
             return connection.execute(statement).first() is not None
+
+    def allows_zero_price_sales_customer(self, name: object) -> bool:
+        customer_name = str(name or "").strip()
+        if not customer_name:
+            return False
+        normalized_name = "".join(customer_name.split())
+        return "总部采购" in normalized_name or self.is_internal_sales_customer(customer_name)
 
     def reorder_general_customer_shops(self, user_id: int, customer_name: str, ordered_ids: list[int]) -> bool:
         with self.engine.connect() as connection:

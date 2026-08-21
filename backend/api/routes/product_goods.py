@@ -46,6 +46,7 @@ from domain.factory_channel_sales import (
     platform_name,
     product_for_sale,
     product_index,
+    sales_metrics,
     season_group,
     shop_channel_key,
 )
@@ -1195,6 +1196,8 @@ def _factory_dashboard_sales_rows(
                 historical_table.c.channel,
                 func.max(historical_table.c.sales_date).label("sales_date"),
                 func.sum(historical_table.c.sales_quantity).label("quantity"),
+                func.sum(historical_table.c.sales_quantity).label("gross_quantity"),
+                func.sum(historical_table.c.sales_quantity * 0).label("return_quantity"),
             )
             .where(historical_table.c.brand == brand)
             .group_by(
@@ -1258,6 +1261,8 @@ def _factory_dashboard_sales_rows(
                     FACTORY_CHANNEL_SALES_DAILY_SUMMARY_TABLE.c.match_status,
                     func.max(FACTORY_CHANNEL_SALES_DAILY_SUMMARY_TABLE.c.sales_date).label("sales_date"),
                     func.sum(FACTORY_CHANNEL_SALES_DAILY_SUMMARY_TABLE.c.quantity).label("quantity"),
+                    func.sum(FACTORY_CHANNEL_SALES_DAILY_SUMMARY_TABLE.c.gross_quantity).label("gross_quantity"),
+                    func.sum(FACTORY_CHANNEL_SALES_DAILY_SUMMARY_TABLE.c.return_quantity).label("return_quantity"),
                 )
                 .where(*summary_conditions)
                 .where(FACTORY_CHANNEL_SALES_DAILY_SUMMARY_TABLE.c.match_status != "date_marker")
@@ -1279,6 +1284,8 @@ def _factory_dashboard_sales_rows(
                 jst_table.c.channel,
                 jst_table.c.sales_date,
                 func.sum(func.coalesce(jst_table.c.net_sales_quantity, 0)).label("quantity"),
+                func.sum(func.coalesce(jst_table.c.sales_quantity, 0)).label("gross_quantity"),
+                func.sum(func.coalesce(jst_table.c.return_quantity, 0)).label("return_quantity"),
             )
             .group_by(
                 jst_table.c.product_code,
@@ -1302,6 +1309,8 @@ def _factory_dashboard_sales_rows(
                 vip_table.c.style_code,
                 vip_table.c.sales_date,
                 func.sum(func.coalesce(vip_table.c.sales_quantity, 0)).label("quantity"),
+                func.sum(func.coalesce(vip_table.c.sales_quantity, 0)).label("gross_quantity"),
+                func.sum(func.coalesce(vip_table.c.sales_quantity, 0) * 0).label("return_quantity"),
             )
             .group_by(
                 vip_table.c.goods_code,
@@ -1413,9 +1422,17 @@ def get_factory_channel_dashboard(
             "factory_code": factory_code,
             "style_codes": set(),
             "total_sales": 0,
+            "total_net_sales": 0,
+            "total_returns": 0,
             "traditional_sales": 0,
+            "traditional_net_sales": 0,
+            "traditional_returns": 0,
             "live_sales": 0,
+            "live_net_sales": 0,
+            "live_returns": 0,
             "clearance_sales": 0,
+            "clearance_net_sales": 0,
+            "clearance_returns": 0,
         })
         if style_code:
             item["style_codes"].add(style_code)
@@ -1425,9 +1442,9 @@ def get_factory_channel_dashboard(
     unmatched_sales = 0
     unclassified_sales = 0
     for sale in sales_rows:
-        quantity = int(sale.get("quantity") or 0)
+        net_quantity, gross_quantity, return_quantity = sales_metrics(sale)
         if sale.get("preaggregated") and sale.get("match_status") == "unmatched":
-            unmatched_sales += quantity
+            unmatched_sales += gross_quantity
             continue
         product = (
             by_sku.get(str(sale.get("product_code") or "").strip())
@@ -1441,17 +1458,17 @@ def get_factory_channel_dashboard(
             )
         )
         if product is None:
-            unmatched_sales += quantity
+            unmatched_sales += gross_quantity
             continue
         resolved_sales.append((sale, product))
         if sale.get("source") == "vip" and isinstance(sale.get("sales_date"), date):
             vip_product_dates.add((str(product.get("sku") or ""), sale["sales_date"]))
 
     for sale, product in resolved_sales:
-        quantity = int(sale.get("quantity") or 0)
+        net_quantity, gross_quantity, return_quantity = sales_metrics(sale)
         season = _factory_dashboard_season(product.get("season_category"))
         if not season:
-            unclassified_sales += quantity
+            unclassified_sales += gross_quantity
             continue
         if sale.get("preaggregated") and sale.get("match_status") == "duplicate_vip":
             continue
@@ -1471,26 +1488,46 @@ def get_factory_channel_dashboard(
             "factory_code": factory_code,
             "style_codes": set(),
             "total_sales": 0,
+            "total_net_sales": 0,
+            "total_returns": 0,
             "traditional_sales": 0,
+            "traditional_net_sales": 0,
+            "traditional_returns": 0,
             "live_sales": 0,
+            "live_net_sales": 0,
+            "live_returns": 0,
             "clearance_sales": 0,
+            "clearance_net_sales": 0,
+            "clearance_returns": 0,
         })
         channel_group = (
             str(sale.get("channel_group"))
             if sale.get("preaggregated")
             else "clearance" if _is_clearance_channel(sale.get("channel"), platform) else "live" if platform == "直播赛道" else "traditional"
         )
-        item["total_sales"] = int(item["total_sales"]) + quantity
-        item[f"{channel_group}_sales"] = int(item[f"{channel_group}_sales"]) + quantity
+        item["total_sales"] = int(item["total_sales"]) + gross_quantity
+        item["total_net_sales"] = int(item["total_net_sales"]) + net_quantity
+        item["total_returns"] = int(item["total_returns"]) + return_quantity
+        item[f"{channel_group}_sales"] = int(item[f"{channel_group}_sales"]) + gross_quantity
+        item[f"{channel_group}_net_sales"] = int(item[f"{channel_group}_net_sales"]) + net_quantity
+        item[f"{channel_group}_returns"] = int(item[f"{channel_group}_returns"]) + return_quantity
 
     total_factory_keys: set[tuple[str, str | None]] = set()
     totals = {
         "factory_count": 0,
         "style_count": 0,
         "total_sales": 0,
+        "total_net_sales": 0,
+        "total_returns": 0,
         "traditional_sales": 0,
+        "traditional_net_sales": 0,
+        "traditional_returns": 0,
         "live_sales": 0,
+        "live_net_sales": 0,
+        "live_returns": 0,
         "clearance_sales": 0,
+        "clearance_net_sales": 0,
+        "clearance_returns": 0,
     }
     seasons = []
     for season_key, label in (("spring_summer", "春夏款"), ("autumn_winter", "秋冬款")):
@@ -1503,9 +1540,17 @@ def get_factory_channel_dashboard(
                 "factory_code": item["factory_code"],
                 "style_count": style_count,
                 "total_sales": total_sales,
+                "total_net_sales": int(item["total_net_sales"]),
+                "total_returns": int(item["total_returns"]),
                 "traditional_sales": int(item["traditional_sales"]),
+                "traditional_net_sales": int(item["traditional_net_sales"]),
+                "traditional_returns": int(item["traditional_returns"]),
                 "live_sales": int(item["live_sales"]),
+                "live_net_sales": int(item["live_net_sales"]),
+                "live_returns": int(item["live_returns"]),
                 "clearance_sales": int(item["clearance_sales"]),
+                "clearance_net_sales": int(item["clearance_net_sales"]),
+                "clearance_returns": int(item["clearance_returns"]),
                 "traditional_ratio": round(int(item["traditional_sales"]) / total_sales * 100, 1) if total_sales else 0,
                 "live_ratio": round(int(item["live_sales"]) / total_sales * 100, 1) if total_sales else 0,
                 "clearance_ratio": round(int(item["clearance_sales"]) / total_sales * 100, 1) if total_sales else 0,
@@ -1514,9 +1559,17 @@ def get_factory_channel_dashboard(
             total_factory_keys.add((str(payload["factory_name"]), payload["factory_code"]))
             totals["style_count"] += style_count
             totals["total_sales"] += total_sales
+            totals["total_net_sales"] += payload["total_net_sales"]
+            totals["total_returns"] += payload["total_returns"]
             totals["traditional_sales"] += payload["traditional_sales"]
+            totals["traditional_net_sales"] += payload["traditional_net_sales"]
+            totals["traditional_returns"] += payload["traditional_returns"]
             totals["live_sales"] += payload["live_sales"]
+            totals["live_net_sales"] += payload["live_net_sales"]
+            totals["live_returns"] += payload["live_returns"]
             totals["clearance_sales"] += payload["clearance_sales"]
+            totals["clearance_net_sales"] += payload["clearance_net_sales"]
+            totals["clearance_returns"] += payload["clearance_returns"]
         items.sort(key=lambda item: (-item["total_sales"], item["factory_name"]))
         seasons.append({"key": season_key, "label": label, "items": items})
 

@@ -398,7 +398,7 @@ def _allows_zero_unit_price(repository, record: dict[str, object]) -> bool:
     document_type = normalize_document_type(record.get("document_type"))
     if document_type not in WHOLESALE_DOCUMENT_TYPES:
         return False
-    return repository.is_internal_sales_customer(record.get("supplier"))
+    return repository.allows_zero_price_sales_customer(record.get("supplier"))
 
 
 def _purchase_lookup_price(*values: object) -> object | None:

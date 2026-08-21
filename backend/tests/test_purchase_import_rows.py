@@ -479,7 +479,7 @@ def test_internal_sales_import_preserves_explicit_zero_price(monkeypatch) -> Non
 
 def test_internal_sales_manual_detail_preserves_explicit_zero_price() -> None:
     class _InternalSalesRepository:
-        def is_internal_sales_customer(self, name):
+        def allows_zero_price_sales_customer(self, name):
             return name == "千百度-内销客户"
 
     payload = inventory_routes._apply_product_archive_cost(
@@ -498,6 +498,41 @@ def test_internal_sales_manual_detail_preserves_explicit_zero_price() -> None:
 
     assert payload["unit_price"] == "0"
     assert payload["amount"] == "0"
+
+
+def test_headquarters_procurement_wholesale_documents_preserve_explicit_zero_price() -> None:
+    class _HeadquartersProcurementRepository:
+        def allows_zero_price_sales_customer(self, name):
+            return name == "总部采购"
+
+    for document_type in ("批发销售单", "批发销售退货单"):
+        payload = inventory_routes._apply_product_archive_cost(
+            _HeadquartersProcurementRepository(),
+            {
+                "document_type": document_type,
+                "supplier": "总部采购",
+            },
+            {
+                "product_code": "RCT63957D06",
+                "quantity": "3",
+                "unit_price": "0.00",
+                "amount": "597",
+            },
+        )
+
+        assert payload["unit_price"] == "0"
+        assert payload["amount"] == "0"
+
+
+def test_regular_customer_does_not_allow_explicit_zero_price() -> None:
+    class _RegularCustomerRepository:
+        def allows_zero_price_sales_customer(self, name):
+            return False
+
+    assert inventory_routes._allows_zero_unit_price(
+        _RegularCustomerRepository(),
+        {"document_type": "批发销售单", "supplier": "普通客户"},
+    ) is False
 
 
 def test_wholesale_manual_detail_preserves_entered_price() -> None:

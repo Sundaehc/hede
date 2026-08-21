@@ -30,6 +30,9 @@ def test_internal_sales_customer_matches_shop_and_child_unit(
     assert repository.is_internal_sales_customer(internal_unit["unit_name"]) is True
     assert repository.is_internal_sales_customer(regular_shop["shop_name"]) is False
     assert repository.is_internal_sales_customer(regular_unit["unit_name"]) is False
+    assert repository.allows_zero_price_sales_customer(internal_shop["shop_name"]) is True
+    assert repository.allows_zero_price_sales_customer(" 总部 采购 ") is True
+    assert repository.allows_zero_price_sales_customer(regular_shop["shop_name"]) is False
 
 
 def test_internal_sales_documents_are_always_completed(
@@ -45,6 +48,10 @@ def test_internal_sales_documents_are_always_completed(
     regular_shop = repository.create_general_customer_shop({
         "customer_name": "完成状态测试品牌",
         "shop_name": "完成状态测试品牌-普通客户",
+    })
+    headquarters_shop = repository.create_general_customer_shop({
+        "customer_name": "完成状态测试品牌",
+        "shop_name": "完成状态测试品牌-总部采购",
     })
     internal_without_details = repository.create_record({
         "date": "2026-08-19",
@@ -81,6 +88,41 @@ def test_internal_sales_documents_are_always_completed(
         "unit_price": "0",
         "amount": "0",
     })
+    headquarters_sale_without_details = repository.create_record({
+        "date": "2026-08-19",
+        "supplier": headquarters_shop["shop_name"],
+        "warehouse": "测试仓库",
+        "document_type": "批发销售单",
+        "summary": "总部采购销售单",
+    })
+    headquarters_return_with_zero_price = repository.create_record({
+        "date": "2026-08-19",
+        "supplier": headquarters_shop["shop_name"],
+        "warehouse": "测试仓库",
+        "document_type": "批发销售退货单",
+        "summary": "总部采购销售退货单",
+    })
+    repository.create_detail({
+        "document_id": headquarters_return_with_zero_price["id"],
+        "product_code": "TEST-HEADQUARTERS",
+        "quantity": "1",
+        "unit_price": "0",
+        "amount": "0",
+    })
+    headquarters_non_wholesale_with_zero_price = repository.create_record({
+        "date": "2026-08-19",
+        "supplier": headquarters_shop["shop_name"],
+        "warehouse": "测试仓库",
+        "document_type": "报溢单",
+        "summary": "总部采购非批发单据",
+    })
+    repository.create_detail({
+        "document_id": headquarters_non_wholesale_with_zero_price["id"],
+        "product_code": "TEST-HEADQUARTERS-NON-WHOLESALE",
+        "quantity": "1",
+        "unit_price": "0",
+        "amount": "0",
+    })
 
     completed = repository.list_records(
         supplier="完成状态测试品牌",
@@ -99,7 +141,13 @@ def test_internal_sales_documents_are_always_completed(
 
     assert internal_without_details["id"] in completed_ids
     assert internal_with_zero_price["id"] in completed_ids
+    assert headquarters_sale_without_details["id"] in completed_ids
+    assert headquarters_return_with_zero_price["id"] in completed_ids
     assert regular_with_zero_price["id"] not in completed_ids
+    assert headquarters_non_wholesale_with_zero_price["id"] not in completed_ids
     assert internal_without_details["id"] not in incomplete_ids
     assert internal_with_zero_price["id"] not in incomplete_ids
+    assert headquarters_sale_without_details["id"] not in incomplete_ids
+    assert headquarters_return_with_zero_price["id"] not in incomplete_ids
     assert regular_with_zero_price["id"] in incomplete_ids
+    assert headquarters_non_wholesale_with_zero_price["id"] in incomplete_ids

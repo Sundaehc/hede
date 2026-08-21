@@ -109,15 +109,15 @@ function ChannelBar({ item }: { item: FactoryChannelDashboardItem }) {
       <div className="mt-2 space-y-1 text-xs tabular-nums">
         <div className="flex items-center justify-between gap-2 text-blue-700 dark:text-blue-300">
           <span>传统</span>
-          <span>{number(item.traditional_sales)} · {ratio(item.traditional_ratio)}</span>
+          <span>{number(item.traditional_sales)} · {ratio(item.traditional_ratio)}{item.traditional_returns ? ` · 退 ${number(item.traditional_returns)}` : ""}</span>
         </div>
         <div className="flex items-center justify-between gap-2 text-violet-700 dark:text-violet-300">
           <span>直播</span>
-          <span>{number(item.live_sales)} · {ratio(item.live_ratio)}</span>
+          <span>{number(item.live_sales)} · {ratio(item.live_ratio)}{item.live_returns ? ` · 退 ${number(item.live_returns)}` : ""}</span>
         </div>
         <div className="flex items-center justify-between gap-2 text-orange-700 dark:text-orange-300">
           <span>清仓</span>
-          <span>{number(item.clearance_sales)} · {ratio(item.clearance_ratio)}</span>
+          <span>{number(item.clearance_sales)} · {ratio(item.clearance_ratio)}{item.clearance_returns ? ` · 退 ${number(item.clearance_returns)}` : ""}</span>
         </div>
       </div>
     </div>
@@ -280,9 +280,17 @@ export function FactoryChannelDashboardPage() {
           factoryKeys.add(`${item.factory_name}|${item.factory_code ?? ""}`)
           result.style_count += item.style_count
           result.total_sales += item.total_sales
+          result.total_net_sales += item.total_net_sales
+          result.total_returns += item.total_returns
           result.traditional_sales += item.traditional_sales
+          result.traditional_net_sales += item.traditional_net_sales
+          result.traditional_returns += item.traditional_returns
           result.live_sales += item.live_sales
+          result.live_net_sales += item.live_net_sales
+          result.live_returns += item.live_returns
           result.clearance_sales += item.clearance_sales
+          result.clearance_net_sales += item.clearance_net_sales
+          result.clearance_returns += item.clearance_returns
         }
         result.factory_count = factoryKeys.size
         return result
@@ -291,9 +299,17 @@ export function FactoryChannelDashboardPage() {
         factory_count: 0,
         style_count: 0,
         total_sales: 0,
+        total_net_sales: 0,
+        total_returns: 0,
         traditional_sales: 0,
+        traditional_net_sales: 0,
+        traditional_returns: 0,
         live_sales: 0,
+        live_net_sales: 0,
+        live_returns: 0,
         clearance_sales: 0,
+        clearance_net_sales: 0,
+        clearance_returns: 0,
       }
     )
   }, [filteredSeasons])
@@ -379,7 +395,7 @@ export function FactoryChannelDashboardPage() {
             <section className="mt-5 grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
               <MetricCard label="工厂数" value={number(filteredSummary.factory_count)} hint={`${selectedBrand?.label ?? ""}符合筛选的工厂`} icon={Factory} tone="slate" />
               <MetricCard label="季款数" value={number(filteredSummary.style_count)} hint="按去除末尾颜色的款号去重" icon={Layers3} tone="blue" />
-              <MetricCard label="销量汇总" value={number(filteredSummary.total_sales)} hint={`${data.sales_year} 年销售口径`} icon={ShoppingBag} tone="slate" />
+              <MetricCard label="销量汇总" value={number(filteredSummary.total_sales)} hint={`销售 ${data.sales_year} 年 · 净销量 ${number(filteredSummary.total_net_sales)} · 退货 ${number(filteredSummary.total_returns)}`} icon={ShoppingBag} tone="slate" />
               <MetricCard label="传统赛道" value={ratio(summaryTotal ? filteredSummary.traditional_sales / summaryTotal * 100 : 0)} hint={`销量 ${number(filteredSummary.traditional_sales)}`} icon={BarChart3} tone="blue" />
               <MetricCard label="直播 / 清仓" value={`${ratio(summaryTotal ? filteredSummary.live_sales / summaryTotal * 100 : 0)} / ${ratio(summaryTotal ? filteredSummary.clearance_sales / summaryTotal * 100 : 0)}`} hint={`直播 ${number(filteredSummary.live_sales)} · 清仓 ${number(filteredSummary.clearance_sales)}`} icon={Sparkles} tone="violet" />
             </section>

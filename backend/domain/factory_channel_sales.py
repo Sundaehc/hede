@@ -47,6 +47,17 @@ def channel_group(channel: object, shop_channel_mappings: dict[str, str]) -> str
     return "traditional"
 
 
+def sales_metrics(row: dict[str, object] | object) -> tuple[int, int, int]:
+    """Return net quantity, gross sales quantity and return quantity."""
+    values = row if isinstance(row, dict) else {}
+    net_quantity = int(values.get("quantity") or 0)
+    gross_value = values.get("gross_quantity")
+    return_value = values.get("return_quantity")
+    gross_quantity = max(net_quantity, 0) if gross_value is None else max(int(gross_value or 0), 0)
+    return_quantity = max(-net_quantity, 0) if return_value is None else max(int(return_value or 0), 0)
+    return net_quantity, gross_quantity, return_quantity
+
+
 def season_group(value: object) -> str | None:
     normalized = re.sub(r"\s+", "", str(value or "").strip())
     if "春夏" in normalized or "春" in normalized or "夏" in normalized:

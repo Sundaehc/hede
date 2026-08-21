@@ -6,10 +6,10 @@ from datetime import date
 from typing import Any
 
 import orjson
-from sqlalchemy import and_, create_engine, delete, func, inspect, insert, select
+from sqlalchemy import and_, create_engine, delete, func, inspect, insert, select, text
 
 from domain.daily_sales_schema import jst_daily_sales_table_for_year, vip_daily_sales_table_for_year
-from domain.factory_channel_sales import channel_group, platform_name, product_for_sale, product_index, season_group, shop_channel_key
+from domain.factory_channel_sales import channel_group, platform_name, product_for_sale, product_index, sales_metrics, season_group, shop_channel_key
 from domain.factory_channel_sales_summary_schema import FACTORY_CHANNEL_SALES_DAILY_SUMMARY_TABLE
 from domain.product_goods_shop_channel_schema import PRODUCT_GOODS_SHOP_CHANNEL_MAPPINGS_TABLE
 from domain.schema import PRODUCT_TABLES
@@ -47,7 +47,9 @@ def summarize_factory_channel_sales(
         brand: product_index(product_rows)
         for brand, product_rows in product_rows_by_brand.items()
     }
-    quantities: dict[tuple[str, date, str, str, str], int] = defaultdict(int)
+    quantities: dict[tuple[str, date, str, str, str], dict[str, int]] = defaultdict(
+        lambda: {"quantity": 0, "gross_quantity": 0, "return_quantity": 0}
+    )
     vip_product_dates: dict[str, set[tuple[str, date]]] = defaultdict(set)
     covered_dates = set(covered_sales_dates)
 
@@ -61,30 +63,37 @@ def summarize_factory_channel_sales(
             unique_style_matches=unique_style_matches,
         )
 
+    def add_quantity(key: tuple[str, date, str, str, str], row: Mapping[str, object]) -> None:
+        net_quantity, gross_quantity, return_quantity = sales_metrics(dict(row))
+        values = quantities[key]
+        values["quantity"] += net_quantity
+        values["gross_quantity"] += gross_quantity
+        values["return_quantity"] += return_quantity
+
     for row in vip_rows:
         sales_date = row.get("sales_date")
         if not isinstance(sales_date, date):
             continue
         covered_dates.add(sales_date)
-        quantity = int(row.get("quantity") or 0)
+        net_quantity, gross_quantity, return_quantity = sales_metrics(dict(row))
         for brand in indexes:
             product = resolve(brand, row)
             if product is None:
-                if quantity:
-                    quantities[(brand, sales_date, "", "traditional", UNMATCHED_STATUS)] += quantity
+                if gross_quantity or return_quantity or net_quantity:
+                    add_quantity((brand, sales_date, "", "traditional", UNMATCHED_STATUS), row)
                 continue
             sku = str(product.get("sku") or "").strip()
             vip_product_dates[brand].add((sku, sales_date))
-            if quantity:
-                quantities[(brand, sales_date, sku, "traditional", MATCHED_STATUS)] += quantity
+            if gross_quantity or return_quantity or net_quantity:
+                add_quantity((brand, sales_date, sku, "traditional", MATCHED_STATUS), row)
 
     for row in jst_rows:
         sales_date = row.get("sales_date")
         if not isinstance(sales_date, date):
             continue
         covered_dates.add(sales_date)
-        quantity = int(row.get("quantity") or 0)
-        if not quantity:
+        net_quantity, gross_quantity, return_quantity = sales_metrics(dict(row))
+        if not (gross_quantity or return_quantity or net_quantity):
             continue
         raw_channel = row.get("channel")
         for brand in indexes:
@@ -92,18 +101,22 @@ def summarize_factory_channel_sales(
             group = channel_group(raw_channel, mappings)
             product = resolve(brand, row)
             if product is None:
-                quantities[(brand, sales_date, "", group, UNMATCHED_STATUS)] += quantity
+                add_quantity((brand, sales_date, "", group, UNMATCHED_STATUS), row)
                 continue
             sku = str(product.get("sku") or "").strip()
             if platform_name(raw_channel, mappings) == "唯品" and (sku, sales_date) in vip_product_dates[brand]:
                 if season_group(product.get("season_category")) is None:
-                    quantities[(brand, sales_date, sku, group, DUPLICATE_VIP_STATUS)] += quantity
+                    add_quantity((brand, sales_date, sku, group, DUPLICATE_VIP_STATUS), row)
                 continue
-            quantities[(brand, sales_date, sku, group, MATCHED_STATUS)] += quantity
+            add_quantity((brand, sales_date, sku, group, MATCHED_STATUS), row)
 
     for brand in indexes:
         for sales_date in covered_dates:
-            quantities[(brand, sales_date, "", "", DATE_MARKER_STATUS)] = 0
+            quantities[(brand, sales_date, "", "", DATE_MARKER_STATUS)] = {
+                "quantity": 0,
+                "gross_quantity": 0,
+                "return_quantity": 0,
+            }
 
     return [
         {
@@ -112,9 +125,11 @@ def summarize_factory_channel_sales(
             "product_code": product_code,
             "channel_group": group,
             "match_status": match_status,
-            "quantity": quantity,
+            "quantity": metrics["quantity"],
+            "gross_quantity": metrics["gross_quantity"],
+            "return_quantity": metrics["return_quantity"],
         }
-        for (brand, sales_date, product_code, group, match_status), quantity in quantities.items()
+        for (brand, sales_date, product_code, group, match_status), metrics in quantities.items()
     ]
 
 
@@ -182,6 +197,8 @@ class FactoryChannelSalesSummaryRepository:
                         vip_table.c.style_code,
                         vip_table.c.sales_date,
                         func.sum(func.coalesce(vip_table.c.sales_quantity, 0)).label("quantity"),
+                        func.sum(func.coalesce(vip_table.c.sales_quantity, 0)).label("gross_quantity"),
+                        func.sum(func.coalesce(vip_table.c.sales_quantity, 0) * 0).label("return_quantity"),
                     )
                     .where(vip_table.c.sales_date.between(range_start, range_end))
                     .where(func.coalesce(vip_table.c.sales_quantity, 0) != 0)
@@ -208,6 +225,8 @@ class FactoryChannelSalesSummaryRepository:
                         jst_table.c.channel,
                         jst_table.c.sales_date,
                         func.sum(func.coalesce(jst_table.c.net_sales_quantity, 0)).label("quantity"),
+                        func.sum(func.coalesce(jst_table.c.sales_quantity, 0)).label("gross_quantity"),
+                        func.sum(func.coalesce(jst_table.c.return_quantity, 0)).label("return_quantity"),
                     )
                     .where(jst_table.c.sales_date.between(range_start, range_end))
                     .where(_consumer_sales_channel_condition(jst_table.c.channel))
@@ -230,6 +249,14 @@ class FactoryChannelSalesSummaryRepository:
         )
 
         with self.engine.begin() as connection:
+            connection.execute(text(
+                f"ALTER TABLE {FACTORY_CHANNEL_SALES_DAILY_SUMMARY_TABLE.name} "
+                "ADD COLUMN IF NOT EXISTS gross_quantity BIGINT NOT NULL DEFAULT 0"
+            ))
+            connection.execute(text(
+                f"ALTER TABLE {FACTORY_CHANNEL_SALES_DAILY_SUMMARY_TABLE.name} "
+                "ADD COLUMN IF NOT EXISTS return_quantity BIGINT NOT NULL DEFAULT 0"
+            ))
             connection.execute(
                 delete(FACTORY_CHANNEL_SALES_DAILY_SUMMARY_TABLE).where(
                     FACTORY_CHANNEL_SALES_DAILY_SUMMARY_TABLE.c.sales_date.between(range_start, range_end)

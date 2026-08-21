@@ -15,6 +15,8 @@ FACTORY_CHANNEL_SALES_DAILY_SUMMARY_TABLE = Table(
     Column("channel_group", Text, nullable=False, server_default=""),
     Column("match_status", Text, nullable=False, server_default="matched"),
     Column("quantity", BigInteger, nullable=False, server_default="0"),
+    Column("gross_quantity", BigInteger, nullable=False, server_default="0"),
+    Column("return_quantity", BigInteger, nullable=False, server_default="0"),
     Column("created_at", DateTime(timezone=True), server_default=func.date_trunc("minute", func.now())),
     Column(
         "updated_at",
@@ -37,4 +39,3 @@ Index(
     FACTORY_CHANNEL_SALES_DAILY_SUMMARY_TABLE.c.brand,
     FACTORY_CHANNEL_SALES_DAILY_SUMMARY_TABLE.c.sales_date,
 )
-

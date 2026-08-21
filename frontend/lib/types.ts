@@ -436,9 +436,17 @@ export type FactoryChannelDashboardItem = {
   factory_code: string | null
   style_count: number
   total_sales: number
+  total_net_sales: number
+  total_returns: number
   traditional_sales: number
+  traditional_net_sales: number
+  traditional_returns: number
   live_sales: number
+  live_net_sales: number
+  live_returns: number
   clearance_sales: number
+  clearance_net_sales: number
+  clearance_returns: number
   traditional_ratio: number
   live_ratio: number
   clearance_ratio: number
@@ -457,9 +465,17 @@ export type FactoryChannelDashboardResponse = {
     factory_count: number
     style_count: number
     total_sales: number
+    total_net_sales: number
+    total_returns: number
     traditional_sales: number
+    traditional_net_sales: number
+    traditional_returns: number
     live_sales: number
+    live_net_sales: number
+    live_returns: number
     clearance_sales: number
+    clearance_net_sales: number
+    clearance_returns: number
     unmatched_sales: number
     unclassified_style_count: number
     unclassified_sales: number

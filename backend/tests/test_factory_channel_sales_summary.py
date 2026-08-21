@@ -1,6 +1,15 @@
 from datetime import date
 
+from domain.factory_channel_sales import sales_metrics
 from storage.factory_channel_sales_summary_repository import summarize_factory_channel_sales
+
+
+def test_sales_metrics_keeps_gross_returns_and_net_separate():
+    assert sales_metrics({"quantity": -1, "gross_quantity": 1, "return_quantity": 2}) == (
+        -1,
+        1,
+        2,
+    )
 
 
 def test_factory_channel_summary_groups_channels_and_avoids_duplicate_vip_sales():
@@ -39,3 +48,27 @@ def test_factory_channel_summary_groups_channels_and_avoids_duplicate_vip_sales(
     assert keyed[("MEN002", "clearance", "matched")] == 4
     assert keyed[("", "traditional", "unmatched")] == 5
     assert keyed[("", "", "date_marker")] == 0
+
+
+def test_factory_channel_summary_does_not_use_negative_net_as_display_sales():
+    rows = summarize_factory_channel_sales(
+        product_rows_by_brand={"cbanner_mens": [{"sku": "MEN001", "original_sku": "STYLE-M"}]},
+        shop_channel_mappings_by_brand={"cbanner_mens": {"直播店": "直播赛道"}},
+        vip_rows=[],
+        jst_rows=[
+            {
+                "sales_date": date(2026, 8, 20),
+                "product_code": "MEN00134",
+                "style_code": "STYLE-M",
+                "channel": "直播店",
+                "quantity": -1,
+                "gross_quantity": 1,
+                "return_quantity": 2,
+            }
+        ],
+    )
+
+    row = next(item for item in rows if item["match_status"] == "matched")
+    assert row["quantity"] == -1
+    assert row["gross_quantity"] == 1
+    assert row["return_quantity"] == 2

@@ -275,6 +275,8 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
   const [sizeQuantities, setSizeQuantities] = useState<Record<string, string>>({})
   const [purchaseSizeRange, setPurchaseSizeRange] = useState("")
   const [purchaseSizeColumns, setPurchaseSizeColumns] = useState<string[]>([])
+  const purchaseSizeInputRefs = useRef<Record<string, HTMLInputElement | null>>({})
+  const purchaseQuantityInputRef = useRef<HTMLInputElement>(null)
   const [isLookupLoading, setIsLookupLoading] = useState(false)
   const [lookupToken, setLookupToken] = useState(0)
   const lookupSourceCodeRef = useRef("")
@@ -1162,10 +1164,13 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
                   <Label>尺码</Label>
                   {purchaseSizeColumns.length ? (
                     <div className="grid grid-cols-7 gap-1.5 rounded-lg border border-border bg-muted/20 p-2">
-                      {purchaseSizeColumns.map((size) => (
+                      {purchaseSizeColumns.map((size, index) => (
                         <label key={size} className="flex flex-col gap-1 rounded-md border border-border bg-background p-1.5 text-xs">
                           <span className="text-center text-muted-foreground">{size}</span>
                           <Input
+                            ref={(node) => {
+                              purchaseSizeInputRefs.current[size] = node
+                            }}
                             value={sizeQuantities[size] || ""}
                             onChange={(e) => {
                               const value = e.target.value
@@ -1182,6 +1187,16 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
                                 }))
                                 return next
                               })
+                            }}
+                            onKeyDown={(event) => {
+                              if (event.key !== "Enter") return
+                              event.preventDefault()
+                              const nextSize = purchaseSizeColumns[index + 1]
+                              const nextInput = nextSize
+                                ? purchaseSizeInputRefs.current[nextSize]
+                                : purchaseQuantityInputRef.current
+                              nextInput?.focus()
+                              nextInput?.select()
                             }}
                             inputMode="numeric"
                             className="h-7 px-1 text-center text-xs tabular-nums"
@@ -1200,6 +1215,7 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
                   <div className="space-y-1.5">
                     <Label htmlFor="detail-quantity">数量</Label>
                     <Input
+                      ref={purchaseQuantityInputRef}
                       id="detail-quantity"
                       type="number"
                       value={formData.quantity || ""}
