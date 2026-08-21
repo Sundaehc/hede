@@ -46,7 +46,7 @@ PRODUCT_FIELDS: tuple[FieldSpec, ...] = (
     FieldSpec("outsole_material", "大底材质"),
     FieldSpec("insole_material", "鞋垫材质"),
     FieldSpec("execution_standard", "执行标准", aliases=("执行标",)),
-    FieldSpec("heel_height", "跟高"),
+    FieldSpec("heel_height", "跟高", aliases=("后跟高",)),
     FieldSpec("sole_style", "跟底款式"),
     FieldSpec("fashion_elements", "流行元素"),
     FieldSpec("shoe_width", "鞋宽"),

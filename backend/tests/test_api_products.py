@@ -18,6 +18,9 @@ def test_product_import_template_workbook_contains_headers_and_guidance():
     assert headers[:4] == ["货号", "原始货号", "品名", "组别"]
     assert "供应商名" in headers
     assert "条码构成逻辑" in headers
+    assert "跟高" in headers
+    assert "后跟高" in headers
+    assert headers.index("后跟高") == headers.index("跟高") + 1
     assert "跟底款式" in headers
     assert "流行元素" in headers
     assert "开口深度" in headers
@@ -27,6 +30,61 @@ def test_product_import_template_workbook_contains_headers_and_guidance():
     assert "实际导入品牌由页面当前选中的Tab决定" in workbook["填写说明"]["C2"].value
     assert workbook["填写说明"]["C3"].value.startswith("黄色表头")
     assert len(worksheet.data_validations.dataValidation) == 1
+
+
+def test_import_products_uses_brand_specific_heel_height_label(
+    test_app_client: TestClient,
+    repository,
+):
+    workbook = Workbook()
+    worksheet = workbook.active
+    worksheet.append(["货号", "跟高", "后跟高"])
+    worksheet.append(["HEEL-WOMENS-001", "4cm", "6cm"])
+    buffer = io.BytesIO()
+    workbook.save(buffer)
+    buffer.seek(0)
+
+    womens_response = test_app_client.post(
+        "/import",
+        params={"brand": "cbanner_womens"},
+        files={
+            "file": (
+                "womens-heel-height.xlsx",
+                buffer.getvalue(),
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            ),
+        },
+    )
+
+    assert womens_response.status_code == 200
+    womens_product = repository.find_by_sku("cbanner_womens", "HEEL-WOMENS-001")
+    assert womens_product is not None
+    assert womens_product["heel_height"] == "6cm"
+
+    mens_workbook = Workbook()
+    mens_worksheet = mens_workbook.active
+    mens_worksheet.append(["货号", "跟高", "后跟高"])
+    mens_worksheet.append(["HEEL-MENS-001", "4cm", "6cm"])
+    mens_buffer = io.BytesIO()
+    mens_workbook.save(mens_buffer)
+    mens_buffer.seek(0)
+
+    mens_response = test_app_client.post(
+        "/import",
+        params={"brand": "cbanner_mens"},
+        files={
+            "file": (
+                "mens-heel-height.xlsx",
+                mens_buffer.getvalue(),
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            ),
+        },
+    )
+
+    assert mens_response.status_code == 200
+    mens_product = repository.find_by_sku("cbanner_mens", "HEEL-MENS-001")
+    assert mens_product is not None
+    assert mens_product["heel_height"] == "4cm"
 
 
 def test_get_products_returns_paginated_rows(test_app_client: TestClient, repository):
