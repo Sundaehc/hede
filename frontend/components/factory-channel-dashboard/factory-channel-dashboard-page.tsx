@@ -5,6 +5,7 @@ import {
   BarChart3,
   CalendarDays,
   Factory,
+  Info,
   Layers3,
   RefreshCw,
   Search,
@@ -377,6 +378,12 @@ export function FactoryChannelDashboardPage() {
               </Button>
             </div>
           </div>
+          {(salesYear === "2024" || data?.sales_year === 2024) && (
+            <div className="mt-3 flex items-start gap-2 rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs leading-5 text-amber-800 dark:text-amber-200">
+              <Info className="mt-0.5 size-3.5 shrink-0" />
+              <p><span className="font-medium">2024 年数据说明：</span>当前历史数据覆盖 2024 年 5 月 1 日至 12 月 31 日，缺少 1 至 4 月，不是完整年度；年度销量和渠道占比仅代表现有数据范围。</p>
+            </div>
+          )}
         </section>
 
         {error && (
