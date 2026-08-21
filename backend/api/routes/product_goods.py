@@ -1162,6 +1162,70 @@ def _factory_dashboard_available_sales_years(engine) -> list[int]:
     return available_years
 
 
+def _factory_dashboard_historical_detail_returns(
+    connection,
+    engine,
+    *,
+    brand: str,
+    sales_year: int,
+    date_start: date | None,
+    date_end: date | None,
+) -> list[dict[str, object]]:
+    """Load product-level returns from the latest detail snapshot in scope.
+
+    The 商品明细表 snapshot contains a point-in-time return quantity but no
+    channel dimension. Use only the latest snapshot in the selected range so
+    cumulative snapshot values are not added once per day.
+    """
+    table = product_goods_detail_snapshots_table_for_year(sales_year)
+    if not inspect(engine).has_table(table.name):
+        return []
+
+    conditions = [
+        table.c.brand == brand,
+        table.c.snapshot_date >= (date_start or date(sales_year, 1, 1)),
+        table.c.snapshot_date <= (date_end or date(sales_year, 12, 31)),
+    ]
+    latest_snapshot_date = connection.execute(
+        select(func.max(table.c.snapshot_date)).where(*conditions)
+    ).scalar_one()
+    if not isinstance(latest_snapshot_date, date):
+        return []
+
+    return_rows: list[dict[str, object]] = []
+    snapshot_rows = connection.execute(
+        select(table.c.goods_code, table.c.style_code, table.c.data)
+        .where(table.c.brand == brand)
+        .where(table.c.snapshot_date == latest_snapshot_date)
+    ).mappings()
+    for row in snapshot_rows:
+        data = row.get("data") or {}
+        metrics = data.get("metrics") if isinstance(data, dict) else None
+        raw_return_quantity = metrics.get("return_qty") if isinstance(metrics, dict) else None
+        try:
+            return_quantity = int(raw_return_quantity or 0)
+        except (TypeError, ValueError):
+            continue
+        if return_quantity <= 0:
+            continue
+        product_code = str(row.get("goods_code") or "").strip()
+        if not product_code:
+            continue
+        return_rows.append(
+            {
+                "product_code": product_code,
+                "style_code": row.get("style_code"),
+                "sales_date": latest_snapshot_date,
+                "quantity": 0,
+                "gross_quantity": 0,
+                "return_quantity": return_quantity,
+                "source": "historical_detail_return",
+                "return_total_only": True,
+            }
+        )
+    return return_rows
+
+
 def _factory_dashboard_sales_rows(
     connection,
     engine,
@@ -1211,6 +1275,16 @@ def _factory_dashboard_sales_rows(
         if date_end is not None:
             statement = statement.where(historical_table.c.sales_date <= date_end)
         collect(statement, source="historical")
+        rows.extend(
+            _factory_dashboard_historical_detail_returns(
+                connection,
+                engine,
+                brand=brand,
+                sales_year=sales_year,
+                date_start=date_start,
+                date_end=date_end,
+            )
+        )
         return rows, latest_date
 
     if inspector.has_table(FACTORY_CHANNEL_SALES_DAILY_SUMMARY_TABLE.name):
@@ -1353,7 +1427,7 @@ def get_factory_channel_dashboard(
         raise HTTPException(status_code=400, detail="销售年份无效")
     normalized_product_year = str(product_year or "").strip()
     cache_key = (
-        "factory-channel-dashboard-v2",
+        "factory-channel-dashboard-v3",
         brand,
         selected_sales_year,
         normalized_product_year,
@@ -1500,6 +1574,10 @@ def get_factory_channel_dashboard(
             "clearance_net_sales": 0,
             "clearance_returns": 0,
         })
+        if sale.get("return_total_only"):
+            # 商品明细表的退货量没有渠道字段，只补工厂/品牌总退货，不伪造赛道归属。
+            item["total_returns"] = int(item["total_returns"]) + return_quantity
+            continue
         channel_group = (
             str(sale.get("channel_group"))
             if sale.get("preaggregated")

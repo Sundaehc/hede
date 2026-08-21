@@ -1,4 +1,4 @@
-from scripts.import_product_goods_detail_snapshots import _platform_values
+from scripts.import_product_goods_detail_snapshots import _platform_values, _snapshot_payload
 
 
 def test_platform_values_uses_the_group_header_row():
@@ -9,3 +9,12 @@ def test_platform_values_uses_the_group_header_row():
         "daily": [("唯品", 11), ("天猫", 12), ("得物", 13)],
         "weekly": [("唯品", 21), ("其他", 22)],
     }
+
+
+def test_snapshot_payload_accepts_return_quantity_alias():
+    headers = {0: "货号", 1: "退货量"}
+    values = {0: "SKU-001", 1: 6}
+
+    payload = _snapshot_payload(headers, values, {})
+
+    assert payload["metrics"]["return_qty"] == 6

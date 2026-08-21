@@ -66,7 +66,7 @@ METRIC_FIELDS = {
     "total_sales": ("总销量",),
     "stock_plus_purchase": ("在仓库存+进货仓",),
     "in_transit_total": ("在途库存",),
-    "return_qty": ("回单",),
+    "return_qty": ("回单", "退货量", "退货数量"),
     "post_replenishment_stock": ("补单后库存",),
     "post_replenishment_turnover_days": ("补单后周转天数",),
     "day_over_day": ("昨比前日",),
