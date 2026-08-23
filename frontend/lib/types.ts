@@ -459,6 +459,20 @@ export type FactoryChannelDashboardResponse = {
   date_start: string | null
   date_end: string | null
   latest_sales_date: string | null
+  sales_date_coverage: {
+    expected_start: string | null
+    expected_end: string | null
+    missing_date_count: number
+    missing_dates: string[]
+    sources: Array<{
+      source: "historical" | "jst" | "vip"
+      label: string
+      available_start: string | null
+      available_end: string | null
+      missing_date_count: number
+      missing_dates: string[]
+    }>
+  }
   available_sales_years: number[]
   available_product_years: string[]
   summary: {

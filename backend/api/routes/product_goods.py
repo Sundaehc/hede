@@ -10,7 +10,7 @@ from datetime import date, timedelta
 import json
 import re
 
-from sqlalchemy import Text, and_, case, cast, delete, desc, false, func, inspect, or_, select
+from sqlalchemy import Date, Text, and_, case, cast, column, delete, desc, exists, false, func, inspect, or_, select, values
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from api.product_goods_cache import (
@@ -1405,6 +1405,137 @@ def _factory_dashboard_sales_rows(
     return rows, latest_date
 
 
+def _factory_dashboard_expected_date_range(
+    sales_year: int,
+    *,
+    date_start: date | None,
+    date_end: date | None,
+    today: date | None = None,
+) -> tuple[date, date] | None:
+    current_date = today or date.today()
+    expected_start = max(date(sales_year, 1, 1), date_start or date(sales_year, 1, 1))
+    expected_end = min(date(sales_year, 12, 31), date_end or date(sales_year, 12, 31))
+    if sales_year == current_date.year:
+        expected_end = min(expected_end, current_date - timedelta(days=1))
+    if expected_start > expected_end:
+        return None
+    return expected_start, expected_end
+
+
+def _missing_dates_between(
+    expected_start: date,
+    expected_end: date,
+    available_dates: set[date],
+) -> list[date]:
+    day_count = (expected_end - expected_start).days + 1
+    return [
+        expected_start + timedelta(days=offset)
+        for offset in range(day_count)
+        if expected_start + timedelta(days=offset) not in available_dates
+    ]
+
+
+def _available_sales_dates(
+    connection,
+    table,
+    expected_start: date,
+    expected_end: date,
+) -> set[date]:
+    day_count = (expected_end - expected_start).days + 1
+    expected_dates = [
+        (expected_start + timedelta(days=offset),)
+        for offset in range(day_count)
+    ]
+    if not expected_dates:
+        return set()
+    expected_date_values = (
+        values(column("sales_date", Date), name="expected_sales_dates")
+        .data(expected_dates)
+        .alias("expected_sales_dates")
+    )
+    statement = select(expected_date_values.c.sales_date).where(
+        exists(
+            select(1)
+            .select_from(table)
+            .where(table.c.sales_date == expected_date_values.c.sales_date)
+        )
+    )
+    return {
+        value
+        for value in connection.execute(statement).scalars()
+        if isinstance(value, date)
+    }
+
+
+def _factory_dashboard_sales_date_coverage(
+    connection,
+    engine,
+    *,
+    sales_year: int,
+    date_start: date | None,
+    date_end: date | None,
+) -> dict[str, object]:
+    expected_range = _factory_dashboard_expected_date_range(
+        sales_year,
+        date_start=date_start,
+        date_end=date_end,
+    )
+    if expected_range is None:
+        return {
+            "expected_start": None,
+            "expected_end": None,
+            "missing_date_count": 0,
+            "missing_dates": [],
+            "sources": [],
+        }
+
+    expected_start, expected_end = expected_range
+    inspector = inspect(engine)
+    historical_table = product_goods_historical_sales_table_for_year(sales_year)
+    source_tables: list[tuple[str, str, object]] = []
+    if inspector.has_table(historical_table.name):
+        source_tables.append(("historical", "历史货品销量", historical_table))
+    else:
+        source_tables.extend(
+            (
+                ("jst", "聚水潭日销", jst_daily_sales_table_for_year(sales_year)),
+                ("vip", "唯品日销", vip_daily_sales_table_for_year(sales_year)),
+            )
+        )
+
+    source_payloads: list[dict[str, object]] = []
+    all_missing_dates: set[date] = set()
+    for source_key, source_label, table in source_tables:
+        available_dates: set[date] = set()
+        if inspector.has_table(table.name):
+            available_dates = _available_sales_dates(
+                connection,
+                table,
+                expected_start,
+                expected_end,
+            )
+        missing_dates = _missing_dates_between(expected_start, expected_end, available_dates)
+        all_missing_dates.update(missing_dates)
+        source_payloads.append(
+            {
+                "source": source_key,
+                "label": source_label,
+                "available_start": min(available_dates).isoformat() if available_dates else None,
+                "available_end": max(available_dates).isoformat() if available_dates else None,
+                "missing_date_count": len(missing_dates),
+                "missing_dates": [value.isoformat() for value in missing_dates],
+            }
+        )
+
+    return {
+        "expected_start": expected_start.isoformat(),
+        "expected_end": expected_end.isoformat(),
+        "missing_date_count": len(all_missing_dates),
+        "missing_dates": [value.isoformat() for value in sorted(all_missing_dates)],
+        "sources": source_payloads,
+    }
+
+
 @router.get("/product-goods/factory-channel-dashboard")
 def get_factory_channel_dashboard(
     request: Request,
@@ -1427,7 +1558,7 @@ def get_factory_channel_dashboard(
         raise HTTPException(status_code=400, detail="销售年份无效")
     normalized_product_year = str(product_year or "").strip()
     cache_key = (
-        "factory-channel-dashboard-v3",
+        "factory-channel-dashboard-v4",
         brand,
         selected_sales_year,
         normalized_product_year,
@@ -1469,6 +1600,13 @@ def get_factory_channel_dashboard(
             connection,
             repository.engine,
             brand=brand,
+            sales_year=selected_sales_year,
+            date_start=date_start,
+            date_end=date_end,
+        )
+        sales_date_coverage = _factory_dashboard_sales_date_coverage(
+            connection,
+            repository.engine,
             sales_year=selected_sales_year,
             date_start=date_start,
             date_end=date_end,
@@ -1660,6 +1798,7 @@ def get_factory_channel_dashboard(
         "date_start": date_start.isoformat() if date_start else None,
         "date_end": date_end.isoformat() if date_end else None,
         "latest_sales_date": latest_sales_date.isoformat() if latest_sales_date else None,
+        "sales_date_coverage": sales_date_coverage,
         "available_sales_years": available_sales_years,
         "available_product_years": [str(value).strip() for value in product_year_rows if str(value).strip()],
         "summary": {

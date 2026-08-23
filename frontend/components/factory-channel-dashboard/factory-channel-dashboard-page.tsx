@@ -5,7 +5,6 @@ import {
   BarChart3,
   CalendarDays,
   Factory,
-  Info,
   Layers3,
   RefreshCw,
   Search,
@@ -47,6 +46,33 @@ function dateLabel(value: string | null) {
   if (!value) return "暂无销售数据"
   const date = new Date(`${value}T00:00:00`)
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`
+}
+
+function compactDateRanges(values: string[]) {
+  const dates = [...new Set(values)].sort()
+  if (!dates.length) return ""
+  const groups: Array<{ start: string; end: string }> = []
+  for (const value of dates) {
+    const previous = groups.at(-1)
+    if (!previous) {
+      groups.push({ start: value, end: value })
+      continue
+    }
+    const nextDate = new Date(`${previous.end}T00:00:00`)
+    nextDate.setDate(nextDate.getDate() + 1)
+    const nextValue = [
+      nextDate.getFullYear(),
+      String(nextDate.getMonth() + 1).padStart(2, "0"),
+      String(nextDate.getDate()).padStart(2, "0"),
+    ].join("-")
+    if (value === nextValue) previous.end = value
+    else groups.push({ start: value, end: value })
+  }
+  const visibleGroups = groups.slice(0, 5)
+  const text = visibleGroups
+    .map((group) => group.start === group.end ? group.start : `${group.start} 至 ${group.end}`)
+    .join("、")
+  return groups.length > visibleGroups.length ? `${text} 等` : text
 }
 
 function MetricCard({
@@ -307,6 +333,8 @@ export function FactoryChannelDashboardPage() {
     )
   }, [filteredSeasons])
   const summaryTotal = filteredSummary.total_sales
+  const salesDateCoverage = data?.sales_date_coverage
+  const incompleteSources = salesDateCoverage?.sources.filter((source) => source.missing_date_count > 0) ?? []
 
   return (
     <main className="min-h-svh bg-background px-5 py-6 md:px-7">
@@ -370,13 +398,27 @@ export function FactoryChannelDashboardPage() {
               </Button>
             </div>
           </div>
-          {(salesYear === "2024" || data?.sales_year === 2024) && (
-            <div className="mt-3 flex items-start gap-2 rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs leading-5 text-amber-800 dark:text-amber-200">
-              <Info className="mt-0.5 size-3.5 shrink-0" />
-              <p><span className="font-medium">2024 年数据说明：</span>当前历史数据覆盖 2024 年 5 月 1 日至 12 月 31 日，缺少 1 至 4 月，不是完整年度；年度销量和渠道占比仅代表现有数据范围。</p>
-            </div>
-          )}
         </section>
+
+        {!!salesDateCoverage?.missing_date_count && (
+          <div className="mt-4 flex items-start gap-3 rounded-lg border border-amber-500/35 bg-amber-500/10 px-4 py-3 text-amber-900 dark:text-amber-100">
+            <TriangleAlert className="mt-0.5 size-4 shrink-0 text-amber-600 dark:text-amber-300" />
+            <div className="min-w-0 text-xs leading-5">
+              <p className="font-semibold">销售数据存在缺失日期</p>
+              <p className="text-amber-800/90 dark:text-amber-100/80">
+                统计范围 {salesDateCoverage.expected_start} 至 {salesDateCoverage.expected_end}，共 {salesDateCoverage.missing_date_count} 个日期的数据不完整，当前销量及渠道占比仅基于已有数据。
+              </p>
+              <div className="mt-1.5 grid gap-x-6 gap-y-0.5 lg:grid-cols-2">
+                {incompleteSources.map((source) => (
+                  <p key={source.source} className="min-w-0 break-words">
+                    <span className="font-medium">{source.label}缺 {source.missing_date_count} 天：</span>
+                    {compactDateRanges(source.missing_dates)}
+                  </p>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
 
         {error && (
           <div className="mt-5 flex items-start gap-3 rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive">
