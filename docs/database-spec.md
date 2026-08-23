@@ -734,13 +734,41 @@
 - `idx_color_barcodes_color_barcode`
 - `idx_color_barcodes_color_name`
 
-## 6. 定时任务状态
+## 6. 定时任务状态与执行历史
+
+表：`scheduled_task_runs`
+
+用途：
+
+- 每次计划任务实际运行新增一行，保留重跑历史、耗时、返回码和失败摘要。
+
+核心字段：
+
+- `task_name`
+- `status`
+- `started_at`
+- `finished_at`
+- `duration_ms`
+- `exit_code`
+- `host_name`
+- `process_id`
+- `command`
+- `log_path`
+- `error_summary`
+
+主要约束和索引：
+
+- `CHECK(status IN ('running', 'success', 'failed'))`
+- `idx_scheduled_task_runs_task_started`
+- `idx_scheduled_task_runs_status_started`
+
+表：`scheduled_task_statuses`
 
 表：`scheduled_task_statuses`
 
 用途：
 
-- 保存定时任务运行状态。
+- 保存任务对应业务日期的导入状态，不作为完整运行历史。
 
 核心字段：
 
@@ -762,7 +790,7 @@
 
 规范：
 
-- 每个任务每天应只有一条状态记录。
+- 每个任务、每个业务日期只有一条状态记录；同日重跑更新该行。
 - `result` 保存结构化结果。
 - `message` 保存面向用户或运维的简短错误/结果说明。
 

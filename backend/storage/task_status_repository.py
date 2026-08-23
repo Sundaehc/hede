@@ -6,10 +6,10 @@ from pathlib import Path
 from typing import Any
 
 import orjson
-from sqlalchemy import create_engine, func, select
+from sqlalchemy import create_engine, func, insert, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
-from domain.task_status_schema import SCHEDULED_TASK_STATUS_TABLE
+from domain.task_status_schema import SCHEDULED_TASK_RUN_TABLE, SCHEDULED_TASK_STATUS_TABLE
 
 
 def _json_serializer(value: object) -> str:
@@ -130,6 +130,66 @@ class ScheduledTaskStatusRepository:
                 "finished_at": func.now(),
                 "updated_at": func.date_trunc("minute", func.now()),
             },
+        )
+        with self.engine.begin() as connection:
+            connection.execute(statement)
+
+
+class ScheduledTaskRunRepository:
+    """Persist one immutable history row for each scheduled-task invocation."""
+
+    def __init__(self, database_url: str):
+        self.engine = create_engine(database_url, future=True, json_serializer=_json_serializer)
+
+    def ensure_table(self) -> None:
+        SCHEDULED_TASK_RUN_TABLE.create(self.engine, checkfirst=True)
+
+    def mark_started(
+        self,
+        task_name: str,
+        *,
+        host_name: str | None,
+        process_id: int | None,
+        command: str | None,
+        log_path: Path | str | None,
+    ) -> int:
+        self.ensure_table()
+        statement = (
+            insert(SCHEDULED_TASK_RUN_TABLE)
+            .values(
+                task_name=task_name,
+                status="running",
+                host_name=host_name,
+                process_id=process_id,
+                command=command,
+                log_path=str(log_path) if log_path is not None else None,
+            )
+            .returning(SCHEDULED_TASK_RUN_TABLE.c.id)
+        )
+        with self.engine.begin() as connection:
+            return int(connection.execute(statement).scalar_one())
+
+    def mark_finished(
+        self,
+        run_id: int,
+        *,
+        status: str,
+        exit_code: int,
+        duration_ms: int,
+        error_summary: str | None = None,
+    ) -> None:
+        if status not in {"success", "failed"}:
+            raise ValueError(f"Unsupported task run status: {status}")
+        statement = (
+            update(SCHEDULED_TASK_RUN_TABLE)
+            .where(SCHEDULED_TASK_RUN_TABLE.c.id == run_id)
+            .values(
+                status=status,
+                finished_at=func.now(),
+                duration_ms=max(duration_ms, 0),
+                exit_code=exit_code,
+                error_summary=error_summary,
+            )
         )
         with self.engine.begin() as connection:
             connection.execute(statement)

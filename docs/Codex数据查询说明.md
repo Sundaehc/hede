@@ -144,7 +144,8 @@
 
 | 需求 | 受控入口 | 规则 |
 | --- | --- | --- |
-| 今日 / 某日任务状态 | `scheduled_task_statuses` | 返回 `task_name`、`business_date`、`status`、`attempts`、`last_started_at`、`finished_at`、`message`。状态失败时可建议重跑，但不得自行重跑。 |
+| 今日 / 某日实际执行记录 | `scheduled_task_runs` | 返回 `task_name`、`status`、`started_at`、`finished_at`、`duration_ms`、`exit_code`、`error_summary` 和 `log_path`。每次重跑保留一行。状态失败时可建议重跑，但不得自行重跑。 |
+| 业务日期导入状态 | `scheduled_task_statuses` | 按 `task_name + business_date` 查看某个数据日期的导入状态、尝试次数和来源文件；同日重跑会更新状态而不是新增运行历史。 |
 | 操作日志 | `operation_logs` 对应接口 | 必须走现有权限过滤。超级管理员的操作不向普通账户展示。 |
 
 ## 5. 查询执行流程

@@ -6,7 +6,7 @@ from uuid import uuid4
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.encoders import jsonable_encoder
-from sqlalchemy import desc, inspect, select
+from sqlalchemy import desc, func, inspect, select
 from sqlalchemy.exc import SQLAlchemyError
 
 from api.operation_log_utils import write_operation_log
@@ -20,7 +20,7 @@ from api.routes.product_goods import (
     list_product_goods,
 )
 from api.routes.products import list_products
-from domain.task_status_schema import SCHEDULED_TASK_STATUS_TABLE
+from domain.task_status_schema import SCHEDULED_TASK_RUN_TABLE
 from domain.ai_query_semantics import referenced_table_names
 from domain.ai_sql_query import (
     AiProviderError,
@@ -1176,24 +1176,25 @@ def _run_historical_order_summary(
 
 
 def _run_task_status(request: Request, question: str, payload: dict[str, object]) -> dict[str, object]:
-    if not inspect(request.app.state.repository.engine).has_table(SCHEDULED_TASK_STATUS_TABLE.name):
+    if not inspect(request.app.state.repository.engine).has_table(SCHEDULED_TASK_RUN_TABLE.name):
         return _clarification(question, "当前数据库还没有定时任务状态记录。", intent="task_status")
-    table = SCHEDULED_TASK_STATUS_TABLE
+    table = SCHEDULED_TASK_RUN_TABLE
     today_only = _contains(question, "今天", "今日")
-    statement = select(table).order_by(desc(table.c.business_date), desc(table.c.last_started_at)).limit(100)
+    statement = select(table).order_by(desc(table.c.started_at)).limit(100)
     if today_only:
-        statement = statement.where(table.c.business_date == date.today())
+        statement = statement.where(func.date(table.c.started_at) == date.today())
     with request.app.state.repository.engine.connect() as connection:
         rows = [dict(row) for row in connection.execute(statement).mappings()]
     result_rows = [
         {
             "task_name": row.get("task_name"),
-            "business_date": row.get("business_date"),
             "status": row.get("status"),
-            "attempts": row.get("attempts"),
-            "last_started_at": row.get("last_started_at"),
+            "started_at": row.get("started_at"),
             "finished_at": row.get("finished_at"),
-            "message": row.get("message"),
+            "duration_ms": row.get("duration_ms"),
+            "exit_code": row.get("exit_code"),
+            "error_summary": row.get("error_summary"),
+            "log_path": row.get("log_path"),
         }
         for row in rows
     ]
@@ -1210,15 +1211,16 @@ def _run_task_status(request: Request, question: str, payload: dict[str, object]
             ],
             "columns": [
                 {"key": "task_name", "label": "任务"},
-                {"key": "business_date", "label": "业务日期", "type": "date"},
                 {"key": "status", "label": "状态"},
-                {"key": "attempts", "label": "尝试次数", "type": "number"},
-                {"key": "last_started_at", "label": "开始时间"},
+                {"key": "started_at", "label": "开始时间"},
                 {"key": "finished_at", "label": "完成时间"},
-                {"key": "message", "label": "结果"},
+                {"key": "duration_ms", "label": "耗时（毫秒）", "type": "number"},
+                {"key": "exit_code", "label": "返回码", "type": "number"},
+                {"key": "error_summary", "label": "失败原因"},
+                {"key": "log_path", "label": "日志路径"},
             ],
             "rows": jsonable_encoder(result_rows),
-            "sources": ["scheduled_task_statuses"],
+            "sources": ["scheduled_task_runs"],
             "link": None,
             "suggestions": ["查看失败任务", "查看今天唯品日销任务", "查看今天聚水潭日销任务"],
         }

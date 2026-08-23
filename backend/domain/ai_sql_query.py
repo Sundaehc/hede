@@ -167,7 +167,7 @@ def required_permissions_for_table(table_name: str) -> set[str]:
         return set()
     if name in SYSTEM_TABLES:
         return {"system.admin"}
-    if name == "scheduled_task_statuses":
+    if name in {"scheduled_task_statuses", "scheduled_task_runs"}:
         return {"ai_query.view"}
     if name in SHARED_SUPPLIER_TABLES:
         return {"purchase.view", "inventory.view", "supplier.create"}
@@ -405,7 +405,7 @@ def schema_for_question(schema: str, question: str) -> str:
     )
 
     if task_request:
-        include("scheduled_task_statuses")
+        include("scheduled_task_statuses", "scheduled_task_runs")
     if archive_request or sales_request or stock_request:
         selected.update(archive_tables)
     if archive_request and any(

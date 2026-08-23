@@ -183,6 +183,22 @@ def test_database_schema_descriptions_survive_question_level_trimming():
     assert "scheduled_task_statuses" not in filtered
 
 
+def test_schema_for_task_question_includes_run_history() -> None:
+    schema = "\n".join(
+        [
+            "public.scheduled_task_statuses (task_name text, business_date date, status text)",
+            "public.scheduled_task_runs (task_name text, started_at timestamp, status text, error_summary text)",
+            "public.inventory_records (id bigint)",
+        ]
+    )
+
+    filtered = schema_for_question(schema, "查看今天所有定时任务执行情况")
+
+    assert "scheduled_task_runs" in filtered
+    assert "scheduled_task_statuses" in filtered
+    assert "inventory_records" not in filtered
+
+
 def test_schema_for_question_includes_historical_order_attribute_sources():
     schema = "\n".join(
         [
