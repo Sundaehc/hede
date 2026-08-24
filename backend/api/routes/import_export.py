@@ -87,6 +87,8 @@ SIZE_EXPORT_CBANNER_WOMENS_EXTRA_COLUMNS = (
     "boot_shaft",
     "closure_type",
     "mesh_upper_type",
+    "toe_shape",
+    "heel_height",
 )
 LOOKUP_CHUNK_SIZE = 2000
 SHANGHAI_TIME_ZONE = ZoneInfo("Asia/Shanghai")
@@ -887,6 +889,12 @@ def _size_export_style_context(
         "boot_shaft": _first_text(archive.get("boot_shaft"), archive_extra.get("靴筒")),
         "closure_type": _first_text(archive.get("closure_type"), archive_extra.get("闭合方式")),
         "mesh_upper_type": _first_text(archive.get("mesh_upper_type"), archive_extra.get("鞋网面类型")),
+        "toe_shape": _first_text(archive.get("toe_shape"), archive_extra.get("鞋头款式")),
+        "heel_height": _first_text(
+            archive.get("heel_height"),
+            archive_extra.get("后跟高"),
+            archive_extra.get("跟高"),
+        ),
     }
 
 

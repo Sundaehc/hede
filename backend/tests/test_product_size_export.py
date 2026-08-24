@@ -41,7 +41,7 @@ def test_other_brand_exports_omit_cbanner_womens_only_fields():
 def test_cbanner_womens_size_export_includes_new_style_fields():
     headers = _size_export_headers_for_brand("cbanner_womens")
 
-    assert headers[-7:] == [
+    assert headers[-9:] == [
         "跟底款式",
         "流行元素",
         "鞋帮高度",
@@ -49,8 +49,12 @@ def test_cbanner_womens_size_export_includes_new_style_fields():
         "靴筒",
         "闭合方式",
         "鞋网面类型",
+        "鞋头款式",
+        "后跟高",
     ]
     assert "跟底款式" not in _size_export_headers_for_brand("cbanner_mens")
+    assert "鞋头款式" not in _size_export_headers_for_brand("cbanner_mens")
+    assert "后跟高" not in _size_export_headers_for_brand("cbanner_mens")
 
 
 def test_cbanner_womens_size_export_style_context_reads_archive_fields():
@@ -66,6 +70,8 @@ def test_cbanner_womens_size_export_style_context_reads_archive_fields():
                 "boot_shaft": "短筒",
                 "closure_type": "系带",
                 "mesh_upper_type": "网面",
+                "toe_shape": "方头",
+                "heel_height": "5cm",
             }
         },
         {},
@@ -79,7 +85,9 @@ def test_cbanner_womens_size_export_style_context_reads_archive_fields():
         context["boot_shaft"],
         context["closure_type"],
         context["mesh_upper_type"],
-    ] == ["厚底", "蝴蝶结", "低帮", "浅口", "短筒", "系带", "网面"]
+        context["toe_shape"],
+        context["heel_height"],
+    ] == ["厚底", "蝴蝶结", "低帮", "浅口", "短筒", "系带", "网面", "方头", "5cm"]
 
 
 def test_size_export_uses_archive_fallback_when_profile_is_missing():
