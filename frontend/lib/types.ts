@@ -464,6 +464,8 @@ export type FactoryChannelDashboardResponse = {
     expected_end: string | null
     missing_date_count: number
     missing_dates: string[]
+    pending_refresh_date_count: number
+    pending_refresh_dates: string[]
     sources: Array<{
       source: "historical" | "jst" | "vip"
       label: string
@@ -471,6 +473,10 @@ export type FactoryChannelDashboardResponse = {
       available_end: string | null
       missing_date_count: number
       missing_dates: string[]
+      pending_refresh_date_count: number
+      pending_refresh_dates: string[]
+      refresh_starts_at: string | null
+      refresh_expected_by: string | null
     }>
   }
   available_sales_years: number[]

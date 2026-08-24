@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react"
 import {
   BarChart3,
   CalendarDays,
+  Clock3,
   Factory,
   Layers3,
   RefreshCw,
@@ -335,6 +336,7 @@ export function FactoryChannelDashboardPage() {
   const summaryTotal = filteredSummary.total_sales
   const salesDateCoverage = data?.sales_date_coverage
   const incompleteSources = salesDateCoverage?.sources.filter((source) => source.missing_date_count > 0) ?? []
+  const pendingRefreshSources = salesDateCoverage?.sources.filter((source) => source.pending_refresh_date_count > 0) ?? []
 
   return (
     <main className="min-h-svh bg-background px-5 py-6 md:px-7">
@@ -399,6 +401,26 @@ export function FactoryChannelDashboardPage() {
             </div>
           </div>
         </section>
+
+        {!!pendingRefreshSources.length && (
+          <div className="mt-4 flex items-start gap-3 rounded-lg border border-sky-500/30 bg-sky-500/10 px-4 py-3 text-sky-950 dark:text-sky-100">
+            <Clock3 className="mt-0.5 size-4 shrink-0 text-sky-600 dark:text-sky-300" />
+            <div className="min-w-0 text-xs leading-5">
+              <p className="font-semibold">昨日销售数据等待今日自动更新</p>
+              <p className="text-sky-900/80 dark:text-sky-100/75">
+                {compactDateRanges(salesDateCoverage?.pending_refresh_dates ?? [])} 尚在正常刷新窗口内，暂不计为数据缺失。
+              </p>
+              <div className="mt-1.5 grid gap-x-6 gap-y-0.5 lg:grid-cols-2">
+                {pendingRefreshSources.map((source) => (
+                  <p key={source.source} className="min-w-0 break-words">
+                    <span className="font-medium">{source.label}：</span>
+                    每日 {source.refresh_starts_at} 开始，预计 {source.refresh_expected_by} 前完成
+                  </p>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
 
         {!!salesDateCoverage?.missing_date_count && (
           <div className="mt-4 flex items-start gap-3 rounded-lg border border-amber-500/35 bg-amber-500/10 px-4 py-3 text-amber-900 dark:text-amber-100">

@@ -1,7 +1,8 @@
-from datetime import date
+from datetime import date, datetime
 
 from api.routes.product_goods import (
     _factory_dashboard_expected_date_range,
+    _factory_dashboard_pending_refresh_dates,
     _missing_dates_between,
 )
 
@@ -30,3 +31,34 @@ def test_missing_dates_between_returns_only_gaps() -> None:
         date(2026, 8, 22),
         {date(2026, 8, 20), date(2026, 8, 22)},
     ) == [date(2026, 8, 21)]
+
+
+def test_yesterday_is_pending_before_daily_refresh_finishes() -> None:
+    missing_dates = [date(2026, 8, 22), date(2026, 8, 23)]
+
+    assert _factory_dashboard_pending_refresh_dates(
+        "jst",
+        missing_dates,
+        now=datetime(2026, 8, 24, 9, 15),
+    ) == [date(2026, 8, 23)]
+    assert _factory_dashboard_pending_refresh_dates(
+        "vip",
+        missing_dates,
+        now=datetime(2026, 8, 24, 10, 15),
+    ) == [date(2026, 8, 23)]
+
+
+def test_yesterday_becomes_missing_after_refresh_deadline() -> None:
+    assert _factory_dashboard_pending_refresh_dates(
+        "jst",
+        [date(2026, 8, 23)],
+        now=datetime(2026, 8, 24, 10, 20),
+    ) == []
+
+
+def test_historical_source_has_no_daily_refresh_window() -> None:
+    assert _factory_dashboard_pending_refresh_dates(
+        "historical",
+        [date(2026, 8, 23)],
+        now=datetime(2026, 8, 24, 9, 15),
+    ) == []

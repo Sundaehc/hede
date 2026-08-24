@@ -6,7 +6,7 @@ from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.encoders import jsonable_encoder
 from pydantic import BaseModel, ConfigDict
 from collections import defaultdict
-from datetime import date, timedelta
+from datetime import date, datetime, time, timedelta
 import json
 import re
 
@@ -77,6 +77,10 @@ PLATFORM_COLUMNS = ["唯品", "天猫", "得物", "拼多多", "京东", "商品
 SIZE_TO_STOCK_CODE = {str(size): str(50 + size * 5) for size in range(34, 45)}
 STOCK_CODE_TO_SIZE = {value: key for key, value in SIZE_TO_STOCK_CODE.items()}
 SALES_PERIOD_START_YEAR = 2024
+FACTORY_DASHBOARD_DAILY_REFRESH_SCHEDULE = {
+    "jst": {"starts_at": time(10, 0), "expected_ready_at": time(10, 20)},
+    "vip": {"starts_at": time(10, 10), "expected_ready_at": time(10, 20)},
+}
 LOW_STOCK_SALE_DAYS = 7
 SHORTAGE_RISK_SALE_DAYS = 30
 URGENT_SHORTAGE_RISK_SALE_DAYS = 20
@@ -1435,6 +1439,23 @@ def _missing_dates_between(
     ]
 
 
+def _factory_dashboard_pending_refresh_dates(
+    source_key: str,
+    missing_dates: list[date],
+    *,
+    now: datetime | None = None,
+) -> list[date]:
+    schedule = FACTORY_DASHBOARD_DAILY_REFRESH_SCHEDULE.get(source_key)
+    if schedule is None:
+        return []
+    current_datetime = now or datetime.now()
+    current_time = current_datetime.time().replace(tzinfo=None)
+    pending_date = current_datetime.date() - timedelta(days=1)
+    if current_time >= schedule["expected_ready_at"]:
+        return []
+    return [pending_date] if pending_date in missing_dates else []
+
+
 def _available_sales_dates(
     connection,
     table,
@@ -1486,6 +1507,8 @@ def _factory_dashboard_sales_date_coverage(
             "expected_end": None,
             "missing_date_count": 0,
             "missing_dates": [],
+            "pending_refresh_date_count": 0,
+            "pending_refresh_dates": [],
             "sources": [],
         }
 
@@ -1505,6 +1528,7 @@ def _factory_dashboard_sales_date_coverage(
 
     source_payloads: list[dict[str, object]] = []
     all_missing_dates: set[date] = set()
+    all_pending_refresh_dates: set[date] = set()
     for source_key, source_label, table in source_tables:
         available_dates: set[date] = set()
         if inspector.has_table(table.name):
@@ -1514,8 +1538,16 @@ def _factory_dashboard_sales_date_coverage(
                 expected_start,
                 expected_end,
             )
-        missing_dates = _missing_dates_between(expected_start, expected_end, available_dates)
+        detected_missing_dates = _missing_dates_between(expected_start, expected_end, available_dates)
+        pending_refresh_dates = _factory_dashboard_pending_refresh_dates(
+            source_key,
+            detected_missing_dates,
+        )
+        pending_refresh_date_set = set(pending_refresh_dates)
+        missing_dates = [value for value in detected_missing_dates if value not in pending_refresh_date_set]
         all_missing_dates.update(missing_dates)
+        all_pending_refresh_dates.update(pending_refresh_dates)
+        refresh_schedule = FACTORY_DASHBOARD_DAILY_REFRESH_SCHEDULE.get(source_key)
         source_payloads.append(
             {
                 "source": source_key,
@@ -1524,6 +1556,18 @@ def _factory_dashboard_sales_date_coverage(
                 "available_end": max(available_dates).isoformat() if available_dates else None,
                 "missing_date_count": len(missing_dates),
                 "missing_dates": [value.isoformat() for value in missing_dates],
+                "pending_refresh_date_count": len(pending_refresh_dates),
+                "pending_refresh_dates": [value.isoformat() for value in pending_refresh_dates],
+                "refresh_starts_at": (
+                    refresh_schedule["starts_at"].strftime("%H:%M")
+                    if refresh_schedule is not None
+                    else None
+                ),
+                "refresh_expected_by": (
+                    refresh_schedule["expected_ready_at"].strftime("%H:%M")
+                    if refresh_schedule is not None
+                    else None
+                ),
             }
         )
 
@@ -1532,6 +1576,8 @@ def _factory_dashboard_sales_date_coverage(
         "expected_end": expected_end.isoformat(),
         "missing_date_count": len(all_missing_dates),
         "missing_dates": [value.isoformat() for value in sorted(all_missing_dates)],
+        "pending_refresh_date_count": len(all_pending_refresh_dates),
+        "pending_refresh_dates": [value.isoformat() for value in sorted(all_pending_refresh_dates)],
         "sources": source_payloads,
     }
 
