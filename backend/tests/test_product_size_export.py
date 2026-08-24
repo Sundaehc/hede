@@ -1,13 +1,42 @@
+from datetime import date
+
+import pytest
+from fastapi import HTTPException
+
 from api.routes.import_export import (
     EXPORT_LABELS,
+    _activity_export_label,
     _export_columns_for_brand,
     _export_label,
+    _resolve_activity_export_range,
     _size_export_fallback_profiles,
     _size_export_headers_for_brand,
     _size_export_product_name,
     _size_export_profiles_from_size_groups,
     _size_export_style_context,
 )
+
+
+def test_activity_export_range_uses_inclusive_dates_and_range_label():
+    start, end = _resolve_activity_export_range(
+        activity_date=None,
+        activity_date_start=date(2026, 8, 20),
+        activity_date_end=date(2026, 8, 24),
+        today_only=False,
+    )
+
+    assert (start, end) == (date(2026, 8, 20), date(2026, 8, 24))
+    assert _activity_export_label(start, end) == "2026-08-20至2026-08-24导入新增"
+
+
+def test_activity_export_range_rejects_reversed_dates():
+    with pytest.raises(HTTPException, match="结束日期不能早于开始日期"):
+        _resolve_activity_export_range(
+            activity_date=None,
+            activity_date_start=date(2026, 8, 24),
+            activity_date_end=date(2026, 8, 20),
+            today_only=False,
+        )
 
 
 def test_product_export_headers_use_field_labels():

@@ -168,9 +168,14 @@ def _size_export_headers_for_brand(brand: str) -> list[str]:
     ]
 
 
-def _activity_date_export_condition(table, activity_date: date_type):
-    start = datetime.combine(activity_date, time.min, tzinfo=SHANGHAI_TIME_ZONE)
-    end = start + timedelta(days=1)
+def _activity_date_export_condition(
+    table,
+    activity_date_start: date_type,
+    activity_date_end: date_type | None = None,
+):
+    start = datetime.combine(activity_date_start, time.min, tzinfo=SHANGHAI_TIME_ZONE)
+    inclusive_end = activity_date_end or activity_date_start
+    end = datetime.combine(inclusive_end + timedelta(days=1), time.min, tzinfo=SHANGHAI_TIME_ZONE)
     return or_(
         and_(table.c.created_at >= start, table.c.created_at < end),
         and_(table.c.last_imported_at >= start, table.c.last_imported_at < end),
@@ -219,14 +224,44 @@ def _product_prefix_condition(table, sku_prefix: str | None):
     ))
 
 
-def _activity_export_label(activity_date: date_type | None) -> str:
-    return f"{activity_date.isoformat()}导入新增" if activity_date else "总览"
+def _activity_export_label(
+    activity_date_start: date_type | None,
+    activity_date_end: date_type | None = None,
+) -> str:
+    if activity_date_start is None:
+        return "总览"
+    inclusive_end = activity_date_end or activity_date_start
+    if inclusive_end == activity_date_start:
+        return f"{activity_date_start.isoformat()}导入新增"
+    return f"{activity_date_start.isoformat()}至{inclusive_end.isoformat()}导入新增"
+
+
+def _resolve_activity_export_range(
+    *,
+    activity_date: date_type | None,
+    activity_date_start: date_type | None,
+    activity_date_end: date_type | None,
+    today_only: bool,
+) -> tuple[date_type | None, date_type | None]:
+    start = activity_date_start or activity_date
+    if start is None and today_only:
+        start = datetime.now(SHANGHAI_TIME_ZONE).date()
+    if start is None:
+        if activity_date_end is not None:
+            raise HTTPException(status_code=400, detail="请选择导出开始日期")
+        return None, None
+
+    end = activity_date_end or start
+    if end < start:
+        raise HTTPException(status_code=400, detail="导出结束日期不能早于开始日期")
+    return start, end
 
 
 def _iter_all_export_rows(
     repository,
     *,
-    activity_date: date_type | None = None,
+    activity_date_start: date_type | None = None,
+    activity_date_end: date_type | None = None,
     year: str | None = None,
     query: str | None = None,
     sku_prefix: str | None = None,
@@ -234,8 +269,8 @@ def _iter_all_export_rows(
     for brand in repository.product_archive_brands():
         table = repository._table_for_brand(brand)
         conditions = [not_excluded_sku_condition(table.c.sku, table.c.original_sku)]
-        if activity_date:
-            conditions.append(_activity_date_export_condition(table, activity_date))
+        if activity_date_start:
+            conditions.append(_activity_date_export_condition(table, activity_date_start, activity_date_end))
         if year:
             year_condition = _year_export_condition(table, year)
             if year_condition is not None:
@@ -374,14 +409,15 @@ def _export_all_products(
     request: Request,
     repository,
     *,
-    activity_date: date_type | None = None,
+    activity_date_start: date_type | None = None,
+    activity_date_end: date_type | None = None,
     year: str | None = None,
     query: str | None = None,
     sku_prefix: str | None = None,
 ) -> StreamingResponse:
     headers = ["品牌"] + [EXPORT_LABELS.get(c, c) for c in EXPORT_COLUMNS]
     wb = Workbook(write_only=True)
-    export_label = _activity_export_label(activity_date)
+    export_label = _activity_export_label(activity_date_start, activity_date_end)
     ws = wb.create_sheet(title=export_label)
     header_font = Font(name="宋体", size=10, bold=True)
     header_fill = PatternFill("solid", fgColor="F2F2F2")
@@ -400,7 +436,14 @@ def _export_all_products(
     ws.append(header_cells)
 
     row_count = 1
-    for brand, values in _iter_all_export_rows(repository, activity_date=activity_date, year=year, query=query, sku_prefix=sku_prefix):
+    for brand, values in _iter_all_export_rows(
+        repository,
+        activity_date_start=activity_date_start,
+        activity_date_end=activity_date_end,
+        year=year,
+        query=query,
+        sku_prefix=sku_prefix,
+    ):
         row = [BRAND_LABELS.get(brand, brand)] + [_excel_cell_value(value) for value in values]
         # A small sample is enough to keep widths readable without scanning
         # every cell in a 60k+ row overview export.
@@ -430,7 +473,8 @@ def _export_all_products(
         after_data={
             "brand": "all",
             "brand_label": export_label,
-            "activity_date": activity_date.isoformat() if activity_date else None,
+            "activity_date_start": activity_date_start.isoformat() if activity_date_start else None,
+            "activity_date_end": activity_date_end.isoformat() if activity_date_end else None,
             "query": query or None,
             "sku_prefix": sku_prefix or None,
             "exported_rows": exported_rows,
@@ -495,7 +539,8 @@ def _load_size_export_source_items(
     brand: str,
     ids: str | None,
     *,
-    activity_date: date_type | None = None,
+    activity_date_start: date_type | None = None,
+    activity_date_end: date_type | None = None,
     year: str | None = None,
     query: str | None = None,
     sku_prefix: str | None = None,
@@ -508,8 +553,8 @@ def _load_size_export_source_items(
     id_list = _parse_id_list(ids)
     if id_list:
         statement = statement.where(table.c.id.in_(id_list))
-    if activity_date:
-        statement = statement.where(_activity_date_export_condition(table, activity_date))
+    if activity_date_start:
+        statement = statement.where(_activity_date_export_condition(table, activity_date_start, activity_date_end))
     if year:
         year_condition = _year_export_condition(table, year)
         if year_condition is not None:
@@ -904,7 +949,8 @@ def _export_products_with_sizes(
     brand: str,
     ids: str | None,
     *,
-    activity_date: date_type | None = None,
+    activity_date_start: date_type | None = None,
+    activity_date_end: date_type | None = None,
     year: str | None = None,
     query: str | None = None,
     sku_prefix: str | None = None,
@@ -913,8 +959,9 @@ def _export_products_with_sizes(
     source_items = _load_size_export_source_items(
         repository,
         brand,
-        None if activity_date else ids,
-        activity_date=activity_date,
+        None if activity_date_start else ids,
+        activity_date_start=activity_date_start,
+        activity_date_end=activity_date_end,
         year=year,
         query=query,
         sku_prefix=sku_prefix,
@@ -1034,7 +1081,11 @@ def _export_products_with_sizes(
     wb.save(buf)
     buf.seek(0)
 
-    export_label = f"{brand_label}{_activity_export_label(activity_date) if activity_date else ''}带尺码"
+    export_label = (
+        f"{brand_label}"
+        f"{_activity_export_label(activity_date_start, activity_date_end) if activity_date_start else ''}"
+        "带尺码"
+    )
     raw_filename = f"{export_label}商品档案.xlsx"
     write_operation_log(
         request,
@@ -1047,8 +1098,9 @@ def _export_products_with_sizes(
             "brand": brand,
             "brand_label": brand_label,
             "mode": SIZE_EXPORT_MODE,
-            "ids": None if activity_date else ids,
-            "activity_date": activity_date.isoformat() if activity_date else None,
+            "ids": None if activity_date_start else ids,
+            "activity_date_start": activity_date_start.isoformat() if activity_date_start else None,
+            "activity_date_end": activity_date_end.isoformat() if activity_date_end else None,
             "query": query or None,
             "sku_prefix": sku_prefix or None,
             "exported_rows": len(export_profiles),
@@ -1067,6 +1119,8 @@ def export_products(
     ids: str | None = Query(None),
     mode: str | None = Query(None),
     activity_date: date_type | None = Query(None),
+    activity_date_start: date_type | None = Query(None),
+    activity_date_end: date_type | None = Query(None),
     year: str | None = Query(None),
     query: str | None = Query(None),
     sku_prefix: str | None = Query(None),
@@ -1077,10 +1131,15 @@ def export_products(
     if request.method == "HEAD":
         return Response(status_code=200)
 
-    export_date = activity_date or (datetime.now(SHANGHAI_TIME_ZONE).date() if today_only else None)
-    export_year = year.strip() if year and not export_date else None
-    export_query = query.strip() if query and not export_date else None
-    export_sku_prefix = sku_prefix.strip() if sku_prefix and not export_date else None
+    export_date_start, export_date_end = _resolve_activity_export_range(
+        activity_date=activity_date,
+        activity_date_start=activity_date_start,
+        activity_date_end=activity_date_end,
+        today_only=today_only,
+    )
+    export_year = year.strip() if year and not export_date_start else None
+    export_query = query.strip() if query and not export_date_start else None
+    export_sku_prefix = sku_prefix.strip() if sku_prefix and not export_date_start else None
 
     if mode == SIZE_EXPORT_MODE:
         return _export_products_with_sizes(
@@ -1088,7 +1147,8 @@ def export_products(
             repository,
             brand,
             ids,
-            activity_date=export_date,
+            activity_date_start=export_date_start,
+            activity_date_end=export_date_end,
             year=export_year,
             query=export_query,
             sku_prefix=export_sku_prefix,
@@ -1098,13 +1158,14 @@ def export_products(
         return _export_all_products(
             request,
             repository,
-            activity_date=export_date,
+            activity_date_start=export_date_start,
+            activity_date_end=export_date_end,
             year=export_year,
             query=export_query,
             sku_prefix=export_sku_prefix,
         )
 
-    if export_date:
+    if export_date_start:
         table = repository._table_for_brand(brand)
         with repository.engine.connect() as connection:
             items = [
@@ -1112,7 +1173,7 @@ def export_products(
                 for row in connection.execute(
                     select(table)
                     .where(not_excluded_sku_condition(table.c.sku, table.c.original_sku))
-                    .where(_activity_date_export_condition(table, export_date))
+                    .where(_activity_date_export_condition(table, export_date_start, export_date_end))
                     .order_by(desc(table.c.id))
                 ).mappings()
             ]
@@ -1143,7 +1204,10 @@ def export_products(
     buf.seek(0)
 
     brand_label = BRAND_LABELS.get(brand, brand)
-    export_label = f"{brand_label}{_activity_export_label(export_date) if export_date else ''}"
+    export_label = (
+        f"{brand_label}"
+        f"{_activity_export_label(export_date_start, export_date_end) if export_date_start else ''}"
+    )
     raw_filename = f"{export_label}.xlsx"
     write_operation_log(
         request,
@@ -1155,8 +1219,9 @@ def export_products(
         after_data={
             "brand": brand,
             "brand_label": brand_label,
-            "ids": None if export_date else ids,
-            "activity_date": export_date.isoformat() if export_date else None,
+            "ids": None if export_date_start else ids,
+            "activity_date_start": export_date_start.isoformat() if export_date_start else None,
+            "activity_date_end": export_date_end.isoformat() if export_date_end else None,
             "query": export_query,
             "sku_prefix": export_sku_prefix,
             "exported_rows": len(items),
@@ -1171,9 +1236,19 @@ def check_export_products(
     request: Request,
     brand: str = Query(...),
     mode: str | None = Query(None),
+    activity_date: date_type | None = Query(None),
+    activity_date_start: date_type | None = Query(None),
+    activity_date_end: date_type | None = Query(None),
+    today_only: bool = Query(False),
 ):
     repository = request.app.state.repository
     _validate_product_export_request(repository, brand, mode)
+    _resolve_activity_export_range(
+        activity_date=activity_date,
+        activity_date_start=activity_date_start,
+        activity_date_end=activity_date_end,
+        today_only=today_only,
+    )
     return Response(status_code=200)
 
 

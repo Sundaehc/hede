@@ -707,7 +707,8 @@ export function buildProductExportUrl(
   brand: ProductArchiveBrandKey,
   ids?: number[],
   mode?: "with_sizes",
-  activityDate?: string,
+  activityDateStart?: string,
+  activityDateEnd?: string,
   year?: string,
   query?: string,
   skuPrefix?: string
@@ -719,8 +720,11 @@ export function buildProductExportUrl(
   if (mode) {
     params.set("mode", mode)
   }
-  if (activityDate) {
-    params.set("activity_date", activityDate)
+  if (activityDateStart) {
+    params.set("activity_date_start", activityDateStart)
+  }
+  if (activityDateEnd) {
+    params.set("activity_date_end", activityDateEnd)
   }
   if (year) {
     params.set("year", year)
@@ -775,7 +779,8 @@ export async function downloadProductExport(
   ids?: number[],
   mode?: "with_sizes",
   onProgress?: (progress: ProductExportProgress) => void,
-  activityDate?: string,
+  activityDateStart?: string,
+  activityDateEnd?: string,
   year?: string,
   query?: string,
   skuPrefix?: string
@@ -786,7 +791,8 @@ export async function downloadProductExport(
       brand,
       ids,
       mode,
-      activityDate,
+      activityDateStart,
+      activityDateEnd,
       year,
       query,
       skuPrefix
@@ -866,7 +872,8 @@ export async function assertProductExportAllowed(
   brand: ProductArchiveBrandKey,
   ids?: number[],
   mode?: "with_sizes",
-  activityDate?: string,
+  activityDateStart?: string,
+  activityDateEnd?: string,
   year?: string,
   query?: string,
   skuPrefix?: string
@@ -876,7 +883,8 @@ export async function assertProductExportAllowed(
       brand,
       ids,
       mode,
-      activityDate,
+      activityDateStart,
+      activityDateEnd,
       year,
       query,
       skuPrefix
@@ -895,7 +903,8 @@ export function exportProducts(
   brand: ProductArchiveBrandKey,
   ids?: number[],
   mode?: "with_sizes",
-  activityDate?: string,
+  activityDateStart?: string,
+  activityDateEnd?: string,
   year?: string,
   query?: string,
   skuPrefix?: string
@@ -905,7 +914,8 @@ export function exportProducts(
       brand,
       ids,
       mode,
-      activityDate,
+      activityDateStart,
+      activityDateEnd,
       year,
       query,
       skuPrefix

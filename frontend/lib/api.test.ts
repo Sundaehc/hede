@@ -55,8 +55,14 @@ test("listProducts serializes SKU prefix into the request URL", async () => {
 })
 
 test("buildProductExportUrl includes the submitted SKU search", () => {
-  expect(buildProductExportUrl("cbanner_mens", undefined, undefined, undefined, undefined, " KT\nOA ")).toBe(
+  expect(buildProductExportUrl("cbanner_mens", undefined, undefined, undefined, undefined, undefined, " KT\nOA ")).toBe(
     "/api/export?brand=cbanner_mens&query=KT%0AOA",
+  )
+})
+
+test("buildProductExportUrl includes the activity date range", () => {
+  expect(buildProductExportUrl("cbanner_womens", undefined, "with_sizes", "2026-08-20", "2026-08-24")).toBe(
+    "/api/export?brand=cbanner_womens&mode=with_sizes&activity_date_start=2026-08-20&activity_date_end=2026-08-24",
   )
 })
 

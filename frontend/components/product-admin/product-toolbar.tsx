@@ -73,8 +73,9 @@ export function ProductToolbar({
   const [downloadingTemplate, setDownloadingTemplate] = useState(false)
   const [refreshingImages, setRefreshingImages] = useState(false)
   const [exporting, setExporting] = useState(false)
-  const [exportingMode, setExportingMode] = useState<"default" | "with_sizes" | "today" | "today_with_sizes" | null>(null)
-  const [activityDate, setActivityDate] = useState(currentShanghaiDateValue)
+  const [exportingMode, setExportingMode] = useState<"default" | "with_sizes" | "range" | "range_with_sizes" | null>(null)
+  const [activityDateStart, setActivityDateStart] = useState(currentShanghaiDateValue)
+  const [activityDateEnd, setActivityDateEnd] = useState(currentShanghaiDateValue)
   const [exportProgress, setExportProgress] = useState<ProductExportProgress | null>(null)
   const [awaitingImageRefresh, setAwaitingImageRefresh] = useState(false)
   const [imageRefreshStatus, setImageRefreshStatus] = useState<ProductImageRefreshStatus | null>(null)
@@ -129,18 +130,26 @@ export function ProductToolbar({
     }
   }, [awaitingImageRefresh, imageRefreshStatus, onMessage, onRefresh])
 
-  const handleExport = async (mode?: "with_sizes", exportActivityDate?: string) => {
-    const isActivityExport = Boolean(exportActivityDate)
+  const handleExport = async (mode?: "with_sizes", exportActivityDateStart?: string, exportActivityDateEnd?: string) => {
+    const isActivityExport = Boolean(exportActivityDateStart || exportActivityDateEnd)
+    if (isActivityExport && (!exportActivityDateStart || !exportActivityDateEnd)) {
+      onMessage("请选择导出时间段", "开始日期和结束日期都需要填写")
+      return
+    }
+    if (exportActivityDateStart && exportActivityDateEnd && exportActivityDateStart > exportActivityDateEnd) {
+      onMessage("导出时间段无效", "结束日期不能早于开始日期")
+      return
+    }
     const ids = !isActivityExport && brand !== "all" && selectedIds && selectedIds.size > 0 ? Array.from(selectedIds) : undefined
     const exportYear = isActivityExport ? undefined : year || undefined
     const exportQuery = !isActivityExport && !ids ? query || undefined : undefined
     const exportSkuPrefix = !isActivityExport && !ids ? skuPrefix || undefined : undefined
     setExporting(true)
-    setExportingMode(isActivityExport ? (mode ? "today_with_sizes" : "today") : (mode ?? "default"))
+    setExportingMode(isActivityExport ? (mode ? "range_with_sizes" : "range") : (mode ?? "default"))
     setExportProgress({ phase: "preparing", loaded: 0, total: null, percent: null })
     try {
-      await assertProductExportAllowed(brand, ids, mode, exportActivityDate, exportYear, exportQuery, exportSkuPrefix)
-      await downloadProductExport(brand, ids, mode, setExportProgress, exportActivityDate, exportYear, exportQuery, exportSkuPrefix)
+      await assertProductExportAllowed(brand, ids, mode, exportActivityDateStart, exportActivityDateEnd, exportYear, exportQuery, exportSkuPrefix)
+      await downloadProductExport(brand, ids, mode, setExportProgress, exportActivityDateStart, exportActivityDateEnd, exportYear, exportQuery, exportSkuPrefix)
     } catch (error) {
       onMessage("导出失败", error instanceof Error ? error.message : "导出 Excel 时发生错误，请重试")
     } finally {
@@ -225,8 +234,8 @@ export function ProductToolbar({
     ? exportStatusText
     : hasSelection ? `导出选中 (${selectedIds!.size})` : query || skuPrefix ? "导出搜索结果" : "导出 Excel"
   const sizeExportLabel = exportingMode === "with_sizes" && exportStatusText ? exportStatusText : "带尺码导出"
-  const activityExportLabel = exportingMode === "today" && exportStatusText ? exportStatusText : "导出当日导入/新增"
-  const activitySizeExportLabel = exportingMode === "today_with_sizes" && exportStatusText ? exportStatusText : "导出当日导入/新增带尺码"
+  const activityExportLabel = exportingMode === "range" && exportStatusText ? exportStatusText : "导出时间段内导入/新增"
+  const activitySizeExportLabel = exportingMode === "range_with_sizes" && exportStatusText ? exportStatusText : "导出时间段内导入/新增带尺码"
   const lastImageRun = imageRefreshStatus?.last_run
   const imageStatusText = imageRefreshStatus?.in_progress
     ? "图片刷新任务正在后台运行"
@@ -330,21 +339,34 @@ export function ProductToolbar({
                   {sizeExportLabel}
                 </Button>
               ) : null}
-              <div className="flex items-center gap-1.5">
-                <Label htmlFor="product-activity-export-date" className="whitespace-nowrap text-xs text-muted-foreground">导出日期</Label>
+              <div className="flex flex-wrap items-center gap-1.5">
+                <Label htmlFor="product-activity-export-date-start" className="whitespace-nowrap text-xs text-muted-foreground">导出时间段</Label>
                 <input
-                  id="product-activity-export-date"
+                  id="product-activity-export-date-start"
                   type="date"
-                  value={activityDate}
-                  onChange={(event) => setActivityDate(event.target.value)}
+                  value={activityDateStart}
+                  max={activityDateEnd || undefined}
+                  aria-label="导出开始日期"
+                  onChange={(event) => setActivityDateStart(event.target.value)}
                   disabled={isLoading || exporting}
                   className="h-8 cursor-pointer rounded-md border border-input bg-card px-2 text-xs shadow-xs outline-none transition-colors focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/35 disabled:cursor-not-allowed disabled:opacity-50"
                 />
-                <Button type="button" variant="outline" size="sm" onClick={() => void handleExport(undefined, activityDate)} disabled={isLoading || exporting || !activityDate} className="cursor-pointer">
+                <span className="text-xs text-muted-foreground">至</span>
+                <input
+                  id="product-activity-export-date-end"
+                  type="date"
+                  value={activityDateEnd}
+                  min={activityDateStart || undefined}
+                  aria-label="导出结束日期"
+                  onChange={(event) => setActivityDateEnd(event.target.value)}
+                  disabled={isLoading || exporting}
+                  className="h-8 cursor-pointer rounded-md border border-input bg-card px-2 text-xs shadow-xs outline-none transition-colors focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/35 disabled:cursor-not-allowed disabled:opacity-50"
+                />
+                <Button type="button" variant="outline" size="sm" onClick={() => void handleExport(undefined, activityDateStart, activityDateEnd)} disabled={isLoading || exporting || !activityDateStart || !activityDateEnd} className="cursor-pointer">
                   {activityExportLabel}
                 </Button>
                 {onCreate ? (
-                  <Button type="button" variant="outline" size="sm" onClick={() => void handleExport("with_sizes", activityDate)} disabled={isLoading || exporting || !activityDate} className="cursor-pointer">
+                  <Button type="button" variant="outline" size="sm" onClick={() => void handleExport("with_sizes", activityDateStart, activityDateEnd)} disabled={isLoading || exporting || !activityDateStart || !activityDateEnd} className="cursor-pointer">
                     {activitySizeExportLabel}
                   </Button>
                 ) : null}
