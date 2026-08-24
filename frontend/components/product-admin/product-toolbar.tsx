@@ -67,6 +67,7 @@ export function ProductToolbar({
   onOpenRecycleBin,
   onMessage,
 }: ProductToolbarProps) {
+  const currentDate = currentShanghaiDateValue()
   const fileInputRef = useRef<HTMLInputElement>(null)
   const submittedImageRefreshAtRef = useRef<number | null>(null)
   const [importing, setImporting] = useState(false)
@@ -138,6 +139,10 @@ export function ProductToolbar({
     }
     if (exportActivityDateStart && exportActivityDateEnd && exportActivityDateStart > exportActivityDateEnd) {
       onMessage("导出时间段无效", "结束日期不能早于开始日期")
+      return
+    }
+    if ((exportActivityDateStart && exportActivityDateStart > currentDate) || (exportActivityDateEnd && exportActivityDateEnd > currentDate)) {
+      onMessage("导出时间段无效", "不能选择未来日期")
       return
     }
     const ids = !isActivityExport && brand !== "all" && selectedIds && selectedIds.size > 0 ? Array.from(selectedIds) : undefined
@@ -345,7 +350,7 @@ export function ProductToolbar({
                   id="product-activity-export-date-start"
                   type="date"
                   value={activityDateStart}
-                  max={activityDateEnd || undefined}
+                  max={activityDateEnd && activityDateEnd < currentDate ? activityDateEnd : currentDate}
                   aria-label="导出开始日期"
                   onChange={(event) => setActivityDateStart(event.target.value)}
                   disabled={isLoading || exporting}
@@ -357,6 +362,7 @@ export function ProductToolbar({
                   type="date"
                   value={activityDateEnd}
                   min={activityDateStart || undefined}
+                  max={currentDate}
                   aria-label="导出结束日期"
                   onChange={(event) => setActivityDateEnd(event.target.value)}
                   disabled={isLoading || exporting}

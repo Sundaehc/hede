@@ -243,9 +243,10 @@ def _resolve_activity_export_range(
     activity_date_end: date_type | None,
     today_only: bool,
 ) -> tuple[date_type | None, date_type | None]:
+    today = datetime.now(SHANGHAI_TIME_ZONE).date()
     start = activity_date_start or activity_date
     if start is None and today_only:
-        start = datetime.now(SHANGHAI_TIME_ZONE).date()
+        start = today
     if start is None:
         if activity_date_end is not None:
             raise HTTPException(status_code=400, detail="请选择导出开始日期")
@@ -254,6 +255,8 @@ def _resolve_activity_export_range(
     end = activity_date_end or start
     if end < start:
         raise HTTPException(status_code=400, detail="导出结束日期不能早于开始日期")
+    if start > today or end > today:
+        raise HTTPException(status_code=400, detail="导出时间段不能包含未来日期")
     return start, end
 
 

@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, timedelta
 
 import pytest
 from fastapi import HTTPException
@@ -35,6 +35,17 @@ def test_activity_export_range_rejects_reversed_dates():
             activity_date=None,
             activity_date_start=date(2026, 8, 24),
             activity_date_end=date(2026, 8, 20),
+            today_only=False,
+        )
+
+
+def test_activity_export_range_rejects_future_dates():
+    future_date = date.today() + timedelta(days=1)
+    with pytest.raises(HTTPException, match="不能包含未来日期"):
+        _resolve_activity_export_range(
+            activity_date=None,
+            activity_date_start=future_date,
+            activity_date_end=future_date,
             today_only=False,
         )
 
