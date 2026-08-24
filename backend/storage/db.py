@@ -124,9 +124,10 @@ class Database:
                     pg_insert(table)
                     .values(payload[index:index + 1000])
                     .on_conflict_do_nothing(index_elements=["sku"])
+                    .returning(table.c.id)
                 )
                 result = connection.execute(stmt)
-                inserted += result.rowcount or 0
+                inserted += len(result.scalars().all())
         return inserted
 
     def sync_brand_rows(
@@ -217,9 +218,9 @@ class Database:
                         excluded.launch_date.like(f"{launch_year_prefix}%"),
                         table.c.launch_date.like(f"{launch_year_prefix}%"),
                     ),
-                )
+                ).returning(table.c.id)
                 result = connection.execute(stmt)
-                affected += result.rowcount or 0
+                affected += len(result.scalars().all())
         return affected
 
     def sync_yandou_product_models(self) -> int:

@@ -35,6 +35,12 @@ def main() -> int:
     parser.add_argument("--source-root", type=Path, default=None)
     parser.add_argument("--jst-file", type=Path, default=None)
     parser.add_argument("--vip-file", type=Path, default=None)
+    parser.add_argument("--source", choices=("all", "jst", "vip"), default="all")
+    parser.add_argument(
+        "--skip-product-goods-refresh",
+        action="store_true",
+        help="跳过年度/月度货品销量周期刷新，由后续数据源任务统一刷新",
+    )
     args = parser.parse_args()
 
     settings = load_settings(require_database=True)
@@ -45,6 +51,8 @@ def main() -> int:
         ("import_jst_daily_sales", args.jst_file or root / JST_FILE_NAME, "jst"),
         ("import_vip_daily_sales", args.vip_file or root / VIP_FILE_NAME, "vip"),
     ]
+    if args.source != "all":
+        files = [item for item in files if item[2] == args.source]
     repository = DailySalesRepository(settings.database_url)
     status_repo = ScheduledTaskStatusRepository(settings.database_url)
     failed = False
@@ -82,20 +90,21 @@ def main() -> int:
                 "[FAILED] factory-channel summary refresh: "
                 f"{type(exc).__name__}: {exc}\n{traceback.format_exc()}"
             )
-        try:
-            stats = backfill_product_goods_sales(dry_run=False, sales_years={date.today().year})
-            print(
-                "[OK] refreshed product-goods sales periods: "
-                f"annual={stats.written_rows[(date.today().year, 'year')]} "
-                f"monthly={stats.written_rows[(date.today().year, 'month')]} "
-                f"preserved={stats.skipped_authoritative_rows}"
-            )
-        except Exception as exc:  # pragma: no cover - scheduled task diagnostics
-            failed = True
-            print(
-                "[FAILED] product-goods sales period refresh: "
-                f"{type(exc).__name__}: {exc}\n{traceback.format_exc()}"
-            )
+        if not args.skip_product_goods_refresh:
+            try:
+                stats = backfill_product_goods_sales(dry_run=False, sales_years={date.today().year})
+                print(
+                    "[OK] refreshed product-goods sales periods: "
+                    f"annual={stats.written_rows[(date.today().year, 'year')]} "
+                    f"monthly={stats.written_rows[(date.today().year, 'month')]} "
+                    f"preserved={stats.skipped_authoritative_rows}"
+                )
+            except Exception as exc:  # pragma: no cover - scheduled task diagnostics
+                failed = True
+                print(
+                    "[FAILED] product-goods sales period refresh: "
+                    f"{type(exc).__name__}: {exc}\n{traceback.format_exc()}"
+                )
     return 1 if failed else 0
 
 

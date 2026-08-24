@@ -149,6 +149,11 @@ def main() -> int:
     parser.add_argument("--lookback-days", type=int, default=7, help="检查最近 N 天缺失导入")
     parser.add_argument("--retry-until", default=None, help="当天目标未就绪时重试到本地时间 HH:MM")
     parser.add_argument("--retry-interval-seconds", type=int, default=1800, help="重试间隔秒数")
+    parser.add_argument(
+        "--allow-missing-current",
+        action="store_true",
+        help="当天源文件未就绪时正常退出，供计划任务短周期重试",
+    )
     parser.add_argument("--force", action="store_true", help="即使状态表已有成功记录也重新导入")
     args = parser.parse_args()
 
@@ -181,7 +186,7 @@ def main() -> int:
         if not summary.retry_target_unresolved:
             break
         if retry_until is None or datetime.now() >= retry_until:
-            exit_code = 1
+            exit_code = 0 if args.allow_missing_current and summary.failed == 0 else 1
             break
         sleep_seconds = min(max(args.retry_interval_seconds, 1), max(int((retry_until - datetime.now()).total_seconds()), 1))
         print(f"[RETRY] target date not ready, sleep {sleep_seconds}s")
