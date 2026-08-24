@@ -511,8 +511,19 @@ export function ProductAdminPage() {
         />
         <Dialog open={recycleOpen} onOpenChange={setRecycleOpen}>
           <DialogContent className="max-h-[88svh] max-w-[min(96vw,1100px)] overflow-hidden p-0">
-            <DialogHeader className="border-b border-border px-5 py-4">
+            <DialogHeader className="flex flex-row items-center justify-between gap-4 border-b border-border px-5 py-4">
               <DialogTitle>商品信息档案回收站</DialogTitle>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8 shrink-0 cursor-pointer"
+                onClick={() => setRecycleOpen(false)}
+                aria-label="关闭商品信息档案回收站"
+                title="关闭"
+              >
+                <X className="h-4 w-4" />
+              </Button>
             </DialogHeader>
             <div className="space-y-4 overflow-y-auto p-5">
               <div className="flex flex-wrap items-center justify-between gap-3">
