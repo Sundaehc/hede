@@ -374,6 +374,11 @@ def batch_delete_products(request: Request, body: BatchDeleteRequest):
         entity_id=",".join(labels),
         entity_label=f"{deleted} 条商品",
         summary=f"批量移入回收站 商品 {deleted} 条",
-        before_data={"brand": body.brand, "items": existing_items[:200], "labels": labels[:200]},
+        before_data={
+            "brand": body.brand,
+            "item_count": deleted,
+            "items": existing_items[:200],
+            "labels": labels[:200],
+        },
     )
     return {"deleted": deleted, "message": f"已移入回收站 {deleted} 条商品"}

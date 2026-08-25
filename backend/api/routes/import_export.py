@@ -1281,6 +1281,8 @@ def _finish_product_import(
     created: int,
     updated: int,
     imported_skus: list[str],
+    created_items: list[dict[str, object]],
+    updated_items: list[dict[str, object]],
 ) -> None:
     try:
         clear_fine_table_cache()
@@ -1303,6 +1305,10 @@ def _finish_product_import(
                 "updated": updated,
                 "skus": imported_skus[:500],
                 "sku_count": len(imported_skus),
+                "created_items": created_items[:500],
+                "created_item_count": len(created_items),
+                "updated_items": updated_items[:500],
+                "updated_item_count": len(updated_items),
             },
         )
     except Exception:
@@ -1350,6 +1356,15 @@ async def import_products(
     updated = 0
     imported_skus: list[str] = []
     imported_product_ids: list[int] = []
+    created_items: list[dict[str, object]] = []
+    updated_items: list[dict[str, object]] = []
+
+    def import_log_item(item: dict[str, object], fallback_sku: str) -> dict[str, object]:
+        return {
+            "sku": str(item.get("sku") or fallback_sku).strip(),
+            "original_sku": str(item.get("original_sku") or "").strip(),
+            "product_name": str(item.get("product_name") or "").strip(),
+        }
 
     with repository.engine.begin() as connection:
         for row_number, row in enumerate(iterator, start=2):
@@ -1474,12 +1489,14 @@ async def import_products(
                     saved_item = repository.update_product(brand, existing["id"], record, connection=connection)
                     if saved_item is not None:
                         imported_product_ids.append(int(saved_item["id"]))
+                    updated_items.append(import_log_item(saved_item or existing, sku_val or original_sku_val))
                     updated += 1
                 else:
                     record = build_admin_record(brand, payload)
                     _validate_import_size_group(repository, record.get("size_range"))
                     saved_item = repository.create_product(brand, record, connection=connection)
                     imported_product_ids.append(int(saved_item["id"]))
+                    created_items.append(import_log_item(saved_item, sku_val or original_sku_val))
                     created += 1
             except HTTPException as error:
                 raise HTTPException(status_code=error.status_code, detail=f"第 {row_number} 行导入失败：{error.detail}") from error
@@ -1501,6 +1518,8 @@ async def import_products(
         created=created,
         updated=updated,
         imported_skus=imported_skus,
+        created_items=created_items,
+        updated_items=updated_items,
     )
     return {
         "created": created,

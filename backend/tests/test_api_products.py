@@ -480,6 +480,21 @@ def test_import_products_keeps_distinct_skus_with_shared_original_sku(
     assert first["color"] == "黑色"
     assert second["color"] == "白色"
 
+    logs = test_app_client.app.state.operation_log_repository.list_logs(
+        module="product",
+        query="shared-original-sku.xlsx",
+        page=1,
+        page_size=10,
+    )
+    assert logs["total"] == 1
+    after_data = logs["items"][0]["after_data"]
+    assert after_data["created_item_count"] == 2
+    assert after_data["updated_item_count"] == 0
+    assert [item["sku"] for item in after_data["created_items"]] == [
+        "SHARED-ORIG-01",
+        "SHARED-ORIG-02",
+    ]
+
 
 def test_import_products_rejects_supplier_mismatch_for_existing_product(
     test_app_client: TestClient,

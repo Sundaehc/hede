@@ -122,6 +122,206 @@ function ChangeList({ changes }: { changes: OperationLogChange[] | null }) {
   )
 }
 
+type ProductLogEntry = {
+  sku: string
+  originalSku: string
+  productName: string
+}
+
+function recordValue(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null
+  return value as Record<string, unknown>
+}
+
+function productEntries(value: unknown): ProductLogEntry[] {
+  if (!Array.isArray(value)) return []
+  return value.flatMap((item) => {
+    if (typeof item === "string" || typeof item === "number") {
+      const sku = String(item).trim()
+      return sku ? [{ sku, originalSku: "", productName: "" }] : []
+    }
+    const record = recordValue(item)
+    if (!record) return []
+    const sku = String(record.sku || "").trim()
+    const originalSku = String(record.original_sku || "").trim()
+    const productName = String(record.product_name || "").trim()
+    if (!sku && !originalSku) return []
+    return [{ sku: sku || originalSku, originalSku, productName }]
+  })
+}
+
+function numberValue(value: unknown, fallback: number) {
+  const parsed = Number(value)
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback
+}
+
+function ProductEntryList({
+  items,
+  count,
+}: {
+  items: ProductLogEntry[]
+  count: number
+}) {
+  return (
+    <div className="max-h-52 overflow-y-auto rounded-md border border-border bg-background">
+      {items.map((entry, index) => (
+        <div
+          key={`${entry.sku}-${index}`}
+          className="grid grid-cols-[minmax(110px,1fr)_minmax(0,1fr)] gap-3 border-b border-border/70 px-2.5 py-2 text-xs last:border-b-0"
+        >
+          <div className="min-w-0">
+            <p
+              className="truncate font-medium text-foreground"
+              title={entry.sku}
+            >
+              {entry.sku}
+            </p>
+            {entry.originalSku && entry.originalSku !== entry.sku ? (
+              <p
+                className="mt-0.5 truncate text-muted-foreground"
+                title={`原始货号：${entry.originalSku}`}
+              >
+                原始货号：{entry.originalSku}
+              </p>
+            ) : null}
+          </div>
+          <p
+            className="min-w-0 truncate text-muted-foreground"
+            title={entry.productName || "未填写品名"}
+          >
+            {entry.productName || "未填写品名"}
+          </p>
+        </div>
+      ))}
+      {items.length < count ? (
+        <p className="px-2.5 py-2 text-xs text-muted-foreground">
+          当前日志保存了前 {items.length} 条，共 {count} 条
+        </p>
+      ) : null}
+    </div>
+  )
+}
+
+function ProductImportDetails({ item }: { item: OperationLogItem }) {
+  if (item.action !== "import" || item.entity_type !== "product_import") {
+    return null
+  }
+
+  const data = recordValue(item.after_data)
+  if (!data) return null
+
+  const hasGroupedItems =
+    Array.isArray(data.created_items) || Array.isArray(data.updated_items)
+  const createdItems = productEntries(data.created_items)
+  const updatedItems = productEntries(data.updated_items)
+  const fallbackItems = hasGroupedItems ? [] : productEntries(data.skus)
+  const sections = (
+    hasGroupedItems
+      ? [
+          {
+            key: "created",
+            label: "新增商品",
+            count: numberValue(
+              data.created_item_count ?? data.created,
+              createdItems.length
+            ),
+            items: createdItems,
+            badgeClass: "bg-emerald-50 text-emerald-700 ring-emerald-200",
+          },
+          {
+            key: "updated",
+            label: "更新商品",
+            count: numberValue(
+              data.updated_item_count ?? data.updated,
+              updatedItems.length
+            ),
+            items: updatedItems,
+            badgeClass: "bg-amber-50 text-amber-700 ring-amber-200",
+          },
+        ]
+      : [
+          {
+            key: "legacy",
+            label: "导入货号",
+            count: numberValue(data.sku_count, fallbackItems.length),
+            items: fallbackItems,
+            badgeClass: "bg-muted text-foreground ring-border",
+          },
+        ]
+  ).filter((section) => section.count > 0 || section.items.length > 0)
+
+  if (sections.length === 0) return null
+  const total = sections.reduce((sum, section) => sum + section.count, 0)
+
+  return (
+    <details className="group/import">
+      <summary className="cursor-pointer text-xs font-medium text-foreground outline-none hover:underline">
+        查看导入明细（{total}）
+      </summary>
+      <div className="mt-2 w-[min(440px,calc(100vw-3rem))] space-y-3 border-l-2 border-border pl-3">
+        {sections.map((section) => (
+          <section key={section.key}>
+            <div className="mb-1.5 flex items-center gap-2 text-xs">
+              <span
+                className={`rounded px-1.5 py-0.5 font-medium ring-1 ring-inset ${section.badgeClass}`}
+              >
+                {section.label}
+              </span>
+              <span className="text-muted-foreground">{section.count} 条</span>
+            </div>
+            <ProductEntryList items={section.items} count={section.count} />
+          </section>
+        ))}
+      </div>
+    </details>
+  )
+}
+
+function ProductBatchDeleteDetails({ item }: { item: OperationLogItem }) {
+  if (item.action !== "batch_delete" || item.entity_type !== "product") {
+    return null
+  }
+
+  const data = recordValue(item.before_data)
+  if (!data) return null
+  const detailedItems = productEntries(data.items)
+  const labelItems = detailedItems.length > 0 ? [] : productEntries(data.labels)
+  const items = detailedItems.length > 0 ? detailedItems : labelItems
+  const labelCount = Number.parseInt(String(item.entity_label || ""), 10)
+  const count = numberValue(
+    data.item_count,
+    Number.isFinite(labelCount) ? labelCount : items.length
+  )
+  if (count === 0 && items.length === 0) return null
+
+  return (
+    <details className="group/delete">
+      <summary className="cursor-pointer text-xs font-medium text-foreground outline-none hover:underline">
+        查看删除明细（{count}）
+      </summary>
+      <div className="mt-2 w-[min(440px,calc(100vw-3rem))] border-l-2 border-rose-200 pl-3">
+        <div className="mb-1.5 flex items-center gap-2 text-xs">
+          <span className="rounded bg-rose-50 px-1.5 py-0.5 font-medium text-rose-700 ring-1 ring-rose-200 ring-inset">
+            移入回收站
+          </span>
+          <span className="text-muted-foreground">{count} 条</span>
+        </div>
+        <ProductEntryList items={items} count={count} />
+      </div>
+    </details>
+  )
+}
+
+function LogDetails({ item }: { item: OperationLogItem }) {
+  if (item.action === "import" && item.entity_type === "product_import") {
+    return <ProductImportDetails item={item} />
+  }
+  if (item.action === "batch_delete" && item.entity_type === "product") {
+    return <ProductBatchDeleteDetails item={item} />
+  }
+  return <ChangeList changes={item.changed_fields} />
+}
+
 function actorName(item: OperationLogItem) {
   return item.display_name || item.username || "未知用户"
 }
@@ -257,9 +457,7 @@ export function OperationLogDialog({
                 </th>
                 <th className="px-4 py-3 text-left font-medium">对象</th>
                 <th className="px-4 py-3 text-left font-medium">修改内容</th>
-                <th className="px-4 py-3 text-left font-medium">
-                  修改字段
-                </th>
+                <th className="px-4 py-3 text-left font-medium">详情</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
@@ -299,27 +497,38 @@ export function OperationLogDialog({
                     {formatDateTime(item.created_at)}
                   </td>
                   <td className="px-4 py-3 whitespace-nowrap">
-                    <p className="truncate font-medium" title={actorName(item)}>{actorName(item)}</p>
+                    <p className="truncate font-medium" title={actorName(item)}>
+                      {actorName(item)}
+                    </p>
                     {item.department_name ? (
-                      <p className="mt-0.5 truncate text-xs text-muted-foreground" title={item.department_name}>
+                      <p
+                        className="mt-0.5 truncate text-xs text-muted-foreground"
+                        title={item.department_name}
+                      >
                         {item.department_name}
                       </p>
                     ) : null}
                   </td>
                   <td className="overflow-hidden px-4 py-3 whitespace-nowrap">
                     <span
-                      className="inline-block max-w-full overflow-hidden rounded-md border border-border bg-background px-2 py-1 text-xs text-ellipsis whitespace-nowrap align-top"
+                      className="inline-block max-w-full overflow-hidden rounded-md border border-border bg-background px-2 py-1 align-top text-xs text-ellipsis whitespace-nowrap"
                       title={ACTION_LABELS[item.action] || item.action}
                     >
                       {ACTION_LABELS[item.action] || item.action}
                     </span>
                   </td>
                   <td className="min-w-0 overflow-hidden px-4 py-3">
-                    <p className="truncate font-medium" title={item.entity_label || "-"}>
+                    <p
+                      className="truncate font-medium"
+                      title={item.entity_label || "-"}
+                    >
                       {item.entity_label || "-"}
                     </p>
                     {item.entity_id ? (
-                      <p className="mt-0.5 truncate text-xs text-muted-foreground" title={String(item.entity_id)}>
+                      <p
+                        className="mt-0.5 truncate text-xs text-muted-foreground"
+                        title={String(item.entity_id)}
+                      >
                         {item.entity_id}
                       </p>
                     ) : null}
@@ -328,7 +537,7 @@ export function OperationLogDialog({
                     <p className="[overflow-wrap:anywhere]">{item.summary}</p>
                   </td>
                   <td className="px-4 py-3 [overflow-wrap:anywhere]">
-                    <ChangeList changes={item.changed_fields} />
+                    <LogDetails item={item} />
                   </td>
                 </tr>
               ))}
