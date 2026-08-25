@@ -644,6 +644,27 @@ def _normalize_purchase_size_quantities_for_group(
     return dict(normalized)
 
 
+def _index_purchase_size_export_profiles(
+    rows: list[dict[str, object]],
+    requested_codes: set[str],
+) -> dict[str, dict[str, object]]:
+    exact_matches: dict[str, dict[str, object]] = {}
+    original_sku_matches: dict[str, dict[str, object]] = {}
+    for row in rows:
+        profile = dict(row)
+        sku = _cell_text(profile.get("sku"))
+        original_sku = _cell_text(profile.get("original_sku"))
+        if sku in requested_codes:
+            exact_matches.setdefault(sku, profile)
+        if original_sku in requested_codes:
+            original_sku_matches.setdefault(original_sku, profile)
+    return {
+        code: exact_matches.get(code) or original_sku_matches[code]
+        for code in requested_codes
+        if code in exact_matches or code in original_sku_matches
+    }
+
+
 def _load_purchase_size_export_profiles(
     repository,
     details: list[dict[str, object]],
@@ -681,11 +702,12 @@ def _load_purchase_size_export_profiles(
                 .where(or_(table.c.sku.in_(product_codes), table.c.original_sku.in_(product_codes)))
                 .order_by(desc(table.c.updated_at), desc(table.c.id))
             ).mappings()
-            for row in rows:
-                profile = dict(row)
-                for code in (_cell_text(profile.get("sku")), _cell_text(profile.get("original_sku"))):
-                    if code in product_codes:
-                        profiles_by_brand_and_code.setdefault((brand, code), profile)
+            indexed_profiles = _index_purchase_size_export_profiles(
+                [dict(row) for row in rows],
+                product_codes,
+            )
+            for code, profile in indexed_profiles.items():
+                profiles_by_brand_and_code[(brand, code)] = profile
 
         size_ranges = {
             _cell_text(profile.get("size_range"))

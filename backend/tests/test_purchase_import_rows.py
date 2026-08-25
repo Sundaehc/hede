@@ -41,6 +41,40 @@ def test_purchase_size_export_uses_detail_color_barcode_when_archive_color_code_
     assert size_barcode == "225"
 
 
+def test_purchase_size_export_prefers_exact_sku_over_newer_original_sku_match() -> None:
+    profiles = inventory_routes._index_purchase_size_export_profiles(
+        [
+            {
+                "id": 2,
+                "sku": "EAU53738DA38",
+                "original_sku": "EAU53738D38",
+                "color_code": "38",
+                "barcode_build_rule": "货号+颜色代码+尺码",
+            },
+            {
+                "id": 1,
+                "sku": "EAU53738D38",
+                "original_sku": "EAU53738D38",
+                "color_code": "38",
+                "barcode_build_rule": "货号+颜色代码+尺码",
+            },
+        ],
+        {"EAU53738D38"},
+    )
+
+    profile = profiles["EAU53738D38"]
+    assert profile["sku"] == "EAU53738D38"
+    product_code, size_barcode = inventory_routes._purchase_size_export_product_code(
+        "EAU53738D38",
+        "38",
+        "225",
+        "eblan",
+        {**profile, "size_barcodes": {"225": "225"}},
+    )
+    assert product_code == "EAU53738D3838225"
+    assert size_barcode == "225"
+
+
 def _sample_purchase_workbook() -> bytes:
     workbook = Workbook()
     worksheet = workbook.active
