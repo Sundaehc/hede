@@ -199,7 +199,7 @@ export function getProductYears(brand: ProductArchiveBrandKey) {
   return request<{ years: string[] }>(`/products/${brand}/years`)
 }
 
-export function listProductColorBarcodes(brand: Exclude<BrandKey, "all">) {
+export function listProductColorBarcodes(brand: ProductArchiveRecordBrandKey) {
   const search = new URLSearchParams({ brand })
   return request<ProductColorBarcodeListResponse>(
     `/products/color-barcodes?${search.toString()}`
@@ -1069,6 +1069,7 @@ export type InventoryDetail = {
 }
 
 export type InventoryDetailLookupResult = {
+  matched_product: boolean
   product_code: string | null
   product_name: string | null
   color_spec: string | null
@@ -2083,6 +2084,11 @@ export function listSuppliers(params?: {
   })
   if (params.query) search.set("query", params.query)
   if (params.brand) search.set("brand", params.brand)
+  return request<SupplierListResponse>(`/suppliers?${search.toString()}`)
+}
+
+export function listSuppliersByBrand(brand: ProductArchiveRecordBrandKey) {
+  const search = new URLSearchParams({ brand })
   return request<SupplierListResponse>(`/suppliers?${search.toString()}`)
 }
 

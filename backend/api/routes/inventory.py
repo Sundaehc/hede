@@ -2771,9 +2771,11 @@ def _build_purchase_detail_lookup(connection, product_code: str, quantity: Decim
             if matched_fallback is None:
                 matched_fallback = item
             if item.get("size_labels") or item.get("size_range"):
+                item["matched_product"] = True
                 item.pop("_matched_product", None)
                 return item
     item = matched_fallback or fallback or _build_purchase_detail_lookup_for_brand(connection, product_code, quantity, "cbanner_mens")
+    item["matched_product"] = _lookup_has_product_data(item)
     item.pop("_matched_product", None)
     return item
 

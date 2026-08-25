@@ -15,8 +15,8 @@ import {
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select } from "@/components/ui/select"
-import { ApiError, createProduct, listProductColorBarcodes, listSizeGroups, lookupImage, updateProduct } from "@/lib/api"
-import { PRODUCT_ARCHIVE_BRANDS, type BrandKey, type ProductArchiveBrand, type ProductArchiveRecordBrandKey } from "@/lib/brands"
+import { ApiError, createProduct, listProductColorBarcodes, listSizeGroups, listSuppliersByBrand, lookupImage, updateProduct, type SupplierItem } from "@/lib/api"
+import { PRODUCT_ARCHIVE_BRANDS, type ProductArchiveBrand, type ProductArchiveRecordBrandKey } from "@/lib/brands"
 import { ALL_PRODUCT_FIELDS, BARCODE_BUILD_RULE_OPTIONS, FIELD_LABELS, SEASON_OPTIONS, getProductFieldGroups, getProductFieldLabel } from "@/lib/fields"
 import type { ImageLookupStatusState, ProductColorBarcodeItem, ProductFormValues, ProductListItem, ProductMutationPayload, SizeGroup } from "@/lib/types"
 import { cn } from "@/lib/utils"
@@ -38,12 +38,25 @@ function makeEmptyForm(): Record<string, string> {
 
 const EMPTY_FORM: ProductFormValues = { brand: "", ...makeEmptyForm() } as ProductFormValues
 
+function colorNameVariants(value: string) {
+  const normalized = value.trim()
+  if (!normalized) return new Set<string>()
+  const withoutBrandSuffix = normalized.replace(/\s*[（(]\s*笑脸\s*[）)]\s*$/u, "").trim()
+  const baseNames = new Set([normalized, withoutBrandSuffix].filter(Boolean))
+  const variants = new Set<string>()
+  baseNames.forEach((baseName) => {
+    variants.add(baseName)
+    variants.add(baseName.endsWith("色") ? baseName.slice(0, -1) : `${baseName}色`)
+  })
+  return variants
+}
+
 function findUniqueColorCode(colorName: string, options: ProductColorBarcodeItem[]) {
-  const normalizedName = colorName.trim()
-  if (!normalizedName) return ""
+  const targetNames = colorNameVariants(colorName)
+  if (targetNames.size === 0) return ""
   const codes = new Set(
     options
-      .filter((option) => option.color_name.trim() === normalizedName)
+      .filter((option) => Array.from(colorNameVariants(option.color_name)).some((name) => targetNames.has(name)))
       .map((option) => option.color_code),
   )
   return codes.size === 1 ? Array.from(codes)[0] : ""
@@ -188,6 +201,136 @@ function ColorCodeSearchSelect({ disabled, id, isLoading, onChange, options, val
   )
 }
 
+type SupplierSearchSelectProps = {
+  disabled: boolean
+  id: string
+  isLoading: boolean
+  onChange: (value: string) => void
+  options: SupplierItem[]
+  value: string
+}
+
+function SupplierSearchSelect({ disabled, id, isLoading, onChange, options, value }: SupplierSearchSelectProps) {
+  const listboxId = useId()
+  const inputRef = useRef<HTMLInputElement>(null)
+  const rootRef = useRef<HTMLDivElement>(null)
+  const [isOpen, setIsOpen] = useState(false)
+  const [query, setQuery] = useState("")
+
+  const selected = options.find((option) => option.name === value)
+  const normalizedQuery = query.trim().toLowerCase()
+  const visibleOptions = (normalizedQuery
+    ? options.filter((option) => `${option.name} ${option.factory_code || ""}`.toLowerCase().includes(normalizedQuery))
+    : options
+  ).slice(0, 80)
+
+  useEffect(() => {
+    if (!isOpen) return
+
+    const handlePointerDown = (event: MouseEvent | TouchEvent) => {
+      if (rootRef.current?.contains(event.target as Node)) return
+      setIsOpen(false)
+      setQuery("")
+    }
+
+    document.addEventListener("mousedown", handlePointerDown)
+    document.addEventListener("touchstart", handlePointerDown)
+    return () => {
+      document.removeEventListener("mousedown", handlePointerDown)
+      document.removeEventListener("touchstart", handlePointerDown)
+    }
+  }, [isOpen])
+
+  const handleSelect = (nextValue: string) => {
+    onChange(nextValue)
+    setIsOpen(false)
+    setQuery("")
+    inputRef.current?.blur()
+  }
+
+  return (
+    <div ref={rootRef} className="relative">
+      <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+      <Input
+        id={id}
+        ref={inputRef}
+        role="combobox"
+        aria-expanded={isOpen}
+        aria-controls={listboxId}
+        aria-autocomplete="list"
+        value={isOpen ? query : selected?.name || value}
+        placeholder={isLoading ? "供应商加载中..." : "搜索供应商/工厂代码"}
+        disabled={disabled}
+        onFocus={() => {
+          if (disabled) return
+          setQuery("")
+          setIsOpen(true)
+        }}
+        onChange={(event) => {
+          setQuery(event.target.value)
+          setIsOpen(true)
+        }}
+        onKeyDown={(event) => {
+          if (event.key === "Escape") {
+            setIsOpen(false)
+            setQuery("")
+            inputRef.current?.blur()
+            return
+          }
+          if (event.key === "Enter" && isOpen && visibleOptions.length > 0) {
+            event.preventDefault()
+            handleSelect(visibleOptions[0].name)
+          }
+        }}
+        className="px-8"
+        autoComplete="off"
+        spellCheck={false}
+      />
+      {value && !disabled ? (
+        <button
+          type="button"
+          aria-label="清空供应商"
+          onMouseDown={(event) => event.preventDefault()}
+          onClick={() => handleSelect("")}
+          className="absolute right-1.5 top-1/2 inline-flex h-6 w-6 -translate-y-1/2 cursor-pointer items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground"
+        >
+          <X className="h-3.5 w-3.5" />
+        </button>
+      ) : null}
+
+      {isOpen ? (
+        <div id={listboxId} role="listbox" className="absolute z-50 mt-1 max-h-64 w-full overflow-y-auto rounded-lg border border-border bg-popover py-1 text-sm shadow-lg">
+          {visibleOptions.length > 0 ? visibleOptions.map((option) => (
+            <button
+              key={option.id}
+              type="button"
+              role="option"
+              aria-selected={option.name === value}
+              onMouseDown={(event) => {
+                event.preventDefault()
+                handleSelect(option.name)
+              }}
+              className={cn(
+                "flex w-full cursor-pointer items-center gap-2 px-3 py-2 text-left hover:bg-muted focus-visible:bg-muted focus-visible:outline-none",
+                option.name === value && "bg-muted",
+              )}
+            >
+              <span className="min-w-0 flex-1 truncate font-medium text-foreground">{option.name}</span>
+              {option.factory_code ? <span className="shrink-0 text-xs text-muted-foreground">{option.factory_code}</span> : null}
+              <Check className={cn("h-4 w-4 shrink-0", option.name === value ? "opacity-100" : "opacity-0")} />
+            </button>
+          )) : (
+            <div className="px-3 py-2 text-muted-foreground">该品牌暂无匹配供应商</div>
+          )}
+          {normalizedQuery && visibleOptions.length === 80 ? (
+            <div className="border-t border-border px-3 py-2 text-xs text-muted-foreground">结果较多，请继续输入缩小范围</div>
+          ) : null}
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
 function getErrorMessage(error: unknown) {
   if (error instanceof ApiError) {
     return error.message || `请求失败（${error.status}）`
@@ -252,6 +395,8 @@ export function ProductFormDialog({ brands = PRODUCT_ARCHIVE_BRANDS, item, mode,
   const [lookupStatus, setLookupStatus] = useState<ImageLookupStatusState>({ status: "idle", message: null })
   const [colorBarcodeOptions, setColorBarcodeOptions] = useState<ProductColorBarcodeItem[]>([])
   const [isLoadingColorBarcodes, setIsLoadingColorBarcodes] = useState(false)
+  const [supplierOptions, setSupplierOptions] = useState<SupplierItem[]>([])
+  const [isLoadingSuppliers, setIsLoadingSuppliers] = useState(false)
   const autoMatchedColorCodeRef = useRef("")
   const [sizeGroups, setSizeGroups] = useState<SizeGroup[]>([])
   const [isLoadingSizeGroups, setIsLoadingSizeGroups] = useState(false)
@@ -275,7 +420,7 @@ export function ProductFormDialog({ brands = PRODUCT_ARCHIVE_BRANDS, item, mode,
       return
     }
 
-    if (values.brand === "smiley" || values.brand === "ni") {
+    if (values.brand === "ni") {
       setColorBarcodeOptions([])
       setIsLoadingColorBarcodes(false)
       return
@@ -284,7 +429,7 @@ export function ProductFormDialog({ brands = PRODUCT_ARCHIVE_BRANDS, item, mode,
     let cancelled = false
     setIsLoadingColorBarcodes(true)
 
-    listProductColorBarcodes(values.brand as Exclude<BrandKey, "all">)
+    listProductColorBarcodes(values.brand)
       .then((response) => {
         if (!cancelled) {
           setColorBarcodeOptions(response.items)
@@ -299,6 +444,31 @@ export function ProductFormDialog({ brands = PRODUCT_ARCHIVE_BRANDS, item, mode,
         if (!cancelled) {
           setIsLoadingColorBarcodes(false)
         }
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [open, values.brand])
+
+  useEffect(() => {
+    if (!open || !values.brand) {
+      setSupplierOptions([])
+      setIsLoadingSuppliers(false)
+      return
+    }
+
+    let cancelled = false
+    setIsLoadingSuppliers(true)
+    listSuppliersByBrand(values.brand)
+      .then((response) => {
+        if (!cancelled) setSupplierOptions(response.items)
+      })
+      .catch(() => {
+        if (!cancelled) setSupplierOptions([])
+      })
+      .finally(() => {
+        if (!cancelled) setIsLoadingSuppliers(false)
       })
 
     return () => {
@@ -366,6 +536,7 @@ export function ProductFormDialog({ brands = PRODUCT_ARCHIVE_BRANDS, item, mode,
         ...current,
         brand: nextValue as ProductArchiveRecordBrandKey | "",
         ...(shouldClearAutoMatchedCode ? { color_code: "" } : {}),
+        ...(current.brand !== nextValue ? { supplier_name: "" } : {}),
       }))
       setBrandError(null)
       return
@@ -609,6 +780,15 @@ export function ProductFormDialog({ brands = PRODUCT_ARCHIVE_BRANDS, item, mode,
                                   <option key={group.id} value={group.name}>{group.name}</option>
                                 ))}
                               </Select>
+                            ) : field === "supplier_name" ? (
+                              <SupplierSearchSelect
+                                id={`product-form-${field}`}
+                                value={values.supplier_name}
+                                options={supplierOptions}
+                                isLoading={isLoadingSuppliers}
+                                disabled={!values.brand || isLoadingSuppliers}
+                                onChange={(nextValue) => handleFieldChange("supplier_name", nextValue)}
+                              />
                             ) : field === "first_order_time" || field === "launch_date" ? (
                               <Input
                                 id={`product-form-${field}`}

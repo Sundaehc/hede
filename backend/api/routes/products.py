@@ -12,7 +12,7 @@ from api.operation_log_utils import (
 )
 from api.fine_table_cache import clear_fine_table_cache
 from api.product_goods_cache import clear_product_goods_cache
-from api.schemas import BatchDeleteRequest, BrandKey, ProductArchiveBrandKey, ProductWriteRequest
+from api.schemas import BatchDeleteRequest, ProductArchiveBrandKey, ProductWriteRequest
 
 from sqlalchemy import distinct as sa_distinct, select as sa_select
 
@@ -27,6 +27,7 @@ PRODUCT_COLOR_BARCODE_BRANDS = {
     "cbanner_womens": "cbanner_womens",
     "yandou": "cbanner_mens",
     "eblan": "cbanner_mens",
+    "smiley": "smiley",
     "ni": "ni",
 }
 from transform.rows import build_admin_record, filter_extra_fields
@@ -137,7 +138,7 @@ def get_product_years(request: Request, brand: str):
 
 
 @router.get("/products/color-barcodes")
-def list_product_color_barcodes(request: Request, brand: BrandKey):
+def list_product_color_barcodes(request: Request, brand: ProductArchiveBrandKey):
     source_brand = PRODUCT_COLOR_BARCODE_BRANDS.get(brand)
     if source_brand is None:
         raise HTTPException(status_code=400, detail=f"Invalid brand: {brand}")

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from collections import defaultdict
 from collections.abc import Mapping
 from decimal import Decimal
@@ -37,6 +38,7 @@ PRODUCT_COLOR_BARCODE_SOURCE_BRANDS = {
     "cbanner_womens": "cbanner_womens",
     "yandou": "cbanner_mens",
     "eblan": "cbanner_mens",
+    "smiley": "smiley",
     "ni": "ni",
 }
 COMBINED_FOOTWEAR_PRICE_SOURCE_MARKER = "男女鞋合并物价"
@@ -75,11 +77,17 @@ def _color_name_variants(value: object) -> set[str]:
     normalized = _normalize_code(value)
     if not normalized:
         return set()
-    variants = {normalized}
-    if normalized.endswith("色") and len(normalized) > 1:
-        variants.add(normalized[:-1])
-    else:
-        variants.add(f"{normalized}色")
+    base_names = {normalized}
+    without_brand_suffix = re.sub(r"\s*[（(]\s*笑脸\s*[）)]\s*$", "", normalized).strip()
+    if without_brand_suffix:
+        base_names.add(without_brand_suffix)
+    variants: set[str] = set()
+    for base_name in base_names:
+        variants.add(base_name)
+        if base_name.endswith("色") and len(base_name) > 1:
+            variants.add(base_name[:-1])
+        else:
+            variants.add(f"{base_name}色")
     return variants
 
 

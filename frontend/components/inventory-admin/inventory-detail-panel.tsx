@@ -279,6 +279,7 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
   const purchaseQuantityInputRef = useRef<HTMLInputElement>(null)
   const [isLookupLoading, setIsLookupLoading] = useState(false)
   const [lookupToken, setLookupToken] = useState(0)
+  const lookupInputVersionRef = useRef(0)
   const lookupSourceCodeRef = useRef("")
   const lookupReasonRef = useRef<"code" | "quantity">("code")
   const productCodeRootRef = useRef<HTMLDivElement>(null)
@@ -380,6 +381,7 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
     setPurchaseSizeRange("")
     setPurchaseSizeColumns([])
     setLookupToken(0)
+    lookupInputVersionRef.current += 1
     lookupSourceCodeRef.current = ""
     setProductCandidates([])
     setCandidateOpen(false)
@@ -412,6 +414,7 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
         : normalizeSizeQuantitiesForBrand(item.size_quantities, inventorySizeBrand),
     )
     setLookupToken(0)
+    lookupInputVersionRef.current += 1
     lookupSourceCodeRef.current = item.product_code || ""
     setProductCandidates([])
     setCandidateOpen(false)
@@ -420,6 +423,7 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
 
   const handleProductCodeInput = (value: string, options: { resetPurchaseFields: boolean }) => {
     const { resetPurchaseFields } = options
+    lookupInputVersionRef.current += 1
     lookupSourceCodeRef.current = value
     lookupReasonRef.current = "code"
     setLookupToken((token) => token + 1)
@@ -513,6 +517,7 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
       setSizeQuantities({})
       return
     }
+    const inputVersion = lookupInputVersionRef.current
     const controller = new AbortController()
     const timer = window.setTimeout(async () => {
       setIsLookupLoading(true)
@@ -522,7 +527,12 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
           quantity: formData.quantity || undefined,
           brand: inventorySizeBrand,
         })
-        if (controller.signal.aborted) return
+        if (
+          controller.signal.aborted
+          || inputVersion !== lookupInputVersionRef.current
+          || productCode !== lookupSourceCodeRef.current.trim()
+          || !res.item.matched_product
+        ) return
         const item = res.item
         const lookupSizeColumns = sortPurchaseSizeLabels(item.size_labels || [])
         const resolvedPurchaseSizeColumns = lookupSizeColumns.length
@@ -530,18 +540,24 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
           : sortPurchaseSizeLabels(Object.keys(item.size_quantities || {}))
         setPurchaseSizeRange(item.size_range || "")
         setPurchaseSizeColumns(resolvedPurchaseSizeColumns)
-        setFormData((prev) => ({
-          ...prev,
-          product_code: item.product_code || prev.product_code,
-          product_name: item.product_name || prev.product_name,
-          color_spec: item.color_spec || prev.color_spec,
-          color_barcode: item.color_barcode || prev.color_barcode,
-          color_name: item.color_name || prev.color_name,
-          ...(item.extra_fields || {}),
-          inner_color_code: isPurchaseOrder ? item.extra_fields?.inner_color_code || "" : prev.inner_color_code,
-          unit_price: item.unit_price || prev.unit_price,
-          amount: item.amount || prev.amount,
-        }))
+        setFormData((prev) => {
+          if (
+            inputVersion !== lookupInputVersionRef.current
+            || (prev.product_code || "").trim() !== productCode
+          ) return prev
+          return {
+            ...prev,
+            product_code: item.product_code || prev.product_code,
+            product_name: item.product_name || prev.product_name,
+            color_spec: item.color_spec || prev.color_spec,
+            color_barcode: item.color_barcode || prev.color_barcode,
+            color_name: item.color_name || prev.color_name,
+            ...(item.extra_fields || {}),
+            inner_color_code: isPurchaseOrder ? item.extra_fields?.inner_color_code || "" : prev.inner_color_code,
+            unit_price: item.unit_price || prev.unit_price,
+            amount: item.amount || prev.amount,
+          }
+        })
         setSizeQuantities((prev) => {
           const next = item.size_quantities || {}
           if (Object.keys(next).length > 0) {

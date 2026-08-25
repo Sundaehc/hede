@@ -6,10 +6,11 @@ import { ProductFormDialog } from "@/components/product-admin/product-form-dialo
 import { ApiError } from "@/lib/api"
 import type { ProductListItem } from "@/lib/types"
 
-const { mockCreateProduct, mockListProductColorBarcodes, mockListSizeGroups, mockLookupImage, mockUpdateProduct } = vi.hoisted(() => ({
+const { mockCreateProduct, mockListProductColorBarcodes, mockListSizeGroups, mockListSuppliersByBrand, mockLookupImage, mockUpdateProduct } = vi.hoisted(() => ({
   mockCreateProduct: vi.fn(),
   mockListProductColorBarcodes: vi.fn(),
   mockListSizeGroups: vi.fn(),
+  mockListSuppliersByBrand: vi.fn(),
   mockLookupImage: vi.fn(),
   mockUpdateProduct: vi.fn(),
 }))
@@ -22,6 +23,7 @@ vi.mock("@/lib/api", async () => {
     createProduct: mockCreateProduct,
     listProductColorBarcodes: mockListProductColorBarcodes,
     listSizeGroups: mockListSizeGroups,
+    listSuppliersByBrand: mockListSuppliersByBrand,
     lookupImage: mockLookupImage,
     updateProduct: mockUpdateProduct,
   }
@@ -123,11 +125,13 @@ describe("ProductFormDialog", () => {
     mockCreateProduct.mockReset()
     mockListProductColorBarcodes.mockReset()
     mockListSizeGroups.mockReset()
+    mockListSuppliersByBrand.mockReset()
     mockLookupImage.mockReset()
     mockUpdateProduct.mockReset()
     mockCreateProduct.mockResolvedValue({ item: sampleItem, message: "created" })
     mockListProductColorBarcodes.mockResolvedValue({ items: [] })
     mockListSizeGroups.mockResolvedValue({ items: [] })
+    mockListSuppliersByBrand.mockResolvedValue({ items: [], total: 0, page: 1, page_size: 0 })
     mockUpdateProduct.mockResolvedValue({ item: sampleItem, message: "updated" })
   })
 
@@ -283,5 +287,43 @@ describe("ProductFormDialog", () => {
     await waitFor(() => {
       expect(screen.getByLabelText("颜色代码")).toHaveValue("01 - 黑色")
     })
+  })
+
+  it("auto-fills a smiley color code when the mapping has a brand suffix", async () => {
+    const user = userEvent.setup()
+    mockListProductColorBarcodes.mockResolvedValue({
+      items: [{ brand: "smiley", color_code: "0100", color_name: "黑色（笑脸）" }],
+    })
+
+    render(<ProductFormDialog open mode="create" onOpenChange={vi.fn()} onSaved={vi.fn()} />)
+
+    await user.selectOptions(screen.getByLabelText("品牌"), "smiley")
+    await user.type(screen.getByLabelText("颜色"), "黑色")
+
+    await waitFor(() => {
+      expect(mockListProductColorBarcodes).toHaveBeenCalledWith("smiley")
+      expect(screen.getByLabelText("颜色代码")).toHaveValue("0100 - 黑色（笑脸）")
+    })
+  })
+
+  it("lists suppliers for the selected brand and saves the selected name", async () => {
+    const user = userEvent.setup()
+    mockListSuppliersByBrand.mockResolvedValue({
+      items: [
+        { id: 8, brand: "smiley", name: "笑脸测试供应商", factory_code: "XL08", contact: null, wechat: null, cooperation_status: "合作中", address: null, notes: null },
+      ],
+      total: 1,
+      page: 1,
+      page_size: 1,
+    })
+
+    render(<ProductFormDialog open mode="create" onOpenChange={vi.fn()} onSaved={vi.fn()} />)
+
+    await user.selectOptions(screen.getByLabelText("品牌"), "smiley")
+    await waitFor(() => expect(mockListSuppliersByBrand).toHaveBeenCalledWith("smiley"))
+    await user.click(screen.getByLabelText("供应商名"))
+    await user.click(await screen.findByRole("option", { name: /笑脸测试供应商/ }))
+
+    expect(screen.getByLabelText("供应商名")).toHaveValue("笑脸测试供应商")
   })
 })

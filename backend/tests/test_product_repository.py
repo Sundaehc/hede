@@ -37,6 +37,16 @@ def test_product_cost_lookup_uses_preset_price_for_every_brand(monkeypatch):
     assert [item["cost"] for item in items] == [Decimal("88.00"), Decimal("99.00")]
 
 
+def test_smiley_color_name_variants_match_names_without_brand_suffix():
+    variants = product_repository_module._color_name_variants("黑色（笑脸）")
+
+    assert {"黑色（笑脸）", "黑色", "黑"}.issubset(variants)
+    codes = product_repository_module._unique_color_codes([
+        {"color_name": "黑色（笑脸）", "color_barcode": "0100"},
+    ])
+    assert codes["黑色"] == "0100"
+
+
 def test_list_products_returns_paginated_items_filtered_by_original_sku_in_desc_id_order(
     repository: ProductRepository,
 ):

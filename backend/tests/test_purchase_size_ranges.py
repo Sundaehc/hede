@@ -45,6 +45,7 @@ def test_purchase_detail_lookup_checks_other_product_archives_for_size_range(mon
     item = inventory._build_purchase_detail_lookup(None, "SKU-001", Decimal("0"), "cbanner_mens")
 
     assert "eblan" in calls
+    assert item["matched_product"] is True
     assert item["size_range"] == "38-43"
     assert item["size_labels"] == ["38", "39", "40", "41", "42", "43"]
 
@@ -67,6 +68,7 @@ def test_purchase_detail_lookup_checks_smiley_archive_when_brand_is_unknown(monk
     item = inventory._build_purchase_detail_lookup(None, "6975771256717", Decimal("0"), "cbanner_mens")
 
     assert "smiley" in calls
+    assert item["matched_product"] is True
     assert item["size_range"] == "笑脸男鞋尺码组38-44"
     assert item["size_labels"] == ["38", "39", "40", "41", "42", "43", "44"]
 
@@ -89,5 +91,23 @@ def test_purchase_detail_lookup_checks_ni_archive_when_brand_is_unknown(monkeypa
     item = inventory._build_purchase_detail_lookup(None, "NI-001", Decimal("0"), "cbanner_mens")
 
     assert "ni" in calls
+    assert item["matched_product"] is True
     assert item["size_range"] == "NI尺码组35-40"
     assert item["size_labels"] == ["35", "36", "37", "38", "39", "40"]
+
+
+def test_purchase_detail_lookup_marks_unmatched_partial_code(monkeypatch):
+    def fake_lookup(_connection, product_code, _quantity, _brand):
+        return {
+            "product_code": product_code[:-2],
+            "size_range": None,
+            "size_labels": [],
+            "_matched_product": False,
+        }
+
+    monkeypatch.setattr(inventory, "_build_purchase_detail_lookup_for_brand", fake_lookup)
+
+    item = inventory._build_purchase_detail_lookup(None, "SKU-PARTIAL35", Decimal("0"), "cbanner_mens")
+
+    assert item["matched_product"] is False
+    assert item["product_code"] == "SKU-PARTIAL"
