@@ -79,11 +79,13 @@ export function SearchableFilterInput({
         onKeyDown={(event) => {
           if (event.key === "Enter") {
             event.preventDefault()
-            if (visibleOptions.length === 1) {
+            if (onSubmit) {
+              setOpen(false)
+              onSubmit()
+            } else if (visibleOptions.length === 1) {
               selectValue(visibleOptions[0].value)
             } else {
               setOpen(false)
-              onSubmit?.()
             }
           }
           if (event.key === "Escape") {

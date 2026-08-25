@@ -1735,7 +1735,13 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
                   </Tabs>
                 </div>
               )}
-              <div className="surface-panel relative z-30 p-4">
+              <form
+                className="surface-panel relative z-30 p-4"
+                onSubmit={(event) => {
+                  event.preventDefault()
+                  search()
+                }}
+              >
                 <div className="grid gap-3 xl:grid-cols-[1fr_auto] xl:items-end">
                   <div className="grid gap-3 lg:grid-cols-12">
                     <div className="space-y-1.5 lg:col-span-6 xl:col-span-5">
@@ -1808,22 +1814,22 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
                     </div>
                   </div>
                   <div className="flex flex-wrap gap-2 xl:justify-end">
-                    <Button size="sm" onClick={search} disabled={isLoading} className="cursor-pointer">
+                    <Button type="submit" size="sm" disabled={isLoading} className="cursor-pointer">
                       <Search className="h-4 w-4" />
                       <span className="ml-1.5">搜索</span>
                     </Button>
                     {hasFilters && (
-                      <Button variant="outline" size="sm" onClick={clearSearch} className="cursor-pointer">
+                      <Button type="button" variant="outline" size="sm" onClick={clearSearch} className="cursor-pointer">
                         <X className="h-4 w-4" />
                         <span className="ml-1.5">清空</span>
                       </Button>
                     )}
-                    <Button variant="outline" size="sm" onClick={() => setReloadToken((t) => t + 1)} disabled={isLoading} className="cursor-pointer">
+                    <Button type="button" variant="outline" size="sm" onClick={() => setReloadToken((t) => t + 1)} disabled={isLoading} className="cursor-pointer">
                       <RefreshCw className={`h-4 w-4 ${isLoading ? "animate-spin" : ""}`} />
                     </Button>
                   </div>
                 </div>
-              </div>
+              </form>
 
               {/* Selection & Summary Bar */}
               <div className="flex flex-col gap-2 text-sm text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
