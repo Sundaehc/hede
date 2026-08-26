@@ -444,6 +444,53 @@ def test_import_products_updates_by_original_sku_without_clearing_blank_cells(
     assert listing["total"] == 1
 
 
+def test_import_products_restores_recycled_product_with_the_same_sku(
+    test_app_client: TestClient,
+    repository,
+):
+    existing = repository.create_product(
+        "cbanner_mens",
+        build_admin_record(
+            "cbanner_mens",
+            {
+                "sku": "RECYCLED-IMPORT-001",
+                "original_sku": "RECYCLED-IMPORT-001",
+                "color": "黑色",
+            },
+        ),
+    )
+    assert repository.delete_product("cbanner_mens", existing["id"]) is True
+
+    workbook = Workbook()
+    worksheet = workbook.active
+    worksheet.append(["货号", "原始货号", "颜色"])
+    worksheet.append(["RECYCLED-IMPORT-001", "RECYCLED-IMPORT-001", "白色"])
+    buffer = io.BytesIO()
+    workbook.save(buffer)
+    buffer.seek(0)
+
+    response = test_app_client.post(
+        "/import",
+        params={"brand": "cbanner_mens"},
+        files={
+            "file": (
+                "restore-recycled-product.xlsx",
+                buffer.getvalue(),
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            ),
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["created"] == 0
+    assert response.json()["updated"] == 1
+    restored = repository.get_product("cbanner_mens", existing["id"])
+    assert restored is not None
+    assert restored["color"] == "白色"
+    assert restored["deleted_at"] is None
+    assert repository.list_recycled_products(brand="cbanner_mens", page=1, page_size=10)["total"] == 0
+
+
 def test_import_products_keeps_distinct_skus_with_shared_original_sku(
     test_app_client: TestClient,
     repository,

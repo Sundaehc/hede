@@ -18,6 +18,7 @@ from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.datavalidation import DataValidation
 from sqlalchemy import and_, desc, or_, select
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 
 from api.excel_export import DEFAULT_WIDTH_BY_HEADER, style_excel_worksheet
 from api.fine_table_cache import clear_fine_table_cache
@@ -1432,9 +1433,19 @@ async def import_products(
                         status_code=400,
                         detail=f"第 {row_number} 行导入失败：货号 {display_sku} 未填写条码构成逻辑",
                     )
-                existing = repository.find_by_sku(brand, sku_val, connection=connection) if sku_val else None
+                existing = repository.find_by_sku(
+                    brand,
+                    sku_val,
+                    connection=connection,
+                    include_deleted=True,
+                ) if sku_val else None
                 if existing is None and original_sku_val and not has_explicit_sku:
-                    existing = repository.find_by_original_sku(brand, original_sku_val, connection=connection)
+                    existing = repository.find_by_original_sku(
+                        brand,
+                        original_sku_val,
+                        connection=connection,
+                        include_deleted=True,
+                    )
                 if sku_val:
                     imported_skus.append(sku_val)
 
@@ -1486,7 +1497,13 @@ async def import_products(
                         "source_row_number": existing["source_row_number"],
                     })
                     _validate_import_size_group(repository, record.get("size_range"))
-                    saved_item = repository.update_product(brand, existing["id"], record, connection=connection)
+                    saved_item = repository.update_product(
+                        brand,
+                        existing["id"],
+                        record,
+                        connection=connection,
+                        restore_deleted=existing.get("deleted_at") is not None,
+                    )
                     if saved_item is not None:
                         imported_product_ids.append(int(saved_item["id"]))
                     updated_items.append(import_log_item(saved_item or existing, sku_val or original_sku_val))
@@ -1499,7 +1516,25 @@ async def import_products(
                     created_items.append(import_log_item(saved_item, sku_val or original_sku_val))
                     created += 1
             except HTTPException as error:
-                raise HTTPException(status_code=error.status_code, detail=f"第 {row_number} 行导入失败：{error.detail}") from error
+                row_prefix = f"第 {row_number} 行导入失败："
+                detail = str(error.detail)
+                raise HTTPException(
+                    status_code=error.status_code,
+                    detail=detail if detail.startswith(row_prefix) else f"{row_prefix}{detail}",
+                ) from error
+            except IntegrityError as error:
+                logger.exception("Product import constraint violation at row %s", row_number)
+                display_sku = str(payload.get("sku") or payload.get("original_sku") or "未填写货号").strip()
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"第 {row_number} 行导入失败：货号 {display_sku} 已存在或与现有商品冲突",
+                ) from error
+            except SQLAlchemyError as error:
+                logger.exception("Product import database error at row %s", row_number)
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"第 {row_number} 行导入失败：数据库写入失败，请检查该行字段后重试",
+                ) from error
             except Exception as error:
                 raise HTTPException(status_code=400, detail=f"第 {row_number} 行导入失败：{error}") from error
 

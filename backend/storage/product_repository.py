@@ -568,14 +568,22 @@ class ProductRepository:
         with self.engine.begin() as active_connection:
             mark_imported(active_connection)
 
-    def find_by_sku(self, brand: str, sku: object, *, connection=None) -> dict[str, object] | None:
+    def find_by_sku(
+        self,
+        brand: str,
+        sku: object,
+        *,
+        connection=None,
+        include_deleted: bool = False,
+    ) -> dict[str, object] | None:
         table = self._table_for_brand(brand)
         statement = (
             select(table)
             .where(table.c.sku == str(sku))
-            .where(table.c.deleted_at.is_(None))
             .where(not_excluded_sku_condition(table.c.sku, table.c.original_sku))
         )
+        if not include_deleted:
+            statement = statement.where(table.c.deleted_at.is_(None))
         if connection is not None:
             row = connection.execute(statement).mappings().first()
         else:
@@ -583,14 +591,23 @@ class ProductRepository:
                 row = active_connection.execute(statement).mappings().first()
         return None if row is None else dict(row)
 
-    def find_by_original_sku(self, brand: str, original_sku: object, *, connection=None) -> dict[str, object] | None:
+    def find_by_original_sku(
+        self,
+        brand: str,
+        original_sku: object,
+        *,
+        connection=None,
+        include_deleted: bool = False,
+    ) -> dict[str, object] | None:
         table = self._table_for_brand(brand)
         statement = (
             select(table)
             .where(table.c.original_sku == str(original_sku))
-            .where(table.c.deleted_at.is_(None))
             .where(not_excluded_sku_condition(table.c.sku, table.c.original_sku))
+            .order_by(table.c.deleted_at.is_not(None), desc(table.c.id))
         )
+        if not include_deleted:
+            statement = statement.where(table.c.deleted_at.is_(None))
         if connection is not None:
             row = connection.execute(statement).mappings().first()
         else:
@@ -637,16 +654,17 @@ class ProductRepository:
         record: Mapping[str, object],
         *,
         connection=None,
+        restore_deleted: bool = False,
     ) -> dict[str, object] | None:
         table = self._table_for_brand(brand)
         payload = self._prepare_record(record, brand=brand)
         payload.pop("id", None)
-        statement = (
-            update(table)
-            .where(table.c.id == product_id, table.c.deleted_at.is_(None))
-            .values(**payload)
-            .returning(table)
-        )
+        if restore_deleted:
+            payload["deleted_at"] = None
+        statement = update(table).where(table.c.id == product_id)
+        if not restore_deleted:
+            statement = statement.where(table.c.deleted_at.is_(None))
+        statement = statement.values(**payload).returning(table)
         if connection is not None:
             row = connection.execute(statement).mappings().first()
             return None if row is None else dict(row)
