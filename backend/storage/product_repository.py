@@ -100,18 +100,39 @@ def _chunk_codes(codes: set[str]) -> list[list[str]]:
 
 
 def _unique_color_codes(rows: list[Mapping[str, object]]) -> dict[str, str]:
+    exact_codes_by_name: dict[str, set[str]] = defaultdict(set)
     codes_by_name: dict[str, set[str]] = defaultdict(set)
+    for row in rows:
+        color_code = _normalize_code(row.get("color_barcode"))
+        exact_color_name = _normalize_code(row.get("color_name"))
+        if not color_code:
+            continue
+        if exact_color_name:
+            exact_codes_by_name[exact_color_name].add(color_code)
+        for color_name in _color_name_variants(row.get("color_name")):
+            codes_by_name[color_name].add(color_code)
+
+    resolved: dict[str, str] = {}
+    for color_name, codes in codes_by_name.items():
+        exact_codes = exact_codes_by_name.get(color_name)
+        if exact_codes:
+            if len(exact_codes) == 1:
+                resolved[color_name] = next(iter(exact_codes))
+            continue
+        if len(codes) == 1:
+            resolved[color_name] = next(iter(codes))
+    return resolved
+
+
+def _color_code_candidates(rows: list[Mapping[str, object]]) -> dict[str, set[str]]:
+    candidates: dict[str, set[str]] = defaultdict(set)
     for row in rows:
         color_code = _normalize_code(row.get("color_barcode"))
         if not color_code:
             continue
         for color_name in _color_name_variants(row.get("color_name")):
-            codes_by_name[color_name].add(color_code)
-    return {
-        color_name: next(iter(codes))
-        for color_name, codes in codes_by_name.items()
-        if len(codes) == 1
-    }
+            candidates[color_name].add(color_code)
+    return dict(candidates)
 
 
 def _load_jst_product_costs(engine, codes: set[str]) -> dict[str, object]:
@@ -390,6 +411,231 @@ class ProductRepository:
 
     def clear_color_code_cache(self) -> None:
         self._color_code_cache.clear()
+
+    def sync_color_mapping_to_products(
+        self,
+        *,
+        source_brand: str,
+        color_name: str | None,
+        color_code: str | None,
+        previous_color_name: str | None = None,
+        previous_color_code: str | None = None,
+        remove: bool = False,
+        sync_color_name: bool = False,
+        connection=None,
+    ) -> dict[str, object]:
+        desired_name = _normalize_code(color_name)
+        desired_code = _normalize_code(color_code)
+        match_name = _normalize_code(previous_color_name if previous_color_name is not None else color_name)
+        match_code = _normalize_code(previous_color_code if previous_color_code is not None else color_code)
+        affected_names = _color_name_variants(match_name) | _color_name_variants(desired_name)
+        target_brands = [
+            brand
+            for brand, mapped_source_brand in PRODUCT_COLOR_BARCODE_SOURCE_BRANDS.items()
+            if mapped_source_brand == source_brand
+        ]
+        if source_brand not in PRODUCT_COLOR_BARCODE_SOURCE_BRANDS and self.is_product_archive_brand(source_brand):
+            target_brands.append(source_brand)
+
+        def apply(active_connection) -> dict[str, object]:
+            mapping_rows = [
+                dict(row)
+                for row in active_connection.execute(
+                    select(
+                        COLOR_BARCODE_TABLE.c.color_name,
+                        COLOR_BARCODE_TABLE.c.color_barcode,
+                    ).where(COLOR_BARCODE_TABLE.c.brand == source_brand)
+                ).mappings()
+            ]
+            resolved_codes = _unique_color_codes(mapping_rows)
+            previous_mapping_rows = list(mapping_rows)
+            if previous_color_name is not None or previous_color_code is not None:
+                previous_mapping_rows.append({
+                    "color_name": match_name,
+                    "color_barcode": match_code,
+                })
+            previous_resolved_codes = _unique_color_codes(previous_mapping_rows)
+            updated_by_brand: dict[str, int] = {}
+            ambiguous_by_brand: dict[str, int] = {}
+            for brand in dict.fromkeys(target_brands):
+                table = self._table_for_brand(brand)
+                if not affected_names and not match_code:
+                    updated_by_brand[brand] = 0
+                    ambiguous_by_brand[brand] = 0
+                    continue
+                conditions = [table.c.color.in_(affected_names)] if affected_names else []
+                if match_code:
+                    conditions.append(table.c.color_code == match_code)
+                rows = active_connection.execute(
+                    select(table.c.id, table.c.color, table.c.color_code).where(or_(*conditions))
+                ).mappings()
+                updates: list[dict[str, object]] = []
+                ambiguous = 0
+                for row in rows:
+                    current_name = _normalize_code(row.get("color"))
+                    current_code = _normalize_code(row.get("color_code"))
+                    linked_to_previous = bool(
+                        match_code
+                        and (
+                            current_code == match_code
+                            or (
+                                current_name == match_name
+                                and previous_resolved_codes.get(current_name) == match_code
+                            )
+                            or (
+                                not current_code
+                                and previous_resolved_codes.get(current_name) == match_code
+                            )
+                        )
+                    )
+
+                    next_name = current_name
+                    next_code = current_code
+                    if remove:
+                        if not linked_to_previous:
+                            continue
+                        next_code = ""
+                    elif previous_color_name is not None or previous_color_code is not None:
+                        if linked_to_previous:
+                            if sync_color_name and desired_name:
+                                next_name = desired_name
+                            next_code = desired_code
+                        else:
+                            resolved_code = resolved_codes.get(current_name)
+                            if resolved_code is None:
+                                ambiguous += 1
+                                continue
+                            next_code = resolved_code
+                    else:
+                        resolved_code = resolved_codes.get(current_name)
+                        if resolved_code is None:
+                            ambiguous += 1
+                            continue
+                        next_code = resolved_code
+
+                    if next_name == current_name and next_code == current_code:
+                        continue
+                    updates.append({
+                        "product_id": row["id"],
+                        "new_color": next_name,
+                        "new_color_code": next_code or None,
+                    })
+
+                if updates:
+                    active_connection.execute(
+                        update(table)
+                        .where(table.c.id == bindparam("product_id"))
+                        .values(
+                            color=bindparam("new_color"),
+                            color_code=bindparam("new_color_code"),
+                            updated_at=func.date_trunc("minute", func.now()),
+                        ),
+                        updates,
+                    )
+                updated_by_brand[brand] = len(updates)
+                ambiguous_by_brand[brand] = ambiguous
+            return {
+                "updated": sum(updated_by_brand.values()),
+                "brands": updated_by_brand,
+                "ambiguous": sum(ambiguous_by_brand.values()),
+                "ambiguous_brands": ambiguous_by_brand,
+            }
+
+        if connection is not None:
+            result = apply(connection)
+        else:
+            with self.engine.begin() as active_connection:
+                result = apply(active_connection)
+        self.clear_color_code_cache()
+        return result
+
+    def sync_all_color_mappings_to_products(self) -> dict[str, object]:
+        summary: dict[str, dict[str, object]] = {}
+        total_updated = 0
+        total_ambiguous = 0
+        with self.engine.begin() as connection:
+            rows = [
+                dict(row)
+                for row in connection.execute(
+                    select(
+                        COLOR_BARCODE_TABLE.c.brand,
+                        COLOR_BARCODE_TABLE.c.color_name,
+                        COLOR_BARCODE_TABLE.c.color_barcode,
+                    ).order_by(COLOR_BARCODE_TABLE.c.brand, COLOR_BARCODE_TABLE.c.id)
+                ).mappings()
+            ]
+            rows_by_source_brand: dict[str, list[dict[str, object]]] = defaultdict(list)
+            for row in rows:
+                rows_by_source_brand[_normalize_code(row.get("brand"))].append(row)
+
+            for source_brand, mapping_rows in rows_by_source_brand.items():
+                resolved_codes = _unique_color_codes(mapping_rows)
+                candidates = _color_code_candidates(mapping_rows)
+                updated_by_brand: dict[str, int] = {}
+                ambiguous_by_brand: dict[str, int] = {}
+                target_brands = [
+                    brand
+                    for brand, mapped_source_brand in PRODUCT_COLOR_BARCODE_SOURCE_BRANDS.items()
+                    if mapped_source_brand == source_brand
+                ]
+                if (
+                    source_brand not in PRODUCT_COLOR_BARCODE_SOURCE_BRANDS
+                    and self.is_product_archive_brand(source_brand)
+                ):
+                    target_brands.append(source_brand)
+
+                for brand in dict.fromkeys(target_brands):
+                    table = self._table_for_brand(brand)
+                    product_rows = connection.execute(
+                        select(table.c.id, table.c.color, table.c.color_code)
+                        .where(table.c.color.is_not(None))
+                        .where(table.c.color != "")
+                    ).mappings()
+                    updates: list[dict[str, object]] = []
+                    ambiguous = 0
+                    for product_row in product_rows:
+                        product_color = _normalize_code(product_row.get("color"))
+                        desired_product_code = resolved_codes.get(product_color)
+                        if desired_product_code is None:
+                            if product_color in candidates:
+                                ambiguous += 1
+                            continue
+                        if _normalize_code(product_row.get("color_code")) == desired_product_code:
+                            continue
+                        updates.append({
+                            "product_id": product_row["id"],
+                            "new_color_code": desired_product_code,
+                        })
+                    if updates:
+                        connection.execute(
+                            update(table)
+                            .where(table.c.id == bindparam("product_id"))
+                            .values(
+                                color_code=bindparam("new_color_code"),
+                                updated_at=func.date_trunc("minute", func.now()),
+                            ),
+                            updates,
+                        )
+                    updated_by_brand[brand] = len(updates)
+                    ambiguous_by_brand[brand] = ambiguous
+
+                source_updated = sum(updated_by_brand.values())
+                source_ambiguous = sum(ambiguous_by_brand.values())
+                summary[source_brand] = {
+                    "mappings": len(mapping_rows),
+                    "updated": source_updated,
+                    "ambiguous": source_ambiguous,
+                    "brands": updated_by_brand,
+                    "ambiguous_brands": ambiguous_by_brand,
+                }
+                total_updated += source_updated
+                total_ambiguous += source_ambiguous
+        self.clear_color_code_cache()
+        return {
+            "updated": total_updated,
+            "ambiguous": total_ambiguous,
+            "brands": summary,
+        }
 
     def backfill_missing_color_codes(self) -> dict[str, int]:
         updated_by_brand: dict[str, int] = {}

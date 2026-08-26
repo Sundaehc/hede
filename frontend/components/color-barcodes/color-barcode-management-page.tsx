@@ -182,12 +182,14 @@ export function ColorBarcodeManagementPage() {
     }
     setIsSaving(true)
     try {
-      if (editingItem) await updateColorBarcode(editingItem.id, payload)
-      else await createColorBarcode(payload)
+      const result = editingItem
+        ? await updateColorBarcode(editingItem.id, payload)
+        : await createColorBarcode(payload)
       setEditorOpen(false)
       await loadBrands()
       if (payload.brand !== selectedBrand) selectBrand(payload.brand)
       else await loadItems()
+      setMessage({ title: editingItem ? "保存成功" : "新增成功", description: result.message })
     } catch (error) {
       setMessage({ title: "保存失败", description: getErrorMessage(error) })
     } finally {
@@ -199,9 +201,10 @@ export function ColorBarcodeManagementPage() {
     if (!deleteTarget) return
     setIsDeleting(true)
     try {
-      await deleteColorBarcode(deleteTarget.id)
+      const result = await deleteColorBarcode(deleteTarget.id)
       setDeleteTarget(null)
       await Promise.all([loadBrands(), loadItems()])
+      setMessage({ title: "删除成功", description: result.message })
     } catch (error) {
       setMessage({ title: "删除失败", description: getErrorMessage(error) })
     } finally {
@@ -363,7 +366,7 @@ export function ColorBarcodeManagementPage() {
       <ConfirmDialog
         open={deleteTarget !== null}
         title="确认删除颜色"
-        description={`确定删除 ${deleteTarget?.brand_label || ""} 的“${deleteTarget?.color_name || ""}（${deleteTarget?.color_barcode || ""}）”？`}
+        description={`确定删除 ${deleteTarget?.brand_label || ""} 的“${deleteTarget?.color_name || ""}（${deleteTarget?.color_barcode || ""}）”？删除后，对应商品档案中的颜色名称会保留，颜色代码将被清空。`}
         confirmLabel={isDeleting ? "删除中" : "删除"}
         variant="destructive"
         onConfirm={() => void remove()}

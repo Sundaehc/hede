@@ -4,8 +4,9 @@ from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 
 import pytest
-from sqlalchemy import update
+from sqlalchemy import delete, insert, update
 
+from domain.color_barcode_schema import COLOR_BARCODE_TABLE
 from domain.vip_schema import JST_PRICE_TABLE
 from storage.inventory_repository import InventoryRepository
 from storage import product_repository as product_repository_module
@@ -45,6 +46,105 @@ def test_smiley_color_name_variants_match_names_without_brand_suffix():
         {"color_name": "黑色（笑脸）", "color_barcode": "0100"},
     ])
     assert codes["黑色"] == "0100"
+
+
+def test_color_mapping_prefers_an_exact_name_when_variants_have_different_codes():
+    codes = product_repository_module._unique_color_codes([
+        {"color_name": "白银", "color_barcode": "564"},
+        {"color_name": "白银色", "color_barcode": "H5"},
+        {"color_name": "黑黄", "color_barcode": "45"},
+        {"color_name": "黑黄", "color_barcode": "A2"},
+    ])
+
+    assert codes["白银"] == "564"
+    assert codes["白银色"] == "H5"
+    assert "黑黄" not in codes
+    assert "黑黄色" not in codes
+
+
+def test_color_mapping_sync_updates_all_product_archives_using_the_source_brand(
+    repository: ProductRepository,
+):
+    created_items = {
+        brand: repository.create_product(
+            brand,
+            build_admin_record(
+                brand,
+                {
+                    "sku": f"COLOR-SYNC-{brand}",
+                    "original_sku": f"COLOR-SYNC-{brand}",
+                    "color": "同步咖色",
+                    "color_code": "99",
+                },
+            ),
+        )
+        for brand in ("cbanner_mens", "yandou", "eblan")
+    }
+
+    with repository.engine.begin() as connection:
+        connection.execute(insert(COLOR_BARCODE_TABLE).values(
+            brand="cbanner_mens",
+            color_name="同步咖色",
+            color_barcode="SYNC02",
+            source_workbook="test",
+            source_sheet="test",
+            source_row_number="1",
+            raw_payload={},
+        ))
+        created_sync = repository.sync_color_mapping_to_products(
+            source_brand="cbanner_mens",
+            color_name="同步咖色",
+            color_code="SYNC02",
+            connection=connection,
+        )
+    assert created_sync["updated"] == 3
+    for brand, item in created_items.items():
+        product = repository.get_product(brand, item["id"])
+        assert product["color"] == "同步咖色"
+        assert product["color_code"] == "SYNC02"
+
+    with repository.engine.begin() as connection:
+        connection.execute(
+            update(COLOR_BARCODE_TABLE)
+            .where(COLOR_BARCODE_TABLE.c.brand == "cbanner_mens")
+            .where(COLOR_BARCODE_TABLE.c.color_barcode == "SYNC02")
+            .values(color_name="同步深咖色", color_barcode="SYNC03")
+        )
+        renamed_sync = repository.sync_color_mapping_to_products(
+            source_brand="cbanner_mens",
+            color_name="同步深咖色",
+            color_code="SYNC03",
+            previous_color_name="同步咖色",
+            previous_color_code="SYNC02",
+            sync_color_name=True,
+            connection=connection,
+        )
+    assert renamed_sync["updated"] == 3
+    for brand, item in created_items.items():
+        product = repository.get_product(brand, item["id"])
+        assert product["color"] == "同步深咖色"
+        assert product["color_code"] == "SYNC03"
+
+    with repository.engine.begin() as connection:
+        connection.execute(
+            delete(COLOR_BARCODE_TABLE)
+            .where(COLOR_BARCODE_TABLE.c.brand == "cbanner_mens")
+            .where(COLOR_BARCODE_TABLE.c.color_barcode == "SYNC03")
+        )
+        removed_sync = repository.sync_color_mapping_to_products(
+            source_brand="cbanner_mens",
+            color_name=None,
+            color_code=None,
+            previous_color_name="同步深咖色",
+            previous_color_code="SYNC03",
+            remove=True,
+            connection=connection,
+        )
+    assert removed_sync["updated"] == 3
+    for brand, item in created_items.items():
+        product = repository.get_product(brand, item["id"])
+        assert product["color"] == "同步深咖色"
+        assert product["color_code"] is None
 
 
 def test_list_products_returns_paginated_items_filtered_by_original_sku_in_desc_id_order(

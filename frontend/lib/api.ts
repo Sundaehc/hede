@@ -2112,21 +2112,21 @@ export function listManagedColorBarcodes(params: {
 }
 
 export function createColorBarcode(payload: ColorBarcodeWritePayload) {
-  return request<{ item: ManagedColorBarcodeItem; message: string }>("/color-barcodes", {
+  return request<{ item: ManagedColorBarcodeItem; message: string; synced: { updated: number } }>("/color-barcodes", {
     method: "POST",
     body: JSON.stringify(payload),
   })
 }
 
 export function updateColorBarcode(id: number, payload: ColorBarcodeWritePayload) {
-  return request<{ item: ManagedColorBarcodeItem; message: string }>(`/color-barcodes/${id}`, {
+  return request<{ item: ManagedColorBarcodeItem; message: string; synced: { updated: number } }>(`/color-barcodes/${id}`, {
     method: "PUT",
     body: JSON.stringify(payload),
   })
 }
 
 export function deleteColorBarcode(id: number) {
-  return request<{ message: string }>(`/color-barcodes/${id}`, {
+  return request<{ message: string; synced: { updated: number } }>(`/color-barcodes/${id}`, {
     method: "DELETE",
   })
 }
