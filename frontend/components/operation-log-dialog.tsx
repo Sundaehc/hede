@@ -17,6 +17,7 @@ import type { OperationLogChange, OperationLogItem } from "@/lib/types"
 type OperationLogModule =
   | "product"
   | "size_group"
+  | "color_barcode"
   | "product_goods"
   | "fine_table"
   | "inventory"

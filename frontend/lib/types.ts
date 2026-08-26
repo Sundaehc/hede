@@ -45,12 +45,15 @@ export type OperationLogItem = {
   id: number
   module:
     | "product"
+    | "size_group"
+    | "color_barcode"
     | "product_goods"
     | "fine_table"
     | "inventory"
     | "purchase"
     | "purchase_inbound_detail"
     | "supplier"
+    | "supplier_brand"
     | "warehouse"
     | "account_subject"
     | "general_customer"
@@ -516,6 +519,38 @@ export type ProductColorBarcodeItem = {
 export type ProductColorBarcodeListResponse = {
   items: ProductColorBarcodeItem[]
   source_brand: string
+}
+
+export type ColorBarcodeBrandSummary = {
+  brand: string
+  brand_label: string
+  total: number
+}
+
+export type ManagedColorBarcodeItem = {
+  id: number
+  brand: string
+  brand_label: string
+  color_barcode: string
+  color_name: string
+  source_workbook: string
+  source_sheet: string
+  source_row_number: string
+  created_at: string | null
+  updated_at: string | null
+}
+
+export type ManagedColorBarcodeListResponse = {
+  items: ManagedColorBarcodeItem[]
+  total: number
+  page: number
+  page_size: number
+}
+
+export type ColorBarcodeWritePayload = {
+  brand: string
+  color_barcode: string
+  color_name: string
 }
 
 export type SizeGroupItem = {

@@ -388,6 +388,9 @@ class ProductRepository:
         self._color_code_cache[source_brand] = codes
         return codes
 
+    def clear_color_code_cache(self) -> None:
+        self._color_code_cache.clear()
+
     def backfill_missing_color_codes(self) -> dict[str, int]:
         updated_by_brand: dict[str, int] = {}
         with self.engine.begin() as connection:

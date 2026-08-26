@@ -23,6 +23,7 @@ import {
   Rows3,
   ChartNoAxesCombined,
   Ruler,
+  Palette,
   Sparkles,
 } from "lucide-react"
 
@@ -140,6 +141,12 @@ const NAV_ITEMS = [
         icon: Ruler,
         permission: "product.view",
       },
+      {
+        href: "/color-barcodes",
+        label: "颜色管理",
+        icon: Palette,
+        permission: "product.view",
+      },
     ],
   },
 ]
@@ -166,6 +173,7 @@ export function SidebarNav() {
   const canAccessSizeGroups =
     user?.role_code === "super_admin" ||
     ["商品部", "开发部"].includes(user?.department_code ?? "")
+  const canAccessColorManagement = canAccessSizeGroups
   const canAccessAiQuery =
     user?.role_code === "super_admin" ||
     [
@@ -191,6 +199,7 @@ export function SidebarNav() {
         ) ||
           canAccessProductGoods) &&
         (item.href !== "/size-groups" || canAccessSizeGroups) &&
+        (item.href !== "/color-barcodes" || canAccessColorManagement) &&
         (item.href !== "/ai-query" || canAccessAiQuery) &&
         (!isProductDepartment ||
           ![

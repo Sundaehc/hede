@@ -10,6 +10,7 @@ from api.routes.inventory import (
     _build_purchase_order_import_template,
     _group_purchase_import_rows_by_summary,
     _missing_purchase_order_import_fields,
+    _purchase_archive_size_from_product_code,
     _purchase_order_import_has_size_columns,
     _purchase_import_brand_for_supplier,
     _purchase_import_brand_for_record,
@@ -20,6 +21,27 @@ from api.routes.inventory import (
     PURCHASE_SIZE_ROW_EXPORT_HEADERS,
 )
 from api.routes import inventory as inventory_routes
+
+
+def test_purchase_archive_code_uses_product_barcode_rule_for_ns_millimeter_size() -> None:
+    product_info = {
+        "_archive_matched": True,
+        "_archive_sku": "NAE2645009X04",
+        "_archive_original_sku": "NAE2645009X04",
+        "color_code": "28",
+        "barcode_build_rule": "货号+尺码",
+    }
+    size_group_items = (
+        ("245", "245"),
+        ("250", "250"),
+        ("255", "255"),
+    )
+
+    assert _purchase_archive_size_from_product_code(
+        product_info,
+        "NAE2645009X04245",
+        size_group_items,
+    ) == "245"
 
 
 def test_purchase_size_export_uses_detail_color_barcode_when_archive_color_code_is_missing() -> None:

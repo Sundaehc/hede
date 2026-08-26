@@ -12,6 +12,10 @@ import type {
   FactoryChannelDashboardResponse,
   ProductMutationPayload,
   ProductColorBarcodeListResponse,
+  ColorBarcodeBrandSummary,
+  ColorBarcodeWritePayload,
+  ManagedColorBarcodeItem,
+  ManagedColorBarcodeListResponse,
   SizeGroup,
   SizeGroupWritePayload,
   ProductImageRefreshStatus,
@@ -170,6 +174,7 @@ export function listOperationLogs(params: {
   module:
     | "product"
     | "size_group"
+    | "color_barcode"
     | "product_goods"
     | "fine_table"
     | "inventory"
@@ -925,7 +930,7 @@ export function exportProducts(
     }
   ).then(async (response) => {
     if (!response.ok) {
-      throw new ApiError(response.status, await response.text())
+      throw new ApiError(response.status, await readApiError(response))
     }
     return response
   })
@@ -1431,7 +1436,7 @@ export function importInventory(file: File) {
     credentials: "include",
   }).then(async (response) => {
     if (!response.ok) {
-      throw new ApiError(response.status, await response.text())
+      throw new ApiError(response.status, await readApiError(response))
     }
     return (await response.json()) as InventoryImportResult
   })
@@ -1501,7 +1506,7 @@ export function exportInventory(
     credentials: "include",
   }).then(async (response) => {
     if (!response.ok) {
-      throw new ApiError(response.status, await response.text())
+      throw new ApiError(response.status, await readApiError(response))
     }
     return response
   })
@@ -1544,7 +1549,7 @@ export function importPurchaseInventory(payload: {
   })
     .then(async (response) => {
       if (!response.ok) {
-        throw new ApiError(response.status, await response.text())
+        throw new ApiError(response.status, await readApiError(response))
       }
       return (await response.json()) as InventoryImportResult
     })
@@ -1795,7 +1800,7 @@ export function replaceDetailsFromExcel(payload: {
   )
     .then(async (response) => {
       if (!response.ok) {
-        throw new ApiError(response.status, await response.text())
+        throw new ApiError(response.status, await readApiError(response))
       }
       return (await response.json()) as {
         updated: number
@@ -2085,6 +2090,45 @@ export function listSuppliers(params?: {
   if (params.query) search.set("query", params.query)
   if (params.brand) search.set("brand", params.brand)
   return request<SupplierListResponse>(`/suppliers?${search.toString()}`)
+}
+
+export function listColorBarcodeBrands() {
+  return request<{ items: ColorBarcodeBrandSummary[] }>("/color-barcodes/brands")
+}
+
+export function listManagedColorBarcodes(params: {
+  brand: string
+  query?: string
+  page: number
+  pageSize: number
+}) {
+  const search = new URLSearchParams({
+    brand: params.brand,
+    page: String(params.page),
+    page_size: String(params.pageSize),
+  })
+  if (params.query) search.set("query", params.query)
+  return request<ManagedColorBarcodeListResponse>(`/color-barcodes?${search.toString()}`)
+}
+
+export function createColorBarcode(payload: ColorBarcodeWritePayload) {
+  return request<{ item: ManagedColorBarcodeItem; message: string }>("/color-barcodes", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  })
+}
+
+export function updateColorBarcode(id: number, payload: ColorBarcodeWritePayload) {
+  return request<{ item: ManagedColorBarcodeItem; message: string }>(`/color-barcodes/${id}`, {
+    method: "PUT",
+    body: JSON.stringify(payload),
+  })
+}
+
+export function deleteColorBarcode(id: number) {
+  return request<{ message: string }>(`/color-barcodes/${id}`, {
+    method: "DELETE",
+  })
 }
 
 export function listSuppliersByBrand(brand: ProductArchiveRecordBrandKey) {

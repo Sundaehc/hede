@@ -2207,6 +2207,9 @@ def _purchase_product_code_matches_archive(
     if not product_info.get("_archive_matched"):
         return False
 
+    if _purchase_archive_size_from_product_code(product_info, raw_code, size_group_items):
+        return True
+
     archive_sku = _first_text(product_info.get("_archive_sku"), product_info.get("_archive_original_sku"))
     archive_original_sku = _first_text(product_info.get("_archive_original_sku"), archive_sku)
     parsed_sku, parsed_original_sku, _, _, size = _split_purchase_product_code(raw_code, [], brand)
@@ -2234,6 +2237,29 @@ def _purchase_product_code_matches_archive(
         for goods_code in goods_codes
         for size_barcode in candidate_size_barcodes
     )
+
+
+def _purchase_archive_size_from_product_code(
+    product_info: dict[str, object],
+    raw_code: str,
+    size_group_items: tuple[tuple[str, str], ...],
+) -> str:
+    if not product_info.get("_archive_matched") or not raw_code:
+        return ""
+
+    archive_sku = _first_text(product_info.get("_archive_sku"), product_info.get("_archive_original_sku"))
+    archive_original_sku = _first_text(product_info.get("_archive_original_sku"), archive_sku)
+    goods_codes = tuple(dict.fromkeys(code for code in (archive_sku, archive_original_sku) if code))
+    color_code = _first_text(product_info.get("color_code"), product_info.get("color_barcode"))
+    barcode_rule = product_info.get("barcode_build_rule")
+    for size_name, size_barcode in size_group_items:
+        for code in dict.fromkeys((_cell_text(size_barcode), _cell_text(size_name))):
+            if code and any(
+                build_product_size_code(goods_code, color_code, code, barcode_rule) == raw_code
+                for goods_code in goods_codes
+            ):
+                return _first_text(size_name, size_barcode)
+    return ""
 
 
 def _load_purchase_product_lookup(connection, brand: str, product_codes: set[str]) -> dict[str, dict[str, object]]:
@@ -2982,6 +3008,11 @@ def _build_purchase_details_from_rows(
             row.get("sku"),
             raw_code,
         )
+        archive_size = _purchase_archive_size_from_product_code(
+            product_info,
+            raw_code,
+            size_group_items_by_range.get(_cell_text(product_info.get("size_range")), ()),
+        )
         if require_archive_product_code and not _purchase_product_code_matches_archive(
             product_info,
             raw_code,
@@ -3017,7 +3048,7 @@ def _build_purchase_details_from_rows(
             for size_name, size_barcode in size_group_items
             for value in (size_name, size_barcode)
         }
-        size = row["size"]
+        size = archive_size or row["size"]
         if size:
             size = size_labels_by_input.get(_cell_text(size), _cell_text(size))
         row_size_quantities = row.get("size_quantities")
