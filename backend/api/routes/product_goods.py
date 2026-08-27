@@ -78,8 +78,8 @@ SIZE_TO_STOCK_CODE = {str(size): str(50 + size * 5) for size in range(34, 45)}
 STOCK_CODE_TO_SIZE = {value: key for key, value in SIZE_TO_STOCK_CODE.items()}
 SALES_PERIOD_START_YEAR = 2024
 FACTORY_DASHBOARD_DAILY_REFRESH_SCHEDULE = {
-    "jst": {"starts_at": time(10, 20), "expected_ready_at": time(10, 30)},
-    "vip": {"starts_at": time(11, 10), "expected_ready_at": time(11, 20)},
+    "jst": {"starts_at": time(9, 30), "expected_ready_at": time(9, 40)},
+    "vip": {"starts_at": time(9, 30), "expected_ready_at": time(9, 40)},
 }
 LOW_STOCK_SALE_DAYS = 7
 SHORTAGE_RISK_SALE_DAYS = 30

@@ -44,7 +44,7 @@ def test_yesterday_is_pending_before_daily_refresh_finishes() -> None:
     assert _factory_dashboard_pending_refresh_dates(
         "vip",
         missing_dates,
-        now=datetime(2026, 8, 24, 10, 15),
+        now=datetime(2026, 8, 24, 9, 35),
     ) == [date(2026, 8, 23)]
 
 
@@ -52,7 +52,7 @@ def test_yesterday_becomes_missing_after_refresh_deadline() -> None:
     assert _factory_dashboard_pending_refresh_dates(
         "vip",
         [date(2026, 8, 23)],
-        now=datetime(2026, 8, 24, 11, 20),
+        now=datetime(2026, 8, 24, 9, 40),
     ) == []
 
 
