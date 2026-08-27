@@ -905,10 +905,12 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
   }
 
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const importDragDepthRef = useRef(0)
   const [isImporting, setIsImporting] = useState(false)
   const [importDialogOpen, setImportDialogOpen] = useState(false)
   const [importFormData, setImportFormData] = useState<Record<string, string>>({ ...EMPTY_IMPORT_FORM })
   const [importFile, setImportFile] = useState<File | null>(null)
+  const [isImportDragging, setIsImportDragging] = useState(false)
   const [importError, setImportError] = useState("")
   const [requirementsDialogOpen, setRequirementsDialogOpen] = useState(false)
   const [requirementDrafts, setRequirementDrafts] = useState<Record<string, string>>({})
@@ -1114,6 +1116,8 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
   const openImportDialog = () => {
     setImportError("")
     setImportFile(null)
+    setIsImportDragging(false)
+    importDragDepthRef.current = 0
     if (fileInputRef.current) fileInputRef.current.value = ""
     setImportFormData((prev) => ({
       ...EMPTY_IMPORT_FORM,
@@ -1123,6 +1127,59 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
       handler: accountHandler || prev.handler || lastInventoryEntryDefaults.handler,
     }))
     setImportDialogOpen(true)
+  }
+
+  const handleImportFileSelection = (file: File | null) => {
+    setImportError("")
+    if (!file) {
+      setImportFile(null)
+      return
+    }
+
+    const extension = file.name.includes(".") ? `.${file.name.split(".").pop()?.toLowerCase()}` : ""
+    if (![".xlsx", ".xls", ".xlsm"].includes(extension)) {
+      setImportFile(null)
+      if (fileInputRef.current) fileInputRef.current.value = ""
+      setImportError("仅支持 .xlsx、.xls 或 .xlsm 格式的 Excel 文件")
+      return
+    }
+    setImportFile(file)
+  }
+
+  const clearImportFile = () => {
+    setImportError("")
+    setImportFile(null)
+    if (fileInputRef.current) fileInputRef.current.value = ""
+  }
+
+  const handleImportDragEnter = (event: DragEvent<HTMLDivElement>) => {
+    event.preventDefault()
+    event.stopPropagation()
+    if (isImporting) return
+    importDragDepthRef.current += 1
+    setIsImportDragging(true)
+  }
+
+  const handleImportDragOver = (event: DragEvent<HTMLDivElement>) => {
+    event.preventDefault()
+    event.stopPropagation()
+    event.dataTransfer.dropEffect = isImporting ? "none" : "copy"
+  }
+
+  const handleImportDragLeave = (event: DragEvent<HTMLDivElement>) => {
+    event.preventDefault()
+    event.stopPropagation()
+    importDragDepthRef.current = Math.max(0, importDragDepthRef.current - 1)
+    if (importDragDepthRef.current === 0) setIsImportDragging(false)
+  }
+
+  const handleImportDrop = (event: DragEvent<HTMLDivElement>) => {
+    event.preventDefault()
+    event.stopPropagation()
+    importDragDepthRef.current = 0
+    setIsImportDragging(false)
+    if (isImporting) return
+    handleImportFileSelection(event.dataTransfer.files?.[0] ?? null)
   }
 
   const openEdit = (item: InventoryRecord) => {
@@ -1362,6 +1419,8 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
       }
       setImportDialogOpen(false)
       setImportFile(null)
+      setIsImportDragging(false)
+      importDragDepthRef.current = 0
       setReloadToken((t) => t + 1)
     } catch (err) {
       setImportError(getErrorMessage(err))
@@ -2286,7 +2345,13 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
 
       <Dialog
         open={importDialogOpen}
-        onOpenChange={setImportDialogOpen}
+        onOpenChange={(open) => {
+          setImportDialogOpen(open)
+          if (!open) {
+            setIsImportDragging(false)
+            importDragDepthRef.current = 0
+          }
+        }}
       >
         <DialogContent className="max-w-xl">
           <DialogHeader>
@@ -2386,12 +2451,75 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
                 ref={fileInputRef}
                 type="file"
                 accept=".xlsx,.xls,.xlsm"
-                onChange={(e) => {
-                  setImportError("")
-                  setImportFile(e.target.files?.[0] ?? null)
-                }}
-                className="flex h-9 w-full rounded-lg border border-input bg-card px-3 py-1.5 text-sm shadow-xs outline-none transition-colors file:mr-3 file:rounded-md file:border-0 file:bg-muted file:px-2 file:py-1 file:text-xs"
+                onChange={(event) => handleImportFileSelection(event.target.files?.[0] ?? null)}
+                className="sr-only"
+                tabIndex={-1}
               />
+              <div
+                role="button"
+                tabIndex={isImporting ? -1 : 0}
+                aria-disabled={isImporting}
+                onClick={() => {
+                  if (!isImporting) fileInputRef.current?.click()
+                }}
+                onKeyDown={(event) => {
+                  if (!isImporting && (event.key === "Enter" || event.key === " ")) {
+                    event.preventDefault()
+                    fileInputRef.current?.click()
+                  }
+                }}
+                onDragEnter={handleImportDragEnter}
+                onDragOver={handleImportDragOver}
+                onDragLeave={handleImportDragLeave}
+                onDrop={handleImportDrop}
+                className={`flex min-h-28 w-full cursor-pointer items-center justify-center rounded-lg border border-dashed px-5 py-4 text-center outline-none transition-colors focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/35 ${
+                  isImportDragging
+                    ? "border-primary bg-primary/5 ring-3 ring-primary/15"
+                    : importFile
+                      ? "border-primary/50 bg-primary/[0.03] hover:border-primary/70 hover:bg-primary/[0.05]"
+                      : "border-input bg-muted/20 hover:border-primary/50 hover:bg-muted/35"
+                } ${isImporting ? "cursor-not-allowed opacity-60" : ""}`}
+              >
+                {importFile ? (
+                  <div className="flex w-full min-w-0 items-center gap-3 text-left">
+                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                      <FileText className="h-5 w-5" />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm font-medium text-foreground" title={importFile.name}>{importFile.name}</p>
+                      <p className="mt-0.5 text-xs text-muted-foreground">
+                        {importFile.size >= 1024 * 1024
+                          ? `${(importFile.size / 1024 / 1024).toFixed(2)} MB`
+                          : `${Math.max(1, Math.ceil(importFile.size / 1024))} KB`}
+                        <span className="mx-1.5">·</span>可重新拖入文件替换
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      aria-label="移除已选文件"
+                      title="移除文件"
+                      disabled={isImporting}
+                      onClick={(event) => {
+                        event.stopPropagation()
+                        clearImportFile()
+                      }}
+                      className="flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive disabled:cursor-not-allowed"
+                    >
+                      <X className="h-4 w-4" />
+                    </button>
+                  </div>
+                ) : (
+                  <div className="flex flex-col items-center">
+                    <div className="mb-2 flex h-10 w-10 items-center justify-center rounded-lg bg-muted text-muted-foreground">
+                      <Upload className="h-5 w-5" />
+                    </div>
+                    <p className="text-sm font-medium text-foreground">
+                      {isImportDragging ? "松开即可添加文件" : `拖拽${isPurchaseOrderTab ? "采购单" : "单据"} Excel 到此处，或点击选择`}
+                    </p>
+                    <p className="mt-1 text-xs text-muted-foreground">支持 .xlsx、.xls、.xlsm</p>
+                  </div>
+                )}
+              </div>
               <p className="text-xs text-muted-foreground">
                 日期、仓库、单据类型和摘要均相同的记录会追加明细并重新汇总，不会覆盖原有明细。
               </p>
