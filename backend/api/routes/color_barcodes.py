@@ -1,10 +1,16 @@
 from __future__ import annotations
 
+import io
+import urllib.parse
+
 from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi.responses import StreamingResponse
+from openpyxl import Workbook
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import and_, delete, func, insert, or_, select, update
 from sqlalchemy.exc import IntegrityError
 
+from api.excel_export import style_excel_worksheet
 from api.fine_table_cache import clear_fine_table_cache
 from api.operation_log_utils import build_changed_fields, summarize_changes, write_operation_log
 from api.product_goods_cache import clear_product_goods_cache
@@ -63,6 +69,43 @@ def _clear_color_cache(request: Request) -> None:
         clear_cache()
     clear_fine_table_cache()
     clear_product_goods_cache()
+
+
+def _color_conditions(brand: str, query: str | None):
+    table = COLOR_BARCODE_TABLE
+    conditions = [table.c.brand == brand.strip()]
+    normalized_query = str(query or "").strip()
+    if normalized_query:
+        pattern = f"%{normalized_query}%"
+        conditions.append(or_(table.c.color_barcode.ilike(pattern), table.c.color_name.ilike(pattern)))
+    return and_(*conditions)
+
+
+def _stream_color_export(workbook: Workbook, filename: str) -> StreamingResponse:
+    buffer = io.BytesIO()
+    workbook.save(buffer)
+    buffer.seek(0)
+    return StreamingResponse(
+        buffer,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={
+            "Content-Disposition": f"attachment; filename*=UTF-8''{urllib.parse.quote(filename)}",
+            "Content-Length": str(buffer.getbuffer().nbytes),
+            "X-Content-Type-Options": "nosniff",
+            "Cache-Control": "no-store",
+        },
+    )
+
+
+def _build_color_export_workbook(rows) -> Workbook:
+    workbook = Workbook()
+    worksheet = workbook.active
+    worksheet.title = "颜色管理"
+    worksheet.append(["颜色", "颜色代码"])
+    for row in rows:
+        worksheet.append([row["color_name"] or "", row["color_barcode"] or ""])
+    style_excel_worksheet(worksheet, width_by_header={"颜色": 28, "颜色代码": 20})
+    return workbook
 
 
 def _sync_products(
@@ -143,12 +186,7 @@ def list_color_barcodes(
     page_size: int = Query(50, ge=1, le=200),
 ):
     table = COLOR_BARCODE_TABLE
-    conditions = [table.c.brand == brand.strip()]
-    normalized_query = str(query or "").strip()
-    if normalized_query:
-        pattern = f"%{normalized_query}%"
-        conditions.append(or_(table.c.color_barcode.ilike(pattern), table.c.color_name.ilike(pattern)))
-    criterion = and_(*conditions)
+    criterion = _color_conditions(brand, query)
     count_statement = select(func.count()).select_from(table).where(criterion)
     items_statement = (
         select(table)
@@ -166,6 +204,38 @@ def list_color_barcodes(
         "page": page,
         "page_size": page_size,
     }
+
+
+@router.get("/export")
+def export_color_barcodes(
+    request: Request,
+    brand: str = Query(..., min_length=1),
+    query: str | None = None,
+):
+    table = COLOR_BARCODE_TABLE
+    normalized_brand = brand.strip()
+    normalized_query = str(query or "").strip()
+    statement = (
+        select(table.c.color_name, table.c.color_barcode)
+        .where(_color_conditions(normalized_brand, normalized_query))
+        .order_by(table.c.color_barcode, table.c.color_name, table.c.id)
+    )
+    with _engine(request).connect() as connection:
+        rows = connection.execute(statement).mappings().all()
+
+    workbook = _build_color_export_workbook(rows)
+
+    brand_label = _brand_label(normalized_brand)
+    write_operation_log(
+        request,
+        module="color_barcode",
+        action="export",
+        entity_type="color_barcode",
+        entity_label=brand_label,
+        summary=f"导出颜色 {brand_label} {len(rows)} 条{f'（关键词：{normalized_query}）' if normalized_query else ''}",
+        after_data={"count": len(rows), "brand": normalized_brand, "query": normalized_query},
+    )
+    return _stream_color_export(workbook, f"颜色管理_{brand_label}.xlsx")
 
 
 @router.post("")

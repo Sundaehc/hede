@@ -194,9 +194,11 @@ def delete_warehouse_brand(request: Request, brand_id: int):
 def create_warehouse(request: Request, payload: dict):
     repository = request.app.state.inventory_repository
     name = str(payload.get("name") or "").strip()
-    brand = str(payload.get("brand") or "通用").strip() or "通用"
+    brand = str(payload.get("brand") or "").strip()
     if not name:
         raise HTTPException(status_code=400, detail="仓库名称不能为空")
+    if not brand:
+        raise HTTPException(status_code=400, detail="请选择仓库品牌")
     payload["name"] = name
     payload["brand"] = brand
     if not repository.get_warehouse_brand_by_name(brand):
@@ -249,14 +251,16 @@ def update_warehouse(request: Request, warehouse_id: int, payload: dict):
     name = str(payload.get("name") or "").strip()
     if not name:
         raise HTTPException(status_code=400, detail="仓库名称不能为空")
-    payload["name"] = name
-    brand = str(payload.get("brand") or "通用").strip() or "通用"
-    payload["brand"] = brand
-    if not repository.get_warehouse_brand_by_name(brand):
-        raise HTTPException(status_code=400, detail=f"仓库品牌 '{brand}' 不存在")
     before = repository.get_warehouse(warehouse_id)
     if before is None:
         raise HTTPException(status_code=404, detail="Warehouse not found")
+    brand = str(payload.get("brand") or before.get("brand") or "").strip()
+    if not brand:
+        raise HTTPException(status_code=400, detail="请选择仓库品牌")
+    if not repository.get_warehouse_brand_by_name(brand):
+        raise HTTPException(status_code=400, detail=f"仓库品牌 '{brand}' 不存在")
+    payload["name"] = name
+    payload["brand"] = brand
     record = repository.update_warehouse(warehouse_id, payload)
     if record is None:
         raise HTTPException(status_code=404, detail="Warehouse not found")

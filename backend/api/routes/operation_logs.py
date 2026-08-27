@@ -12,6 +12,7 @@ MODULE_PERMISSIONS = {
     "product": "product.view",
     "size_group": "product.view",
     "color_barcode": "product.view",
+    "product_auxiliary_attribute": "product.view",
     "product_goods": "product.view",
     "fine_table": "fine_table.view",
     "inventory": "inventory.view",
@@ -46,11 +47,15 @@ def list_operation_logs(
             raise HTTPException(status_code=403, detail="权限不足")
     else:
         user = require_permission(request, permission)
-    if module in {"size_group", "color_barcode"}:
+    if module in {"size_group", "color_barcode", "product_auxiliary_attribute"}:
         role_code = str(user.get("role_code") or "").strip()
         department_code = str(user.get("department_code") or "").strip()
         if role_code != "super_admin" and department_code not in {"商品部", "开发部"}:
-            module_label = "尺码组管理" if module == "size_group" else "颜色管理"
+            module_label = {
+                "size_group": "尺码组管理",
+                "color_barcode": "颜色管理",
+                "product_auxiliary_attribute": "辅助属性管理",
+            }[module]
             raise HTTPException(status_code=403, detail=f"{module_label}操作日志仅限商品部、开发部和超级管理员查看")
     page = max(1, page)
     page_size = min(max(1, page_size), 100)

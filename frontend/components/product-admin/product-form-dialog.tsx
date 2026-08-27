@@ -15,10 +15,10 @@ import {
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select } from "@/components/ui/select"
-import { ApiError, createProduct, listProductColorBarcodes, listSizeGroups, listSuppliersByBrand, lookupImage, updateProduct, type SupplierItem } from "@/lib/api"
+import { ApiError, createProduct, listProductAuxiliaryOptions, listProductColorBarcodes, listSizeGroups, listSuppliersByBrand, lookupImage, updateProduct, type SupplierItem } from "@/lib/api"
 import { PRODUCT_ARCHIVE_BRANDS, type ProductArchiveBrand, type ProductArchiveRecordBrandKey } from "@/lib/brands"
 import { ALL_PRODUCT_FIELDS, BARCODE_BUILD_RULE_OPTIONS, FIELD_LABELS, SEASON_OPTIONS, getProductFieldGroups, getProductFieldLabel } from "@/lib/fields"
-import type { ImageLookupStatusState, ProductColorBarcodeItem, ProductFormValues, ProductListItem, ProductMutationPayload, SizeGroup } from "@/lib/types"
+import type { ImageLookupStatusState, ProductAuxiliaryOptionGroup, ProductColorBarcodeItem, ProductFormValues, ProductListItem, ProductMutationPayload, SizeGroup } from "@/lib/types"
 import { cn } from "@/lib/utils"
 
 type ProductFormDialogProps = {
@@ -31,6 +31,15 @@ type ProductFormDialogProps = {
 }
 
 const PAYLOAD_FIELDS = [...ALL_PRODUCT_FIELDS, "image_path"] as const
+const AUXILIARY_OPTION_FIELDS = new Set([
+  "product_name",
+  "product_model",
+  "upper_material",
+  "lining_material",
+  "outsole_material",
+  "insole_material",
+  "execution_standard",
+])
 
 function makeEmptyForm(): Record<string, string> {
   return Object.fromEntries(PAYLOAD_FIELDS.map((f) => [f, ""]))
@@ -208,6 +217,131 @@ type SupplierSearchSelectProps = {
   onChange: (value: string) => void
   options: SupplierItem[]
   value: string
+}
+
+type AuxiliaryAttributeSelectProps = {
+  disabled: boolean
+  id: string
+  onChange: (value: string) => void
+  options: string[]
+  value: string
+}
+
+function AuxiliaryAttributeSelect({
+  disabled,
+  id,
+  onChange,
+  options,
+  value,
+}: AuxiliaryAttributeSelectProps) {
+  const listboxId = useId()
+  const inputRef = useRef<HTMLInputElement>(null)
+  const rootRef = useRef<HTMLDivElement>(null)
+  const [isOpen, setIsOpen] = useState(false)
+  const [query, setQuery] = useState("")
+  const normalizedQuery = query.trim().toLowerCase()
+  const visibleOptions = (normalizedQuery
+    ? options.filter((option) => option.toLowerCase().includes(normalizedQuery))
+    : options
+  ).slice(0, 80)
+
+  useEffect(() => {
+    if (!isOpen) return
+
+    const handlePointerDown = (event: MouseEvent | TouchEvent) => {
+      if (rootRef.current?.contains(event.target as Node)) return
+      setIsOpen(false)
+      setQuery("")
+    }
+
+    document.addEventListener("mousedown", handlePointerDown)
+    document.addEventListener("touchstart", handlePointerDown)
+    return () => {
+      document.removeEventListener("mousedown", handlePointerDown)
+      document.removeEventListener("touchstart", handlePointerDown)
+    }
+  }, [isOpen])
+
+  const handleSelect = (nextValue: string) => {
+    onChange(nextValue)
+    setQuery("")
+    setIsOpen(false)
+    inputRef.current?.blur()
+  }
+
+  return (
+    <div ref={rootRef} className="relative">
+      <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+      <Input
+        id={id}
+        ref={inputRef}
+        role="combobox"
+        aria-expanded={isOpen}
+        aria-controls={listboxId}
+        aria-autocomplete="list"
+        value={isOpen ? query : value}
+        placeholder={disabled ? "选项加载中..." : "搜索并选择"}
+        disabled={disabled}
+        onFocus={() => {
+          if (disabled) return
+          setQuery("")
+          setIsOpen(true)
+        }}
+        onChange={(event) => {
+          setQuery(event.target.value)
+          setIsOpen(true)
+        }}
+        onKeyDown={(event) => {
+          if (event.key === "Escape") {
+            setIsOpen(false)
+            setQuery("")
+            inputRef.current?.blur()
+            return
+          }
+          if (event.key === "Enter" && isOpen && visibleOptions.length > 0) {
+            event.preventDefault()
+            handleSelect(visibleOptions[0])
+          }
+        }}
+        className="cursor-pointer pl-8"
+        autoComplete="off"
+        spellCheck={false}
+      />
+
+      {isOpen ? (
+        <div
+          id={listboxId}
+          role="listbox"
+          className="absolute z-50 mt-1 max-h-56 w-full overflow-y-auto rounded-lg border border-border bg-popover py-1 text-sm shadow-lg"
+        >
+          {visibleOptions.length > 0 ? visibleOptions.map((option) => (
+            <button
+              key={option}
+              type="button"
+              role="option"
+              aria-selected={option === value}
+              onMouseDown={(event) => {
+                event.preventDefault()
+                handleSelect(option)
+              }}
+              className={cn(
+                "flex w-full cursor-pointer items-center gap-2 px-3 py-2 text-left hover:bg-muted focus-visible:bg-muted focus-visible:outline-none",
+                option === value && "bg-muted",
+              )}
+            >
+              <span className="min-w-0 flex-1 break-words">{option}</span>
+              <Check className={cn("h-4 w-4 shrink-0", option === value ? "opacity-100" : "opacity-0")} />
+            </button>
+          )) : (
+            <div className="px-3 py-2 text-muted-foreground">没有匹配的辅助属性</div>
+          )}
+          {visibleOptions.length === 80 ? (
+            <div className="border-t border-border px-3 py-2 text-xs text-muted-foreground">结果较多，请继续输入缩小范围</div>
+          ) : null}
+        </div>
+      ) : null}
+    </div>
+  )
 }
 
 function SupplierSearchSelect({ disabled, id, isLoading, onChange, options, value }: SupplierSearchSelectProps) {
@@ -400,6 +534,20 @@ export function ProductFormDialog({ brands = PRODUCT_ARCHIVE_BRANDS, item, mode,
   const autoMatchedColorCodeRef = useRef("")
   const [sizeGroups, setSizeGroups] = useState<SizeGroup[]>([])
   const [isLoadingSizeGroups, setIsLoadingSizeGroups] = useState(false)
+  const [auxiliaryOptionState, setAuxiliaryOptionState] = useState<{
+    brand: string
+    items: ProductAuxiliaryOptionGroup[]
+  }>({ brand: "", items: [] })
+
+  const auxiliaryOptionsByField = useMemo(
+    () => new Map(
+      auxiliaryOptionState.brand === values.brand
+        ? auxiliaryOptionState.items.map((group) => [group.field, group.options] as const)
+        : [],
+    ),
+    [auxiliaryOptionState, values.brand],
+  )
+  const isLoadingAuxiliaryOptions = Boolean(values.brand && auxiliaryOptionState.brand !== values.brand)
 
   const title = mode === "create" ? "新增商品" : "编辑商品"
   const lookupDisabled = useMemo(() => {
@@ -469,6 +617,23 @@ export function ProductFormDialog({ brands = PRODUCT_ARCHIVE_BRANDS, item, mode,
       })
       .finally(() => {
         if (!cancelled) setIsLoadingSuppliers(false)
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [open, values.brand])
+
+  useEffect(() => {
+    if (!open || !values.brand) return
+
+    let cancelled = false
+    listProductAuxiliaryOptions(values.brand)
+      .then((response) => {
+        if (!cancelled) setAuxiliaryOptionState({ brand: response.brand, items: response.items })
+      })
+      .catch(() => {
+        if (!cancelled) setAuxiliaryOptionState({ brand: values.brand, items: [] })
       })
 
     return () => {
@@ -740,7 +905,15 @@ export function ProductFormDialog({ brands = PRODUCT_ARCHIVE_BRANDS, item, mode,
                         {fields.map((field) => (
                           <div key={field} className="space-y-1.5">
                             <Label htmlFor={`product-form-${field}`} className="text-xs">{getProductFieldLabel(field, values.brand)}</Label>
-                            {field === "season_category" ? (
+                            {(isLoadingAuxiliaryOptions && AUXILIARY_OPTION_FIELDS.has(field)) || auxiliaryOptionsByField.has(field) ? (
+                              <AuxiliaryAttributeSelect
+                                id={`product-form-${field}`}
+                                value={values[field as keyof ProductFormValues] as string}
+                                disabled={isLoadingAuxiliaryOptions}
+                                options={auxiliaryOptionsByField.get(field) ?? []}
+                                onChange={(nextValue) => handleFieldChange(field as keyof ProductFormValues, nextValue)}
+                              />
+                            ) : field === "season_category" ? (
                               <Select
                                 id={`product-form-${field}`}
                                 value={values[field as keyof ProductFormValues] as string}

@@ -18,6 +18,7 @@ type OperationLogModule =
   | "product"
   | "size_group"
   | "color_barcode"
+  | "product_auxiliary_attribute"
   | "product_goods"
   | "fine_table"
   | "inventory"

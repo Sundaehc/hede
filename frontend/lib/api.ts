@@ -12,6 +12,11 @@ import type {
   FactoryChannelDashboardResponse,
   ProductMutationPayload,
   ProductColorBarcodeListResponse,
+  ProductAuxiliaryOptionsResponse,
+  ProductAuxiliaryAttributeMetadataResponse,
+  ProductAuxiliaryAttributeWritePayload,
+  ManagedProductAuxiliaryAttributeItem,
+  ManagedProductAuxiliaryAttributeListResponse,
   ColorBarcodeBrandSummary,
   ColorBarcodeWritePayload,
   ManagedColorBarcodeItem,
@@ -175,6 +180,7 @@ export function listOperationLogs(params: {
     | "product"
     | "size_group"
     | "color_barcode"
+    | "product_auxiliary_attribute"
     | "product_goods"
     | "fine_table"
     | "inventory"
@@ -2092,6 +2098,89 @@ export function listSuppliers(params?: {
   return request<SupplierListResponse>(`/suppliers?${search.toString()}`)
 }
 
+export function listProductAuxiliaryOptions(brand: ProductArchiveRecordBrandKey) {
+  const search = new URLSearchParams({ brand })
+  return request<ProductAuxiliaryOptionsResponse>(
+    `/products/auxiliary-options?${search.toString()}`
+  )
+}
+
+export function getProductAuxiliaryAttributeMetadata() {
+  return request<ProductAuxiliaryAttributeMetadataResponse>(
+    "/product-auxiliary-attributes/metadata"
+  )
+}
+
+export function listManagedProductAuxiliaryAttributes(params: {
+  brandScope: string
+  attributeType?: string
+  query?: string
+  page?: number
+  pageSize?: number
+}) {
+  const search = new URLSearchParams({
+    brand_scope: params.brandScope,
+    page: String(params.page ?? 1),
+    page_size: String(params.pageSize ?? 50),
+  })
+  if (params.attributeType && params.attributeType !== "all")
+    search.set("attribute_type", params.attributeType)
+  if (params.query?.trim()) search.set("query", params.query.trim())
+  return request<ManagedProductAuxiliaryAttributeListResponse>(
+    `/product-auxiliary-attributes?${search.toString()}`
+  )
+}
+
+export async function exportProductAuxiliaryAttributes(params: {
+  brandScope: string
+  attributeType?: string
+  query?: string
+}) {
+  const search = new URLSearchParams({ brand_scope: params.brandScope })
+  if (params.attributeType && params.attributeType !== "all")
+    search.set("attribute_type", params.attributeType)
+  if (params.query?.trim()) search.set("query", params.query.trim())
+  const response = await fetch(
+    `${API_PREFIX}/product-auxiliary-attributes/export?${search.toString()}`,
+    { credentials: "include" }
+  )
+  if (!response.ok)
+    throw new ApiError(response.status, await readApiError(response))
+  return response.blob()
+}
+
+export function createProductAuxiliaryAttribute(
+  payload: ProductAuxiliaryAttributeWritePayload
+) {
+  return request<{
+    item: ManagedProductAuxiliaryAttributeItem
+    message: string
+  }>("/product-auxiliary-attributes", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  })
+}
+
+export function updateProductAuxiliaryAttribute(
+  id: number,
+  payload: ProductAuxiliaryAttributeWritePayload
+) {
+  return request<{
+    item: ManagedProductAuxiliaryAttributeItem
+    message: string
+  }>(`/product-auxiliary-attributes/${id}`, {
+    method: "PUT",
+    body: JSON.stringify(payload),
+  })
+}
+
+export function deleteProductAuxiliaryAttribute(id: number) {
+  return request<{ message: string }>(
+    `/product-auxiliary-attributes/${id}`,
+    { method: "DELETE" }
+  )
+}
+
 export function listColorBarcodeBrands() {
   return request<{ items: ColorBarcodeBrandSummary[] }>("/color-barcodes/brands")
 }
@@ -2109,6 +2198,17 @@ export function listManagedColorBarcodes(params: {
   })
   if (params.query) search.set("query", params.query)
   return request<ManagedColorBarcodeListResponse>(`/color-barcodes?${search.toString()}`)
+}
+
+export async function exportColorBarcodes(params: { brand: string; query?: string }) {
+  const search = new URLSearchParams({ brand: params.brand })
+  if (params.query?.trim()) search.set("query", params.query.trim())
+  const response = await fetch(`${API_PREFIX}/color-barcodes/export?${search.toString()}`, {
+    credentials: "include",
+  })
+  if (!response.ok)
+    throw new ApiError(response.status, await readApiError(response))
+  return response.blob()
 }
 
 export function createColorBarcode(payload: ColorBarcodeWritePayload) {

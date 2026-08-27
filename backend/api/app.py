@@ -28,6 +28,7 @@ from api.routes.suppliers import router as suppliers_router
 from api.routes.warehouses import router as warehouses_router
 from api.routes.size_groups import router as size_groups_router
 from api.routes.color_barcodes import router as color_barcodes_router
+from api.routes.product_auxiliary_attributes import router as product_auxiliary_attributes_router
 from storage.auth_repository import AuthRepository
 from storage.inventory_repository import InventoryRepository
 from storage.operation_log_repository import OperationLogRepository
@@ -180,5 +181,6 @@ def create_app(*, settings, repository=None, image_matchers=None, inventory_repo
     app.include_router(warehouses_router)
     app.include_router(size_groups_router)
     app.include_router(color_barcodes_router)
+    app.include_router(product_auxiliary_attributes_router)
     _add_public_docs_routes(app)
     return app

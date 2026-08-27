@@ -92,6 +92,14 @@ async def auth_middleware(request: Request, call_next):
         request.state.current_user = user
         return await call_next(request)
 
+    if path.startswith("/product-auxiliary-attributes"):
+        role_code = str(user.get("role_code") or "").strip()
+        department_code = str(user.get("department_code") or "").strip()
+        if role_code != "super_admin" and department_code not in {"商品部", "开发部"}:
+            return JSONResponse({"detail": "辅助属性管理仅限商品部、开发部和超级管理员访问"}, status_code=403)
+        request.state.current_user = user
+        return await call_next(request)
+
     if path.startswith("/size-groups"):
         role_code = str(user.get("role_code") or "").strip()
         department_code = str(user.get("department_code") or "").strip()

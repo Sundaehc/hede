@@ -5209,7 +5209,6 @@ async def import_inventory(request: Request, file: UploadFile = None):
 
     # Phase 2: Create documents with details grouped by the append key.
     new_suppliers: set[str] = set()
-    new_warehouses: set[str] = set()
     created_docs = 0
     created_details = 0
     skipped_docs = 0
@@ -5224,11 +5223,8 @@ async def import_inventory(request: Request, file: UploadFile = None):
         doc_payload = first["doc"]
 
         supplier_name = str(doc_payload.get("supplier") or "").strip()
-        warehouse_name = str(doc_payload.get("warehouse") or "").strip()
         if supplier_name:
             new_suppliers.add(supplier_name)
-        if warehouse_name:
-            new_warehouses.add(warehouse_name)
 
         try:
             existing = repository.get_record_for_append(
@@ -5266,12 +5262,6 @@ async def import_inventory(request: Request, file: UploadFile = None):
             repository.create_supplier({"name": name})
             supplier_added += 1
 
-    warehouse_added = 0
-    for name in new_warehouses:
-        if not repository.get_warehouse_by_name(name):
-            repository.create_warehouse({"name": name})
-            warehouse_added += 1
-
     msg = f"导入完成：新增 {created_docs} 条单据"
     if appended_docs:
         msg += f"，追加 {appended_docs} 条单据"
@@ -5280,8 +5270,6 @@ async def import_inventory(request: Request, file: UploadFile = None):
         msg += f"，跳过 {skipped_docs} 条异常单据"
     if supplier_added > 0:
         msg += f"，新增供应商 {supplier_added} 个"
-    if warehouse_added > 0:
-        msg += f"，新增仓库 {warehouse_added} 个"
     affected_records = [*created_records, *appended_records]
     document_numbers = _document_numbers(affected_records)
     write_operation_log(
@@ -5306,7 +5294,6 @@ async def import_inventory(request: Request, file: UploadFile = None):
             "appended_detail_count": appended_details,
             "skipped": skipped_docs,
             "supplier_added": supplier_added,
-            "warehouse_added": warehouse_added,
         },
     )
     return {"created": created_docs, "details": created_details, "skipped": skipped_docs, "message": msg}

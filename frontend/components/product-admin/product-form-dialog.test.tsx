@@ -6,8 +6,9 @@ import { ProductFormDialog } from "@/components/product-admin/product-form-dialo
 import { ApiError } from "@/lib/api"
 import type { ProductListItem } from "@/lib/types"
 
-const { mockCreateProduct, mockListProductColorBarcodes, mockListSizeGroups, mockListSuppliersByBrand, mockLookupImage, mockUpdateProduct } = vi.hoisted(() => ({
+const { mockCreateProduct, mockListProductAuxiliaryOptions, mockListProductColorBarcodes, mockListSizeGroups, mockListSuppliersByBrand, mockLookupImage, mockUpdateProduct } = vi.hoisted(() => ({
   mockCreateProduct: vi.fn(),
+  mockListProductAuxiliaryOptions: vi.fn(),
   mockListProductColorBarcodes: vi.fn(),
   mockListSizeGroups: vi.fn(),
   mockListSuppliersByBrand: vi.fn(),
@@ -21,6 +22,7 @@ vi.mock("@/lib/api", async () => {
   return {
     ...actual,
     createProduct: mockCreateProduct,
+    listProductAuxiliaryOptions: mockListProductAuxiliaryOptions,
     listProductColorBarcodes: mockListProductColorBarcodes,
     listSizeGroups: mockListSizeGroups,
     listSuppliersByBrand: mockListSuppliersByBrand,
@@ -123,12 +125,14 @@ const nullPayload = Object.fromEntries(
 describe("ProductFormDialog", () => {
   beforeEach(() => {
     mockCreateProduct.mockReset()
+    mockListProductAuxiliaryOptions.mockReset()
     mockListProductColorBarcodes.mockReset()
     mockListSizeGroups.mockReset()
     mockListSuppliersByBrand.mockReset()
     mockLookupImage.mockReset()
     mockUpdateProduct.mockReset()
     mockCreateProduct.mockResolvedValue({ item: sampleItem, message: "created" })
+    mockListProductAuxiliaryOptions.mockResolvedValue({ brand: "cbanner_mens", brand_scope: "other", items: [] })
     mockListProductColorBarcodes.mockResolvedValue({ items: [] })
     mockListSizeGroups.mockResolvedValue({ items: [] })
     mockListSuppliersByBrand.mockResolvedValue({ items: [], total: 0, page: 1, page_size: 0 })
@@ -325,5 +329,52 @@ describe("ProductFormDialog", () => {
     await user.click(await screen.findByRole("option", { name: /笑脸测试供应商/ }))
 
     expect(screen.getByLabelText("供应商名")).toHaveValue("笑脸测试供应商")
+  })
+
+  it("uses brand auxiliary attributes as product field options", async () => {
+    const user = userEvent.setup()
+    mockListProductAuxiliaryOptions.mockResolvedValue({
+      brand: "cbanner_womens",
+      brand_scope: "cbanner_womens",
+      items: [
+        { field: "product_name", type_name: "品名", options: ["女单鞋", "女靴"] },
+        { field: "upper_material", type_name: "鞋面材质", options: ["合成革", "牛皮革"] },
+      ],
+    })
+
+    render(<ProductFormDialog open mode="create" onOpenChange={vi.fn()} onSaved={vi.fn()} />)
+
+    await user.selectOptions(screen.getByLabelText("品牌"), "cbanner_womens")
+    await waitFor(() => expect(mockListProductAuxiliaryOptions).toHaveBeenCalledWith("cbanner_womens"))
+    await user.click(screen.getByLabelText("品名"))
+    await user.type(screen.getByLabelText("品名"), "女靴")
+    await user.click(await screen.findByRole("option", { name: "女靴" }))
+    await user.click(screen.getByLabelText("鞋面材质"))
+    await user.type(screen.getByLabelText("鞋面材质"), "牛皮")
+    await user.click(await screen.findByRole("option", { name: "牛皮革" }))
+
+    expect(screen.getByLabelText("品名")).toHaveValue("女靴")
+    expect(screen.getByLabelText("鞋面材质")).toHaveValue("牛皮革")
+  })
+
+  it("filters auxiliary dropdown options without accepting unmatched input", async () => {
+    mockListProductAuxiliaryOptions.mockResolvedValue({
+      brand: "cbanner_womens",
+      brand_scope: "cbanner_womens",
+      items: [{ field: "product_name", type_name: "品名", options: ["女单鞋"] }],
+    })
+
+    render(<ProductFormDialog open mode="create" onOpenChange={vi.fn()} onSaved={vi.fn()} />)
+
+    const user = userEvent.setup()
+    await user.selectOptions(screen.getByLabelText("品牌"), "cbanner_womens")
+    await waitFor(() => expect(mockListProductAuxiliaryOptions).toHaveBeenCalledWith("cbanner_womens"))
+
+    await user.click(screen.getByLabelText("品名"))
+    await user.type(screen.getByLabelText("品名"), "不存在")
+
+    expect(screen.getByText("没有匹配的辅助属性")).toBeInTheDocument()
+    await user.keyboard("{Escape}")
+    expect(screen.getByLabelText("品名")).toHaveValue("")
   })
 })

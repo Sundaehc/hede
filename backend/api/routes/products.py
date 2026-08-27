@@ -19,6 +19,7 @@ from sqlalchemy import distinct as sa_distinct, select as sa_select
 from domain.color_barcode_schema import COLOR_BARCODE_TABLE
 from domain.ni_gendered_costs import FEMALE_KEY, MALE_KEY, GENDER_COSTS_FIELD, normalize_gender_costs
 from domain.excluded_skus import is_excluded_sku
+from domain.product_auxiliary_attribute_schema import PRODUCT_AUXILIARY_ATTRIBUTE_FIELDS, PRODUCT_AUXILIARY_ATTRIBUTE_TABLE
 from domain.schema import PRODUCT_ARCHIVE_TABLES
 from domain.size_group_schema import SIZE_GROUPS_TABLE
 
@@ -164,6 +165,37 @@ def list_product_color_barcodes(request: Request, brand: ProductArchiveBrandKey)
         ]
 
     return {"items": items, "source_brand": source_brand}
+
+
+@router.get("/products/auxiliary-options")
+def list_product_auxiliary_options(request: Request, brand: ProductArchiveBrandKey):
+    repository = request.app.state.repository
+    if not repository.is_product_archive_brand(brand):
+        raise HTTPException(status_code=400, detail=f"Invalid brand: {brand}")
+    brand_scope = "cbanner_womens" if brand == "cbanner_womens" else "other"
+    with repository.engine.connect() as connection:
+        rows = connection.execute(
+            sa_select(
+                PRODUCT_AUXILIARY_ATTRIBUTE_TABLE.c.attribute_type,
+                PRODUCT_AUXILIARY_ATTRIBUTE_TABLE.c.attribute_name,
+            )
+            .where(PRODUCT_AUXILIARY_ATTRIBUTE_TABLE.c.brand_scope == brand_scope)
+            .order_by(
+                PRODUCT_AUXILIARY_ATTRIBUTE_TABLE.c.attribute_type,
+                PRODUCT_AUXILIARY_ATTRIBUTE_TABLE.c.attribute_name,
+            )
+        ).mappings()
+    grouped: dict[str, dict[str, object]] = {}
+    for row in rows:
+        field = PRODUCT_AUXILIARY_ATTRIBUTE_FIELDS.get(str(row["attribute_type"]))
+        if field is None:
+            continue
+        group = grouped.setdefault(
+            field,
+            {"field": field, "type_name": row["attribute_type"], "options": []},
+        )
+        group["options"].append(row["attribute_name"])
+    return {"brand": brand, "brand_scope": brand_scope, "items": list(grouped.values())}
 
 
 @router.get("/products/recycle-bin")

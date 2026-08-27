@@ -174,7 +174,7 @@ export default function WarehousesPage() {
   const openEditWarehouse = (warehouse: WarehouseItem) => {
     setWarehouseFormMode("edit")
     setWarehouseForm({
-      brand: warehouse.brand || activeBrand?.name || "通用",
+      brand: warehouse.brand || activeBrand?.name || "",
       name: warehouse.name,
       address: warehouse.address || "",
       notes: warehouse.notes || "",

@@ -1,7 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import { ChevronLeft, ChevronRight, History, Loader2, Palette, Pencil, Plus, Search, Trash2 } from "lucide-react"
+import { ChevronLeft, ChevronRight, Download, History, Loader2, Palette, Pencil, Plus, Search, Trash2 } from "lucide-react"
 
 import { useAuth } from "@/components/auth/auth-provider"
 import { ConfirmDialog, MessageDialog } from "@/components/confirm-dialog"
@@ -21,6 +21,7 @@ import {
   ApiError,
   createColorBarcode,
   deleteColorBarcode,
+  exportColorBarcodes,
   listColorBarcodeBrands,
   listManagedColorBarcodes,
   updateColorBarcode,
@@ -77,6 +78,7 @@ export function ColorBarcodeManagementPage() {
   const [isSaving, setIsSaving] = useState(false)
   const [deleteTarget, setDeleteTarget] = useState<ManagedColorBarcodeItem | null>(null)
   const [isDeleting, setIsDeleting] = useState(false)
+  const [isExporting, setIsExporting] = useState(false)
   const [operationLogOpen, setOperationLogOpen] = useState(false)
   const [message, setMessage] = useState<{ title: string; description: string } | null>(null)
   const loadRequestIdRef = useRef(0)
@@ -212,6 +214,23 @@ export function ColorBarcodeManagementPage() {
     }
   }
 
+  const exportColors = async () => {
+    if (!selectedBrand) return
+    setIsExporting(true)
+    try {
+      const blob = await exportColorBarcodes({ brand: selectedBrand, query })
+      const link = document.createElement("a")
+      link.href = URL.createObjectURL(blob)
+      link.download = `颜色管理_${selectedBrandItem?.brand_label || selectedBrand}.xlsx`
+      link.click()
+      URL.revokeObjectURL(link.href)
+    } catch (error) {
+      setMessage({ title: "导出失败", description: getErrorMessage(error) })
+    } finally {
+      setIsExporting(false)
+    }
+  }
+
   if (!canManage) {
     return <div className="app-page"><div className="app-content py-12 text-sm text-muted-foreground">暂无访问权限</div></div>
   }
@@ -222,6 +241,10 @@ export function ColorBarcodeManagementPage() {
         <div className="page-header">
           <h1 className="page-title">颜色管理</h1>
           <div className="flex items-center gap-2">
+            <Button type="button" variant="outline" className="cursor-pointer gap-1.5" onClick={() => void exportColors()} disabled={!selectedBrand || isExporting}>
+              {isExporting ? <Loader2 className="size-4 animate-spin" /> : <Download className="size-4" />}
+              {isExporting ? "导出中" : "导出"}
+            </Button>
             <Button type="button" variant="outline" className="cursor-pointer gap-1.5" onClick={() => setOperationLogOpen(true)}>
               <History className="size-4" />
               操作日志

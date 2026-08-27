@@ -521,6 +521,61 @@ export type ProductColorBarcodeListResponse = {
   source_brand: string
 }
 
+export type ProductAuxiliaryOptionGroup = {
+  field: string
+  type_name: string
+  options: string[]
+}
+
+export type ProductAuxiliaryOptionsResponse = {
+  brand: string
+  brand_scope: string
+  items: ProductAuxiliaryOptionGroup[]
+}
+
+export type ProductAuxiliaryAttributeScope = {
+  value: string
+  label: string
+  total: number
+}
+
+export type ProductAuxiliaryAttributeType = {
+  value: string
+  field: string
+}
+
+export type ProductAuxiliaryAttributeMetadataResponse = {
+  scopes: ProductAuxiliaryAttributeScope[]
+  attribute_types: ProductAuxiliaryAttributeType[]
+}
+
+export type ManagedProductAuxiliaryAttributeItem = {
+  id: number
+  brand_scope: string
+  brand_scope_label: string
+  attribute_type: string
+  attribute_name: string
+  product_field: string
+  source_workbook: string
+  source_sheet: string
+  source_row_number: string
+  created_at: string | null
+  updated_at: string | null
+}
+
+export type ManagedProductAuxiliaryAttributeListResponse = {
+  items: ManagedProductAuxiliaryAttributeItem[]
+  total: number
+  page: number
+  page_size: number
+}
+
+export type ProductAuxiliaryAttributeWritePayload = {
+  brand_scope: string
+  attribute_type: string
+  attribute_name: string
+}
+
 export type ColorBarcodeBrandSummary = {
   brand: string
   brand_label: string

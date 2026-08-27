@@ -165,6 +165,56 @@ def test_get_products_returns_paginated_rows(test_app_client: TestClient, reposi
     assert body["items"][0]["original_sku"] == "OA1001"
 
 
+def test_product_auxiliary_options_use_womens_and_other_brand_scopes(test_app_client: TestClient):
+    from sqlalchemy import delete, insert
+
+    from domain.product_auxiliary_attribute_schema import PRODUCT_AUXILIARY_ATTRIBUTE_TABLE
+
+    repository = test_app_client.app.state.repository
+    with repository.engine.begin() as connection:
+        connection.execute(delete(PRODUCT_AUXILIARY_ATTRIBUTE_TABLE))
+        connection.execute(insert(PRODUCT_AUXILIARY_ATTRIBUTE_TABLE), [
+            {
+                "brand_scope": "cbanner_womens",
+                "attribute_type": "鞋面材质",
+                "attribute_name": "女鞋专属材质",
+                "source_workbook": "womens.xls",
+                "source_sheet": "千百度女鞋",
+                "source_row_number": "5",
+            },
+            {
+                "brand_scope": "other",
+                "attribute_type": "品名",
+                "attribute_name": "其他品牌品名",
+                "source_workbook": "other.xls",
+                "source_sheet": "导出数据",
+                "source_row_number": "5",
+            },
+            {
+                "brand_scope": "other",
+                "attribute_type": "品牌",
+                "attribute_name": "不支持的类型",
+                "source_workbook": "other.xls",
+                "source_sheet": "导出数据",
+                "source_row_number": "6",
+            },
+        ])
+
+    womens_response = test_app_client.get("/products/auxiliary-options", params={"brand": "cbanner_womens"})
+    mens_response = test_app_client.get("/products/auxiliary-options", params={"brand": "cbanner_mens"})
+
+    assert womens_response.status_code == 200
+    assert womens_response.json()["brand_scope"] == "cbanner_womens"
+    assert womens_response.json()["items"] == [
+        {"field": "upper_material", "type_name": "鞋面材质", "options": ["女鞋专属材质"]}
+    ]
+    assert mens_response.status_code == 200
+    assert mens_response.json()["brand_scope"] == "other"
+    assert mens_response.json()["items"] == [
+        {"field": "product_name", "type_name": "品名", "options": ["其他品牌品名"]}
+    ]
+
+
 def test_get_product_returns_404_when_missing(test_app_client: TestClient):
     response = test_app_client.get("/products/cbanner_mens/99999")
 

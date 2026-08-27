@@ -25,6 +25,7 @@ import {
   Ruler,
   Palette,
   Sparkles,
+  ListFilter,
 } from "lucide-react"
 
 const NAV_ITEMS = [
@@ -147,6 +148,12 @@ const NAV_ITEMS = [
         icon: Palette,
         permission: "product.view",
       },
+      {
+        href: "/auxiliary-attributes",
+        label: "辅助属性管理",
+        icon: ListFilter,
+        permission: "product.view",
+      },
     ],
   },
 ]
@@ -174,6 +181,7 @@ export function SidebarNav() {
     user?.role_code === "super_admin" ||
     ["商品部", "开发部"].includes(user?.department_code ?? "")
   const canAccessColorManagement = canAccessSizeGroups
+  const canAccessAuxiliaryAttributes = canAccessSizeGroups
   const canAccessAiQuery =
     user?.role_code === "super_admin" ||
     [
@@ -200,6 +208,8 @@ export function SidebarNav() {
           canAccessProductGoods) &&
         (item.href !== "/size-groups" || canAccessSizeGroups) &&
         (item.href !== "/color-barcodes" || canAccessColorManagement) &&
+        (item.href !== "/auxiliary-attributes" ||
+          canAccessAuxiliaryAttributes) &&
         (item.href !== "/ai-query" || canAccessAiQuery) &&
         (!isProductDepartment ||
           ![

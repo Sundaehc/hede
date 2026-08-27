@@ -1899,7 +1899,9 @@ class InventoryRepository:
 
     def create_warehouse(self, data: Mapping[str, object]) -> dict[str, object]:
         payload = dict(data)
-        payload["brand"] = str(payload.get("brand") or "通用").strip() or "通用"
+        payload["brand"] = str(payload.get("brand") or "").strip()
+        if not payload["brand"]:
+            raise ValueError("仓库品牌不能为空")
         with self.engine.begin() as connection:
             payload["sort_order"] = self._next_sort_order(
                 connection,
@@ -3037,24 +3039,6 @@ class InventoryRepository:
         connection.execute(text("ALTER TABLE IF EXISTS warehouse_brands ADD COLUMN IF NOT EXISTS sort_order INTEGER NOT NULL DEFAULT 0"))
         connection.execute(text("CREATE INDEX IF NOT EXISTS idx_warehouses_brand_sort ON warehouses (brand, sort_order)"))
         connection.execute(text("CREATE INDEX IF NOT EXISTS idx_warehouse_brands_sort ON warehouse_brands (sort_order)"))
-        connection.execute(
-            text(
-                """
-                INSERT INTO warehouse_brands (name)
-                VALUES ('通用')
-                ON CONFLICT (name) DO NOTHING
-                """
-            )
-        )
-        connection.execute(
-            text(
-                """
-                UPDATE warehouses
-                SET brand = '通用'
-                WHERE brand IS NULL OR btrim(brand) = ''
-                """
-            )
-        )
         connection.execute(
             text(
                 """
