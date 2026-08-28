@@ -301,19 +301,66 @@ function tableHeaderContentAlignClass(align: TableColumn["align"] = "left") {
   return "justify-start"
 }
 
-function csvCell(value: string | number | null | undefined) {
-  const text = value == null ? "" : String(value)
-  return `"${text.replace(/"/g, '""')}"`
-}
-
 function excelText(value: string | number | null | undefined) {
   if (value == null || value === "") return ""
-  return `\t${String(value)}`
+  return String(value)
 }
 
-function downloadCsv(filename: string, rows: (string | number | null | undefined)[][]) {
-  const csv = rows.map((row) => row.map(csvCell).join(",")).join("\r\n")
-  const blob = new Blob([`\uFEFF${csv}`], { type: "text/csv;charset=utf-8" })
+function excelColumnWidth(value: string | number | null | undefined) {
+  if (value == null) return 0
+  return Array.from(String(value)).reduce(
+    (width, character) => width + (character.charCodeAt(0) <= 0xff ? 1 : 2),
+    0,
+  )
+}
+
+async function downloadFineTableExcel(
+  filename: string,
+  rows: (string | number | null | undefined)[][],
+) {
+  const { Workbook } = await import("exceljs")
+  const workbook = new Workbook()
+  workbook.creator = "赫德商品运营系统"
+  workbook.created = new Date()
+
+  const worksheet = workbook.addWorksheet("商品精细表", {
+    views: [{ state: "frozen", xSplit: 2, ySplit: 1 }],
+  })
+  worksheet.properties.defaultRowHeight = 18
+  worksheet.addRows(rows.map((row) => row.map((value) => value ?? "")))
+
+  const headerRow = worksheet.getRow(1)
+  headerRow.height = 26
+  headerRow.font = { bold: true, color: { argb: "FFFFFFFF" } }
+  headerRow.fill = {
+    type: "pattern",
+    pattern: "solid",
+    fgColor: { argb: "FF334155" },
+  }
+  headerRow.alignment = { horizontal: "center", vertical: "middle" }
+
+  const columnCount = rows[0]?.length ?? 0
+  const widthSample = rows.slice(0, 501)
+  worksheet.columns = Array.from({ length: columnCount }, (_, columnIndex) => {
+    const contentWidth = widthSample.reduce(
+      (width, row) => Math.max(width, excelColumnWidth(row[columnIndex])),
+      0,
+    )
+    return { width: Math.min(36, Math.max(10, contentWidth + 2)) }
+  })
+  if (columnCount > 0) {
+    worksheet.autoFilter = {
+      from: { row: 1, column: 1 },
+      to: { row: 1, column: columnCount },
+    }
+  }
+  worksheet.getColumn(1).numFmt = "@"
+  worksheet.getColumn(2).numFmt = "@"
+
+  const buffer = await workbook.xlsx.writeBuffer()
+  const blob = new Blob([new Uint8Array(buffer)], {
+    type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  })
   const url = URL.createObjectURL(blob)
   const link = document.createElement("a")
   link.href = url
@@ -604,7 +651,7 @@ function tableColumnExportValue(row: FineTableItem, column: TableColumn) {
   }
 }
 
-function buildFineTableCsvRows(rows: FineTableItem[], visibleColumns: TableColumn[]) {
+function buildFineTableExcelRows(rows: FineTableItem[], visibleColumns: TableColumn[]) {
   return [
     ["货号", "原始货号", ...visibleColumns.map((column) => column.dailyMetricLabel ? `${column.label}${column.dailyMetricLabel}` : column.label)],
     ...rows.map((row) => [
@@ -2126,10 +2173,10 @@ export function FineTablePage() {
         if (view === "stockRisk") return hasStockRisk(row)
         return true
       })
-      const csvRows = buildFineTableCsvRows(rowsForExport, visibleColumns)
+      const excelRows = buildFineTableExcelRows(rowsForExport, visibleColumns)
       const brandLabel = FINE_TABLE_BRANDS.find((item) => item.key === brand)?.label ?? "商品"
-      const filename = `${brandLabel}_商品精细表_${timestampForFilename(new Date())}.csv`
-      downloadCsv(filename, csvRows)
+      const filename = `${brandLabel}_商品精细表_${timestampForFilename(new Date())}.xlsx`
+      await downloadFineTableExcel(filename, excelRows)
       try {
         await logFineTableExport({
           brand,
