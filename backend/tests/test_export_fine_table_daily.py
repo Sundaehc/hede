@@ -12,6 +12,9 @@ def test_columns_for_rows_uses_chinese_labels_for_product_fields() -> None:
         "mesh_upper_type": "鞋网面类型",
         "fashion_elements": "流行元素",
         "barcode_build_rule": "条码构成逻辑",
+        "category": "分类",
+        "last_imported_at": "最近导入时间",
+        "deleted_at": "删除时间",
     }
     columns = _columns_for_rows([{**dict.fromkeys(expected_labels), "future_field": "value"}])
     labels_by_key = dict(columns)
