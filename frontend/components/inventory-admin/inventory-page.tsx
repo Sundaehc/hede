@@ -1796,6 +1796,16 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
               )}
               <form
                 className="surface-panel relative z-30 p-4"
+                onKeyDown={(event) => {
+                  if (
+                    event.key !== "Enter"
+                    || event.defaultPrevented
+                    || event.nativeEvent.isComposing
+                    || event.target instanceof HTMLTextAreaElement
+                  ) return
+                  event.preventDefault()
+                  search()
+                }}
                 onSubmit={(event) => {
                   event.preventDefault()
                   search()
