@@ -954,7 +954,7 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
           date_start: submittedFilters.date_start || undefined,
           date_end: submittedFilters.date_end || undefined,
           supplier: submittedFilters.supplier || undefined,
-          warehouse: submittedFilters.warehouse || undefined,
+          warehouse: isPurchaseOrderTab ? undefined : submittedFilters.warehouse || undefined,
           document_type: isPurchaseOrderTab ? PURCHASE_ORDER_DOCUMENT_TYPE : submittedFilters.document_type || undefined,
           exclude_document_type: isPurchaseOrderTab ? undefined : PURCHASE_ORDER_DOCUMENT_TYPE,
           summary: submittedFilters.summary || undefined,
@@ -1443,7 +1443,7 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
         date_start: submittedFilters.date_start || undefined,
         date_end: submittedFilters.date_end || undefined,
         supplier: submittedFilters.supplier || undefined,
-        warehouse: submittedFilters.warehouse || undefined,
+        warehouse: isPurchaseOrderTab ? undefined : submittedFilters.warehouse || undefined,
         document_type: isPurchaseOrderTab ? PURCHASE_ORDER_DOCUMENT_TYPE : submittedFilters.document_type || undefined,
         exclude_document_type: isPurchaseOrderTab ? undefined : PURCHASE_ORDER_DOCUMENT_TYPE,
         summary: submittedFilters.summary || undefined,
@@ -1473,7 +1473,7 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
       date_start: searchDateStart,
       date_end: searchDateEnd,
       supplier: searchSupplier,
-      warehouse: searchWarehouse,
+      warehouse: isPurchaseOrderTab ? "" : searchWarehouse,
       document_type: isPurchaseOrderTab ? PURCHASE_ORDER_DOCUMENT_TYPE : searchDocumentType,
       summary: searchSummary,
       original_sku: isPurchaseOrderTab ? "" : searchOriginalSku,
@@ -1846,13 +1846,15 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
                         </Select>
                       </div>
                     )}
-                    <div className="space-y-1.5 lg:col-span-3 xl:col-span-2">
-                      <Label className="text-xs text-muted-foreground">仓库</Label>
-                      <Select value={searchWarehouse} onChange={(e) => setSearchWarehouse(e.target.value)} className="w-full">
-                        <option value="">全部</option>
-                        {warehouseOptions.map((w) => (<option key={w.id} value={w.name}>{w.name}</option>))}
-                      </Select>
-                    </div>
+                    {!isPurchaseOrderTab && (
+                      <div className="space-y-1.5 lg:col-span-3 xl:col-span-2">
+                        <Label className="text-xs text-muted-foreground">仓库</Label>
+                        <Select value={searchWarehouse} onChange={(e) => setSearchWarehouse(e.target.value)} className="w-full">
+                          <option value="">全部</option>
+                          {warehouseOptions.map((w) => (<option key={w.id} value={w.name}>{w.name}</option>))}
+                        </Select>
+                      </div>
+                    )}
                     <div className="space-y-1.5 lg:col-span-3 xl:col-span-3">
                       <Label className="text-xs text-muted-foreground">客户/供应商</Label>
                       <SearchableFilterInput
