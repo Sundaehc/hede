@@ -12,6 +12,13 @@ import {
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { listOperationLogs } from "@/lib/api"
+import {
+  formatOperationLogPrimitive,
+  getOperationLogFieldLabel,
+  getOperationLogRecordChanges,
+  isOperationLogRecord,
+  isOperationLogStructuredValue,
+} from "@/lib/operation-log-format"
 import type { OperationLogChange, OperationLogItem } from "@/lib/types"
 
 type OperationLogModule =
@@ -73,21 +80,109 @@ function formatDateTime(value: string | null) {
   return `${date.toLocaleDateString("zh-CN")}\n${date.toLocaleTimeString("zh-CN", { hour12: false })}`
 }
 
-function formatValue(value: unknown) {
-  if (value === null || value === undefined || value === "") return "空"
+function recordEntries(value: unknown) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return []
+  return Object.entries(value as Record<string, unknown>)
+}
+
+function OperationLogValue({ value }: { value: unknown }) {
+  if (Array.isArray(value)) {
+    if (value.length === 0) return <span>空</span>
+    return (
+      <div className="space-y-1">
+        {value.map((item, index) => (
+          <div
+            key={index}
+            className="rounded border border-border/70 bg-background px-1.5 py-1"
+          >
+            <OperationLogValue value={item} />
+          </div>
+        ))}
+      </div>
+    )
+  }
+
+  const entries = recordEntries(value)
+  if (entries.length > 0) {
+    return (
+      <dl className="space-y-1.5 rounded border border-border/70 bg-background px-2 py-1.5">
+        {entries.map(([key, item]) => (
+          <div
+            key={key}
+            className="min-w-0 border-b border-border/50 pb-1.5 last:border-b-0 last:pb-0"
+          >
+            <dt className="text-[11px] leading-4 text-muted-foreground">
+              {getOperationLogFieldLabel(key)}
+            </dt>
+            <dd className="mt-0.5 min-w-0 break-words leading-5 text-foreground">
+              <OperationLogValue value={item} />
+            </dd>
+          </div>
+        ))}
+      </dl>
+    )
+  }
+
+  if (isOperationLogStructuredValue(value)) return <span>空</span>
+  return (
+    <span className="[overflow-wrap:anywhere]">
+      {formatOperationLogPrimitive(value)}
+    </span>
+  )
+}
+
+function ChangeValue({
+  before,
+  after,
+}: Pick<OperationLogChange, "before" | "after">) {
+  if (isOperationLogRecord(before) || isOperationLogRecord(after)) {
+    const nestedChanges = getOperationLogRecordChanges(before, after)
+    if (nestedChanges.length === 0) {
+      return <p className="mt-0.5 text-muted-foreground">无变化</p>
+    }
+    return (
+      <dl className="mt-1.5 space-y-1.5 rounded border border-border/70 bg-background px-2 py-1.5">
+        {nestedChanges.map((change) => (
+          <div
+            key={change.key}
+            className="min-w-0 border-b border-border/50 pb-1.5 last:border-b-0 last:pb-0"
+          >
+            <dt className="text-[11px] leading-4 text-muted-foreground">
+              {getOperationLogFieldLabel(change.key)}
+            </dt>
+            <dd className="min-w-0">
+              <ChangeValue before={change.before} after={change.after} />
+            </dd>
+          </div>
+        ))}
+      </dl>
+    )
+  }
+
   if (
-    typeof value === "string" ||
-    typeof value === "number" ||
-    typeof value === "boolean"
+    !isOperationLogStructuredValue(before) &&
+    !isOperationLogStructuredValue(after)
   ) {
-    return String(value)
+    return (
+      <p className="mt-0.5 break-all text-muted-foreground">
+        {formatOperationLogPrimitive(before)} →{" "}
+        {formatOperationLogPrimitive(after)}
+      </p>
+    )
   }
-  try {
-    const text = JSON.stringify(value)
-    return text.length > 80 ? `${text.slice(0, 80)}...` : text
-  } catch {
-    return String(value)
-  }
+
+  return (
+    <div className="mt-1.5 space-y-1.5 text-muted-foreground">
+      <div>
+        <p className="mb-1 text-[11px]">修改前</p>
+        <OperationLogValue value={before} />
+      </div>
+      <div>
+        <p className="mb-1 text-[11px]">修改后</p>
+        <OperationLogValue value={after} />
+      </div>
+    </div>
+  )
 }
 
 function ChangeList({ changes }: { changes: OperationLogChange[] | null }) {
@@ -107,11 +202,9 @@ function ChangeList({ changes }: { changes: OperationLogChange[] | null }) {
             className="rounded-md bg-muted/55 px-2 py-1.5 text-xs"
           >
             <p className="font-medium text-foreground">
-              {change.label || change.field}
+              {getOperationLogFieldLabel(change.field, change.label)}
             </p>
-            <p className="mt-0.5 break-all text-muted-foreground">
-              {formatValue(change.before)} → {formatValue(change.after)}
-            </p>
+            <ChangeValue before={change.before} after={change.after} />
           </div>
         ))}
         {changes.length > 12 ? (
@@ -448,7 +541,7 @@ export function OperationLogDialog({
               <col className="w-[132px]" />
               <col className="w-[170px]" />
               <col />
-              <col className="w-[168px]" />
+              <col className="w-[240px]" />
             </colgroup>
             <thead className="sticky top-0 z-10 border-b border-border bg-muted text-xs text-muted-foreground">
               <tr>

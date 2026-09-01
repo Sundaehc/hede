@@ -48,6 +48,9 @@ PRODUCT_FIELD_LABELS = {
     "color_code": "颜色代码",
     "barcode_build_rule": "条码构成逻辑",
     "launch_date": "上市时间",
+    "selling_points": "卖点",
+    "extra_fields": "扩展信息",
+    "deleted_at": "删除时间",
 }
 
 INVENTORY_FIELD_LABELS = {

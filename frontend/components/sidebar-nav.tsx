@@ -24,22 +24,10 @@ import {
   ChartNoAxesCombined,
   Ruler,
   Palette,
-  Sparkles,
   ListFilter,
 } from "lucide-react"
 
 const NAV_ITEMS = [
-  {
-    section: "",
-    items: [
-      {
-        href: "/ai-query",
-        label: "智能查询",
-        icon: Sparkles,
-        permission: "ai_query.view",
-      },
-    ],
-  },
   {
     section: "商品档案",
     items: [
@@ -182,15 +170,6 @@ export function SidebarNav() {
     ["商品部", "开发部"].includes(user?.department_code ?? "")
   const canAccessColorManagement = canAccessSizeGroups
   const canAccessAuxiliaryAttributes = canAccessSizeGroups
-  const canAccessAiQuery =
-    user?.role_code === "super_admin" ||
-    [
-      "ai_query.view",
-      "product.view",
-      "fine_table.view",
-      "purchase.view",
-      "inventory.view",
-    ].some((permission) => hasPermission(permission))
   const isProductDepartment =
     user?.role_code !== "super_admin" && user?.department_code === "商品部"
   const userName = user?.display_name || user?.username || "未登录用户"
@@ -199,9 +178,7 @@ export function SidebarNav() {
     ...group,
     items: group.items.filter(
       (item) =>
-        (item.href === "/ai-query"
-          ? canAccessAiQuery
-          : hasPermission(item.permission)) &&
+        hasPermission(item.permission) &&
         (!["/product-goods", "/factory-channel-dashboard"].includes(
           item.href
         ) ||
@@ -210,7 +187,6 @@ export function SidebarNav() {
         (item.href !== "/color-barcodes" || canAccessColorManagement) &&
         (item.href !== "/auxiliary-attributes" ||
           canAccessAuxiliaryAttributes) &&
-        (item.href !== "/ai-query" || canAccessAiQuery) &&
         (!isProductDepartment ||
           ![
             "/inventory",
