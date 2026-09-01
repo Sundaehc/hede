@@ -36,6 +36,7 @@ from domain.gj_brand import CBANNER_MENS_BRAND, CBANNER_WOMENS_BRAND, EBLAN_BRAN
 from domain.gj_schema import GJ_MERGED_PRODUCT_INFO_TABLE
 from domain.inventory_schema import SUPPLIER_BRAND_TABLE, SUPPLIER_TABLE
 from domain.ni_gendered_costs import GENDER_COSTS_FIELD, price_for_sizes, split_sizes_by_gender
+from domain.product_defaults import BARCODE_SIZE_RULE
 from domain.product_size_code import build_product_size_code
 from domain.smiley_schema import SMILEY_FINE_TABLE
 from domain.inventory_sources import (
@@ -3032,6 +3033,25 @@ def _build_purchase_details_from_rows(
         )
         if matched_product_code:
             original_sku = matched_product_code
+        if (
+            archive_size
+            and matched_product_code
+            and _cell_text(product_info.get("barcode_build_rule")) == BARCODE_SIZE_RULE
+        ):
+            # Size-only barcodes append the size directly to the archived SKU.
+            # Recover the display color from that SKU after the archive match so
+            # NS millimetre sizes such as 235 are not mistaken for EU size 35.
+            archive_color_barcode = _purchase_color_barcode(matched_product_code, brand)
+            if archive_color_barcode:
+                color_barcode = archive_color_barcode
+                color_name = next(
+                    (
+                        name
+                        for barcode, name in color_barcodes
+                        if barcode == archive_color_barcode
+                    ),
+                    color_name,
+                )
         color_barcode, color_name = _purchase_detail_color_values(product_info, color_barcode, color_name)
         product_name = str(product_info.get("product_name") or "").strip()
         if not product_name:

@@ -44,6 +44,72 @@ def test_purchase_archive_code_uses_product_barcode_rule_for_ns_millimeter_size(
     ) == "245"
 
 
+def test_purchase_import_keeps_ns_millimeter_sizes_in_one_detail(monkeypatch) -> None:
+    product_code = "NAK2645019C03"
+    product_info = {
+        "_archive_matched": True,
+        "_archive_sku": product_code,
+        "_archive_original_sku": product_code,
+        "original_goods_code": product_code,
+        "product_name": "NS白色单鞋",
+        "color_name": "白色",
+        "barcode_build_rule": "货号+尺码",
+        "size_range": "NS220-250",
+        "unit_price": "156.5",
+    }
+    monkeypatch.setattr(
+        inventory_routes,
+        "_load_color_barcodes",
+        lambda connection: [("03", "白色"), ("32", "其他")],
+    )
+    monkeypatch.setattr(
+        inventory_routes,
+        "_load_purchase_product_lookup",
+        lambda connection, brand, product_codes: {product_code: product_info},
+    )
+    monkeypatch.setattr(
+        inventory_routes,
+        "_load_purchase_size_group_items",
+        lambda connection, size_ranges: {
+            "NS220-250": tuple(
+                (size, size)
+                for size in ("225", "230", "235", "240", "245", "250")
+            ),
+        },
+    )
+
+    details = _build_purchase_details_from_rows(
+        _StubRepository(),
+        [
+            {"product_code": f"{product_code}225", "quantity": "8"},
+            {"product_code": f"{product_code}230", "quantity": "14"},
+            {"product_code": f"{product_code}235", "quantity": "16"},
+            {"product_code": f"{product_code}240", "quantity": "12"},
+            {"product_code": f"{product_code}245", "quantity": "6"},
+            {"product_code": f"{product_code}250", "quantity": "4"},
+        ],
+        brand="ns",
+        fallback_unit_price=0,
+        prefer_lookup_unit_price=True,
+        require_archive_product_code=True,
+    )
+
+    assert len(details) == 1
+    assert details[0]["product_code"] == product_code
+    assert details[0]["color_barcode"] == "03"
+    assert details[0]["quantity"] == "60"
+    assert details[0]["unit_price"] == "156.5"
+    assert details[0]["amount"] == "9390"
+    assert details[0]["size_quantities"] == {
+        "225": "8",
+        "230": "14",
+        "235": "16",
+        "240": "12",
+        "245": "6",
+        "250": "4",
+    }
+
+
 def test_purchase_size_export_uses_detail_color_barcode_when_archive_color_code_is_missing() -> None:
     product_code, size_barcode = inventory_routes._purchase_size_export_product_code(
         "EE563366D20",
