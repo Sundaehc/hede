@@ -786,3 +786,72 @@ export type GeneralCustomerUnitItem = {
 export type GeneralCustomerUnitListResponse = {
   items: GeneralCustomerUnitItem[]
 }
+
+export type ScheduledTaskRunStatus = "running" | "success" | "failed"
+
+export type ScheduledTaskBusinessStatus = ScheduledTaskRunStatus | "skipped"
+
+export type ScheduledTaskRunItem = {
+  id: number
+  task_name: string
+  status: ScheduledTaskRunStatus
+  started_at: string
+  finished_at: string | null
+  duration_ms: number | null
+  exit_code: number | null
+  host_name: string | null
+  process_id: number | null
+  command: string | null
+  log_path: string | null
+  error_summary: string | null
+  created_at: string
+}
+
+export type ScheduledTaskRunSummary = {
+  total: number
+  success: number
+  failed: number
+  running: number
+  task_count: number
+  latest_started_at: string | null
+}
+
+export type ScheduledTaskRunListResponse = {
+  items: ScheduledTaskRunItem[]
+  total: number
+  page: number
+  page_size: number
+  run_date: string
+  summary: ScheduledTaskRunSummary
+}
+
+export type ScheduledTaskBusinessStatusItem = {
+  id: number
+  task_name: string
+  business_date: string
+  status: ScheduledTaskBusinessStatus
+  source_path: string | null
+  message: string | null
+  result: Record<string, unknown> | null
+  attempts: number
+  first_started_at: string | null
+  last_started_at: string | null
+  finished_at: string | null
+  created_at: string | null
+  updated_at: string | null
+}
+
+export type ScheduledTaskBusinessStatusListResponse = {
+  items: ScheduledTaskBusinessStatusItem[]
+  total: number
+  page: number
+  page_size: number
+  business_date: string
+  summary: {
+    total: number
+    success: number
+    failed: number
+    running: number
+    skipped: number
+  }
+}

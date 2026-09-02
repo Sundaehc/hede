@@ -40,6 +40,9 @@ import type {
   GeneralCustomerUnitItem,
   GeneralCustomerUnitListResponse,
   OperationLogResponse,
+  ScheduledTaskBusinessStatusListResponse,
+  ScheduledTaskRunItem,
+  ScheduledTaskRunListResponse,
 } from "@/lib/types"
 
 const API_PREFIX = "/api"
@@ -1402,6 +1405,58 @@ export type BatchUpdateInventoryCostsResult = {
   updated_documents: number
   message: string
   items: Array<Record<string, unknown>>
+}
+
+export function listScheduledTaskRuns(params: {
+  runDate: string
+  status?: string
+  query?: string
+  page: number
+  pageSize: number
+}) {
+  const search = new URLSearchParams({
+    run_date: params.runDate,
+    page: String(params.page),
+    page_size: String(params.pageSize),
+  })
+  if (params.status && params.status !== "all") {
+    search.set("status", params.status)
+  }
+  if (params.query?.trim()) search.set("query", params.query.trim())
+  return request<ScheduledTaskRunListResponse>(
+    `/scheduled-tasks/runs?${search.toString()}`
+  )
+}
+
+export function listScheduledTaskHistory(taskName: string, limit = 20) {
+  const search = new URLSearchParams({
+    task_name: taskName,
+    limit: String(limit),
+  })
+  return request<{ items: ScheduledTaskRunItem[]; task_name: string }>(
+    `/scheduled-tasks/history?${search.toString()}`
+  )
+}
+
+export function listScheduledTaskBusinessStatuses(params: {
+  businessDate: string
+  status?: string
+  query?: string
+  page: number
+  pageSize: number
+}) {
+  const search = new URLSearchParams({
+    business_date: params.businessDate,
+    page: String(params.page),
+    page_size: String(params.pageSize),
+  })
+  if (params.status && params.status !== "all") {
+    search.set("status", params.status)
+  }
+  if (params.query?.trim()) search.set("query", params.query.trim())
+  return request<ScheduledTaskBusinessStatusListResponse>(
+    `/scheduled-tasks/business-statuses?${search.toString()}`
+  )
 }
 
 export type InventoryCostDocumentOption = {

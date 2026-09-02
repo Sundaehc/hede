@@ -84,6 +84,17 @@ async def auth_middleware(request: Request, call_next):
         request.state.current_user = user
         return await call_next(request)
 
+    if path.startswith("/scheduled-tasks"):
+        role_code = str(user.get("role_code") or "").strip()
+        department_code = str(user.get("department_code") or "").strip()
+        if role_code != "super_admin" and department_code != "开发部":
+            return JSONResponse(
+                {"detail": "定时任务执行情况仅限开发部和超级管理员查看"},
+                status_code=403,
+            )
+        request.state.current_user = user
+        return await call_next(request)
+
     if path.startswith("/color-barcodes"):
         role_code = str(user.get("role_code") or "").strip()
         department_code = str(user.get("department_code") or "").strip()

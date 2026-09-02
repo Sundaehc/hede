@@ -25,6 +25,7 @@ import {
   Ruler,
   Palette,
   ListFilter,
+  Activity,
 } from "lucide-react"
 
 const NAV_ITEMS = [
@@ -142,6 +143,12 @@ const NAV_ITEMS = [
         icon: ListFilter,
         permission: "product.view",
       },
+      {
+        href: "/scheduled-tasks",
+        label: "定时任务",
+        icon: Activity,
+        permission: "system.admin",
+      },
     ],
   },
 ]
@@ -170,6 +177,8 @@ export function SidebarNav() {
     ["商品部", "开发部"].includes(user?.department_code ?? "")
   const canAccessColorManagement = canAccessSizeGroups
   const canAccessAuxiliaryAttributes = canAccessSizeGroups
+  const canAccessScheduledTasks =
+    user?.role_code === "super_admin" || user?.department_code === "开发部"
   const isProductDepartment =
     user?.role_code !== "super_admin" && user?.department_code === "商品部"
   const userName = user?.display_name || user?.username || "未登录用户"
@@ -178,7 +187,9 @@ export function SidebarNav() {
     ...group,
     items: group.items.filter(
       (item) =>
-        hasPermission(item.permission) &&
+        (item.href === "/scheduled-tasks"
+          ? canAccessScheduledTasks
+          : hasPermission(item.permission)) &&
         (!["/product-goods", "/factory-channel-dashboard"].includes(
           item.href
         ) ||
@@ -187,6 +198,7 @@ export function SidebarNav() {
         (item.href !== "/color-barcodes" || canAccessColorManagement) &&
         (item.href !== "/auxiliary-attributes" ||
           canAccessAuxiliaryAttributes) &&
+        (item.href !== "/scheduled-tasks" || canAccessScheduledTasks) &&
         (!isProductDepartment ||
           ![
             "/inventory",

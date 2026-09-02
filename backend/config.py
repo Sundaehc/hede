@@ -39,6 +39,9 @@ DEFAULT_DEWU_ORDER_ROOT = DEFAULT_DAILY_SALES_REPORT_ROOT
 DEFAULT_SMILEY_IMAGE_ROOT = Path(
     r"\\192.168.10.229\图片\产品45主图随时更新\45主图\笑脸45度图"
 )
+DEFAULT_SMILEY_FINE_TABLE_ROOT = Path(
+    r"\\Hede\运营组资料\1.补单表\2026年精细表\笑脸分析表"
+)
 DEFAULT_NI_IMAGE_ROOT = Path(
     r"\\192.168.10.229\图片\产品45主图随时更新\45主图\NI图片"
 )
@@ -53,6 +56,7 @@ class Settings:
     yandou_image_root: Path
     eblan_image_root: Path
     smiley_image_root: Path | None = DEFAULT_SMILEY_IMAGE_ROOT
+    smiley_fine_table_root: Path | None = DEFAULT_SMILEY_FINE_TABLE_ROOT
     ni_image_root: Path | None = DEFAULT_NI_IMAGE_ROOT
     jst_stock_root: Path | None = None
     vip_data_root: Path | None = None
@@ -227,6 +231,9 @@ def load_settings(require_database: bool = True) -> Settings:
         yandou_image_root=_path_from_env("YANDOU_IMAGE_ROOT"),
         eblan_image_root=_path_from_env("EBLAN_IMAGE_ROOT"),
         smiley_image_root=_path_from_env_with_default("SMILEY_IMAGE_ROOT", DEFAULT_SMILEY_IMAGE_ROOT),
+        smiley_fine_table_root=_path_from_env_with_default(
+            "SMILEY_FINE_TABLE_ROOT", DEFAULT_SMILEY_FINE_TABLE_ROOT
+        ),
         ni_image_root=_path_from_env_with_default("NI_IMAGE_ROOT", DEFAULT_NI_IMAGE_ROOT),
         jst_stock_root=jst_stock_root,
         vip_data_root=vip_data_root,

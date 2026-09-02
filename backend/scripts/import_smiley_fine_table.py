@@ -7,6 +7,7 @@ Run:
 from __future__ import annotations
 
 import argparse
+import re
 from collections import defaultdict
 from datetime import date, datetime
 from pathlib import Path
@@ -40,18 +41,33 @@ from transform.rows import normalize_upper_material
 from storage.inventory_repository import InventoryRepository
 
 
-DEFAULT_ROOT = Path(r"\\Hede\运营组资料\影刀\笑脸分析表")
-DEFAULT_IMAGE_ROOT = Path(r"\\Hede\图片\产品45主图随时更新\45主图\笑脸45度图")
 DEFAULT_BRAND = "smiley"
 DEFAULT_LEGACY_SNAPSHOT_BRAND = "xiaolian"
 DEFAULT_SHEET = "汇总"
 ROW_CHUNK_SIZE = 1000
+SOURCE_FILE_PATTERN = re.compile(r"^笑脸分析表(?P<month>\d{1,2})\.(?P<day>\d{1,2})(?:新)?\.xlsx$")
 
 SIZE_HEADERS = ("35-36", "37-38", "39-40", "35", "36", "37", "38", "39", "40", "41", "42", "43", "44")
 
 
 def default_file_for_date(root: Path, snapshot_date: date) -> Path:
     return root / f"笑脸分析表{snapshot_date.month}.{snapshot_date.day}.xlsx"
+
+
+def source_files_by_date(root: Path, year: int) -> dict[date, Path]:
+    files: dict[date, Path] = {}
+    for path in root.glob("笑脸分析表*.xlsx"):
+        match = SOURCE_FILE_PATTERN.fullmatch(path.name)
+        if match is None or path.name.startswith("~$"):
+            continue
+        try:
+            snapshot_date = date(year, int(match.group("month")), int(match.group("day")))
+        except ValueError:
+            continue
+        current = files.get(snapshot_date)
+        if current is None or (path.stat().st_mtime, path.name) > (current.stat().st_mtime, current.name):
+            files[snapshot_date] = path
+    return files
 
 
 def row_value(row: tuple[Any, ...], index: int | None) -> Any:
@@ -389,13 +405,57 @@ def delete_legacy_snapshot(repository: InventoryRepository, *, brand: str, snaps
     return len(batch_ids)
 
 
+def import_snapshot(
+    repository: InventoryRepository,
+    *,
+    file_path: Path,
+    snapshot_date: date,
+    sheet_name: str,
+    brand: str,
+    image_root: Path,
+    include_extra_fields: bool,
+    replace: bool,
+    legacy_snapshot_brand: str,
+    delete_legacy: bool,
+) -> int:
+    payloads, image_index_size = read_payloads(
+        file_path=file_path,
+        sheet_name=sheet_name,
+        brand=brand,
+        image_root=image_root,
+        include_extra_fields=include_extra_fields,
+    )
+    matched_images = sum(1 for payload in payloads if payload.get("image_path"))
+    print(
+        f"file={file_path} sheet={sheet_name} brand={brand} "
+        f"snapshot_date={snapshot_date} rows={len(payloads)} "
+        f"image_index={image_index_size} matched_images={matched_images}",
+        flush=True,
+    )
+    result = write_smiley_table(
+        repository,
+        snapshot_date=snapshot_date,
+        payloads=payloads,
+        replace=replace,
+    )
+    deleted_legacy = (
+        delete_legacy_snapshot(repository, brand=legacy_snapshot_brand, snapshot_date=snapshot_date)
+        if delete_legacy
+        else 0
+    )
+    print(f"result={result} rows={len(payloads)} deleted_legacy_batches={deleted_legacy}", flush=True)
+    return len(payloads)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Import Smiley summary sheet into smiley_fine_table")
-    parser.add_argument("--root", type=Path, default=DEFAULT_ROOT, help="笑脸分析表目录；未传 --file 时按 snapshot date 自动找文件")
+    parser.add_argument("--root", type=Path, default=None, help="笑脸分析表目录；默认读取 SMILEY_FINE_TABLE_ROOT")
     parser.add_argument("--file", type=Path, default=None, help="指定单个笑脸分析表文件；默认使用当天文件")
     parser.add_argument("--sheet", default=DEFAULT_SHEET)
-    parser.add_argument("--image-root", type=Path, default=DEFAULT_IMAGE_ROOT)
+    parser.add_argument("--image-root", type=Path, default=None, help="图片目录；默认读取 SMILEY_IMAGE_ROOT")
     parser.add_argument("--snapshot-date", type=date.fromisoformat, default=None, help="默认当天日期")
+    parser.add_argument("--fill-missing", action="store_true", help="导入来源目录中数据库尚未保存的日期")
+    parser.add_argument("--source-year", type=int, default=date.today().year, help="来源文件名未含年份时使用的年份")
     parser.add_argument("--brand", default=DEFAULT_BRAND)
     parser.add_argument("--legacy-snapshot-brand", default=DEFAULT_LEGACY_SNAPSHOT_BRAND)
     parser.add_argument("--replace", action="store_true")
@@ -403,14 +463,62 @@ def main() -> None:
     parser.add_argument("--delete-legacy-snapshot", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args()
+    settings = load_settings()
+    source_root = args.root or settings.smiley_fine_table_root
+    if source_root is None:
+        raise ValueError("SMILEY_FINE_TABLE_ROOT is required")
+    image_root = args.image_root or settings.smiley_image_root
+    if image_root is None:
+        raise ValueError("SMILEY_IMAGE_ROOT is required")
     snapshot_date = args.snapshot_date or date.today()
-    file_path = args.file or default_file_for_date(args.root, snapshot_date)
+    file_path = args.file or default_file_for_date(source_root, snapshot_date)
+
+    assert settings.database_url is not None
+    repository = InventoryRepository(settings.database_url)
+    if args.fill_missing:
+        source_files = source_files_by_date(source_root, args.source_year)
+        range_start = date(args.source_year, 1, 1)
+        range_end = date(args.source_year, 12, 31)
+        with repository.engine.connect() as connection:
+            existing_dates = set(
+                connection.execute(
+                    select(SMILEY_FINE_TABLE.c.snapshot_date)
+                    .where(SMILEY_FINE_TABLE.c.snapshot_date.between(range_start, range_end))
+                    .distinct()
+                ).scalars()
+            )
+        missing_dates = sorted(set(source_files) - existing_dates)
+        print(
+            f"source_dates={len(source_files)} existing_dates={len(existing_dates)} "
+            f"missing_dates={len(missing_dates)}",
+            flush=True,
+        )
+        if args.dry_run:
+            for missing_date in missing_dates:
+                print(f"missing={missing_date} file={source_files[missing_date]}")
+            return
+        imported_rows = 0
+        for missing_date in missing_dates:
+            imported_rows += import_snapshot(
+                repository,
+                file_path=source_files[missing_date],
+                snapshot_date=missing_date,
+                sheet_name=args.sheet,
+                brand=args.brand,
+                image_root=image_root,
+                include_extra_fields=args.include_extra_fields,
+                replace=False,
+                legacy_snapshot_brand=args.legacy_snapshot_brand,
+                delete_legacy=args.delete_legacy_snapshot,
+            )
+        print(f"filled_dates={len(missing_dates)} imported_rows={imported_rows}", flush=True)
+        return
 
     payloads, image_index_size = read_payloads(
         file_path=file_path,
         sheet_name=args.sheet,
         brand=args.brand,
-        image_root=args.image_root,
+        image_root=image_root,
         include_extra_fields=args.include_extra_fields,
     )
     matched_images = sum(1 for payload in payloads if payload.get("image_path"))
@@ -429,9 +537,6 @@ def main() -> None:
             print(f"season[{key}]={size_counts[key]}")
         return
 
-    settings = load_settings()
-    assert settings.database_url is not None
-    repository = InventoryRepository(settings.database_url)
     result = write_smiley_table(
         repository,
         snapshot_date=snapshot_date,
