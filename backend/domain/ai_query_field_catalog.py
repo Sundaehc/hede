@@ -513,6 +513,7 @@ FIELD_DESCRIPTIONS = {
     },
     "inventory_account_subjects": {
         "code": "科目代码",
+        "category": "科目分类，收入类或支出类",
         "name": "科目名称",
     },
     "purchase_order_requirement_templates": {

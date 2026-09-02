@@ -14,7 +14,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from domain.gj_schema import GJ_MERGED_PRODUCT_INFO_TABLE
 from domain.inventory_schema import GENERAL_CUSTOMER_BRAND_TABLE, GENERAL_CUSTOMER_SHOP_TABLE, GENERAL_CUSTOMER_SORT_PREFERENCE_TABLE, GENERAL_CUSTOMER_UNIT_TABLE, INVENTORY_ACCOUNT_SUBJECT_TABLE, INVENTORY_DETAIL_TABLE, INVENTORY_TABLE, JST_STOCK_TABLE, PURCHASE_ORDER_REQUIREMENT_TABLE, SUPPLIER_BRAND_TABLE, SUPPLIER_TABLE, WAREHOUSE_BRAND_TABLE, WAREHOUSE_TABLE
-from domain.inventory_sources import ACCOUNTING_DOCUMENT_TYPES
+from domain.inventory_sources import ACCOUNTING_DOCUMENT_TYPES, ACCOUNT_SUBJECT_CATEGORIES
 from domain.gj_brand import CBANNER_MENS_BRAND, GJ_FINE_TABLE_BRANDS, SUPPLIER_BRANDS, infer_supplier_brand_from_name
 from domain import jst_stock_snapshot_schema  # noqa: F401 - register JST stock snapshot tables on METADATA
 from domain import product_goods_schema  # noqa: F401 - register goods table overrides on METADATA
@@ -1647,6 +1647,7 @@ class InventoryRepository:
 
     def list_account_subjects(self) -> list[dict[str, object]]:
         statement = select(INVENTORY_ACCOUNT_SUBJECT_TABLE).order_by(
+            case((INVENTORY_ACCOUNT_SUBJECT_TABLE.c.category == "收入类", 0), else_=1),
             INVENTORY_ACCOUNT_SUBJECT_TABLE.c.id,
             INVENTORY_ACCOUNT_SUBJECT_TABLE.c.name,
         )
@@ -1656,8 +1657,11 @@ class InventoryRepository:
     def create_account_subject(self, data: Mapping[str, object]) -> dict[str, object]:
         payload = {
             "code": str(data.get("code") or "").strip() or None,
+            "category": str(data.get("category") or "收入类").strip() or "收入类",
             "name": str(data.get("name") or "").strip(),
         }
+        if payload["category"] not in ACCOUNT_SUBJECT_CATEGORIES:
+            raise ValueError("科目分类无效")
         statement = insert(INVENTORY_ACCOUNT_SUBJECT_TABLE).values(**payload).returning(INVENTORY_ACCOUNT_SUBJECT_TABLE)
         with self.engine.begin() as connection:
             row = connection.execute(statement).mappings().one()
@@ -1675,6 +1679,7 @@ class InventoryRepository:
         data: Mapping[str, object],
     ) -> tuple[dict[str, object] | None, int]:
         current_name = str(data.get("name") or "").strip()
+        requested_category = str(data.get("category") or "").strip()
         with self.engine.begin() as connection:
             before = connection.execute(
                 select(INVENTORY_ACCOUNT_SUBJECT_TABLE)
@@ -1683,11 +1688,14 @@ class InventoryRepository:
             ).mappings().first()
             if before is None:
                 return None, 0
+            current_category = requested_category or str(before.get("category") or "收入类").strip() or "收入类"
+            if current_category not in ACCOUNT_SUBJECT_CATEGORIES:
+                raise ValueError("科目分类无效")
 
             row = connection.execute(
                 update(INVENTORY_ACCOUNT_SUBJECT_TABLE)
                 .where(INVENTORY_ACCOUNT_SUBJECT_TABLE.c.id == subject_id)
-                .values(name=current_name)
+                .values(name=current_name, category=current_category)
                 .returning(INVENTORY_ACCOUNT_SUBJECT_TABLE)
             ).mappings().one()
 
@@ -2503,6 +2511,8 @@ class InventoryRepository:
         *,
         date_start: str | None,
         date_end: str | None,
+        document_type: str | None = None,
+        document_numbers: list[str] | None = None,
         price_updates: Mapping[str, object],
     ) -> dict[str, object]:
         normalized_updates = {
@@ -2516,9 +2526,20 @@ class InventoryRepository:
         record = INVENTORY_TABLE
         detail = INVENTORY_DETAIL_TABLE
         conditions = [
-            record.c.document_type.in_(("进货单", "进货退货单")),
+            record.c.deleted_at.is_(None),
             detail.c.product_code.in_(normalized_updates.keys()),
         ]
+        if document_type:
+            conditions.append(record.c.document_type == document_type)
+        else:
+            conditions.append(record.c.document_type.in_(PURCHASE_INBOUND_DETAIL_TYPES))
+        normalized_document_numbers = list(dict.fromkeys(
+            str(document_number or "").strip()
+            for document_number in (document_numbers or [])
+            if str(document_number or "").strip()
+        ))
+        if normalized_document_numbers:
+            conditions.append(record.c.document_number.in_(normalized_document_numbers))
         if date_start:
             parsed = parse_date(date_start)
             conditions.append(record.c.date_value >= parsed if parsed else record.c.date >= date_start)
@@ -2596,6 +2617,44 @@ class InventoryRepository:
             "updated_documents": len(changed_documents),
             "items": updated_items,
         }
+
+    def list_purchase_cost_document_options(
+        self,
+        *,
+        date_start: str | None,
+        date_end: str | None,
+        document_type: str | None = None,
+    ) -> list[dict[str, object]]:
+        record = INVENTORY_TABLE
+        conditions = [
+            record.c.deleted_at.is_(None),
+            record.c.document_number.is_not(None),
+            func.btrim(record.c.document_number) != "",
+        ]
+        if document_type:
+            conditions.append(record.c.document_type == document_type)
+        else:
+            conditions.append(record.c.document_type.in_(PURCHASE_INBOUND_DETAIL_TYPES))
+        if date_start:
+            parsed = parse_date(date_start)
+            conditions.append(record.c.date_value >= parsed if parsed else record.c.date >= date_start)
+        if date_end:
+            parsed = parse_date(date_end)
+            conditions.append(record.c.date_value <= parsed if parsed else record.c.date <= date_end)
+
+        statement = (
+            select(
+                record.c.document_number,
+                record.c.date,
+                record.c.document_type,
+                record.c.supplier,
+                record.c.warehouse,
+            )
+            .where(and_(*conditions))
+            .order_by(record.c.date_value.desc().nulls_last(), record.c.id.desc())
+        )
+        with self.engine.connect() as connection:
+            return [dict(row) for row in connection.execute(statement).mappings()]
 
     # ── Ending Inventory ─────────────────────────────────────────────
 
@@ -2937,6 +2996,10 @@ class InventoryRepository:
             connection.execute(text("CREATE INDEX IF NOT EXISTS idx_inventory_details_product_code_trgm ON inventory_details USING GIN (product_code gin_trgm_ops)"))
             connection.execute(text("CREATE INDEX IF NOT EXISTS idx_jst_stock_product_code_trgm ON jst_daily_stock USING GIN (product_code gin_trgm_ops)"))
             INVENTORY_ACCOUNT_SUBJECT_TABLE.create(connection, checkfirst=True)
+            connection.execute(text("ALTER TABLE IF EXISTS inventory_account_subjects ADD COLUMN IF NOT EXISTS category TEXT"))
+            connection.execute(text("ALTER TABLE IF EXISTS inventory_account_subjects ALTER COLUMN category SET DEFAULT '收入类'"))
+            connection.execute(text("UPDATE inventory_account_subjects SET category = '收入类' WHERE category IS NULL OR BTRIM(category) = ''"))
+            connection.execute(text("ALTER TABLE IF EXISTS inventory_account_subjects ALTER COLUMN category SET NOT NULL"))
             self._seed_account_subjects(connection)
             PURCHASE_ORDER_REQUIREMENT_TABLE.create(connection, checkfirst=True)
             SUPPLIER_TABLE.create(connection, checkfirst=True)
@@ -2976,8 +3039,8 @@ class InventoryRepository:
     @staticmethod
     def _seed_account_subjects(connection) -> None:
         defaults = [
-            {"code": "0337", "name": "罚款收入"},
-            {"code": None, "name": "付货款"},
+            {"code": "0337", "category": "收入类", "name": "罚款收入"},
+            {"code": None, "category": "收入类", "name": "付货款"},
         ]
         for row in defaults:
             exists = connection.execute(

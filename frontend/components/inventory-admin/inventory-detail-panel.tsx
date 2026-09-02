@@ -1006,11 +1006,18 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
                     className="flex h-9 w-full cursor-pointer rounded-lg border border-input bg-card px-3 py-2 text-sm shadow-xs outline-none transition-colors focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/35"
                   >
                     <option value="">请选择科目</option>
-                    {subjects.map((subject) => (
-                      <option key={subject.id} value={subject.name}>
-                        {subject.name}
-                      </option>
-                    ))}
+                    {(["收入类", "支出类"] as const).map((category) => {
+                      const categorySubjects = subjects.filter((subject) => (subject.category || "收入类") === category)
+                      return (
+                        <optgroup key={category} label={category}>
+                          {categorySubjects.map((subject) => (
+                            <option key={subject.id} value={subject.name}>
+                              {subject.name}
+                            </option>
+                          ))}
+                        </optgroup>
+                      )
+                    })}
                   </select>
                 </div>
                 <div className="space-y-1.5">

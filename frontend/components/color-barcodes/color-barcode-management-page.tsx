@@ -241,15 +241,15 @@ export function ColorBarcodeManagementPage() {
         <div className="page-header">
           <h1 className="page-title">颜色管理</h1>
           <div className="flex items-center gap-2">
-            <Button type="button" variant="outline" className="cursor-pointer gap-1.5" onClick={() => void exportColors()} disabled={!selectedBrand || isExporting}>
+            <Button type="button" variant="outline" className="cursor-pointer gap-1.5 text-xs" onClick={() => void exportColors()} disabled={!selectedBrand || isExporting}>
               {isExporting ? <Loader2 className="size-4 animate-spin" /> : <Download className="size-4" />}
               {isExporting ? "导出中" : "导出"}
             </Button>
-            <Button type="button" variant="outline" className="cursor-pointer gap-1.5" onClick={() => setOperationLogOpen(true)}>
+            <Button type="button" variant="outline" className="cursor-pointer gap-1.5 text-xs" onClick={() => setOperationLogOpen(true)}>
               <History className="size-4" />
               操作日志
             </Button>
-            <Button type="button" className="cursor-pointer gap-1.5" onClick={openCreate} disabled={!selectedBrand}>
+            <Button type="button" className="cursor-pointer gap-1.5 text-xs" onClick={openCreate} disabled={!selectedBrand}>
               <Plus className="size-4" />
               新增颜色
             </Button>

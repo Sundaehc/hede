@@ -105,6 +105,7 @@ WAREHOUSE_BRAND_FIELD_LABELS = {
 
 ACCOUNT_SUBJECT_FIELD_LABELS = {
     "code": "科目编号",
+    "category": "科目分类",
     "name": "科目名称",
 }
 

@@ -295,7 +295,7 @@ export function AuxiliaryAttributeManagementPage() {
             <Button
               type="button"
               variant="outline"
-              className="cursor-pointer gap-1.5"
+              className="cursor-pointer gap-1.5 text-xs"
               onClick={() => void exportAttributes()}
               disabled={!selectedScope || isExporting}
             >
@@ -309,7 +309,7 @@ export function AuxiliaryAttributeManagementPage() {
             <Button
               type="button"
               variant="outline"
-              className="cursor-pointer gap-1.5"
+              className="cursor-pointer gap-1.5 text-xs"
               onClick={() => setOperationLogOpen(true)}
             >
               <History className="size-4" />
@@ -317,7 +317,7 @@ export function AuxiliaryAttributeManagementPage() {
             </Button>
             <Button
               type="button"
-              className="cursor-pointer gap-1.5"
+              className="cursor-pointer gap-1.5 text-xs"
               onClick={openCreate}
               disabled={!selectedScope || attributeTypes.length === 0}
             >

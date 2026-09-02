@@ -63,3 +63,28 @@ def test_account_subject_rename_syncs_only_exact_accounting_details(
     assert repository.get_detail(int(whitespace_detail["id"]))["product_name"] == current_name
     assert repository.get_detail(int(product_detail["id"]))["product_name"] == previous_name
     assert repository.get_detail(int(partial_match_detail["id"]))["product_name"] == f"{previous_name}-其他"
+
+
+def test_account_subject_category_defaults_to_income_and_can_be_changed(
+    test_database_url: str,
+    recreate_tables,
+) -> None:
+    repository = InventoryRepository(test_database_url)
+    subject = repository.create_account_subject({"name": "分类测试科目"})
+
+    assert subject["category"] == "收入类"
+
+    updated, synced_detail_count = repository.update_account_subject(
+        int(subject["id"]),
+        {"name": subject["name"], "category": "支出类"},
+    )
+    assert updated is not None
+    assert updated["category"] == "支出类"
+    assert synced_detail_count == 0
+
+    renamed, _ = repository.update_account_subject(
+        int(subject["id"]),
+        {"name": "分类测试科目-已改名"},
+    )
+    assert renamed is not None
+    assert renamed["category"] == "支出类"

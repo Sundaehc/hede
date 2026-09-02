@@ -27,7 +27,7 @@ import { ConfirmDialog, MessageDialog } from "@/components/confirm-dialog"
 import { InventoryDetailPanel } from "@/components/inventory-admin/inventory-detail-panel"
 import { OperationLogDialog } from "@/components/operation-log-dialog"
 import { useAuth } from "@/components/auth/auth-provider"
-import { SearchableFilterInput, type SearchableFilterOption } from "@/components/inventory-admin/searchable-filter-input"
+import { SearchableFilterInput, SearchableMultiFilterInput, type SearchableFilterOption } from "@/components/inventory-admin/searchable-filter-input"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import {
   listInventory,
@@ -40,6 +40,7 @@ import {
   batchRestoreInventory,
   batchPermanentlyDeleteInventory,
   batchUpdateInventoryCosts,
+  listInventoryCostDocumentOptions,
   batchDeleteInventory,
   importPurchaseInventory,
   listPurchaseOrderRequirements,
@@ -55,6 +56,7 @@ import {
   listWarehouses,
   ApiError,
   type InventoryRecord,
+  type InventoryCostDocumentOption,
   type InventoryAccountSubject,
   type PurchaseOrderRequirementBrand,
   type SupplierItem,
@@ -158,6 +160,7 @@ const EMPTY_INVENTORY_ENTRY_DEFAULTS: InventoryEntryDefaults = {
 const EMPTY_COST_FORM: Record<string, string> = {
   date_start: "",
   date_end: "",
+  document_type: "",
   product_code: "",
   unit_price: "",
   batch_text: "",
@@ -752,6 +755,10 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
 
   const [costDialogOpen, setCostDialogOpen] = useState(false)
   const [costFormData, setCostFormData] = useState<Record<string, string>>({ ...EMPTY_COST_FORM })
+  const [costDocumentNumbers, setCostDocumentNumbers] = useState<string[]>([])
+  const [costDocumentOptions, setCostDocumentOptions] = useState<InventoryCostDocumentOption[]>([])
+  const [costDocumentOptionsError, setCostDocumentOptionsError] = useState("")
+  const [isCostDocumentOptionsLoading, setIsCostDocumentOptionsLoading] = useState(false)
   const [costError, setCostError] = useState("")
   const [isUpdatingCosts, setIsUpdatingCosts] = useState(false)
 
@@ -943,6 +950,41 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
     }
     void loadOptions()
   }, [])
+
+  useEffect(() => {
+    if (!costDialogOpen || !costFormData.date_start || !costFormData.date_end) return
+    let cancelled = false
+    async function loadCostDocumentOptions() {
+      setIsCostDocumentOptionsLoading(true)
+      setCostDocumentOptionsError("")
+      try {
+        const response = await listInventoryCostDocumentOptions({
+          date_start: costFormData.date_start,
+          date_end: costFormData.date_end,
+          document_type: costFormData.document_type || undefined,
+        })
+        if (cancelled) return
+        setCostDocumentOptions(response.items)
+        const availableNumbers = new Set(response.items.map((item) => item.document_number))
+        setCostDocumentNumbers((current) => current.filter((number) => availableNumbers.has(number)))
+      } catch (e) {
+        if (cancelled) return
+        setCostDocumentOptions([])
+        setCostDocumentNumbers([])
+        setCostDocumentOptionsError(getErrorMessage(e))
+      } finally {
+        if (!cancelled) setIsCostDocumentOptionsLoading(false)
+      }
+    }
+    void loadCostDocumentOptions()
+    return () => { cancelled = true }
+  }, [costDialogOpen, costFormData.date_end, costFormData.date_start, costFormData.document_type])
+
+  const costDocumentNumberOptions = useMemo(() => costDocumentOptions.map((item) => ({
+    value: item.document_number,
+    label: `${item.document_number} · ${item.document_type || "未知类型"} · ${item.date || "无日期"}`,
+    keywords: [item.supplier, item.warehouse].filter(Boolean).join(" "),
+  })), [costDocumentOptions])
 
   useEffect(() => {
     let cancelled = false
@@ -1484,6 +1526,9 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
 
   const openCostDialog = () => {
     setCostError("")
+    setCostDocumentOptionsError("")
+    setCostDocumentNumbers([])
+    setCostDocumentOptions([])
     setCostFormData({ ...EMPTY_COST_FORM })
     setCostDialogOpen(true)
   }
@@ -1528,6 +1573,8 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
       const result = await batchUpdateInventoryCosts({
         date_start: costFormData.date_start,
         date_end: costFormData.date_end,
+        document_type: costFormData.document_type || undefined,
+        document_numbers: costDocumentNumbers.length ? costDocumentNumbers : undefined,
         updates,
       })
       setCostDialogOpen(false)
@@ -2319,9 +2366,16 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
                       onChange={(e) => setFormData((prev) => ({ ...prev, detail_subject: e.target.value }))}
                     >
                       <option value="">请选择科目</option>
-                      {accountSubjectOptions.map((subject) => (
-                        <option key={subject.id} value={subject.name}>{subject.name}</option>
-                      ))}
+                      {(["收入类", "支出类"] as const).map((category) => {
+                        const categorySubjects = accountSubjectOptions.filter((subject) => (subject.category || "收入类") === category)
+                        return (
+                          <optgroup key={category} label={category}>
+                            {categorySubjects.map((subject) => (
+                              <option key={subject.id} value={subject.name}>{subject.name}</option>
+                            ))}
+                          </optgroup>
+                        )
+                      })}
                     </Select>
                   </div>
                   <div className="space-y-1.5">
@@ -2612,7 +2666,7 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
 
       {!isPurchasePage && (
         <Dialog open={costDialogOpen} onOpenChange={setCostDialogOpen}>
-          <DialogContent className="max-w-2xl">
+          <DialogContent className="max-w-3xl">
             <DialogHeader>
               <DialogTitle>批量改成本价</DialogTitle>
             </DialogHeader>
@@ -2621,14 +2675,21 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
                 <AlertDescription>{costError}</AlertDescription>
               </Alert>
             )}
-            <div className="grid grid-cols-2 gap-4 py-2">
+            <div className="grid grid-cols-1 gap-4 py-2 sm:grid-cols-2">
               <div className="space-y-1.5">
                 <Label>开始日期</Label>
                 <input
                   type="date"
                   value={costFormData.date_start}
                   max={costFormData.date_end || undefined}
-                  onChange={(e) => { setCostError(""); setCostFormData((prev) => ({ ...prev, date_start: e.target.value })) }}
+                  onChange={(e) => {
+                    setCostError("")
+                    setCostDocumentNumbers([])
+                    setCostDocumentOptions([])
+                    setCostDocumentOptionsError("")
+                    setIsCostDocumentOptionsLoading(false)
+                    setCostFormData((prev) => ({ ...prev, date_start: e.target.value }))
+                  }}
                   className="flex h-9 w-full rounded-lg border border-input bg-card px-3 py-2 text-sm shadow-xs outline-none transition-colors focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/35"
                 />
               </div>
@@ -2638,9 +2699,48 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
                   type="date"
                   value={costFormData.date_end}
                   min={costFormData.date_start || undefined}
-                  onChange={(e) => { setCostError(""); setCostFormData((prev) => ({ ...prev, date_end: e.target.value })) }}
+                  onChange={(e) => {
+                    setCostError("")
+                    setCostDocumentNumbers([])
+                    setCostDocumentOptions([])
+                    setCostDocumentOptionsError("")
+                    setIsCostDocumentOptionsLoading(false)
+                    setCostFormData((prev) => ({ ...prev, date_end: e.target.value }))
+                  }}
                   className="flex h-9 w-full rounded-lg border border-input bg-card px-3 py-2 text-sm shadow-xs outline-none transition-colors focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/35"
                 />
+              </div>
+              <div className="space-y-1.5">
+                <Label>单据类型</Label>
+                <Select
+                  value={costFormData.document_type}
+                  onChange={(e) => {
+                    setCostError("")
+                    setCostDocumentNumbers([])
+                    setCostDocumentOptions([])
+                    setCostDocumentOptionsError("")
+                    setIsCostDocumentOptionsLoading(false)
+                    setCostFormData((prev) => ({ ...prev, document_type: e.target.value }))
+                  }}
+                >
+                  <option value="">筛选单据类型</option>
+                  <option value="进货单">进货单</option>
+                  <option value="进货退货单">进货退货单</option>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <Label className="flex items-center gap-2">
+                  单据编号（可多选）
+                  {isCostDocumentOptionsLoading ? <RefreshCw className="h-3.5 w-3.5 animate-spin text-muted-foreground" /> : null}
+                </Label>
+                <SearchableMultiFilterInput
+                  values={costDocumentNumbers}
+                  options={costDocumentNumberOptions}
+                  onChange={(values) => { setCostError(""); setCostDocumentNumbers(values) }}
+                  placeholder={isCostDocumentOptionsLoading ? "正在加载单据编号..." : "输入单据编号搜索"}
+                  emptyText={costFormData.date_start && costFormData.date_end ? "所选条件下没有匹配单据" : "请先选择开始和结束日期"}
+                />
+                {costDocumentOptionsError ? <p className="text-xs text-destructive">单据编号加载失败：{costDocumentOptionsError}</p> : null}
               </div>
               <div className="space-y-1.5">
                 <Label>货号</Label>
@@ -2661,7 +2761,7 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
                   placeholder="例如 129.00"
                 />
               </div>
-              <div className="col-span-2 space-y-1.5">
+              <div className="space-y-1.5 sm:col-span-2">
                 <Label>批量货号和新单价</Label>
                 <textarea
                   value={costFormData.batch_text}
@@ -2670,13 +2770,13 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
                   className="min-h-28 w-full resize-y rounded-lg border border-input bg-card px-3 py-2 text-sm shadow-xs outline-none transition-colors placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/35"
                 />
               </div>
-              <div className="col-span-2 rounded-lg border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
-                只会更新所选日期范围内的进货单、进货退货单明细；金额按数量 × 新单价重算，单据总金额会自动重算。
+              <div className="rounded-lg border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground sm:col-span-2">
+                只会更新日期、单据类型、单据编号和货号共同命中的明细；未指定单据编号时处理该范围内全部匹配单据。金额按数量 × 新单价重算，单据总金额会自动重算。
               </div>
             </div>
             <DialogFooter>
               <Button variant="outline" onClick={() => setCostDialogOpen(false)} disabled={isUpdatingCosts} className="cursor-pointer">取消</Button>
-              <Button onClick={handleBatchUpdateCosts} disabled={isUpdatingCosts} className="cursor-pointer">{isUpdatingCosts ? "更新中..." : "确认更新"}</Button>
+              <Button onClick={handleBatchUpdateCosts} disabled={isUpdatingCosts || isCostDocumentOptionsLoading} className="cursor-pointer">{isUpdatingCosts ? "更新中..." : "确认更新"}</Button>
             </DialogFooter>
           </DialogContent>
         </Dialog>

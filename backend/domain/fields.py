@@ -101,6 +101,7 @@ INVENTORY_DETAIL_FIELDS: tuple[FieldSpec, ...] = (
 
 INVENTORY_ACCOUNT_SUBJECT_FIELDS: tuple[FieldSpec, ...] = (
     FieldSpec("code", "科目编号"),
+    FieldSpec("category", "科目分类"),
     FieldSpec("name", "科目名称"),
 )
 

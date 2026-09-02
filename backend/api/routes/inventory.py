@@ -40,6 +40,7 @@ from domain.product_defaults import BARCODE_SIZE_RULE
 from domain.product_size_code import build_product_size_code
 from domain.smiley_schema import SMILEY_FINE_TABLE
 from domain.inventory_sources import (
+    ACCOUNT_SUBJECT_CATEGORIES,
     ACCOUNTING_DOCUMENT_TYPES,
     DOCUMENT_TYPES,
     normalize_document_type,
@@ -129,6 +130,7 @@ DETAIL_CN_TO_FIELD = {cn: en for cn, en in INVENTORY_DETAIL_ALIASES.items() if e
 
 EXCEL_EPOCH = datetime(1899, 12, 30)
 PURCHASE_IMPORT_TYPES = {"进货订单", "进货单", "进货退货单", "报溢单", "报损单", "批发销售单", "批发销售退货单", "同价调拨单"}
+PURCHASE_COST_DOCUMENT_TYPES = {"进货单", "进货退货单"}
 WHOLESALE_DOCUMENT_TYPES = {"批发销售单", "批发销售退货单"}
 TRANSFER_DOCUMENT_TYPES = {"同价调拨单"}
 EU_PURCHASE_SIZE_LABELS = ("35", "36", "37", "38", "39", "40", "41", "42", "43", "44", "45", "46", "47")
@@ -4051,11 +4053,15 @@ def list_inventory_account_subjects(request: Request):
 def create_inventory_account_subject(request: Request, payload: dict):
     repository = request.app.state.inventory_repository
     name = str(payload.get("name") or "").strip()
+    category = str(payload.get("category") or "收入类").strip() or "收入类"
     if not name:
         raise HTTPException(status_code=400, detail="科目名称不能为空")
+    if category not in ACCOUNT_SUBJECT_CATEGORIES:
+        raise HTTPException(status_code=400, detail="科目分类无效")
     try:
         item = repository.create_account_subject({
             "code": payload.get("code"),
+            "category": category,
             "name": name,
         })
     except Exception as error:
@@ -4082,13 +4088,17 @@ def create_inventory_account_subject(request: Request, payload: dict):
 def update_inventory_account_subject(request: Request, subject_id: int, payload: dict):
     repository = request.app.state.inventory_repository
     name = str(payload.get("name") or "").strip()
+    requested_category = str(payload.get("category") or "").strip()
     if not name:
         raise HTTPException(status_code=400, detail="科目名称不能为空")
+    if requested_category and requested_category not in ACCOUNT_SUBJECT_CATEGORIES:
+        raise HTTPException(status_code=400, detail="科目分类无效")
     before = repository.get_account_subject(subject_id)
     if before is None:
         raise HTTPException(status_code=404, detail="Subject not found")
+    category = requested_category or str(before.get("category") or "收入类").strip() or "收入类"
     try:
-        record, synced_detail_count = repository.update_account_subject(subject_id, {"name": name})
+        record, synced_detail_count = repository.update_account_subject(subject_id, {"name": name, "category": category})
     except Exception as error:
         raise HTTPException(status_code=400, detail=f"科目 '{name}' 已存在或无法保存") from error
     if record is None:
@@ -4532,6 +4542,25 @@ def list_inventory_detail_candidates(
     repository = request.app.state.inventory_repository
     with repository.engine.connect() as connection:
         items = _build_purchase_detail_candidates(connection, query, brand, normalized_limit)
+    return {"items": items}
+
+
+@router.get("/inventory/cost-update-document-options")
+def list_inventory_cost_update_document_options(
+    request: Request,
+    date_start: str | None = None,
+    date_end: str | None = None,
+    document_type: str | None = None,
+):
+    normalized_document_type = normalize_document_type(document_type) if document_type else None
+    if normalized_document_type and normalized_document_type not in PURCHASE_COST_DOCUMENT_TYPES:
+        raise HTTPException(status_code=400, detail="批量改成本价只支持进货单和进货退货单")
+    repository = request.app.state.inventory_repository
+    items = repository.list_purchase_cost_document_options(
+        date_start=_normalize_date(date_start),
+        date_end=_normalize_date(date_end),
+        document_type=normalized_document_type,
+    )
     return {"items": items}
 
 
@@ -4991,6 +5020,17 @@ def batch_update_inventory_costs(request: Request, payload: dict):
     repository = request.app.state.inventory_repository
     date_start = _normalize_date(str(payload.get("date_start") or "").strip()) or None
     date_end = _normalize_date(str(payload.get("date_end") or "").strip()) or None
+    document_type = normalize_document_type(payload.get("document_type")) if payload.get("document_type") else None
+    if document_type and document_type not in PURCHASE_COST_DOCUMENT_TYPES:
+        raise HTTPException(status_code=400, detail="批量改成本价只支持进货单和进货退货单")
+    raw_document_numbers = payload.get("document_numbers")
+    if raw_document_numbers is not None and not isinstance(raw_document_numbers, list):
+        raise HTTPException(status_code=400, detail="单据编号必须是数组")
+    document_numbers = list(dict.fromkeys(
+        str(document_number or "").strip()
+        for document_number in (raw_document_numbers or [])
+        if str(document_number or "").strip()
+    ))
     updates = payload.get("updates")
     if not isinstance(updates, dict) or not updates:
         raise HTTPException(status_code=400, detail="请填写货号和新单价")
@@ -5002,6 +5042,8 @@ def batch_update_inventory_costs(request: Request, payload: dict):
     result = repository.batch_update_purchase_costs(
         date_start=date_start,
         date_end=date_end,
+        document_type=document_type,
+        document_numbers=document_numbers,
         price_updates=updates,
     )
     write_operation_log(
@@ -5014,6 +5056,8 @@ def batch_update_inventory_costs(request: Request, payload: dict):
         after_data={
             "date_start": date_start,
             "date_end": date_end,
+            "document_type": document_type,
+            "document_numbers": document_numbers,
             "updates": updates,
             "result": result,
         },

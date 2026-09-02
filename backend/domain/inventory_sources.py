@@ -31,6 +31,7 @@ INVENTORY_DETAIL_TABLE_NAME = "inventory_details"
 INVENTORY_ACCOUNT_SUBJECT_TABLE_NAME = "inventory_account_subjects"
 JST_STOCK_TABLE_NAME = "jst_daily_stock"
 PURCHASE_ORDER_REQUIREMENT_TABLE_NAME = "purchase_order_requirement_templates"
+ACCOUNT_SUBJECT_CATEGORIES: tuple[str, ...] = ("收入类", "支出类")
 
 JST_STOCK_COLUMNS = field_names(JST_STOCK_FIELDS)
 

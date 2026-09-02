@@ -206,12 +206,12 @@ export function SearchableMultiFilterInput({
               if (event.key === "Backspace" && !searchTerm && values.length > 0) removeValue(values[values.length - 1])
               if (event.key === "Escape") setOpen(false)
             }}
-            placeholder={values.length ? "继续添加仓库" : placeholder}
+            placeholder={values.length ? "继续添加" : placeholder}
             className="h-7 min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
           />
         </div>
         {values.length ? (
-          <button type="button" aria-label="清空已选仓库" onClick={() => onChange([])} className="inline-flex h-6 w-6 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground">
+          <button type="button" aria-label="清空已选项" onClick={() => onChange([])} className="inline-flex h-6 w-6 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground">
             <X className="h-3.5 w-3.5" />
           </button>
         ) : null}

@@ -1235,9 +1235,12 @@ export type WarehouseInventoryMovementResponse = {
   page_size: number
 }
 
+export type AccountSubjectCategory = "收入类" | "支出类"
+
 export type InventoryAccountSubject = {
   id: number
   code: string | null
+  category: AccountSubjectCategory
   name: string
   created_at: string | null
   updated_at: string | null
@@ -1401,9 +1404,33 @@ export type BatchUpdateInventoryCostsResult = {
   items: Array<Record<string, unknown>>
 }
 
+export type InventoryCostDocumentOption = {
+  document_number: string
+  date: string | null
+  document_type: string | null
+  supplier: string | null
+  warehouse: string | null
+}
+
+export function listInventoryCostDocumentOptions(params: {
+  date_start?: string
+  date_end?: string
+  document_type?: string
+}) {
+  const search = new URLSearchParams()
+  if (params.date_start) search.set("date_start", params.date_start)
+  if (params.date_end) search.set("date_end", params.date_end)
+  if (params.document_type) search.set("document_type", params.document_type)
+  return request<{ items: InventoryCostDocumentOption[] }>(
+    `/inventory/cost-update-document-options?${search.toString()}`
+  )
+}
+
 export function batchUpdateInventoryCosts(payload: {
   date_start?: string
   date_end?: string
+  document_type?: string
+  document_numbers?: string[]
   updates: Record<string, string>
 }) {
   return request<BatchUpdateInventoryCostsResult>(
