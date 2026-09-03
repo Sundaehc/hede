@@ -72,32 +72,58 @@ def list_scheduled_task_runs(
     run_date: date = Query(default_factory=lambda: datetime.now(SHANGHAI_TIMEZONE).date()),
     status: str | None = None,
     query: str | None = None,
+    latest_only: bool = True,
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=200),
 ):
     _require_scheduled_task_access(request)
     normalized_status = _normalize_status(status, RUN_STATUSES)
     table = SCHEDULED_TASK_RUN_TABLE
-    criterion = _run_conditions(run_date, normalized_status, query)
     unfiltered_criterion = _run_conditions(run_date, None, query)
+
+    if latest_only:
+        source = (
+            select(
+                *table.c,
+                func.row_number()
+                .over(
+                    partition_by=table.c.task_name,
+                    order_by=(table.c.started_at.desc(), table.c.id.desc()),
+                )
+                .label("latest_rank"),
+            )
+            .where(unfiltered_criterion)
+            .subquery("ranked_scheduled_task_runs")
+        )
+        summary_criterion = source.c.latest_rank == 1
+        criterion = summary_criterion
+        if normalized_status:
+            criterion = and_(criterion, source.c.status == normalized_status)
+    else:
+        source = table
+        summary_criterion = unfiltered_criterion
+        criterion = _run_conditions(run_date, normalized_status, query)
+
+    item_columns = [source.c[column.name] for column in table.columns]
 
     summary_statement = (
         select(
             func.count().label("total"),
-            func.count().filter(table.c.status == "success").label("success"),
-            func.count().filter(table.c.status == "failed").label("failed"),
-            func.count().filter(table.c.status == "running").label("running"),
-            func.count(func.distinct(table.c.task_name)).label("task_count"),
-            func.max(table.c.started_at).label("latest_started_at"),
+            func.count().filter(source.c.status == "success").label("success"),
+            func.count().filter(source.c.status == "failed").label("failed"),
+            func.count().filter(source.c.status == "running").label("running"),
+            func.count(func.distinct(source.c.task_name)).label("task_count"),
+            func.max(source.c.started_at).label("latest_started_at"),
         )
-        .select_from(table)
-        .where(unfiltered_criterion)
+        .select_from(source)
+        .where(summary_criterion)
     )
-    count_statement = select(func.count()).select_from(table).where(criterion)
+    count_statement = select(func.count()).select_from(source).where(criterion)
     items_statement = (
-        select(table)
+        select(*item_columns)
+        .select_from(source)
         .where(criterion)
-        .order_by(table.c.started_at.desc(), table.c.id.desc())
+        .order_by(source.c.started_at.desc(), source.c.id.desc())
         .offset((page - 1) * page_size)
         .limit(page_size)
     )
@@ -115,6 +141,7 @@ def list_scheduled_task_runs(
         "page": page,
         "page_size": page_size,
         "run_date": run_date,
+        "latest_only": latest_only,
         "summary": {
             "total": int(summary["total"] or 0),
             "success": int(summary["success"] or 0),

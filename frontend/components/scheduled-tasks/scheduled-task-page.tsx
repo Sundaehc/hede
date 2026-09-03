@@ -42,6 +42,7 @@ const TASK_LABELS: Record<string, string> = {
   HedeImportVipDailySalesReport: "唯品日销导入",
   HedeImportDewuOrders: "得物订单导入",
   HedeImportJstFullStock: "聚水潭全量库存导入",
+  Hede_JST_Stock_Sync: "聚水潭尺码库存同步",
   HedeImportPriceDaily: "商品物价信息更新",
   hede_import_gj_merged_product_info_daily: "管家婆商品信息更新",
   HedeImportProductsDaily: "商品信息档案更新",
@@ -235,6 +236,7 @@ export function ScheduledTaskPage() {
   const [status, setStatus] = useState("all")
   const [queryInput, setQueryInput] = useState("")
   const [query, setQuery] = useState("")
+  const [latestOnly, setLatestOnly] = useState(true)
   const [page, setPage] = useState(1)
   const [runItems, setRunItems] = useState<ScheduledTaskRunItem[]>([])
   const [businessItems, setBusinessItems] = useState<
@@ -280,6 +282,7 @@ export function ScheduledTaskPage() {
           runDate: selectedDate,
           status,
           query,
+          latestOnly,
           page,
           pageSize: PAGE_SIZE,
         })
@@ -308,7 +311,7 @@ export function ScheduledTaskPage() {
     } finally {
       setLoading(false)
     }
-  }, [canAccess, mode, page, query, selectedDate, status])
+  }, [canAccess, latestOnly, mode, page, query, selectedDate, status])
 
   useEffect(() => {
     void Promise.resolve().then(loadData)
@@ -552,6 +555,21 @@ export function ScheduledTaskPage() {
                 </option>
               ))}
             </Select>
+            {mode === "runs" ? (
+              <Select
+                aria-label="执行记录范围"
+                value={latestOnly ? "latest" : "all"}
+                onChange={(event) => {
+                  setLatestOnly(event.target.value === "latest")
+                  setPage(1)
+                  setExpandedRunId(null)
+                }}
+                className="w-40 cursor-pointer"
+              >
+                <option value="latest">每个任务最新一次</option>
+                <option value="all">全部执行记录</option>
+              </Select>
+            ) : null}
             <div className="relative min-w-56 flex-1 lg:max-w-md">
               <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
               <Input

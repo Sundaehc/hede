@@ -1411,11 +1411,13 @@ export function listScheduledTaskRuns(params: {
   runDate: string
   status?: string
   query?: string
+  latestOnly?: boolean
   page: number
   pageSize: number
 }) {
   const search = new URLSearchParams({
     run_date: params.runDate,
+    latest_only: String(params.latestOnly ?? true),
     page: String(params.page),
     page_size: String(params.pageSize),
   })
