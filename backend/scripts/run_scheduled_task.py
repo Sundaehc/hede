@@ -13,7 +13,7 @@ import time
 import traceback
 
 from config import load_settings
-from storage.task_status_repository import ScheduledTaskRunRepository
+from storage.task_status_repository import ScheduledTaskRunRepository, ScheduledTaskStatusRepository
 
 
 ERROR_SUMMARY_MAX_CHARS = 8_000
@@ -25,6 +25,11 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--task-name", required=True)
     parser.add_argument("--log-file", type=Path, required=True)
     parser.add_argument("--working-directory", type=Path, default=None)
+    parser.add_argument(
+        "--skip-if-business-success",
+        metavar="TASK_NAME",
+        help="Skip this invocation when the named business task already succeeded today",
+    )
     parser.add_argument("command", nargs=argparse.REMAINDER)
     return parser
 
@@ -67,6 +72,32 @@ def main() -> int:
     repository: ScheduledTaskRunRepository | None = None
     run_id: int | None = None
 
+    if args.skip_if_business_success:
+        try:
+            settings = load_settings(require_database=True)
+            assert settings.database_url is not None
+            status_repository = ScheduledTaskStatusRepository(settings.database_url)
+            if status_repository.is_success(
+                args.skip_if_business_success,
+                started_at.date(),
+            ):
+                message = (
+                    f"[{started_at.isoformat(timespec='seconds')}] skip {args.task_name} "
+                    f"because business task {args.skip_if_business_success} "
+                    "already succeeded today"
+                )
+                with log_path.open("a", encoding="utf-8", errors="replace") as log_handle:
+                    _write_line(log_handle, message)
+                print(message)
+                return 0
+        except Exception as exc:
+            with log_path.open("a", encoding="utf-8", errors="replace") as log_handle:
+                _write_line(
+                    log_handle,
+                    f"[TASK-RUN-LOG WARNING] failed to check today's business status: "
+                    f"{type(exc).__name__}: {exc}",
+                )
+
     with log_path.open("a", encoding="utf-8", errors="replace") as log_handle:
         _write_line(
             log_handle,
@@ -75,7 +106,7 @@ def main() -> int:
         try:
             settings = load_settings(require_database=True)
             assert settings.database_url is not None
-            repository = ScheduledTaskRunRepository(settings.database_url)
+            repository = repository or ScheduledTaskRunRepository(settings.database_url)
             run_id = repository.mark_started(
                 args.task_name,
                 host_name=socket.gethostname(),
