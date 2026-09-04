@@ -36,7 +36,6 @@ type OperationLogModule =
   | "warehouse"
   | "account_subject"
   | "general_customer"
-  | "ai_query"
   | "user"
 
 type OperationLogDialogProps = {

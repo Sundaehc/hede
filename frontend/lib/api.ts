@@ -28,8 +28,6 @@ import type {
   AuthDepartment,
   AuthRole,
   AuthUser,
-  AiQueryContext,
-  AiQueryResponse,
   FineTableResponse,
   FineTableSnapshotListResponse,
   FineTableSnapshotResponse,
@@ -119,28 +117,6 @@ export function getCurrentUser() {
   return request<{ user: AuthUser }>("/auth/me")
 }
 
-export function runAiQuery(
-  question: string,
-  context?: AiQueryContext | null,
-  init: Pick<RequestInit, "signal"> = {}
-) {
-  return request<AiQueryResponse>("/ai-query/query", {
-    ...init,
-    method: "POST",
-    body: JSON.stringify({ question, context }),
-  })
-}
-
-export function listAiQueryHistory() {
-  return request<{ items: string[] }>("/ai-query/history")
-}
-
-export function clearAiQueryHistory() {
-  return request<{ message: string }>("/ai-query/history", {
-    method: "DELETE",
-  })
-}
-
 export function getAuthOptions() {
   return request<{
     departments: AuthDepartment[]
@@ -194,7 +170,6 @@ export function listOperationLogs(params: {
     | "warehouse"
     | "account_subject"
     | "general_customer"
-    | "ai_query"
     | "user"
   query?: string
   page: number

@@ -57,7 +57,6 @@ export type OperationLogItem = {
     | "warehouse"
     | "account_subject"
     | "general_customer"
-    | "ai_query"
     | "user"
   action: string
   entity_type: string
@@ -79,55 +78,6 @@ export type OperationLogResponse = {
   total: number
   page: number
   page_size: number
-}
-
-export type AiQueryColumn = {
-  key: string
-  label: string
-  type?: "text" | "number" | "date"
-}
-
-export type AiQueryCondition = {
-  label: string
-  value: string
-}
-
-export type AiQueryMetric = {
-  label: string
-  value: string | number
-  hint?: string
-  tone?: "slate" | "blue" | "violet" | "orange" | "emerald"
-}
-
-export type AiQueryContext = {
-  questions: string[]
-  brand: string | null
-  product_codes: string[]
-  year: number | null
-  intent: string | null
-  used_previous?: boolean
-}
-
-export type AiQueryResponse = {
-  query_id: string
-  question: string
-  intent: string
-  query_mode?: "business_rules" | "ai_sql" | "ai_staged_sql"
-  generated_sql?: string | null
-  supported: boolean
-  needs_clarification: boolean
-  title: string
-  summary: string
-  conditions: AiQueryCondition[]
-  metrics: AiQueryMetric[]
-  columns: AiQueryColumn[]
-  rows: Array<Record<string, unknown>>
-  data_as_of: Array<{ label: string; value: string }>
-  sources: string[]
-  warnings: string[]
-  link: { label: string; href: string } | null
-  suggestions: string[]
-  context?: AiQueryContext
 }
 
 export type ProductListItem = {
