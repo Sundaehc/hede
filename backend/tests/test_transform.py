@@ -8,6 +8,7 @@ from transform.rows import (
     ADMIN_FIELD_NORMALIZERS,
     build_admin_record,
     build_canonical_row,
+    filter_extra_fields,
     normalize_admin_payload,
     normalize_upper_material,
 )
@@ -18,6 +19,10 @@ def test_admin_normalization_helpers_cover_only_special_admin_fields():
     assert set(ADMIN_FIELD_NORMALIZERS) == {"cost", "first_order_time", "launch_date"}
     assert set(ADMIN_FIELD_NORMALIZERS).issubset(ADMIN_EDITABLE_COLUMNS)
     assert {"image_path", "first_order_time", "launch_date"}.issubset(ADMIN_EDITABLE_COLUMNS)
+
+
+def test_filter_extra_fields_drops_formal_product_model_field():
+    assert filter_extra_fields({"产品型号": "一型半", "未知字段": "保留"}) == {"未知字段": "保留"}
 
 
 def test_normalize_upper_material_replaces_composite_material_labels():

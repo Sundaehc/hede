@@ -11,6 +11,9 @@ from domain.sources import CANONICAL_COLUMNS, COLUMN_ALIASES
 EMPTY_VALUES = {None, "", "-", "/"}
 NA_MARKERS = {"#N/A"}
 EXCLUDED_EXTRA_FIELD_KEYS = frozenset({"原始货号库存", "采购在途"})
+# These values have a dedicated product-archive column and must not be
+# duplicated in the unstructured extension payload.
+FORMAL_PRODUCT_FIELD_LABELS = frozenset({"产品型号"})
 
 
 
@@ -81,6 +84,7 @@ def filter_extra_fields(value: object) -> dict[str, object] | None:
         str(key): item
         for key, item in value.items()
         if str(key).strip() not in EXCLUDED_EXTRA_FIELD_KEYS
+        and str(key).strip() not in FORMAL_PRODUCT_FIELD_LABELS
     }
     return filtered or None
 
