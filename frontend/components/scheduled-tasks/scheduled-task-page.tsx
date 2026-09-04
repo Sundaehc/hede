@@ -37,7 +37,8 @@ import { cn } from "@/lib/utils"
 const PAGE_SIZE = 50
 
 const TASK_LABELS: Record<string, string> = {
-  HedeImportJstDaily: "聚水潭日销导入",
+  HedeImportJstDaily: "聚水潭库存明细导入",
+  HedeImportDailySalesReports: "聚水潭日销导入",
   HedeImportVipDaily: "唯品商品日报导入",
   HedeImportVipDailySalesReport: "唯品日销导入",
   HedeImportDewuOrders: "得物订单导入",
