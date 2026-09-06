@@ -11,6 +11,7 @@ from api.routes.inventory import (
     _group_purchase_import_rows_by_summary,
     _missing_purchase_order_import_fields,
     _purchase_archive_size_from_product_code,
+    _purchase_lookup_preset_price,
     _purchase_order_import_has_size_columns,
     _purchase_import_brand_for_supplier,
     _purchase_import_brand_for_record,
@@ -21,6 +22,13 @@ from api.routes.inventory import (
     PURCHASE_SIZE_ROW_EXPORT_HEADERS,
 )
 from api.routes import inventory as inventory_routes
+
+
+def test_purchase_lookup_uses_only_preset_price():
+    assert _purchase_lookup_preset_price("118.04") == "118.04"
+    assert _purchase_lookup_preset_price("1") == "1"
+    assert _purchase_lookup_preset_price("") is None
+    assert _purchase_lookup_preset_price(None) is None
 
 
 def test_purchase_archive_code_uses_product_barcode_rule_for_ns_millimeter_size() -> None:

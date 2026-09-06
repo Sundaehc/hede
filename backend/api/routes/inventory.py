@@ -404,15 +404,12 @@ def _allows_zero_unit_price(repository, record: dict[str, object]) -> bool:
     return repository.allows_zero_price_sales_customer(record.get("supplier"))
 
 
-def _purchase_lookup_price(*values: object) -> object | None:
-    """Return the first plausible source price; corrupted source values are ignored."""
-    for value in values:
-        if value in (None, ""):
-            continue
-        price = _to_decimal(value)
-        if Decimal("0") < price < Decimal("10000"):
-            return value
-    return None
+def _purchase_lookup_preset_price(value: object) -> object | None:
+    """Use only the configured preset price for automatic purchase pricing."""
+    if value in (None, ""):
+        return None
+    price = _to_decimal(value)
+    return value if Decimal("0") < price < Decimal("10000") else None
 
 
 def _fmt_decimal(value: Decimal) -> str:
@@ -2336,9 +2333,7 @@ def _load_purchase_product_lookup(connection, brand: str, product_codes: set[str
         sa_select(
             JST_PRICE_TABLE.c.goods_code,
             JST_PRICE_TABLE.c.goods_full_name,
-            JST_PRICE_TABLE.c.latest_purchase_price,
             JST_PRICE_TABLE.c.preset_price,
-            JST_PRICE_TABLE.c.cost_unit_price,
         )
         .where(JST_PRICE_TABLE.c.goods_code.in_(codes))
         .order_by(JST_PRICE_TABLE.c.source_date_value.desc().nulls_last(), desc(JST_PRICE_TABLE.c.updated_at), desc(JST_PRICE_TABLE.c.id))
@@ -2347,11 +2342,7 @@ def _load_purchase_product_lookup(connection, brand: str, product_codes: set[str
         code = str(row.get("goods_code") or "").strip()
         if not code or code not in lookup:
             continue
-        price = _purchase_lookup_price(
-            row.get("preset_price"),
-            row.get("latest_purchase_price"),
-            row.get("cost_unit_price"),
-        )
+        price = _purchase_lookup_preset_price(row.get("preset_price"))
         product_name = str(row.get("goods_full_name") or "").strip()
         if product_name and not lookup[code].get("product_name"):
             lookup[code]["product_name"] = product_name
@@ -2364,7 +2355,6 @@ def _load_purchase_product_lookup(connection, brand: str, product_codes: set[str
             sa_select(
                 product_table.c.sku,
                 product_table.c.original_sku,
-                product_table.c.cost,
                 product_table.c.color,
                 product_table.c.color_code,
                 product_table.c.barcode_build_rule,
@@ -2387,8 +2377,6 @@ def _load_purchase_product_lookup(connection, brand: str, product_codes: set[str
                 code = str(row.get(code_key) or "").strip()
                 if not code or code not in lookup:
                     continue
-                if not lookup[code].get("unit_price") and row.get("cost") not in (None, ""):
-                    lookup[code]["unit_price"] = row.get("cost")
                 product_color = _cell_text(row.get("color"))
                 product_color_code = _cell_text(row.get("color_code"))
                 if product_color:
