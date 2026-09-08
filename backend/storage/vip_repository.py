@@ -592,10 +592,9 @@ class VipRepository:
         if not rows:
             return {"imported": 0, "message": "无数据行"}
 
-        from sqlalchemy import delete as sa_delete
-
         with self.engine.begin() as conn:
-            conn.execute(sa_delete(JST_MONTHLY_ORDERS_TABLE))
+            # This table is a current full snapshot; reset the identity with the replacement.
+            conn.execute(text(f"TRUNCATE TABLE {JST_MONTHLY_ORDERS_TABLE.name} RESTART IDENTITY"))
             self._batch_insert(JST_MONTHLY_ORDERS_TABLE, rows, conn=conn)
 
         return {
@@ -895,12 +894,11 @@ class VipRepository:
 
         wb.close()
 
-        from sqlalchemy import delete as sa_delete
-
         with self.engine.begin() as conn:
             JST_AFTERSALE_RETURN_TABLE.create(conn, checkfirst=True)
             self._ensure_aftersale_return_schema(conn)
-            conn.execute(sa_delete(JST_AFTERSALE_RETURN_TABLE))
+            # This table is a current full snapshot; reset the identity with the replacement.
+            conn.execute(text(f"TRUNCATE TABLE {JST_AFTERSALE_RETURN_TABLE.name} RESTART IDENTITY"))
             if rows:
                 self._batch_insert(JST_AFTERSALE_RETURN_TABLE, rows, conn=conn)
 

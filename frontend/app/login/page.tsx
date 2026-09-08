@@ -3,7 +3,16 @@
 import Link from "next/link"
 import { useState } from "react"
 import { useRouter } from "next/navigation"
-import { AlertCircle, ArrowRight, KeyRound, Loader2, LogIn, UserRound } from "lucide-react"
+import {
+  AlertCircle,
+  ArrowRight,
+  Eye,
+  EyeOff,
+  KeyRound,
+  Loader2,
+  LogIn,
+  UserRound,
+} from "lucide-react"
 
 import { AuthPageShell } from "@/components/auth/auth-page-shell"
 import { useAuth } from "@/components/auth/auth-provider"
@@ -17,6 +26,7 @@ export default function LoginPage() {
   const { setUser } = useAuth()
   const [username, setUsername] = useState("")
   const [password, setPassword] = useState("")
+  const [showPassword, setShowPassword] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState("")
 
@@ -66,15 +76,26 @@ export default function LoginPage() {
             <KeyRound className="size-3.5" />
             密码
           </label>
-          <Input
-            id="login-password"
-            className="h-10"
-            type="password"
-            value={password}
-            onChange={(event) => setPassword(event.target.value)}
-            autoComplete="current-password"
-            placeholder="请输入密码"
-          />
+          <div className="relative">
+            <Input
+              id="login-password"
+              className="h-10 pr-10"
+              type={showPassword ? "text" : "password"}
+              value={password}
+              onChange={(event) => setPassword(event.target.value)}
+              autoComplete="current-password"
+              placeholder="请输入密码"
+            />
+            <button
+              type="button"
+              className="absolute inset-y-0 right-0 flex w-10 cursor-pointer items-center justify-center rounded-r-lg text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+              aria-label={showPassword ? "隐藏密码" : "显示密码"}
+              aria-pressed={showPassword}
+              onClick={() => setShowPassword((visible) => !visible)}
+            >
+              {showPassword ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+            </button>
+          </div>
         </div>
         {error ? (
           <div className="flex items-start gap-2 rounded-lg border border-destructive/20 bg-destructive/10 px-3 py-2 text-xs text-destructive">

@@ -706,6 +706,7 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
   const totalPages = Math.max(1, Math.ceil(detailTotal / DETAIL_PAGE_SIZE))
   const firstDetailIndex = detailTotal === 0 ? 0 : (detailPage - 1) * DETAIL_PAGE_SIZE + 1
   const lastDetailIndex = Math.min(detailPage * DETAIL_PAGE_SIZE, detailTotal)
+  const documentSummary = record?.summary?.trim() || ""
   const inventoryTableMinWidth = 880 + tableSizeColumns.length * 72
   const tableClassName = isPurchaseOrder
     ? "w-[2360px] table-fixed text-xs"
@@ -725,12 +726,17 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
       {/* Panel */}
       <div className="fixed inset-y-0 right-0 z-50 flex w-full max-w-[1500px] flex-col overflow-hidden rounded-l-lg border-l border-border bg-background shadow-2xl">
         {/* Header */}
-        <div className="flex items-center justify-between border-b border-border px-6 py-4 shrink-0">
-          <div>
-            <h2 className="text-lg font-semibold">单据明细</h2>
+        <div className="flex items-center justify-between gap-4 border-b border-border px-6 py-4 shrink-0">
+          <div className="min-w-0 flex-1">
+            <h2
+              className="truncate text-lg font-semibold"
+              title={documentSummary ? `单据明细（${documentSummary}）` : "单据明细"}
+            >
+              单据明细{documentSummary ? `（${documentSummary}）` : ""}
+            </h2>
             <p className="text-xs text-muted-foreground">单据 {record?.document_number || documentId}{detailTotal > 0 ? ` · ${firstDetailIndex}-${lastDetailIndex} / ${detailTotal} 条` : ""}</p>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex shrink-0 items-center gap-2">
             {detailTotal > DETAIL_PAGE_SIZE && (
               <div className="flex h-8 items-center rounded-lg border border-border bg-card">
                 <Button

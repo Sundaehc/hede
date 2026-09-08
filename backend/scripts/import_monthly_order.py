@@ -21,7 +21,7 @@ def main() -> int:
 
     cfg = load_settings(require_database=True)
     assert cfg.database_url is not None
-    assert cfg.jst_stock_root is not None, "JST_STOCK_ROOT is required in .env"
+    assert cfg.jst_monthly_order_file is not None, "JST_MONTHLY_ORDER_FILE is required in .env"
 
     status_repo = ScheduledTaskStatusRepository(cfg.database_url)
     if not args.force and status_repo.is_success(TASK_NAME, args.business_date):
@@ -29,8 +29,7 @@ def main() -> int:
         return 0
 
     repo = VipRepository(cfg.database_url)
-    other_platform_dir = cfg.jst_stock_root.parent / "其他平台" / args.business_date.strftime("%m.%d")
-    file_path = other_platform_dir / "月聚水潭.xlsx"
+    file_path = cfg.jst_monthly_order_file
     status_repo.mark_running(TASK_NAME, args.business_date, source_path=file_path)
 
     try:

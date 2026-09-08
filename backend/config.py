@@ -34,6 +34,7 @@ DEFAULT_AFTERSALE_RETURN_FILE = Path(
 DEFAULT_DAILY_SALES_REPORT_ROOT = Path(
     r"\\Hede\运营组资料\影刀\商品库存"
 )
+DEFAULT_JST_MONTHLY_ORDER_FILE = DEFAULT_DAILY_SALES_REPORT_ROOT / "聚水潭近3月订单.xlsx"
 DEFAULT_JST_FULL_STOCK_FILE = DEFAULT_DAILY_SALES_REPORT_ROOT / "聚水潭库存.xlsx"
 DEFAULT_DEWU_ORDER_ROOT = DEFAULT_DAILY_SALES_REPORT_ROOT
 DEFAULT_SMILEY_IMAGE_ROOT = Path(
@@ -66,6 +67,7 @@ class Settings:
     fine_table_export_root: Path | None = DEFAULT_FINE_TABLE_EXPORT_ROOT
     aftersale_return_file: Path | None = DEFAULT_AFTERSALE_RETURN_FILE
     daily_sales_report_root: Path | None = DEFAULT_DAILY_SALES_REPORT_ROOT
+    jst_monthly_order_file: Path | None = DEFAULT_JST_MONTHLY_ORDER_FILE
     jst_full_stock_file: Path | None = DEFAULT_JST_FULL_STOCK_FILE
     dewu_order_root: Path | None = DEFAULT_DEWU_ORDER_ROOT
     cbanner_mens_group_source: Path | None = DEFAULT_CBANNER_MENS_GROUP_SOURCE
@@ -186,6 +188,12 @@ def load_settings(require_database: bool = True) -> Settings:
         if daily_sales_report_root_raw
         else DEFAULT_DAILY_SALES_REPORT_ROOT
     )
+    jst_monthly_order_file_raw = os.getenv("JST_MONTHLY_ORDER_FILE")
+    jst_monthly_order_file = (
+        Path(jst_monthly_order_file_raw)
+        if jst_monthly_order_file_raw
+        else daily_sales_report_root / "聚水潭近3月订单.xlsx"
+    )
     jst_full_stock_file_raw = os.getenv("JST_FULL_STOCK_FILE")
     jst_full_stock_file = (
         Path(jst_full_stock_file_raw)
@@ -243,6 +251,7 @@ def load_settings(require_database: bool = True) -> Settings:
         fine_table_export_root=fine_table_export_root,
         aftersale_return_file=aftersale_return_file,
         daily_sales_report_root=daily_sales_report_root,
+        jst_monthly_order_file=jst_monthly_order_file,
         jst_full_stock_file=jst_full_stock_file,
         dewu_order_root=dewu_order_root,
         cbanner_mens_group_source=cbanner_mens_group_source,
