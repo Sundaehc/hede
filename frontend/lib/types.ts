@@ -85,6 +85,7 @@ export type ProductListItem = {
   brand: ProductArchiveBrandKey
   image_path: string | null
   image_url: string | null
+  image_storage_path?: string | null
   sku: string | null
   original_sku: string | null
   product_name: string | null

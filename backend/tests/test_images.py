@@ -1,7 +1,7 @@
 from pathlib import Path
 from types import SimpleNamespace
 
-from api.routes.images import image_url_for
+from api.routes.images import image_storage_path_for, image_url_for
 
 
 def test_image_url_accepts_a_historical_unc_alias_for_the_same_root_folder():
@@ -34,3 +34,25 @@ def test_image_url_for_ni_uses_the_ni_image_root():
     )
 
     assert image_url == "/images/serve/ni/NI22Q3A010101.jpg"
+
+
+def test_image_storage_path_uses_synced_us3_object_key(tmp_path):
+    class StorageStub:
+        bucket = "hede-img"
+
+        def object_key(self, brand, relative_path):
+            return f"{brand}/{relative_path.as_posix()}"
+
+        def has_synced_object(self, object_key):
+            return object_key == "cbanner_mens/C1942103S01.jpg"
+
+    settings = SimpleNamespace(image_roots={"cbanner": tmp_path})
+
+    storage_path = image_storage_path_for(
+        "cbanner_mens",
+        str(tmp_path / "C1942103S01.jpg"),
+        settings,
+        StorageStub(),
+    )
+
+    assert storage_path == "us3://hede-img/cbanner_mens/C1942103S01.jpg"

@@ -1076,6 +1076,25 @@ class ProductRepository:
             "missing": missing,
         }
 
+    def list_product_image_sources(self, brands: list[str] | None = None) -> list[dict[str, object]]:
+        selected_brands = brands if brands is not None else self.product_archive_brands()
+        rows: list[dict[str, object]] = []
+        with self.engine.connect() as connection:
+            for brand in selected_brands:
+                table = self._table_for_brand(brand)
+                statement = (
+                    select(table.c.image_path)
+                    .where(table.c.deleted_at.is_(None))
+                    .where(table.c.image_path.isnot(None))
+                    .where(table.c.image_path != "")
+                    .distinct()
+                )
+                rows.extend(
+                    {"brand": brand, "image_path": image_path}
+                    for image_path in connection.execute(statement).scalars()
+                )
+        return rows
+
     def _prepare_record(self, record: Mapping[str, object], *, brand: str | None = None) -> dict[str, object]:
         payload = dict(record)
         if brand is not None:

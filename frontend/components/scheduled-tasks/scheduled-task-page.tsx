@@ -683,8 +683,11 @@ export function ScheduledTaskPage() {
                         key={item.id}
                         className="border-t border-border align-top hover:bg-muted/25"
                       >
-                        <td className="px-4 py-3">
-                          <div className="font-medium">
+                        <td className="min-w-0 overflow-hidden px-4 py-3">
+                          <div
+                            className="truncate font-medium"
+                            title={taskLabel(item.task_name)}
+                          >
                             {taskLabel(item.task_name)}
                           </div>
                           {TASK_LABELS[item.task_name] ? (
@@ -806,8 +809,13 @@ function FragmentRunRow({
             )}
           </button>
         </td>
-        <td className="px-3 py-3">
-          <div className="font-medium">{taskLabel(item.task_name)}</div>
+        <td className="min-w-0 overflow-hidden px-3 py-3">
+          <div
+            className="truncate font-medium"
+            title={taskLabel(item.task_name)}
+          >
+            {taskLabel(item.task_name)}
+          </div>
           {TASK_LABELS[item.task_name] ? (
             <div
               className="mt-1 truncate font-mono text-[11px] text-muted-foreground"

@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import io
+from types import SimpleNamespace
 
 from fastapi.testclient import TestClient
 from openpyxl import Workbook, load_workbook
 
 from api.routes.import_export import _build_product_import_template
+from api.routes.products import list_products
 from transform.rows import build_admin_record
 
 
@@ -30,6 +32,33 @@ def test_product_import_template_workbook_contains_headers_and_guidance():
     assert "实际导入品牌由页面当前选中的Tab决定" in workbook["填写说明"]["C2"].value
     assert workbook["填写说明"]["C3"].value.startswith("黄色表头")
     assert len(worksheet.data_validations.dataValidation) == 1
+
+
+def test_list_products_works_without_us3_storage_on_app_state():
+    class _Repository:
+        def is_product_archive_brand(self, brand):
+            return brand == "cbanner_mens"
+
+        def list_products(self, brand, **kwargs):
+            return {
+                "items": [{"id": 1, "sku": "A1001", "image_path": None}],
+                "total": 1,
+            }
+
+    request = SimpleNamespace(
+        app=SimpleNamespace(
+            state=SimpleNamespace(
+                settings=SimpleNamespace(image_roots={}),
+                repository=_Repository(),
+            )
+        )
+    )
+
+    response = list_products(request, brand="cbanner_mens")
+
+    assert response["total"] == 1
+    assert response["items"][0]["brand"] == "cbanner_mens"
+    assert response["items"][0]["image_storage_path"] is None
 
 
 def test_import_products_uses_brand_specific_heel_height_label(

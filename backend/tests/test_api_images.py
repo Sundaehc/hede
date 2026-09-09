@@ -23,6 +23,37 @@ def test_serve_image_resolves_product_archive_brand(tmp_path):
     assert response.content == b"test-image"
 
 
+def test_serve_image_redirects_to_private_us3_url_when_synced(tmp_path):
+    image_path = tmp_path / "C5562217D80.jpg"
+    image_path.write_bytes(b"test-image")
+
+    class FakeUS3Storage:
+        def object_key(self, brand, relative_path):
+            return f"{brand}/{relative_path}"
+
+        def has_synced_object(self, object_key):
+            return object_key == "cbanner_mens/C5562217D80.jpg"
+
+        def private_download_url(self, object_key):
+            return f"https://private.example/{object_key}?signature=test"
+
+    app = FastAPI()
+    app.state.settings = SimpleNamespace(image_roots={"cbanner": tmp_path})
+    app.state.us3_image_storage = FakeUS3Storage()
+    app.include_router(images_router)
+    client = TestClient(app)
+
+    response = client.get(
+        "/images/serve/cbanner_mens/C5562217D80.jpg",
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 307
+    assert response.headers["location"] == (
+        "https://private.example/cbanner_mens/C5562217D80.jpg?signature=test"
+    )
+
+
 def test_image_lookup_prefers_original_sku(test_app_client: TestClient):
     response = test_app_client.post(
         "/images/lookup",

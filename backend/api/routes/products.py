@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException, Query, Request
 
-from api.routes.images import image_url_for
+from api.routes.images import image_storage_path_for, image_url_for
 from api.operation_log_utils import (
     PRODUCT_FIELD_LABELS,
     build_changed_fields,
@@ -37,12 +37,18 @@ from transform.rows import build_admin_record, filter_extra_fields
 router = APIRouter()
 
 
-def _with_brand_and_image(item: dict, brand: str, settings) -> dict:
+def _with_brand_and_image(item: dict, brand: str, settings, us3_storage=None) -> dict:
     costs = normalize_gender_costs((item.get("extra_fields") or {}).get(GENDER_COSTS_FIELD))
     return {
         **item,
         "brand": brand,
         "image_url": image_url_for(brand, item.get("image_path"), settings),
+        "image_storage_path": image_storage_path_for(
+            brand,
+            item.get("image_path"),
+            settings,
+            us3_storage,
+        ),
         "gender_costs": (
             {
                 "female": str(costs[FEMALE_KEY]),
@@ -86,12 +92,16 @@ def list_products(
 ):
     settings = request.app.state.settings
     repository = request.app.state.repository
+    us3_storage = getattr(request.app.state, "us3_image_storage", None)
 
     if brand == "all":
         payload = repository.list_all_products(query=query, sku_prefix=sku_prefix, page=page, page_size=page_size)
         return {
             **payload,
-            "items": [_with_brand_and_image(item, item["brand"], settings) for item in payload["items"]],
+            "items": [
+                _with_brand_and_image(item, item["brand"], settings, us3_storage)
+                for item in payload["items"]
+            ],
         }
 
     if not repository.is_product_archive_brand(brand):
@@ -101,7 +111,7 @@ def list_products(
     payload = repository.list_products(brand, query=query, sku_prefix=sku_prefix, year=year, page=page, page_size=page_size)
     return {
         **payload,
-        "items": [_with_brand_and_image(item, brand, settings) for item in payload["items"]],
+        "items": [_with_brand_and_image(item, brand, settings, us3_storage) for item in payload["items"]],
     }
 
 
@@ -207,6 +217,7 @@ def list_product_recycle_bin(
 ):
     settings = request.app.state.settings
     repository = request.app.state.repository
+    us3_storage = getattr(request.app.state, "us3_image_storage", None)
     if brand is not None and not repository.is_product_archive_brand(brand):
         raise HTTPException(status_code=400, detail=f"Invalid brand: {brand}")
     payload = repository.list_recycled_products(
@@ -216,7 +227,10 @@ def list_product_recycle_bin(
     )
     return {
         **payload,
-        "items": [_with_brand_and_image(item, item["brand"], settings) for item in payload["items"]],
+        "items": [
+            _with_brand_and_image(item, item["brand"], settings, us3_storage)
+            for item in payload["items"]
+        ],
     }
 
 
@@ -277,7 +291,12 @@ def get_product(request: Request, brand: ProductArchiveBrandKey, product_id: int
     item = repository.get_product(brand, product_id)
     if item is None:
         raise HTTPException(status_code=404, detail="Product not found")
-    return _with_brand_and_image(item, brand, settings)
+    return _with_brand_and_image(
+        item,
+        brand,
+        settings,
+        getattr(request.app.state, "us3_image_storage", None),
+    )
 
 
 @router.post("/products")

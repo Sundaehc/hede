@@ -86,6 +86,14 @@ class Settings:
     ai_sql_explain_timeout_seconds: int = 5
     ai_sql_max_plan_cost: int = 2_000_000
     ai_sql_max_plan_rows: int = 10_000_000
+    ucloud_us3_public_key: str | None = None
+    ucloud_us3_private_key: str | None = None
+    ucloud_us3_bucket: str | None = None
+    ucloud_us3_endpoint: str | None = None
+    ucloud_us3_image_prefix: str = ""
+    ucloud_us3_signed_url_expires: int = 3600
+    ucloud_us3_timeout_seconds: int = 60
+    ucloud_us3_sync_workers: int = 4
 
     @property
     def image_roots(self) -> dict[str, Path]:
@@ -113,6 +121,17 @@ class Settings:
             seen.add(key)
             roots.append(root)
         return roots
+
+    @property
+    def ucloud_us3_configured(self) -> bool:
+        return all(
+            (
+                self.ucloud_us3_public_key,
+                self.ucloud_us3_private_key,
+                self.ucloud_us3_bucket,
+                self.ucloud_us3_endpoint,
+            )
+        )
 
 
 def _path_from_env(name: str) -> Path:
@@ -286,5 +305,19 @@ def load_settings(require_database: bool = True) -> Settings:
         ),
         ai_sql_max_plan_rows=_int_from_env(
             "AI_SQL_MAX_PLAN_ROWS", 10_000_000, minimum=100_000, maximum=1_000_000_000
+        ),
+        ucloud_us3_public_key=os.getenv("UCLOUD_US3_PUBLIC_KEY") or None,
+        ucloud_us3_private_key=os.getenv("UCLOUD_US3_PRIVATE_KEY") or None,
+        ucloud_us3_bucket=os.getenv("UCLOUD_US3_BUCKET") or None,
+        ucloud_us3_endpoint=os.getenv("UCLOUD_US3_ENDPOINT") or None,
+        ucloud_us3_image_prefix=os.getenv("UCLOUD_US3_IMAGE_PREFIX", "").strip().strip("/"),
+        ucloud_us3_signed_url_expires=_int_from_env(
+            "UCLOUD_US3_SIGNED_URL_EXPIRES", 3600, minimum=60, maximum=86_400
+        ),
+        ucloud_us3_timeout_seconds=_int_from_env(
+            "UCLOUD_US3_TIMEOUT_SECONDS", 60, minimum=5, maximum=300
+        ),
+        ucloud_us3_sync_workers=_int_from_env(
+            "UCLOUD_US3_SYNC_WORKERS", 4, minimum=1, maximum=16
         ),
     )

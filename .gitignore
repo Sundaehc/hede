@@ -18,3 +18,4 @@ frontend/.env.local
 # Runtime logs
 backend/logs/
 backend/.image_refresh_status.json
+backend/.us3_image_sync_manifest.json

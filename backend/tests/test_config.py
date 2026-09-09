@@ -54,3 +54,20 @@ def test_load_settings_reads_excel_root_from_env(monkeypatch, tmp_path: Path):
     settings = load_settings(require_database=False)
 
     assert settings.excel_root == override_root
+
+
+def test_load_settings_reads_us3_image_configuration(monkeypatch, tmp_path: Path):
+    monkeypatch.setattr(config_module, "BACKEND_ROOT", tmp_path)
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    _set_required_path_env(monkeypatch, tmp_path)
+    monkeypatch.setenv("UCLOUD_US3_PUBLIC_KEY", "public")
+    monkeypatch.setenv("UCLOUD_US3_PRIVATE_KEY", "private")
+    monkeypatch.setenv("UCLOUD_US3_BUCKET", "hede-img")
+    monkeypatch.setenv("UCLOUD_US3_ENDPOINT", "https://hede-img.cn-sh2.ufileos.com")
+    monkeypatch.setenv("UCLOUD_US3_SIGNED_URL_EXPIRES", "7200")
+
+    settings = load_settings(require_database=False)
+
+    assert settings.ucloud_us3_configured is True
+    assert settings.ucloud_us3_bucket == "hede-img"
+    assert settings.ucloud_us3_signed_url_expires == 7200

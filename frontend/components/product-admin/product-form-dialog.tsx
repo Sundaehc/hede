@@ -997,14 +997,14 @@ export function ProductFormDialog({ brands = PRODUCT_ARCHIVE_BRANDS, item, mode,
                 })}
 
                 <div>
-                  <p className="mb-2 text-xs font-medium text-muted-foreground">图片路径</p>
+                  <p className="mb-2 text-xs font-medium text-muted-foreground">图片存储</p>
                   <div className="space-y-1.5">
-                    <Label htmlFor="product-form-image-path" className="text-xs">{FIELD_LABELS.image_path}</Label>
+                    <Label htmlFor="product-form-image-path" className="text-xs">图片路径</Label>
                     <Input
                       id="product-form-image-path"
-                      value={values.image_path}
-                      placeholder="查询后自动填充或手动输入"
-                      onChange={(event) => handleFieldChange("image_path", event.target.value)}
+                      value={item?.image_storage_path ?? ""}
+                      placeholder={values.image_path ? "等待同步到 US3" : "暂无图片"}
+                      readOnly
                       autoComplete="off"
                       spellCheck={false}
                     />

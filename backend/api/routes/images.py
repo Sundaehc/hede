@@ -5,7 +5,7 @@ import mimetypes
 from pathlib import Path
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Request
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, RedirectResponse
 
 from api.fine_table_cache import clear_fine_table_cache
 from api.product_goods_cache import clear_product_goods_cache
@@ -14,6 +14,7 @@ from api.schemas import ImageLookupRequest, MatchSkuRequest, ProductArchiveBrand
 from domain.schema import PRODUCT_ARCHIVE_TABLES
 from domain.sources import IMAGE_BRAND_KEYS, TABLE_NAMES
 from fileio.image_matcher import ImageMatcher
+from fileio.image_paths import normalized_relative_image_path, relative_image_path
 from storage.product_image_refresh import get_image_refresh_status, run_product_image_refresh
 
 
@@ -29,24 +30,6 @@ MIME_MAP = {
 }
 
 
-def _relative_image_path(image_path: str, root: Path) -> Path | None:
-    source_path = Path(image_path)
-    try:
-        return source_path.relative_to(root)
-    except ValueError:
-        # Historical imports may use a different UNC alias for the same image
-        # share, such as \\Hede instead of the configured IP address.
-        root_name = root.name.casefold()
-        source_parts = source_path.parts
-        for index in range(len(source_parts) - 1, -1, -1):
-            if source_parts[index].casefold() != root_name:
-                continue
-            candidate = Path(*source_parts[index + 1:])
-            if candidate.parts and all(part not in {".", ".."} for part in candidate.parts):
-                return candidate
-        return None
-
-
 def image_url_for(brand: str, image_path: str | None, settings) -> str | None:
     if not image_path:
         return None
@@ -55,8 +38,29 @@ def image_url_for(brand: str, image_path: str | None, settings) -> str | None:
     root = settings.image_roots.get(brand_key)
     if not root:
         return None
-    relative_path = _relative_image_path(image_path, root)
+    relative_path = relative_image_path(image_path, root)
     return f"/images/serve/{brand}/{relative_path.as_posix()}" if relative_path else None
+
+
+def image_storage_path_for(brand: str, image_path: str | None, settings, us3_storage) -> str | None:
+    if not image_path or us3_storage is None:
+        return None
+
+    brand_key = IMAGE_BRAND_KEYS.get(brand, brand)
+    root = settings.image_roots.get(brand_key)
+    if not root:
+        return None
+    relative_path = relative_image_path(image_path, root)
+    if relative_path is None:
+        return None
+    try:
+        object_key = us3_storage.object_key(brand, relative_path)
+        if not us3_storage.has_synced_object(object_key):
+            return None
+    except Exception:
+        logger.exception("Failed to resolve US3 storage path for %s", image_path)
+        return None
+    return f"us3://{us3_storage.bucket}/{object_key}"
 
 
 def get_image_matcher(request: Request, brand: str) -> ImageMatcher | None:
@@ -106,7 +110,25 @@ def serve_image(brand: str, image_path: str, request: Request):
     if root is None:
         raise HTTPException(status_code=404, detail="Unknown brand")
 
-    full_path = (Path(root) / image_path).resolve()
+    try:
+        normalized_image_path = normalized_relative_image_path(image_path)
+    except ValueError:
+        raise HTTPException(status_code=403, detail="Path traversal denied")
+
+    us3_storage = getattr(request.app.state, "us3_image_storage", None)
+    if us3_storage is not None:
+        try:
+            object_key = us3_storage.object_key(brand, normalized_image_path)
+            if us3_storage.has_synced_object(object_key):
+                return RedirectResponse(
+                    us3_storage.private_download_url(object_key),
+                    status_code=307,
+                    headers={"Cache-Control": "private, max-age=300"},
+                )
+        except Exception:
+            logger.exception("Failed to build US3 image URL for %s/%s", brand, image_path)
+
+    full_path = (Path(root) / normalized_image_path).resolve()
     try:
         full_path.relative_to(Path(root).resolve())
     except ValueError:

@@ -34,6 +34,7 @@ from storage.auth_repository import AuthRepository
 from storage.inventory_repository import InventoryRepository
 from storage.operation_log_repository import OperationLogRepository
 from storage.product_repository import ProductRepository
+from storage.us3_image_storage import UCloudUS3ImageStorage
 
 
 PUBLIC_DOC_METHODS = {"get", "head"}
@@ -168,6 +169,11 @@ def create_app(*, settings, repository=None, image_matchers=None, inventory_repo
     resolved_auth_repository.create_tables()
     resolved_operation_log_repository.create_tables()
     app.state.image_matchers = resolved_matchers
+    try:
+        app.state.us3_image_storage = UCloudUS3ImageStorage.from_settings(settings)
+    except Exception:
+        logger.exception("Failed to initialize UCloud US3 image storage; using local image fallback")
+        app.state.us3_image_storage = None
 
     app.include_router(auth_router)
     app.include_router(ai_query_router)

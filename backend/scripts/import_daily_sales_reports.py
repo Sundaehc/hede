@@ -5,8 +5,9 @@ Run: python -m scripts.import_daily_sales_reports
 from __future__ import annotations
 
 import argparse
+import time
 import traceback
-from datetime import date
+from datetime import date, datetime, time as day_time, timedelta
 from pathlib import Path
 
 from config import load_settings
@@ -16,10 +17,31 @@ from storage.factory_channel_sales_summary_repository import FactoryChannelSales
 from storage.task_status_repository import ScheduledTaskStatusRepository
 
 
-def _record_status(status_repo: ScheduledTaskStatusRepository, task_name: str, result: dict[str, object], source_file: Path) -> None:
-    dates = [date.fromisoformat(value) for value in result.get("sales_dates", [])]
-    for business_date in dates:
-        status_repo.mark_running(task_name, business_date, source_path=source_file)
+def _parse_retry_until(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    return datetime.combine(date.today(), day_time.fromisoformat(value))
+
+
+def _sales_dates(result: dict[str, object]) -> set[date]:
+    values = result.get("sales_dates", [])
+    if not isinstance(values, (list, tuple, set)):
+        return set()
+    return {date.fromisoformat(str(value)) for value in values}
+
+
+def _record_status(
+    status_repo: ScheduledTaskStatusRepository,
+    task_name: str,
+    result: dict[str, object],
+    source_file: Path,
+    sales_dates: set[date],
+    *,
+    running_date: date | None = None,
+) -> None:
+    for business_date in sales_dates:
+        if business_date != running_date:
+            status_repo.mark_running(task_name, business_date, source_path=source_file)
         status_repo.mark_finished(
             task_name,
             business_date,
@@ -36,6 +58,20 @@ def main() -> int:
     parser.add_argument("--jst-file", type=Path, default=None)
     parser.add_argument("--vip-file", type=Path, default=None)
     parser.add_argument("--source", choices=("all", "jst", "vip"), default="all")
+    expected_date_group = parser.add_mutually_exclusive_group()
+    expected_date_group.add_argument(
+        "--require-previous-day",
+        action="store_true",
+        help="要求源文件必须包含昨天的销售日期，适用于每日计划任务",
+    )
+    expected_date_group.add_argument(
+        "--expected-sales-date",
+        type=date.fromisoformat,
+        default=None,
+        help="要求源文件包含指定销售日期，适用于手工补历史数据",
+    )
+    parser.add_argument("--retry-until", default=None, help="目标销售日期未就绪时重试到本地时间 HH:MM")
+    parser.add_argument("--retry-interval-seconds", type=int, default=1800, help="重试间隔秒数")
     parser.add_argument(
         "--skip-product-goods-refresh",
         action="store_true",
@@ -53,24 +89,90 @@ def main() -> int:
     ]
     if args.source != "all":
         files = [item for item in files if item[2] == args.source]
+    expected_sales_date = args.expected_sales_date
+    if args.require_previous_day:
+        expected_sales_date = date.today() - timedelta(days=1)
+    retry_until = _parse_retry_until(args.retry_until)
+
     repository = DailySalesRepository(settings.database_url)
     status_repo = ScheduledTaskStatusRepository(settings.database_url)
-    failed = False
     imported_any = False
     imported_dates: set[date] = set()
-    for task_name, source_file, source in files:
-        try:
-            result = repository.import_jst_daily_sales(source_file) if source == "jst" else repository.import_vip_daily_sales(source_file)
-            _record_status(status_repo, task_name, result, source_file)
-            imported_any = True
-            imported_dates.update(
-                date.fromisoformat(value)
-                for value in result.get("sales_dates", [])
-            )
-            print(f"[OK] {source_file.name}: {result}")
-        except Exception as exc:  # pragma: no cover - scheduled task diagnostics
-            failed = True
-            print(f"[FAILED] {source_file}: {type(exc).__name__}: {exc}\n{traceback.format_exc()}")
+    pending_files = files
+    unresolved = False
+
+    while pending_files:
+        retry_files: list[tuple[str, Path, str]] = []
+        attempt_failed = False
+        for task_name, source_file, source in pending_files:
+            if expected_sales_date is not None:
+                status_repo.mark_running(task_name, expected_sales_date, source_path=source_file)
+            try:
+                result = (
+                    repository.import_jst_daily_sales(source_file)
+                    if source == "jst"
+                    else repository.import_vip_daily_sales(source_file)
+                )
+                result_dates = _sales_dates(result)
+                if expected_sales_date is not None and expected_sales_date not in result_dates:
+                    available_dates = ", ".join(sorted(item.isoformat() for item in result_dates)) or "none"
+                    message = (
+                        f"Source data is not ready: expected {expected_sales_date.isoformat()}, "
+                        f"found {available_dates}"
+                    )
+                    status_repo.mark_finished(
+                        task_name,
+                        expected_sales_date,
+                        status="skipped",
+                        message=message,
+                        result={**result, "expected_sales_date": expected_sales_date.isoformat()},
+                        source_path=source_file,
+                    )
+                    retry_files.append((task_name, source_file, source))
+                    print(f"[WAIT] {source_file.name}: {message}")
+                    continue
+
+                _record_status(
+                    status_repo,
+                    task_name,
+                    result,
+                    source_file,
+                    result_dates,
+                    running_date=expected_sales_date,
+                )
+                imported_any = True
+                imported_dates.update(result_dates)
+                print(f"[OK] {source_file.name}: {result}")
+            except Exception as exc:  # pragma: no cover - scheduled task diagnostics
+                attempt_failed = True
+                if expected_sales_date is not None:
+                    status_repo.mark_finished(
+                        task_name,
+                        expected_sales_date,
+                        status="failed",
+                        message=f"{type(exc).__name__}: {exc}",
+                        result={"traceback": traceback.format_exc()},
+                        source_path=source_file,
+                    )
+                    retry_files.append((task_name, source_file, source))
+                print(f"[FAILED] {source_file}: {type(exc).__name__}: {exc}\n{traceback.format_exc()}")
+
+        if not retry_files:
+            unresolved = attempt_failed
+            break
+        if expected_sales_date is None or retry_until is None or datetime.now() >= retry_until:
+            unresolved = True
+            break
+
+        sleep_seconds = min(
+            max(args.retry_interval_seconds, 1),
+            max(int((retry_until - datetime.now()).total_seconds()), 1),
+        )
+        print(f"[RETRY] target sales date not ready, sleep {sleep_seconds}s")
+        time.sleep(sleep_seconds)
+        pending_files = retry_files
+
+    failed = unresolved
     if imported_any:
         try:
             summary_repository = FactoryChannelSalesSummaryRepository(settings.database_url)
