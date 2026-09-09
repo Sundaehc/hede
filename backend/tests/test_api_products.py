@@ -389,6 +389,32 @@ def test_delete_products_returns_404_when_missing(test_app_client: TestClient):
     assert response.json()["detail"] == "Product not found"
 
 
+def test_batch_delete_products_supports_same_id_in_different_brands(test_app_client: TestClient, repository):
+    mens = repository.create_product(
+        "cbanner_mens",
+        build_admin_record("cbanner_mens", {"sku": "MENS-DELETE", "original_sku": "MENS-DELETE"}),
+    )
+    womens = repository.create_product(
+        "cbanner_womens",
+        build_admin_record("cbanner_womens", {"sku": "WOMENS-DELETE", "original_sku": "WOMENS-DELETE"}),
+    )
+
+    response = test_app_client.post(
+        "/products/batch-delete",
+        json={
+            "items": [
+                {"brand": "cbanner_mens", "id": mens["id"]},
+                {"brand": "cbanner_womens", "id": womens["id"]},
+            ],
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["deleted"] == 2
+    assert repository.get_product("cbanner_mens", mens["id"]) is None
+    assert repository.get_product("cbanner_womens", womens["id"]) is None
+
+
 def test_post_products_rejects_empty_payload(test_app_client: TestClient):
     response = test_app_client.post(
         "/products",

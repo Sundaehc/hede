@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 BrandKey = Literal["cbanner_mens", "cbanner_womens", "yandou", "eblan"]
@@ -90,11 +90,25 @@ class ImageLookupRequest(BaseModel):
         raise ValueError("Either original_sku or sku must be provided")
 
 
-class BatchDeleteRequest(BaseModel):
+class BatchDeleteItem(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     brand: ProductArchiveBrandKey
-    ids: list[int]
+    id: int = Field(ge=1)
+
+
+class BatchDeleteRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    brand: ProductArchiveBrandKey | None = None
+    ids: list[int] = Field(default_factory=list)
+    items: list[BatchDeleteItem] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def validate_delete_targets(self) -> BatchDeleteRequest:
+        if self.items or (self.brand and self.ids):
+            return self
+        raise ValueError("Either items or brand and ids must be provided")
 
 
 class MatchSkuRequest(BaseModel):

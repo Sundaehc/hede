@@ -24,8 +24,8 @@ type ProductTableProps = {
   isLoading: boolean
   error: string | null
   selectable?: boolean
-  selectedIds: Set<number>
-  onToggleSelect: (id: number) => void
+  selectedKeys: Set<string>
+  onToggleSelect: (item: ProductListItem) => void
   onToggleSelectAll: () => void
   onBatchDelete?: () => void
   onEdit?: (item: ProductListItem) => void
@@ -134,16 +134,16 @@ async function copyProductCode(value: string) {
   textarea.remove()
 }
 
-function ProductCard({ item, selectable, selectedIds, onToggleSelect, onEdit, onDelete, onPreviewImage }: {
+function ProductCard({ item, selectable, selectedKeys, onToggleSelect, onEdit, onDelete, onPreviewImage }: {
   item: ProductListItem
   selectable?: boolean
-  selectedIds: Set<number>
-  onToggleSelect: (id: number) => void
+  selectedKeys: Set<string>
+  onToggleSelect: (item: ProductListItem) => void
   onEdit?: (item: ProductListItem) => void
   onDelete?: (item: ProductListItem) => void
   onPreviewImage?: (item: ProductListItem) => void
 }) {
-  const checked = selectedIds.has(item.id)
+  const checked = selectedKeys.has(`${item.brand}:${item.id}`)
   const canEdit = Boolean(onEdit)
   const costText = productCostText(item)
   const [copiedCode, setCopiedCode] = useState<string | null>(null)
@@ -188,7 +188,7 @@ function ProductCard({ item, selectable, selectedIds, onToggleSelect, onEdit, on
           type="checkbox"
           checked={checked}
           onClick={(event) => event.stopPropagation()}
-          onChange={() => onToggleSelect(item.id)}
+          onChange={() => onToggleSelect(item)}
           aria-label={`选择商品 ${item.sku || item.original_sku || item.id}`}
           className="h-4 w-4 shrink-0 cursor-pointer rounded border border-input accent-primary"
         />
@@ -315,7 +315,7 @@ export function ProductTable({
   isLoading,
   error,
   selectable,
-  selectedIds,
+  selectedKeys,
   onToggleSelect,
   onToggleSelectAll,
   onBatchDelete,
@@ -329,8 +329,8 @@ export function ProductTable({
   const totalPages = getTotalPages(total, pageSize)
   const start = total === 0 ? 0 : (page - 1) * pageSize + 1
   const end = total === 0 ? 0 : Math.min(page * pageSize, total)
-  const allSelected = items.length > 0 && items.every((item) => selectedIds.has(item.id))
-  const someSelected = items.some((item) => selectedIds.has(item.id))
+  const allSelected = items.length > 0 && items.every((item) => selectedKeys.has(`${item.brand}:${item.id}`))
+  const someSelected = items.some((item) => selectedKeys.has(`${item.brand}:${item.id}`))
 
   if (error) {
     return (
@@ -371,7 +371,7 @@ export function ProductTable({
           <p>
             共 {total} 条，当前显示 {start}-{end}
             {isLoading && items.length > 0 ? <span className="ml-2">加载中...</span> : null}
-            {selectedIds.size > 0 ? <span className="ml-2 text-foreground">已选 {selectedIds.size} 项</span> : null}
+            {selectedKeys.size > 0 ? <span className="ml-2 text-foreground">已选 {selectedKeys.size} 项</span> : null}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -389,10 +389,10 @@ export function ProductTable({
         </div>
       </div>
 
-      {selectedIds.size > 0 ? (
+      {selectedKeys.size > 0 ? (
         <div className="sticky top-2 z-20 flex flex-col gap-3 rounded-lg border border-border bg-background/95 p-3 shadow-sm backdrop-blur sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <p className="text-sm font-medium text-foreground">已选 {selectedIds.size} 个商品</p>
+            <p className="text-sm font-medium text-foreground">已选 {selectedKeys.size} 个商品</p>
             <p className="text-xs text-muted-foreground">可导出选中商品，或执行批量删除。</p>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -422,7 +422,7 @@ export function ProductTable({
               key={`${item.brand}-${item.id}`}
               item={item}
               selectable={selectable}
-              selectedIds={selectedIds}
+              selectedKeys={selectedKeys}
               onToggleSelect={onToggleSelect}
               onEdit={onEdit}
               onDelete={onDelete}

@@ -389,9 +389,52 @@ def delete_product(request: Request, brand: ProductArchiveBrandKey, product_id: 
 
 @router.post("/products/batch-delete")
 def batch_delete_products(request: Request, body: BatchDeleteRequest):
-    if not body.ids:
-        raise HTTPException(status_code=400, detail="No ids provided")
     repository = request.app.state.repository
+
+    if body.items:
+        grouped_ids: dict[str, set[int]] = {}
+        for target in body.items:
+            grouped_ids.setdefault(target.brand, set()).add(target.id)
+
+        existing_items: list[dict[str, object]] = []
+        labels: list[str] = []
+        for brand, target_ids in grouped_ids.items():
+            if not repository.is_product_archive_brand(brand):
+                raise HTTPException(status_code=400, detail=f"Invalid brand: {brand}")
+            brand_items = repository.get_products_by_ids(brand, sorted(target_ids))
+            existing_items.extend({**item, "brand": brand} for item in brand_items)
+            labels.extend(product_entity_label(item) for item in brand_items)
+
+        deleted = 0
+        with repository.engine.begin() as connection:
+            for brand, target_ids in grouped_ids.items():
+                deleted += repository.delete_products(
+                    brand,
+                    sorted(target_ids),
+                    connection=connection,
+                )
+
+        clear_fine_table_cache()
+        clear_product_goods_cache()
+        write_operation_log(
+            request,
+            module="product",
+            action="batch_delete",
+            entity_type="product",
+            entity_id=",".join(labels),
+            entity_label=f"{deleted} 条商品",
+            summary=f"批量移入回收站 商品 {deleted} 条",
+            before_data={
+                "brands": {brand: len(ids) for brand, ids in grouped_ids.items()},
+                "item_count": deleted,
+                "items": existing_items[:200],
+                "labels": labels[:200],
+            },
+        )
+        return {"deleted": deleted, "message": f"已移入回收站 {deleted} 条商品"}
+
+    if not body.brand or not body.ids:
+        raise HTTPException(status_code=400, detail="No ids provided")
     if not repository.is_product_archive_brand(body.brand):
         raise HTTPException(status_code=400, detail=f"Invalid brand: {body.brand}")
     existing_items = repository.get_products_by_ids(body.brand, body.ids)

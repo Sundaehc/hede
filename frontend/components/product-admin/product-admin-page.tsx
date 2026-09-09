@@ -15,7 +15,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Tabs, TabsContent } from "@/components/ui/tabs"
 
 import { PRODUCT_ARCHIVE_BRANDS, resolveProductArchiveBrands, type ProductArchiveBrandKey, type ProductArchiveRecordBrandKey } from "@/lib/brands"
-import { ApiError, batchDeleteProducts, deleteProduct, getProductYears, listProductArchiveBrands, listProductRecycleBin, listProducts, permanentlyDeleteProduct, restoreProductFromRecycleBin, type SupplierBrandItem } from "@/lib/api"
+import { ApiError, batchDeleteProducts, deleteProduct, getProductYears, listProductArchiveBrands, listProductRecycleBin, listProducts, permanentlyDeleteProduct, restoreProductFromRecycleBin, type ProductDeleteTarget, type SupplierBrandItem } from "@/lib/api"
 import type { ProductListItem, ProductRecycleItem } from "@/lib/types"
 
 const DEFAULT_BRAND = PRODUCT_ARCHIVE_BRANDS.find((item) => item.key !== "all")?.key ?? PRODUCT_ARCHIVE_BRANDS[0].key
@@ -70,7 +70,7 @@ export function ProductAdminPage() {
   const [isRecycleActioning, setIsRecycleActioning] = useState(false)
 
   // Selection state
-  const [selectedIds, setSelectedIds] = useState<Set<number>>(() => new Set())
+  const [selectedProducts, setSelectedProducts] = useState<Map<string, ProductDeleteTarget>>(() => new Map())
 
   // ConfirmDialog state
   const [deleteTarget, setDeleteTarget] = useState<ProductListItem | null>(null)
@@ -178,7 +178,7 @@ export function ProductAdminPage() {
 
   // Clear selection on page/brand/search change
   useEffect(() => {
-    setSelectedIds(new Set())
+    setSelectedProducts(new Map())
   }, [brand, year, page, submittedQuery, submittedSkuPrefix])
 
   const handleSaved = async () => {
@@ -195,9 +195,9 @@ export function ProductAdminPage() {
     setIsDeleting(true)
     try {
       await deleteProduct(deleteTarget.brand as ProductArchiveRecordBrandKey, deleteTarget.id)
-      setSelectedIds((prev) => {
-        const next = new Set(prev)
-        next.delete(deleteTarget.id)
+      setSelectedProducts((prev) => {
+        const next = new Map(prev)
+        next.delete(`${deleteTarget.brand}:${deleteTarget.id}`)
         return next
       })
       setReloadToken((current) => current + 1)
@@ -264,31 +264,35 @@ export function ProductAdminPage() {
     }
   }
 
-  const handleToggleSelect = useCallback((id: number) => {
-    setSelectedIds((prev) => {
-      const next = new Set(prev)
-      if (next.has(id)) {
-        next.delete(id)
+  const handleToggleSelect = useCallback((item: ProductListItem) => {
+    const key = `${item.brand}:${item.id}`
+    setSelectedProducts((prev) => {
+      const next = new Map(prev)
+      if (next.has(key)) {
+        next.delete(key)
       } else {
-        next.add(id)
+        next.set(key, { brand: item.brand as ProductArchiveRecordBrandKey, id: item.id })
       }
       return next
     })
   }, [])
 
   const handleToggleSelectAll = useCallback(() => {
-    setSelectedIds((prev) => {
-      const allSelected = items.every((item) => prev.has(item.id))
+    setSelectedProducts((prev) => {
+      const allSelected = items.every((item) => prev.has(`${item.brand}:${item.id}`))
       if (allSelected) {
-        const next = new Set(prev)
+        const next = new Map(prev)
         for (const item of items) {
-          next.delete(item.id)
+          next.delete(`${item.brand}:${item.id}`)
         }
         return next
       }
-      const next = new Set(prev)
+      const next = new Map(prev)
       for (const item of items) {
-        next.add(item.id)
+        next.set(`${item.brand}:${item.id}`, {
+          brand: item.brand as ProductArchiveRecordBrandKey,
+          id: item.id,
+        })
       }
       return next
     })
@@ -301,8 +305,16 @@ export function ProductAdminPage() {
   const handleBatchDeleteConfirm = async () => {
     setIsBatchDeleting(true)
     try {
-      await batchDeleteProducts(brand as ProductArchiveRecordBrandKey, Array.from(selectedIds))
-      setSelectedIds(new Set())
+      const targets = Array.from(selectedProducts.values())
+      if (isAllBrand(brand)) {
+        await batchDeleteProducts(targets)
+      } else {
+        await batchDeleteProducts(
+          brand as ProductArchiveRecordBrandKey,
+          targets.map((target) => target.id),
+        )
+      }
+      setSelectedProducts(new Map())
       setReloadToken((current) => current + 1)
     } catch (deleteError) {
       setMessageContent({ title: "批量删除失败", description: getErrorMessage(deleteError) })
@@ -313,7 +325,7 @@ export function ProductAdminPage() {
     }
   }
 
-  const showBatchDelete = !isAllBrand(brand) && selectedIds.size > 0
+  const showBatchDelete = selectedProducts.size > 0
   const canManageProducts = hasPermission("product.manage")
   const canExportProducts = hasPermission("product.export")
   const canImportProducts = hasPermission("product.import")
@@ -379,7 +391,7 @@ export function ProductAdminPage() {
                 prefixValue={skuPrefixInput}
                 skuPrefix={submittedSkuPrefix}
                 isLoading={isLoading}
-                selectedIds={selectedIds}
+                selectedIds={new Set(Array.from(selectedProducts.values(), (target) => target.id))}
                 canExport={canExportProducts}
                 canImport={canImportProducts}
                 canRefreshImages={canManageProducts}
@@ -433,17 +445,17 @@ export function ProductAdminPage() {
               pageSizes={PAGE_SIZES}
               isLoading={isLoading}
               error={error}
-              selectable={!isAllBrand(brand) && canSelectProducts}
-              selectedIds={selectedIds}
+              selectable={(isAllBrand(brand) ? canManageProducts : canSelectProducts)}
+              selectedKeys={new Set(selectedProducts.keys())}
               onToggleSelect={handleToggleSelect}
               onToggleSelectAll={handleToggleSelectAll}
               onBatchDelete={showBatchDelete && canManageProducts ? handleBatchDeleteRequest : undefined}
-              onEdit={isAllBrand(brand) || !canManageProducts ? undefined : (item) => {
+              onEdit={!canManageProducts ? undefined : (item) => {
                 setDialogMode("edit")
                 setSelectedItem(item)
                 setIsDialogOpen(true)
               }}
-              onDelete={isAllBrand(brand) || !canManageProducts ? undefined : handleDeleteRequest}
+              onDelete={!canManageProducts ? undefined : handleDeleteRequest}
               onPreviewImage={(item) => {
                 if (!item.image_url) return
                 setPreviewImage({
@@ -456,7 +468,7 @@ export function ProductAdminPage() {
                 setPageSize(size)
                 setPage(1)
               }}
-              onClearSelection={() => setSelectedIds(new Set())}
+              onClearSelection={() => setSelectedProducts(new Map())}
             />
           </TabsContent>
         </Tabs>
@@ -496,7 +508,7 @@ export function ProductAdminPage() {
         <ConfirmDialog
           open={batchDeleteOpen}
           title="确认批量删除"
-          description={`确定将选中的 ${selectedIds.size} 条商品移入回收站吗？可在回收站中恢复或彻底删除。`}
+          description={`确定将选中的 ${selectedProducts.size} 条商品移入回收站吗？可在回收站中恢复或彻底删除。`}
           confirmLabel={isBatchDeleting ? "处理中..." : "移入回收站"}
           variant="destructive"
           onConfirm={handleBatchDeleteConfirm}

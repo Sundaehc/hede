@@ -5,7 +5,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 import { ProductAdminPage } from "@/components/product-admin/product-admin-page"
 import { ApiError } from "@/lib/api"
 
-const { mockCreateProduct, mockListProductArchiveBrands, mockListProducts, mockUpdateProduct } = vi.hoisted(() => ({
+const { mockBatchDeleteProducts, mockCreateProduct, mockListProductArchiveBrands, mockListProducts, mockUpdateProduct } = vi.hoisted(() => ({
+  mockBatchDeleteProducts: vi.fn(),
   mockCreateProduct: vi.fn(),
   mockListProductArchiveBrands: vi.fn(),
   mockListProducts: vi.fn(),
@@ -17,6 +18,7 @@ vi.mock("@/lib/api", async () => {
 
   return {
     ...actual,
+    batchDeleteProducts: mockBatchDeleteProducts,
     createProduct: mockCreateProduct,
     listProductArchiveBrands: mockListProductArchiveBrands,
     listProducts: mockListProducts,
@@ -124,6 +126,7 @@ const sampleResponse = {
 
 describe("ProductAdminPage", () => {
   beforeEach(() => {
+    mockBatchDeleteProducts.mockReset()
     mockCreateProduct.mockReset()
     mockListProductArchiveBrands.mockReset()
     mockListProducts.mockReset()
@@ -143,6 +146,7 @@ describe("ProductAdminPage", () => {
     mockListProducts.mockResolvedValue(sampleResponse)
     mockCreateProduct.mockResolvedValue({ item: sampleResponse.items[0], message: "created" })
     mockUpdateProduct.mockResolvedValue({ item: sampleResponse.items[0], message: "updated" })
+    mockBatchDeleteProducts.mockResolvedValue({ deleted: 2, message: "已移入回收站 2 条商品" })
   })
 
   it("fetches cbanner_mens on first render", async () => {
@@ -161,6 +165,83 @@ describe("ProductAdminPage", () => {
     expect(screen.getByRole("heading", { name: "商品信息档案" })).toBeInTheDocument()
     expect(screen.getByRole("tab", { name: "千百度男鞋", selected: true })).toBeInTheDocument()
     expect(await screen.findByTestId("card-title-1")).toBeInTheDocument()
+  })
+
+  it("opens edit mode from the total overview using the item's brand", async () => {
+    const user = userEvent.setup()
+
+    render(<ProductAdminPage />)
+
+    await screen.findByTestId("card-title-1")
+    await user.click(screen.getByRole("tab", { name: "总览" }))
+
+    await waitFor(() => {
+      expect(mockListProducts).toHaveBeenLastCalledWith({
+        brand: "all",
+        page: 1,
+        pageSize: 10,
+        query: undefined,
+        year: undefined,
+      })
+    })
+
+    await user.click(screen.getByRole("button", { name: "编辑" }))
+
+    expect(await screen.findByRole("heading", { name: "编辑商品" })).toBeInTheDocument()
+  })
+
+  it("opens the delete confirmation from the total overview", async () => {
+    const user = userEvent.setup()
+
+    render(<ProductAdminPage />)
+
+    await screen.findByTestId("card-title-1")
+    await user.click(screen.getByRole("tab", { name: "总览" }))
+    await waitFor(() => expect(mockListProducts).toHaveBeenLastCalledWith({
+      brand: "all",
+      page: 1,
+      pageSize: 10,
+      query: undefined,
+      year: undefined,
+    }))
+
+    await user.click(screen.getByRole("button", { name: "删除" }))
+
+    expect(await screen.findByText("确定将商品 ORIG-001 移入回收站吗？可在回收站中恢复或彻底删除。"))
+      .toBeInTheDocument()
+  })
+
+  it("batch deletes total overview products by brand and id", async () => {
+    const user = userEvent.setup()
+    const secondItem = {
+      ...sampleResponse.items[0],
+      brand: "cbanner_womens" as const,
+      sku: "SKU-002",
+      original_sku: "ORIG-002",
+    }
+    mockListProducts.mockImplementation(({ brand }: { brand: string }) => Promise.resolve(
+      brand === "all"
+        ? { ...sampleResponse, items: [sampleResponse.items[0], secondItem], total: 2 }
+        : sampleResponse,
+    ))
+
+    render(<ProductAdminPage />)
+
+    await screen.findByTestId("card-title-1")
+    await user.click(screen.getByRole("tab", { name: "总览" }))
+    await waitFor(() => expect(screen.getAllByTestId("card-title-1")).toHaveLength(2))
+
+    await user.click(screen.getByLabelText("选择商品 SKU-001"))
+    await user.click(screen.getByLabelText("选择商品 SKU-002"))
+    await user.click(screen.getByRole("button", { name: "批量删除" }))
+    await user.click(screen.getByRole("button", { name: "移入回收站" }))
+
+    await waitFor(() => {
+      expect(mockBatchDeleteProducts).toHaveBeenCalledWith([
+        { brand: "cbanner_mens", id: 1 },
+        { brand: "cbanner_womens", id: 1 },
+      ])
+    })
   })
 
   it("shows product archive brands loaded from brand management", async () => {

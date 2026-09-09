@@ -647,13 +647,21 @@ export type BatchDeleteResult = {
   message: string
 }
 
+export type ProductDeleteTarget = {
+  brand: ProductArchiveRecordBrandKey
+  id: number
+}
+
 export function batchDeleteProducts(
-  brand: ProductArchiveRecordBrandKey,
-  ids: number[]
+  brand: ProductArchiveRecordBrandKey | ProductDeleteTarget[],
+  ids?: number[],
 ) {
+  const body = Array.isArray(brand)
+    ? { items: brand }
+    : { brand, ids: ids ?? [] }
   return request<BatchDeleteResult>("/products/batch-delete", {
     method: "POST",
-    body: JSON.stringify({ brand, ids }),
+    body: JSON.stringify(body),
   })
 }
 

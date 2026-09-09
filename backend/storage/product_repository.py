@@ -936,7 +936,7 @@ class ProductRepository:
             result = connection.execute(statement)
         return result.rowcount > 0
 
-    def delete_products(self, brand: str, ids: list[int]) -> int:
+    def delete_products(self, brand: str, ids: list[int], *, connection=None) -> int:
         if not ids:
             return 0
         table = self._table_for_brand(brand)
@@ -945,6 +945,9 @@ class ProductRepository:
             .where(table.c.id.in_(ids), table.c.deleted_at.is_(None))
             .values(deleted_at=func.now())
         )
+        if connection is not None:
+            result = connection.execute(statement)
+            return result.rowcount
         with self.engine.begin() as connection:
             result = connection.execute(statement)
         return result.rowcount
