@@ -1,4 +1,4 @@
-"""Fully replace the unified Dewu order table from four daily exports."""
+"""Replace per-brand rolling windows in the unified Dewu order table."""
 
 from __future__ import annotations
 
@@ -16,7 +16,7 @@ TASK_NAME = "import_dewu_orders_daily"
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="全量导入千百度、伊伴、烟斗、笑脸得物订单")
+    parser = argparse.ArgumentParser(description="滚动窗口替换千百度、伊伴、烟斗、笑脸得物订单")
     parser.add_argument("--source-root", type=Path, default=None, help="四份得物订单 Excel 所在目录")
     parser.add_argument("--business-date", type=date.fromisoformat, default=date.today(), help="任务业务日期")
     parser.add_argument("--force", action="store_true", help="即使当天已有成功记录也重新导入")

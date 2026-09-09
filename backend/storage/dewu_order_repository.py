@@ -239,29 +239,76 @@ class DewuOrderRepository:
         rows: list[dict[str, object]] = []
         counts: dict[str, int] = {}
         source_files: dict[str, str] = {}
+        windows: dict[str, tuple[date, date]] = {}
         for source in DEWU_ORDER_SOURCES:
             source_file = source_root / source.filename
             source_rows = parse_dewu_order_workbook(source_file, source)
             rows.extend(source_rows)
             counts[source.brand_group] = len(source_rows)
             source_files[source.brand_group] = str(source_file)
+            if not source_rows:
+                continue
+
+            valid_dates = [
+                value
+                for row in source_rows
+                if isinstance((value := row.get("order_date")), date)
+            ]
+            if not valid_dates:
+                raise ValueError(
+                    f"{source.brand_label}得物订单文件没有有效的买家下单时间，已取消滚动窗口替换"
+                )
+            windows[source.brand_group] = (min(valid_dates), max(valid_dates))
 
         if not rows:
-            raise ValueError("四份得物订单文件均无有效订单，已取消全量覆盖")
+            raise ValueError("四份得物订单文件均无有效订单，已取消滚动窗口替换")
 
         self.ensure_table()
+        deleted_counts: dict[str, int] = {}
         with self.engine.begin() as connection:
-            connection.execute(delete(DEWU_ORDERS_TABLE))
+            for source in DEWU_ORDER_SOURCES:
+                window = windows.get(source.brand_group)
+                if window is None:
+                    deleted_counts[source.brand_group] = 0
+                    continue
+                window_start, window_end = window
+                dated_result = connection.execute(
+                    delete(DEWU_ORDERS_TABLE)
+                    .where(DEWU_ORDERS_TABLE.c.brand_group == source.brand_group)
+                    .where(DEWU_ORDERS_TABLE.c.order_date >= window_start)
+                    .where(DEWU_ORDERS_TABLE.c.order_date <= window_end)
+                )
+                undated_result = connection.execute(
+                    delete(DEWU_ORDERS_TABLE)
+                    .where(DEWU_ORDERS_TABLE.c.brand_group == source.brand_group)
+                    .where(DEWU_ORDERS_TABLE.c.order_date.is_(None))
+                )
+                deleted_counts[source.brand_group] = sum(
+                    count
+                    for count in (dated_result.rowcount, undated_result.rowcount)
+                    if isinstance(count, int) and count > 0
+                )
             for offset in range(0, len(rows), INSERT_BATCH_SIZE):
                 connection.execute(insert(DEWU_ORDERS_TABLE), rows[offset:offset + INSERT_BATCH_SIZE])
 
         unique_orders = len({str(row["order_number"]) for row in rows})
         statuses = Counter(str(row.get("order_status") or "") for row in rows)
+        serialized_windows = {
+            brand_group: {
+                "start": window_start.isoformat(),
+                "end": window_end.isoformat(),
+                "deleted": deleted_counts[brand_group],
+                "imported": counts[brand_group],
+            }
+            for brand_group, (window_start, window_end) in windows.items()
+        }
         return {
             "imported": len(rows),
             "unique_orders": unique_orders,
             "counts": counts,
+            "deleted_counts": deleted_counts,
+            "windows": serialized_windows,
             "source_files": source_files,
             "status_counts": dict(statuses),
-            "message": f"得物订单全量覆盖完成，共导入 {len(rows)} 行、{unique_orders} 个订单",
+            "message": f"得物订单滚动窗口替换完成，共导入 {len(rows)} 行、{unique_orders} 个订单",
         }

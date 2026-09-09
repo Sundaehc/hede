@@ -5,7 +5,7 @@ from collections.abc import Iterator
 from decimal import Decimal, InvalidOperation
 from xml.etree import ElementTree as ET
 from zipfile import BadZipFile, ZipFile
-from datetime import date, datetime
+from datetime import date, datetime, time, timedelta
 from pathlib import Path
 
 import orjson
@@ -13,7 +13,7 @@ import xlrd
 from openpyxl import load_workbook
 from openpyxl.utils.escape import unescape as unescape_xlsx_text
 from openpyxl.utils.exceptions import InvalidFileException
-from sqlalchemy import create_engine, func as sa_func, text
+from sqlalchemy import create_engine, delete, func as sa_func, text
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from domain.vip_schema import VIP_DAILY_TABLE, VIP_DAILY_SNAPSHOT_TABLE, VIP_OPS_TABLE, VIP_OPS_SNAPSHOT_TABLE, JST_PRICE_TABLE, VIP_REALTIME_TABLE, JST_MONTHLY_ORDERS_TABLE, JST_SIZE_STOCK_TABLE, JST_STOCK_SUMMARY_TABLE, JST_PURCHASE_DIFF_TABLE, JST_PRODUCT_PROFILE_TABLE, JST_AFTERSALE_RETURN_TABLE
@@ -592,14 +592,47 @@ class VipRepository:
         if not rows:
             return {"imported": 0, "message": "无数据行"}
 
+        valid_order_times = [
+            value
+            for row in rows
+            if isinstance((value := row.get("order_time_at")), datetime)
+        ]
+        if not valid_order_times:
+            raise ValueError("聚水潭近3月订单文件没有有效的订单时间，已取消滚动窗口替换")
+
+        first_order_date = min(valid_order_times).date()
+        last_order_date = max(valid_order_times).date()
+        window_start = datetime.combine(first_order_date, time.min)
+        window_end_exclusive = datetime.combine(last_order_date + timedelta(days=1), time.min)
+
         with self.engine.begin() as conn:
-            # This table is a current full snapshot; reset the identity with the replacement.
-            conn.execute(text(f"TRUNCATE TABLE {JST_MONTHLY_ORDERS_TABLE.name} RESTART IDENTITY"))
+            deleted_result = conn.execute(
+                delete(JST_MONTHLY_ORDERS_TABLE)
+                .where(JST_MONTHLY_ORDERS_TABLE.c.order_time_at >= window_start)
+                .where(JST_MONTHLY_ORDERS_TABLE.c.order_time_at < window_end_exclusive)
+            )
+            undated_result = conn.execute(
+                delete(JST_MONTHLY_ORDERS_TABLE)
+                .where(JST_MONTHLY_ORDERS_TABLE.c.order_time_at.is_(None))
+                .where(JST_MONTHLY_ORDERS_TABLE.c.source_workbook == file_path.stem)
+            )
             self._batch_insert(JST_MONTHLY_ORDERS_TABLE, rows, conn=conn)
+
+        deleted = sum(
+            count
+            for count in (deleted_result.rowcount, undated_result.rowcount)
+            if isinstance(count, int) and count > 0
+        )
 
         return {
             "imported": len(rows),
-            "message": f"{file_path.name}: {len(rows)} 条",
+            "deleted": deleted,
+            "window_start": first_order_date.isoformat(),
+            "window_end": last_order_date.isoformat(),
+            "message": (
+                f"{file_path.name}: 滚动窗口 {first_order_date.isoformat()} 至 "
+                f"{last_order_date.isoformat()}，替换 {deleted} 条，导入 {len(rows)} 条"
+            ),
         }
 
     # ── jst_size_stock (尺码库存) ──────────────────────────────────

@@ -1,4 +1,4 @@
-"""Import the current monthly JST order export with retry-aware status."""
+"""Replace the JST order rolling window with retry-aware status."""
 
 import argparse
 import traceback
@@ -14,7 +14,7 @@ TASK_NAME = "import_monthly_order_daily"
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="导入当日月聚水潭订单")
+    parser = argparse.ArgumentParser(description="滚动窗口替换聚水潭近3月订单")
     parser.add_argument("--business-date", type=date.fromisoformat, default=date.today())
     parser.add_argument("--force", action="store_true", help="当天已经成功时仍重新导入")
     args = parser.parse_args()
