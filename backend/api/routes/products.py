@@ -307,7 +307,11 @@ def create_product(request: Request, body: ProductWriteRequest):
     _validate_size_group(request, record.get("size_range"))
     if is_excluded_sku(record.get("sku"), record.get("original_sku")):
         raise HTTPException(status_code=400, detail="该货号已在永久排除清单中")
-    item = request.app.state.repository.create_product(body.brand, record)
+    item = request.app.state.repository.create_product(
+        body.brand,
+        record,
+        manual_cost_override=True,
+    )
     clear_fine_table_cache()
     clear_product_goods_cache()
     label = product_entity_label(item)
@@ -349,7 +353,12 @@ def update_product(request: Request, brand: ProductArchiveBrandKey, product_id: 
     record["extra_fields"] = filter_extra_fields(existing.get("extra_fields"))
     if is_excluded_sku(record.get("sku"), record.get("original_sku")):
         raise HTTPException(status_code=400, detail="该货号已在永久排除清单中")
-    item = request.app.state.repository.update_product(brand, product_id, record)
+    item = request.app.state.repository.update_product(
+        brand,
+        product_id,
+        record,
+        manual_cost_override=True,
+    )
     if item is None:
         # Re-check after the pre-read in case the row was deleted concurrently.
         raise HTTPException(status_code=404, detail="Product not found")

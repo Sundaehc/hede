@@ -256,6 +256,72 @@ def test_get_product_returns_row_or_none(repository: ProductRepository):
     assert repository.get_product("yandou", created["id"] + 1) is None
 
 
+def test_product_reads_keep_saved_cost_instead_of_overwriting_with_price_source(
+    repository: ProductRepository,
+):
+    product = repository.create_product(
+        "smiley",
+        build_admin_record(
+            "smiley",
+            {"sku": "COST-SAVED-001", "original_sku": "COST-SAVED-001", "cost": "146.59"},
+        ),
+    )
+    with repository.engine.begin() as connection:
+        connection.execute(
+            JST_PRICE_TABLE.insert(),
+            {
+                "source_date": "2026-09-11",
+                "source_date_value": date(2026, 9, 11),
+                "source_workbook": "男女鞋合并物价信息",
+                "source_sheet": "Sheet1",
+                "source_row_number": "1",
+                "goods_code": "COST-SAVED-001",
+                "preset_price": Decimal("199.99"),
+            },
+        )
+
+    assert repository.get_product("smiley", product["id"])["cost"] == Decimal("146.59")
+    assert repository.list_products("smiley", query=None, page=1, page_size=10)["items"][0]["cost"] == Decimal("146.59")
+    assert repository.get_products_by_ids("smiley", [product["id"]])[0]["cost"] == Decimal("146.59")
+
+
+def test_manual_cost_edit_is_preserved_by_the_daily_price_sync(repository: ProductRepository):
+    product = repository.create_product(
+        "smiley",
+        build_admin_record(
+            "smiley",
+            {"sku": "COST-MANUAL-001", "original_sku": "COST-MANUAL-001", "cost": "146.59"},
+        ),
+    )
+    repository.update_product(
+        "smiley",
+        product["id"],
+        build_admin_record(
+            "smiley",
+            {"sku": "COST-MANUAL-001", "original_sku": "COST-MANUAL-001", "cost": "155.88"},
+        ),
+        manual_cost_override=True,
+    )
+    with repository.engine.begin() as connection:
+        connection.execute(
+            JST_PRICE_TABLE.insert(),
+            {
+                "source_date": "2026-09-11",
+                "source_date_value": date(2026, 9, 11),
+                "source_workbook": "男女鞋合并物价信息",
+                "source_sheet": "Sheet1",
+                "source_row_number": "1",
+                "goods_code": "COST-MANUAL-001",
+                "preset_price": Decimal("199.99"),
+            },
+        )
+
+    repository.sync_costs_from_latest_combined_footwear_price()
+    saved = repository.get_product("smiley", product["id"])
+    assert saved["cost"] == Decimal("155.88")
+    assert saved["cost_manual_override"] is True
+
+
 def test_sync_costs_uses_latest_combined_footwear_preset_price(repository: ProductRepository):
     product = repository.create_product(
         "cbanner_mens",

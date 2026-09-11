@@ -46,6 +46,10 @@ class Database:
         with engine.begin() as connection:
             for table in PRODUCT_ARCHIVE_TABLES.values():
                 connection.execute(text(f"ALTER TABLE {table.name} ADD COLUMN IF NOT EXISTS product_level TEXT"))
+                connection.execute(text(
+                    f"ALTER TABLE {table.name} ADD COLUMN IF NOT EXISTS "
+                    "cost_manual_override BOOLEAN NOT NULL DEFAULT FALSE"
+                ))
 
     def replace_brand_rows(self, brand_group: str, rows: Iterable[dict[str, object]]) -> int:
         table = PRODUCT_ARCHIVE_TABLES[brand_group]
@@ -202,6 +206,11 @@ class Database:
                     func.nullif(func.btrim(table.c.supplier_name), ""),
                     getattr(excluded, "supplier_name"),
                 )
+                # An incomplete daily source must not erase an existing value.
+                set_values["heel_height"] = func.coalesce(
+                    func.nullif(func.btrim(getattr(excluded, "heel_height")), ""),
+                    table.c.heel_height,
+                )
                 set_values["category"] = func.coalesce(
                     func.nullif(func.btrim(table.c.category), ""),
                     getattr(excluded, "category"),
@@ -211,6 +220,7 @@ class Database:
                 # value, so an archive sync must not overwrite the persisted
                 # canonical cost before the price reconciliation runs.
                 set_values["cost"] = table.c.cost
+                set_values["cost_manual_override"] = table.c.cost_manual_override
                 set_values["updated_at"] = func.date_trunc("minute", func.now())
                 stmt = stmt.on_conflict_do_update(
                     index_elements=["sku"],

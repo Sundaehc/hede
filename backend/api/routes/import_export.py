@@ -1027,7 +1027,12 @@ def _export_products_with_sizes(
         lookup_codes = set(profile_style_codes)
         lookup_codes.update(selected_codes)
         loaded_archive_rows = _load_product_archive_rows(repository, connection, brand, lookup_codes)
-        apply_jst_product_costs(repository.engine, list(loaded_archive_rows.values()))
+        missing_cost_items = [
+            item for item in loaded_archive_rows.values()
+            if item.get("cost") in (None, "")
+        ]
+        if missing_cost_items:
+            apply_jst_product_costs(repository.engine, missing_cost_items)
         archive_rows = dict(loaded_archive_rows)
         gj_rows = _load_gj_rows(connection, lookup_codes)
 
@@ -1181,7 +1186,9 @@ def export_products(
                     .order_by(desc(table.c.id))
                 ).mappings()
             ]
-        apply_jst_product_costs(repository.engine, items)
+        missing_cost_items = [item for item in items if item.get("cost") in (None, "")]
+        if missing_cost_items:
+            apply_jst_product_costs(repository.engine, missing_cost_items)
     elif ids:
         id_list = [int(i.strip()) for i in ids.split(",") if i.strip()]
         items = repository.get_products_by_ids(brand, id_list)

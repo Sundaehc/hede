@@ -41,6 +41,24 @@ def test_load_settings_reads_frontend_origin_from_env(monkeypatch, tmp_path: Pat
     settings = load_settings(require_database=False)
 
     assert settings.frontend_origin == "https://admin.example.com"
+    assert settings.frontend_origins == ("https://admin.example.com",)
+
+
+def test_load_settings_supports_multiple_frontend_origins(monkeypatch, tmp_path: Path):
+    monkeypatch.setattr(config_module, "BACKEND_ROOT", tmp_path)
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    monkeypatch.setenv(
+        "FRONTEND_ORIGIN",
+        "https://platform.example.com, http://192.168.10.80:3001/",
+    )
+    _set_required_path_env(monkeypatch, tmp_path)
+
+    settings = load_settings(require_database=False)
+
+    assert settings.frontend_origins == (
+        "https://platform.example.com",
+        "http://192.168.10.80:3001",
+    )
 
 
 def test_load_settings_reads_excel_root_from_env(monkeypatch, tmp_path: Path):

@@ -920,6 +920,9 @@ class VipRepository:
                 continue
             record["original_goods_code"] = original_code
             record["returned_qty"] = returned_qty
+            record["application_date_value"] = self._parse_excel_date(
+                raw.get("\u7533\u8bf7\u65e5\u671f") or raw.get("\u767b\u8bb0\u65f6\u95f4")
+            )
             record["order_date_value"] = self._parse_excel_date(original_values.get("order_date") or record.get("order_date"))
             record["order_time_value"] = self._parse_excel_date(original_values.get("order_time") or record.get("order_time"))
             record["raw_payload"] = raw
@@ -927,19 +930,69 @@ class VipRepository:
 
         wb.close()
 
+        if not rows:
+            return {
+                "imported": 0,
+                "read_rows": read_rows,
+                "skipped_rows": skipped_rows,
+                "source_file": str(file_path),
+                "message": f"{file_path.name}: no valid rows",
+            }
+
+        business_dates = [
+            value
+            for row in rows
+            if isinstance(
+                (
+                    value := row.get("application_date_value")
+                    or row.get("order_date_value")
+                    or row.get("order_time_value")
+                ),
+                date,
+            )
+        ]
+        if not business_dates:
+            raise ValueError(
+                "The aftersale source has no valid order dates; rolling-window replacement was cancelled"
+            )
+
+        window_start = min(business_dates)
+        window_end = max(business_dates)
+        business_date_column = sa_func.coalesce(
+            JST_AFTERSALE_RETURN_TABLE.c.application_date_value,
+            JST_AFTERSALE_RETURN_TABLE.c.order_date_value,
+            JST_AFTERSALE_RETURN_TABLE.c.order_time_value,
+        )
+
         with self.engine.begin() as conn:
             JST_AFTERSALE_RETURN_TABLE.create(conn, checkfirst=True)
             self._ensure_aftersale_return_schema(conn)
-            # This table is a current full snapshot; reset the identity with the replacement.
-            conn.execute(text(f"TRUNCATE TABLE {JST_AFTERSALE_RETURN_TABLE.name} RESTART IDENTITY"))
-            if rows:
-                self._batch_insert(JST_AFTERSALE_RETURN_TABLE, rows, conn=conn)
+            dated_result = conn.execute(
+                delete(JST_AFTERSALE_RETURN_TABLE)
+                .where(business_date_column >= window_start)
+                .where(business_date_column <= window_end)
+            )
+            undated_result = conn.execute(
+                delete(JST_AFTERSALE_RETURN_TABLE)
+                .where(business_date_column.is_(None))
+                .where(JST_AFTERSALE_RETURN_TABLE.c.source_workbook == file_path.stem)
+            )
+            self._batch_insert(JST_AFTERSALE_RETURN_TABLE, rows, conn=conn)
+
+        deleted = sum(
+            count
+            for count in (dated_result.rowcount, undated_result.rowcount)
+            if isinstance(count, int) and count > 0
+        )
 
         return {
             "imported": len(rows),
+            "deleted": deleted,
             "read_rows": read_rows,
             "skipped_rows": skipped_rows,
             "source_file": str(file_path),
+            "window_start": window_start.isoformat(),
+            "window_end": window_end.isoformat(),
             "message": f"{file_path.name}: {len(rows)} 条 (读取 {read_rows} 行, 跳过 {skipped_rows} 行)",
         }
 
@@ -952,7 +1005,10 @@ class VipRepository:
         conn.execute(text("ALTER TABLE jst_aftersale_returns ADD COLUMN IF NOT EXISTS shop_name TEXT"))
         conn.execute(text("ALTER TABLE jst_aftersale_returns ADD COLUMN IF NOT EXISTS online_order_id TEXT"))
         conn.execute(text("ALTER TABLE jst_aftersale_returns ADD COLUMN IF NOT EXISTS order_time_value DATE"))
+        conn.execute(text("ALTER TABLE jst_aftersale_returns ADD COLUMN IF NOT EXISTS application_date_value DATE"))
         conn.execute(text("CREATE INDEX IF NOT EXISTS idx_jst_aftersale_returns_order_time ON jst_aftersale_returns (order_time_value)"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS idx_jst_aftersale_returns_application_date ON jst_aftersale_returns (application_date_value)"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS idx_jst_aftersale_returns_business_date ON jst_aftersale_returns (COALESCE(application_date_value, order_date_value, order_time_value))"))
 
     def _ensure_price_history_schema(self) -> None:
         JST_PRICE_TABLE.create(self.engine, checkfirst=True)

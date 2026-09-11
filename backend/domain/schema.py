@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from sqlalchemy import JSON, BigInteger, Column, DateTime, Identity, Index, MetaData, Numeric, Table, Text, UniqueConstraint, func
+from sqlalchemy import JSON, BigInteger, Boolean, Column, DateTime, Identity, Index, MetaData, Numeric, Table, Text, UniqueConstraint, false, func
 
 from domain.fields import FieldSpec, PRODUCT_FIELDS
 from domain.sources import TABLE_NAMES
@@ -26,6 +26,9 @@ def build_product_archive_table(table_name: str, *, metadata: MetaData = METADAT
         Column("raw_payload", JSON, nullable=False),
     ]
     columns.extend(Column(field.name, _column_type(field)) for field in PRODUCT_FIELDS)
+    # Distinguish a manually maintained archive cost from a value refreshed
+    # from the latest combined-footwear price source.
+    columns.append(Column("cost_manual_override", Boolean, nullable=False, server_default=false()))
     columns.append(Column("extra_fields", JSON, nullable=True))
     columns.append(Column("created_at", DateTime(timezone=True), server_default=func.date_trunc('minute', func.now())))
     columns.append(Column("updated_at", DateTime(timezone=True), server_default=func.date_trunc('minute', func.now()), onupdate=func.date_trunc('minute', func.now())))

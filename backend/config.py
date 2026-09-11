@@ -96,6 +96,16 @@ class Settings:
     ucloud_us3_sync_workers: int = 4
 
     @property
+    def frontend_origins(self) -> tuple[str, ...]:
+        """Return all configured browser origins while preserving the legacy env name."""
+        origins = tuple(
+            origin.strip().rstrip("/")
+            for origin in self.frontend_origin.split(",")
+            if origin.strip()
+        )
+        return origins or (DEFAULT_FRONTEND_ORIGIN,)
+
+    @property
     def image_roots(self) -> dict[str, Path]:
         roots = {
             "cbanner": self.cbanner_image_root,

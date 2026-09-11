@@ -1,10 +1,14 @@
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 
+import pytest
 from openpyxl import Workbook
 
-from domain.vip_schema import VIP_DAILY_TABLE
-from domain.vip_sources import JST_MONTHLY_ORDERS_COLUMN_ALIASES
+from domain.vip_schema import JST_AFTERSALE_RETURN_TABLE, VIP_DAILY_TABLE
+from domain.vip_sources import (
+    JST_AFTERSALE_RETURN_COLUMN_ALIASES,
+    JST_MONTHLY_ORDERS_COLUMN_ALIASES,
+)
 from storage.vip_repository import VipRepository
 
 
@@ -99,3 +103,96 @@ def test_monthly_order_import_replaces_only_source_date_window(tmp_path: Path):
     assert result["window_start"] == "2026-06-08"
     assert result["window_end"] == "2026-09-07"
     assert result["deleted"] == 4
+
+
+def _aftersale_header(field: str) -> str:
+    return next(
+        header
+        for header, mapped_field in JST_AFTERSALE_RETURN_COLUMN_ALIASES.items()
+        if mapped_field == field
+    )
+
+
+def test_aftersale_import_replaces_only_source_date_window(monkeypatch, tmp_path: Path):
+    source_file = tmp_path / "aftersale.xlsx"
+    workbook = Workbook()
+    worksheet = workbook.active
+    worksheet.append(
+        [
+            _aftersale_header("original_goods_code"),
+            _aftersale_header("returned_qty"),
+            _aftersale_header("order_date"),
+        ]
+    )
+    worksheet.append(["SKU-1", 1, "2026-04-15"])
+    worksheet.append(["SKU-2", 2, "2026-09-09"])
+    workbook.save(source_file)
+
+    repository = VipRepository("sqlite://")
+    engine = _Engine()
+    repository.engine = engine
+    monkeypatch.setattr(JST_AFTERSALE_RETURN_TABLE, "create", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(repository, "_ensure_aftersale_return_schema", lambda _conn: None)
+
+    result = repository.import_aftersale_returns(source_file)
+
+    delete_statements = [
+        statement
+        for statement, _ in engine.connection.statements
+        if getattr(statement, "is_delete", False)
+    ]
+    assert len(delete_statements) == 2
+    dated_parameters = list(delete_statements[0].compile().params.values())
+    assert date(2026, 4, 15) in dated_parameters
+    assert date(2026, 9, 9) in dated_parameters
+    assert result["window_start"] == "2026-04-15"
+    assert result["window_end"] == "2026-09-09"
+    assert result["deleted"] == 4
+
+
+def test_aftersale_import_prefers_application_date_for_window(monkeypatch, tmp_path: Path):
+    source_file = tmp_path / "aftersale-application-window.xlsx"
+    workbook = Workbook()
+    worksheet = workbook.active
+    worksheet.append(
+        [
+            _aftersale_header("original_goods_code"),
+            _aftersale_header("returned_qty"),
+            _aftersale_header("order_date"),
+            "\u7533\u8bf7\u65e5\u671f",
+        ]
+    )
+    worksheet.append(["SKU-1", 1, "2025-01-01", "2026-09-08 10:00:00"])
+    worksheet.append(["SKU-2", 1, "2025-01-02", "2026-09-09 10:00:00"])
+    workbook.save(source_file)
+
+    repository = VipRepository("sqlite://")
+    engine = _Engine()
+    repository.engine = engine
+    monkeypatch.setattr(JST_AFTERSALE_RETURN_TABLE, "create", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(repository, "_ensure_aftersale_return_schema", lambda _conn: None)
+
+    result = repository.import_aftersale_returns(source_file)
+
+    assert result["window_start"] == "2026-09-08"
+    assert result["window_end"] == "2026-09-09"
+
+
+def test_aftersale_import_rejects_rows_without_valid_business_dates(tmp_path: Path):
+    source_file = tmp_path / "aftersale-invalid-date.xlsx"
+    workbook = Workbook()
+    worksheet = workbook.active
+    worksheet.append(
+        [
+            _aftersale_header("original_goods_code"),
+            _aftersale_header("returned_qty"),
+            _aftersale_header("order_date"),
+        ]
+    )
+    worksheet.append(["SKU-1", 1, "not-a-date"])
+    workbook.save(source_file)
+
+    repository = VipRepository("sqlite://")
+
+    with pytest.raises(ValueError, match="no valid order dates"):
+        repository.import_aftersale_returns(source_file)

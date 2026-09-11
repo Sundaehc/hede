@@ -570,6 +570,7 @@ FIELD_DESCRIPTIONS = {
     "v_jst_aftersale_returns_normalized": {
         "original_goods_code": "售后原始商品编码",
         "returned_qty": "退货退款数量",
+        "application_date_value": "规范售后申请日期，滚动更新和业务日期优先使用",
         "order_date": "订单日期原始文本",
         "order_date_value": "规范订单日期",
         "order_time": "订单时间原始文本",

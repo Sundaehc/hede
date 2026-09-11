@@ -243,6 +243,9 @@ def build_jst_monthly_orders_table() -> Table:
     columns.extend(Column(field.name, _col_type(field)) for field in JST_MONTHLY_ORDER_FIELDS)
     columns.append(Column("order_time_at", DateTime(timezone=False), nullable=True))
     columns.append(Column("ship_date_value", Date, nullable=True))
+    # Stable source-row fingerprint used by the historical archive importer.
+    # It is nullable so the existing daily rolling-window importer remains compatible.
+    columns.append(Column("record_key", Text, nullable=True))
     columns.append(Column("extra_fields", JSON, nullable=True))
     columns.append(Column("created_at", DateTime(timezone=True), server_default=func.date_trunc('minute', func.now())))
     columns.append(Column("updated_at", DateTime(timezone=True), server_default=func.date_trunc('minute', func.now()), onupdate=func.date_trunc('minute', func.now())))
@@ -372,6 +375,7 @@ def build_jst_aftersale_return_table() -> Table:
         Column("raw_payload", JSON, nullable=False, default=dict),
     ]
     columns.extend(Column(field.name, _col_type(field)) for field in JST_AFTERSALE_RETURN_FIELDS)
+    columns.append(Column("application_date_value", Date, nullable=True))
     columns.append(Column("order_date_value", Date, nullable=True))
     columns.append(Column("order_time_value", Date, nullable=True))
     columns.append(Column("extra_fields", JSON, nullable=True))

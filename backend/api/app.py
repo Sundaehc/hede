@@ -152,7 +152,9 @@ def create_app(*, settings, repository=None, image_matchers=None, inventory_repo
     app.middleware("http")(auth_middleware)
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=[settings.frontend_origin],
+        allow_origins=list(
+            getattr(settings, "frontend_origins", (settings.frontend_origin,))
+        ),
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],

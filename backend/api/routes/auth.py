@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from typing import Literal
+from urllib.parse import urlsplit
 
 from fastapi import APIRouter, HTTPException, Query, Request, Response
 from pydantic import BaseModel, ConfigDict
@@ -93,6 +94,19 @@ def get_current_user_from_request(request: Request) -> dict[str, object] | None:
     return repository.get_user_by_session(request.cookies.get(SESSION_COOKIE_NAME))
 
 
+def session_cookie_is_secure(request: Request) -> bool:
+    """Use Secure cookies at the public HTTPS proxy while retaining LAN HTTP access."""
+    forwarded_proto = request.headers.get("x-forwarded-proto", "")
+    if forwarded_proto:
+        return forwarded_proto.split(",", 1)[0].strip().lower() == "https"
+
+    origin = request.headers.get("origin", "").strip()
+    if origin:
+        return urlsplit(origin).scheme.lower() == "https"
+
+    return request.url.scheme.lower() == "https"
+
+
 def require_permission(request: Request, permission: str) -> dict[str, object]:
     user = get_current_user_from_request(request)
     if user is None:
@@ -121,7 +135,7 @@ def login(request: Request, response: Response, body: LoginRequest):
         httponly=True,
         max_age=SESSION_MAX_AGE_SECONDS,
         samesite="lax",
-        secure=False,
+        secure=session_cookie_is_secure(request),
         path="/",
     )
     return {"user": sanitize_user(user), "message": "登录成功"}
@@ -147,7 +161,7 @@ def register(request: Request, response: Response, body: RegisterRequest):
         httponly=True,
         max_age=SESSION_MAX_AGE_SECONDS,
         samesite="lax",
-        secure=False,
+        secure=session_cookie_is_secure(request),
         path="/",
     )
     request.state.current_user = user
@@ -170,7 +184,13 @@ def register(request: Request, response: Response, body: RegisterRequest):
 def logout(request: Request, response: Response):
     repository = request.app.state.auth_repository
     repository.revoke_session(request.cookies.get(SESSION_COOKIE_NAME))
-    response.delete_cookie(SESSION_COOKIE_NAME, path="/")
+    response.delete_cookie(
+        SESSION_COOKIE_NAME,
+        path="/",
+        secure=session_cookie_is_secure(request),
+        httponly=True,
+        samesite="lax",
+    )
     return {"message": "已退出登录"}
 
 

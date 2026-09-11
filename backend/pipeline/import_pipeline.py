@@ -120,6 +120,18 @@ def _merge_extra_fields(*values: object) -> dict[str, object] | None:
     return filter_extra_fields(merged)
 
 
+def _merge_archive_row(
+    current: dict[str, object],
+    incoming: dict[str, object],
+) -> dict[str, object]:
+    """Merge duplicate source rows without allowing blank values to win."""
+    merged = dict(current)
+    for field, value in incoming.items():
+        if value not in (None, ""):
+            merged[field] = value
+    return merged
+
+
 def _gj_row_to_product_row(
     row: dict[str, object],
     *,
@@ -236,7 +248,13 @@ class ImportPipeline:
                     if spec.brand_group in GJ_PRODUCT_BRANDS:
                         archive_key = _archive_group_key(spec.brand_group)
                         for code in _codes_for_archive_match(canonical):
-                            archive_by_group_and_code.setdefault(archive_key, {})[code] = canonical
+                            archive_map = archive_by_group_and_code.setdefault(archive_key, {})
+                            existing = archive_map.get(code)
+                            archive_map[code] = (
+                                canonical
+                                if existing is None
+                                else _merge_archive_row(existing, canonical)
+                            )
                     else:
                         rows_by_brand[spec.brand_group].append(canonical)
 

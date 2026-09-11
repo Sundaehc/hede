@@ -281,6 +281,10 @@ class ProductRepository:
         with self.engine.begin() as connection:
             table.create(connection, checkfirst=True)
             connection.execute(text(f"ALTER TABLE {table.name} ADD COLUMN IF NOT EXISTS category TEXT"))
+            connection.execute(text(
+                f"ALTER TABLE {table.name} ADD COLUMN IF NOT EXISTS "
+                "cost_manual_override BOOLEAN NOT NULL DEFAULT FALSE"
+            ))
             for column_name in PRODUCT_STYLE_DETAIL_COLUMNS:
                 connection.execute(text(
                     f"ALTER TABLE {table.name} ADD COLUMN IF NOT EXISTS {column_name} TEXT"
@@ -310,6 +314,10 @@ class ProductRepository:
                 table.create(connection, checkfirst=True)
                 connection.execute(text(
                     f"ALTER TABLE {table.name} ADD COLUMN IF NOT EXISTS category TEXT"
+                ))
+                connection.execute(text(
+                    f"ALTER TABLE {table.name} ADD COLUMN IF NOT EXISTS "
+                    "cost_manual_override BOOLEAN NOT NULL DEFAULT FALSE"
                 ))
                 for column_name in PRODUCT_STYLE_DETAIL_COLUMNS:
                     connection.execute(text(
@@ -346,7 +354,13 @@ class ProductRepository:
                 rows = [
                     dict(row)
                     for row in connection.execute(
-                        select(table.c.id, table.c.sku, table.c.original_sku, table.c.cost)
+                        select(
+                            table.c.id,
+                            table.c.sku,
+                            table.c.original_sku,
+                            table.c.cost,
+                            table.c.cost_manual_override,
+                        )
                     ).mappings()
                 ]
                 rows_by_brand[brand] = rows
@@ -370,6 +384,8 @@ class ProductRepository:
                     if cost is None:
                         continue
                     matched += 1
+                    if row.get("cost_manual_override"):
+                        continue
                     if not _same_cost(row.get("cost"), cost):
                         updates.append({"product_id": row["id"], "new_cost": cost})
 
@@ -715,7 +731,6 @@ class ProductRepository:
             total = connection.execute(count_statement).scalar_one()
             items = [dict(row) for row in connection.execute(items_statement).mappings()]
 
-        self._apply_costs_for_brand(brand, items, self.engine)
         return {
             "items": items,
             "total": total,
@@ -759,8 +774,6 @@ class ProductRepository:
             total = connection.execute(count_statement).scalar_one()
             items = [dict(row) for row in connection.execute(items_statement).mappings()]
 
-        for item in items:
-            self._apply_costs_for_brand(str(item.get("brand") or ""), [item], self.engine)
         return {
             "items": items,
             "total": total,
@@ -781,7 +794,6 @@ class ProductRepository:
         if row is None:
             return None
         item = dict(row)
-        apply_jst_product_costs(self.engine, [item])
         return item
 
     def get_products_by_ids(self, brand: str, ids: list[int]) -> list[dict[str, object]]:
@@ -797,7 +809,7 @@ class ProductRepository:
         )
         with self.engine.connect() as connection:
             items = [dict(row) for row in connection.execute(statement).mappings()]
-        return apply_jst_product_costs(self.engine, items)
+        return items
 
     def mark_products_imported(self, brand: str, product_ids: list[int], *, connection=None) -> None:
         ids = sorted({int(product_id) for product_id in product_ids})
@@ -884,16 +896,26 @@ class ProductRepository:
 
         return dict(row)
 
-    def create_product(self, brand: str, record: Mapping[str, object], *, connection=None) -> dict[str, object]:
+    def create_product(
+        self,
+        brand: str,
+        record: Mapping[str, object],
+        *,
+        connection=None,
+        manual_cost_override: bool = False,
+    ) -> dict[str, object]:
         table = self._table_for_brand(brand)
-        statement = insert(table).values(**self._prepare_record(record, brand=brand)).returning(table)
+        payload = self._prepare_record(record, brand=brand)
+        payload["cost_manual_override"] = bool(
+            manual_cost_override and payload.get("cost") not in (None, "")
+        )
+        statement = insert(table).values(**payload).returning(table)
         if connection is not None:
             row = connection.execute(statement).mappings().one()
             return dict(row)
         with self.engine.begin() as active_connection:
             row = active_connection.execute(statement).mappings().one()
         item = dict(row)
-        self._apply_costs_for_brand(brand, [item], self.engine)
         return item
 
     def update_product(
@@ -904,10 +926,29 @@ class ProductRepository:
         *,
         connection=None,
         restore_deleted: bool = False,
+        manual_cost_override: bool = False,
     ) -> dict[str, object] | None:
         table = self._table_for_brand(brand)
         payload = self._prepare_record(record, brand=brand)
         payload.pop("id", None)
+        if manual_cost_override and "cost" in record:
+            existing_cost = None
+            existing_manual_override = False
+            lookup = select(table.c.cost, table.c.cost_manual_override).where(table.c.id == product_id)
+            if connection is not None:
+                existing_row = connection.execute(lookup).mappings().first()
+            else:
+                with self.engine.connect() as lookup_connection:
+                    existing_row = lookup_connection.execute(lookup).mappings().first()
+            if existing_row is not None:
+                existing_cost = existing_row.get("cost")
+                existing_manual_override = bool(existing_row.get("cost_manual_override"))
+            new_cost = payload.get("cost")
+            payload["cost_manual_override"] = (
+                False
+                if new_cost in (None, "")
+                else existing_manual_override or not _same_cost(existing_cost, new_cost)
+            )
         if restore_deleted:
             payload["deleted_at"] = None
         statement = update(table).where(table.c.id == product_id)
@@ -922,7 +963,6 @@ class ProductRepository:
         if row is None:
             return None
         item = dict(row)
-        apply_jst_product_costs(self.engine, [item])
         return item
 
     def delete_product(self, brand: str, product_id: int) -> bool:

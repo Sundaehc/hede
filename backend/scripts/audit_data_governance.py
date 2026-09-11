@@ -50,6 +50,16 @@ def _create_normalized_views(engine) -> None:
                     f"FROM public.{_quote(table_name)} AS source"
                 )
             )
+        connection.execute(text("DROP VIEW IF EXISTS public.v_jst_aftersale_returns_normalized"))
+        connection.execute(
+            text(
+                "CREATE VIEW public.v_jst_aftersale_returns_normalized AS "
+                "SELECT source.*, "
+                "COALESCE(source.application_date_value, source.order_date_value, "
+                "source.order_time_value) AS business_date "
+                "FROM public.jst_aftersale_returns AS source"
+            )
+        )
 
 
 def _record_issues(engine) -> dict[str, int]:
