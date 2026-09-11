@@ -393,6 +393,7 @@ class ProductRepository:
                     connection.execute(
                         update(PRODUCT_ARCHIVE_TABLES[brand])
                         .where(PRODUCT_ARCHIVE_TABLES[brand].c.id == bindparam("product_id"))
+                        .where(PRODUCT_ARCHIVE_TABLES[brand].c.cost_manual_override.is_(False))
                         .values(cost=bindparam("new_cost")),
                         updates,
                     )

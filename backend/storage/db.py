@@ -219,6 +219,8 @@ class Database:
                 # price. The daily product archive source may contain an older
                 # value, so an archive sync must not overwrite the persisted
                 # canonical cost before the price reconciliation runs.
+                # Cost reconciliation is handled separately. Keep the
+                # persisted archive value during product-source upserts.
                 set_values["cost"] = table.c.cost
                 set_values["cost_manual_override"] = table.c.cost_manual_override
                 set_values["updated_at"] = func.date_trunc("minute", func.now())
