@@ -18,9 +18,6 @@ PARTITION_PARENTS = (
     "vip_daily_sales",
     "product_goods_historical_sales",
     "product_goods_historical_orders",
-    "jst_monthly_orders",
-    "jst_aftersale_returns",
-    "dewu_orders",
 )
 
 
