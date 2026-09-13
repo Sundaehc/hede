@@ -46,7 +46,7 @@ def _wait_for_stable_source(
             modified_at = datetime.fromtimestamp(stat.st_mtime).astimezone()
             age_seconds = max(0.0, time.time() - stat.st_mtime)
             unchanged_seconds = max(0.0, now_monotonic - unchanged_since)
-            is_fresh = modified_at.date() >= business_date
+            is_fresh = modified_at.date() == business_date
             is_stable = (
                 stat.st_size > 0
                 and age_seconds >= minimum_age_seconds
@@ -61,7 +61,7 @@ def _wait_for_stable_source(
 
             if not is_fresh:
                 last_reason = (
-                    f"source file is not today's export "
+                    f"source file is not the {business_date.isoformat()} export "
                     f"(modified_at={modified_at.isoformat(timespec='seconds')})"
                 )
             else:

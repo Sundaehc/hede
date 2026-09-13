@@ -8,7 +8,8 @@ from datetime import date
 from pathlib import Path
 
 from config import load_settings
-from storage.dewu_order_repository import DewuOrderRepository
+from scripts.source_file_freshness import require_business_date_sources
+from storage.dewu_order_repository import DEWU_ORDER_SOURCES, DewuOrderRepository
 from storage.task_status_repository import ScheduledTaskStatusRepository
 
 
@@ -35,7 +36,12 @@ def main() -> int:
 
     status_repo.mark_running(TASK_NAME, args.business_date, source_path=source_root)
     try:
+        source_freshness = require_business_date_sources(
+            (source_root / source.filename for source in DEWU_ORDER_SOURCES),
+            args.business_date,
+        )
         result = DewuOrderRepository(settings.database_url).import_all(source_root)
+        result["source_freshness"] = source_freshness
         status_repo.mark_finished(
             TASK_NAME,
             args.business_date,

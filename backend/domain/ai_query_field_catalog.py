@@ -56,7 +56,7 @@ TABLE_DESCRIPTIONS = {
     "purchase_order_requirement_templates": "各品牌生产采购单的要求文本模板",
     "scheduled_task_statuses": "定时任务每个业务日期的执行状态和重试信息",
     "scheduled_task_runs": "定时任务每一次实际运行的开始、完成、耗时和失败信息",
-    "dewu_orders": "千百度、伊伴、烟斗、笑脸得物订单统一明细；每日全量覆盖",
+    "dewu_orders": "千百度、伊伴、烟斗、笑脸得物订单统一明细；按品牌和源文件日期窗口滚动更新，窗口外历史保留",
     "v_jst_aftersale_returns_normalized": "聚水潭售后退货退款标准化视图",
     "v_jst_monthly_orders_normalized": "聚水潭月订单商品明细标准化视图",
     "v_jst_product_price_normalized": "聚水潭物价资料标准化视图；不再作为库存来源",

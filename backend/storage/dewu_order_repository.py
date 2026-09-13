@@ -11,6 +11,7 @@ from openpyxl import load_workbook
 from sqlalchemy import create_engine, delete, insert
 
 from domain.dewu_order_schema import DEWU_ORDERS_TABLE
+from domain.history_partitioning import ensure_annual_partitions
 
 
 @dataclass(frozen=True)
@@ -266,6 +267,15 @@ class DewuOrderRepository:
         self.ensure_table()
         deleted_counts: dict[str, int] = {}
         with self.engine.begin() as connection:
+            ensure_annual_partitions(
+                connection,
+                "dewu_orders",
+                {
+                    order_date.year
+                    for window_start, window_end in windows.values()
+                    for order_date in (window_start, window_end)
+                },
+            )
             for source in DEWU_ORDER_SOURCES:
                 window = windows.get(source.brand_group)
                 if window is None:

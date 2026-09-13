@@ -39,7 +39,6 @@ def _create_normalized_views(engine) -> None:
         ("v_vip_product_daily_normalized", "vip_product_daily", "report_start_date", "report_start_date_value"),
         ("v_jst_monthly_orders_normalized", "jst_monthly_orders", "order_time_at", "order_time_value"),
         ("v_jst_product_price_normalized", "jst_product_price", "source_date_value", "business_date"),
-        ("v_jst_aftersale_returns_normalized", "jst_aftersale_returns", "order_date_value", "business_date"),
     )
     with engine.begin() as connection:
         for view_name, table_name, typed_column, alias in views:

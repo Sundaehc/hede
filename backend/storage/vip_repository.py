@@ -29,6 +29,7 @@ from domain.vip_sources import (
     JST_MONTHLY_ORDERS_COLUMN_ALIASES,
 )
 from storage.date_normalization import parse_date, parse_date_range, parse_datetime
+from domain.history_partitioning import ensure_annual_partitions
 
 
 def _period_from_filename(filename: str) -> str | None:
@@ -606,6 +607,11 @@ class VipRepository:
         window_end_exclusive = datetime.combine(last_order_date + timedelta(days=1), time.min)
 
         with self.engine.begin() as conn:
+            ensure_annual_partitions(
+                conn,
+                "jst_monthly_orders",
+                {value.year for value in valid_order_times},
+            )
             deleted_result = conn.execute(
                 delete(JST_MONTHLY_ORDERS_TABLE)
                 .where(JST_MONTHLY_ORDERS_TABLE.c.order_time_at >= window_start)
@@ -967,6 +973,11 @@ class VipRepository:
         with self.engine.begin() as conn:
             JST_AFTERSALE_RETURN_TABLE.create(conn, checkfirst=True)
             self._ensure_aftersale_return_schema(conn)
+            ensure_annual_partitions(
+                conn,
+                "jst_aftersale_returns",
+                {value.year for value in business_dates},
+            )
             dated_result = conn.execute(
                 delete(JST_AFTERSALE_RETURN_TABLE)
                 .where(business_date_column >= window_start)

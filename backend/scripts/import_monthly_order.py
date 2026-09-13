@@ -6,6 +6,7 @@ from datetime import date
 from pathlib import Path
 
 from config import load_settings
+from scripts.source_file_freshness import require_business_date_source
 from storage.task_status_repository import ScheduledTaskStatusRepository
 from storage.vip_repository import VipRepository
 
@@ -61,7 +62,9 @@ def main() -> int:
         return 1
 
     try:
+        source_freshness = require_business_date_source(file_path, args.business_date)
         result = repo.import_monthly_order(file_path)
+        result["source_freshness"] = source_freshness
         imported = int(result.get("imported") or 0)
         if imported <= 0:
             raise ValueError(str(result.get("message") or "月聚水潭文件无有效数据"))
