@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import argparse
 import traceback
-from datetime import date, datetime
+from datetime import date, datetime, time as day_time
 from pathlib import Path
 import time
 
@@ -17,6 +17,12 @@ from storage.vip_repository import VipRepository
 
 
 TASK_NAME = "import_aftersale_returns_daily"
+
+
+def _parse_retry_until(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    return datetime.combine(date.today(), day_time.fromisoformat(value))
 
 
 def _wait_for_stable_source(
@@ -82,47 +88,37 @@ def _wait_for_stable_source(
         time.sleep(max(1, poll_interval_seconds))
 
 
-def main() -> int:
-    parser = argparse.ArgumentParser(description="导入售后（退货退款）表")
-    parser.add_argument("--source-file", type=Path, default=None, help="售后退货退款 Excel 文件")
-    parser.add_argument("--business-date", type=date.fromisoformat, default=date.today(), help="任务业务日期")
-    parser.add_argument("--force", action="store_true", help="即使当天已有成功记录也重新导入")
-    args = parser.parse_args()
-
-    cfg = load_settings()
-    assert cfg.database_url is not None
-    source_file = args.source_file or cfg.aftersale_return_file
-    assert source_file is not None, "AFTERSALE_RETURN_FILE is required"
-
-    status_repo = ScheduledTaskStatusRepository(cfg.database_url)
-    if not args.force and status_repo.is_success(TASK_NAME, args.business_date):
-        print(f"[SKIP] {args.business_date.isoformat()} already succeeded")
-        return 0
-
-    status_repo.mark_running(TASK_NAME, args.business_date, source_path=source_file)
+def _run_once(
+    *,
+    source_file: Path,
+    business_date: date,
+    status_repo: ScheduledTaskStatusRepository,
+    repo: VipRepository,
+) -> bool:
+    """Run one import attempt and return whether another attempt is useful."""
+    status_repo.mark_running(TASK_NAME, business_date, source_path=source_file)
     try:
         if not source_file.exists():
             message = f"售后退货退款文件不存在: {source_file}"
             status_repo.mark_finished(
                 TASK_NAME,
-                args.business_date,
+                business_date,
                 status="skipped",
                 message=message,
                 result={"source_file": source_file, "reason": "missing_source_file"},
                 source_path=source_file,
             )
-            print(f"[SKIP] {message}")
-            return 1
+            print(f"[WAIT] {message}")
+            return True
 
         print(f"[WAIT] checking source file freshness and stability: {source_file}")
-        source_stability = _wait_for_stable_source(source_file, args.business_date)
+        source_stability = _wait_for_stable_source(source_file, business_date)
         print(
             "[READY] source file is stable: "
             f"modified_at={source_stability['modified_at']} "
             f"size_bytes={source_stability['size_bytes']}"
         )
 
-        repo = VipRepository(cfg.database_url)
         result = repo.import_aftersale_returns(source_file)
         result["source_stability"] = source_stability
         imported = int(result.get("imported") or 0)
@@ -130,37 +126,104 @@ def main() -> int:
             message = f"售后退货退款文件无有效数据: {source_file}"
             status_repo.mark_finished(
                 TASK_NAME,
-                args.business_date,
+                business_date,
                 status="failed",
                 message=message,
                 result=result,
                 source_path=source_file,
             )
             print(f"[FAILED] {message}")
-            return 1
+            return True
 
         status_repo.mark_finished(
             TASK_NAME,
-            args.business_date,
+            business_date,
             status="success",
             message=f"导入完成: {imported} 条",
             result=result,
             source_path=source_file,
         )
         print(f"[AFTERSALE] 导入完成, 共 {imported} 条")
-        return 0
+        return False
     except Exception as exc:  # pragma: no cover - logged for scheduled task diagnosis
         message = f"{type(exc).__name__}: {exc}"
         status_repo.mark_finished(
             TASK_NAME,
-            args.business_date,
+            business_date,
             status="failed",
             message=message,
             result={"source_file": source_file, "traceback": traceback.format_exc()},
             source_path=source_file,
         )
         print(f"[FAILED] {message}")
-        return 1
+        return True
+
+
+def _mark_retry_exhausted(
+    status_repo: ScheduledTaskStatusRepository,
+    *,
+    source_file: Path,
+    business_date: date,
+) -> None:
+    status_repo.mark_finished(
+        TASK_NAME,
+        business_date,
+        status="failed",
+        message=(
+            f"售后退货退款任务重试截止，仍未完成导入: "
+            f"{source_file}"
+        ),
+        result={"source_file": source_file, "reason": "retry_deadline_reached"},
+        source_path=source_file,
+    )
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="导入售后（退货退款）表，支持失败重试")
+    parser.add_argument("--source-file", type=Path, default=None, help="售后退货退款 Excel 文件")
+    parser.add_argument("--business-date", type=date.fromisoformat, default=date.today(), help="任务业务日期")
+    parser.add_argument("--force", action="store_true", help="即使当天已有成功记录也重新导入")
+    parser.add_argument("--retry-until", default=None, help="源文件或导入失败时重试到本地时间 HH:MM")
+    parser.add_argument("--retry-interval-seconds", type=int, default=1800, help="重试间隔秒数")
+    args = parser.parse_args()
+    if args.retry_interval_seconds < 1:
+        raise ValueError("--retry-interval-seconds must be at least 1")
+
+    cfg = load_settings()
+    assert cfg.database_url is not None
+    source_file = args.source_file or cfg.aftersale_return_file
+    assert source_file is not None, "AFTERSALE_RETURN_FILE is required"
+
+    status_repo = ScheduledTaskStatusRepository(cfg.database_url)
+    repo = VipRepository(cfg.database_url)
+    if not args.force and status_repo.is_success(TASK_NAME, args.business_date):
+        print(f"[SKIP] {args.business_date.isoformat()} already succeeded")
+        return 0
+
+    retry_until = _parse_retry_until(args.retry_until)
+    while True:
+        retryable = _run_once(
+            source_file=source_file,
+            business_date=args.business_date,
+            status_repo=status_repo,
+            repo=repo,
+        )
+        if not retryable:
+            return 0
+        if retry_until is None or datetime.now() >= retry_until:
+            _mark_retry_exhausted(
+                status_repo,
+                source_file=source_file,
+                business_date=args.business_date,
+            )
+            print("[RETRY-STOP] retry deadline reached or retry is not configured")
+            return 1
+        sleep_seconds = min(
+            max(args.retry_interval_seconds, 1),
+            max(int((retry_until - datetime.now()).total_seconds()), 1),
+        )
+        print(f"[RETRY] aftersale source/import not ready, sleep {sleep_seconds}s")
+        time.sleep(sleep_seconds)
 
 
 if __name__ == "__main__":

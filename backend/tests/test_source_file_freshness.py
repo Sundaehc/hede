@@ -5,7 +5,10 @@ from pathlib import Path
 
 import pytest
 
-from scripts.import_aftersale_returns_daily import _wait_for_stable_source
+from scripts.import_aftersale_returns_daily import (
+    _parse_retry_until,
+    _wait_for_stable_source,
+)
 from scripts.source_file_freshness import (
     require_business_date_source,
     require_business_date_sources,
@@ -72,3 +75,11 @@ def test_aftersale_stability_check_rejects_future_date(tmp_path: Path) -> None:
             confirmation_seconds=0,
             poll_interval_seconds=1,
         )
+
+
+def test_aftersale_retry_until_parses_local_time() -> None:
+    result = _parse_retry_until("16:00")
+
+    assert result is not None
+    assert result.hour == 16
+    assert result.minute == 0
