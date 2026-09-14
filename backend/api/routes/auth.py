@@ -30,15 +30,6 @@ class LoginRequest(BaseModel):
     password: str
 
 
-class RegisterRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    username: str
-    password: str
-    display_name: str
-    department_code: DepartmentCode
-
-
 class AdminUserUpdateRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -142,42 +133,8 @@ def login(request: Request, response: Response, body: LoginRequest):
 
 
 @router.post("/register")
-def register(request: Request, response: Response, body: RegisterRequest):
-    repository = request.app.state.auth_repository
-    try:
-        user = repository.create_user(body.model_dump())
-    except Exception as exc:
-        raise HTTPException(status_code=400, detail=f"注册失败：{exc}") from exc
-
-    client_host = request.client.host if request.client else None
-    token, _expires_at = repository.create_session(
-        int(user["id"]),
-        ip_address=client_host,
-        user_agent=request.headers.get("user-agent"),
-    )
-    response.set_cookie(
-        SESSION_COOKIE_NAME,
-        token,
-        httponly=True,
-        max_age=SESSION_MAX_AGE_SECONDS,
-        samesite="lax",
-        secure=session_cookie_is_secure(request),
-        path="/",
-    )
-    request.state.current_user = user
-    label = user_entity_label(user)
-    after_log = user_log_payload(user)
-    write_operation_log(
-        request,
-        module="user",
-        action="create",
-        entity_type="auth_user",
-        entity_id=user.get("id"),
-        entity_label=label,
-        summary=f"注册用户 {label}" if label else "注册用户",
-        after_data=after_log,
-    )
-    return {"user": sanitize_user(user), "message": "注册成功"}
+def register():
+    raise HTTPException(status_code=403, detail="注册功能已关闭，请联系管理员创建账号")
 
 
 @router.post("/logout")

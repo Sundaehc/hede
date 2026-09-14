@@ -7,7 +7,7 @@ import { SidebarNav } from "@/components/sidebar-nav"
 import { useAuth } from "@/components/auth/auth-provider"
 
 
-const AUTH_PATHS = new Set(["/login", "/register"])
+const AUTH_PATHS = new Set(["/login"])
 
 
 export function AppShell({ children }: { children: React.ReactNode }) {

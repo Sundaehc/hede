@@ -1,6 +1,5 @@
 "use client"
 
-import Link from "next/link"
 import { useState } from "react"
 import { useRouter } from "next/navigation"
 import {
@@ -50,11 +49,7 @@ export default function LoginPage() {
       title="登录赫德系统"
       description="使用账号进入商品运营中台。"
       icon={LogIn}
-      footer={(
-        <>
-          没有账号？<Link className="font-medium text-primary hover:underline" href="/register">注册账号</Link>
-        </>
-      )}
+      footer="账号由管理员统一创建"
     >
       <form className="space-y-4" onSubmit={(event) => void handleSubmit(event)}>
         <div className="space-y-1.5">
