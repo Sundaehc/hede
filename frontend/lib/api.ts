@@ -139,6 +139,20 @@ export function listAdminUsers(params: { page: number; pageSize: number }) {
   }>(`/auth/admin/users?${search.toString()}`)
 }
 
+export function createAdminUser(payload: {
+  username: string
+  password: string
+  display_name: string
+  department_code: string
+  role_code: string
+  status: string
+}) {
+  return request<{ item: AuthUser; message: string }>("/auth/admin/users", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  })
+}
+
 export function updateAdminUser(
   id: number,
   payload: Partial<

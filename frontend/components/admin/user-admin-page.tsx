@@ -1,11 +1,19 @@
 "use client"
 
 import { useEffect, useMemo, useState, type ReactNode } from "react"
-import { AlertCircle, Ban, Building2, CheckCircle2, History, Loader2, RefreshCw, Save, ShieldCheck, UserCog, Users, type LucideIcon } from "lucide-react"
+import { AlertCircle, Ban, Building2, CheckCircle2, History, Loader2, Plus, RefreshCw, Save, ShieldCheck, UserCog, Users, type LucideIcon } from "lucide-react"
 
 import { useAuth } from "@/components/auth/auth-provider"
 import { OperationLogDialog } from "@/components/operation-log-dialog"
 import { Button } from "@/components/ui/button"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import {
   Pagination,
@@ -17,7 +25,7 @@ import {
   PaginationPrevious,
 } from "@/components/ui/pagination"
 import { Select } from "@/components/ui/select"
-import { getAuthOptions, listAdminUsers, updateAdminUser } from "@/lib/api"
+import { createAdminUser, getAuthOptions, listAdminUsers, updateAdminUser } from "@/lib/api"
 import type { AuthDepartment, AuthRole, AuthUser } from "@/lib/types"
 import { cn } from "@/lib/utils"
 
@@ -28,6 +36,16 @@ type UserDraft = {
   role_code: string
   status: string
   password: string
+}
+
+type CreateUserDraft = {
+  username: string
+  display_name: string
+  department_code: string
+  role_code: string
+  status: string
+  password: string
+  confirm_password: string
 }
 
 
@@ -159,6 +177,18 @@ export function UserAdminPage() {
   const [savingId, setSavingId] = useState<number | null>(null)
   const [message, setMessage] = useState("")
   const [operationLogOpen, setOperationLogOpen] = useState(false)
+  const [createOpen, setCreateOpen] = useState(false)
+  const [creating, setCreating] = useState(false)
+  const [createError, setCreateError] = useState("")
+  const [createDraft, setCreateDraft] = useState<CreateUserDraft>({
+    username: "",
+    display_name: "",
+    department_code: "",
+    role_code: "",
+    status: "active",
+    password: "",
+    confirm_password: "",
+  })
 
   const rolesByDepartment = useMemo(() => {
     return roles.reduce<Record<string, AuthRole[]>>((acc, role) => {
@@ -171,6 +201,11 @@ export function UserAdminPage() {
   const roleByCode = useMemo(() => {
     return Object.fromEntries(roles.map((role) => [role.code, role]))
   }, [roles])
+
+  const createRoleOptions = useMemo(() => [
+    ...(rolesByDepartment.all ?? []),
+    ...(rolesByDepartment[createDraft.department_code] ?? []),
+  ], [createDraft.department_code, rolesByDepartment])
 
   const load = async (preserveMessage = false) => {
     setLoading(true)
@@ -235,6 +270,91 @@ export function UserAdminPage() {
       setMessage(err instanceof Error ? err.message : "保存失败")
     } finally {
       setSavingId(null)
+    }
+  }
+
+  const openCreateDialog = () => {
+    const departmentCode = departments[0]?.code ?? ""
+    const availableRoles = [
+      ...(rolesByDepartment.all ?? []),
+      ...(rolesByDepartment[departmentCode] ?? []),
+    ]
+    const departmentRole = availableRoles.find((role) => role.department_code === departmentCode)
+    setCreateDraft({
+      username: "",
+      display_name: "",
+      department_code: departmentCode,
+      role_code: departmentRole?.code ?? availableRoles[0]?.code ?? "",
+      status: "active",
+      password: "",
+      confirm_password: "",
+    })
+    setCreateError("")
+    setCreateOpen(true)
+  }
+
+  const updateCreateDraft = (patch: Partial<CreateUserDraft>) => {
+    setCreateDraft((current) => ({ ...current, ...patch }))
+  }
+
+  const changeCreateDepartment = (departmentCode: string) => {
+    const availableRoles = [
+      ...(rolesByDepartment.all ?? []),
+      ...(rolesByDepartment[departmentCode] ?? []),
+    ]
+    const departmentRole = availableRoles.find((role) => role.department_code === departmentCode)
+    updateCreateDraft({
+      department_code: departmentCode,
+      role_code: departmentRole?.code ?? availableRoles[0]?.code ?? "",
+    })
+  }
+
+  const submitCreateUser = async () => {
+    const username = createDraft.username.trim()
+    const displayName = createDraft.display_name.trim()
+    if (username.length < 2) {
+      setCreateError("账号至少需要 2 个字符")
+      return
+    }
+    if (/\s/.test(username)) {
+      setCreateError("账号不能包含空格")
+      return
+    }
+    if (!displayName) {
+      setCreateError("请输入姓名")
+      return
+    }
+    if (!createDraft.department_code || !createDraft.role_code) {
+      setCreateError("请选择部门和角色")
+      return
+    }
+    if (createDraft.password.length < 8) {
+      setCreateError("密码至少需要 8 个字符")
+      return
+    }
+    if (createDraft.password !== createDraft.confirm_password) {
+      setCreateError("两次输入的密码不一致")
+      return
+    }
+
+    setCreating(true)
+    setCreateError("")
+    try {
+      const response = await createAdminUser({
+        username,
+        display_name: displayName,
+        department_code: createDraft.department_code,
+        role_code: createDraft.role_code,
+        status: createDraft.status,
+        password: createDraft.password,
+      })
+      setCreateOpen(false)
+      await load(true)
+      setMessage(response.message)
+    } catch (err) {
+      setCreateError(err instanceof Error ? err.message : "创建账号失败")
+    } finally {
+      setCreating(false)
     }
   }
 
@@ -431,6 +551,10 @@ export function UserAdminPage() {
             <p className="page-subtitle">管理登录账号、部门、角色和账号状态</p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
+            <Button type="button" onClick={openCreateDialog}>
+              <Plus className="h-3.5 w-3.5" />
+              创建账号
+            </Button>
             <Button type="button" variant="outline" onClick={() => setOperationLogOpen(true)}>
               <History className="h-3.5 w-3.5" />
               操作日志
@@ -592,6 +716,123 @@ export function UserAdminPage() {
             </div>
           ) : null}
         </div>
+        <Dialog
+          open={createOpen}
+          onOpenChange={(open) => {
+            if (!creating) setCreateOpen(open)
+          }}
+        >
+          <DialogContent className="max-w-xl p-0">
+            <DialogHeader className="border-b border-border px-6 py-4">
+              <DialogTitle>创建账号</DialogTitle>
+              <DialogDescription>新账号创建后可立即使用，权限由部门和角色共同决定。</DialogDescription>
+            </DialogHeader>
+            <form
+              className="space-y-5 px-6 py-5"
+              onSubmit={(event) => {
+                event.preventDefault()
+                void submitCreateUser()
+              }}
+            >
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div>
+                  <label className="mb-1.5 block text-xs font-medium text-muted-foreground" htmlFor="create-username">登录账号</label>
+                  <Input
+                    id="create-username"
+                    value={createDraft.username}
+                    onChange={(event) => updateCreateDraft({ username: event.target.value })}
+                    placeholder="请输入登录账号"
+                    autoComplete="off"
+                    autoFocus
+                  />
+                </div>
+                <div>
+                  <label className="mb-1.5 block text-xs font-medium text-muted-foreground" htmlFor="create-display-name">姓名</label>
+                  <Input
+                    id="create-display-name"
+                    value={createDraft.display_name}
+                    onChange={(event) => updateCreateDraft({ display_name: event.target.value })}
+                    placeholder="请输入姓名"
+                    autoComplete="off"
+                  />
+                </div>
+                <div>
+                  <label className="mb-1.5 block text-xs font-medium text-muted-foreground" htmlFor="create-department">部门</label>
+                  <Select
+                    id="create-department"
+                    value={createDraft.department_code}
+                    onChange={(event) => changeCreateDepartment(event.target.value)}
+                  >
+                    {departments.map((department) => (
+                      <option key={department.code} value={department.code}>{department.name}</option>
+                    ))}
+                  </Select>
+                </div>
+                <div>
+                  <label className="mb-1.5 block text-xs font-medium text-muted-foreground" htmlFor="create-role">角色</label>
+                  <Select
+                    id="create-role"
+                    value={createDraft.role_code}
+                    onChange={(event) => updateCreateDraft({ role_code: event.target.value })}
+                  >
+                    {createRoleOptions.map((role) => (
+                      <option key={role.code} value={role.code}>{role.name}</option>
+                    ))}
+                  </Select>
+                </div>
+                <div>
+                  <label className="mb-1.5 block text-xs font-medium text-muted-foreground" htmlFor="create-password">初始密码</label>
+                  <Input
+                    id="create-password"
+                    type="password"
+                    value={createDraft.password}
+                    onChange={(event) => updateCreateDraft({ password: event.target.value })}
+                    placeholder="至少 8 个字符"
+                    autoComplete="new-password"
+                  />
+                </div>
+                <div>
+                  <label className="mb-1.5 block text-xs font-medium text-muted-foreground" htmlFor="create-confirm-password">确认密码</label>
+                  <Input
+                    id="create-confirm-password"
+                    type="password"
+                    value={createDraft.confirm_password}
+                    onChange={(event) => updateCreateDraft({ confirm_password: event.target.value })}
+                    placeholder="再次输入密码"
+                    autoComplete="new-password"
+                  />
+                </div>
+                <div>
+                  <label className="mb-1.5 block text-xs font-medium text-muted-foreground" htmlFor="create-status">账号状态</label>
+                  <Select
+                    id="create-status"
+                    value={createDraft.status}
+                    onChange={(event) => updateCreateDraft({ status: event.target.value })}
+                  >
+                    {STATUS_OPTIONS.map((status) => (
+                      <option key={status.value} value={status.value}>{status.label}</option>
+                    ))}
+                  </Select>
+                </div>
+              </div>
+
+              {createError ? (
+                <div className="flex items-center gap-2 rounded-lg border border-destructive/25 bg-destructive/5 px-3 py-2.5 text-sm text-destructive">
+                  <AlertCircle className="h-4 w-4 shrink-0" />
+                  <span>{createError}</span>
+                </div>
+              ) : null}
+
+              <DialogFooter className="border-t border-border pt-4">
+                <Button type="button" variant="outline" onClick={() => setCreateOpen(false)} disabled={creating}>取消</Button>
+                <Button type="submit" disabled={creating}>
+                  {creating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Plus className="h-3.5 w-3.5" />}
+                  {creating ? "创建中" : "创建账号"}
+                </Button>
+              </DialogFooter>
+            </form>
+          </DialogContent>
+        </Dialog>
         <OperationLogDialog
           module="user"
           title="用户管理操作日志"

@@ -6,6 +6,7 @@ from urllib.parse import urlsplit
 
 from fastapi import APIRouter, HTTPException, Query, Request, Response
 from pydantic import BaseModel, ConfigDict
+from sqlalchemy.exc import IntegrityError
 
 from api.operation_log_utils import (
     USER_FIELD_LABELS,
@@ -38,6 +39,17 @@ class AdminUserUpdateRequest(BaseModel):
     role_code: str | None = None
     status: StatusCode | None = None
     password: str | None = None
+
+
+class AdminUserCreateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    username: str
+    password: str
+    display_name: str
+    department_code: DepartmentCode
+    role_code: str
+    status: StatusCode = "active"
 
 
 def sanitize_user(user: dict[str, object]) -> dict[str, object]:
@@ -182,6 +194,70 @@ def admin_list_users(
         **payload,
         "items": [sanitize_user(user) for user in payload["items"]],
     }
+
+
+@router.post("/admin/users", status_code=201)
+def admin_create_user(request: Request, body: AdminUserCreateRequest):
+    actor = require_permission(request, "system.admin")
+    request.state.current_user = actor
+    repository = request.app.state.auth_repository
+
+    payload = body.model_dump()
+    payload["username"] = body.username.strip()
+    payload["display_name"] = body.display_name.strip()
+    payload["department_code"] = body.department_code.strip()
+    payload["role_code"] = body.role_code.strip()
+
+    if len(str(payload["username"])) < 2:
+        raise HTTPException(status_code=400, detail="账号至少需要 2 个字符")
+    if any(character.isspace() for character in str(payload["username"])):
+        raise HTTPException(status_code=400, detail="账号不能包含空格")
+    if not payload["display_name"]:
+        raise HTTPException(status_code=400, detail="姓名不能为空")
+    if len(body.password) < 8:
+        raise HTTPException(status_code=400, detail="密码至少需要 8 个字符")
+
+    departments = {str(item["code"]) for item in repository.list_departments()}
+    if payload["department_code"] not in departments:
+        raise HTTPException(status_code=400, detail="所选部门不存在")
+
+    role = next(
+        (
+            item
+            for item in repository.list_roles()
+            if str(item.get("code") or "") == payload["role_code"]
+        ),
+        None,
+    )
+    if role is None:
+        raise HTTPException(status_code=400, detail="所选角色不存在")
+    role_department = str(role.get("department_code") or "").strip()
+    if role_department and role_department != payload["department_code"]:
+        raise HTTPException(status_code=400, detail="所选角色不属于该部门")
+
+    try:
+        user = repository.create_user(payload, first_user_is_admin=False)
+    except IntegrityError as exc:
+        raise HTTPException(status_code=409, detail="该账号已存在") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    after_log = user_log_payload(user)
+    after_log["password"] = "已设置"
+    changes = build_changed_fields({}, after_log, USER_FIELD_LABELS)
+    label = user_entity_label(user)
+    write_operation_log(
+        request,
+        module="user",
+        action="create",
+        entity_type="auth_user",
+        entity_id=user.get("id"),
+        entity_label=label,
+        summary=f"创建用户 {label}",
+        changed_fields=changes,
+        after_data=after_log,
+    )
+    return {"item": sanitize_user(user), "message": f"账号 {label} 已创建"}
 
 
 @router.patch("/admin/users/{user_id}")
