@@ -11,14 +11,15 @@ describe("product archive field groups", () => {
     expect(styleGroup?.fields).toEqual([
       "sole_style",
       "fashion_elements",
-      "heel_height",
+      "rear_heel_height",
       "upper_height",
       "opening_depth",
       "boot_shaft",
       "closure_type",
       "mesh_upper_type",
     ])
-    expect(getProductFieldLabel("heel_height", "cbanner_womens")).toBe("后跟高")
+    expect(getProductFieldLabel("heel_height", "cbanner_womens")).toBe("跟高")
+    expect(getProductFieldLabel("rear_heel_height", "cbanner_womens")).toBe("后跟高")
     expect(getProductFieldLabel("upper_height", "cbanner_womens")).toBe("鞋帮高度")
   })
 

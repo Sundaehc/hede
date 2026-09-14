@@ -82,6 +82,16 @@ def test_sync_brand_rows_refreshes_current_launch_year_only(test_database_url: s
         "supplier_name": "档案供应商",
         "category": "男鞋",
         "cost": "99.20",
+        "toe_shape": "旧鞋头款式",
+        "sole_style": "旧跟底款式",
+        "fashion_elements": "保留流行元素",
+        "rear_heel_height": "旧后跟高",
+        "heel_height": "保留跟高",
+        "upper_height": "旧鞋帮高度",
+        "opening_depth": "保留开口深度",
+        "boot_shaft": "旧靴筒",
+        "closure_type": "保留闭合方式",
+        "mesh_upper_type": "旧鞋网面类型",
     }
     old_year_existing = {
         "source_workbook": "manual",
@@ -113,6 +123,16 @@ def test_sync_brand_rows_refreshes_current_launch_year_only(test_database_url: s
         "supplier_name": "源文件供应商",
         "category": "女鞋",
         "cost": "12.30",
+        "toe_shape": "新鞋头款式",
+        "sole_style": "新跟底款式",
+        "fashion_elements": "",
+        "rear_heel_height": "新后跟高",
+        "heel_height": None,
+        "upper_height": "新鞋帮高度",
+        "opening_depth": "",
+        "boot_shaft": "新靴筒",
+        "closure_type": None,
+        "mesh_upper_type": "新鞋网面类型",
     }
     incoming_old = {
         "source_workbook": "daily",
@@ -163,6 +183,16 @@ def test_sync_brand_rows_refreshes_current_launch_year_only(test_database_url: s
     assert rows["CUR-001"]["supplier_name"] == "档案供应商"
     assert rows["CUR-001"]["category"] == "男鞋"
     assert rows["CUR-001"]["cost"] == Decimal("99.20")
+    assert rows["CUR-001"]["toe_shape"] == "新鞋头款式"
+    assert rows["CUR-001"]["sole_style"] == "新跟底款式"
+    assert rows["CUR-001"]["fashion_elements"] == "保留流行元素"
+    assert rows["CUR-001"]["rear_heel_height"] == "新后跟高"
+    assert rows["CUR-001"]["heel_height"] == "保留跟高"
+    assert rows["CUR-001"]["upper_height"] == "新鞋帮高度"
+    assert rows["CUR-001"]["opening_depth"] == "保留开口深度"
+    assert rows["CUR-001"]["boot_shaft"] == "新靴筒"
+    assert rows["CUR-001"]["closure_type"] == "保留闭合方式"
+    assert rows["CUR-001"]["mesh_upper_type"] == "新鞋网面类型"
 
     assert rows["OLD-001"]["color"] == "旧年份颜色"
     assert rows["OLD-001"]["color_code"] == "KEEP"

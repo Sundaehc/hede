@@ -15,6 +15,19 @@ EXCLUDED_EXTRA_FIELD_KEYS = frozenset({"原始货号库存", "采购在途"})
 # duplicated in the unstructured extension payload.
 FORMAL_PRODUCT_FIELD_LABELS = frozenset({"产品型号"})
 
+CBANNER_WOMENS_STYLE_FIELD_LABELS = {
+    "toe_shape": ("鞋头款式",),
+    "sole_style": ("跟底款式", "根底款式"),
+    "fashion_elements": ("流行元素",),
+    "rear_heel_height": ("后跟高",),
+    "heel_height": ("跟高",),
+    "upper_height": ("鞋帮高度",),
+    "opening_depth": ("开口深度",),
+    "boot_shaft": ("靴筒",),
+    "closure_type": ("闭合方式",),
+    "mesh_upper_type": ("鞋网面类型",),
+}
+
 
 
 def is_empty_like(value: object) -> bool:
@@ -54,6 +67,18 @@ def normalize_cell(value: object) -> object:
         return value.isoformat()
     text = str(value).strip()
     return text or None
+
+
+def extract_cbanner_womens_style_fields(raw_row: dict[str, object]) -> dict[str, str]:
+    """Read the women's style fields only from their designated source columns."""
+    values: dict[str, str] = {}
+    for field, labels in CBANNER_WOMENS_STYLE_FIELD_LABELS.items():
+        for label in labels:
+            value = normalize_cell(raw_row.get(label))
+            if value is not None and str(value).strip():
+                values[field] = str(value).strip()
+                break
+    return values
 
 
 UPPER_MATERIAL_REPLACEMENTS = {
@@ -170,6 +195,7 @@ ADMIN_EDITABLE_COLUMNS = (
     "insole_material",
     "execution_standard",
     "heel_height",
+    "rear_heel_height",
     "sole_style",
     "fashion_elements",
     "shoe_width",
@@ -275,6 +301,7 @@ def build_canonical_row(
     sheet_name: str,
     row_number: int,
     image_path: str | None,
+    brand_group: str | None = None,
 ) -> dict[str, object] | None:
     canonical = {column: None for column in CANONICAL_COLUMNS}
 
@@ -289,6 +316,13 @@ def build_canonical_row(
         # to erase it.
         if normalized_value is not None or canonical[target_key] is None:
             canonical[target_key] = normalized_value
+
+    if brand_group == "cbanner_womens" or workbook_key == "cbanner_womens":
+        # Generic columns such as 鞋头/鞋帮 are numeric attributes in this
+        # workbook. They must not overwrite 鞋头款式/鞋帮高度.
+        style_fields = extract_cbanner_womens_style_fields(raw_row)
+        for field in CBANNER_WOMENS_STYLE_FIELD_LABELS:
+            canonical[field] = style_fields.get(field)
 
     canonical["upper_material"] = normalize_upper_material(canonical["upper_material"])
 

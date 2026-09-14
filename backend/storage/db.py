@@ -27,6 +27,20 @@ from domain import factory_channel_sales_summary_schema  # noqa: F401 - register
 from domain import product_auxiliary_attribute_schema  # noqa: F401 - register product auxiliary attributes on METADATA
 
 
+NONEMPTY_DAILY_REFRESH_FIELDS = (
+    "toe_shape",
+    "sole_style",
+    "fashion_elements",
+    "rear_heel_height",
+    "heel_height",
+    "upper_height",
+    "opening_depth",
+    "boot_shaft",
+    "closure_type",
+    "mesh_upper_type",
+)
+
+
 def _json_serializer(value):
     return orjson.dumps(value)
 
@@ -46,6 +60,7 @@ class Database:
         with engine.begin() as connection:
             for table in PRODUCT_ARCHIVE_TABLES.values():
                 connection.execute(text(f"ALTER TABLE {table.name} ADD COLUMN IF NOT EXISTS product_level TEXT"))
+                connection.execute(text(f"ALTER TABLE {table.name} ADD COLUMN IF NOT EXISTS rear_heel_height TEXT"))
                 connection.execute(text(
                     f"ALTER TABLE {table.name} ADD COLUMN IF NOT EXISTS "
                     "cost_manual_override BOOLEAN NOT NULL DEFAULT FALSE"
@@ -206,11 +221,13 @@ class Database:
                     func.nullif(func.btrim(table.c.supplier_name), ""),
                     getattr(excluded, "supplier_name"),
                 )
-                # An incomplete daily source must not erase an existing value.
-                set_values["heel_height"] = func.coalesce(
-                    func.nullif(func.btrim(getattr(excluded, "heel_height")), ""),
-                    table.c.heel_height,
-                )
+                # An incomplete daily source must not erase existing style
+                # attributes. Non-empty source values remain authoritative.
+                for field in NONEMPTY_DAILY_REFRESH_FIELDS:
+                    set_values[field] = func.coalesce(
+                        func.nullif(func.btrim(getattr(excluded, field)), ""),
+                        table.c[field],
+                    )
                 set_values["category"] = func.coalesce(
                     func.nullif(func.btrim(table.c.category), ""),
                     getattr(excluded, "category"),

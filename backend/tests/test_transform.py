@@ -239,10 +239,11 @@ def test_build_canonical_row_maps_toe_shape_aliases():
 
     canonical = build_canonical_row(
         row,
-        workbook_key="cbanner_womens",
+        workbook_key="千百度女鞋商品资料档案新10",
         sheet_name="千百度",
         row_number=2,
         image_path=None,
+        brand_group="cbanner_womens",
     )
 
     assert canonical is not None
@@ -381,6 +382,60 @@ def test_build_admin_record_preserves_cbanner_womens_style_detail_fields():
     assert record["boot_shaft"] == "短筒"
     assert record["closure_type"] == "系带"
     assert record["mesh_upper_type"] == "网面"
+
+
+def test_build_canonical_row_keeps_heel_height_and_rear_heel_height_separate():
+    record = build_canonical_row(
+        {
+            "货号": "HEEL-001",
+            "跟高": "4cm",
+            "后跟高": "中跟(3-5cm)",
+        },
+        workbook_key="cbanner_womens",
+        sheet_name="千百度",
+        row_number=2,
+        image_path=None,
+    )
+
+    assert record is not None
+    assert record["heel_height"] == "4cm"
+    assert record["rear_heel_height"] == "中跟(3-5cm)"
+
+
+def test_build_canonical_row_uses_exact_cbanner_womens_style_columns():
+    record = build_canonical_row(
+        {
+            "货号": "WOMENS-STYLE-001",
+            "鞋头": 0,
+            "鞋头款式": "方头",
+            "鞋帮": 6,
+            "鞋帮高度": "低帮",
+            "跟底款式": "粗跟",
+            "流行元素": "金属装饰",
+            "后跟高": "中跟(3-5cm)",
+            "跟高": "4cm",
+            "开口深度": "浅口",
+            "靴筒": "短筒",
+            "闭合方式": "套脚",
+            "鞋网面类型": "单网面",
+        },
+        workbook_key="cbanner_womens",
+        sheet_name="千百度",
+        row_number=2,
+        image_path=None,
+    )
+
+    assert record is not None
+    assert record["toe_shape"] == "方头"
+    assert record["upper_height"] == "低帮"
+    assert record["heel_height"] == "4cm"
+    assert record["rear_heel_height"] == "中跟(3-5cm)"
+    assert record["sole_style"] == "粗跟"
+    assert record["fashion_elements"] == "金属装饰"
+    assert record["opening_depth"] == "浅口"
+    assert record["boot_shaft"] == "短筒"
+    assert record["closure_type"] == "套脚"
+    assert record["mesh_upper_type"] == "单网面"
 
 
 

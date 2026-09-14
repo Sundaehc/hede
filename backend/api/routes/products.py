@@ -369,7 +369,6 @@ def update_product(request: Request, brand: ProductArchiveBrandKey, product_id: 
     if brand == "cbanner_womens":
         field_labels = {
             **PRODUCT_FIELD_LABELS,
-            "heel_height": "后跟高",
             "upper_height": "鞋帮高度",
         }
     changes = build_changed_fields(existing, item, field_labels)

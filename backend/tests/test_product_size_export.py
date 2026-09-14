@@ -64,7 +64,8 @@ def test_cbanner_womens_export_includes_style_fields_and_brand_labels():
     assert "opening_depth" in columns
     assert "boot_shaft" in columns
     assert "mesh_upper_type" in columns
-    assert _export_label("heel_height", "cbanner_womens") == "后跟高"
+    assert _export_label("heel_height", "cbanner_womens") == "跟高"
+    assert _export_label("rear_heel_height", "cbanner_womens") == "后跟高"
     assert _export_label("upper_height", "cbanner_womens") == "鞋帮高度"
 
 
@@ -78,10 +79,10 @@ def test_other_brand_exports_omit_cbanner_womens_only_fields():
     assert "mesh_upper_type" not in columns
 
 
-def test_cbanner_womens_size_export_includes_new_style_fields():
+def test_cbanner_womens_size_export_includes_separate_heel_height_fields():
     headers = _size_export_headers_for_brand("cbanner_womens")
 
-    assert headers[-9:] == [
+    assert headers[-10:] == [
         "跟底款式",
         "流行元素",
         "鞋帮高度",
@@ -90,6 +91,7 @@ def test_cbanner_womens_size_export_includes_new_style_fields():
         "闭合方式",
         "鞋网面类型",
         "鞋头款式",
+        "跟高",
         "后跟高",
     ]
     assert "跟底款式" not in _size_export_headers_for_brand("cbanner_mens")
@@ -111,7 +113,8 @@ def test_cbanner_womens_size_export_style_context_reads_archive_fields():
                 "closure_type": "系带",
                 "mesh_upper_type": "网面",
                 "toe_shape": "方头",
-                "heel_height": "5cm",
+                "heel_height": "高跟",
+                "rear_heel_height": "5cm",
             }
         },
         {},
@@ -127,7 +130,8 @@ def test_cbanner_womens_size_export_style_context_reads_archive_fields():
         context["mesh_upper_type"],
         context["toe_shape"],
         context["heel_height"],
-    ] == ["厚底", "蝴蝶结", "低帮", "浅口", "短筒", "系带", "网面", "方头", "5cm"]
+        context["rear_heel_height"],
+    ] == ["厚底", "蝴蝶结", "低帮", "浅口", "短筒", "系带", "网面", "方头", "高跟", "5cm"]
 
 
 def test_size_export_uses_archive_fallback_when_profile_is_missing():

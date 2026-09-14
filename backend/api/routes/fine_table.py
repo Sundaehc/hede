@@ -646,6 +646,7 @@ def _gj_product_row(row: dict[str, Any], brand: BrandKey) -> dict[str, Any]:
         "insole_material": row.get("insole_material"),
         "execution_standard": row.get("execution_standard"),
         "heel_height": None,
+        "rear_heel_height": None,
         "shoe_width": None,
         "shoe_length": None,
         "shaft_circumference": None,

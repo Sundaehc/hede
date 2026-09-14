@@ -166,6 +166,20 @@ type TableColumn = {
   filterField?: ProductGoodsFilter["field"]
   render: (row: ProductGoodsItem) => ReactNode
 }
+const DEFAULT_TABLE_COLUMN_WIDTH = 78
+
+function productGoodsColumnWidth(column: TableColumn) {
+  const labelWidth = Array.from(column.label).reduce(
+    (width, character) => width + (character.charCodeAt(0) <= 0xff ? 7 : 12),
+    0
+  )
+  const controlWidth = 32 + (column.filterField ? 20 : 0)
+
+  return Math.max(
+    column.width ?? DEFAULT_TABLE_COLUMN_WIDTH,
+    Math.ceil(labelWidth + controlWidth + 18)
+  )
+}
 type ActiveColumnFilter = {
   field: ProductGoodsFilter["field"]
   label: string
@@ -1164,7 +1178,10 @@ const ProductGoodsGrid = memo(function ProductGoodsGrid({
           <col className="w-40" />
           {!isStyleSummary && <col className="w-40" />}
           {visibleColumns.map((column) => (
-            <col key={column.key} style={{ width: column.width ?? 78 }} />
+            <col
+              key={column.key}
+              style={{ width: productGoodsColumnWidth(column) }}
+            />
           ))}
           <col className="w-20" />
         </colgroup>
@@ -1268,11 +1285,13 @@ const ProductGoodsGrid = memo(function ProductGoodsGrid({
             {visibleColumns.map((column) => (
               <th
                 key={column.key}
-                style={{ minWidth: column.width ?? 78 }}
+                style={{ minWidth: productGoodsColumnWidth(column) }}
                 className="border-b border-border bg-card px-2 py-2 text-center font-normal"
               >
                 <div className="flex items-center justify-center gap-0.5">
-                  <span className="truncate">{column.label}</span>
+                  <span className="shrink-0 whitespace-nowrap">
+                    {column.label}
+                  </span>
                   <ProductGoodsSortButton
                     field={column.key}
                     label={column.label}
@@ -2412,7 +2431,7 @@ export function ProductGoodsPage() {
   const tableWidth =
     (renderedDataView === "style_summary" ? 320 : 480) +
     deferredVisibleColumns.reduce(
-      (total, column) => total + (column.width ?? 78),
+      (total, column) => total + productGoodsColumnWidth(column),
       0
     )
   const brandLabel =

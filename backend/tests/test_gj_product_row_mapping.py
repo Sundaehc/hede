@@ -23,3 +23,32 @@ def test_gj_product_row_keeps_product_name_and_model_in_their_own_fields():
 def test_smiley_is_included_in_the_daily_product_archive_sync():
     assert "smiley" not in PROTECTED_SYNC_BRANDS
     assert "ni" in PROTECTED_SYNC_BRANDS
+
+
+def test_daily_product_row_includes_all_cbanner_womens_style_fields():
+    expected = {
+        "toe_shape": "方头",
+        "sole_style": "粗跟",
+        "fashion_elements": "金属装饰",
+        "rear_heel_height": "中跟(3-5cm)",
+        "heel_height": "4cm",
+        "upper_height": "低帮",
+        "opening_depth": "浅口",
+        "boot_shaft": "短筒",
+        "closure_type": "套脚",
+        "mesh_upper_type": "单网面",
+    }
+
+    product = _gj_row_to_product_row(
+        {
+            "goods_code": "WOMENS-STYLE-001",
+            "original_goods_code": "WOMENS-STYLE-001",
+        },
+        brand_group="cbanner_womens",
+        archive_row={**expected, "extra_fields": {}},
+        image_path=None,
+    )
+
+    assert product is not None
+    for field, value in expected.items():
+        assert product[field] == value

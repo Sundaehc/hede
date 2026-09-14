@@ -31,6 +31,7 @@ class ProductPayload(BaseModel):
     insole_material: str | None = None
     execution_standard: str | None = None
     heel_height: str | None = None
+    rear_heel_height: str | None = None
     sole_style: str | None = None
     fashion_elements: str | None = None
     shoe_width: str | None = None

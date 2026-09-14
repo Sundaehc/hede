@@ -252,6 +252,7 @@ def empty_payload() -> dict[str, Any]:
         "insole_material": None,
         "execution_standard": None,
         "heel_height": None,
+        "rear_heel_height": None,
         "shoe_width": None,
         "shoe_length": None,
         "shaft_circumference": None,

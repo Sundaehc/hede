@@ -48,6 +48,9 @@ GJ_ARCHIVE_SUPPLEMENT_FIELDS = {
     "season_category",
     "year",
     "heel_height",
+    "rear_heel_height",
+    "sole_style",
+    "fashion_elements",
     "shoe_width",
     "shoe_length",
     "shaft_circumference",
@@ -55,8 +58,11 @@ GJ_ARCHIVE_SUPPLEMENT_FIELDS = {
     "internal_height_increase",
     "internal_height_note",
     "upper_height",
+    "opening_depth",
+    "boot_shaft",
     "toe_shape",
     "closure_type",
+    "mesh_upper_type",
     "shoe_box_type",
     "selling_points",
     "first_order_time",
@@ -236,6 +242,7 @@ class ImportPipeline:
                         sheet_name=sheet_name,
                         row_number=index,
                         image_path=image_path,
+                        brand_group=spec.brand_group,
                     )
                     if canonical is None:
                         summaries[spec.brand_group].skipped_rows += 1

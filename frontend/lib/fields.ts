@@ -20,6 +20,7 @@ export const FIELD_LABELS: Record<string, string> = {
   insole_material: "鞋垫材质",
   execution_standard: "执行标准",
   heel_height: "跟高",
+  rear_heel_height: "后跟高",
   sole_style: "跟底款式",
   fashion_elements: "流行元素",
   shoe_width: "鞋宽",
@@ -79,7 +80,7 @@ const CBANNER_WOMENS_STYLE_GROUP = {
   fields: [
     "sole_style",
     "fashion_elements",
-    "heel_height",
+    "rear_heel_height",
     "upper_height",
     "opening_depth",
     "boot_shaft",
@@ -89,7 +90,6 @@ const CBANNER_WOMENS_STYLE_GROUP = {
 } as const
 
 const CBANNER_WOMENS_RELOCATED_FIELDS = new Set<string>([
-  "heel_height",
   "upper_height",
   "closure_type",
 ])
@@ -108,7 +108,6 @@ export function getProductFieldGroups(brand?: string | null) {
 
 export function getProductFieldLabel(field: string, brand?: string | null) {
   if (brand === "cbanner_womens") {
-    if (field === "heel_height") return "后跟高"
     if (field === "upper_height") return "鞋帮高度"
   }
   return FIELD_LABELS[field] ?? field

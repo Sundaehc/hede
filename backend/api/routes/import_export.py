@@ -50,6 +50,7 @@ EXPORT_LABELS["toe_shape"] = "鞋头款式"
 
 EXPORT_COLUMNS = [c for c in CANONICAL_COLUMNS if c != "image_path"]
 CBANNER_WOMENS_ONLY_EXPORT_COLUMNS = {
+    "rear_heel_height",
     "sole_style",
     "fashion_elements",
     "opening_depth",
@@ -90,6 +91,7 @@ SIZE_EXPORT_CBANNER_WOMENS_EXTRA_COLUMNS = (
     "mesh_upper_type",
     "toe_shape",
     "heel_height",
+    "rear_heel_height",
 )
 LOOKUP_CHUNK_SIZE = 2000
 SHANGHAI_TIME_ZONE = ZoneInfo("Asia/Shanghai")
@@ -153,8 +155,6 @@ def _export_columns_for_brand(brand: str) -> list[str]:
 
 def _export_label(column: str, brand: str | None = None) -> str:
     if brand == "cbanner_womens":
-        if column == "heel_height":
-            return "后跟高"
         if column == "upper_height":
             return "鞋帮高度"
     return EXPORT_LABELS.get(column, column)
@@ -333,14 +333,7 @@ def _excel_streaming_response(buf: io.BytesIO, filename: str) -> StreamingRespon
 
 
 def _build_product_import_template() -> io.BytesIO:
-    headers = []
-    for column in EXPORT_COLUMNS:
-        if column == "heel_height":
-            # Keep both business labels in the common template. They map to the
-            # same canonical field and the selected brand determines precedence.
-            headers.extend(("跟高", "后跟高"))
-        else:
-            headers.append(EXPORT_LABELS.get(column, column))
+    headers = [EXPORT_LABELS.get(column, column) for column in EXPORT_COLUMNS]
     workbook = Workbook()
     worksheet = workbook.active
     worksheet.title = "商品导入模板"
@@ -392,7 +385,7 @@ def _build_product_import_template() -> io.BytesIO:
     instructions.append(["条码构成逻辑", "下拉选择", "千百度男鞋、千百度女鞋、伊伴固定为货号+颜色代码+尺码；笑脸、NI及KT开头货号固定为货号+尺码；其他品牌按填写值", "货号+颜色代码+尺码"])
     instructions.append(["供应商名", "按需填写", "更新已有商品时，导入供应商必须与档案中的现有供应商一致", "温州示例鞋业"])
     instructions.append(["尺码段", "按需填写", "填写的尺码段名称必须已存在于尺码组管理中", "女鞋34-40"])
-    instructions.append(["跟高/后跟高", "按品牌填写", "跟高为通用字段；千百度女鞋可填写后跟高。两列同时填写时，系统优先取当前品牌对应的列，实际保存为同一个跟高字段", "5cm"])
+    instructions.append(["跟高/后跟高", "分别填写", "跟高与后跟高是两个独立字段；后跟高仅在千百度女鞋档案中展示和导出", "中跟 / 5cm"])
     instructions.append(["空白单元格", "无需填写", "更新已有商品时，空白单元格不会清空档案中的原值", ""])
     instructions.append(["图片", "无需填写", "图片不通过模板导入，系统按货号或原始货号从品牌图片目录自动匹配", ""])
     instructions.append(["导入结果", "整批校验", "任意一行校验失败时整份文件不写入，请根据错误行修正后重新导入", ""])
@@ -939,10 +932,10 @@ def _size_export_style_context(
         "closure_type": _first_text(archive.get("closure_type"), archive_extra.get("闭合方式")),
         "mesh_upper_type": _first_text(archive.get("mesh_upper_type"), archive_extra.get("鞋网面类型")),
         "toe_shape": _first_text(archive.get("toe_shape"), archive_extra.get("鞋头款式")),
-        "heel_height": _first_text(
-            archive.get("heel_height"),
+        "heel_height": _first_text(archive.get("heel_height"), archive_extra.get("跟高")),
+        "rear_heel_height": _first_text(
+            archive.get("rear_heel_height"),
             archive_extra.get("后跟高"),
-            archive_extra.get("跟高"),
         ),
     }
 
@@ -1385,14 +1378,10 @@ async def import_products(
                 payload = {}
                 extra_fields = {}
                 known_fields = set(CN_TO_FIELD.values()) | set(CN_TO_FIELD.keys())
-                heel_height_by_label = {}
                 for key, value in row_dict.items():
                     field = reverse_aliases.get(key)
                     if field:
-                        if field == "heel_height" and key in {"跟高", "后跟高"}:
-                            heel_height_by_label[key] = value
-                        else:
-                            payload[field] = value
+                        payload[field] = value
                     elif key and key not in known_fields:
                         if key in EXCLUDED_EXTRA_FIELD_KEYS:
                             continue
@@ -1400,14 +1389,8 @@ async def import_products(
                         if normalized is not None and str(normalized).strip():
                             extra_fields[key] = normalized
 
-                preferred_heel_label = "后跟高" if brand == "cbanner_womens" else "跟高"
-                fallback_heel_label = "跟高" if preferred_heel_label == "后跟高" else "后跟高"
-                preferred_heel_value = heel_height_by_label.get(preferred_heel_label)
-                fallback_heel_value = heel_height_by_label.get(fallback_heel_label)
-                if preferred_heel_value is not None and str(preferred_heel_value).strip():
-                    payload["heel_height"] = preferred_heel_value
-                elif fallback_heel_value is not None and str(fallback_heel_value).strip():
-                    payload["heel_height"] = fallback_heel_value
+                if brand != "cbanner_womens":
+                    payload.pop("rear_heel_height", None)
 
                 raw_sku = payload.get("sku")
                 if raw_sku is not None:

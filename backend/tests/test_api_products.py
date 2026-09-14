@@ -61,7 +61,7 @@ def test_list_products_works_without_us3_storage_on_app_state():
     assert response["items"][0]["image_storage_path"] is None
 
 
-def test_import_products_uses_brand_specific_heel_height_label(
+def test_import_products_keeps_heel_height_fields_separate(
     test_app_client: TestClient,
     repository,
 ):
@@ -88,7 +88,8 @@ def test_import_products_uses_brand_specific_heel_height_label(
     assert womens_response.status_code == 200
     womens_product = repository.find_by_sku("cbanner_womens", "HEEL-WOMENS-001")
     assert womens_product is not None
-    assert womens_product["heel_height"] == "6cm"
+    assert womens_product["heel_height"] == "4cm"
+    assert womens_product["rear_heel_height"] == "6cm"
 
     mens_workbook = Workbook()
     mens_worksheet = mens_workbook.active

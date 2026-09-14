@@ -24,6 +24,7 @@ sys.stdout.reconfigure(encoding="utf-8")
 
 SIZE_FIELDS = (
     "heel_height",
+    "rear_heel_height",
     "shoe_width",
     "shoe_length",
     "shaft_circumference",
@@ -35,6 +36,7 @@ SIZE_FIELDS = (
 
 FIELD_LABELS = {
     "heel_height": "跟高",
+    "rear_heel_height": "后跟高",
     "shoe_width": "鞋宽",
     "shoe_length": "鞋长",
     "shaft_circumference": "筒围",
@@ -135,6 +137,7 @@ def load_source_size_records(
                     sheet_name=sheet_name,
                     row_number=row_number,
                     image_path=None,
+                    brand_group=spec.brand_group,
                 )
                 if canonical is None:
                     continue

@@ -76,6 +76,7 @@ def load_source_records() -> tuple[dict[str, SourceRecord], RefreshStats]:
                 sheet_name=sheet_name,
                 row_number=row_number,
                 image_path=None,
+                brand_group=BRAND,
             )
             if canonical is None:
                 continue

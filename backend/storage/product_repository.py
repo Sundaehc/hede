@@ -27,6 +27,7 @@ PRICE_LOOKUP_CHUNK_SIZE = 20000
 IMPORT_MARK_CHUNK_SIZE = 2000
 PRODUCT_RECYCLE_BIN_RETENTION_DAYS = 10
 PRODUCT_STYLE_DETAIL_COLUMNS = (
+    "rear_heel_height",
     "sole_style",
     "fashion_elements",
     "opening_depth",

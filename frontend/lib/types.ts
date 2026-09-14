@@ -103,6 +103,7 @@ export type ProductListItem = {
   insole_material: string | null
   execution_standard: string | null
   heel_height: string | null
+  rear_heel_height?: string | null
   sole_style?: string | null
   fashion_elements?: string | null
   shoe_width: string | null
@@ -620,6 +621,7 @@ export type ProductFormValues = {
   insole_material: string
   execution_standard: string
   heel_height: string
+  rear_heel_height: string
   sole_style: string
   fashion_elements: string
   shoe_width: string
@@ -665,6 +667,7 @@ export type ProductMutationPayload = Record<string, unknown> & {
   insole_material?: string | null
   execution_standard?: string | null
   heel_height?: string | null
+  rear_heel_height?: string | null
   sole_style?: string | null
   fashion_elements?: string | null
   shoe_width?: string | null

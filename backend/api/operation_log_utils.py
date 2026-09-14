@@ -26,6 +26,7 @@ PRODUCT_FIELD_LABELS = {
     "insole_material": "鞋垫材质",
     "execution_standard": "执行标准",
     "heel_height": "跟高",
+    "rear_heel_height": "后跟高",
     "sole_style": "跟底款式",
     "fashion_elements": "流行元素",
     "shoe_width": "鞋宽",

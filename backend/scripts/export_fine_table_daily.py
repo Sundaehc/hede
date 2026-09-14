@@ -86,6 +86,7 @@ KNOWN_COLUMNS: tuple[tuple[str, str], ...] = (
     ("sole_style", "跟底款式"),
     ("fashion_elements", "流行元素"),
     ("heel_height", "跟高"),
+    ("rear_heel_height", "后跟高"),
     ("shoe_width", "鞋宽"),
     ("shoe_length", "鞋长"),
     ("shaft_circumference", "筒围"),
