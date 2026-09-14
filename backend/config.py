@@ -74,18 +74,6 @@ class Settings:
     cbanner_womens_product_detail_source: Path | None = DEFAULT_CBANNER_WOMENS_PRODUCT_DETAIL_SOURCE
     eblan_product_detail_source: Path | None = DEFAULT_EBLAN_PRODUCT_DETAIL_SOURCE
     eblan_product_goods_order_source: Path | None = DEFAULT_EBLAN_PRODUCT_GOODS_ORDER_SOURCE
-    ai_sql_enabled: bool = False
-    ai_api_key: str | None = None
-    ai_provider: str = "openai"
-    ai_base_url: str = "https://api.openai.com/v1"
-    ai_model: str = "gpt-4.1-mini"
-    ai_sql_planner_model: str | None = None
-    ai_timeout_seconds: int = 180
-    ai_sql_max_rows: int = 500
-    ai_sql_preflight_enabled: bool = True
-    ai_sql_explain_timeout_seconds: int = 5
-    ai_sql_max_plan_cost: int = 2_000_000
-    ai_sql_max_plan_rows: int = 10_000_000
     ucloud_us3_public_key: str | None = None
     ucloud_us3_private_key: str | None = None
     ucloud_us3_bucket: str | None = None
@@ -287,35 +275,6 @@ def load_settings(require_database: bool = True) -> Settings:
         cbanner_womens_product_detail_source=cbanner_womens_product_detail_source,
         eblan_product_detail_source=eblan_product_detail_source,
         eblan_product_goods_order_source=eblan_product_goods_order_source,
-        ai_sql_enabled=_bool_from_env(
-            "AI_SQL_ENABLED",
-            default=bool(os.getenv("AI_API_KEY") or os.getenv("OPENAI_API_KEY")),
-        ),
-        ai_api_key=os.getenv("AI_API_KEY") or os.getenv("OPENAI_API_KEY") or None,
-        ai_provider=os.getenv("AI_PROVIDER", "openai").strip().lower() or "openai",
-        ai_base_url=os.getenv("AI_BASE_URL", "https://api.openai.com/v1"),
-        ai_model=os.getenv("AI_MODEL", "gpt-4.1-mini"),
-        ai_sql_planner_model=(
-            os.getenv("AI_SQL_PLANNER_MODEL", "").strip() or None
-        ),
-        ai_timeout_seconds=_int_from_env(
-            "AI_TIMEOUT_SECONDS", 180, minimum=5, maximum=300
-        ),
-        ai_sql_max_rows=_int_from_env(
-            "AI_SQL_MAX_ROWS", 500, minimum=1, maximum=2000
-        ),
-        ai_sql_preflight_enabled=_bool_from_env(
-            "AI_SQL_PREFLIGHT_ENABLED", True
-        ),
-        ai_sql_explain_timeout_seconds=_int_from_env(
-            "AI_SQL_EXPLAIN_TIMEOUT_SECONDS", 5, minimum=1, maximum=30
-        ),
-        ai_sql_max_plan_cost=_int_from_env(
-            "AI_SQL_MAX_PLAN_COST", 2_000_000, minimum=10_000, maximum=100_000_000
-        ),
-        ai_sql_max_plan_rows=_int_from_env(
-            "AI_SQL_MAX_PLAN_ROWS", 10_000_000, minimum=100_000, maximum=1_000_000_000
-        ),
         ucloud_us3_public_key=os.getenv("UCLOUD_US3_PUBLIC_KEY") or None,
         ucloud_us3_private_key=os.getenv("UCLOUD_US3_PRIVATE_KEY") or None,
         ucloud_us3_bucket=os.getenv("UCLOUD_US3_BUCKET") or None,

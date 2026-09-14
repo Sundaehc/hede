@@ -13,7 +13,6 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from api.auth_middleware import auth_middleware
 from api.routes.auth import router as auth_router
-from api.routes.ai_query import router as ai_query_router
 from api.routes.images import router as images_router
 from api.routes.fine_table import router as fine_table_router
 from api.routes.import_export import router as import_export_router
@@ -39,7 +38,6 @@ from storage.us3_image_storage import UCloudUS3ImageStorage
 
 PUBLIC_DOC_METHODS = {"get", "head"}
 PUBLIC_DOC_EXCLUDED_PREFIXES = (
-    "/ai-query",
     "/auth",
     "/operation-logs",
     "/public",
@@ -178,7 +176,6 @@ def create_app(*, settings, repository=None, image_matchers=None, inventory_repo
         app.state.us3_image_storage = None
 
     app.include_router(auth_router)
-    app.include_router(ai_query_router)
     app.include_router(products_router)
     app.include_router(product_goods_router)
     app.include_router(fine_table_router)

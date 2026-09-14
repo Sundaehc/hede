@@ -24,7 +24,6 @@ MODULE_PERMISSIONS = {
     "account_subject": "inventory.view",
     "general_customer": "inventory.view",
     "user": "system.admin",
-    "ai_query": "system.admin",
 }
 
 
