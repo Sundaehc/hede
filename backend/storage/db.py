@@ -20,7 +20,6 @@ from domain import product_goods_schema  # noqa: F401 - register product goods o
 from domain import product_goods_detail_snapshot_schema  # noqa: F401 - register product goods detail snapshots on METADATA
 from domain import product_goods_historical_sales_schema  # noqa: F401 - register historical product-goods sales on METADATA
 from domain import product_size_group_mapping_schema  # noqa: F401 - register product size group mappings on METADATA
-from domain import master_data_schema  # noqa: F401 - register master-data tables on METADATA
 from domain import data_governance_schema  # noqa: F401 - register data-governance tables on METADATA
 from domain import dewu_order_schema  # noqa: F401 - register Dewu order tables on METADATA
 from domain import factory_channel_sales_summary_schema  # noqa: F401 - register factory-channel summaries on METADATA

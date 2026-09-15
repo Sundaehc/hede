@@ -9,7 +9,6 @@ from sqlalchemy import create_engine, text
 
 from config import load_settings
 from domain import data_governance_schema  # noqa: F401 - register governance tables
-from domain import master_data_schema  # noqa: F401 - register master-data tables
 from domain.schema import METADATA
 from storage.migrations import apply_core_database_optimizations
 

@@ -16,11 +16,6 @@ from storage.fine_table_snapshot_dedup import (
     write_optimized_snapshot_rows,
 )
 from domain.legacy_partitioning import LegacyPartitionTarget
-from domain.master_data_schema import (
-    MASTER_DATA_ALIASES_TABLE,
-    MASTER_DATA_ENTITIES_TABLE,
-    PRODUCT_CODE_MAPPINGS_TABLE,
-)
 
 
 def test_fine_snapshot_rows_include_the_partition_key():
@@ -156,18 +151,6 @@ def test_snapshot_orphan_cleanup_keeps_referenced_content(
     with engine.connect() as connection:
         assert connection.execute(select(FINE_TABLE_SNAPSHOT_PAYLOADS_TABLE.c.id)).all()
         assert connection.execute(select(FINE_TABLE_SNAPSHOT_METRICS_TABLE.c.id)).all()
-
-
-def test_master_data_tables_keep_canonical_and_raw_values():
-    assert {"entity_type", "canonical_name", "raw_payload"} <= set(MASTER_DATA_ENTITIES_TABLE.c.keys())
-    assert {"entity_id", "alias_name", "normalized_name", "source_system"} <= set(MASTER_DATA_ALIASES_TABLE.c.keys())
-    assert {"brand", "code_type", "code_value", "canonical_product_code"} <= set(PRODUCT_CODE_MAPPINGS_TABLE.c.keys())
-    constraints = [
-        constraint
-        for constraint in PRODUCT_CODE_MAPPINGS_TABLE.constraints
-        if getattr(constraint, "name", None) == "uq_product_code_mappings_brand_type_value_canonical"
-    ]
-    assert len(constraints) == 1
 
 
 def test_partition_target_rejects_unsafe_identifiers_and_bounds():

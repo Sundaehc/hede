@@ -19,7 +19,6 @@ from domain.gj_brand import CBANNER_MENS_BRAND, GJ_FINE_TABLE_BRANDS, SUPPLIER_B
 from domain import jst_stock_snapshot_schema  # noqa: F401 - register JST stock snapshot tables on METADATA
 from domain import product_goods_schema  # noqa: F401 - register goods table overrides on METADATA
 from domain import product_size_group_mapping_schema  # noqa: F401 - register product size group mappings on METADATA
-from domain import master_data_schema  # noqa: F401 - register master-data tables on METADATA
 from domain import data_governance_schema  # noqa: F401 - register data-governance tables on METADATA
 from domain import size_group_schema  # noqa: F401 - register size group tables on METADATA
 from domain.jst_stock_snapshot_schema import JST_SIZE_STOCK_SNAPSHOT_TABLE, JST_STOCK_SUMMARY_SNAPSHOT_TABLE

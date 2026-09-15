@@ -11,7 +11,6 @@ from domain import (  # noqa: F401 - register tables on METADATA
     fine_table_snapshot_schema,
     gj_schema,
     inventory_schema,
-    master_data_schema,
     size_group_schema,
     task_status_schema,
     vip_schema,
