@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { createPortal } from "react-dom"
-import { Plus, Trash2, Edit, X, Upload, Search, Printer, Settings2, ChevronLeft, ChevronRight } from "lucide-react"
+import { Plus, Trash2, Edit, X, Upload, Search, Printer, Settings2, ChevronLeft, ChevronRight, Filter, LoaderCircle } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -21,11 +21,17 @@ import {
 } from "@/components/inventory-admin/purchase-print-template-editor"
 import {
   getPurchasePrintTemplate,
+  listPurchasePrintTemplates,
+  createPurchasePrintTemplate,
+  updatePurchasePrintTemplate,
+  setDefaultPurchasePrintTemplate,
+  deletePurchasePrintTemplate,
   listDetails,
+  listInventoryDetailUnitPriceOptions,
   listInventoryPrintLabels,
   lookupInventoryDetail,
   listInventoryDetailCandidates,
-  listSizeGroups,
+  listSizeGroupOptions,
   createDetail,
   updateDetail,
   deleteDetail,
@@ -36,9 +42,11 @@ import {
   ApiError,
   type InventoryRecord,
   type InventoryDetail,
+  type InventoryDetailUnitPriceOption,
   type InventoryDetailCandidate,
   type InventoryPrintLabel,
   type PurchasePrintTemplateConfig,
+  type PurchasePrintTemplate,
   type SupplierItem,
   type InventoryAccountSubject,
 } from "@/lib/api"
@@ -110,6 +118,7 @@ const EU_TO_MILLIMETER_SIZE = Object.fromEntries(
 ) as Record<string, string>
 const ACCOUNTING_DOCUMENT_TYPES = new Set(["应付款减少", "应付款增加", "应收款减少", "应收款增加"])
 const DETAIL_PAGE_SIZE = 100
+const BLANK_UNIT_PRICE_FILTER_VALUE = "__blank__"
 
 type Props = {
   record: InventoryRecord | null
@@ -147,6 +156,14 @@ function computeAmount(quantity: string, unitPrice: string): string {
   const price = Number.parseFloat(unitPrice || "0")
   if (!Number.isFinite(qty) || !Number.isFinite(price) || !quantity || !unitPrice) return ""
   return (qty * price).toFixed(2)
+}
+
+function unitPriceOptionKey(option: InventoryDetailUnitPriceOption): string {
+  return option.value ?? BLANK_UNIT_PRICE_FILTER_VALUE
+}
+
+function unitPriceOptionLabel(option: InventoryDetailUnitPriceOption): string {
+  return option.value ?? "（空白）"
 }
 
 function isNiSupplierName(name: string | null | undefined) {
@@ -285,6 +302,15 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
   const [isLoading, setIsLoading] = useState(false)
   const [detailPage, setDetailPage] = useState(1)
   const [detailTotal, setDetailTotal] = useState(0)
+  const [unitPriceValues, setUnitPriceValues] = useState<string[] | null>(null)
+  const [unitPriceFilterOpen, setUnitPriceFilterOpen] = useState(false)
+  const [unitPriceFilterError, setUnitPriceFilterError] = useState("")
+  const [unitPriceOptionSearch, setUnitPriceOptionSearch] = useState("")
+  const [unitPriceOptions, setUnitPriceOptions] = useState<InventoryDetailUnitPriceOption[]>([])
+  const [unitPriceOptionsLoading, setUnitPriceOptionsLoading] = useState(false)
+  const [unitPriceOptionsLoaded, setUnitPriceOptionsLoaded] = useState(false)
+  const [unitPriceOptionsTruncated, setUnitPriceOptionsTruncated] = useState(false)
+  const [unitPriceDraftValues, setUnitPriceDraftValues] = useState<string[]>([])
   const detailRequestIdRef = useRef(0)
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set())
   const replaceInputRef = useRef<HTMLInputElement>(null)
@@ -320,6 +346,20 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
   const tableSizeColumns = purchaseTableSizeColumns
   const formSizeColumns = purchaseSizeColumns
   const detailColumnCount = isAccountingDocument ? 6 : isPurchaseOrder ? 17 + tableSizeColumns.length : 9 + tableSizeColumns.length
+  const unitPriceDraftValueSet = useMemo(() => new Set(unitPriceDraftValues), [unitPriceDraftValues])
+  const visibleUnitPriceOptions = useMemo(() => {
+    const query = unitPriceOptionSearch.trim().toLocaleLowerCase("zh-CN")
+    return unitPriceOptions
+      .filter((option) => !query || unitPriceOptionLabel(option).toLocaleLowerCase("zh-CN").includes(query))
+      .toSorted((left, right) => {
+        if (left.value === null) return right.value === null ? 0 : -1
+        if (right.value === null) return 1
+        return Number(right.value) - Number(left.value)
+      })
+  }, [unitPriceOptionSearch, unitPriceOptions])
+  const allVisibleUnitPriceOptionsSelected = visibleUnitPriceOptions.length > 0
+    && visibleUnitPriceOptions.every((option) => unitPriceDraftValueSet.has(unitPriceOptionKey(option)))
+  const hasUnitPriceFilter = unitPriceValues !== null
 
   const [deleteTarget, setDeleteTarget] = useState<InventoryDetail | null>(null)
   const [batchDeleteOpen, setBatchDeleteOpen] = useState(false)
@@ -327,6 +367,9 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
   const [isPrinting, setIsPrinting] = useState(false)
   const [printLabels, setPrintLabels] = useState<ExpandedPrintLabel[] | null>(null)
   const [printTemplate, setPrintTemplate] = useState<PurchasePrintTemplateConfig>(DEFAULT_PURCHASE_PRINT_TEMPLATE)
+  const [printTemplates, setPrintTemplates] = useState<PurchasePrintTemplate[]>([])
+  const [selectedPrintTemplateKey, setSelectedPrintTemplateKey] = useState("")
+  const [selectedPrintTemplateName, setSelectedPrintTemplateName] = useState("默认模板")
   const [printTemplateOpen, setPrintTemplateOpen] = useState(false)
   const [isPrintTemplateLoading, setIsPrintTemplateLoading] = useState(false)
   const [messageOpen, setMessageOpen] = useState(false)
@@ -337,7 +380,11 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
     const requestId = ++detailRequestIdRef.current
     setIsLoading(true)
     try {
-      const res = await listDetails(documentId, { page: detailPage, pageSize: DETAIL_PAGE_SIZE })
+      const res = await listDetails(documentId, {
+        page: detailPage,
+        pageSize: DETAIL_PAGE_SIZE,
+        unitPriceValues: unitPriceValues || undefined,
+      })
       if (requestId !== detailRequestIdRef.current) return
       const lastPage = Math.max(1, Math.ceil(res.total / DETAIL_PAGE_SIZE))
       if (res.total > 0 && detailPage > lastPage) {
@@ -360,12 +407,20 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
     } finally {
       if (requestId === detailRequestIdRef.current) setIsLoading(false)
     }
-  }, [detailPage, documentId])
+  }, [detailPage, documentId, unitPriceValues])
 
   useEffect(() => {
     setSelectedIds(new Set())
     setDetailPage(1)
     setDetailTotal(0)
+    setUnitPriceValues(null)
+    setUnitPriceFilterOpen(false)
+    setUnitPriceFilterError("")
+    setUnitPriceOptionSearch("")
+    setUnitPriceOptions([])
+    setUnitPriceOptionsLoaded(false)
+    setUnitPriceOptionsTruncated(false)
+    setUnitPriceDraftValues([])
     setPrintLabels(null)
     setPrintTemplateOpen(false)
   }, [documentId])
@@ -373,13 +428,113 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
   useEffect(() => { void load() }, [load])
 
   useEffect(() => {
+    if (!unitPriceFilterOpen || !documentId) return
+    let cancelled = false
+    setUnitPriceOptionsLoading(true)
+    setUnitPriceOptionsLoaded(false)
+    setUnitPriceFilterError("")
+    void listInventoryDetailUnitPriceOptions(documentId, { limit: 5000 })
+      .then((result) => {
+        if (cancelled) return
+        setUnitPriceOptions(result.items)
+        setUnitPriceOptionsLoaded(true)
+        setUnitPriceOptionsTruncated(result.truncated)
+        const availableValues = result.items.map(unitPriceOptionKey)
+        const availableValueSet = new Set(availableValues)
+        setUnitPriceDraftValues(
+          unitPriceValues === null
+            ? availableValues
+            : unitPriceValues.filter((value) => availableValueSet.has(value)),
+        )
+      })
+      .catch((error: unknown) => {
+        if (cancelled) return
+        setUnitPriceOptions([])
+        setUnitPriceOptionsLoaded(false)
+        setUnitPriceOptionsTruncated(false)
+        setUnitPriceDraftValues([])
+        setUnitPriceFilterError(getErrorMessage(error))
+      })
+      .finally(() => {
+        if (!cancelled) setUnitPriceOptionsLoading(false)
+      })
+    return () => { cancelled = true }
+  }, [documentId, unitPriceFilterOpen, unitPriceValues])
+
+  const applyUnitPriceFilter = () => {
+    if (!unitPriceOptionsLoaded) {
+      if (!unitPriceOptionsLoading) setUnitPriceFilterError("单价选项尚未加载成功，请重试")
+      return
+    }
+    const availableValues = unitPriceOptions.map(unitPriceOptionKey)
+    const selectedValues = availableValues.filter((value) => unitPriceDraftValueSet.has(value))
+    if (availableValues.length > 0 && selectedValues.length === 0) {
+      setUnitPriceFilterError("请至少选择一个单价")
+      return
+    }
+    setUnitPriceFilterError("")
+    setUnitPriceValues(selectedValues.length === availableValues.length ? null : selectedValues)
+    setDetailPage(1)
+    setUnitPriceFilterOpen(false)
+  }
+
+  const toggleUnitPriceOption = (value: string) => {
+    setUnitPriceDraftValues((current) => {
+      const next = new Set(current)
+      if (next.has(value)) next.delete(value)
+      else next.add(value)
+      return Array.from(next)
+    })
+    setUnitPriceFilterError("")
+  }
+
+  const toggleAllVisibleUnitPriceOptions = () => {
+    const visibleValues = visibleUnitPriceOptions.map(unitPriceOptionKey)
+    setUnitPriceDraftValues((current) => {
+      const next = new Set(current)
+      if (allVisibleUnitPriceOptionsSelected) visibleValues.forEach((value) => next.delete(value))
+      else visibleValues.forEach((value) => next.add(value))
+      return Array.from(next)
+    })
+    setUnitPriceFilterError("")
+  }
+
+  const invertVisibleUnitPriceOptions = () => {
+    const visibleValues = visibleUnitPriceOptions.map(unitPriceOptionKey)
+    setUnitPriceDraftValues((current) => {
+      const next = new Set(current)
+      visibleValues.forEach((value) => {
+        if (next.has(value)) next.delete(value)
+        else next.add(value)
+      })
+      return Array.from(next)
+    })
+    setUnitPriceFilterError("")
+  }
+
+  const clearUnitPriceFilter = () => {
+    setUnitPriceValues(null)
+    setUnitPriceFilterError("")
+    setUnitPriceOptionSearch("")
+    setUnitPriceDraftValues(unitPriceOptions.map(unitPriceOptionKey))
+    setDetailPage(1)
+    setUnitPriceFilterOpen(false)
+  }
+
+  useEffect(() => {
     if (!printLabels) return
-    const printTimer = window.setTimeout(() => window.print(), 120)
-    const clearPrintLabels = () => setPrintLabels(null)
+    const originalTitle = document.title
+    document.title = ""
+    const printTimer = window.setTimeout(() => window.print(), 250)
+    const clearPrintLabels = () => {
+      document.title = originalTitle
+      setPrintLabels(null)
+    }
     window.addEventListener("afterprint", clearPrintLabels)
     return () => {
       window.clearTimeout(printTimer)
       window.removeEventListener("afterprint", clearPrintLabels)
+      document.title = originalTitle
     }
   }, [printLabels])
 
@@ -399,7 +554,7 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
   useEffect(() => {
     if (!formOpen || isAccountingDocument) return
     let cancelled = false
-    void listSizeGroups()
+    void listSizeGroupOptions()
       .then((result) => {
         if (!cancelled) setSizeGroups(result.items)
       })
@@ -746,7 +901,17 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
     try {
       const [result, templateResult] = await Promise.all([
         listInventoryPrintLabels(documentId),
-        getPurchasePrintTemplate(),
+        selectedPrintTemplateKey
+          ? Promise.resolve({
+              config: printTemplate,
+              template: {
+                template_key: selectedPrintTemplateKey,
+                template_name: selectedPrintTemplateName,
+                is_default: false,
+                config: printTemplate,
+              },
+            })
+          : getPurchasePrintTemplate(),
       ])
       const labels = expandPrintLabels(result.items)
       if (labels.length === 0) {
@@ -754,6 +919,10 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
         return
       }
       setPrintTemplate(templateResult.config ?? DEFAULT_PURCHASE_PRINT_TEMPLATE)
+      if (templateResult.template) {
+        setSelectedPrintTemplateKey(templateResult.template.template_key)
+        setSelectedPrintTemplateName(templateResult.template.template_name)
+      }
       setPrintLabels(labels)
     } catch (error) {
       showMessage("打印准备失败", getErrorMessage(error))
@@ -766,8 +935,30 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
     if (isPrintTemplateLoading) return
     setIsPrintTemplateLoading(true)
     try {
-      const result = await getPurchasePrintTemplate()
-      setPrintTemplate(result.config ?? DEFAULT_PURCHASE_PRINT_TEMPLATE)
+      const [result, catalog] = await Promise.all([
+        getPurchasePrintTemplate(),
+        listPurchasePrintTemplates(),
+      ])
+      const activeConfig = result.config ?? DEFAULT_PURCHASE_PRINT_TEMPLATE
+      let templates = catalog.items
+      if (templates.length === 0) {
+        const created = await createPurchasePrintTemplate({
+          template_name: "默认模板",
+          config: activeConfig,
+          is_default: true,
+        })
+        templates = [created.template]
+      }
+      setPrintTemplate(activeConfig)
+      setPrintTemplates(templates)
+      if (result.template) {
+        setSelectedPrintTemplateKey(result.template.template_key)
+        setSelectedPrintTemplateName(result.template.template_name)
+      } else if (templates[0]) {
+        setSelectedPrintTemplateKey(templates[0].template_key)
+        setSelectedPrintTemplateName(templates[0].template_name)
+        setPrintTemplate(templates[0].config)
+      }
       setPrintTemplateOpen(true)
     } catch (error) {
       showMessage("模板加载失败", getErrorMessage(error))
@@ -776,13 +967,74 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
     }
   }
 
-  const handleSavePrintTemplate = async (config: PurchasePrintTemplateConfig) => {
+  const handleSavePrintTemplate = async (config: PurchasePrintTemplateConfig, templateName: string) => {
     try {
-      const result = await savePurchasePrintTemplate(config)
-      setPrintTemplate(result.config)
+      if (!selectedPrintTemplateKey) {
+        const result = await savePurchasePrintTemplate(config)
+        setPrintTemplate(result.config)
+        return
+      }
+      const result = await updatePurchasePrintTemplate(selectedPrintTemplateKey, {
+        config,
+        template_name: templateName,
+      })
+      setPrintTemplate(result.template.config)
+      setSelectedPrintTemplateName(result.template.template_name)
+      setPrintTemplates((items) => items.map((item) => item.template_key === result.template.template_key ? result.template : item))
     } catch (error) {
       showMessage("模板保存失败", getErrorMessage(error))
       throw error
+    }
+  }
+
+  const handleTemplateChange = (templateKey: string) => {
+    const template = printTemplates.find((item) => item.template_key === templateKey)
+    if (!template) return
+    setSelectedPrintTemplateKey(template.template_key)
+    setSelectedPrintTemplateName(template.template_name)
+    setPrintTemplate(template.config)
+  }
+
+  const handleCreatePrintTemplate = async (templateName: string, config: PurchasePrintTemplateConfig) => {
+    try {
+      const result = await createPurchasePrintTemplate({ template_name: templateName, config })
+      setPrintTemplates((items) => [result.template, ...items])
+      setSelectedPrintTemplateKey(result.template.template_key)
+      setSelectedPrintTemplateName(result.template.template_name)
+      setPrintTemplate(result.template.config)
+    } catch (error) {
+      showMessage("模板创建失败", getErrorMessage(error))
+    }
+  }
+
+  const handleDuplicatePrintTemplate = async (templateName: string, config: PurchasePrintTemplateConfig) => {
+    await handleCreatePrintTemplate(templateName, config)
+  }
+
+  const handleSetDefaultPrintTemplate = async () => {
+    if (!selectedPrintTemplateKey) return
+    try {
+      const result = await setDefaultPurchasePrintTemplate(selectedPrintTemplateKey)
+      setPrintTemplates((items) => items.map((item) => ({ ...item, is_default: item.template_key === result.template.template_key })))
+    } catch (error) {
+      showMessage("设置默认模板失败", getErrorMessage(error))
+    }
+  }
+
+  const handleDeletePrintTemplate = async () => {
+    if (!selectedPrintTemplateKey) return
+    try {
+      await deletePurchasePrintTemplate(selectedPrintTemplateKey)
+      const catalog = await listPurchasePrintTemplates()
+      setPrintTemplates(catalog.items)
+      const next = catalog.items[0]
+      if (next) {
+        setSelectedPrintTemplateKey(next.template_key)
+        setSelectedPrintTemplateName(next.template_name)
+        setPrintTemplate(next.config)
+      }
+    } catch (error) {
+      showMessage("模板删除失败", getErrorMessage(error))
     }
   }
 
@@ -803,6 +1055,9 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
   const purchaseCodeCellClassName = "px-3 py-2.5 whitespace-nowrap font-mono text-[11px]"
   const purchaseTextCellClassName = "px-3 py-2.5 truncate whitespace-nowrap"
   const purchaseNumberCellClassName = "px-2 py-2.5 text-right whitespace-nowrap tabular-nums"
+  const rotateLandscapePrint = printTemplate.paper_width_mm > printTemplate.paper_height_mm
+  const physicalPrintWidth = rotateLandscapePrint ? printTemplate.paper_height_mm : printTemplate.paper_width_mm
+  const physicalPrintHeight = rotateLandscapePrint ? printTemplate.paper_width_mm : printTemplate.paper_height_mm
 
   return (
     <>
@@ -1003,7 +1258,132 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
                     <th key={size} className="w-[72px] px-2 py-2.5 text-right font-medium whitespace-nowrap">{size}</th>
                   ))}
                   <th className="w-[72px] px-3 py-2.5 text-right font-medium whitespace-nowrap">数量</th>
-                  <th className="w-[80px] px-3 py-2.5 text-right font-medium whitespace-nowrap">单价</th>
+                  <th className="relative w-[112px] px-3 py-2.5 font-medium whitespace-nowrap">
+                    <div className="flex items-center justify-end gap-1">
+                      <span className={hasUnitPriceFilter ? "font-semibold text-foreground" : ""}>单价</span>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className={`h-6 w-6 cursor-pointer rounded-md ${hasUnitPriceFilter ? "bg-primary/10 text-primary" : ""}`}
+                        title={hasUnitPriceFilter ? "单价已筛选" : "筛选单价"}
+                        aria-label={hasUnitPriceFilter ? "单价已筛选" : "筛选单价"}
+                        onClick={() => {
+                          setUnitPriceFilterError("")
+                          setUnitPriceFilterOpen((open) => {
+                            if (!open) {
+                              setUnitPriceOptionSearch("")
+                            }
+                            return !open
+                          })
+                        }}
+                      >
+                        <Filter className={`h-3.5 w-3.5 ${hasUnitPriceFilter ? "fill-current" : ""}`} />
+                      </Button>
+                    </div>
+                    {unitPriceFilterOpen && (
+                      <div
+                        className="absolute right-1 top-[calc(100%+6px)] z-[80] flex w-[340px] flex-col overflow-hidden rounded-lg border border-border bg-popover text-left text-popover-foreground shadow-xl"
+                        onClick={(event) => event.stopPropagation()}
+                      >
+                        <div className="flex items-center justify-between border-b border-border px-3 py-2">
+                          <div>
+                            <p className="text-sm font-medium">单价筛选</p>
+                            <p className="mt-0.5 text-[11px] font-normal text-muted-foreground">勾选具体单价筛选整张单据</p>
+                          </div>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7 cursor-pointer rounded-md"
+                            onClick={() => setUnitPriceFilterOpen(false)}
+                            aria-label="关闭单价筛选"
+                            title="关闭"
+                          >
+                            <X className="h-4 w-4" />
+                          </Button>
+                        </div>
+                        <div className="border-b border-border px-3 py-2">
+                          <div className="relative">
+                            <Search className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-muted-foreground" />
+                            <Input
+                              value={unitPriceOptionSearch}
+                              onChange={(event) => setUnitPriceOptionSearch(event.target.value)}
+                              onKeyDown={(event) => {
+                                if (event.key === "Enter") applyUnitPriceFilter()
+                                if (event.key === "Escape") setUnitPriceFilterOpen(false)
+                              }}
+                              className="h-8 rounded-md pl-8 text-xs"
+                              placeholder="搜索单价"
+                              autoFocus
+                            />
+                          </div>
+                        </div>
+                        <div className="flex items-center justify-between border-b border-border bg-muted/20 px-3 py-2 text-xs font-normal">
+                          <div className="flex items-center gap-3">
+                            <label className="flex cursor-pointer items-center gap-2">
+                              <input
+                                type="checkbox"
+                                checked={allVisibleUnitPriceOptionsSelected}
+                                disabled={unitPriceOptionsLoading || visibleUnitPriceOptions.length === 0}
+                                onChange={toggleAllVisibleUnitPriceOptions}
+                                className="h-4 w-4 cursor-pointer rounded border-border"
+                              />
+                              <span>全选</span>
+                            </label>
+                            <button
+                              type="button"
+                              className="cursor-pointer text-muted-foreground hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
+                              disabled={unitPriceOptionsLoading || visibleUnitPriceOptions.length === 0}
+                              onClick={invertVisibleUnitPriceOptions}
+                            >
+                              反选
+                            </button>
+                          </div>
+                          <span className="text-muted-foreground">已选 {unitPriceDraftValues.length} / {unitPriceOptions.length}</span>
+                        </div>
+                        <div className="min-h-40 max-h-56 overflow-y-auto px-2 py-1.5 font-normal">
+                          {unitPriceOptionsLoading && (
+                            <div className="flex items-center justify-center gap-2 py-12 text-xs text-muted-foreground">
+                              <LoaderCircle className="h-4 w-4 animate-spin" />
+                              正在读取单价...
+                            </div>
+                          )}
+                          {!unitPriceOptionsLoading && unitPriceOptionsTruncated && (
+                            <p className="mx-1 mb-1.5 rounded-md border border-border bg-muted/40 px-2 py-1.5 text-xs text-muted-foreground">单价选项较多，当前展示前 5000 项</p>
+                          )}
+                          {!unitPriceOptionsLoading && visibleUnitPriceOptions.length === 0 && (
+                            <p className="py-12 text-center text-xs text-muted-foreground">没有匹配的单价</p>
+                          )}
+                          {!unitPriceOptionsLoading && visibleUnitPriceOptions.map((option) => {
+                            const value = unitPriceOptionKey(option)
+                            return (
+                              <label key={value} className="flex h-8 cursor-pointer items-center gap-2 rounded-md px-2 text-xs hover:bg-muted/70">
+                                <input
+                                  type="checkbox"
+                                  checked={unitPriceDraftValueSet.has(value)}
+                                  onChange={() => toggleUnitPriceOption(value)}
+                                  className="h-4 w-4 cursor-pointer rounded border-border"
+                                />
+                                <span className="min-w-0 flex-1 truncate tabular-nums text-foreground">{unitPriceOptionLabel(option)}</span>
+                                <span className="shrink-0 tabular-nums text-muted-foreground">{option.count.toLocaleString("zh-CN")}</span>
+                              </label>
+                            )
+                          })}
+                        </div>
+                        {unitPriceFilterError && (
+                          <p className="border-t border-border bg-destructive/5 px-3 py-2 text-xs font-normal text-destructive">{unitPriceFilterError}</p>
+                        )}
+                        <div className="flex items-center justify-between border-t border-border px-3 py-2">
+                          <Button type="button" variant="ghost" size="sm" className="h-8 cursor-pointer px-2 text-xs" onClick={clearUnitPriceFilter}>清除此列</Button>
+                          <div className="flex gap-2">
+                            <Button type="button" variant="outline" size="sm" className="h-8 cursor-pointer" onClick={() => setUnitPriceFilterOpen(false)}>取消</Button>
+                            <Button type="button" size="sm" className="h-8 cursor-pointer" disabled={unitPriceOptionsLoading || !unitPriceOptionsLoaded} onClick={applyUnitPriceFilter}>确定</Button>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </th>
                   <th className="w-[90px] px-3 py-2.5 text-right font-medium whitespace-nowrap">金额</th>
                   <th className="sticky right-0 z-30 w-20 border-l border-border bg-muted px-4 py-2.5 font-medium whitespace-nowrap shadow-[-5px_0_10px_-9px_rgb(0_0_0_/_0.45)]">操作</th>
                 </tr>
@@ -1017,7 +1397,9 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
               )}
               {!isLoading && items.length === 0 && (
                 <tr>
-                  <td colSpan={detailColumnCount} className="px-6 py-12 text-center text-muted-foreground">暂无明细数据</td>
+                  <td colSpan={detailColumnCount} className="px-6 py-12 text-center text-muted-foreground">
+                    {hasUnitPriceFilter ? "没有符合单价条件的明细" : "暂无明细数据"}
+                  </td>
                 </tr>
               )}
               {items.map((item, index) => (
@@ -1111,20 +1493,24 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
         <div
           className="print-document"
           aria-hidden="true"
+          data-rotate-landscape={rotateLandscapePrint}
           style={{
             "--purchase-print-width": `${printTemplate.paper_width_mm}mm`,
             "--purchase-print-height": `${printTemplate.paper_height_mm}mm`,
+            "--purchase-print-page-width": `${physicalPrintWidth}mm`,
+            "--purchase-print-page-height": `${physicalPrintHeight}mm`,
           } as React.CSSProperties}
         >
-          <style>{`@media print { @page { size: ${printTemplate.paper_width_mm}mm ${printTemplate.paper_height_mm}mm; margin: 0; } }`}</style>
+          <style>{`@media print { @page { size: ${physicalPrintWidth}mm ${physicalPrintHeight}mm; margin: 0; } }`}</style>
           <div className="shoe-label-sheet">
             {printLabels.map((label) => (
               <section
-                className="shoe-label"
-                data-outer-border={printTemplate.show_outer_border}
+                className="shoe-label-page"
                 key={label.printKey}
               >
-                <PurchasePrintTemplateContent config={printTemplate} data={label} />
+                <div className="shoe-label" data-outer-border={printTemplate.show_outer_border}>
+                  <PurchasePrintTemplateContent config={printTemplate} data={label} />
+                </div>
               </section>
             ))}
           </div>
@@ -1136,7 +1522,15 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
         <PurchasePrintTemplateEditor
           open={printTemplateOpen}
           config={printTemplate}
+          templates={printTemplates}
+          selectedTemplateKey={selectedPrintTemplateKey}
+          templateName={selectedPrintTemplateName}
           onOpenChange={setPrintTemplateOpen}
+          onTemplateChange={handleTemplateChange}
+          onCreateTemplate={handleCreatePrintTemplate}
+          onDuplicateTemplate={handleDuplicatePrintTemplate}
+          onSetDefaultTemplate={handleSetDefaultPrintTemplate}
+          onDeleteTemplate={handleDeletePrintTemplate}
           onSave={handleSavePrintTemplate}
         />
       )}

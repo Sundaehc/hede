@@ -70,6 +70,11 @@ def list_size_groups(request: Request):
     return {"items": _repository(request).list_groups()}
 
 
+@router.get("/options")
+def list_size_group_options(request: Request):
+    return {"items": _repository(request).list_groups()}
+
+
 @router.post("")
 def create_size_group(request: Request, payload: SizeGroupWriteRequest):
     try:

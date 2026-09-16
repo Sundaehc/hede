@@ -338,16 +338,18 @@ class AuthRepository:
         return self._user_with_permissions(dict(row))
 
     def authenticate(self, username: str, password: str) -> dict[str, object] | None:
+        normalized_username = username.strip()
+        normalized_password = password.strip()
         with self.engine.begin() as connection:
             row = connection.execute(
-                select(AUTH_USER_TABLE).where(AUTH_USER_TABLE.c.username == username.strip())
+                select(AUTH_USER_TABLE).where(AUTH_USER_TABLE.c.username == normalized_username)
             ).mappings().first()
             if row is None:
                 return None
             item = dict(row)
             if item.get("status") != "active":
                 return None
-            if item.get("password_hash") != hash_password_md5(password):
+            if item.get("password_hash") != hash_password_md5(normalized_password):
                 return None
             connection.execute(
                 update(AUTH_USER_TABLE)

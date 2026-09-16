@@ -15,7 +15,7 @@ import {
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select } from "@/components/ui/select"
-import { ApiError, createProduct, listProductAuxiliaryOptions, listProductColorBarcodes, listSizeGroups, listSuppliersByBrand, lookupImage, updateProduct, type SupplierItem } from "@/lib/api"
+import { ApiError, createProduct, listProductAuxiliaryOptions, listProductColorBarcodes, listSizeGroupOptions, listSuppliersByBrand, lookupImage, updateProduct, type SupplierItem } from "@/lib/api"
 import { PRODUCT_ARCHIVE_BRANDS, type ProductArchiveBrand, type ProductArchiveRecordBrandKey } from "@/lib/brands"
 import { ALL_PRODUCT_FIELDS, BARCODE_BUILD_RULE_OPTIONS, FIELD_LABELS, SEASON_OPTIONS, getProductFieldGroups, getProductFieldLabel } from "@/lib/fields"
 import type { ImageLookupStatusState, ProductAuxiliaryOptionGroup, ProductColorBarcodeItem, ProductFormValues, ProductListItem, ProductMutationPayload, SizeGroup } from "@/lib/types"
@@ -658,7 +658,7 @@ export function ProductFormDialog({ brands = PRODUCT_ARCHIVE_BRANDS, item, mode,
 
     let cancelled = false
     setIsLoadingSizeGroups(true)
-    listSizeGroups()
+    listSizeGroupOptions()
       .then((response) => {
         if (!cancelled) {
           setSizeGroups(response.items)

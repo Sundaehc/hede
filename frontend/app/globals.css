@@ -245,72 +245,11 @@
   overflow: hidden;
 }
 
-.purchase-print-barcode-wrap {
-  display: grid;
-  width: 100%;
-  height: 100%;
-  min-height: 0;
-  grid-template-rows: minmax(0, 1fr) auto;
-  align-items: stretch;
-}
-
 .purchase-print-barcode {
   display: block;
   width: 100%;
   height: 100%;
   min-height: 0;
-}
-
-.purchase-print-barcode-caption {
-  position: relative;
-  display: flex;
-  min-width: 0;
-  align-items: baseline;
-  justify-content: flex-start;
-  gap: 2mm;
-  padding: 0 0.8mm;
-  overflow: hidden;
-  font-family: Arial, "Microsoft YaHei", sans-serif;
-  line-height: 1;
-  text-align: left;
-  white-space: nowrap;
-}
-
-.purchase-print-barcode-caption-content {
-  display: flex;
-  width: 100%;
-  min-width: 0;
-  align-items: baseline;
-  justify-content: flex-start;
-  gap: 2mm;
-  box-sizing: border-box;
-  padding: 0 0.8mm;
-  overflow: hidden;
-  font-family: Arial, "Microsoft YaHei", sans-serif;
-  line-height: 1;
-  text-align: left;
-  white-space: nowrap;
-}
-
-.purchase-print-barcode-value {
-  display: block;
-  flex: none;
-  min-width: max-content;
-  overflow: hidden;
-  font-size: 1em;
-  font-weight: 700;
-  text-overflow: clip;
-  text-align: left;
-}
-
-.purchase-print-barcode-note {
-  display: block;
-  flex: none;
-  margin-left: auto;
-  font-size: 0.72em;
-  font-weight: 400;
-  text-align: right;
-  white-space: nowrap;
 }
 
 .purchase-print-resize-handle {
@@ -328,8 +267,20 @@
 
 @media print {
   @page {
-    size: 60mm 80mm;
+    size: 80mm 60mm;
     margin: 0;
+  }
+
+  html,
+  body {
+    width: 100% !important;
+    min-width: 0 !important;
+    height: auto !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    overflow: visible !important;
+    background: #fff !important;
+    background-image: none !important;
   }
 
   body > *:not(.print-document) {
@@ -343,25 +294,37 @@
 
   .print-document {
     display: block !important;
-    position: absolute;
-    inset: 0;
-    width: 100%;
+    position: static;
+    width: var(--purchase-print-page-width, 60mm);
+    height: auto;
+    margin: 0;
+    padding: 0;
     color: #000;
     background: #fff;
     font-family: "Microsoft YaHei", "SimSun", Arial, sans-serif;
     font-synthesis: weight style;
+    print-color-adjust: exact;
+    -webkit-print-color-adjust: exact;
   }
 
   .shoe-label-sheet {
     display: block;
-    width: var(--purchase-print-width, 60mm);
+    width: var(--purchase-print-page-width, 60mm);
+    margin: 0;
+    padding: 0;
   }
 
-  .shoe-label {
+  .shoe-label-page {
     box-sizing: border-box;
     position: relative;
-    width: var(--purchase-print-width, 60mm);
-    height: var(--purchase-print-height, 80mm);
+    width: var(--purchase-print-page-width, 60mm);
+    height: var(--purchase-print-page-height, 80mm);
+    min-width: var(--purchase-print-page-width, 60mm);
+    min-height: var(--purchase-print-page-height, 80mm);
+    max-width: var(--purchase-print-page-width, 60mm);
+    max-height: var(--purchase-print-page-height, 80mm);
+    margin: 0;
+    padding: 0;
     overflow: hidden;
     background: #fff;
     break-inside: avoid;
@@ -370,11 +333,27 @@
     page-break-after: always;
   }
 
+  .shoe-label {
+    box-sizing: border-box;
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: var(--purchase-print-width, 80mm);
+    height: var(--purchase-print-height, 60mm);
+    overflow: hidden;
+    background: #fff;
+    transform-origin: top left;
+  }
+
+  .print-document[data-rotate-landscape="true"] .shoe-label {
+    transform: translateX(var(--purchase-print-height, 60mm)) rotate(90deg);
+  }
+
   .shoe-label[data-outer-border="true"] {
     box-shadow: inset 0 0 0 0.35mm #000;
   }
 
-  .shoe-label:last-child {
+  .shoe-label-page:last-child {
     break-after: auto;
     page-break-after: auto;
   }

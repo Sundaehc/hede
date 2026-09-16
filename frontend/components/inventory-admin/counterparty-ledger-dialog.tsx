@@ -1,13 +1,15 @@
 "use client"
 
 import { Fragment, useCallback, useEffect, useMemo, useState } from "react"
-import { RefreshCw, X } from "lucide-react"
+import { Download, RefreshCw, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { useAuth } from "@/components/auth/auth-provider"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import {
   ApiError,
+  downloadGeneralCustomerLedger,
   listCounterpartyLedger,
   listDetails,
   type CounterpartyLedgerResponse,
@@ -92,6 +94,7 @@ function getDetailSizeQuantity(values: Record<string, string> | null | undefined
 }
 
 export function CounterpartyLedgerDialog({ open, counterpartyType, name, onOpenChange }: CounterpartyLedgerDialogProps) {
+  const { user } = useAuth()
   const [dateStart, setDateStart] = useState(monthStartText)
   const [dateEnd, setDateEnd] = useState(todayText)
   const [ledger, setLedger] = useState<CounterpartyLedgerResponse | null>(null)
@@ -101,9 +104,13 @@ export function CounterpartyLedgerDialog({ open, counterpartyType, name, onOpenC
   const [detailsByDocumentId, setDetailsByDocumentId] = useState<Record<number, InventoryDetail[]>>({})
   const [detailLoadingId, setDetailLoadingId] = useState<number | null>(null)
   const [detailErrorByDocumentId, setDetailErrorByDocumentId] = useState<Record<number, string>>({})
+  const [isExporting, setIsExporting] = useState(false)
 
   const title = counterpartyType === "supplier" ? "应付款-明细账本" : "应收款-明细账本"
   const unitLabel = counterpartyType === "supplier" ? "供应商" : "一般客户"
+  const canExportCustomerLedger = counterpartyType === "customer" && (
+    user?.role_code === "super_admin" || user?.department_code === "财务部"
+  )
 
   const load = useCallback(async () => {
     if (!open || !name) return
@@ -167,6 +174,19 @@ export function CounterpartyLedgerDialog({ open, counterpartyType, name, onOpenC
     }
   }, [detailsByDocumentId, expandedId])
 
+  const handleExport = async () => {
+    if (!canExportCustomerLedger || !name || isExporting) return
+    setIsExporting(true)
+    setError("")
+    try {
+      await downloadGeneralCustomerLedger({ name, dateStart, dateEnd })
+    } catch (err) {
+      setError(getErrorMessage(err))
+    } finally {
+      setIsExporting(false)
+    }
+  }
+
   const rows = ledger?.items ?? []
   const totals = useMemo(() => ({
     beginning: ledger?.beginning_balance ?? "0",
@@ -210,10 +230,18 @@ export function CounterpartyLedgerDialog({ open, counterpartyType, name, onOpenC
               <Label htmlFor="ledger-date-end">结束日期</Label>
               <Input id="ledger-date-end" type="date" value={dateEnd} onChange={(event) => setDateEnd(event.target.value)} />
             </div>
-            <Button onClick={() => void load()} disabled={isLoading || !name} className="cursor-pointer">
-              <RefreshCw className={`h-4 w-4 ${isLoading ? "animate-spin" : ""}`} />
-              <span className="ml-1.5">{isLoading ? "查询中..." : "查询"}</span>
-            </Button>
+            <div className="flex items-center gap-2">
+              <Button onClick={() => void load()} disabled={isLoading || !name} className="cursor-pointer">
+                <RefreshCw className={`h-4 w-4 ${isLoading ? "animate-spin" : ""}`} />
+                <span className="ml-1.5">{isLoading ? "查询中..." : "查询"}</span>
+              </Button>
+              {canExportCustomerLedger && (
+                <Button type="button" variant="outline" onClick={() => void handleExport()} disabled={isExporting || !name} className="cursor-pointer">
+                  <Download className="h-4 w-4" />
+                  <span className="ml-1.5">{isExporting ? "导出中..." : "导出 Excel"}</span>
+                </Button>
+              )}
+            </div>
           </div>
 
           <div className="grid gap-2 sm:grid-cols-4">

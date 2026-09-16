@@ -23,14 +23,19 @@ import { login } from "@/lib/api"
 export default function LoginPage() {
   const router = useRouter()
   const { setUser } = useAuth()
-  const [username, setUsername] = useState("")
-  const [password, setPassword] = useState("")
   const [showPassword, setShowPassword] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState("")
 
-  const handleSubmit = async (event: React.FormEvent) => {
+  const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault()
+    const formData = new FormData(event.currentTarget)
+    const username = String(formData.get("username") ?? "").trim()
+    const password = String(formData.get("password") ?? "").trim()
+    if (!username || !password) {
+      setError("请输入账号和密码")
+      return
+    }
     setSubmitting(true)
     setError("")
     try {
@@ -59,11 +64,11 @@ export default function LoginPage() {
           </label>
           <Input
             id="login-username"
+            name="username"
             className="h-10"
-            value={username}
-            onChange={(event) => setUsername(event.target.value)}
             autoComplete="username"
             placeholder="请输入账号"
+            required
           />
         </div>
         <div className="space-y-1.5">
@@ -74,12 +79,12 @@ export default function LoginPage() {
           <div className="relative">
             <Input
               id="login-password"
+              name="password"
               className="h-10 pr-10"
               type={showPassword ? "text" : "password"}
-              value={password}
-              onChange={(event) => setPassword(event.target.value)}
               autoComplete="current-password"
               placeholder="请输入密码"
+              required
             />
             <button
               type="button"
@@ -98,7 +103,7 @@ export default function LoginPage() {
             <span>{error}</span>
           </div>
         ) : null}
-        <Button type="submit" size="lg" className="h-10 w-full justify-between px-3" disabled={submitting || !username.trim() || !password}>
+        <Button type="submit" size="lg" className="h-10 w-full justify-between px-3" disabled={submitting}>
           <span>{submitting ? "登录中..." : "登录"}</span>
           {submitting ? <Loader2 className="size-4 animate-spin" /> : <ArrowRight className="size-4" />}
         </Button>

@@ -4,8 +4,9 @@ import io
 import re
 import urllib.parse
 from collections import defaultdict
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from datetime import date, datetime, timedelta
+from uuid import uuid4
 
 import xlrd
 from fastapi import APIRouter, HTTPException, Query, Request, UploadFile
@@ -364,8 +365,8 @@ PURCHASE_PRINT_TEMPLATE_FIELDS = {
 PURCHASE_PRINT_TEMPLATE_KINDS = {"text", "barcode"}
 PURCHASE_PRINT_TEMPLATE_ALIGNS = {"left", "center", "right"}
 PURCHASE_PRINT_TEMPLATE_MAX_ELEMENTS = 40
-PURCHASE_PRINT_TEMPLATE_DEFAULT_WIDTH = 60
-PURCHASE_PRINT_TEMPLATE_DEFAULT_HEIGHT = 80
+PURCHASE_PRINT_TEMPLATE_DEFAULT_WIDTH = 80
+PURCHASE_PRINT_TEMPLATE_DEFAULT_HEIGHT = 60
 PURCHASE_PRINT_TEMPLATE_MIN_DIMENSION = 20
 PURCHASE_PRINT_TEMPLATE_MAX_DIMENSION = 300
 
@@ -936,44 +937,157 @@ def _scale_legacy_purchase_print_template_value(value: object, factor: float) ->
 
 
 def _migrate_legacy_purchase_print_template_config(config: dict[str, object]) -> dict[str, object]:
-    """Convert the original fixed 80x60 template to the current configurable format."""
+    """Upgrade saved templates while preserving their relative element layout."""
     try:
         version = int(config.get("version", 1))
         old_width = float(config.get("paper_width_mm"))
         old_height = float(config.get("paper_height_mm"))
     except (TypeError, ValueError):
         return config
-    if version != 1 or old_width != 80 or old_height != 60:
-        return config
-
     migrated = dict(config)
-    migrated["version"] = 2
-    migrated["paper_width_mm"] = PURCHASE_PRINT_TEMPLATE_DEFAULT_WIDTH
-    migrated["paper_height_mm"] = PURCHASE_PRINT_TEMPLATE_DEFAULT_HEIGHT
-    raw_elements = config.get("elements")
-    if isinstance(raw_elements, list):
-        migrated["elements"] = [
+    if version == 1 and old_width == 80 and old_height == 60:
+        migrated["version"] = 2
+        version = 2
+        migrated["paper_width_mm"] = PURCHASE_PRINT_TEMPLATE_DEFAULT_WIDTH
+        migrated["paper_height_mm"] = PURCHASE_PRINT_TEMPLATE_DEFAULT_HEIGHT
+        raw_elements = config.get("elements")
+        if isinstance(raw_elements, list):
+            migrated["elements"] = [
+                {
+                    **_dict_or_empty(raw_element),
+                    "x": _scale_legacy_purchase_print_template_value(
+                        _dict_or_empty(raw_element).get("x"),
+                        PURCHASE_PRINT_TEMPLATE_DEFAULT_WIDTH / old_width,
+                    ),
+                    "y": _scale_legacy_purchase_print_template_value(
+                        _dict_or_empty(raw_element).get("y"),
+                        PURCHASE_PRINT_TEMPLATE_DEFAULT_HEIGHT / old_height,
+                    ),
+                    "width": _scale_legacy_purchase_print_template_value(
+                        _dict_or_empty(raw_element).get("width"),
+                        PURCHASE_PRINT_TEMPLATE_DEFAULT_WIDTH / old_width,
+                    ),
+                    "height": _scale_legacy_purchase_print_template_value(
+                        _dict_or_empty(raw_element).get("height"),
+                        PURCHASE_PRINT_TEMPLATE_DEFAULT_HEIGHT / old_height,
+                    ),
+                }
+                for raw_element in raw_elements
+            ]
+
+    raw_elements = migrated.get("elements")
+    if not isinstance(raw_elements, list) or version >= 4:
+        return migrated
+
+    if version < 3:
+        has_barcode_value = any(
+            _cell_text(_dict_or_empty(element).get("kind")) == "text"
+            and _cell_text(_dict_or_empty(element).get("field")) == "barcode"
+            for element in raw_elements
+        )
+        has_barcode_note = any(
+            _cell_text(_dict_or_empty(element).get("kind")) == "text"
+            and "内部使用条码" in _cell_text(_dict_or_empty(element).get("text"))
+            for element in raw_elements
+        )
+        if not has_barcode_value and not has_barcode_note:
+            split_elements: list[object] = []
+            for raw_element in raw_elements:
+                element = _dict_or_empty(raw_element)
+                if _cell_text(element.get("kind")) != "barcode":
+                    split_elements.append(raw_element)
+                    continue
+                try:
+                    x = float(element.get("x"))
+                    y = float(element.get("y"))
+                    width = float(element.get("width"))
+                    height = float(element.get("height"))
+                except (TypeError, ValueError):
+                    split_elements.append(raw_element)
+                    continue
+                if height < 5 or width < 9:
+                    split_elements.append(raw_element)
+                    continue
+                graphic_height = round(height * 0.72, 2)
+                caption_height = round(height - graphic_height, 2)
+                value_width = round(width * 0.66, 2)
+                note_width = round(width - value_width, 2)
+                element_id = _cell_text(element.get("id")) or "barcode"
+                split_elements.extend([
+                    {**element, "height": graphic_height},
+                    {
+                        "id": f"{element_id}-value",
+                        "kind": "text",
+                        "field": "barcode",
+                        "label": "条码文字",
+                        "text": "",
+                        "x": x,
+                        "y": round(y + graphic_height, 2),
+                        "width": value_width,
+                        "height": caption_height,
+                        "font_size": element.get("font_size", 8.5),
+                        "bold": True,
+                        "underline": False,
+                        "align": "left",
+                        "show_label": False,
+                        "border": False,
+                        "wrap": False,
+                    },
+                    {
+                        "id": f"{element_id}-note",
+                        "kind": "text",
+                        "field": None,
+                        "label": "",
+                        "text": "（内部使用条码）",
+                        "x": round(x + value_width, 2),
+                        "y": round(y + graphic_height, 2),
+                        "width": note_width,
+                        "height": caption_height,
+                        "font_size": max(5, round(float(element.get("font_size", 8.5)) * 0.72, 2)),
+                        "bold": False,
+                        "underline": False,
+                        "align": "right",
+                        "show_label": False,
+                        "border": False,
+                        "wrap": False,
+                    },
+                ])
+            raw_elements = split_elements
+
+    try:
+        current_width = float(migrated.get("paper_width_mm"))
+        current_height = float(migrated.get("paper_height_mm"))
+    except (TypeError, ValueError):
+        current_width = PURCHASE_PRINT_TEMPLATE_DEFAULT_WIDTH
+        current_height = PURCHASE_PRINT_TEMPLATE_DEFAULT_HEIGHT
+    if current_width == 60 and current_height == 80:
+        raw_elements = [
             {
-                **_dict_or_empty(raw_element),
+                **_dict_or_empty(element),
                 "x": _scale_legacy_purchase_print_template_value(
-                    _dict_or_empty(raw_element).get("x"),
-                    PURCHASE_PRINT_TEMPLATE_DEFAULT_WIDTH / old_width,
+                    _dict_or_empty(element).get("x"),
+                    PURCHASE_PRINT_TEMPLATE_DEFAULT_WIDTH / current_width,
                 ),
                 "y": _scale_legacy_purchase_print_template_value(
-                    _dict_or_empty(raw_element).get("y"),
-                    PURCHASE_PRINT_TEMPLATE_DEFAULT_HEIGHT / old_height,
+                    _dict_or_empty(element).get("y"),
+                    PURCHASE_PRINT_TEMPLATE_DEFAULT_HEIGHT / current_height,
                 ),
                 "width": _scale_legacy_purchase_print_template_value(
-                    _dict_or_empty(raw_element).get("width"),
-                    PURCHASE_PRINT_TEMPLATE_DEFAULT_WIDTH / old_width,
+                    _dict_or_empty(element).get("width"),
+                    PURCHASE_PRINT_TEMPLATE_DEFAULT_WIDTH / current_width,
                 ),
                 "height": _scale_legacy_purchase_print_template_value(
-                    _dict_or_empty(raw_element).get("height"),
-                    PURCHASE_PRINT_TEMPLATE_DEFAULT_HEIGHT / old_height,
+                    _dict_or_empty(element).get("height"),
+                    PURCHASE_PRINT_TEMPLATE_DEFAULT_HEIGHT / current_height,
                 ),
             }
-            for raw_element in raw_elements
+            for element in raw_elements
         ]
+        migrated["paper_width_mm"] = PURCHASE_PRINT_TEMPLATE_DEFAULT_WIDTH
+        migrated["paper_height_mm"] = PURCHASE_PRINT_TEMPLATE_DEFAULT_HEIGHT
+
+    migrated["elements"] = raw_elements
+    migrated["version"] = 4
     return migrated
 
 
@@ -1081,11 +1195,22 @@ def _normalize_purchase_print_template_config(value: object) -> dict[str, object
         element_ids.add(element_id)
 
     return {
-        "version": 2,
+        "version": 4,
         "paper_width_mm": paper_width,
         "paper_height_mm": paper_height,
         "show_outer_border": bool(config.get("show_outer_border", True)),
         "elements": elements,
+    }
+
+
+def _purchase_print_template_response(item: dict[str, object] | None) -> dict[str, object] | None:
+    if item is None:
+        return None
+    return {
+        "template_key": str(item.get("template_key") or ""),
+        "template_name": str(item.get("template_name") or "默认模板"),
+        "is_default": bool(item.get("is_default", False)),
+        "config": _normalize_purchase_print_template_config(item.get("config")),
     }
 
 
@@ -4983,6 +5108,124 @@ def get_counterparty_ledger(
     )
 
 
+@router.get("/inventory/counterparty-ledger/export")
+def export_general_customer_ledger(
+    request: Request,
+    name: str,
+    date_start: str | None = None,
+    date_end: str | None = None,
+):
+    actor = actor_from_request(request) or {}
+    role_code = _cell_text(actor.get("role_code"))
+    department_code = _cell_text(actor.get("department_code"))
+    if role_code != "super_admin" and department_code != "财务部":
+        raise HTTPException(status_code=403, detail="仅财务部和超级管理员可以导出一般客户明细账本")
+
+    customer_name = _cell_text(name)
+    if not customer_name:
+        raise HTTPException(status_code=400, detail="一般客户名称不能为空")
+    normalized_start = _normalize_date(date_start)
+    normalized_end = _normalize_date(date_end)
+    repository = request.app.state.inventory_repository
+    ledger = repository.get_counterparty_ledger(
+        counterparty_type="customer",
+        name=customer_name,
+        date_start=normalized_start,
+        date_end=normalized_end,
+    )
+
+    workbook = Workbook()
+    worksheet = workbook.active
+    worksheet.title = "应收款明细账本"
+    headers = (
+        "行号",
+        "日期",
+        "单据编号",
+        "单据类型",
+        "单据摘要",
+        "经手人",
+        "仓库",
+        "增加金额",
+        "减少金额",
+        "余额",
+    )
+    worksheet.append(headers)
+    for item in ledger.get("items", []):
+        worksheet.append([
+            item.get("row_number"),
+            item.get("date") or "",
+            item.get("document_number") or item.get("id") or "",
+            item.get("document_type") or "",
+            item.get("summary") or "",
+            item.get("handler") or "",
+            item.get("warehouse") or "",
+            _to_decimal(item.get("increase_amount")) if _cell_text(item.get("increase_amount")) else None,
+            _to_decimal(item.get("decrease_amount")) if _cell_text(item.get("decrease_amount")) else None,
+            _to_decimal(item.get("balance")),
+        ])
+
+    worksheet.append([
+        "合计",
+        "",
+        "",
+        "",
+        f"此前余额：{ledger.get('beginning_balance') or '0'}",
+        "",
+        "",
+        _to_decimal(ledger.get("increase_total")),
+        _to_decimal(ledger.get("decrease_total")),
+        _to_decimal(ledger.get("ending_balance")),
+    ])
+    style_excel_worksheet(
+        worksheet,
+        width_by_header={
+            "日期": 13,
+            "单据类型": 18,
+            "单据摘要": 32,
+            "经手人": 14,
+            "仓库": 20,
+            "增加金额": 14,
+            "减少金额": 14,
+            "余额": 14,
+        },
+        text_headers={"单据编号"},
+        numeric_headers={"增加金额", "减少金额", "余额"},
+    )
+    total_row = worksheet.max_row
+    for cell in worksheet[total_row]:
+        cell.font = Font(name="宋体", size=10, bold=True)
+    for row_index in range(2, worksheet.max_row + 1):
+        for column_index in (8, 9, 10):
+            worksheet.cell(row=row_index, column=column_index).number_format = '#,##0.00'
+
+    output = io.BytesIO()
+    workbook.save(output)
+    output.seek(0)
+    safe_name = re.sub(r'[\\/:*?"<>|]+', "_", customer_name).strip() or "一般客户"
+    range_text = f"{normalized_start or '全部'}至{normalized_end or '当前'}"
+    filename = f"{safe_name}_应收款明细账本_{range_text}.xlsx"
+    quoted_filename = urllib.parse.quote(filename)
+    write_operation_log(
+        request,
+        module="general_customer",
+        action="export",
+        entity_type="general_customer_ledger",
+        entity_label=customer_name,
+        summary=f"导出一般客户明细账本 {customer_name}（{range_text}）",
+        after_data={
+            "name": customer_name,
+            "date_start": normalized_start,
+            "date_end": normalized_end,
+            "record_count": len(ledger.get("items", [])),
+        },
+    )
+    return StreamingResponse(
+        output,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{quoted_filename}"},
+    )
+
+
 @router.get("/inventory/detail-lookup")
 def lookup_inventory_detail(
     request: Request,
@@ -5216,18 +5459,61 @@ def batch_delete_inventory(request: Request, payload: dict):
     return {"deleted": deleted, "message": f"已移入回收站 {deleted} 条记录，10 天内可恢复"}
 
 
+@router.get("/inventory/{record_id}/details/unit-price-options")
+def list_inventory_detail_unit_price_options(
+    request: Request,
+    record_id: int,
+    search: str | None = None,
+    limit: int = Query(default=5000, ge=1, le=5000),
+):
+    repository = request.app.state.inventory_repository
+    if repository.get_record(record_id) is None:
+        raise HTTPException(status_code=404, detail="单据不存在")
+    return repository.list_detail_unit_price_options(
+        record_id,
+        search=search,
+        limit=limit,
+    )
+
+
 @router.get("/inventory/{record_id}/details")
 def list_inventory_details(
     request: Request,
     record_id: int,
     page: int | None = None,
     page_size: int | None = None,
+    unit_price_values: str | None = None,
 ):
     repository = request.app.state.inventory_repository
     record = repository.get_record(record_id)
+    parsed_unit_price_values: list[Decimal | None] | None = None
+    if unit_price_values is not None:
+        raw_values = [value.strip() for value in unit_price_values.split(",") if value.strip()]
+        if not raw_values:
+            raise HTTPException(status_code=400, detail="请至少选择一个单价")
+        if len(raw_values) > 5000:
+            raise HTTPException(status_code=400, detail="单价筛选项过多")
+        parsed_unit_price_values = []
+        for raw_value in raw_values:
+            if raw_value == "__blank__":
+                parsed_unit_price_values.append(None)
+                continue
+            try:
+                parsed_value = Decimal(raw_value)
+            except InvalidOperation:
+                raise HTTPException(status_code=400, detail="单价筛选项格式不正确") from None
+            if not parsed_value.is_finite() or parsed_value < 0:
+                raise HTTPException(status_code=400, detail="单价筛选项必须是大于等于 0 的数字")
+            if parsed_value not in parsed_unit_price_values:
+                parsed_unit_price_values.append(parsed_value)
     paged = page_size is not None
     if paged:
-        result = repository.list_details_page(record_id, page=page or 1, page_size=page_size)
+        result = repository.list_details_page(
+            record_id,
+            page=page or 1,
+            page_size=page_size,
+            unit_price_values=parsed_unit_price_values,
+        )
         details = result["items"]
         total = int(result["total"])
         response_page = int(result["page"])
@@ -5357,12 +5643,83 @@ def list_inventory_print_labels(request: Request, record_id: int):
 def get_purchase_print_template(request: Request):
     repository = request.app.state.inventory_repository
     user_id = _current_account_id(request, required=True)
-    item = repository.get_purchase_print_template(user_id)
+    item = repository.get_default_purchase_print_template(user_id)
     return {
+        "template": _purchase_print_template_response(item),
         "config": _normalize_purchase_print_template_config(item.get("config"))
         if item
         else None,
     }
+
+
+@router.get("/purchase-print-templates")
+def list_purchase_print_templates(request: Request):
+    repository = request.app.state.inventory_repository
+    user_id = _current_account_id(request, required=True)
+    return {
+        "items": [
+            _purchase_print_template_response(item)
+            for item in repository.list_purchase_print_templates(user_id)
+        ]
+    }
+
+
+@router.post("/purchase-print-templates")
+def create_purchase_print_template(request: Request, payload: dict):
+    repository = request.app.state.inventory_repository
+    user_id = _current_account_id(request, required=True)
+    template_name = _cell_text(payload.get("template_name")) or "新模板"
+    if len(template_name) > 80:
+        raise HTTPException(status_code=400, detail="模板名称不能超过80个字符")
+    config = _normalize_purchase_print_template_config(payload.get("config"))
+    item = repository.upsert_purchase_print_template(
+        user_id,
+        config,
+        template_key=f"shoe_box_label_{uuid4().hex}",
+        template_name=template_name,
+        is_default=bool(payload.get("is_default", False)),
+    )
+    return {"template": _purchase_print_template_response(item), "message": "模板已创建"}
+
+
+@router.put("/purchase-print-templates/{template_key}")
+def update_purchase_print_template(request: Request, template_key: str, payload: dict):
+    repository = request.app.state.inventory_repository
+    user_id = _current_account_id(request, required=True)
+    existing = repository.get_purchase_print_template_by_key(user_id, template_key)
+    if existing is None:
+        raise HTTPException(status_code=404, detail="模板不存在")
+    template_name = _cell_text(payload.get("template_name")) or _cell_text(existing.get("template_name")) or "默认模板"
+    if len(template_name) > 80:
+        raise HTTPException(status_code=400, detail="模板名称不能超过80个字符")
+    config = _normalize_purchase_print_template_config(payload.get("config", existing.get("config")))
+    item = repository.upsert_purchase_print_template(
+        user_id,
+        config,
+        template_key=template_key,
+        template_name=template_name,
+        is_default=bool(existing.get("is_default", False)),
+    )
+    return {"template": _purchase_print_template_response(item), "message": "模板已保存"}
+
+
+@router.post("/purchase-print-templates/{template_key}/default")
+def set_default_purchase_print_template(request: Request, template_key: str):
+    repository = request.app.state.inventory_repository
+    user_id = _current_account_id(request, required=True)
+    item = repository.set_default_purchase_print_template(user_id, template_key)
+    if item is None:
+        raise HTTPException(status_code=404, detail="模板不存在")
+    return {"template": _purchase_print_template_response(item), "message": "已设为默认模板"}
+
+
+@router.delete("/purchase-print-templates/{template_key}")
+def delete_purchase_print_template(request: Request, template_key: str):
+    repository = request.app.state.inventory_repository
+    user_id = _current_account_id(request, required=True)
+    if not repository.delete_purchase_print_template(user_id, template_key):
+        raise HTTPException(status_code=404, detail="模板不存在")
+    return {"message": "模板已删除"}
 
 
 @router.put("/purchase-print-template/current")

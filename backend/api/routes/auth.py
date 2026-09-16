@@ -122,7 +122,7 @@ def require_permission(request: Request, permission: str) -> dict[str, object]:
 @router.post("/login")
 def login(request: Request, response: Response, body: LoginRequest):
     repository = request.app.state.auth_repository
-    user = repository.authenticate(body.username, body.password)
+    user = repository.authenticate(body.username.strip(), body.password.strip())
     if user is None:
         raise HTTPException(status_code=401, detail="用户名或密码错误")
 

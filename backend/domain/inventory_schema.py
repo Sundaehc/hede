@@ -134,6 +134,8 @@ def build_purchase_print_template_table() -> Table:
         Column("id", BigInteger, Identity(always=False), primary_key=True),
         Column("user_id", BigInteger, nullable=False),
         Column("template_key", Text, nullable=False, server_default="shoe_box_label"),
+        Column("template_name", Text, nullable=False, server_default="默认模板"),
+        Column("is_default", Boolean, nullable=False, server_default="false"),
         Column("config", JSON, nullable=False),
         Column("created_at", DateTime(timezone=True), server_default=func.date_trunc("minute", func.now())),
         Column(
@@ -145,6 +147,12 @@ def build_purchase_print_template_table() -> Table:
         UniqueConstraint("user_id", "template_key", name="uq_purchase_print_templates_user_key"),
     )
     Index("idx_purchase_print_templates_user", table.c.user_id)
+    Index(
+        "uq_purchase_print_templates_user_default",
+        table.c.user_id,
+        unique=True,
+        postgresql_where=table.c.is_default.is_(True),
+    )
     return table
 
 

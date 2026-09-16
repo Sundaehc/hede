@@ -24,7 +24,7 @@ vi.mock("@/lib/api", async () => {
     createProduct: mockCreateProduct,
     listProductAuxiliaryOptions: mockListProductAuxiliaryOptions,
     listProductColorBarcodes: mockListProductColorBarcodes,
-    listSizeGroups: mockListSizeGroups,
+    listSizeGroupOptions: mockListSizeGroups,
     listSuppliersByBrand: mockListSuppliersByBrand,
     lookupImage: mockLookupImage,
     updateProduct: mockUpdateProduct,

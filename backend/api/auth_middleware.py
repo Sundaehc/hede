@@ -49,7 +49,7 @@ def required_permission_for_request(method: str, path: str) -> str | tuple[str, 
         return ("supplier.manage", "inventory.manage")
     if path.startswith("/warehouses"):
         return "inventory.view" if method == "GET" else "inventory.manage"
-    if path.startswith("/purchase-print-template"):
+    if path.startswith("/purchase-print-template") or path.startswith("/purchase-print-templates"):
         return ("purchase.view", "inventory.view")
     if path.startswith("/inventory/export"):
         return ("inventory.export", "purchase.export")
@@ -114,6 +114,15 @@ async def auth_middleware(request: Request, call_next):
     if path.startswith("/size-groups"):
         role_code = str(user.get("role_code") or "").strip()
         department_code = str(user.get("department_code") or "").strip()
+        if request.method == "GET" and path == "/size-groups/options":
+            allowed = any(
+                user_has_permission(user, permission)
+                for permission in ("product.view", "purchase.view", "inventory.view")
+            )
+            if not allowed:
+                return JSONResponse({"detail": "权限不足"}, status_code=403)
+            request.state.current_user = user
+            return await call_next(request)
         if role_code != "super_admin" and department_code not in {"商品部", "开发部"}:
             return JSONResponse({"detail": "尺码组管理仅限商品部、开发部和超级管理员访问"}, status_code=403)
         request.state.current_user = user

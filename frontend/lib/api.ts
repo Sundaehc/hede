@@ -213,6 +213,10 @@ export function listSizeGroups() {
   return request<{ items: SizeGroup[] }>("/size-groups")
 }
 
+export function listSizeGroupOptions() {
+  return request<{ items: SizeGroup[] }>("/size-groups/options")
+}
+
 export function createSizeGroup(payload: SizeGroupWritePayload) {
   return request<{ item: SizeGroup; message: string }>("/size-groups", {
     method: "POST",
@@ -1144,11 +1148,18 @@ export type PurchasePrintTemplateElement = {
 }
 
 export type PurchasePrintTemplateConfig = {
-  version: 2
+  version: 4
   paper_width_mm: number
   paper_height_mm: number
   show_outer_border: boolean
   elements: PurchasePrintTemplateElement[]
+}
+
+export type PurchasePrintTemplate = {
+  template_key: string
+  template_name: string
+  is_default: boolean
+  config: PurchasePrintTemplateConfig
 }
 
 export type InventoryDetailLookupResult = {
@@ -1928,11 +1939,16 @@ export function reorderGeneralCustomerUnits(shop_id: number, ids: number[]) {
 
 export function listDetails(
   documentId: number,
-  params?: { page?: number; pageSize?: number }
+  params?: {
+    page?: number
+    pageSize?: number
+    unitPriceValues?: string[]
+  }
 ) {
   const search = new URLSearchParams()
   if (params?.page) search.set("page", String(params.page))
   if (params?.pageSize) search.set("page_size", String(params.pageSize))
+  if (params?.unitPriceValues?.length) search.set("unit_price_values", params.unitPriceValues.join(","))
   const suffix = search.size > 0 ? `?${search.toString()}` : ""
   return request<{
     items: InventoryDetail[]
@@ -1940,6 +1956,26 @@ export function listDetails(
     page: number
     page_size: number
   }>(`/inventory/${documentId}/details${suffix}`)
+}
+
+export type InventoryDetailUnitPriceOption = {
+  value: string | null
+  count: number
+}
+
+export function listInventoryDetailUnitPriceOptions(
+  documentId: number,
+  params?: { search?: string; limit?: number }
+) {
+  const search = new URLSearchParams()
+  if (params?.search) search.set("search", params.search)
+  if (params?.limit) search.set("limit", String(params.limit))
+  const suffix = search.size > 0 ? `?${search.toString()}` : ""
+  return request<{
+    items: InventoryDetailUnitPriceOption[]
+    total: number
+    truncated: boolean
+  }>(`/inventory/${documentId}/details/unit-price-options${suffix}`)
 }
 
 export function listInventoryPrintLabels(documentId: number) {
@@ -1950,7 +1986,73 @@ export function listInventoryPrintLabels(documentId: number) {
 }
 
 export function getPurchasePrintTemplate() {
-  return request<{ config: PurchasePrintTemplateConfig | null }>("/purchase-print-template/current")
+  return request<{
+    template: PurchasePrintTemplate | null
+    config: PurchasePrintTemplateConfig | null
+  }>("/purchase-print-template/current")
+}
+
+export function listPurchasePrintTemplates() {
+  return request<{ items: PurchasePrintTemplate[] }>("/purchase-print-templates")
+}
+
+export function createPurchasePrintTemplate(payload: {
+  template_name: string
+  config: PurchasePrintTemplateConfig
+  is_default?: boolean
+}) {
+  return request<{ template: PurchasePrintTemplate; message: string }>("/purchase-print-templates", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  })
+}
+
+export function updatePurchasePrintTemplate(
+  templateKey: string,
+  payload: { template_name: string; config: PurchasePrintTemplateConfig },
+) {
+  return request<{ template: PurchasePrintTemplate; message: string }>(
+    `/purchase-print-templates/${encodeURIComponent(templateKey)}`,
+    { method: "PUT", body: JSON.stringify(payload) },
+  )
+}
+
+export async function downloadGeneralCustomerLedger(params: {
+  name: string
+  dateStart?: string
+  dateEnd?: string
+}) {
+  const search = new URLSearchParams({ name: params.name })
+  if (params.dateStart) search.set("date_start", params.dateStart)
+  if (params.dateEnd) search.set("date_end", params.dateEnd)
+  const response = await fetch(
+    `${API_PREFIX}/inventory/counterparty-ledger/export?${search.toString()}`,
+    { credentials: "include" },
+  )
+  if (!response.ok) {
+    throw new ApiError(response.status, await readApiError(response))
+  }
+  const filename = filenameFromContentDisposition(
+    response.headers.get("content-disposition"),
+    "一般客户应收款明细账本.xlsx",
+  )
+  const blob = await response.blob()
+  downloadBlob(blob, filename)
+  return { filename, size: blob.size }
+}
+
+export function setDefaultPurchasePrintTemplate(templateKey: string) {
+  return request<{ template: PurchasePrintTemplate; message: string }>(
+    `/purchase-print-templates/${encodeURIComponent(templateKey)}/default`,
+    { method: "POST" },
+  )
+}
+
+export function deletePurchasePrintTemplate(templateKey: string) {
+  return request<{ message: string }>(
+    `/purchase-print-templates/${encodeURIComponent(templateKey)}`,
+    { method: "DELETE" },
+  )
 }
 
 export function savePurchasePrintTemplate(config: PurchasePrintTemplateConfig) {

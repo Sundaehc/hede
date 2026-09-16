@@ -8,14 +8,17 @@ import {
   AlignLeft,
   AlignRight,
   Bold,
+  Copy,
   GripVertical,
   Plus,
   RotateCcw,
+  Star,
   Trash2,
   Underline,
 } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
+import { ConfirmDialog } from "@/components/confirm-dialog"
 import {
   Dialog,
   DialogContent,
@@ -28,13 +31,14 @@ import { Label } from "@/components/ui/label"
 import { Select } from "@/components/ui/select"
 import type {
   InventoryPrintLabel,
+  PurchasePrintTemplate,
   PurchasePrintTemplateConfig,
   PurchasePrintTemplateElement,
   PurchasePrintTemplateField,
 } from "@/lib/api"
 
-const DEFAULT_PAPER_WIDTH = 60
-const DEFAULT_PAPER_HEIGHT = 80
+const DEFAULT_PAPER_WIDTH = 80
+const DEFAULT_PAPER_HEIGHT = 60
 const MIN_PAPER_DIMENSION = 20
 const MAX_PAPER_DIMENSION = 300
 const EDITOR_FONT_SCALE_BASE = 0.44097
@@ -61,21 +65,23 @@ const FIELD_LABELS = Object.fromEntries(
 ) as Record<PurchasePrintTemplateField, string>
 
 export const DEFAULT_PURCHASE_PRINT_TEMPLATE: PurchasePrintTemplateConfig = {
-  version: 2,
+  version: 4,
   paper_width_mm: DEFAULT_PAPER_WIDTH,
   paper_height_mm: DEFAULT_PAPER_HEIGHT,
   show_outer_border: true,
   elements: [
-    { id: "product-code", kind: "text", field: "product_code", label: "货号", text: "", x: 1.5, y: 1.5, width: 57, height: 8, font_size: 9.8, bold: true, underline: false, align: "left", show_label: true, border: false, wrap: false },
-    { id: "size", kind: "text", field: "size_name", label: "尺码", text: "", x: 1.5, y: 10, width: 28, height: 7.5, font_size: 12, bold: true, underline: false, align: "left", show_label: true, border: false, wrap: false },
-    { id: "level", kind: "text", field: "product_level", label: "等级", text: "", x: 31, y: 10, width: 27.5, height: 7.5, font_size: 9.2, bold: true, underline: false, align: "left", show_label: true, border: false, wrap: false },
-    { id: "brand", kind: "text", field: "brand_name", label: "品牌", text: "", x: 1.5, y: 18.5, width: 57, height: 7, font_size: 9.5, bold: true, underline: false, align: "left", show_label: true, border: false, wrap: false },
-    { id: "color", kind: "text", field: "color_name", label: "颜色", text: "", x: 1.5, y: 26, width: 57, height: 6, font_size: 8.5, bold: true, underline: false, align: "left", show_label: true, border: false, wrap: false },
-    { id: "upper-material", kind: "text", field: "upper_material", label: "帮面材质", text: "", x: 1.5, y: 32.5, width: 57, height: 6, font_size: 8.5, bold: true, underline: false, align: "left", show_label: true, border: false, wrap: false },
-    { id: "product-name", kind: "text", field: "product_name", label: "品名", text: "", x: 1.5, y: 39, width: 57, height: 6, font_size: 8.5, bold: true, underline: false, align: "left", show_label: true, border: false, wrap: false },
-    { id: "standard", kind: "text", field: "execution_standard", label: "执行标准", text: "", x: 1.5, y: 45.5, width: 57, height: 6, font_size: 8.5, bold: true, underline: false, align: "left", show_label: true, border: false, wrap: false },
-    { id: "origin", kind: "text", field: "origin", label: "产地", text: "", x: 1.5, y: 52, width: 57, height: 6, font_size: 8.5, bold: true, underline: false, align: "left", show_label: true, border: false, wrap: false },
-    { id: "barcode", kind: "barcode", field: "barcode", label: "条形码", text: "", x: 3, y: 59, width: 54, height: 19, font_size: 8.5, bold: true, underline: false, align: "center", show_label: false, border: false, wrap: false },
+    { id: "product-code", kind: "text", field: "product_code", label: "货号", text: "", x: 2, y: 1.1, width: 76, height: 6, font_size: 9.8, bold: true, underline: false, align: "left", show_label: true, border: false, wrap: false },
+    { id: "size", kind: "text", field: "size_name", label: "尺码", text: "", x: 2, y: 7.5, width: 37.3, height: 5.6, font_size: 12, bold: true, underline: false, align: "left", show_label: true, border: false, wrap: false },
+    { id: "level", kind: "text", field: "product_level", label: "等级", text: "", x: 41.3, y: 7.5, width: 36.7, height: 5.6, font_size: 9.2, bold: true, underline: false, align: "left", show_label: true, border: false, wrap: false },
+    { id: "brand", kind: "text", field: "brand_name", label: "品牌", text: "", x: 2, y: 13.9, width: 76, height: 5.3, font_size: 9.5, bold: true, underline: false, align: "left", show_label: true, border: false, wrap: false },
+    { id: "color", kind: "text", field: "color_name", label: "颜色", text: "", x: 2, y: 19.5, width: 76, height: 4.5, font_size: 8.5, bold: true, underline: false, align: "left", show_label: true, border: false, wrap: false },
+    { id: "upper-material", kind: "text", field: "upper_material", label: "帮面材质", text: "", x: 2, y: 24.4, width: 76, height: 4.5, font_size: 8.5, bold: true, underline: false, align: "left", show_label: true, border: false, wrap: false },
+    { id: "product-name", kind: "text", field: "product_name", label: "品名", text: "", x: 2, y: 29.3, width: 76, height: 4.5, font_size: 8.5, bold: true, underline: false, align: "left", show_label: true, border: false, wrap: false },
+    { id: "standard", kind: "text", field: "execution_standard", label: "执行标准", text: "", x: 2, y: 34.1, width: 76, height: 4.5, font_size: 8.5, bold: true, underline: false, align: "left", show_label: true, border: false, wrap: false },
+    { id: "origin", kind: "text", field: "origin", label: "产地", text: "", x: 2, y: 39, width: 76, height: 4.5, font_size: 8.5, bold: true, underline: false, align: "left", show_label: true, border: false, wrap: false },
+    { id: "barcode", kind: "barcode", field: "barcode", label: "条形码", text: "", x: 4, y: 44.3, width: 72, height: 10.1, font_size: 8.5, bold: true, underline: false, align: "center", show_label: false, border: false, wrap: false },
+    { id: "barcode-value", kind: "text", field: "barcode", label: "条码文字", text: "", x: 4, y: 54.4, width: 47.3, height: 4.1, font_size: 8.5, bold: true, underline: false, align: "left", show_label: false, border: false, wrap: false },
+    { id: "barcode-note", kind: "text", field: null, label: "", text: "（内部使用条码）", x: 51.3, y: 54.4, width: 24.7, height: 4.1, font_size: 6.2, bold: false, underline: false, align: "right", show_label: false, border: false, wrap: false },
   ],
 }
 
@@ -280,31 +286,7 @@ export function PurchasePrintTemplateContent({
             onPointerDown={(event) => interactive && onPointerStart?.(event, element, "move")}
           >
             {element.kind === "barcode" ? (
-              <div className="purchase-print-barcode-wrap">
-                <Barcode value={data.barcode} className="purchase-print-barcode" />
-                <div
-                  className="purchase-print-barcode-caption"
-                  style={{ fontWeight: element.bold ? 700 : 400 }}
-                >
-                  <AutoFitText
-                    fitKey={[
-                      element.id,
-                      data.barcode,
-                      element.bold,
-                      element.width,
-                      element.height,
-                    ].join(":")}
-                    baseFontSize={element.font_size}
-                    interactive={interactive}
-                    paperWidth={paperWidth}
-                    wrap={false}
-                    className="purchase-print-barcode-caption-content"
-                  >
-                    <span className="purchase-print-barcode-value">{data.barcode}</span>
-                    <span className="purchase-print-barcode-note">（内部使用条码）</span>
-                  </AutoFitText>
-                </div>
-              </div>
+              <Barcode value={data.barcode} className="purchase-print-barcode" />
             ) : (
               <AutoFitText
                 fitKey={[
@@ -362,18 +344,36 @@ function nextElementId(prefix: string) {
 export function PurchasePrintTemplateEditor({
   open,
   config,
+  templates,
+  selectedTemplateKey,
+  templateName,
   onOpenChange,
+  onTemplateChange,
+  onCreateTemplate,
+  onDuplicateTemplate,
+  onSetDefaultTemplate,
+  onDeleteTemplate,
   onSave,
 }: {
   open: boolean
   config: PurchasePrintTemplateConfig
+  templates: PurchasePrintTemplate[]
+  selectedTemplateKey: string
+  templateName: string
   onOpenChange: (open: boolean) => void
-  onSave: (config: PurchasePrintTemplateConfig) => Promise<void>
+  onTemplateChange: (templateKey: string) => void
+  onCreateTemplate: (templateName: string, config: PurchasePrintTemplateConfig) => Promise<void>
+  onDuplicateTemplate: (templateName: string, config: PurchasePrintTemplateConfig) => Promise<void>
+  onSetDefaultTemplate: () => Promise<void>
+  onDeleteTemplate: () => Promise<void>
+  onSave: (config: PurchasePrintTemplateConfig, templateName: string) => Promise<void>
 }) {
   const [draft, setDraft] = useState(() => cloneTemplate(config))
   const [selectedId, setSelectedId] = useState<string | null>(config.elements[0]?.id ?? null)
   const [fieldToAdd, setFieldToAdd] = useState<PurchasePrintTemplateField>("product_code")
   const [isSaving, setIsSaving] = useState(false)
+  const [templateNameInput, setTemplateNameInput] = useState(templateName)
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false)
   const [paperWidthInput, setPaperWidthInput] = useState(formatPaperDimension(config.paper_width_mm))
   const [paperHeightInput, setPaperHeightInput] = useState(formatPaperDimension(config.paper_height_mm))
   const [previewSize, setPreviewSize] = useState({ width: 0, height: 0 })
@@ -388,7 +388,8 @@ export function PurchasePrintTemplateEditor({
     setSelectedId(next.elements[0]?.id ?? null)
     setPaperWidthInput(formatPaperDimension(next.paper_width_mm))
     setPaperHeightInput(formatPaperDimension(next.paper_height_mm))
-  }, [config, open])
+    setTemplateNameInput(templateName)
+  }, [config, open, templateName])
 
   useEffect(() => {
     if (!open || !previewViewportRef.current) return
@@ -504,21 +505,36 @@ export function PurchasePrintTemplateEditor({
     const isBarcode = field === "barcode"
     const id = nextElementId(field || "fixed-text")
     const offset = (draft.elements.length % 8) * 1.2
+    if (isBarcode) {
+      const width = Math.min(54, draft.paper_width_mm - 6)
+      const x = clamp(3 + offset, 0, draft.paper_width_mm - width)
+      const y = clamp(4 + offset, 0, draft.paper_height_mm - 19)
+      const valueWidth = roundTemplateNumber(width * 0.66)
+      const noteWidth = roundTemplateNumber(width - valueWidth)
+      const elements: PurchasePrintTemplateElement[] = [
+        { id, kind: "barcode", field: "barcode", label: "条形码", text: "", x, y, width, height: 13.5, font_size: 8.5, bold: true, underline: false, align: "center", show_label: false, border: false, wrap: false },
+        { id: `${id}-value`, kind: "text", field: "barcode", label: "条码文字", text: "", x, y: y + 13.5, width: valueWidth, height: 5.5, font_size: 8.5, bold: true, underline: false, align: "left", show_label: false, border: false, wrap: false },
+        { id: `${id}-note`, kind: "text", field: null, label: "", text: "（内部使用条码）", x: x + valueWidth, y: y + 13.5, width: noteWidth, height: 5.5, font_size: 6.2, bold: false, underline: false, align: "right", show_label: false, border: false, wrap: false },
+      ]
+      setDraft((current) => ({ ...current, elements: [...current.elements, ...elements] }))
+      setSelectedId(id)
+      return
+    }
     const next: PurchasePrintTemplateElement = {
       id,
-      kind: isBarcode ? "barcode" : "text",
+      kind: "text",
       field,
       label: field ? FIELD_LABELS[field] : "",
       text: field ? "" : "固定文字",
       x: clamp(4 + offset, 0, draft.paper_width_mm - 30),
-      y: clamp(4 + offset, 0, draft.paper_height_mm - (isBarcode ? 16 : 5)),
-      width: isBarcode ? Math.min(54, draft.paper_width_mm - 6) : Math.min(30, draft.paper_width_mm - 6),
-      height: isBarcode ? 16 : 5,
-      font_size: isBarcode ? 8 : 9,
+      y: clamp(4 + offset, 0, draft.paper_height_mm - 5),
+      width: Math.min(30, draft.paper_width_mm - 6),
+      height: 5,
+      font_size: 9,
       bold: false,
       underline: false,
-      align: isBarcode ? "center" : "left",
-      show_label: Boolean(field && !isBarcode),
+      align: "left",
+      show_label: Boolean(field),
       border: false,
       wrap: false,
     }
@@ -556,7 +572,7 @@ export function PurchasePrintTemplateEditor({
     if (draft.elements.length === 0) return
     setIsSaving(true)
     try {
-      await onSave(draft)
+      await onSave(draft, templateNameInput.trim() || "默认模板")
       onOpenChange(false)
     } catch {
       // The parent presents the API error and keeps the editor open.
@@ -569,7 +585,29 @@ export function PurchasePrintTemplateEditor({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="flex h-[min(760px,94vh)] max-w-[1180px] flex-col overflow-hidden p-0">
         <DialogHeader className="border-b border-border px-5 py-4">
-          <DialogTitle>鞋盒标签模板</DialogTitle>
+          <div className="flex min-w-0 items-center justify-between gap-3">
+            <DialogTitle>鞋盒标签模板</DialogTitle>
+            <div className="flex min-w-0 items-center gap-2">
+              <Select
+                className="w-[190px]"
+                value={selectedTemplateKey}
+                onChange={(event) => onTemplateChange(event.target.value)}
+                aria-label="选择标签模板"
+              >
+                {templates.map((template) => (
+                  <option key={template.template_key} value={template.template_key}>
+                    {template.template_name}{template.is_default ? "（默认）" : ""}
+                  </option>
+                ))}
+              </Select>
+              <Button type="button" variant="outline" size="icon" title="新建模板" aria-label="新建模板" onClick={() => void onCreateTemplate("新模板", cloneTemplate(DEFAULT_PURCHASE_PRINT_TEMPLATE))}>
+                <Plus className="size-4" />
+              </Button>
+              <Button type="button" variant="outline" size="icon" title="复制当前模板" aria-label="复制当前模板" onClick={() => void onDuplicateTemplate(`${templateNameInput.trim() || "模板"}-副本`, cloneTemplate(draft))}>
+                <Copy className="size-4" />
+              </Button>
+            </div>
+          </div>
         </DialogHeader>
         <div className="grid min-h-0 flex-1 grid-cols-1 grid-rows-[minmax(300px,1fr)_minmax(0,0.85fr)] overflow-hidden lg:grid-cols-[minmax(0,1fr)_330px] lg:grid-rows-1">
           <div className="flex min-h-0 flex-col bg-muted/30 p-5">
@@ -614,6 +652,37 @@ export function PurchasePrintTemplateEditor({
 
           <aside className="min-h-0 overflow-y-auto border-t border-border bg-background p-4 lg:border-t-0 lg:border-l">
             <div className="space-y-4">
+              <div className="space-y-2 border-b border-border pb-4">
+                <Label htmlFor="purchase-print-template-name">模板名称</Label>
+                <Input
+                  id="purchase-print-template-name"
+                  value={templateNameInput}
+                  maxLength={80}
+                  onChange={(event) => setTemplateNameInput(event.target.value)}
+                />
+                <div className="grid grid-cols-2 gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="cursor-pointer"
+                    disabled={templates.find((item) => item.template_key === selectedTemplateKey)?.is_default}
+                    onClick={() => void onSetDefaultTemplate()}
+                  >
+                    <Star className="size-3.5" />设为默认
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="cursor-pointer text-destructive"
+                    disabled={templates.length <= 1}
+                    onClick={() => setDeleteConfirmOpen(true)}
+                  >
+                    <Trash2 className="size-3.5" />删除模板
+                  </Button>
+                </div>
+              </div>
               <div className="space-y-2 border-b border-border pb-4">
                 <Label>模板配置</Label>
                 <div className="grid grid-cols-2 gap-2">
@@ -769,13 +838,25 @@ export function PurchasePrintTemplateEditor({
             </div>
           </aside>
         </div>
-        <DialogFooter className="border-t border-border px-5 py-3">
+      <DialogFooter className="border-t border-border px-5 py-3">
           <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>取消</Button>
           <Button type="button" disabled={isSaving || draft.elements.length === 0} onClick={() => void handleSave()}>
             {isSaving ? "保存中..." : "保存模板"}
           </Button>
-        </DialogFooter>
+      </DialogFooter>
       </DialogContent>
+      <ConfirmDialog
+        open={deleteConfirmOpen}
+        title="删除标签模板"
+        description={`确定删除“${templateNameInput || "当前模板"}”吗？删除后无法恢复。`}
+        confirmLabel="删除"
+        variant="destructive"
+        onConfirm={() => {
+          setDeleteConfirmOpen(false)
+          void onDeleteTemplate()
+        }}
+        onCancel={() => setDeleteConfirmOpen(false)}
+      />
     </Dialog>
   )
 }

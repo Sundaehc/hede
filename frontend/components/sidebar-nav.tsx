@@ -175,8 +175,10 @@ export function SidebarNav() {
   const canAccessSizeGroups =
     user?.role_code === "super_admin" ||
     ["商品部", "开发部"].includes(user?.department_code ?? "")
-  const canAccessColorManagement = canAccessSizeGroups
-  const canAccessAuxiliaryAttributes = canAccessSizeGroups
+  const canAccessColorManagement =
+    user?.role_code === "super_admin" ||
+    ["商品部", "开发部"].includes(user?.department_code ?? "")
+  const canAccessAuxiliaryAttributes = canAccessColorManagement
   const canAccessScheduledTasks =
     user?.role_code === "super_admin" || user?.department_code === "开发部"
   const isProductDepartment =

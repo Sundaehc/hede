@@ -260,8 +260,8 @@ def test_purchase_print_template_normalizes_supported_elements() -> None:
         }],
     })
 
-    assert config["paper_width_mm"] == 60
-    assert config["paper_height_mm"] == 80
+    assert config["paper_width_mm"] == 80
+    assert config["paper_height_mm"] == 60
     assert config["show_outer_border"] is False
     assert config["elements"][0]["field"] == "product_code"
     assert config["elements"][0]["font_size"] == 10.5
@@ -290,11 +290,38 @@ def test_purchase_print_template_preserves_underline_style() -> None:
     assert config["elements"][0]["underline"] is True
 
 
+def test_purchase_print_template_splits_legacy_barcode_caption_into_three_elements() -> None:
+    config = _normalize_purchase_print_template_config({
+        "version": 2,
+        "paper_width_mm": 60,
+        "paper_height_mm": 80,
+        "elements": [{
+            "id": "barcode",
+            "kind": "barcode",
+            "field": "barcode",
+            "x": 3,
+            "y": 59,
+            "width": 54,
+            "height": 19,
+            "font_size": 8.5,
+        }],
+    })
+
+    assert [element["id"] for element in config["elements"]] == [
+        "barcode",
+        "barcode-value",
+        "barcode-note",
+    ]
+    assert config["elements"][0]["kind"] == "barcode"
+    assert config["elements"][1]["field"] == "barcode"
+    assert config["elements"][2]["text"] == "（内部使用条码）"
+
+
 @pytest.mark.parametrize(
     ("element", "message"),
     [
         ({"field": "unsupported", "x": 0, "y": 0, "width": 10, "height": 5}, "数据字段不支持"),
-        ({"field": "product_code", "x": 55, "y": 0, "width": 10, "height": 5}, "超出 60×80mm"),
+        ({"field": "product_code", "x": 75, "y": 0, "width": 10, "height": 5}, "超出 80×60mm"),
     ],
 )
 def test_purchase_print_template_rejects_invalid_elements(element: dict[str, object], message: str) -> None:
@@ -310,7 +337,7 @@ def test_purchase_print_template_rejects_invalid_elements(element: dict[str, obj
         })
 
 
-def test_purchase_print_template_migrates_previous_landscape_layout() -> None:
+def test_purchase_print_template_preserves_previous_landscape_layout() -> None:
     config = _normalize_purchase_print_template_config({
         "paper_width_mm": 80,
         "paper_height_mm": 60,
@@ -327,12 +354,40 @@ def test_purchase_print_template_migrates_previous_landscape_layout() -> None:
         }],
     })
 
-    assert config["paper_width_mm"] == 60
-    assert config["paper_height_mm"] == 80
-    assert config["elements"][0]["x"] == 30
-    assert config["elements"][0]["y"] == 40
-    assert config["elements"][0]["width"] == 15
-    assert config["elements"][0]["height"] == 20
+    assert config["version"] == 4
+    assert config["paper_width_mm"] == 80
+    assert config["paper_height_mm"] == 60
+    assert config["elements"][0]["x"] == 40
+    assert config["elements"][0]["y"] == 30
+    assert config["elements"][0]["width"] == 20
+    assert config["elements"][0]["height"] == 15
+
+
+def test_purchase_print_template_migrates_portrait_layout_to_landscape() -> None:
+    config = _normalize_purchase_print_template_config({
+        "version": 3,
+        "paper_width_mm": 60,
+        "paper_height_mm": 80,
+        "elements": [{
+            "id": "portrait",
+            "kind": "text",
+            "field": "product_code",
+            "label": "货号",
+            "x": 30,
+            "y": 40,
+            "width": 15,
+            "height": 20,
+            "font_size": 9,
+        }],
+    })
+
+    assert config["version"] == 4
+    assert config["paper_width_mm"] == 80
+    assert config["paper_height_mm"] == 60
+    assert config["elements"][0]["x"] == 40
+    assert config["elements"][0]["y"] == 30
+    assert config["elements"][0]["width"] == 20
+    assert config["elements"][0]["height"] == 15
 
 
 def test_purchase_print_template_accepts_custom_paper_size() -> None:
@@ -353,7 +408,7 @@ def test_purchase_print_template_accepts_custom_paper_size() -> None:
         }],
     })
 
-    assert config["version"] == 2
+    assert config["version"] == 4
     assert config["paper_width_mm"] == 100
     assert config["paper_height_mm"] == 150
 

@@ -1770,6 +1770,37 @@ class InventoryRepository:
             row = connection.execute(statement).mappings().one()
         return dict(row)
 
+    def list_purchase_print_templates(self, user_id: int) -> list[dict[str, object]]:
+        statement = (
+            select(PURCHASE_PRINT_TEMPLATE_TABLE)
+            .where(PURCHASE_PRINT_TEMPLATE_TABLE.c.user_id == user_id)
+            .order_by(
+                PURCHASE_PRINT_TEMPLATE_TABLE.c.is_default.desc(),
+                PURCHASE_PRINT_TEMPLATE_TABLE.c.updated_at.desc(),
+                PURCHASE_PRINT_TEMPLATE_TABLE.c.id,
+            )
+        )
+        with self.engine.connect() as connection:
+            return [dict(row) for row in connection.execute(statement).mappings()]
+
+    def get_default_purchase_print_template(self, user_id: int) -> dict[str, object] | None:
+        statement = select(PURCHASE_PRINT_TEMPLATE_TABLE).where(
+            PURCHASE_PRINT_TEMPLATE_TABLE.c.user_id == user_id,
+            PURCHASE_PRINT_TEMPLATE_TABLE.c.is_default.is_(True),
+        )
+        with self.engine.connect() as connection:
+            row = connection.execute(statement).mappings().first()
+        if row is not None:
+            return dict(row)
+        legacy = self.get_purchase_print_template(user_id)
+        if legacy is not None:
+            return legacy
+        templates = self.list_purchase_print_templates(user_id)
+        return templates[0] if templates else None
+
+    def get_purchase_print_template_by_key(self, user_id: int, template_key: str) -> dict[str, object] | None:
+        return self.get_purchase_print_template(user_id, template_key)
+
     def get_purchase_print_template(self, user_id: int, template_key: str = "shoe_box_label") -> dict[str, object] | None:
         statement = select(PURCHASE_PRINT_TEMPLATE_TABLE).where(
             PURCHASE_PRINT_TEMPLATE_TABLE.c.user_id == user_id,
@@ -1784,10 +1815,16 @@ class InventoryRepository:
         user_id: int,
         config: Mapping[str, object],
         template_key: str = "shoe_box_label",
+        template_name: str = "默认模板",
+        is_default: bool | None = None,
     ) -> dict[str, object]:
+        if is_default is None:
+            is_default = template_key == "shoe_box_label"
         insert_statement = pg_insert(PURCHASE_PRINT_TEMPLATE_TABLE).values(
             user_id=user_id,
             template_key=template_key,
+            template_name=template_name,
+            is_default=is_default,
             config=dict(config),
         )
         statement = insert_statement.on_conflict_do_update(
@@ -1797,21 +1834,92 @@ class InventoryRepository:
             ],
             set_={
                 "config": insert_statement.excluded.config,
+                "template_name": insert_statement.excluded.template_name,
+                "is_default": insert_statement.excluded.is_default,
                 "updated_at": func.date_trunc("minute", func.now()),
             },
         ).returning(PURCHASE_PRINT_TEMPLATE_TABLE)
         with self.engine.begin() as connection:
+            if is_default:
+                connection.execute(
+                    update(PURCHASE_PRINT_TEMPLATE_TABLE)
+                    .where(PURCHASE_PRINT_TEMPLATE_TABLE.c.user_id == user_id)
+                    .values(is_default=False)
+                )
             row = connection.execute(statement).mappings().one()
         return dict(row)
 
+    def set_default_purchase_print_template(self, user_id: int, template_key: str) -> dict[str, object] | None:
+        with self.engine.begin() as connection:
+            target = connection.execute(
+                select(PURCHASE_PRINT_TEMPLATE_TABLE).where(
+                    PURCHASE_PRINT_TEMPLATE_TABLE.c.user_id == user_id,
+                    PURCHASE_PRINT_TEMPLATE_TABLE.c.template_key == template_key,
+                )
+            ).mappings().first()
+            if target is None:
+                return None
+            connection.execute(
+                update(PURCHASE_PRINT_TEMPLATE_TABLE)
+                .where(PURCHASE_PRINT_TEMPLATE_TABLE.c.user_id == user_id)
+                .values(is_default=False)
+            )
+            row = connection.execute(
+                update(PURCHASE_PRINT_TEMPLATE_TABLE)
+                .where(PURCHASE_PRINT_TEMPLATE_TABLE.c.id == target["id"])
+                .values(is_default=True, updated_at=func.date_trunc("minute", func.now()))
+                .returning(PURCHASE_PRINT_TEMPLATE_TABLE)
+            ).mappings().one()
+        return dict(row)
+
+    def rename_purchase_print_template(self, user_id: int, template_key: str, template_name: str) -> dict[str, object] | None:
+        with self.engine.begin() as connection:
+            row = connection.execute(
+                update(PURCHASE_PRINT_TEMPLATE_TABLE)
+                .where(
+                    PURCHASE_PRINT_TEMPLATE_TABLE.c.user_id == user_id,
+                    PURCHASE_PRINT_TEMPLATE_TABLE.c.template_key == template_key,
+                )
+                .values(
+                    template_name=template_name,
+                    updated_at=func.date_trunc("minute", func.now()),
+                )
+                .returning(PURCHASE_PRINT_TEMPLATE_TABLE)
+            ).mappings().first()
+        return None if row is None else dict(row)
+
     def delete_purchase_print_template(self, user_id: int, template_key: str = "shoe_box_label") -> bool:
         with self.engine.begin() as connection:
+            target = connection.execute(
+                select(PURCHASE_PRINT_TEMPLATE_TABLE).where(
+                    PURCHASE_PRINT_TEMPLATE_TABLE.c.user_id == user_id,
+                    PURCHASE_PRINT_TEMPLATE_TABLE.c.template_key == template_key,
+                )
+            ).mappings().first()
+            if target is None:
+                return False
             result = connection.execute(
                 delete(PURCHASE_PRINT_TEMPLATE_TABLE).where(
                     PURCHASE_PRINT_TEMPLATE_TABLE.c.user_id == user_id,
                     PURCHASE_PRINT_TEMPLATE_TABLE.c.template_key == template_key,
                 )
             )
+            if target["is_default"]:
+                replacement = connection.execute(
+                    select(PURCHASE_PRINT_TEMPLATE_TABLE.c.id)
+                    .where(PURCHASE_PRINT_TEMPLATE_TABLE.c.user_id == user_id)
+                    .order_by(
+                        PURCHASE_PRINT_TEMPLATE_TABLE.c.updated_at.desc(),
+                        PURCHASE_PRINT_TEMPLATE_TABLE.c.id.desc(),
+                    )
+                    .limit(1)
+                ).scalar()
+                if replacement is not None:
+                    connection.execute(
+                        update(PURCHASE_PRINT_TEMPLATE_TABLE)
+                        .where(PURCHASE_PRINT_TEMPLATE_TABLE.c.id == replacement)
+                        .values(is_default=True)
+                    )
         return bool(result.rowcount)
 
     # ── Warehouses ─────────────────────────────────────────────────
@@ -2265,21 +2373,40 @@ class InventoryRepository:
         with self.engine.connect() as connection:
             return [dict(row) for row in connection.execute(statement).mappings()]
 
-    def list_details_page(self, document_id: int, *, page: int, page_size: int) -> dict[str, object]:
+    def list_details_page(
+        self,
+        document_id: int,
+        *,
+        page: int,
+        page_size: int,
+        unit_price_values: list[Decimal | None] | None = None,
+    ) -> dict[str, object]:
         table = INVENTORY_DETAIL_TABLE
         normalized_page = max(1, page)
         normalized_page_size = min(max(1, page_size), 500)
         offset = (normalized_page - 1) * normalized_page_size
+        conditions = [table.c.document_id == document_id]
+        if unit_price_values is not None:
+            numeric_values = [value for value in unit_price_values if value is not None]
+            value_conditions = []
+            if numeric_values:
+                value_conditions.append(table.c.unit_price.in_(numeric_values))
+            if None in unit_price_values:
+                value_conditions.append(table.c.unit_price.is_(None))
+            if value_conditions:
+                conditions.append(or_(*value_conditions))
+            else:
+                conditions.append(table.c.id.is_(None))
         statement = (
             select(table)
-            .where(table.c.document_id == document_id)
+            .where(*conditions)
             .order_by(table.c.id)
             .limit(normalized_page_size)
             .offset(offset)
         )
         with self.engine.connect() as connection:
             total = int(connection.execute(
-                select(func.count()).select_from(table).where(table.c.document_id == document_id)
+                select(func.count()).select_from(table).where(*conditions)
             ).scalar_one())
             items = [dict(row) for row in connection.execute(statement).mappings()]
         return {
@@ -2287,6 +2414,52 @@ class InventoryRepository:
             "total": total,
             "page": normalized_page,
             "page_size": normalized_page_size,
+        }
+
+    def list_detail_unit_price_options(
+        self,
+        document_id: int,
+        *,
+        search: str | None = None,
+        limit: int = 5000,
+    ) -> dict[str, object]:
+        table = INVENTORY_DETAIL_TABLE
+        normalized_limit = min(max(1, limit), 5000)
+        conditions = [table.c.document_id == document_id]
+        normalized_search = (search or "").strip()
+        if normalized_search:
+            price_matches = table.c.unit_price.cast(Text).ilike(f"%{normalized_search}%")
+            if normalized_search in {"空白", "（空白）", "(空白)"}:
+                conditions.append(or_(price_matches, table.c.unit_price.is_(None)))
+            else:
+                conditions.append(price_matches)
+
+        grouped = (
+            select(
+                table.c.unit_price.label("value"),
+                func.count().label("count"),
+            )
+            .where(*conditions)
+            .group_by(table.c.unit_price)
+            .order_by(table.c.unit_price.desc().nulls_first())
+        )
+        with self.engine.connect() as connection:
+            total = int(connection.execute(
+                select(func.count()).select_from(grouped.order_by(None).subquery())
+            ).scalar_one())
+            rows = connection.execute(grouped.limit(normalized_limit + 1)).mappings().all()
+
+        truncated = len(rows) > normalized_limit
+        return {
+            "items": [
+                {
+                    "value": None if row["value"] is None else self._format_decimal(Decimal(str(row["value"]))),
+                    "count": int(row["count"]),
+                }
+                for row in rows[:normalized_limit]
+            ],
+            "total": total,
+            "truncated": truncated,
         }
 
     def get_detail(self, detail_id: int) -> dict[str, object] | None:
@@ -3091,6 +3264,28 @@ class InventoryRepository:
             self._seed_account_subjects(connection)
             PURCHASE_ORDER_REQUIREMENT_TABLE.create(connection, checkfirst=True)
             PURCHASE_PRINT_TEMPLATE_TABLE.create(connection, checkfirst=True)
+            connection.execute(text(
+                "ALTER TABLE IF EXISTS purchase_print_templates "
+                "ADD COLUMN IF NOT EXISTS template_name TEXT NOT NULL DEFAULT '默认模板'"
+            ))
+            connection.execute(text(
+                "ALTER TABLE IF EXISTS purchase_print_templates "
+                "ADD COLUMN IF NOT EXISTS is_default BOOLEAN NOT NULL DEFAULT FALSE"
+            ))
+            connection.execute(text(
+                "UPDATE purchase_print_templates AS current_template "
+                "SET is_default = TRUE "
+                "WHERE current_template.template_key = 'shoe_box_label' "
+                "AND NOT EXISTS ("
+                "  SELECT 1 FROM purchase_print_templates AS existing_default "
+                "  WHERE existing_default.user_id = current_template.user_id "
+                "    AND existing_default.is_default = TRUE"
+                ")"
+            ))
+            connection.execute(text(
+                "CREATE UNIQUE INDEX IF NOT EXISTS uq_purchase_print_templates_user_default "
+                "ON purchase_print_templates (user_id) WHERE is_default = TRUE"
+            ))
             SUPPLIER_TABLE.create(connection, checkfirst=True)
             SUPPLIER_BRAND_TABLE.create(connection, checkfirst=True)
             self._ensure_supplier_brand_schema(connection)
