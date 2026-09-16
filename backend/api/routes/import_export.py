@@ -24,6 +24,7 @@ from api.excel_export import DEFAULT_WIDTH_BY_HEADER, style_excel_worksheet
 from api.fine_table_cache import clear_fine_table_cache
 from api.product_goods_cache import clear_product_goods_cache
 from api.operation_log_utils import write_operation_log
+from api.product_cost_access import request_can_view_product_cost
 from api.routes.images import get_image_matcher, image_url_for
 from domain.excluded_skus import is_excluded_sku, not_excluded_sku_condition
 from domain.fields import PRODUCT_FIELDS
@@ -147,10 +148,13 @@ BRAND_LABELS = {
 }
 
 
-def _export_columns_for_brand(brand: str) -> list[str]:
-    if brand == "cbanner_womens":
-        return EXPORT_COLUMNS
-    return [column for column in EXPORT_COLUMNS if column not in CBANNER_WOMENS_ONLY_EXPORT_COLUMNS]
+def _export_columns_for_brand(brand: str, *, include_cost: bool = True) -> list[str]:
+    columns = (
+        list(EXPORT_COLUMNS)
+        if brand == "cbanner_womens"
+        else [column for column in EXPORT_COLUMNS if column not in CBANNER_WOMENS_ONLY_EXPORT_COLUMNS]
+    )
+    return columns if include_cost else [column for column in columns if column != "cost"]
 
 
 def _export_label(column: str, brand: str | None = None) -> str:
@@ -160,13 +164,12 @@ def _export_label(column: str, brand: str | None = None) -> str:
     return EXPORT_LABELS.get(column, column)
 
 
-def _size_export_headers_for_brand(brand: str) -> list[str]:
-    if brand != "cbanner_womens":
-        return list(SIZE_EXPORT_HEADERS)
-    return [
+def _size_export_headers_for_brand(brand: str, *, include_cost: bool = True) -> list[str]:
+    headers = list(SIZE_EXPORT_HEADERS) if brand != "cbanner_womens" else [
         *SIZE_EXPORT_HEADERS,
         *(_export_label(column, brand) for column in SIZE_EXPORT_CBANNER_WOMENS_EXTRA_COLUMNS),
     ]
+    return headers if include_cost else [header for header in headers if header != "成本价"]
 
 
 def _activity_date_export_condition(
@@ -269,7 +272,9 @@ def _iter_all_export_rows(
     year: str | None = None,
     query: str | None = None,
     sku_prefix: str | None = None,
+    include_cost: bool = True,
 ) -> Iterator[tuple[str, list[object]]]:
+    export_columns = [column for column in EXPORT_COLUMNS if include_cost or column != "cost"]
     for brand in repository.product_archive_brands():
         table = repository._table_for_brand(brand)
         conditions = [not_excluded_sku_condition(table.c.sku, table.c.original_sku)]
@@ -285,18 +290,19 @@ def _iter_all_export_rows(
         prefix_condition = _product_prefix_condition(table, sku_prefix)
         if prefix_condition is not None:
             conditions.append(prefix_condition)
-        statement = select(*(table.c[column] for column in EXPORT_COLUMNS)).where(*conditions).order_by(desc(table.c.id))
+        statement = select(*(table.c[column] for column in export_columns)).where(*conditions).order_by(desc(table.c.id))
         with repository.engine.connect() as connection:
             items = [dict(row) for row in connection.execute(statement).mappings()]
 
         # The archive already stores the displayed cost. Only backfill blank
         # costs during export instead of rescanning the large price history for
         # every product in a full overview export.
-        items_missing_cost = [item for item in items if item.get("cost") in (None, "")]
-        if items_missing_cost:
-            apply_jst_product_costs(repository.engine, items_missing_cost)
+        if include_cost:
+            items_missing_cost = [item for item in items if item.get("cost") in (None, "")]
+            if items_missing_cost:
+                apply_jst_product_costs(repository.engine, items_missing_cost)
         for item in items:
-            yield brand, [item.get(column) for column in EXPORT_COLUMNS]
+            yield brand, [item.get(column) for column in export_columns]
 
 
 def _cell_text(value: object) -> str:
@@ -412,7 +418,9 @@ def _export_all_products(
     query: str | None = None,
     sku_prefix: str | None = None,
 ) -> StreamingResponse:
-    headers = ["品牌"] + [EXPORT_LABELS.get(c, c) for c in EXPORT_COLUMNS]
+    include_cost = request_can_view_product_cost(request)
+    export_columns = [column for column in EXPORT_COLUMNS if include_cost or column != "cost"]
+    headers = ["品牌"] + [EXPORT_LABELS.get(c, c) for c in export_columns]
     wb = Workbook(write_only=True)
     export_label = _activity_export_label(activity_date_start, activity_date_end)
     ws = wb.create_sheet(title=export_label)
@@ -440,6 +448,7 @@ def _export_all_products(
         year=year,
         query=query,
         sku_prefix=sku_prefix,
+        include_cost=include_cost,
     ):
         row = [BRAND_LABELS.get(brand, brand)] + [_excel_cell_value(value) for value in values]
         # A small sample is enough to keep widths readable without scanning
@@ -953,6 +962,7 @@ def _export_products_with_sizes(
     sku_prefix: str | None = None,
 ) -> StreamingResponse:
     _validate_product_export_request(repository, brand, SIZE_EXPORT_MODE)
+    include_cost = request_can_view_product_cost(request)
     source_items = _load_size_export_source_items(
         repository,
         brand,
@@ -970,7 +980,7 @@ def _export_products_with_sizes(
     wb = Workbook(write_only=True)
     brand_label = BRAND_LABELS.get(brand, brand)
     ws = wb.create_sheet(title=f"{brand_label}带尺码")
-    export_headers = _size_export_headers_for_brand(brand)
+    export_headers = _size_export_headers_for_brand(brand, include_cost=include_cost)
     column_widths = [
         max(
             SIZE_EXPORT_WIDTH_BY_HEADER.get(header, DEFAULT_WIDTH_BY_HEADER.get(header, SIZE_EXPORT_MIN_WIDTH)),
@@ -1020,12 +1030,13 @@ def _export_products_with_sizes(
         lookup_codes = set(profile_style_codes)
         lookup_codes.update(selected_codes)
         loaded_archive_rows = _load_product_archive_rows(repository, connection, brand, lookup_codes)
-        missing_cost_items = [
-            item for item in loaded_archive_rows.values()
-            if item.get("cost") in (None, "")
-        ]
-        if missing_cost_items:
-            apply_jst_product_costs(repository.engine, missing_cost_items)
+        if include_cost:
+            missing_cost_items = [
+                item for item in loaded_archive_rows.values()
+                if item.get("cost") in (None, "")
+            ]
+            if missing_cost_items:
+                apply_jst_product_costs(repository.engine, missing_cost_items)
         archive_rows = dict(loaded_archive_rows)
         gj_rows = _load_gj_rows(connection, lookup_codes)
 
@@ -1068,6 +1079,8 @@ def _export_products_with_sizes(
             _first_text(context["cost"], raw_payload.get("成本价"), raw_payload.get("成本")),
             logo,
         ]
+        if not include_cost:
+            row.pop(SIZE_EXPORT_HEADERS.index("成本价"))
         if brand == "cbanner_womens":
             row.extend(
                 _first_text(context[column], raw_payload.get(_export_label(column, brand)))
@@ -1179,9 +1192,10 @@ def export_products(
                     .order_by(desc(table.c.id))
                 ).mappings()
             ]
-        missing_cost_items = [item for item in items if item.get("cost") in (None, "")]
-        if missing_cost_items:
-            apply_jst_product_costs(repository.engine, missing_cost_items)
+        if request_can_view_product_cost(request):
+            missing_cost_items = [item for item in items if item.get("cost") in (None, "")]
+            if missing_cost_items:
+                apply_jst_product_costs(repository.engine, missing_cost_items)
     elif ids:
         id_list = [int(i.strip()) for i in ids.split(",") if i.strip()]
         items = repository.get_products_by_ids(brand, id_list)
@@ -1193,7 +1207,10 @@ def export_products(
     ws = wb.active
     ws.title = BRAND_LABELS.get(brand, brand)
 
-    export_columns = _export_columns_for_brand(brand)
+    export_columns = _export_columns_for_brand(
+        brand,
+        include_cost=request_can_view_product_cost(request),
+    )
     headers = [_export_label(column, brand) for column in export_columns]
     ws.append(headers)
 

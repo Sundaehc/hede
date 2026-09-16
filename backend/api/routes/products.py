@@ -11,6 +11,7 @@ from api.operation_log_utils import (
     write_operation_log,
 )
 from api.fine_table_cache import clear_fine_table_cache
+from api.product_cost_access import redact_product_cost_item, request_can_view_product_cost
 from api.product_goods_cache import clear_product_goods_cache
 from api.schemas import BatchDeleteRequest, ProductArchiveBrandKey, ProductWriteRequest
 
@@ -37,9 +38,16 @@ from transform.rows import build_admin_record, filter_extra_fields
 router = APIRouter()
 
 
-def _with_brand_and_image(item: dict, brand: str, settings, us3_storage=None) -> dict:
-    costs = normalize_gender_costs((item.get("extra_fields") or {}).get(GENDER_COSTS_FIELD))
-    return {
+def _with_brand_and_image(
+    item: dict,
+    brand: str,
+    settings,
+    us3_storage=None,
+    *,
+    include_cost: bool = True,
+) -> dict:
+    costs = normalize_gender_costs((item.get("extra_fields") or {}).get(GENDER_COSTS_FIELD)) if include_cost else {}
+    result = {
         **item,
         "brand": brand,
         "image_url": image_url_for(brand, item.get("image_path"), settings),
@@ -58,6 +66,7 @@ def _with_brand_and_image(item: dict, brand: str, settings, us3_storage=None) ->
             else None
         ),
     }
+    return result if include_cost else redact_product_cost_item(result)
 
 
 def _validate_size_group(request: Request, size_range: object) -> None:
@@ -93,13 +102,14 @@ def list_products(
     settings = request.app.state.settings
     repository = request.app.state.repository
     us3_storage = getattr(request.app.state, "us3_image_storage", None)
+    include_cost = request_can_view_product_cost(request)
 
     if brand == "all":
         payload = repository.list_all_products(query=query, sku_prefix=sku_prefix, page=page, page_size=page_size)
         return {
             **payload,
             "items": [
-                _with_brand_and_image(item, item["brand"], settings, us3_storage)
+                _with_brand_and_image(item, item["brand"], settings, us3_storage, include_cost=include_cost)
                 for item in payload["items"]
             ],
         }
@@ -111,7 +121,10 @@ def list_products(
     payload = repository.list_products(brand, query=query, sku_prefix=sku_prefix, year=year, page=page, page_size=page_size)
     return {
         **payload,
-        "items": [_with_brand_and_image(item, brand, settings, us3_storage) for item in payload["items"]],
+        "items": [
+            _with_brand_and_image(item, brand, settings, us3_storage, include_cost=include_cost)
+            for item in payload["items"]
+        ],
     }
 
 
@@ -218,6 +231,7 @@ def list_product_recycle_bin(
     settings = request.app.state.settings
     repository = request.app.state.repository
     us3_storage = getattr(request.app.state, "us3_image_storage", None)
+    include_cost = request_can_view_product_cost(request)
     if brand is not None and not repository.is_product_archive_brand(brand):
         raise HTTPException(status_code=400, detail=f"Invalid brand: {brand}")
     payload = repository.list_recycled_products(
@@ -228,7 +242,7 @@ def list_product_recycle_bin(
     return {
         **payload,
         "items": [
-            _with_brand_and_image(item, item["brand"], settings, us3_storage)
+            _with_brand_and_image(item, item["brand"], settings, us3_storage, include_cost=include_cost)
             for item in payload["items"]
         ],
     }
@@ -296,6 +310,7 @@ def get_product(request: Request, brand: ProductArchiveBrandKey, product_id: int
         brand,
         settings,
         getattr(request.app.state, "us3_image_storage", None),
+        include_cost=request_can_view_product_cost(request),
     )
 
 

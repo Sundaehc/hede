@@ -36,7 +36,7 @@ function getErrorMessage(error: unknown) {
 }
 
 export function ProductAdminPage() {
-  const { hasPermission } = useAuth()
+  const { hasPermission, user } = useAuth()
   const [brand, setBrand] = useState<ProductArchiveBrandKey>(DEFAULT_BRAND)
   const [routeContextReady, setRouteContextReady] = useState(false)
   const [year, setYear] = useState("")
@@ -330,6 +330,7 @@ export function ProductAdminPage() {
   const canExportProducts = hasPermission("product.export")
   const canImportProducts = hasPermission("product.import")
   const canSelectProducts = canManageProducts || canExportProducts
+  const canViewProductCost = !["客服部", "美工部"].includes(user?.department_code ?? "")
 
   return (
     <div className="app-page">
@@ -446,6 +447,7 @@ export function ProductAdminPage() {
               isLoading={isLoading}
               error={error}
               selectable={(isAllBrand(brand) ? canManageProducts : canSelectProducts)}
+              showCost={canViewProductCost}
               selectedKeys={new Set(selectedProducts.keys())}
               onToggleSelect={handleToggleSelect}
               onToggleSelectAll={handleToggleSelectAll}

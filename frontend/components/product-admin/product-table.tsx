@@ -24,6 +24,7 @@ type ProductTableProps = {
   isLoading: boolean
   error: string | null
   selectable?: boolean
+  showCost?: boolean
   selectedKeys: Set<string>
   onToggleSelect: (item: ProductListItem) => void
   onToggleSelectAll: () => void
@@ -134,9 +135,10 @@ async function copyProductCode(value: string) {
   textarea.remove()
 }
 
-function ProductCard({ item, selectable, selectedKeys, onToggleSelect, onEdit, onDelete, onPreviewImage }: {
+function ProductCard({ item, selectable, showCost = true, selectedKeys, onToggleSelect, onEdit, onDelete, onPreviewImage }: {
   item: ProductListItem
   selectable?: boolean
+  showCost?: boolean
   selectedKeys: Set<string>
   onToggleSelect: (item: ProductListItem) => void
   onEdit?: (item: ProductListItem) => void
@@ -145,7 +147,7 @@ function ProductCard({ item, selectable, selectedKeys, onToggleSelect, onEdit, o
 }) {
   const checked = selectedKeys.has(`${item.brand}:${item.id}`)
   const canEdit = Boolean(onEdit)
-  const costText = productCostText(item)
+  const costText = showCost ? productCostText(item) : ""
   const [copiedCode, setCopiedCode] = useState<string | null>(null)
   const handleCopyCode = async (event: React.MouseEvent<HTMLButtonElement>, value: string) => {
     event.stopPropagation()
@@ -315,6 +317,7 @@ export function ProductTable({
   isLoading,
   error,
   selectable,
+  showCost = true,
   selectedKeys,
   onToggleSelect,
   onToggleSelectAll,
@@ -422,6 +425,7 @@ export function ProductTable({
               key={`${item.brand}-${item.id}`}
               item={item}
               selectable={selectable}
+              showCost={showCost}
               selectedKeys={selectedKeys}
               onToggleSelect={onToggleSelect}
               onEdit={onEdit}

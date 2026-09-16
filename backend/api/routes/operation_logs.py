@@ -3,6 +3,7 @@ from __future__ import annotations
 from fastapi import APIRouter, HTTPException, Query, Request
 
 from api.routes.auth import get_current_user_from_request, require_permission, user_has_permission
+from api.product_cost_access import redact_product_cost_log_item, user_can_view_product_cost
 
 
 router = APIRouter(prefix="/operation-logs")
@@ -58,10 +59,13 @@ def list_operation_logs(
             raise HTTPException(status_code=403, detail=f"{module_label}操作日志仅限商品部、开发部和超级管理员查看")
     page = max(1, page)
     page_size = min(max(1, page_size), 100)
-    return request.app.state.operation_log_repository.list_logs(
+    result = request.app.state.operation_log_repository.list_logs(
         module=module,
         query=query,
         page=page,
         page_size=page_size,
         exclude_super_admin_logs=str(user.get("role_code") or "") != "super_admin",
     )
+    if module == "product" and not user_can_view_product_cost(user):
+        result["items"] = [redact_product_cost_log_item(item) for item in result["items"]]
+    return result
