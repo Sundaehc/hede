@@ -13,7 +13,7 @@ from sqlalchemy import MetaData, Table, Text, and_, case, create_engine, delete,
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from domain.gj_schema import GJ_MERGED_PRODUCT_INFO_TABLE
-from domain.inventory_schema import GENERAL_CUSTOMER_BRAND_TABLE, GENERAL_CUSTOMER_SHOP_TABLE, GENERAL_CUSTOMER_SORT_PREFERENCE_TABLE, GENERAL_CUSTOMER_UNIT_TABLE, INVENTORY_ACCOUNT_SUBJECT_TABLE, INVENTORY_DETAIL_TABLE, INVENTORY_TABLE, JST_STOCK_TABLE, PURCHASE_ORDER_REQUIREMENT_TABLE, SUPPLIER_BRAND_TABLE, SUPPLIER_TABLE, WAREHOUSE_BRAND_TABLE, WAREHOUSE_TABLE
+from domain.inventory_schema import GENERAL_CUSTOMER_BRAND_TABLE, GENERAL_CUSTOMER_SHOP_TABLE, GENERAL_CUSTOMER_SORT_PREFERENCE_TABLE, GENERAL_CUSTOMER_UNIT_TABLE, INVENTORY_ACCOUNT_SUBJECT_TABLE, INVENTORY_DETAIL_TABLE, INVENTORY_TABLE, JST_STOCK_TABLE, PURCHASE_ORDER_REQUIREMENT_TABLE, PURCHASE_PRINT_TEMPLATE_TABLE, SUPPLIER_BRAND_TABLE, SUPPLIER_TABLE, WAREHOUSE_BRAND_TABLE, WAREHOUSE_TABLE
 from domain.inventory_sources import ACCOUNTING_DOCUMENT_TYPES, ACCOUNT_SUBJECT_CATEGORIES
 from domain.gj_brand import CBANNER_MENS_BRAND, GJ_FINE_TABLE_BRANDS, SUPPLIER_BRANDS, infer_supplier_brand_from_name
 from domain import jst_stock_snapshot_schema  # noqa: F401 - register JST stock snapshot tables on METADATA
@@ -1770,6 +1770,50 @@ class InventoryRepository:
             row = connection.execute(statement).mappings().one()
         return dict(row)
 
+    def get_purchase_print_template(self, user_id: int, template_key: str = "shoe_box_label") -> dict[str, object] | None:
+        statement = select(PURCHASE_PRINT_TEMPLATE_TABLE).where(
+            PURCHASE_PRINT_TEMPLATE_TABLE.c.user_id == user_id,
+            PURCHASE_PRINT_TEMPLATE_TABLE.c.template_key == template_key,
+        )
+        with self.engine.connect() as connection:
+            row = connection.execute(statement).mappings().first()
+        return None if row is None else dict(row)
+
+    def upsert_purchase_print_template(
+        self,
+        user_id: int,
+        config: Mapping[str, object],
+        template_key: str = "shoe_box_label",
+    ) -> dict[str, object]:
+        insert_statement = pg_insert(PURCHASE_PRINT_TEMPLATE_TABLE).values(
+            user_id=user_id,
+            template_key=template_key,
+            config=dict(config),
+        )
+        statement = insert_statement.on_conflict_do_update(
+            index_elements=[
+                PURCHASE_PRINT_TEMPLATE_TABLE.c.user_id,
+                PURCHASE_PRINT_TEMPLATE_TABLE.c.template_key,
+            ],
+            set_={
+                "config": insert_statement.excluded.config,
+                "updated_at": func.date_trunc("minute", func.now()),
+            },
+        ).returning(PURCHASE_PRINT_TEMPLATE_TABLE)
+        with self.engine.begin() as connection:
+            row = connection.execute(statement).mappings().one()
+        return dict(row)
+
+    def delete_purchase_print_template(self, user_id: int, template_key: str = "shoe_box_label") -> bool:
+        with self.engine.begin() as connection:
+            result = connection.execute(
+                delete(PURCHASE_PRINT_TEMPLATE_TABLE).where(
+                    PURCHASE_PRINT_TEMPLATE_TABLE.c.user_id == user_id,
+                    PURCHASE_PRINT_TEMPLATE_TABLE.c.template_key == template_key,
+                )
+            )
+        return bool(result.rowcount)
+
     # ── Warehouses ─────────────────────────────────────────────────
 
     def list_warehouses(self) -> list[dict[str, object]]:
@@ -2260,6 +2304,51 @@ class InventoryRepository:
             select(table)
             .where(table.c.document_id.in_(document_ids))
             .order_by(table.c.document_id, table.c.id)
+        )
+        with self.engine.connect() as connection:
+            return [dict(row) for row in connection.execute(statement).mappings()]
+
+    def list_matching_details_for_documents(
+        self,
+        document_ids: list[int],
+        product_code: str,
+    ) -> list[dict[str, object]]:
+        normalized_product_code = str(product_code or "").strip()
+        if not document_ids or not normalized_product_code:
+            return []
+
+        detail = INVENTORY_DETAIL_TABLE
+        stock = JST_STOCK_TABLE
+        product_like = f"%{normalized_product_code}%"
+        stock_code_matches = stock.c.product_code.ilike(product_like)
+        stock_candidates = union_all(
+            select(stock.c.product_code.label("candidate"))
+            .where(stock_code_matches),
+            select(func.left(stock.c.product_code, func.length(stock.c.product_code) - 5).label("candidate"))
+            .where(stock_code_matches)
+            .where(func.length(stock.c.product_code) > 5),
+            select(func.left(stock.c.product_code, func.length(stock.c.product_code) - 3).label("candidate"))
+            .where(stock_code_matches)
+            .where(func.length(stock.c.product_code) > 3),
+            select(func.left(stock.c.product_code, func.length(stock.c.product_code) - 2).label("candidate"))
+            .where(stock_code_matches)
+            .where(func.length(stock.c.product_code) > 2),
+        ).subquery()
+        statement = (
+            select(detail)
+            .where(
+                detail.c.document_id.in_(document_ids),
+                or_(
+                    detail.c.product_code.ilike(product_like),
+                    detail.c.product_code.in_(
+                        select(stock_candidates.c.candidate)
+                        .where(stock_candidates.c.candidate.isnot(None))
+                        .where(stock_candidates.c.candidate != "")
+                        .distinct()
+                    ),
+                ),
+            )
+            .order_by(detail.c.document_id, detail.c.id)
         )
         with self.engine.connect() as connection:
             return [dict(row) for row in connection.execute(statement).mappings()]
@@ -3001,6 +3090,7 @@ class InventoryRepository:
             connection.execute(text("ALTER TABLE IF EXISTS inventory_account_subjects ALTER COLUMN category SET NOT NULL"))
             self._seed_account_subjects(connection)
             PURCHASE_ORDER_REQUIREMENT_TABLE.create(connection, checkfirst=True)
+            PURCHASE_PRINT_TEMPLATE_TABLE.create(connection, checkfirst=True)
             SUPPLIER_TABLE.create(connection, checkfirst=True)
             SUPPLIER_BRAND_TABLE.create(connection, checkfirst=True)
             self._ensure_supplier_brand_schema(connection)

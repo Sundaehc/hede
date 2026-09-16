@@ -1046,6 +1046,20 @@ export type InventoryRecord = {
   deleted_at: string | null
   created_at: string | null
   updated_at: string | null
+  row_key?: string
+  document_id?: number
+  detail_id?: number
+  product_code?: string | null
+  product_name?: string | null
+  color_spec?: string | null
+  color_barcode?: string | null
+  color_name?: string | null
+  size_name?: string | null
+  size_quantities?: Record<string, string> | null
+  quantity?: string | null
+  unit_price?: string | null
+  detail_remark?: string | null
+  purchase_detail_mode?: PurchaseDetailView
 }
 
 export type MatchSkuResult = {
@@ -1079,6 +1093,64 @@ export type InventoryDetail = {
   updated_at: string | null
 }
 
+export type PurchaseDetailView = "summary" | "size_rows"
+
+export type InventoryPrintLabel = {
+  detail_id: number
+  product_code: string
+  size_name: string
+  size_barcode: string
+  barcode: string
+  copies: number
+  brand: string
+  brand_name: string
+  product_level: string
+  color_name: string
+  upper_material: string
+  product_name: string
+  execution_standard: string
+  origin: string
+}
+
+export type PurchasePrintTemplateField =
+  | "product_code"
+  | "size_name"
+  | "brand_name"
+  | "product_level"
+  | "color_name"
+  | "upper_material"
+  | "product_name"
+  | "execution_standard"
+  | "origin"
+  | "barcode"
+
+export type PurchasePrintTemplateElement = {
+  id: string
+  kind: "text" | "barcode"
+  field: PurchasePrintTemplateField | null
+  label: string
+  text: string
+  x: number
+  y: number
+  width: number
+  height: number
+  font_size: number
+  bold: boolean
+  underline: boolean
+  align: "left" | "center" | "right"
+  show_label: boolean
+  border: boolean
+  wrap: boolean
+}
+
+export type PurchasePrintTemplateConfig = {
+  version: 2
+  paper_width_mm: number
+  paper_height_mm: number
+  show_outer_border: boolean
+  elements: PurchasePrintTemplateElement[]
+}
+
 export type InventoryDetailLookupResult = {
   matched_product: boolean
   product_code: string | null
@@ -1110,6 +1182,7 @@ export type InventoryListResponse = {
   total: number
   page: number
   page_size: number
+  view?: PurchaseDetailView
 }
 
 export type CounterpartyLedgerItem = {
@@ -1272,6 +1345,7 @@ export function listInventory(params: {
   product_code?: string
   handler?: string
   completion_status?: string
+  purchaseDetailMode?: PurchaseDetailView
   sortBy?: string
   sortDirection?: "asc" | "desc"
   sortRules?: Array<{ key: string; direction: "asc" | "desc" }>
@@ -1295,6 +1369,8 @@ export function listInventory(params: {
   if (params.handler) search.set("handler", params.handler)
   if (params.completion_status)
     search.set("completion_status", params.completion_status)
+  if (params.purchaseDetailMode)
+    search.set("purchase_detail_mode", params.purchaseDetailMode)
   if (params.sortBy) search.set("sort_by", params.sortBy)
   if (params.sortDirection) search.set("sort_direction", params.sortDirection)
   for (const rule of params.sortRules ?? []) {
@@ -1864,6 +1940,30 @@ export function listDetails(
     page: number
     page_size: number
   }>(`/inventory/${documentId}/details${suffix}`)
+}
+
+export function listInventoryPrintLabels(documentId: number) {
+  return request<{
+    items: InventoryPrintLabel[]
+    label_count: number
+  }>(`/inventory/${documentId}/print-labels`)
+}
+
+export function getPurchasePrintTemplate() {
+  return request<{ config: PurchasePrintTemplateConfig | null }>("/purchase-print-template/current")
+}
+
+export function savePurchasePrintTemplate(config: PurchasePrintTemplateConfig) {
+  return request<{ config: PurchasePrintTemplateConfig; message: string }>("/purchase-print-template/current", {
+    method: "PUT",
+    body: JSON.stringify({ config }),
+  })
+}
+
+export function resetPurchasePrintTemplate() {
+  return request<{ message: string }>("/purchase-print-template/current", {
+    method: "DELETE",
+  })
 }
 
 export function replaceDetailsFromExcel(payload: {

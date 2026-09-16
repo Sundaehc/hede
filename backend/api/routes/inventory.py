@@ -213,6 +213,7 @@ PURCHASE_ORDER_IMPORT_CODE_HEADERS = {"商品编码", "货品编码", "商品编
 PURCHASE_DETAIL_REMARK_LIMIT = 20
 PURCHASE_PRODUCTION_ORDER_EXPORT_MODE = "production_order"
 PURCHASE_EXPORT_MODES = {"summary", "size_rows", PURCHASE_PRODUCTION_ORDER_EXPORT_MODE}
+PURCHASE_DETAIL_VIEW_MODES = {"summary", "size_rows"}
 PURCHASE_SUMMARY_EXPORT_HEADERS = [
     "单据类型",
     "货号",
@@ -340,6 +341,33 @@ PURCHASE_PRODUCTION_ORDER_TITLE_BRAND_LABELS = {
     SMILEY_BRAND: "笑脸",
     NI_BRAND: "NI",
 }
+PURCHASE_LABEL_BRAND_NAMES = {
+    CBANNER_MENS_BRAND: "C°BANNER",
+    CBANNER_WOMENS_BRAND: "C°BANNER",
+    EBLAN_BRAND: "EBLAN",
+    YANDOU_BRAND: "TRUMPPIPE",
+    SMILEY_BRAND: "SMILEY",
+    NI_BRAND: "NI",
+}
+PURCHASE_PRINT_TEMPLATE_FIELDS = {
+    "product_code",
+    "size_name",
+    "brand_name",
+    "product_level",
+    "color_name",
+    "upper_material",
+    "product_name",
+    "execution_standard",
+    "origin",
+    "barcode",
+}
+PURCHASE_PRINT_TEMPLATE_KINDS = {"text", "barcode"}
+PURCHASE_PRINT_TEMPLATE_ALIGNS = {"left", "center", "right"}
+PURCHASE_PRINT_TEMPLATE_MAX_ELEMENTS = 40
+PURCHASE_PRINT_TEMPLATE_DEFAULT_WIDTH = 60
+PURCHASE_PRINT_TEMPLATE_DEFAULT_HEIGHT = 80
+PURCHASE_PRINT_TEMPLATE_MIN_DIMENSION = 20
+PURCHASE_PRINT_TEMPLATE_MAX_DIMENSION = 300
 
 
 def _normalize_date(value: object) -> str | None:
@@ -510,6 +538,135 @@ def _purchase_detail_amount(detail: dict[str, object], quantity: Decimal) -> Dec
         if unit_price != 0:
             amount = quantity * unit_price
     return amount
+
+
+def _purchase_search_row_unit_price(row: dict[str, object]) -> Decimal:
+    quantity = _to_decimal(row.get("quantity"))
+    amount = _to_decimal(row.get("amount"))
+    unit_prices = row.get("unit_prices")
+    if isinstance(unit_prices, set) and len(unit_prices) == 1:
+        return next(iter(unit_prices))
+    if quantity != 0:
+        try:
+            return (amount / quantity).quantize(Decimal("0.01"))
+        except Exception:
+            return Decimal("0")
+    return Decimal("0")
+
+
+def _build_purchase_order_search_rows(
+    records: list[dict[str, object]],
+    details: list[dict[str, object]],
+    mode: str,
+) -> list[dict[str, object]]:
+    records_by_id = {record.get("id"): record for record in records}
+    groups: dict[tuple[object, ...], dict[str, object]] = {}
+    ordered_keys: list[tuple[object, ...]] = []
+
+    for detail in details:
+        document_id = detail.get("document_id")
+        record = records_by_id.get(document_id)
+        if not record:
+            continue
+        product_code = _cell_text(detail.get("product_code"))
+        if not product_code:
+            continue
+
+        product_name = _first_text(detail.get("product_name"), product_code)
+        color_barcode = _cell_text(detail.get("color_barcode"))
+        color_name = _first_text(detail.get("color_name"), detail.get("color_spec"))
+        color_spec = _cell_text(detail.get("color_spec"))
+        detail_remark = _cell_text(detail.get("remark"))
+        size_quantities = _dict_or_empty(detail.get("size_quantities"))
+        detail_quantity = _purchase_detail_quantity(detail, size_quantities)
+        detail_amount = _purchase_detail_amount(detail, detail_quantity)
+        unit_price = _to_decimal(detail.get("unit_price"))
+
+        if mode == "size_rows":
+            size_entries = [
+                (_cell_text(size), _to_decimal(quantity))
+                for size, quantity in size_quantities.items()
+                if _cell_text(size) and _to_decimal(quantity) != 0
+            ]
+            if not size_entries:
+                size_entries = [("", detail_quantity)]
+        else:
+            size_entries = [("", detail_quantity)]
+
+        for size_name, quantity in size_entries:
+            key = (
+                document_id,
+                product_code,
+                color_barcode,
+                color_name,
+                size_name if mode == "size_rows" else "",
+            )
+            if key not in groups:
+                groups[key] = {
+                    **record,
+                    "document_id": document_id,
+                    "detail_id": detail.get("id"),
+                    "product_code": product_code,
+                    "product_name": product_name,
+                    "color_spec": color_spec,
+                    "color_barcode": color_barcode,
+                    "color_name": color_name,
+                    "size_name": size_name or None,
+                    "quantity": Decimal("0"),
+                    "amount": Decimal("0"),
+                    "unit_prices": set(),
+                    "detail_remark": detail_remark,
+                    "size_quantities": {},
+                }
+                ordered_keys.append(key)
+
+            group = groups[key]
+            if unit_price != 0:
+                group["unit_prices"].add(unit_price)
+            if detail_remark and not group.get("detail_remark"):
+                group["detail_remark"] = detail_remark
+
+            if mode == "size_rows":
+                row_amount = (
+                    quantity * unit_price
+                    if unit_price != 0
+                    else _purchase_prorated_decimal(detail_amount, quantity, detail_quantity)
+                )
+                group["quantity"] = group["quantity"] + quantity
+                group["amount"] = group["amount"] + row_amount
+                group["size_quantities"] = {size_name: group["quantity"]} if size_name else {}
+            else:
+                group["quantity"] = group["quantity"] + detail_quantity
+                group["amount"] = group["amount"] + detail_amount
+                merged_sizes = group["size_quantities"]
+                for size, size_quantity in size_quantities.items():
+                    size_text = _cell_text(size)
+                    if size_text:
+                        merged_sizes[size_text] = _to_decimal(merged_sizes.get(size_text)) + _to_decimal(size_quantity)
+
+    rows: list[dict[str, object]] = []
+    for row_index, key in enumerate(ordered_keys, start=1):
+        group = groups[key]
+        quantity = _to_decimal(group.pop("quantity"))
+        amount = _to_decimal(group.pop("amount"))
+        unit_price = _purchase_search_row_unit_price({
+            "quantity": quantity,
+            "amount": amount,
+            "unit_prices": group.pop("unit_prices"),
+        })
+        sizes = group.get("size_quantities")
+        if isinstance(sizes, dict):
+            group["size_quantities"] = {
+                size: _fmt_decimal(_to_decimal(size_quantity))
+                for size, size_quantity in sizes.items()
+            }
+        group["quantity"] = _fmt_decimal(quantity)
+        group["unit_price"] = _fmt_decimal(unit_price)
+        group["amount"] = _fmt_decimal(amount)
+        group["purchase_detail_mode"] = mode
+        group["row_key"] = f"{group.get('document_id')}:{group.get('detail_id')}:{mode}:{row_index}"
+        rows.append(group)
+    return rows
 
 
 def _purchase_prorated_decimal(total: Decimal, part: Decimal, base: Decimal) -> Decimal:
@@ -693,9 +850,14 @@ def _load_purchase_size_export_profiles(
                 sa_select(
                     table.c.sku,
                     table.c.original_sku,
+                    table.c.product_name,
+                    table.c.color,
                     table.c.color_code,
                     table.c.barcode_build_rule,
                     table.c.size_range,
+                    table.c.upper_material,
+                    table.c.execution_standard,
+                    table.c.extra_fields,
                     table.c.updated_at,
                     table.c.id,
                 )
@@ -728,6 +890,293 @@ def _load_purchase_size_export_profiles(
         }
         profiles[profile_key] = {**profile, "size_barcodes": size_barcodes}
     return profiles
+
+
+def _purchase_label_brand_name(brand: object) -> str:
+    normalized_brand = _cell_text(brand).lower()
+    return PURCHASE_LABEL_BRAND_NAMES.get(normalized_brand) or normalized_brand.upper()
+
+
+def _purchase_label_copy_count(value: object, *, product_code: str, size_name: str) -> int:
+    quantity = _to_decimal(value)
+    if quantity <= 0:
+        return 0
+    if quantity != quantity.to_integral_value():
+        raise HTTPException(
+            status_code=400,
+            detail=f"{product_code} 尺码 {size_name} 的数量不是整数，无法按件生成标签",
+        )
+    return int(quantity)
+
+
+def _bounded_template_number(
+    value: object,
+    *,
+    field_name: str,
+    minimum: float,
+    maximum: float,
+) -> float:
+    try:
+        number = float(value)
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=f"模板元素的 {field_name} 格式不正确") from exc
+    if number < minimum or number > maximum:
+        raise HTTPException(
+            status_code=400,
+            detail=f"模板元素的 {field_name} 必须在 {minimum:g}-{maximum:g} 之间",
+        )
+    return round(number, 2)
+
+
+def _scale_legacy_purchase_print_template_value(value: object, factor: float) -> object:
+    try:
+        return round(float(value) * factor, 2)
+    except (TypeError, ValueError):
+        return value
+
+
+def _migrate_legacy_purchase_print_template_config(config: dict[str, object]) -> dict[str, object]:
+    """Convert the original fixed 80x60 template to the current configurable format."""
+    try:
+        version = int(config.get("version", 1))
+        old_width = float(config.get("paper_width_mm"))
+        old_height = float(config.get("paper_height_mm"))
+    except (TypeError, ValueError):
+        return config
+    if version != 1 or old_width != 80 or old_height != 60:
+        return config
+
+    migrated = dict(config)
+    migrated["version"] = 2
+    migrated["paper_width_mm"] = PURCHASE_PRINT_TEMPLATE_DEFAULT_WIDTH
+    migrated["paper_height_mm"] = PURCHASE_PRINT_TEMPLATE_DEFAULT_HEIGHT
+    raw_elements = config.get("elements")
+    if isinstance(raw_elements, list):
+        migrated["elements"] = [
+            {
+                **_dict_or_empty(raw_element),
+                "x": _scale_legacy_purchase_print_template_value(
+                    _dict_or_empty(raw_element).get("x"),
+                    PURCHASE_PRINT_TEMPLATE_DEFAULT_WIDTH / old_width,
+                ),
+                "y": _scale_legacy_purchase_print_template_value(
+                    _dict_or_empty(raw_element).get("y"),
+                    PURCHASE_PRINT_TEMPLATE_DEFAULT_HEIGHT / old_height,
+                ),
+                "width": _scale_legacy_purchase_print_template_value(
+                    _dict_or_empty(raw_element).get("width"),
+                    PURCHASE_PRINT_TEMPLATE_DEFAULT_WIDTH / old_width,
+                ),
+                "height": _scale_legacy_purchase_print_template_value(
+                    _dict_or_empty(raw_element).get("height"),
+                    PURCHASE_PRINT_TEMPLATE_DEFAULT_HEIGHT / old_height,
+                ),
+            }
+            for raw_element in raw_elements
+        ]
+    return migrated
+
+
+def _normalize_purchase_print_template_config(value: object) -> dict[str, object]:
+    config = _migrate_legacy_purchase_print_template_config(_dict_or_empty(value))
+    paper_width = _bounded_template_number(
+        config.get("paper_width_mm", PURCHASE_PRINT_TEMPLATE_DEFAULT_WIDTH),
+        field_name="纸张宽度",
+        minimum=PURCHASE_PRINT_TEMPLATE_MIN_DIMENSION,
+        maximum=PURCHASE_PRINT_TEMPLATE_MAX_DIMENSION,
+    )
+    paper_height = _bounded_template_number(
+        config.get("paper_height_mm", PURCHASE_PRINT_TEMPLATE_DEFAULT_HEIGHT),
+        field_name="纸张高度",
+        minimum=PURCHASE_PRINT_TEMPLATE_MIN_DIMENSION,
+        maximum=PURCHASE_PRINT_TEMPLATE_MAX_DIMENSION,
+    )
+    raw_elements = config.get("elements")
+    if not isinstance(raw_elements, list) or not raw_elements:
+        raise HTTPException(status_code=400, detail="打印模板至少需要一个元素")
+    if len(raw_elements) > PURCHASE_PRINT_TEMPLATE_MAX_ELEMENTS:
+        raise HTTPException(status_code=400, detail=f"打印模板最多支持 {PURCHASE_PRINT_TEMPLATE_MAX_ELEMENTS} 个元素")
+
+    elements: list[dict[str, object]] = []
+    element_ids: set[str] = set()
+    for index, raw_element in enumerate(raw_elements, start=1):
+        element = _dict_or_empty(raw_element)
+        element_id = _cell_text(element.get("id"))
+        if not element_id or len(element_id) > 80 or element_id in element_ids:
+            raise HTTPException(status_code=400, detail=f"第 {index} 个模板元素标识无效或重复")
+        kind = _cell_text(element.get("kind")) or "text"
+        if kind not in PURCHASE_PRINT_TEMPLATE_KINDS:
+            raise HTTPException(status_code=400, detail=f"第 {index} 个模板元素类型不支持")
+        field = _cell_text(element.get("field")) or None
+        if field is not None and field not in PURCHASE_PRINT_TEMPLATE_FIELDS:
+            raise HTTPException(status_code=400, detail=f"第 {index} 个模板元素的数据字段不支持")
+        if kind == "barcode":
+            field = "barcode"
+        elif field == "barcode":
+            kind = "text"
+
+        align = _cell_text(element.get("align")) or "left"
+        if align not in PURCHASE_PRINT_TEMPLATE_ALIGNS:
+            raise HTTPException(status_code=400, detail=f"第 {index} 个模板元素对齐方式不支持")
+        text_value = _cell_text(element.get("text"))[:200]
+        label = _cell_text(element.get("label"))[:30]
+        if kind == "text" and field is None and not text_value:
+            raise HTTPException(status_code=400, detail=f"第 {index} 个固定文字不能为空")
+
+        x = _bounded_template_number(
+            element.get("x"),
+            field_name="横坐标",
+            minimum=0,
+            maximum=paper_width,
+        )
+        y = _bounded_template_number(
+            element.get("y"),
+            field_name="纵坐标",
+            minimum=0,
+            maximum=paper_height,
+        )
+        width = _bounded_template_number(
+            element.get("width"),
+            field_name="宽度",
+            minimum=3,
+            maximum=paper_width,
+        )
+        height = _bounded_template_number(
+            element.get("height"),
+            field_name="高度",
+            minimum=2,
+            maximum=paper_height,
+        )
+        if (
+            x + width > paper_width + 0.01
+            or y + height > paper_height + 0.01
+        ):
+            raise HTTPException(
+                status_code=400,
+                detail=f"第 {index} 个模板元素超出 {paper_width:g}×{paper_height:g}mm 纸张范围",
+            )
+        elements.append({
+            "id": element_id,
+            "kind": kind,
+            "field": field,
+            "label": label,
+            "text": text_value,
+            "x": x,
+            "y": y,
+            "width": width,
+            "height": height,
+            "font_size": _bounded_template_number(
+                element.get("font_size", 9),
+                field_name="字号",
+                minimum=5,
+                maximum=30,
+            ),
+            "bold": bool(element.get("bold", False)),
+            "underline": bool(element.get("underline", False)),
+            "align": align,
+            "show_label": bool(element.get("show_label", True)),
+            "border": bool(element.get("border", False)),
+            "wrap": bool(element.get("wrap", False)),
+        })
+        element_ids.add(element_id)
+
+    return {
+        "version": 2,
+        "paper_width_mm": paper_width,
+        "paper_height_mm": paper_height,
+        "show_outer_border": bool(config.get("show_outer_border", True)),
+        "elements": elements,
+    }
+
+
+def _build_purchase_print_labels(
+    record: dict[str, object],
+    details: list[dict[str, object]],
+    brand: str,
+    profiles: dict[tuple[object, str], dict[str, object]],
+) -> list[dict[str, object]]:
+    labels: list[dict[str, object]] = []
+    ordered_sizes = _purchase_export_size_labels(details)
+    for detail in details:
+        product_code = _cell_text(detail.get("product_code"))
+        if not product_code:
+            continue
+        detail_id = detail.get("id")
+        profile = profiles.get((record.get("id"), product_code))
+        profile_extra_fields = _dict_or_empty(profile.get("extra_fields") if profile else None)
+        detail_extra_fields = _dict_or_empty(detail.get("extra_fields"))
+        size_quantities = _dict_or_empty(detail.get("size_quantities"))
+        size_entries = [
+            (size_name, size_quantities.get(size_name))
+            for size_name in ordered_sizes
+            if _to_decimal(size_quantities.get(size_name)) > 0
+        ]
+        if not size_entries and _to_decimal(detail.get("quantity")) > 0:
+            raise HTTPException(
+                status_code=400,
+                detail=f"{product_code} 未维护尺码数量，无法生成鞋盒标签",
+            )
+
+        display_product_code = _first_text(
+            profile.get("sku") if profile else None,
+            product_code,
+        )
+        color_code = _first_text(
+            profile.get("color_code") if profile else None,
+            detail.get("color_barcode"),
+            _purchase_color_barcode(display_product_code, brand),
+        )
+        for size_name, raw_quantity in size_entries:
+            copies = _purchase_label_copy_count(
+                raw_quantity,
+                product_code=display_product_code,
+                size_name=size_name,
+            )
+            if copies == 0:
+                continue
+            barcode, size_barcode = _purchase_size_export_product_code(
+                display_product_code,
+                color_code,
+                size_name,
+                brand,
+                profile,
+            )
+            labels.append({
+                "detail_id": detail_id,
+                "product_code": display_product_code,
+                "size_name": size_name,
+                "size_barcode": size_barcode,
+                "barcode": barcode,
+                "copies": copies,
+                "brand": brand,
+                "brand_name": _purchase_label_brand_name(brand),
+                "product_level": "合格品",
+                "color_name": _first_text(
+                    profile.get("color") if profile else None,
+                    detail.get("color_name"),
+                    detail.get("color_spec"),
+                ),
+                "upper_material": _first_text(
+                    profile.get("upper_material") if profile else None,
+                    detail_extra_fields.get("upper_material"),
+                ),
+                "product_name": _first_text(
+                    profile.get("product_name") if profile else None,
+                    detail.get("product_name"),
+                ),
+                "execution_standard": _first_text(
+                    profile.get("execution_standard") if profile else None,
+                    detail_extra_fields.get("execution_standard"),
+                ),
+                "origin": _first_text(
+                    profile_extra_fields.get("产地"),
+                    profile_extra_fields.get("origin"),
+                    profile_extra_fields.get("place_of_origin"),
+                    detail_extra_fields.get("origin"),
+                    "中国",
+                ),
+            })
+    return labels
 
 
 def _purchase_size_export_product_code(
@@ -3353,6 +3802,7 @@ def list_inventory(
     product_code: str | None = None,
     handler: str | None = None,
     completion_status: str | None = None,
+    purchase_detail_mode: str | None = None,
     sort_by: str | None = None,
     sort_direction: str = "desc",
     sort: list[str] | None = Query(None),
@@ -3367,7 +3817,22 @@ def list_inventory(
         key, separator, direction = str(raw_rule).partition(":")
         if separator and key.strip() and direction.strip().lower() in {"asc", "desc"}:
             sort_rules.append((key.strip(), direction.strip().lower()))
-    return repository.list_records(
+    normalized_purchase_detail_mode = str(purchase_detail_mode or "").strip()
+    if normalized_purchase_detail_mode and normalized_purchase_detail_mode not in PURCHASE_DETAIL_VIEW_MODES:
+        raise HTTPException(status_code=400, detail="采购单展示模式仅支持 summary 或 size_rows")
+
+    list_page = page
+    list_page_size = page_size
+    should_expand_purchase_details = bool(
+        normalized_purchase_detail_mode
+        and product_code
+        and document_type == "进货订单"
+    )
+    if should_expand_purchase_details:
+        list_page = 1
+        list_page_size = 100_000
+
+    result = repository.list_records(
         date_start=date_start,
         date_end=date_end,
         supplier=supplier,
@@ -3382,9 +3847,26 @@ def list_inventory(
         sort_by=sort_by,
         sort_direction=sort_direction,
         sort_rules=sort_rules,
-        page=page,
-        page_size=page_size,
+        page=list_page,
+        page_size=list_page_size,
     )
+    if not should_expand_purchase_details:
+        return result
+
+    records = result["items"]
+    details = repository.list_matching_details_for_documents(
+        [int(record["id"]) for record in records],
+        product_code or "",
+    )
+    rows = _build_purchase_order_search_rows(records, details, normalized_purchase_detail_mode)
+    offset = (page - 1) * page_size
+    return {
+        "items": rows[offset:offset + page_size],
+        "total": len(rows),
+        "page": page,
+        "page_size": page_size,
+        "view": normalized_purchase_detail_mode,
+    }
 
 
 @router.get("/inventory-reports/purchase-inbound-details")
@@ -4841,6 +5323,63 @@ def list_inventory_details(
         }
 
     return {"items": details, "total": total, "page": response_page, "page_size": response_page_size}
+
+
+@router.get("/inventory/{record_id}/print-labels")
+def list_inventory_print_labels(request: Request, record_id: int):
+    repository = request.app.state.inventory_repository
+    record = repository.get_record(record_id)
+    if record is None:
+        raise HTTPException(status_code=404, detail="Record not found")
+    if _cell_text(record.get("document_type")) != "进货订单":
+        raise HTTPException(status_code=400, detail="仅进货订单支持打印鞋盒标签")
+
+    details = repository.list_details(record_id)
+    if not details:
+        return {"items": [], "label_count": 0}
+
+    supplier_lookup = _load_supplier_export_lookup(repository, [record])
+    context = _purchase_record_export_context(record, supplier_lookup)
+    profiles = _load_purchase_size_export_profiles(
+        repository,
+        details,
+        {record_id: record},
+        supplier_lookup,
+    )
+    items = _build_purchase_print_labels(record, details, context["brand"], profiles)
+    return {
+        "items": items,
+        "label_count": sum(int(item["copies"]) for item in items),
+    }
+
+
+@router.get("/purchase-print-template/current")
+def get_purchase_print_template(request: Request):
+    repository = request.app.state.inventory_repository
+    user_id = _current_account_id(request, required=True)
+    item = repository.get_purchase_print_template(user_id)
+    return {
+        "config": _normalize_purchase_print_template_config(item.get("config"))
+        if item
+        else None,
+    }
+
+
+@router.put("/purchase-print-template/current")
+def save_purchase_print_template(request: Request, payload: dict):
+    repository = request.app.state.inventory_repository
+    user_id = _current_account_id(request, required=True)
+    config = _normalize_purchase_print_template_config(payload.get("config"))
+    item = repository.upsert_purchase_print_template(user_id, config)
+    return {"config": item.get("config"), "message": "打印模板已保存"}
+
+
+@router.delete("/purchase-print-template/current")
+def reset_purchase_print_template(request: Request):
+    repository = request.app.state.inventory_repository
+    user_id = _current_account_id(request, required=True)
+    repository.delete_purchase_print_template(user_id)
+    return {"message": "已恢复默认打印模板"}
 
 
 @router.post("/inventory/{record_id}/details/import-replace")

@@ -3,13 +3,17 @@ from __future__ import annotations
 import io
 from types import SimpleNamespace
 
+import pytest
+from fastapi import HTTPException
 from openpyxl import Workbook
 
 from api.routes.inventory import (
     _build_purchase_details_from_rows,
+    _build_purchase_print_labels,
     _build_purchase_order_import_template,
     _group_purchase_import_rows_by_summary,
     _missing_purchase_order_import_fields,
+    _normalize_purchase_print_template_config,
     _purchase_archive_size_from_product_code,
     _purchase_lookup_preset_price,
     _purchase_order_import_has_size_columns,
@@ -169,6 +173,208 @@ def test_purchase_size_export_prefers_exact_sku_over_newer_original_sku_match() 
     )
     assert product_code == "EAU53738D3838225"
     assert size_barcode == "225"
+
+
+def test_purchase_print_labels_use_archive_barcode_rule_and_copy_count() -> None:
+    record = {"id": 18, "document_type": "进货订单"}
+    details = [{
+        "id": 51,
+        "document_id": 18,
+        "product_code": "RCT63957D06",
+        "product_name": "女休闲鞋",
+        "color_barcode": "06",
+        "color_name": "咖色",
+        "size_quantities": {"220": "2", "225": "0"},
+        "quantity": "2",
+        "extra_fields": {"upper_material": "合成革"},
+    }]
+    profiles = {(18, "RCT63957D06"): {
+        "sku": "RCT63957D06",
+        "original_sku": "RCT63957D06",
+        "product_name": "女休闲鞋",
+        "product_level": "次品",
+        "color": "咖色（格利特）",
+        "color_code": "06",
+        "barcode_build_rule": "货号+颜色代码+尺码",
+        "upper_material": "牛皮革+合成革",
+        "execution_standard": "Q/WZHD 002-2022",
+        "extra_fields": {"产地": "中国"},
+        "size_barcodes": {"220": "220", "225": "225"},
+    }}
+
+    labels = _build_purchase_print_labels(record, details, "cbanner_womens", profiles)
+
+    assert labels == [{
+        "detail_id": 51,
+        "product_code": "RCT63957D06",
+        "size_name": "220",
+        "size_barcode": "220",
+        "barcode": "RCT63957D0606220",
+        "copies": 2,
+        "brand": "cbanner_womens",
+        "brand_name": "C°BANNER",
+        "product_level": "合格品",
+        "color_name": "咖色（格利特）",
+        "upper_material": "牛皮革+合成革",
+        "product_name": "女休闲鞋",
+        "execution_standard": "Q/WZHD 002-2022",
+        "origin": "中国",
+    }]
+
+
+def test_purchase_print_labels_reject_detail_without_size_quantities() -> None:
+    with pytest.raises(HTTPException, match="未维护尺码数量"):
+        _build_purchase_print_labels(
+            {"id": 18, "document_type": "进货订单"},
+            [{
+                "id": 51,
+                "document_id": 18,
+                "product_code": "RCT63957D06",
+                "quantity": "2",
+                "size_quantities": {},
+                "extra_fields": {},
+            }],
+            "cbanner_womens",
+            {},
+        )
+
+
+def test_purchase_print_template_normalizes_supported_elements() -> None:
+    config = _normalize_purchase_print_template_config({
+        "show_outer_border": False,
+        "elements": [{
+            "id": "product-code",
+            "kind": "text",
+            "field": "product_code",
+            "label": "货号",
+            "x": 1.5,
+            "y": 2,
+            "width": 45,
+            "height": 6,
+            "font_size": 10.5,
+            "bold": True,
+            "align": "left",
+            "show_label": True,
+            "border": False,
+            "wrap": False,
+        }],
+    })
+
+    assert config["paper_width_mm"] == 60
+    assert config["paper_height_mm"] == 80
+    assert config["show_outer_border"] is False
+    assert config["elements"][0]["field"] == "product_code"
+    assert config["elements"][0]["font_size"] == 10.5
+    assert config["elements"][0]["underline"] is False
+
+
+def test_purchase_print_template_preserves_underline_style() -> None:
+    config = _normalize_purchase_print_template_config({
+        "version": 2,
+        "paper_width_mm": 60,
+        "paper_height_mm": 80,
+        "elements": [{
+            "id": "underlined",
+            "kind": "text",
+            "field": "product_code",
+            "label": "货号",
+            "x": 0,
+            "y": 0,
+            "width": 30,
+            "height": 5,
+            "font_size": 9,
+            "underline": True,
+        }],
+    })
+
+    assert config["elements"][0]["underline"] is True
+
+
+@pytest.mark.parametrize(
+    ("element", "message"),
+    [
+        ({"field": "unsupported", "x": 0, "y": 0, "width": 10, "height": 5}, "数据字段不支持"),
+        ({"field": "product_code", "x": 55, "y": 0, "width": 10, "height": 5}, "超出 60×80mm"),
+    ],
+)
+def test_purchase_print_template_rejects_invalid_elements(element: dict[str, object], message: str) -> None:
+    with pytest.raises(HTTPException, match=message):
+        _normalize_purchase_print_template_config({
+            "elements": [{
+                "id": "invalid",
+                "kind": "text",
+                "label": "字段",
+                "font_size": 9,
+                **element,
+            }],
+        })
+
+
+def test_purchase_print_template_migrates_previous_landscape_layout() -> None:
+    config = _normalize_purchase_print_template_config({
+        "paper_width_mm": 80,
+        "paper_height_mm": 60,
+        "elements": [{
+            "id": "legacy",
+            "kind": "text",
+            "field": "product_code",
+            "label": "货号",
+            "x": 40,
+            "y": 30,
+            "width": 20,
+            "height": 15,
+            "font_size": 9,
+        }],
+    })
+
+    assert config["paper_width_mm"] == 60
+    assert config["paper_height_mm"] == 80
+    assert config["elements"][0]["x"] == 30
+    assert config["elements"][0]["y"] == 40
+    assert config["elements"][0]["width"] == 15
+    assert config["elements"][0]["height"] == 20
+
+
+def test_purchase_print_template_accepts_custom_paper_size() -> None:
+    config = _normalize_purchase_print_template_config({
+        "version": 2,
+        "paper_width_mm": 100,
+        "paper_height_mm": 150,
+        "elements": [{
+            "id": "custom",
+            "kind": "text",
+            "field": "product_code",
+            "label": "货号",
+            "x": 80,
+            "y": 120,
+            "width": 20,
+            "height": 20,
+            "font_size": 9,
+        }],
+    })
+
+    assert config["version"] == 2
+    assert config["paper_width_mm"] == 100
+    assert config["paper_height_mm"] == 150
+
+
+def test_purchase_print_template_rejects_paper_size_out_of_range() -> None:
+    with pytest.raises(HTTPException, match="纸张宽度"):
+        _normalize_purchase_print_template_config({
+            "version": 2,
+            "paper_width_mm": 10,
+            "paper_height_mm": 80,
+            "elements": [{
+                "id": "custom",
+                "kind": "text",
+                "field": "product_code",
+                "x": 0,
+                "y": 0,
+                "width": 10,
+                "height": 5,
+                "font_size": 9,
+            }],
+        })
 
 
 def _sample_purchase_workbook() -> bytes:

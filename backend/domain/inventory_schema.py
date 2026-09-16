@@ -25,6 +25,7 @@ from domain.inventory_sources import (
     INVENTORY_TABLE_NAME,
     JST_STOCK_TABLE_NAME,
     PURCHASE_ORDER_REQUIREMENT_TABLE_NAME,
+    PURCHASE_PRINT_TEMPLATE_TABLE_NAME,
     SUPPLIER_TABLE_NAME,
     SUPPLIER_BRAND_TABLE_NAME,
     WAREHOUSE_BRAND_TABLE_NAME,
@@ -123,6 +124,27 @@ def build_purchase_order_requirement_table() -> Table:
     ]
     table = Table(PURCHASE_ORDER_REQUIREMENT_TABLE_NAME, METADATA, *columns)
     Index("idx_purchase_order_requirement_brand", table.c.brand)
+    return table
+
+
+def build_purchase_print_template_table() -> Table:
+    table = Table(
+        PURCHASE_PRINT_TEMPLATE_TABLE_NAME,
+        METADATA,
+        Column("id", BigInteger, Identity(always=False), primary_key=True),
+        Column("user_id", BigInteger, nullable=False),
+        Column("template_key", Text, nullable=False, server_default="shoe_box_label"),
+        Column("config", JSON, nullable=False),
+        Column("created_at", DateTime(timezone=True), server_default=func.date_trunc("minute", func.now())),
+        Column(
+            "updated_at",
+            DateTime(timezone=True),
+            server_default=func.date_trunc("minute", func.now()),
+            onupdate=func.date_trunc("minute", func.now()),
+        ),
+        UniqueConstraint("user_id", "template_key", name="uq_purchase_print_templates_user_key"),
+    )
+    Index("idx_purchase_print_templates_user", table.c.user_id)
     return table
 
 
@@ -282,6 +304,7 @@ INVENTORY_TABLE = build_inventory_table()
 INVENTORY_DETAIL_TABLE = build_inventory_detail_table()
 INVENTORY_ACCOUNT_SUBJECT_TABLE = build_inventory_account_subject_table()
 PURCHASE_ORDER_REQUIREMENT_TABLE = build_purchase_order_requirement_table()
+PURCHASE_PRINT_TEMPLATE_TABLE = build_purchase_print_template_table()
 SUPPLIER_TABLE = build_supplier_table()
 SUPPLIER_BRAND_TABLE = build_supplier_brand_table()
 WAREHOUSE_TABLE = build_warehouse_table()

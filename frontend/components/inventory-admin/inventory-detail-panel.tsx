@@ -1,7 +1,8 @@
 "use client"
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import { Plus, Trash2, Edit, X, Upload, Search, ChevronLeft, ChevronRight } from "lucide-react"
+import { createPortal } from "react-dom"
+import { Plus, Trash2, Edit, X, Upload, Search, Printer, Settings2, ChevronLeft, ChevronRight } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -14,7 +15,14 @@ import {
 } from "@/components/ui/dialog"
 import { ConfirmDialog, MessageDialog } from "@/components/confirm-dialog"
 import {
+  DEFAULT_PURCHASE_PRINT_TEMPLATE,
+  PurchasePrintTemplateContent,
+  PurchasePrintTemplateEditor,
+} from "@/components/inventory-admin/purchase-print-template-editor"
+import {
+  getPurchasePrintTemplate,
   listDetails,
+  listInventoryPrintLabels,
   lookupInventoryDetail,
   listInventoryDetailCandidates,
   listSizeGroups,
@@ -23,11 +31,14 @@ import {
   deleteDetail,
   batchDeleteDetails,
   replaceDetailsFromExcel,
+  savePurchasePrintTemplate,
   listInventoryAccountSubjects,
   ApiError,
   type InventoryRecord,
   type InventoryDetail,
   type InventoryDetailCandidate,
+  type InventoryPrintLabel,
+  type PurchasePrintTemplateConfig,
   type SupplierItem,
   type InventoryAccountSubject,
 } from "@/lib/api"
@@ -110,6 +121,17 @@ type Props = {
 function formatComputedNumber(value: number): string {
   if (!Number.isFinite(value)) return ""
   return Number.isInteger(value) ? String(value) : value.toFixed(2).replace(/\.?0+$/, "")
+}
+
+type ExpandedPrintLabel = InventoryPrintLabel & { printKey: string }
+
+function expandPrintLabels(items: InventoryPrintLabel[]): ExpandedPrintLabel[] {
+  return items.flatMap((item) =>
+    Array.from({ length: Math.max(0, Math.trunc(item.copies)) }, (_, copyIndex) => ({
+      ...item,
+      printKey: `${item.detail_id}-${item.size_name}-${copyIndex}`,
+    })),
+  )
 }
 
 function sumSizeQuantities(values: Record<string, string>, sizeColumns: string[]): string {
@@ -302,6 +324,11 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
   const [deleteTarget, setDeleteTarget] = useState<InventoryDetail | null>(null)
   const [batchDeleteOpen, setBatchDeleteOpen] = useState(false)
   const [isDeleting, setIsDeleting] = useState(false)
+  const [isPrinting, setIsPrinting] = useState(false)
+  const [printLabels, setPrintLabels] = useState<ExpandedPrintLabel[] | null>(null)
+  const [printTemplate, setPrintTemplate] = useState<PurchasePrintTemplateConfig>(DEFAULT_PURCHASE_PRINT_TEMPLATE)
+  const [printTemplateOpen, setPrintTemplateOpen] = useState(false)
+  const [isPrintTemplateLoading, setIsPrintTemplateLoading] = useState(false)
   const [messageOpen, setMessageOpen] = useState(false)
   const [messageContent, setMessageContent] = useState({ title: "", description: "" })
 
@@ -339,9 +366,22 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
     setSelectedIds(new Set())
     setDetailPage(1)
     setDetailTotal(0)
+    setPrintLabels(null)
+    setPrintTemplateOpen(false)
   }, [documentId])
 
   useEffect(() => { void load() }, [load])
+
+  useEffect(() => {
+    if (!printLabels) return
+    const printTimer = window.setTimeout(() => window.print(), 120)
+    const clearPrintLabels = () => setPrintLabels(null)
+    window.addEventListener("afterprint", clearPrintLabels)
+    return () => {
+      window.clearTimeout(printTimer)
+      window.removeEventListener("afterprint", clearPrintLabels)
+    }
+  }, [printLabels])
 
   const loadSubjects = useCallback(async () => {
     try {
@@ -700,6 +740,52 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
     }
   }
 
+  const handlePrint = async () => {
+    if (!documentId || !isPurchaseOrder || isPrinting) return
+    setIsPrinting(true)
+    try {
+      const [result, templateResult] = await Promise.all([
+        listInventoryPrintLabels(documentId),
+        getPurchasePrintTemplate(),
+      ])
+      const labels = expandPrintLabels(result.items)
+      if (labels.length === 0) {
+        showMessage("暂无可打印标签", "当前采购单没有数量大于 0 的尺码明细")
+        return
+      }
+      setPrintTemplate(templateResult.config ?? DEFAULT_PURCHASE_PRINT_TEMPLATE)
+      setPrintLabels(labels)
+    } catch (error) {
+      showMessage("打印准备失败", getErrorMessage(error))
+    } finally {
+      setIsPrinting(false)
+    }
+  }
+
+  const openPrintTemplateEditor = async () => {
+    if (isPrintTemplateLoading) return
+    setIsPrintTemplateLoading(true)
+    try {
+      const result = await getPurchasePrintTemplate()
+      setPrintTemplate(result.config ?? DEFAULT_PURCHASE_PRINT_TEMPLATE)
+      setPrintTemplateOpen(true)
+    } catch (error) {
+      showMessage("模板加载失败", getErrorMessage(error))
+    } finally {
+      setIsPrintTemplateLoading(false)
+    }
+  }
+
+  const handleSavePrintTemplate = async (config: PurchasePrintTemplateConfig) => {
+    try {
+      const result = await savePurchasePrintTemplate(config)
+      setPrintTemplate(result.config)
+    } catch (error) {
+      showMessage("模板保存失败", getErrorMessage(error))
+      throw error
+    }
+  }
+
   if (documentId === null) return null
 
   const allSelected = items.length > 0 && items.every((item) => selectedIds.has(item.id))
@@ -790,6 +876,33 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
                   <span className="ml-1.5">重新导入明细</span>
                 </Button>
               </>
+            )}
+            {isPurchaseOrder && (
+              <div className="flex items-center gap-1">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={handlePrint}
+                  disabled={isPrinting || isLoading}
+                  className="cursor-pointer"
+                  title="打开浏览器打印预览"
+                >
+                  <Printer className="h-4 w-4" />
+                  <span className="ml-1.5">{isPrinting ? "准备打印..." : "打印"}</span>
+                </Button>
+                <Button
+                  type="button"
+                  size="icon"
+                  variant="outline"
+                  onClick={() => void openPrintTemplateEditor()}
+                  disabled={isPrintTemplateLoading}
+                  className="h-8 w-8 cursor-pointer"
+                  title="自定义打印模板"
+                  aria-label="自定义打印模板"
+                >
+                  <Settings2 className="h-4 w-4" />
+                </Button>
+              </div>
             )}
             {selectedIds.size > 0 && (
               <Button
@@ -993,6 +1106,40 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
           </table>
         </div>
       </div>
+
+      {printLabels && isPurchaseOrder && createPortal(
+        <div
+          className="print-document"
+          aria-hidden="true"
+          style={{
+            "--purchase-print-width": `${printTemplate.paper_width_mm}mm`,
+            "--purchase-print-height": `${printTemplate.paper_height_mm}mm`,
+          } as React.CSSProperties}
+        >
+          <style>{`@media print { @page { size: ${printTemplate.paper_width_mm}mm ${printTemplate.paper_height_mm}mm; margin: 0; } }`}</style>
+          <div className="shoe-label-sheet">
+            {printLabels.map((label) => (
+              <section
+                className="shoe-label"
+                data-outer-border={printTemplate.show_outer_border}
+                key={label.printKey}
+              >
+                <PurchasePrintTemplateContent config={printTemplate} data={label} />
+              </section>
+            ))}
+          </div>
+        </div>,
+        document.body,
+      )}
+
+      {isPurchaseOrder && (
+        <PurchasePrintTemplateEditor
+          open={printTemplateOpen}
+          config={printTemplate}
+          onOpenChange={setPrintTemplateOpen}
+          onSave={handleSavePrintTemplate}
+        />
+      )}
 
       {/* Detail Form Dialog */}
       <Dialog open={formOpen} onOpenChange={setFormOpen}>

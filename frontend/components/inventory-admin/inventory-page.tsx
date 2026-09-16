@@ -56,6 +56,7 @@ import {
   listWarehouses,
   ApiError,
   type InventoryRecord,
+  type PurchaseDetailView,
   type InventoryCostDocumentOption,
   type InventoryAccountSubject,
   type PurchaseOrderRequirementBrand,
@@ -710,6 +711,7 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
   const [searchProductCode, setSearchProductCode] = useState("")
   const [searchHandler, setSearchHandler] = useState("")
   const [submittedFilters, setSubmittedFilters] = useState<Record<string, string>>({})
+  const [purchaseDetailView, setPurchaseDetailView] = useState<PurchaseDetailView>("summary")
 
   const [supplierOptions, setSupplierOptions] = useState<SupplierItem[]>([])
   const [warehouseBrandOptions, setWarehouseBrandOptions] = useState<WarehouseBrandItem[]>([])
@@ -1004,6 +1006,9 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
           product_code: submittedFilters.product_code || undefined,
           handler: submittedFilters.handler || undefined,
           completion_status: isPurchaseOrderTab ? undefined : recordCompletionStatus,
+          purchaseDetailMode: isPurchaseOrderTab && submittedFilters.product_code
+            ? purchaseDetailView
+            : undefined,
           sortRules: sortRules.length > 0 ? sortRules : undefined,
           page,
           pageSize,
@@ -1022,7 +1027,7 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
     }
     void load()
     return () => { cancelled = true }
-  }, [isPurchaseOrderTab, page, pageSize, recordCompletionStatus, reloadToken, sortRules, submittedFilters])
+  }, [isPurchaseOrderTab, page, pageSize, purchaseDetailView, recordCompletionStatus, reloadToken, sortRules, submittedFilters])
 
   useEffect(() => { setSelectedIds(new Set()) }, [page, recordCompletionStatus, submittedFilters])
 
@@ -1610,6 +1615,7 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
   const hasFilters = Object.entries(submittedFilters).some(
     ([key, value]) => value && !(isPurchaseOrderTab && key === "document_type" && value === PURCHASE_ORDER_DOCUMENT_TYPE),
   )
+  const isPurchaseDetailSearch = Boolean(isPurchaseOrderTab && submittedFilters.product_code)
   const totalPages = Math.max(1, Math.ceil(total / pageSize))
   const recycleTotalPages = Math.max(1, Math.ceil(recycleTotal / 10))
   const allSelected = items.length > 0 && items.every((item) => selectedIds.has(item.id))
@@ -1617,10 +1623,12 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
   const allRecycleSelected = recycleItems.length > 0 && recycleItems.every((item) => selectedRecycleIds.has(item.id))
   const recycleActionBusy = isBatchRestoring || isRecycleBatchDeleting
   const tableColumnKeys: InventorySortKey[] = isPurchaseOrderTab ? PURCHASE_TABLE_COLUMN_ORDER : inventoryColumnOrder
-  const tableMinWidth = 160 + tableColumnKeys.reduce(
-    (totalWidth, columnKey) => totalWidth + Math.max(INVENTORY_COLUMN_MIN_WIDTHS[columnKey], inventoryColumnWidths[columnKey]),
-    0,
-  )
+  const tableMinWidth = isPurchaseDetailSearch
+    ? purchaseDetailView === "size_rows" ? 1630 : 1540
+    : 160 + tableColumnKeys.reduce(
+      (totalWidth, columnKey) => totalWidth + Math.max(INVENTORY_COLUMN_MIN_WIDTHS[columnKey], inventoryColumnWidths[columnKey]),
+      0,
+    )
   const detailRecord = detailDocumentId === null ? null : items.find((item) => item.id === detailDocumentId) ?? null
   const completionLabel = isPurchaseOrderTab ? "采购单" : COMPLETION_TABS.find((item) => item.value === recordCompletionStatus)?.label ?? "单据"
   const inventoryCounterpartyColumnLabel = isPurchaseOrderTab
@@ -1951,7 +1959,7 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
 
               {/* Selection & Summary Bar */}
               <div className="flex flex-col gap-2 text-sm text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
-                <div className="flex items-center gap-3">
+                <div className="flex flex-wrap items-center gap-3">
                   <input
                     type="checkbox"
                     checked={allSelected}
@@ -1963,6 +1971,32 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
                     共 {total} 条{hasFilters ? " (已筛选)" : ""}
                     {selectedIds.size > 0 && <span className="ml-2 font-medium text-foreground">已选 {selectedIds.size} 项</span>}
                   </span>
+                  {isPurchaseDetailSearch && (
+                    <div className="inline-flex items-center rounded-lg border border-border bg-muted/55 p-0.5" aria-label="采购单货号搜索展示方式">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setPurchaseDetailView("summary")
+                          setPage(1)
+                          setSelectedIds(new Set())
+                        }}
+                        className={`h-7 cursor-pointer rounded-md px-3 text-xs font-medium transition-colors ${purchaseDetailView === "summary" ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
+                      >
+                        明细汇总
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setPurchaseDetailView("size_rows")
+                          setPage(1)
+                          setSelectedIds(new Set())
+                        }}
+                        className={`h-7 cursor-pointer rounded-md px-3 text-xs font-medium transition-colors ${purchaseDetailView === "size_rows" ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
+                      >
+                        按尺码
+                      </button>
+                    </div>
+                  )}
                 </div>
                 <div className="flex items-center gap-2">
                   {selectedIds.size > 0 && (
@@ -1996,7 +2030,22 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
                 <table className="w-full table-fixed text-sm" style={{ minWidth: tableMinWidth }}>
                   <colgroup>
                     <col className="w-12" />
-                    {isPurchaseOrderTab ? (
+                    {isPurchaseDetailSearch ? (
+                      <>
+                        <col className="w-40" />
+                        <col className="w-28" />
+                        <col className="w-28" />
+                        <col className="w-52" />
+                        <col className="w-40" />
+                        <col className="w-52" />
+                        <col className="w-32" />
+                        {purchaseDetailView === "size_rows" && <col className="w-24" />}
+                        <col className="w-24" />
+                        <col className="w-24" />
+                        <col className="w-28" />
+                        <col className="w-40" />
+                      </>
+                    ) : isPurchaseOrderTab ? (
                       <>
                         {PURCHASE_TABLE_COLUMN_ORDER.map((columnKey) => <col key={columnKey} style={{ width: inventoryColumnWidths[columnKey] }} />)}
                       </>
@@ -2008,7 +2057,22 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
                   <thead>
                     <tr className="table-head-row">
                       <th className="px-4 py-3"></th>
-                      {isPurchaseOrderTab ? (
+                      {isPurchaseDetailSearch ? (
+                        <>
+                          <th className="px-4 py-3 font-medium"><SortableColumnLabel label="单据编号" sortRule={getSortRule("document_number")} onClick={(event) => handleTableSort("document_number", event.shiftKey)} /></th>
+                          <th className="px-4 py-3 font-medium"><SortableColumnLabel label="订货日期" sortRule={getSortRule("date")} onClick={(event) => handleTableSort("date", event.shiftKey)} /></th>
+                          <th className="px-4 py-3 font-medium">交货日期</th>
+                          <th className="px-4 py-3 font-medium"><SortableColumnLabel label="供应商" sortRule={getSortRule("supplier")} onClick={(event) => handleTableSort("supplier", event.shiftKey)} /></th>
+                          <th className="px-4 py-3 font-medium">货号</th>
+                          <th className="px-4 py-3 font-medium">商品名称</th>
+                          <th className="px-4 py-3 font-medium">颜色</th>
+                          {purchaseDetailView === "size_rows" && <th className="px-4 py-3 text-center font-medium">尺码</th>}
+                          <th className="px-4 py-3 text-right font-medium">数量</th>
+                          <th className="px-4 py-3 text-right font-medium">单价</th>
+                          <th className="px-4 py-3 text-right font-medium">金额</th>
+                          <th className="px-4 py-3 font-medium"><SortableColumnLabel label="最后修改时间" sortRule={getSortRule("updated_at")} onClick={(event) => handleTableSort("updated_at", event.shiftKey)} /></th>
+                        </>
+                      ) : isPurchaseOrderTab ? (
                         <>
                           <th className="relative px-4 py-3 pr-7 font-medium"><SortableColumnLabel label="单据编号" sortRule={getSortRule("document_number")} onClick={(event) => handleTableSort("document_number", event.shiftKey)} /><ColumnResizeHandle columnKey="document_number" label="单据编号" onResizeStart={handleInventoryColumnResizeStart} /></th>
                           <th className="relative px-4 py-3 pr-7 font-medium"><SortableColumnLabel label="订货日期" sortRule={getSortRule("date")} onClick={(event) => handleTableSort("date", event.shiftKey)} /><ColumnResizeHandle columnKey="date" label="订货日期" onResizeStart={handleInventoryColumnResizeStart} /></th>
@@ -2059,12 +2123,12 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
                   <tbody className="divide-y divide-border">
                     {isLoading && items.length === 0 && (
                       <tr>
-                        <td colSpan={isPurchaseOrderTab ? 10 : 12} className="px-4 py-12 text-center text-muted-foreground">加载中...</td>
+                        <td colSpan={isPurchaseDetailSearch ? (purchaseDetailView === "size_rows" ? 14 : 13) : isPurchaseOrderTab ? 10 : 12} className="px-4 py-12 text-center text-muted-foreground">加载中...</td>
                       </tr>
                     )}
                     {!isLoading && !error && items.length === 0 && (
                       <tr>
-                      <td colSpan={isPurchaseOrderTab ? 10 : 12} className="px-4 py-12 text-center text-muted-foreground">
+                      <td colSpan={isPurchaseDetailSearch ? (purchaseDetailView === "size_rows" ? 14 : 13) : isPurchaseOrderTab ? 10 : 12} className="px-4 py-12 text-center text-muted-foreground">
                           {hasFilters ? `没有符合条件的${completionLabel}` : `暂无${completionLabel}`}
                         </td>
                       </tr>
@@ -2072,7 +2136,7 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
                     {!error && items.map((item) => {
                       const isAccountingRow = ACCOUNTING_DOCUMENT_TYPE_SET.has(item.document_type || "")
                       return (
-                        <tr key={item.id} className="group table-row">
+                        <tr key={item.row_key || item.id} className="group table-row">
                           <td className="px-4 py-3 align-middle">
                             <input
                               type="checkbox"
@@ -2081,7 +2145,40 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
                               className="h-4 w-4 cursor-pointer rounded border border-input accent-primary"
                             />
                           </td>
-                          {isPurchaseOrderTab ? (
+                          {isPurchaseDetailSearch ? (
+                            <>
+                              <td className="px-4 py-3 align-middle font-mono text-xs leading-4 tabular-nums">
+                                <CopyableDocumentNumber value={String(item.document_number || item.id)} className="whitespace-nowrap" />
+                              </td>
+                              <td className="px-4 py-3 align-middle whitespace-nowrap tabular-nums">{item.date || "-"}</td>
+                              <td className="px-4 py-3 align-middle whitespace-nowrap tabular-nums">
+                                {typeof item.extra_fields?.delivery_date === "string" ? item.extra_fields.delivery_date : "-"}
+                              </td>
+                              <td className="px-4 py-3 align-middle">
+                                <span className="block truncate" title={item.supplier || ""}>{item.supplier || "-"}</span>
+                              </td>
+                              <td className="px-4 py-3 align-middle font-mono text-xs">
+                                <span className="block break-all" title={item.product_code || ""}>{item.product_code || "-"}</span>
+                              </td>
+                              <td className="px-4 py-3 align-middle">
+                                <span className="block whitespace-normal break-words leading-5" title={item.product_name || ""}>{item.product_name || "-"}</span>
+                              </td>
+                              <td className="px-4 py-3 align-middle">
+                                <span className="block truncate" title={[item.color_barcode, item.color_name].filter(Boolean).join(" / ")}>
+                                  {[item.color_barcode, item.color_name].filter(Boolean).join(" / ") || "-"}
+                                </span>
+                              </td>
+                              {purchaseDetailView === "size_rows" && (
+                                <td className="px-4 py-3 text-center align-middle font-mono tabular-nums">{item.size_name || "-"}</td>
+                              )}
+                              <td className="px-4 py-3 text-right align-middle font-mono font-medium tabular-nums">{item.quantity ?? "-"}</td>
+                              <td className="px-4 py-3 text-right align-middle font-mono tabular-nums">{item.unit_price ?? "-"}</td>
+                              <td className="px-4 py-3 text-right align-middle font-mono tabular-nums">{item.amount ?? "-"}</td>
+                              <td className="px-4 py-3 align-middle whitespace-nowrap text-xs tabular-nums text-muted-foreground" title={item.updated_at || ""}>
+                                {formatLastModifiedAt(item.updated_at)}
+                              </td>
+                            </>
+                          ) : isPurchaseOrderTab ? (
                             <>
                               <td className="px-4 py-3 align-middle font-mono text-xs leading-4 tabular-nums">
                                 <CopyableDocumentNumber value={String(item.document_number || item.id)} className="whitespace-nowrap" />

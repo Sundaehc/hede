@@ -209,3 +209,178 @@
   height: 0;
   width: 0;
 }
+
+.print-document {
+  display: none;
+}
+
+.purchase-template-canvas[data-outer-border="true"] {
+  box-shadow: inset 0 0 0 1px #000, 0 12px 35px rgb(0 0 0 / 0.18);
+}
+
+.purchase-template-canvas {
+  container-type: inline-size;
+}
+
+.purchase-print-element {
+  position: absolute;
+  box-sizing: border-box;
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  overflow: hidden;
+  font-synthesis: weight style;
+  line-height: 1.1;
+}
+
+.purchase-print-element-selected {
+  outline: 2px solid #2563eb;
+  outline-offset: -1px;
+  background: rgb(37 99 235 / 0.06);
+}
+
+.purchase-print-text {
+  width: 100%;
+  max-height: 100%;
+  overflow: hidden;
+}
+
+.purchase-print-barcode-wrap {
+  display: grid;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  grid-template-rows: minmax(0, 1fr) auto;
+  align-items: stretch;
+}
+
+.purchase-print-barcode {
+  display: block;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+}
+
+.purchase-print-barcode-caption {
+  position: relative;
+  display: flex;
+  min-width: 0;
+  align-items: baseline;
+  justify-content: flex-start;
+  gap: 2mm;
+  padding: 0 0.8mm;
+  overflow: hidden;
+  font-family: Arial, "Microsoft YaHei", sans-serif;
+  line-height: 1;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.purchase-print-barcode-caption-content {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  align-items: baseline;
+  justify-content: flex-start;
+  gap: 2mm;
+  box-sizing: border-box;
+  padding: 0 0.8mm;
+  overflow: hidden;
+  font-family: Arial, "Microsoft YaHei", sans-serif;
+  line-height: 1;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.purchase-print-barcode-value {
+  display: block;
+  flex: none;
+  min-width: max-content;
+  overflow: hidden;
+  font-size: 1em;
+  font-weight: 700;
+  text-overflow: clip;
+  text-align: left;
+}
+
+.purchase-print-barcode-note {
+  display: block;
+  flex: none;
+  margin-left: auto;
+  font-size: 0.72em;
+  font-weight: 400;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.purchase-print-resize-handle {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 14px;
+  height: 14px;
+  cursor: nwse-resize;
+  border: 0;
+  border-top: 2px solid #2563eb;
+  border-left: 2px solid #2563eb;
+  background: #fff;
+}
+
+@media print {
+  @page {
+    size: 60mm 80mm;
+    margin: 0;
+  }
+
+  body > *:not(.print-document) {
+    display: none !important;
+  }
+
+  .print-document,
+  .print-document * {
+    visibility: visible !important;
+  }
+
+  .print-document {
+    display: block !important;
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    color: #000;
+    background: #fff;
+    font-family: "Microsoft YaHei", "SimSun", Arial, sans-serif;
+    font-synthesis: weight style;
+  }
+
+  .shoe-label-sheet {
+    display: block;
+    width: var(--purchase-print-width, 60mm);
+  }
+
+  .shoe-label {
+    box-sizing: border-box;
+    position: relative;
+    width: var(--purchase-print-width, 60mm);
+    height: var(--purchase-print-height, 80mm);
+    overflow: hidden;
+    background: #fff;
+    break-inside: avoid;
+    page-break-inside: avoid;
+    break-after: page;
+    page-break-after: always;
+  }
+
+  .shoe-label[data-outer-border="true"] {
+    box-shadow: inset 0 0 0 0.35mm #000;
+  }
+
+  .shoe-label:last-child {
+    break-after: auto;
+    page-break-after: auto;
+  }
+
+  .purchase-print-element-selected {
+    outline: none;
+    background: transparent;
+  }
+}
