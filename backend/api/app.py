@@ -12,6 +12,7 @@ from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 
 from api.auth_middleware import auth_middleware
+from api.request_rate_limit import RequestRateLimitMiddleware
 from api.routes.auth import router as auth_router
 from api.routes.images import router as images_router
 from api.routes.fine_table import router as fine_table_router
@@ -148,6 +149,18 @@ def create_app(*, settings, repository=None, image_matchers=None, inventory_repo
 
     app = FastAPI(title="Hede Product Admin API", lifespan=_app_lifespan)
     app.middleware("http")(auth_middleware)
+    app.add_middleware(
+        RequestRateLimitMiddleware,
+        enabled=getattr(settings, "request_rate_limit_enabled", True),
+        requests=getattr(settings, "request_rate_limit_requests", 120),
+        window_seconds=getattr(settings, "request_rate_limit_window_seconds", 60),
+        burst=getattr(settings, "request_rate_limit_burst", 20),
+        trusted_proxy_ips=getattr(
+            settings,
+            "request_rate_limit_trusted_proxy_ips",
+            ("127.0.0.1", "::1"),
+        ),
+    )
     app.add_middleware(
         CORSMiddleware,
         allow_origins=list(

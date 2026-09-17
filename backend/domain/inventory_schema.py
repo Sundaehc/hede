@@ -148,8 +148,19 @@ def build_purchase_print_template_table() -> Table:
     )
     Index("idx_purchase_print_templates_user", table.c.user_id)
     Index(
+        "uq_purchase_print_templates_shared_key",
+        table.c.template_key,
+        unique=True,
+    )
+    Index(
         "uq_purchase_print_templates_user_default",
         table.c.user_id,
+        unique=True,
+        postgresql_where=table.c.is_default.is_(True),
+    )
+    Index(
+        "uq_purchase_print_templates_shared_default",
+        table.c.is_default,
         unique=True,
         postgresql_where=table.c.is_default.is_(True),
     )

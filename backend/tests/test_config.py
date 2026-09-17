@@ -89,3 +89,22 @@ def test_load_settings_reads_us3_image_configuration(monkeypatch, tmp_path: Path
     assert settings.ucloud_us3_configured is True
     assert settings.ucloud_us3_bucket == "hede-img"
     assert settings.ucloud_us3_signed_url_expires == 7200
+
+
+def test_load_settings_reads_request_rate_limit_configuration(monkeypatch, tmp_path: Path):
+    monkeypatch.setattr(config_module, "BACKEND_ROOT", tmp_path)
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    _set_required_path_env(monkeypatch, tmp_path)
+    monkeypatch.setenv("REQUEST_RATE_LIMIT_ENABLED", "false")
+    monkeypatch.setenv("REQUEST_RATE_LIMIT_REQUESTS", "80")
+    monkeypatch.setenv("REQUEST_RATE_LIMIT_WINDOW_SECONDS", "30")
+    monkeypatch.setenv("REQUEST_RATE_LIMIT_BURST", "10")
+    monkeypatch.setenv("REQUEST_RATE_LIMIT_TRUSTED_PROXY_IPS", "127.0.0.1, 10.0.0.1")
+
+    settings = load_settings(require_database=False)
+
+    assert settings.request_rate_limit_enabled is False
+    assert settings.request_rate_limit_requests == 80
+    assert settings.request_rate_limit_window_seconds == 30
+    assert settings.request_rate_limit_burst == 10
+    assert settings.request_rate_limit_trusted_proxy_ips == ("127.0.0.1", "10.0.0.1")

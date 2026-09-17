@@ -82,6 +82,11 @@ class Settings:
     ucloud_us3_signed_url_expires: int = 3600
     ucloud_us3_timeout_seconds: int = 60
     ucloud_us3_sync_workers: int = 4
+    request_rate_limit_enabled: bool = True
+    request_rate_limit_requests: int = 120
+    request_rate_limit_window_seconds: int = 60
+    request_rate_limit_burst: int = 20
+    request_rate_limit_trusted_proxy_ips: tuple[str, ...] = ("127.0.0.1", "::1")
 
     @property
     def frontend_origins(self) -> tuple[str, ...]:
@@ -164,6 +169,13 @@ def _int_from_env(name: str, default: int, *, minimum: int, maximum: int) -> int
     except ValueError:
         return default
     return max(minimum, min(parsed, maximum))
+
+
+def _csv_from_env(name: str, default: tuple[str, ...] = ()) -> tuple[str, ...]:
+    value = os.getenv(name)
+    if value is None:
+        return default
+    return tuple(item.strip() for item in value.split(",") if item.strip())
 
 
 def load_settings(require_database: bool = True) -> Settings:
@@ -288,5 +300,18 @@ def load_settings(require_database: bool = True) -> Settings:
         ),
         ucloud_us3_sync_workers=_int_from_env(
             "UCLOUD_US3_SYNC_WORKERS", 4, minimum=1, maximum=16
+        ),
+        request_rate_limit_enabled=_bool_from_env("REQUEST_RATE_LIMIT_ENABLED", True),
+        request_rate_limit_requests=_int_from_env(
+            "REQUEST_RATE_LIMIT_REQUESTS", 120, minimum=1, maximum=100_000
+        ),
+        request_rate_limit_window_seconds=_int_from_env(
+            "REQUEST_RATE_LIMIT_WINDOW_SECONDS", 60, minimum=1, maximum=86_400
+        ),
+        request_rate_limit_burst=_int_from_env(
+            "REQUEST_RATE_LIMIT_BURST", 20, minimum=0, maximum=100_000
+        ),
+        request_rate_limit_trusted_proxy_ips=_csv_from_env(
+            "REQUEST_RATE_LIMIT_TRUSTED_PROXY_IPS", ("127.0.0.1", "::1")
         ),
     )

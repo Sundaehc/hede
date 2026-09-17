@@ -1771,6 +1771,7 @@ class InventoryRepository:
         return dict(row)
 
     def list_purchase_print_templates(self, user_id: int) -> list[dict[str, object]]:
+        user_id = 0
         statement = (
             select(PURCHASE_PRINT_TEMPLATE_TABLE)
             .where(PURCHASE_PRINT_TEMPLATE_TABLE.c.user_id == user_id)
@@ -1784,6 +1785,7 @@ class InventoryRepository:
             return [dict(row) for row in connection.execute(statement).mappings()]
 
     def get_default_purchase_print_template(self, user_id: int) -> dict[str, object] | None:
+        user_id = 0
         statement = select(PURCHASE_PRINT_TEMPLATE_TABLE).where(
             PURCHASE_PRINT_TEMPLATE_TABLE.c.user_id == user_id,
             PURCHASE_PRINT_TEMPLATE_TABLE.c.is_default.is_(True),
@@ -1802,6 +1804,7 @@ class InventoryRepository:
         return self.get_purchase_print_template(user_id, template_key)
 
     def get_purchase_print_template(self, user_id: int, template_key: str = "shoe_box_label") -> dict[str, object] | None:
+        user_id = 0
         statement = select(PURCHASE_PRINT_TEMPLATE_TABLE).where(
             PURCHASE_PRINT_TEMPLATE_TABLE.c.user_id == user_id,
             PURCHASE_PRINT_TEMPLATE_TABLE.c.template_key == template_key,
@@ -1818,6 +1821,7 @@ class InventoryRepository:
         template_name: str = "默认模板",
         is_default: bool | None = None,
     ) -> dict[str, object]:
+        user_id = 0
         if is_default is None:
             is_default = template_key == "shoe_box_label"
         insert_statement = pg_insert(PURCHASE_PRINT_TEMPLATE_TABLE).values(
@@ -1850,6 +1854,7 @@ class InventoryRepository:
         return dict(row)
 
     def set_default_purchase_print_template(self, user_id: int, template_key: str) -> dict[str, object] | None:
+        user_id = 0
         with self.engine.begin() as connection:
             target = connection.execute(
                 select(PURCHASE_PRINT_TEMPLATE_TABLE).where(
@@ -1873,6 +1878,7 @@ class InventoryRepository:
         return dict(row)
 
     def rename_purchase_print_template(self, user_id: int, template_key: str, template_name: str) -> dict[str, object] | None:
+        user_id = 0
         with self.engine.begin() as connection:
             row = connection.execute(
                 update(PURCHASE_PRINT_TEMPLATE_TABLE)
@@ -1889,6 +1895,7 @@ class InventoryRepository:
         return None if row is None else dict(row)
 
     def delete_purchase_print_template(self, user_id: int, template_key: str = "shoe_box_label") -> bool:
+        user_id = 0
         with self.engine.begin() as connection:
             target = connection.execute(
                 select(PURCHASE_PRINT_TEMPLATE_TABLE).where(
@@ -3285,6 +3292,40 @@ class InventoryRepository:
             connection.execute(text(
                 "CREATE UNIQUE INDEX IF NOT EXISTS uq_purchase_print_templates_user_default "
                 "ON purchase_print_templates (user_id) WHERE is_default = TRUE"
+            ))
+            connection.execute(text(
+                "WITH ranked AS ("
+                "  SELECT id, ROW_NUMBER() OVER ("
+                "    PARTITION BY template_key "
+                "    ORDER BY updated_at DESC NULLS LAST, id DESC"
+                "  ) AS row_number "
+                "  FROM purchase_print_templates"
+                ") "
+                "UPDATE purchase_print_templates AS template "
+                "SET template_key = template.template_key || '_legacy_' || template.id::text "
+                "FROM ranked "
+                "WHERE template.id = ranked.id AND ranked.row_number > 1"
+            ))
+            connection.execute(text(
+                "WITH selected_default AS ("
+                "  SELECT id FROM purchase_print_templates "
+                "  ORDER BY is_default DESC, updated_at DESC NULLS LAST, id DESC "
+                "  LIMIT 1"
+                ") "
+                "UPDATE purchase_print_templates AS template "
+                "SET is_default = (template.id = selected_default.id) "
+                "FROM selected_default"
+            ))
+            connection.execute(text(
+                "UPDATE purchase_print_templates SET user_id = 0 WHERE user_id <> 0"
+            ))
+            connection.execute(text(
+                "CREATE UNIQUE INDEX IF NOT EXISTS uq_purchase_print_templates_shared_key "
+                "ON purchase_print_templates (template_key)"
+            ))
+            connection.execute(text(
+                "CREATE UNIQUE INDEX IF NOT EXISTS uq_purchase_print_templates_shared_default "
+                "ON purchase_print_templates (is_default) WHERE is_default = TRUE"
             ))
             SUPPLIER_TABLE.create(connection, checkfirst=True)
             SUPPLIER_BRAND_TABLE.create(connection, checkfirst=True)
