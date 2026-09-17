@@ -1148,7 +1148,7 @@ export type PurchasePrintTemplateElement = {
 }
 
 export type PurchasePrintTemplateConfig = {
-  version: 4
+  version: 6
   paper_width_mm: number
   paper_height_mm: number
   show_outer_border: boolean

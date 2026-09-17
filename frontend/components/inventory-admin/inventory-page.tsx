@@ -1972,29 +1972,43 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
                     {selectedIds.size > 0 && <span className="ml-2 font-medium text-foreground">已选 {selectedIds.size} 项</span>}
                   </span>
                   {isPurchaseDetailSearch && (
-                    <div className="inline-flex items-center rounded-lg border border-border bg-muted/55 p-0.5" aria-label="采购单货号搜索展示方式">
-                      <button
+                    <div className="flex items-center gap-2">
+                      <div className="inline-flex items-center rounded-lg border border-border bg-muted/55 p-0.5" aria-label="采购单货号搜索展示方式">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setPurchaseDetailView("summary")
+                            setPage(1)
+                            setSelectedIds(new Set())
+                          }}
+                          className={`h-7 cursor-pointer rounded-md px-3 text-xs font-medium transition-colors ${purchaseDetailView === "summary" ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
+                        >
+                          明细汇总
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setPurchaseDetailView("size_rows")
+                            setPage(1)
+                            setSelectedIds(new Set())
+                          }}
+                          className={`h-7 cursor-pointer rounded-md px-3 text-xs font-medium transition-colors ${purchaseDetailView === "size_rows" ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
+                        >
+                          按尺码
+                        </button>
+                      </div>
+                      <Button
                         type="button"
-                        onClick={() => {
-                          setPurchaseDetailView("summary")
-                          setPage(1)
-                          setSelectedIds(new Set())
-                        }}
-                        className={`h-7 cursor-pointer rounded-md px-3 text-xs font-medium transition-colors ${purchaseDetailView === "summary" ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
+                        variant="outline"
+                        size="sm"
+                        onClick={() => void handleExport(purchaseDetailView)}
+                        disabled={total === 0 || isLoading}
+                        className="h-8 cursor-pointer gap-1.5 px-2.5 text-xs"
+                        title={`导出当前${purchaseDetailView === "summary" ? "明细汇总" : "尺码明细"}`}
                       >
-                        明细汇总
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setPurchaseDetailView("size_rows")
-                          setPage(1)
-                          setSelectedIds(new Set())
-                        }}
-                        className={`h-7 cursor-pointer rounded-md px-3 text-xs font-medium transition-colors ${purchaseDetailView === "size_rows" ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
-                      >
-                        按尺码
-                      </button>
+                        <Download className="size-3.5" />
+                        导出
+                      </Button>
                     </div>
                   )}
                 </div>

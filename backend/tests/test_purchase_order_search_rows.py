@@ -1,6 +1,9 @@
 from __future__ import annotations
 
-from api.routes.inventory import _build_purchase_order_search_rows
+from api.routes.inventory import (
+    _build_purchase_order_search_rows,
+    _list_inventory_export_details,
+)
 
 
 def _record() -> dict[str, object]:
@@ -70,3 +73,31 @@ def test_purchase_order_search_size_rows_split_quantity_and_amount() -> None:
     ]
     assert sum(float(str(row["amount"])) for row in rows) == 62.5
     assert all(row["unit_price"] == "12.5" for row in rows)
+
+
+def test_purchase_order_search_export_uses_only_matching_details() -> None:
+    class Repository:
+        def __init__(self) -> None:
+            self.matching_call: tuple[list[int], str] | None = None
+
+        def list_matching_details_for_documents(
+            self,
+            document_ids: list[int],
+            product_code: str,
+        ) -> list[dict[str, object]]:
+            self.matching_call = (document_ids, product_code)
+            return [{"product_code": product_code}]
+
+        def list_details_for_documents(self, document_ids: list[int]) -> list[dict[str, object]]:
+            raise AssertionError("采购单货号搜索导出不应读取单据中的全部商品")
+
+    repository = Repository()
+    details = _list_inventory_export_details(
+        repository,
+        [{"id": 10}, {"id": 11}],
+        document_type="进货订单",
+        product_code=" SKU001 ",
+    )
+
+    assert repository.matching_call == ([10, 11], "SKU001")
+    assert details == [{"product_code": "SKU001"}]

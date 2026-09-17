@@ -843,34 +843,51 @@ def _load_purchase_size_export_profiles(
 
     profiles_by_brand_and_code: dict[tuple[str, str], dict[str, object]] = {}
     with repository.engine.connect() as connection:
-        for brand, product_codes in requested_codes_by_brand.items():
-            table = _product_archive_table_for_brand(connection, brand)
-            if table is None:
-                continue
-            rows = connection.execute(
-                sa_select(
-                    table.c.sku,
-                    table.c.original_sku,
-                    table.c.product_name,
-                    table.c.color,
-                    table.c.color_code,
-                    table.c.barcode_build_rule,
-                    table.c.size_range,
-                    table.c.upper_material,
-                    table.c.execution_standard,
-                    table.c.extra_fields,
-                    table.c.updated_at,
-                    table.c.id,
-                )
-                .where(or_(table.c.sku.in_(product_codes), table.c.original_sku.in_(product_codes)))
-                .order_by(desc(table.c.updated_at), desc(table.c.id))
-            ).mappings()
-            indexed_profiles = _index_purchase_size_export_profiles(
-                [dict(row) for row in rows],
-                product_codes,
+        for requested_brand, product_codes in requested_codes_by_brand.items():
+            unresolved_codes = set(product_codes)
+            candidate_brands = (
+                [requested_brand]
+                if requested_brand
+                else _product_archive_brand_codes(connection)
             )
-            for code, profile in indexed_profiles.items():
-                profiles_by_brand_and_code[(brand, code)] = profile
+            for candidate_brand in candidate_brands:
+                if not unresolved_codes:
+                    break
+                normalized_brand = _normalize_product_archive_brand(candidate_brand)
+                table = _product_archive_table_for_brand(connection, normalized_brand)
+                if table is None:
+                    continue
+                rows = connection.execute(
+                    sa_select(
+                        table.c.sku,
+                        table.c.original_sku,
+                        table.c.product_name,
+                        table.c.color,
+                        table.c.color_code,
+                        table.c.barcode_build_rule,
+                        table.c.size_range,
+                        table.c.upper_material,
+                        table.c.execution_standard,
+                        table.c.extra_fields,
+                        table.c.updated_at,
+                        table.c.id,
+                    )
+                    .where(or_(
+                        table.c.sku.in_(unresolved_codes),
+                        table.c.original_sku.in_(unresolved_codes),
+                    ))
+                    .order_by(desc(table.c.updated_at), desc(table.c.id))
+                ).mappings()
+                indexed_profiles = _index_purchase_size_export_profiles(
+                    [dict(row) for row in rows],
+                    unresolved_codes,
+                )
+                for code, profile in indexed_profiles.items():
+                    profiles_by_brand_and_code[(requested_brand, code)] = {
+                        **profile,
+                        "_brand": normalized_brand,
+                    }
+                    unresolved_codes.discard(code)
 
         size_ranges = {
             _cell_text(profile.get("size_range"))
@@ -976,7 +993,7 @@ def _migrate_legacy_purchase_print_template_config(config: dict[str, object]) ->
             ]
 
     raw_elements = migrated.get("elements")
-    if not isinstance(raw_elements, list) or version >= 4:
+    if not isinstance(raw_elements, list) or version >= 6:
         return migrated
 
     if version < 3:
@@ -1060,7 +1077,15 @@ def _migrate_legacy_purchase_print_template_config(config: dict[str, object]) ->
     except (TypeError, ValueError):
         current_width = PURCHASE_PRINT_TEMPLATE_DEFAULT_WIDTH
         current_height = PURCHASE_PRINT_TEMPLATE_DEFAULT_HEIGHT
-    if current_width == 60 and current_height == 80:
+    should_fit_tsc_label = (
+        (current_width == 60 and current_height == 80)
+        or (
+            version == 5
+            and current_width == 101.6
+            and current_height == 50.8
+        )
+    )
+    if should_fit_tsc_label:
         raw_elements = [
             {
                 **_dict_or_empty(element),
@@ -1087,7 +1112,7 @@ def _migrate_legacy_purchase_print_template_config(config: dict[str, object]) ->
         migrated["paper_height_mm"] = PURCHASE_PRINT_TEMPLATE_DEFAULT_HEIGHT
 
     migrated["elements"] = raw_elements
-    migrated["version"] = 4
+    migrated["version"] = 6
     return migrated
 
 
@@ -1195,7 +1220,7 @@ def _normalize_purchase_print_template_config(value: object) -> dict[str, object
         element_ids.add(element_id)
 
     return {
-        "version": 4,
+        "version": 6,
         "paper_width_mm": paper_width,
         "paper_height_mm": paper_height,
         "show_outer_border": bool(config.get("show_outer_border", True)),
@@ -1249,7 +1274,10 @@ def _build_purchase_print_labels(
         color_code = _first_text(
             profile.get("color_code") if profile else None,
             detail.get("color_barcode"),
-            _purchase_color_barcode(display_product_code, brand),
+            _purchase_color_barcode(
+                display_product_code,
+                _first_text(profile.get("_brand") if profile else None, brand),
+            ),
         )
         for size_name, raw_quantity in size_entries:
             copies = _purchase_label_copy_count(
@@ -1259,11 +1287,14 @@ def _build_purchase_print_labels(
             )
             if copies == 0:
                 continue
+            effective_brand = _normalize_product_archive_brand(
+                _first_text(profile.get("_brand") if profile else None, brand)
+            )
             barcode, size_barcode = _purchase_size_export_product_code(
                 display_product_code,
                 color_code,
                 size_name,
-                brand,
+                effective_brand,
                 profile,
             )
             labels.append({
@@ -1273,8 +1304,8 @@ def _build_purchase_print_labels(
                 "size_barcode": size_barcode,
                 "barcode": barcode,
                 "copies": copies,
-                "brand": brand,
-                "brand_name": _purchase_label_brand_name(brand),
+                "brand": effective_brand,
+                "brand_name": _purchase_label_brand_name(effective_brand),
                 "product_level": "合格品",
                 "color_name": _first_text(
                     profile.get("color") if profile else None,
@@ -4132,6 +4163,23 @@ def list_inventory_recycle_bin(
     )
 
 
+def _list_inventory_export_details(
+    repository,
+    items: list[dict[str, object]],
+    *,
+    document_type: str | None,
+    product_code: str | None,
+) -> list[dict[str, object]]:
+    document_ids = [int(item["id"]) for item in items]
+    normalized_product_code = _cell_text(product_code)
+    if document_type == "进货订单" and normalized_product_code:
+        return repository.list_matching_details_for_documents(
+            document_ids,
+            normalized_product_code,
+        )
+    return repository.list_details_for_documents(document_ids)
+
+
 @router.get("/inventory/export")
 def export_inventory(
     request: Request,
@@ -4186,7 +4234,12 @@ def export_inventory(
     ]
     if selected_ids is not None:
         items = [item for item in items if int(item.get("id") or 0) in selected_ids]
-    details = repository.list_details_for_documents([int(item["id"]) for item in items])
+    details = _list_inventory_export_details(
+        repository,
+        items,
+        document_type=document_type,
+        product_code=product_code,
+    )
     records_by_id = {item["id"]: item for item in items}
     is_purchase_detail_export = document_type == "进货订单"
 

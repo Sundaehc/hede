@@ -65,7 +65,7 @@ const FIELD_LABELS = Object.fromEntries(
 ) as Record<PurchasePrintTemplateField, string>
 
 export const DEFAULT_PURCHASE_PRINT_TEMPLATE: PurchasePrintTemplateConfig = {
-  version: 4,
+  version: 6,
   paper_width_mm: DEFAULT_PAPER_WIDTH,
   paper_height_mm: DEFAULT_PAPER_HEIGHT,
   show_outer_border: true,
@@ -114,14 +114,15 @@ function roundTemplateNumber(value: number) {
 }
 
 function formatPaperDimension(value: number) {
-  return (value / 10).toFixed(1)
+  return (value / 10).toFixed(2)
 }
 
 export function resolvePurchasePrintElementText(
   element: PurchasePrintTemplateElement,
   data: InventoryPrintLabel,
 ) {
-  const value = element.field ? String(data[element.field] ?? "") : element.text
+  const customLevel = element.field === "product_level" ? element.text.trim() : ""
+  const value = customLevel || (element.field ? String(data[element.field] ?? "") : element.text)
   if (!element.field || !element.show_label) return value || "-"
   return `${element.label || FIELD_LABELS[element.field]}：${value || "-"}`
 }
@@ -693,7 +694,7 @@ export function PurchasePrintTemplateEditor({
                       type="number"
                       min={MIN_PAPER_DIMENSION / 10}
                       max={MAX_PAPER_DIMENSION / 10}
-                      step="0.1"
+                      step="0.01"
                       value={paperWidthInput}
                       onChange={(event) => setPaperWidthInput(event.target.value)}
                       onBlur={() => commitPaperDimension("paper_width_mm", paperWidthInput)}
@@ -709,7 +710,7 @@ export function PurchasePrintTemplateEditor({
                       type="number"
                       min={MIN_PAPER_DIMENSION / 10}
                       max={MAX_PAPER_DIMENSION / 10}
-                      step="0.1"
+                      step="0.01"
                       value={paperHeightInput}
                       onChange={(event) => setPaperHeightInput(event.target.value)}
                       onBlur={() => commitPaperDimension("paper_height_mm", paperHeightInput)}
@@ -762,6 +763,18 @@ export function PurchasePrintTemplateEditor({
                     <div className="space-y-1.5">
                       <Label htmlFor="print-element-label">字段标题</Label>
                       <Input id="print-element-label" value={selected.label} onChange={(event) => updateSelected({ label: event.target.value })} />
+                    </div>
+                  )}
+                  {selected.kind === "text" && selected.field === "product_level" && (
+                    <div className="space-y-1.5">
+                      <Label htmlFor="print-element-level">等级内容</Label>
+                      <Input
+                        id="print-element-level"
+                        value={selected.text}
+                        placeholder="合格品"
+                        maxLength={200}
+                        onChange={(event) => updateSelected({ text: event.target.value })}
+                      />
                     </div>
                   )}
                   {selected.kind === "text" && !selected.field && (

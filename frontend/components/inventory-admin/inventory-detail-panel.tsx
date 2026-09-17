@@ -1,7 +1,6 @@
 "use client"
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import { createPortal } from "react-dom"
 import { Plus, Trash2, Edit, X, Upload, Search, Printer, Settings2, ChevronLeft, ChevronRight, Filter, LoaderCircle } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -16,9 +15,9 @@ import {
 import { ConfirmDialog, MessageDialog } from "@/components/confirm-dialog"
 import {
   DEFAULT_PURCHASE_PRINT_TEMPLATE,
-  PurchasePrintTemplateContent,
   PurchasePrintTemplateEditor,
 } from "@/components/inventory-admin/purchase-print-template-editor"
+import { printLabelsWithLocalAgent } from "@/lib/local-label-print"
 import {
   getPurchasePrintTemplate,
   listPurchasePrintTemplates,
@@ -132,13 +131,10 @@ function formatComputedNumber(value: number): string {
   return Number.isInteger(value) ? String(value) : value.toFixed(2).replace(/\.?0+$/, "")
 }
 
-type ExpandedPrintLabel = InventoryPrintLabel & { printKey: string }
-
-function expandPrintLabels(items: InventoryPrintLabel[]): ExpandedPrintLabel[] {
+function expandPrintLabels(items: InventoryPrintLabel[]): InventoryPrintLabel[] {
   return items.flatMap((item) =>
-    Array.from({ length: Math.max(0, Math.trunc(item.copies)) }, (_, copyIndex) => ({
+    Array.from({ length: Math.max(0, Math.trunc(item.copies)) }, () => ({
       ...item,
-      printKey: `${item.detail_id}-${item.size_name}-${copyIndex}`,
     })),
   )
 }
@@ -365,7 +361,6 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
   const [batchDeleteOpen, setBatchDeleteOpen] = useState(false)
   const [isDeleting, setIsDeleting] = useState(false)
   const [isPrinting, setIsPrinting] = useState(false)
-  const [printLabels, setPrintLabels] = useState<ExpandedPrintLabel[] | null>(null)
   const [printTemplate, setPrintTemplate] = useState<PurchasePrintTemplateConfig>(DEFAULT_PURCHASE_PRINT_TEMPLATE)
   const [printTemplates, setPrintTemplates] = useState<PurchasePrintTemplate[]>([])
   const [selectedPrintTemplateKey, setSelectedPrintTemplateKey] = useState("")
@@ -421,7 +416,6 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
     setUnitPriceOptionsLoaded(false)
     setUnitPriceOptionsTruncated(false)
     setUnitPriceDraftValues([])
-    setPrintLabels(null)
     setPrintTemplateOpen(false)
   }, [documentId])
 
@@ -520,23 +514,6 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
     setDetailPage(1)
     setUnitPriceFilterOpen(false)
   }
-
-  useEffect(() => {
-    if (!printLabels) return
-    const originalTitle = document.title
-    document.title = ""
-    const printTimer = window.setTimeout(() => window.print(), 250)
-    const clearPrintLabels = () => {
-      document.title = originalTitle
-      setPrintLabels(null)
-    }
-    window.addEventListener("afterprint", clearPrintLabels)
-    return () => {
-      window.clearTimeout(printTimer)
-      window.removeEventListener("afterprint", clearPrintLabels)
-      document.title = originalTitle
-    }
-  }, [printLabels])
 
   const loadSubjects = useCallback(async () => {
     try {
@@ -918,14 +895,16 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
         showMessage("暂无可打印标签", "当前采购单没有数量大于 0 的尺码明细")
         return
       }
-      setPrintTemplate(templateResult.config ?? DEFAULT_PURCHASE_PRINT_TEMPLATE)
+      const activeTemplate = templateResult.config ?? DEFAULT_PURCHASE_PRINT_TEMPLATE
+      setPrintTemplate(activeTemplate)
       if (templateResult.template) {
         setSelectedPrintTemplateKey(templateResult.template.template_key)
         setSelectedPrintTemplateName(templateResult.template.template_name)
       }
-      setPrintLabels(labels)
+      const printResult = await printLabelsWithLocalAgent(labels, activeTemplate)
+      showMessage("打印任务已发送", `已向 ${printResult.printer} 发送 ${printResult.printed} 张鞋盒标签。`)
     } catch (error) {
-      showMessage("打印准备失败", getErrorMessage(error))
+      showMessage("打印失败", getErrorMessage(error))
     } finally {
       setIsPrinting(false)
     }
@@ -1055,10 +1034,6 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
   const purchaseCodeCellClassName = "px-3 py-2.5 whitespace-nowrap font-mono text-[11px]"
   const purchaseTextCellClassName = "px-3 py-2.5 truncate whitespace-nowrap"
   const purchaseNumberCellClassName = "px-2 py-2.5 text-right whitespace-nowrap tabular-nums"
-  const rotateLandscapePrint = printTemplate.paper_width_mm > printTemplate.paper_height_mm
-  const physicalPrintWidth = rotateLandscapePrint ? printTemplate.paper_height_mm : printTemplate.paper_width_mm
-  const physicalPrintHeight = rotateLandscapePrint ? printTemplate.paper_width_mm : printTemplate.paper_height_mm
-
   return (
     <>
       {/* Backdrop */}
@@ -1140,10 +1115,10 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
                   onClick={handlePrint}
                   disabled={isPrinting || isLoading}
                   className="cursor-pointer"
-                  title="打开浏览器打印预览"
+                  title="直接打印到本机 TSCTTP-244 Pro"
                 >
                   <Printer className="h-4 w-4" />
-                  <span className="ml-1.5">{isPrinting ? "准备打印..." : "打印"}</span>
+                  <span className="ml-1.5">{isPrinting ? "正在发送..." : "打印"}</span>
                 </Button>
                 <Button
                   type="button"
@@ -1488,35 +1463,6 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
           </table>
         </div>
       </div>
-
-      {printLabels && isPurchaseOrder && createPortal(
-        <div
-          className="print-document"
-          aria-hidden="true"
-          data-rotate-landscape={rotateLandscapePrint}
-          style={{
-            "--purchase-print-width": `${printTemplate.paper_width_mm}mm`,
-            "--purchase-print-height": `${printTemplate.paper_height_mm}mm`,
-            "--purchase-print-page-width": `${physicalPrintWidth}mm`,
-            "--purchase-print-page-height": `${physicalPrintHeight}mm`,
-          } as React.CSSProperties}
-        >
-          <style>{`@media print { @page { size: ${physicalPrintWidth}mm ${physicalPrintHeight}mm; margin: 0; } }`}</style>
-          <div className="shoe-label-sheet">
-            {printLabels.map((label) => (
-              <section
-                className="shoe-label-page"
-                key={label.printKey}
-              >
-                <div className="shoe-label" data-outer-border={printTemplate.show_outer_border}>
-                  <PurchasePrintTemplateContent config={printTemplate} data={label} />
-                </div>
-              </section>
-            ))}
-          </div>
-        </div>,
-        document.body,
-      )}
 
       {isPurchaseOrder && (
         <PurchasePrintTemplateEditor

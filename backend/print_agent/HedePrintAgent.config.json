@@ -1,0 +1,12 @@
+{
+  "printer_name": "TSCTTP-244 Pro",
+  "port": 18120,
+  "gap_mm": 2,
+  "direction": 1,
+  "invert_bitmap": true,
+  "allowed_origins": [
+    "https://platform.hedespace.com",
+    "http://127.0.0.1:3001",
+    "http://localhost:3001"
+  ]
+}

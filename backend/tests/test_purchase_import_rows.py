@@ -6,6 +6,7 @@ from types import SimpleNamespace
 import pytest
 from fastapi import HTTPException
 from openpyxl import Workbook
+from sqlalchemy import create_engine, event
 
 from api.routes.inventory import (
     _build_purchase_details_from_rows,
@@ -26,6 +27,7 @@ from api.routes.inventory import (
     PURCHASE_SIZE_ROW_EXPORT_HEADERS,
 )
 from api.routes import inventory as inventory_routes
+from domain.schema import PRODUCT_ARCHIVE_TABLES
 
 
 def test_purchase_lookup_uses_only_preset_price():
@@ -222,6 +224,99 @@ def test_purchase_print_labels_use_archive_barcode_rule_and_copy_count() -> None
     }]
 
 
+def test_purchase_print_labels_use_brand_inferred_from_archive_profile() -> None:
+    labels = _build_purchase_print_labels(
+        {"id": 4035, "document_type": "进货订单"},
+        [{
+            "id": 91374,
+            "document_id": 4035,
+            "product_code": "QB653936D16",
+            "product_name": "",
+            "color_barcode": "16",
+            "color_name": "黑灰",
+            "size_quantities": {"225": "1"},
+            "quantity": "1",
+            "extra_fields": {"upper_material": "合成革+织物"},
+        }],
+        "",
+        {(4035, "QB653936D16"): {
+            "_brand": "cbanner_womens",
+            "sku": "QB653936D16",
+            "original_sku": "QB653936D16",
+            "product_name": "女休闲鞋",
+            "color": "黑灰",
+            "color_code": "16",
+            "barcode_build_rule": "货号+颜色代码+尺码",
+            "upper_material": "合成革+织物",
+            "execution_standard": "Q/WZHD 002-2022",
+            "extra_fields": {},
+            "size_barcodes": {"225": "225"},
+        }},
+    )
+
+    assert labels[0]["brand"] == "cbanner_womens"
+    assert labels[0]["brand_name"] == "C°BANNER"
+    assert labels[0]["product_name"] == "女休闲鞋"
+    assert labels[0]["execution_standard"] == "Q/WZHD 002-2022"
+
+
+def test_purchase_print_profile_lookup_infers_brand_when_record_brand_is_missing(monkeypatch) -> None:
+    engine = create_engine("sqlite://")
+    event.listen(
+        engine,
+        "connect",
+        lambda connection, _record: connection.create_function(
+            "date_trunc", 2, lambda _unit, value: value
+        ),
+    )
+    table = PRODUCT_ARCHIVE_TABLES["cbanner_womens"]
+    table.create(engine)
+    with engine.begin() as connection:
+        connection.execute(table.insert().values(
+            id=1,
+            source_workbook="test.xlsx",
+            source_sheet="商品",
+            source_row_number="2",
+            raw_payload={},
+            sku="QB653936D16",
+            original_sku="QB653936D16",
+            product_name="女休闲鞋",
+            upper_material="合成革+织物",
+            execution_standard="Q/WZHD 002-2022",
+            extra_fields={},
+        ))
+
+    monkeypatch.setattr(
+        inventory_routes,
+        "_product_archive_brand_codes",
+        lambda connection: ["cbanner_womens"],
+    )
+    monkeypatch.setattr(
+        inventory_routes,
+        "_product_archive_table_for_brand",
+        lambda connection, brand: table if brand == "cbanner_womens" else None,
+    )
+    repository = SimpleNamespace(engine=engine)
+    profiles = inventory_routes._load_purchase_size_export_profiles(
+        repository,
+        [{
+            "document_id": 4035,
+            "product_code": "QB653936D16",
+        }],
+        {4035: {
+            "id": 4035,
+            "supplier": None,
+            "raw_payload": {},
+        }},
+        {},
+    )
+
+    profile = profiles[(4035, "QB653936D16")]
+    assert profile["_brand"] == "cbanner_womens"
+    assert profile["product_name"] == "女休闲鞋"
+    assert profile["execution_standard"] == "Q/WZHD 002-2022"
+
+
 def test_purchase_print_labels_reject_detail_without_size_quantities() -> None:
     with pytest.raises(HTTPException, match="未维护尺码数量"):
         _build_purchase_print_labels(
@@ -290,6 +385,25 @@ def test_purchase_print_template_preserves_underline_style() -> None:
     assert config["elements"][0]["underline"] is True
 
 
+def test_purchase_print_template_preserves_custom_product_level_text() -> None:
+    config = _normalize_purchase_print_template_config({
+        "elements": [{
+            "id": "level",
+            "kind": "text",
+            "field": "product_level",
+            "label": "等级",
+            "text": "一等品",
+            "x": 0,
+            "y": 0,
+            "width": 20,
+            "height": 5,
+            "font_size": 9,
+        }],
+    })
+
+    assert config["elements"][0]["text"] == "一等品"
+
+
 def test_purchase_print_template_splits_legacy_barcode_caption_into_three_elements() -> None:
     config = _normalize_purchase_print_template_config({
         "version": 2,
@@ -354,7 +468,34 @@ def test_purchase_print_template_preserves_previous_landscape_layout() -> None:
         }],
     })
 
-    assert config["version"] == 4
+    assert config["version"] == 6
+    assert config["paper_width_mm"] == 80
+    assert config["paper_height_mm"] == 60
+    assert config["elements"][0]["x"] == 40
+    assert config["elements"][0]["y"] == 30
+    assert config["elements"][0]["width"] == 20
+    assert config["elements"][0]["height"] == 15
+
+
+def test_purchase_print_template_restores_mistaken_two_by_four_layout() -> None:
+    config = _normalize_purchase_print_template_config({
+        "version": 5,
+        "paper_width_mm": 101.6,
+        "paper_height_mm": 50.8,
+        "elements": [{
+            "id": "two-by-four",
+            "kind": "text",
+            "field": "product_code",
+            "label": "货号",
+            "x": 50.8,
+            "y": 25.4,
+            "width": 25.4,
+            "height": 12.7,
+            "font_size": 9,
+        }],
+    })
+
+    assert config["version"] == 6
     assert config["paper_width_mm"] == 80
     assert config["paper_height_mm"] == 60
     assert config["elements"][0]["x"] == 40
@@ -381,7 +522,7 @@ def test_purchase_print_template_migrates_portrait_layout_to_landscape() -> None
         }],
     })
 
-    assert config["version"] == 4
+    assert config["version"] == 6
     assert config["paper_width_mm"] == 80
     assert config["paper_height_mm"] == 60
     assert config["elements"][0]["x"] == 40
@@ -408,7 +549,7 @@ def test_purchase_print_template_accepts_custom_paper_size() -> None:
         }],
     })
 
-    assert config["version"] == 4
+    assert config["version"] == 6
     assert config["paper_width_mm"] == 100
     assert config["paper_height_mm"] == 150
 
