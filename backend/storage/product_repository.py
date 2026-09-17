@@ -967,6 +967,56 @@ class ProductRepository:
         item = dict(row)
         return item
 
+    def purchase_order_product_code_replacements(
+        self,
+        brand: str,
+        product_id: int,
+        before: Mapping[str, object],
+        after: Mapping[str, object],
+        *,
+        connection,
+    ) -> dict[str, str]:
+        """Return unambiguous old-to-new codes for purchase-order synchronization."""
+        table = self._table_for_brand(brand)
+        replacements: dict[str, str] = {}
+        retained_codes = {
+            str(after.get(field) or "").strip()
+            for field in ("sku", "original_sku")
+            if str(after.get(field) or "").strip()
+        }
+        replacement_candidates: dict[str, set[str]] = defaultdict(set)
+        for field in ("sku", "original_sku"):
+            previous_code = str(before.get(field) or "").strip()
+            current_code = str(after.get(field) or "").strip()
+            if (
+                not previous_code
+                or not current_code
+                or previous_code == current_code
+                or previous_code in retained_codes
+            ):
+                continue
+            replacement_candidates[previous_code].add(current_code)
+
+        for previous_code, current_codes in replacement_candidates.items():
+            if len(current_codes) != 1:
+                continue
+            current_code = next(iter(current_codes))
+            conflicting_product_count = int(connection.execute(
+                select(func.count())
+                .select_from(table)
+                .where(
+                    table.c.id != product_id,
+                    table.c.deleted_at.is_(None),
+                    or_(
+                        func.btrim(table.c.sku) == previous_code,
+                        func.btrim(table.c.original_sku) == previous_code,
+                    ),
+                )
+            ).scalar_one())
+            if conflicting_product_count == 0:
+                replacements[previous_code] = current_code
+        return replacements
+
     def delete_product(self, brand: str, product_id: int) -> bool:
         table = self._table_for_brand(brand)
         statement = (

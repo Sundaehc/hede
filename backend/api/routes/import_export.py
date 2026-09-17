@@ -1301,6 +1301,7 @@ def _finish_product_import(
     imported_skus: list[str],
     created_items: list[dict[str, object]],
     updated_items: list[dict[str, object]],
+    purchase_order_sync: dict[str, object],
 ) -> None:
     try:
         clear_fine_table_cache()
@@ -1315,7 +1316,15 @@ def _finish_product_import(
             action="import",
             entity_type="product_import",
             entity_label=filename or "商品档案导入",
-            summary=f"导入商品档案：新增 {created} 条，更新 {updated} 条",
+            summary=(
+                f"导入商品档案：新增 {created} 条，更新 {updated} 条"
+                + (
+                    f"；同步更新 {purchase_order_sync['details']} 条历史采购单明细"
+                    f"（{purchase_order_sync['documents']} 张采购单）"
+                    if purchase_order_sync["details"]
+                    else ""
+                )
+            ),
             after_data={
                 "brand": brand,
                 "filename": filename,
@@ -1327,6 +1336,7 @@ def _finish_product_import(
                 "created_item_count": len(created_items),
                 "updated_items": updated_items[:500],
                 "updated_item_count": len(updated_items),
+                "purchase_order_sync": purchase_order_sync,
             },
         )
     except Exception:
@@ -1376,6 +1386,8 @@ async def import_products(
     imported_product_ids: list[int] = []
     created_items: list[dict[str, object]] = []
     updated_items: list[dict[str, object]] = []
+    purchase_order_sync_details = 0
+    purchase_order_sync_document_ids: set[int] = set()
 
     def import_log_item(item: dict[str, object], fallback_sku: str) -> dict[str, object]:
         return {
@@ -1512,6 +1524,25 @@ async def import_products(
                         restore_deleted=existing.get("deleted_at") is not None,
                     )
                     if saved_item is not None:
+                        replacements = repository.purchase_order_product_code_replacements(
+                            brand,
+                            int(existing["id"]),
+                            existing,
+                            saved_item,
+                            connection=connection,
+                        )
+                        sync_result = request.app.state.inventory_repository.sync_purchase_order_product_codes(
+                            connection,
+                            brand=brand,
+                            replacements=replacements,
+                            supplier_names=(
+                                existing.get("supplier_name"),
+                                saved_item.get("supplier_name"),
+                            ),
+                        )
+                        purchase_order_sync_details += int(sync_result["details"])
+                        purchase_order_sync_document_ids.update(sync_result["document_ids"])
+                    if saved_item is not None:
                         imported_product_ids.append(int(saved_item["id"]))
                     updated_items.append(import_log_item(saved_item or existing, sku_val or original_sku_val))
                     updated += 1
@@ -1547,6 +1578,12 @@ async def import_products(
 
         repository.mark_products_imported(brand, imported_product_ids, connection=connection)
 
+    purchase_order_sync = {
+        "details": purchase_order_sync_details,
+        "documents": len(purchase_order_sync_document_ids),
+        "document_ids": sorted(purchase_order_sync_document_ids),
+    }
+
     try:
         wb.close()
     except Exception:
@@ -1562,10 +1599,19 @@ async def import_products(
         imported_skus=imported_skus,
         created_items=created_items,
         updated_items=updated_items,
+        purchase_order_sync=purchase_order_sync,
     )
     return {
         "created": created,
         "updated": updated,
         "skus": imported_skus,
-        "message": f"导入完成：新增 {created} 条，更新 {updated} 条",
+        "purchase_order_sync": purchase_order_sync,
+        "message": (
+            f"导入完成：新增 {created} 条，更新 {updated} 条"
+            + (
+                f"，同步 {purchase_order_sync_details} 条历史采购单明细"
+                if purchase_order_sync_details
+                else ""
+            )
+        ),
     }

@@ -368,12 +368,35 @@ def update_product(request: Request, brand: ProductArchiveBrandKey, product_id: 
     record["extra_fields"] = filter_extra_fields(existing.get("extra_fields"))
     if is_excluded_sku(record.get("sku"), record.get("original_sku")):
         raise HTTPException(status_code=400, detail="该货号已在永久排除清单中")
-    item = request.app.state.repository.update_product(
-        brand,
-        product_id,
-        record,
-        manual_cost_override=True,
-    )
+    inventory_repository = request.app.state.inventory_repository
+    with repository.engine.begin() as connection:
+        item = repository.update_product(
+            brand,
+            product_id,
+            record,
+            connection=connection,
+            manual_cost_override=True,
+        )
+        replacements = (
+            repository.purchase_order_product_code_replacements(
+                brand,
+                product_id,
+                existing,
+                item,
+                connection=connection,
+            )
+            if item is not None
+            else {}
+        )
+        purchase_order_sync = inventory_repository.sync_purchase_order_product_codes(
+            connection,
+            brand=brand,
+            replacements=replacements,
+            supplier_names=(
+                existing.get("supplier_name"),
+                item.get("supplier_name") if item is not None else None,
+            ),
+        )
     if item is None:
         # Re-check after the pre-read in case the row was deleted concurrently.
         raise HTTPException(status_code=404, detail="Product not found")
@@ -387,6 +410,12 @@ def update_product(request: Request, brand: ProductArchiveBrandKey, product_id: 
             "upper_height": "鞋帮高度",
         }
     changes = build_changed_fields(existing, item, field_labels)
+    sync_summary = ""
+    if purchase_order_sync["details"]:
+        sync_summary = (
+            f"；同步更新 {purchase_order_sync['details']} 条历史采购单明细"
+            f"（{purchase_order_sync['documents']} 张采购单）"
+        )
     write_operation_log(
         request,
         module="product",
@@ -394,12 +423,20 @@ def update_product(request: Request, brand: ProductArchiveBrandKey, product_id: 
         entity_type="product",
         entity_id=label,
         entity_label=label,
-        summary=summarize_changes("编辑商品", label, changes),
+        summary=f"{summarize_changes('编辑商品', label, changes)}{sync_summary}",
         changed_fields=changes,
         before_data={**existing, "brand": brand},
         after_data={**item, "brand": brand},
     )
-    return {"item": {**item, "brand": brand}, "message": "Product updated"}
+    return {
+        "item": {**item, "brand": brand},
+        "purchase_order_sync": purchase_order_sync,
+        "message": (
+            f"商品已更新，并同步 {purchase_order_sync['details']} 条历史采购单明细"
+            if purchase_order_sync["details"]
+            else "Product updated"
+        ),
+    }
 
 
 @router.delete("/products/{brand}/{product_id}")
