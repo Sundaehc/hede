@@ -377,25 +377,26 @@ def update_product(request: Request, brand: ProductArchiveBrandKey, product_id: 
             connection=connection,
             manual_cost_override=True,
         )
-        replacements = (
-            repository.purchase_order_product_code_replacements(
+        product_identity_id = (
+            repository.product_identity_id(
                 brand,
                 product_id,
-                existing,
-                item,
                 connection=connection,
             )
             if item is not None
-            else {}
+            else None
         )
-        purchase_order_sync = inventory_repository.sync_purchase_order_product_codes(
-            connection,
-            brand=brand,
-            replacements=replacements,
-            supplier_names=(
-                existing.get("supplier_name"),
-                item.get("supplier_name") if item is not None else None,
-            ),
+        product_codes_changed = item is not None and any(
+            str(existing.get(field) or "").strip() != str(item.get(field) or "").strip()
+            for field in ("sku", "original_sku")
+        )
+        purchase_order_sync = (
+            inventory_repository.purchase_order_product_identity_scope(
+                connection,
+                product_identity_id,
+            )
+            if product_codes_changed
+            else {"details": 0, "documents": 0, "document_ids": []}
         )
     if item is None:
         # Re-check after the pre-read in case the row was deleted concurrently.

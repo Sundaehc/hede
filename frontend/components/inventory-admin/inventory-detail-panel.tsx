@@ -58,6 +58,7 @@ function getErrorMessage(error: unknown) {
 }
 
 const EMPTY_DETAIL: Record<string, string> = {
+  product_identity_id: "",
   product_code: "",
   product_name: "",
   color_spec: "",
@@ -565,6 +566,7 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
     setFormMode("edit")
     setEditingId(item.id)
     setFormData({
+      product_identity_id: item.product_identity_id ? String(item.product_identity_id) : "",
       product_code: item.product_code || "",
       product_name: item.product_name || "",
       color_spec: item.color_spec || "",
@@ -605,6 +607,7 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
     setCandidateOpen(true)
     setFormData((prev) => ({
       ...prev,
+      product_identity_id: "",
       product_code: value,
       ...(resetPurchaseFields ? emptyPurchaseExtraFields() : {}),
       ...(resetPurchaseFields ? {
@@ -719,6 +722,7 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
           ) return prev
           return {
             ...prev,
+            product_identity_id: item.product_identity_id ? String(item.product_identity_id) : "",
             product_code: item.product_code || prev.product_code,
             product_name: item.product_name || prev.product_name,
             color_spec: item.color_spec || prev.color_spec,

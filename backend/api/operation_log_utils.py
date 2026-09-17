@@ -145,6 +145,7 @@ IGNORED_FIELDS = {
     "source_workbook",
     "source_sheet",
     "source_row_number",
+    "product_identity_id",
 }
 
 PURCHASE_ORDER_DOCUMENT_TYPE = "进货订单"

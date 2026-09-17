@@ -1082,6 +1082,7 @@ export function matchSkuImage(sku: string) {
 export type InventoryDetail = {
   id: number
   document_id: number
+  product_identity_id: number | null
   product_code: string | null
   product_name: string | null
   color_spec: string | null
@@ -1173,6 +1174,7 @@ export type PurchasePrintTemplate = {
 
 export type InventoryDetailLookupResult = {
   matched_product: boolean
+  product_identity_id: number | null
   product_code: string | null
   product_name: string | null
   color_spec: string | null

@@ -1386,8 +1386,7 @@ async def import_products(
     imported_product_ids: list[int] = []
     created_items: list[dict[str, object]] = []
     updated_items: list[dict[str, object]] = []
-    purchase_order_sync_details = 0
-    purchase_order_sync_document_ids: set[int] = set()
+    updated_product_identity_ids: set[int] = set()
 
     def import_log_item(item: dict[str, object], fallback_sku: str) -> dict[str, object]:
         return {
@@ -1524,24 +1523,18 @@ async def import_products(
                         restore_deleted=existing.get("deleted_at") is not None,
                     )
                     if saved_item is not None:
-                        replacements = repository.purchase_order_product_code_replacements(
+                        product_identity_id = repository.product_identity_id(
                             brand,
                             int(existing["id"]),
-                            existing,
-                            saved_item,
                             connection=connection,
                         )
-                        sync_result = request.app.state.inventory_repository.sync_purchase_order_product_codes(
-                            connection,
-                            brand=brand,
-                            replacements=replacements,
-                            supplier_names=(
-                                existing.get("supplier_name"),
-                                saved_item.get("supplier_name"),
-                            ),
+                        product_codes_changed = any(
+                            str(existing.get(field) or "").strip()
+                            != str(saved_item.get(field) or "").strip()
+                            for field in ("sku", "original_sku")
                         )
-                        purchase_order_sync_details += int(sync_result["details"])
-                        purchase_order_sync_document_ids.update(sync_result["document_ids"])
+                        if product_codes_changed and product_identity_id is not None:
+                            updated_product_identity_ids.add(product_identity_id)
                     if saved_item is not None:
                         imported_product_ids.append(int(saved_item["id"]))
                     updated_items.append(import_log_item(saved_item or existing, sku_val or original_sku_val))
@@ -1577,6 +1570,16 @@ async def import_products(
                 raise HTTPException(status_code=400, detail=f"第 {row_number} 行导入失败：{error}") from error
 
         repository.mark_products_imported(brand, imported_product_ids, connection=connection)
+
+        purchase_order_sync_details = 0
+        purchase_order_sync_document_ids: set[int] = set()
+        for product_identity_id in updated_product_identity_ids:
+            sync_result = request.app.state.inventory_repository.purchase_order_product_identity_scope(
+                connection,
+                product_identity_id,
+            )
+            purchase_order_sync_details += int(sync_result["details"])
+            purchase_order_sync_document_ids.update(sync_result["document_ids"])
 
     purchase_order_sync = {
         "details": purchase_order_sync_details,

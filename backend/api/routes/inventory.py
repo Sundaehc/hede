@@ -38,6 +38,7 @@ from domain.gj_schema import GJ_MERGED_PRODUCT_INFO_TABLE
 from domain.inventory_schema import SUPPLIER_BRAND_TABLE, SUPPLIER_TABLE
 from domain.ni_gendered_costs import GENDER_COSTS_FIELD, price_for_sizes, split_sizes_by_gender
 from domain.product_defaults import BARCODE_SIZE_RULE
+from domain.product_archive_identity_schema import PRODUCT_ARCHIVE_IDENTITY_TABLE
 from domain.product_size_code import build_product_size_code
 from domain.smiley_schema import SMILEY_FINE_TABLE
 from domain.inventory_sources import (
@@ -1449,6 +1450,23 @@ def _validate_purchase_detail_remark(record: dict[str, object], payload: dict[st
     if len(remark) > PURCHASE_DETAIL_REMARK_LIMIT:
         raise HTTPException(status_code=400, detail=f"商品备注最多 {PURCHASE_DETAIL_REMARK_LIMIT} 个字")
     payload["remark"] = remark
+
+
+def _normalize_purchase_product_identity(record: dict[str, object], payload: dict[str, object]) -> None:
+    if _cell_text(record.get("document_type")) != "进货订单":
+        payload.pop("product_identity_id", None)
+        return
+    raw_value = payload.get("product_identity_id")
+    if raw_value in (None, ""):
+        payload["product_identity_id"] = None
+        return
+    try:
+        product_identity_id = int(raw_value)
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="商品档案关联信息无效，请重新选择商品货号") from None
+    if product_identity_id <= 0:
+        raise HTTPException(status_code=400, detail="商品档案关联信息无效，请重新选择商品货号")
+    payload["product_identity_id"] = product_identity_id
 
 
 def _log_record_operation(
@@ -3001,6 +3019,7 @@ def _load_purchase_product_lookup(connection, brand: str, product_codes: set[str
     if product_table is not None:
         for row in connection.execute(
             sa_select(
+                product_table.c.id,
                 product_table.c.sku,
                 product_table.c.original_sku,
                 product_table.c.color,
@@ -3034,6 +3053,9 @@ def _load_purchase_product_lookup(connection, brand: str, product_codes: set[str
                     lookup[code]["color_barcode"] = product_color_code
                     lookup[code]["color_code"] = product_color_code
                 lookup[code]["_archive_matched"] = True
+                lookup[code]["_archive_product_id"] = int(row["id"])
+                lookup[code]["_archive_brand"] = _normalize_product_archive_brand(brand)
+                lookup[code]["_archive_table"] = product_table.name
                 lookup[code]["_archive_sku"] = _cell_text(row.get("sku"))
                 lookup[code]["_archive_original_sku"] = _cell_text(row.get("original_sku"))
                 if row.get("barcode_build_rule"):
@@ -3052,6 +3074,28 @@ def _load_purchase_product_lookup(connection, brand: str, product_codes: set[str
                     "size_range": _cell_text(row.get("size_range")),
                 }
                 _merge_product_info(lookup[code], fallback_fields)
+        identity_rows = connection.execute(
+            sa_select(
+                PRODUCT_ARCHIVE_IDENTITY_TABLE.c.source_product_id,
+                PRODUCT_ARCHIVE_IDENTITY_TABLE.c.id,
+            )
+            .where(
+                PRODUCT_ARCHIVE_IDENTITY_TABLE.c.source_table == product_table.name,
+                PRODUCT_ARCHIVE_IDENTITY_TABLE.c.source_product_id.in_({
+                    int(item["_archive_product_id"])
+                    for item in lookup.values()
+                    if item.get("_archive_table") == product_table.name
+                    and item.get("_archive_product_id") is not None
+                }),
+            )
+        ).all()
+        identity_ids = {int(source_id): int(identity_id) for source_id, identity_id in identity_rows}
+        for item in lookup.values():
+            if item.get("_archive_table") != product_table.name:
+                continue
+            product_id = item.get("_archive_product_id")
+            if product_id is not None and int(product_id) in identity_ids:
+                item["_archive_identity_id"] = identity_ids[int(product_id)]
     if brand == "smiley":
         for row in connection.execute(
             sa_select(
@@ -3401,6 +3445,7 @@ def _build_purchase_detail_lookup_for_brand(connection, product_code: str, quant
     if size_labels:
         extra_fields["size_labels"] = "|".join(size_labels)
     return {
+        "product_identity_id": product_info.get("_archive_identity_id"),
         "product_code": detail_code,
         "product_name": product_name,
         "color_spec": color_name,
@@ -3792,6 +3837,7 @@ def _build_purchase_details_from_rows(
             item = grouped.setdefault(
                 key,
                 {
+                    "product_identity_id": product_info.get("_archive_identity_id"),
                     "product_code": original_sku,
                     "product_name": product_name,
                     "color_spec": color_name,
@@ -3843,6 +3889,7 @@ def _build_purchase_details_from_rows(
         }
         has_unit_price = bool(item.get("has_unit_price"))
         details.append({
+            "product_identity_id": item.get("product_identity_id"),
             "product_code": item["product_code"],
             "product_name": item["product_name"],
             "color_spec": item["color_spec"],
@@ -5908,6 +5955,7 @@ def create_inventory_detail(request: Request, record_id: int, payload: dict):
     if record is None:
         raise HTTPException(status_code=404, detail="Record not found")
     _validate_purchase_detail_remark(record, payload)
+    _normalize_purchase_product_identity(record, payload)
     payload = _apply_product_archive_cost(repository, record, payload)
     payload["document_id"] = record_id
     detail_payloads = _gendered_detail_payloads(repository, record, payload)
@@ -5931,6 +5979,7 @@ def update_inventory_detail(request: Request, record_id: int, detail_id: int, pa
     if before is None:
         raise HTTPException(status_code=404, detail="Detail not found")
     _validate_purchase_detail_remark(record, payload)
+    _normalize_purchase_product_identity(record, payload)
     payload = _apply_product_archive_cost(repository, record, payload)
     payload["document_id"] = record_id
     detail_payloads = _gendered_detail_payloads(repository, record, payload)

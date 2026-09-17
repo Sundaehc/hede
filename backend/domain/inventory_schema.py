@@ -48,6 +48,7 @@ from domain.fields import (
     GENERAL_CUSTOMER_UNIT_FIELDS,
 )
 from domain.schema import METADATA
+from domain.product_archive_identity_schema import PRODUCT_ARCHIVE_IDENTITY_TABLE
 
 
 def _column_type(field: FieldSpec):
@@ -85,6 +86,12 @@ def build_inventory_detail_table() -> Table:
     columns: list = [
         Column("id", BigInteger, Identity(always=False), primary_key=True),
         Column("document_id", BigInteger, ForeignKey(f"{INVENTORY_TABLE_NAME}.id", ondelete="CASCADE"), nullable=False),
+        Column(
+            "product_identity_id",
+            BigInteger,
+            ForeignKey(f"{PRODUCT_ARCHIVE_IDENTITY_TABLE.name}.id", ondelete="SET NULL", name="fk_inventory_details_product_identity"),
+            nullable=True,
+        ),
     ]
     columns.extend(Column(field.name, _column_type(field)) for field in INVENTORY_DETAIL_FIELDS)
     columns.append(Column("size_quantities", JSON, nullable=True))
@@ -94,6 +101,7 @@ def build_inventory_detail_table() -> Table:
     table = Table(INVENTORY_DETAIL_TABLE_NAME, METADATA, *columns)
     Index("idx_inventory_details_document_id", table.c.document_id)
     Index("idx_inventory_details_product_code", table.c.product_code)
+    Index("idx_inventory_details_product_identity", table.c.product_identity_id)
     return table
 
 

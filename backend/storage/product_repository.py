@@ -13,6 +13,7 @@ from domain.color_barcode_schema import COLOR_BARCODE_TABLE
 from domain.excluded_skus import not_excluded_sku_condition
 from domain.product_defaults import apply_product_defaults
 from domain.inventory_schema import SUPPLIER_BRAND_TABLE
+from domain.product_archive_identity_schema import PRODUCT_ARCHIVE_IDENTITY_TABLE, ensure_product_archive_identity_schema
 from domain.schema import PRODUCT_ARCHIVE_TABLES, PRODUCT_TABLES, build_product_archive_table
 from domain.vip_schema import JST_PRICE_TABLE
 
@@ -274,7 +275,12 @@ class ProductRepository:
             self._manual_product_tables[brand] = table
         return table
 
-    def ensure_manual_product_archive(self, brand: Mapping[str, object]) -> None:
+    def ensure_manual_product_archive(
+        self,
+        brand: Mapping[str, object],
+        *,
+        install_identity_schema: bool = True,
+    ) -> None:
         code = str(brand.get("code") or "").strip()
         if not code or code in PRODUCT_ARCHIVE_TABLES:
             return
@@ -294,10 +300,18 @@ class ProductRepository:
             connection.execute(text(f"ALTER TABLE {table.name} ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ"))
             connection.execute(text(f"CREATE INDEX IF NOT EXISTS idx_{table.name}_last_imported_at ON {table.name} (last_imported_at)"))
             connection.execute(text(f"CREATE INDEX IF NOT EXISTS idx_{table.name}_deleted_at ON {table.name} (deleted_at)"))
+            if install_identity_schema:
+                ensure_product_archive_identity_schema(
+                    connection,
+                    table_specs=((table.name, code),),
+                )
 
-    def ensure_manual_product_archives(self) -> None:
+    def ensure_manual_product_archives(self, *, install_identity_schema: bool = True) -> None:
         for brand in self._list_manual_archive_brand_records():
-            self.ensure_manual_product_archive(brand)
+            self.ensure_manual_product_archive(
+                brand,
+                install_identity_schema=install_identity_schema,
+            )
 
     def _list_manual_archive_brand_records(self) -> list[dict[str, object]]:
         statement = (
@@ -338,7 +352,29 @@ class ProductRepository:
                     f"CREATE INDEX IF NOT EXISTS idx_{table.name}_deleted_at "
                     f"ON {table.name} (deleted_at)"
                 ))
-        self.ensure_manual_product_archives()
+        # Create every manual archive first, then install the shared identity
+        # functions and triggers at most once during repository startup.
+        self.ensure_manual_product_archives(install_identity_schema=False)
+        with self.engine.begin() as connection:
+            missing_identity_trigger = False
+            if connection.dialect.name == "postgresql":
+                expected_tables = (
+                    *(table.name for table in PRODUCT_ARCHIVE_TABLES.values()),
+                    *(table.name for table in self._manual_product_tables.values()),
+                )
+                installed_tables = set(connection.execute(text("""
+                    SELECT relation.relname
+                    FROM pg_trigger AS trigger
+                    JOIN pg_class AS relation ON relation.oid = trigger.tgrelid
+                    WHERE trigger.tgname = 'trg_hede_product_identity_sync'
+                      AND NOT trigger.tgisinternal
+                """)).scalars())
+                missing_identity_trigger = any(
+                    table_name not in installed_tables
+                    for table_name in expected_tables
+                )
+            if missing_identity_trigger:
+                ensure_product_archive_identity_schema(connection)
 
     def sync_costs_from_latest_combined_footwear_price(
         self,
@@ -967,55 +1003,21 @@ class ProductRepository:
         item = dict(row)
         return item
 
-    def purchase_order_product_code_replacements(
+    def product_identity_id(
         self,
         brand: str,
         product_id: int,
-        before: Mapping[str, object],
-        after: Mapping[str, object],
         *,
         connection,
-    ) -> dict[str, str]:
-        """Return unambiguous old-to-new codes for purchase-order synchronization."""
+    ) -> int | None:
         table = self._table_for_brand(brand)
-        replacements: dict[str, str] = {}
-        retained_codes = {
-            str(after.get(field) or "").strip()
-            for field in ("sku", "original_sku")
-            if str(after.get(field) or "").strip()
-        }
-        replacement_candidates: dict[str, set[str]] = defaultdict(set)
-        for field in ("sku", "original_sku"):
-            previous_code = str(before.get(field) or "").strip()
-            current_code = str(after.get(field) or "").strip()
-            if (
-                not previous_code
-                or not current_code
-                or previous_code == current_code
-                or previous_code in retained_codes
-            ):
-                continue
-            replacement_candidates[previous_code].add(current_code)
-
-        for previous_code, current_codes in replacement_candidates.items():
-            if len(current_codes) != 1:
-                continue
-            current_code = next(iter(current_codes))
-            conflicting_product_count = int(connection.execute(
-                select(func.count())
-                .select_from(table)
-                .where(
-                    table.c.id != product_id,
-                    table.c.deleted_at.is_(None),
-                    or_(
-                        func.btrim(table.c.sku) == previous_code,
-                        func.btrim(table.c.original_sku) == previous_code,
-                    ),
-                )
-            ).scalar_one())
-            if conflicting_product_count == 0:
-                replacements[previous_code] = current_code
-        return replacements
+        value = connection.execute(
+            select(PRODUCT_ARCHIVE_IDENTITY_TABLE.c.id).where(
+                PRODUCT_ARCHIVE_IDENTITY_TABLE.c.source_table == table.name,
+                PRODUCT_ARCHIVE_IDENTITY_TABLE.c.source_product_id == product_id,
+            )
+        ).scalar_one_or_none()
+        return int(value) if value is not None else None
 
     def delete_product(self, brand: str, product_id: int) -> bool:
         table = self._table_for_brand(brand)

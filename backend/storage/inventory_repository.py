@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping
+from collections.abc import Mapping
 from datetime import date
 from decimal import Decimal
 from uuid import uuid4
@@ -25,6 +25,7 @@ from domain.jst_stock_snapshot_schema import JST_SIZE_STOCK_SNAPSHOT_TABLE, JST_
 from domain.product_goods_schema import PRODUCT_GOODS_OVERRIDES_TABLE
 from domain.product_goods_historical_sales_schema import HISTORICAL_SALES_YEARS, ensure_product_goods_historical_sales_table
 from domain.product_size_group_mapping_schema import PRODUCT_SIZE_GROUP_MAPPINGS_TABLE
+from domain.product_archive_identity_schema import PRODUCT_ARCHIVE_IDENTITY_TABLE, ensure_product_archive_identity_schema
 from domain.schema import PRODUCT_ARCHIVE_TABLES
 from domain.size_group_schema import SIZE_GROUP_ITEMS_TABLE, SIZE_GROUPS_TABLE
 from storage.date_normalization import parse_date, parse_month_day
@@ -76,6 +77,7 @@ class InventoryRepository:
             future=True,
             json_serializer=_json_serializer,
         )
+        self._product_identity_schema_ready = False
         self.create_tables()
 
     # ── Inventory Records ──────────────────────────────────────────
@@ -2489,134 +2491,30 @@ class InventoryRepository:
             return [dict(row) for row in connection.execute(statement).mappings()]
 
     @staticmethod
-    def sync_purchase_order_product_codes(
+    def purchase_order_product_identity_scope(
         connection,
-        *,
-        brand: str,
-        replacements: Mapping[str, str],
-        supplier_names: Iterable[object] = (),
+        product_identity_id: int | None,
     ) -> dict[str, object]:
-        """Rename exact product codes in every historical purchase order for one brand."""
-        normalized_brand = str(brand or "").strip().lower()
-        normalized_replacements = {
-            str(previous or "").strip(): str(current or "").strip()
-            for previous, current in replacements.items()
-            if str(previous or "").strip()
-            and str(current or "").strip()
-            and str(previous or "").strip() != str(current or "").strip()
-        }
-        if not normalized_brand or not normalized_replacements:
+        if product_identity_id is None:
             return {"details": 0, "documents": 0, "document_ids": []}
-
-        requested_supplier_names = {
-            str(name or "").strip().lower()
-            for name in supplier_names
-            if str(name or "").strip()
-        }
-        supplier_rows = connection.execute(
-            select(
-                func.lower(func.btrim(SUPPLIER_TABLE.c.name)).label("name"),
-                func.lower(func.btrim(SUPPLIER_TABLE.c.brand)).label("brand"),
-            )
-            .where(func.btrim(SUPPLIER_TABLE.c.name) != "")
-        ).mappings()
-        supplier_brands_by_name: dict[str, set[str]] = {}
-        for row in supplier_rows:
-            supplier_brands_by_name.setdefault(str(row["name"]), set()).add(str(row["brand"]))
-        unambiguous_brand_supplier_names = {
-            name
-            for name, brands in supplier_brands_by_name.items()
-            if brands == {normalized_brand}
-        }
-        normalized_supplier_names = {
-            name
-            for name in requested_supplier_names
-            if not supplier_brands_by_name.get(name)
-            or supplier_brands_by_name[name] == {normalized_brand}
-        }
-        brand_supplier_names = (
-            sorted(unambiguous_brand_supplier_names | normalized_supplier_names)
-        )
-        normalized_document_supplier = func.lower(func.btrim(INVENTORY_TABLE.c.supplier))
-        supplier_matches_brand = normalized_document_supplier.in_(brand_supplier_names)
-        stored_document_brand = func.lower(func.btrim(func.coalesce(
-            INVENTORY_TABLE.c.raw_payload["brand"].as_string(),
-            "",
-        )))
-        purchase_order_ids = (
-            select(INVENTORY_TABLE.c.id)
-            .where(
-                INVENTORY_TABLE.c.document_type == "进货订单",
-                or_(
-                    stored_document_brand == normalized_brand,
-                    and_(stored_document_brand == "", supplier_matches_brand),
-                ),
-            )
-        )
-        normalized_detail_product_code = func.btrim(INVENTORY_DETAIL_TABLE.c.product_code)
-        normalized_detail_image_code = func.btrim(func.coalesce(
-            INVENTORY_DETAIL_TABLE.c.extra_fields["image_code"].as_string(),
-            "",
-        ))
-        normalized_detail_style_code = func.btrim(func.coalesce(
-            INVENTORY_DETAIL_TABLE.c.extra_fields["style_code"].as_string(),
-            "",
-        ))
-        matching_rows = connection.execute(
-            select(
-                INVENTORY_DETAIL_TABLE.c.id,
-                INVENTORY_DETAIL_TABLE.c.document_id,
-                INVENTORY_DETAIL_TABLE.c.product_code,
-                INVENTORY_DETAIL_TABLE.c.extra_fields,
-            )
-            .where(
-                INVENTORY_DETAIL_TABLE.c.document_id.in_(purchase_order_ids),
-                or_(
-                    normalized_detail_product_code.in_(normalized_replacements),
-                    normalized_detail_image_code.in_(normalized_replacements),
-                    normalized_detail_style_code.in_(normalized_replacements),
-                ),
-            )
-            .order_by(INVENTORY_DETAIL_TABLE.c.id)
-        ).mappings().all()
-
-        document_ids: set[int] = set()
-        updated_details = 0
-        for row in matching_rows:
-            previous_code = str(row.get("product_code") or "").strip()
-            current_code = normalized_replacements.get(previous_code, previous_code)
-            extra_fields = dict(row.get("extra_fields") or {})
-            changed = current_code != previous_code
-            for key in ("image_code", "style_code"):
-                cached_code = str(extra_fields.get(key) or "").strip()
-                if cached_code in normalized_replacements:
-                    extra_fields[key] = normalized_replacements[cached_code]
-                    changed = True
-            if not changed:
-                continue
-            connection.execute(
-                update(INVENTORY_DETAIL_TABLE)
-                .where(INVENTORY_DETAIL_TABLE.c.id == row["id"])
-                .values(
-                    product_code=current_code,
-                    extra_fields=extra_fields,
-                    updated_at=func.date_trunc("minute", func.now()),
+        rows = connection.execute(
+            select(INVENTORY_DETAIL_TABLE.c.document_id)
+            .select_from(
+                INVENTORY_DETAIL_TABLE.join(
+                    INVENTORY_TABLE,
+                    INVENTORY_TABLE.c.id == INVENTORY_DETAIL_TABLE.c.document_id,
                 )
             )
-            updated_details += 1
-            document_ids.add(int(row["document_id"]))
-
-        if document_ids:
-            connection.execute(
-                update(INVENTORY_TABLE)
-                .where(INVENTORY_TABLE.c.id.in_(document_ids))
-                .values(updated_at=func.date_trunc("minute", func.now()))
+            .where(
+                INVENTORY_DETAIL_TABLE.c.product_identity_id == product_identity_id,
+                INVENTORY_TABLE.c.document_type == "进货订单",
             )
-
+        ).scalars().all()
+        document_ids = sorted({int(document_id) for document_id in rows})
         return {
-            "details": updated_details,
+            "details": len(rows),
             "documents": len(document_ids),
-            "document_ids": sorted(document_ids),
+            "document_ids": document_ids,
         }
 
     def list_matching_details_for_documents(
@@ -3303,6 +3201,7 @@ class InventoryRepository:
     def create_tables(self) -> None:
         with self.engine.begin() as connection:
             INVENTORY_TABLE.create(connection, checkfirst=True)
+            PRODUCT_ARCHIVE_IDENTITY_TABLE.create(connection, checkfirst=True)
             INVENTORY_DETAIL_TABLE.create(connection, checkfirst=True)
             JST_STOCK_TABLE.create(connection, checkfirst=True)
             JST_SIZE_STOCK_SNAPSHOT_TABLE.create(connection, checkfirst=True)
@@ -3466,6 +3365,9 @@ class InventoryRepository:
             self._ensure_warehouse_schema(connection)
             self._ensure_supplier_schema(connection)
             self._sync_suppliers_from_gj(connection)
+            if not self._product_identity_schema_ready:
+                ensure_product_archive_identity_schema(connection)
+                self._product_identity_schema_ready = True
             GENERAL_CUSTOMER_BRAND_TABLE.create(connection, checkfirst=True)
             GENERAL_CUSTOMER_SHOP_TABLE.create(connection, checkfirst=True)
             GENERAL_CUSTOMER_UNIT_TABLE.create(connection, checkfirst=True)
