@@ -10,6 +10,7 @@ import {
   Bold,
   Copy,
   GripVertical,
+  Move,
   Plus,
   RotateCcw,
   Star,
@@ -35,6 +36,7 @@ import type {
   PurchasePrintTemplateConfig,
   PurchasePrintTemplateElement,
   PurchasePrintTemplateField,
+  PurchasePrintTemplateOuterBorder,
 } from "@/lib/api"
 
 const DEFAULT_PAPER_WIDTH = 80
@@ -69,6 +71,7 @@ export const DEFAULT_PURCHASE_PRINT_TEMPLATE: PurchasePrintTemplateConfig = {
   paper_width_mm: DEFAULT_PAPER_WIDTH,
   paper_height_mm: DEFAULT_PAPER_HEIGHT,
   show_outer_border: true,
+  outer_border: { x: 0, y: 0, width: 80, height: 60, line_width: 0.25 },
   elements: [
     { id: "product-code", kind: "text", field: "product_code", label: "货号", text: "", x: 2, y: 1.1, width: 76, height: 6, font_size: 9.8, bold: true, underline: false, align: "left", show_label: true, border: false, wrap: false },
     { id: "size", kind: "text", field: "size_name", label: "尺码", text: "", x: 2, y: 7.5, width: 37.3, height: 5.6, font_size: 12, bold: true, underline: false, align: "left", show_label: true, border: false, wrap: false },
@@ -105,6 +108,15 @@ const PREVIEW_LABEL: InventoryPrintLabel = {
 function cloneTemplate(config: PurchasePrintTemplateConfig): PurchasePrintTemplateConfig {
   return {
     ...config,
+    outer_border: {
+      ...(config.outer_border ?? {
+        x: 0,
+        y: 0,
+        width: config.paper_width_mm,
+        height: config.paper_height_mm,
+        line_width: 0.25,
+      }),
+    },
     elements: config.elements.map((element) => ({ ...element })),
   }
 }
@@ -258,6 +270,18 @@ export function PurchasePrintTemplateContent({
   const paperHeight = config.paper_height_mm
   return (
     <>
+      {config.show_outer_border && (
+        <div
+          className="purchase-print-outer-border"
+          style={{
+            left: `${(config.outer_border.x / paperWidth) * 100}%`,
+            top: `${(config.outer_border.y / paperHeight) * 100}%`,
+            width: `${(config.outer_border.width / paperWidth) * 100}%`,
+            height: `${(config.outer_border.height / paperHeight) * 100}%`,
+            borderWidth: `${(config.outer_border.line_width / paperWidth) * 100}cqw`,
+          }}
+        />
+      )}
       {config.elements.map((element) => {
         const style: React.CSSProperties = {
           left: `${(element.x / paperWidth) * 100}%`,
@@ -326,7 +350,8 @@ export function PurchasePrintTemplateContent({
   )
 }
 
-type Interaction = {
+type ElementInteraction = {
+  target: "element"
   id: string
   mode: "move" | "resize"
   startX: number
@@ -334,8 +359,68 @@ type Interaction = {
   initial: PurchasePrintTemplateElement
 }
 
+export type OuterBorderDragMode = "move" | "n" | "ne" | "e" | "se" | "s" | "sw" | "w" | "nw"
+
+type OuterBorderInteraction = {
+  target: "outer-border"
+  mode: OuterBorderDragMode
+  startX: number
+  startY: number
+  initial: PurchasePrintTemplateOuterBorder
+}
+
+type Interaction = ElementInteraction | OuterBorderInteraction
+
+const OUTER_BORDER_SELECTION_ID = "__outer-border__"
+
 function clamp(value: number, minimum: number, maximum: number) {
   return Math.min(Math.max(value, minimum), maximum)
+}
+
+export function applyOuterBorderDrag(
+  initial: PurchasePrintTemplateOuterBorder,
+  mode: OuterBorderDragMode,
+  deltaX: number,
+  deltaY: number,
+  paperWidth: number,
+  paperHeight: number,
+): PurchasePrintTemplateOuterBorder {
+  if (mode === "move") {
+    return {
+      ...initial,
+      x: roundTemplateNumber(clamp(initial.x + deltaX, 0, paperWidth - initial.width)),
+      y: roundTemplateNumber(clamp(initial.y + deltaY, 0, paperHeight - initial.height)),
+    }
+  }
+
+  const right = initial.x + initial.width
+  const bottom = initial.y + initial.height
+  let x = initial.x
+  let y = initial.y
+  let width = initial.width
+  let height = initial.height
+
+  if (mode.includes("w")) {
+    x = clamp(initial.x + deltaX, 0, right - 1)
+    width = right - x
+  } else if (mode.includes("e")) {
+    width = clamp(initial.width + deltaX, 1, paperWidth - initial.x)
+  }
+
+  if (mode.includes("n")) {
+    y = clamp(initial.y + deltaY, 0, bottom - 1)
+    height = bottom - y
+  } else if (mode.includes("s")) {
+    height = clamp(initial.height + deltaY, 1, paperHeight - initial.y)
+  }
+
+  return {
+    ...initial,
+    x: roundTemplateNumber(x),
+    y: roundTemplateNumber(y),
+    width: roundTemplateNumber(width),
+    height: roundTemplateNumber(height),
+  }
 }
 
 function nextElementId(prefix: string) {
@@ -422,12 +507,26 @@ export function PurchasePrintTemplateEditor({
       const canvas = canvasRef.current
       if (!interaction || !canvas) return
       const bounds = canvas.getBoundingClientRect()
-      setDraft((current) => ({
-        ...current,
-        elements: current.elements.map((element) => {
-          if (element.id !== interaction.id) return element
-          const deltaX = ((event.clientX - interaction.startX) / bounds.width) * current.paper_width_mm
-          const deltaY = ((event.clientY - interaction.startY) / bounds.height) * current.paper_height_mm
+      setDraft((current) => {
+        const deltaX = ((event.clientX - interaction.startX) / bounds.width) * current.paper_width_mm
+        const deltaY = ((event.clientY - interaction.startY) / bounds.height) * current.paper_height_mm
+        if (interaction.target === "outer-border") {
+          return {
+            ...current,
+            outer_border: applyOuterBorderDrag(
+              interaction.initial,
+              interaction.mode,
+              deltaX,
+              deltaY,
+              current.paper_width_mm,
+              current.paper_height_mm,
+            ),
+          }
+        }
+        return {
+          ...current,
+          elements: current.elements.map((element) => {
+            if (element.id !== interaction.id) return element
           if (interaction.mode === "move") {
             return {
               ...element,
@@ -440,8 +539,9 @@ export function PurchasePrintTemplateEditor({
             width: roundTemplateNumber(clamp(interaction.initial.width + deltaX, 3, current.paper_width_mm - element.x)),
             height: roundTemplateNumber(clamp(interaction.initial.height + deltaY, 2, current.paper_height_mm - element.y)),
           }
-        }),
-      }))
+          }),
+        }
+      })
     }
     const handleUp = () => { interactionRef.current = null }
     window.addEventListener("pointermove", handleMove)
@@ -456,6 +556,7 @@ export function PurchasePrintTemplateEditor({
     () => draft.elements.find((element) => element.id === selectedId) ?? null,
     [draft.elements, selectedId],
   )
+  const outerBorderSelected = selectedId === OUTER_BORDER_SELECTION_ID
 
   const updateSelected = (values: Partial<PurchasePrintTemplateElement>) => {
     if (!selectedId) return
@@ -477,6 +578,13 @@ export function PurchasePrintTemplateEditor({
       return {
         ...current,
         [key]: nextValue,
+        outer_border: {
+          ...current.outer_border,
+          x: roundTemplateNumber(current.outer_border.x * scaleX),
+          y: roundTemplateNumber(current.outer_border.y * scaleY),
+          width: roundTemplateNumber(current.outer_border.width * scaleX),
+          height: roundTemplateNumber(current.outer_border.height * scaleY),
+        },
         elements: current.elements.map((element) => ({
           ...element,
           x: roundTemplateNumber(element.x * scaleX),
@@ -486,6 +594,36 @@ export function PurchasePrintTemplateEditor({
         })),
       }
     })
+  }
+
+  const updateOuterBorder = (
+    key: keyof PurchasePrintTemplateOuterBorder,
+    value: number,
+  ) => {
+    if (!Number.isFinite(value)) return
+    setDraft((current) => {
+      const border = current.outer_border
+      const limits: Record<keyof PurchasePrintTemplateOuterBorder, [number, number]> = {
+        x: [0, current.paper_width_mm - border.width],
+        y: [0, current.paper_height_mm - border.height],
+        width: [1, current.paper_width_mm - border.x],
+        height: [1, current.paper_height_mm - border.y],
+        line_width: [0.1, 2],
+      }
+      const [minimum, maximum] = limits[key]
+      return {
+        ...current,
+        outer_border: {
+          ...border,
+          [key]: roundTemplateNumber(clamp(value, minimum, maximum)),
+        },
+      }
+    })
+  }
+
+  const toggleOuterBorder = (visible: boolean) => {
+    setDraft((current) => ({ ...current, show_outer_border: visible }))
+    setSelectedId(visible ? OUTER_BORDER_SELECTION_ID : null)
   }
 
   const commitPaperDimension = (key: "paper_width_mm" | "paper_height_mm", input: string) => {
@@ -561,11 +699,28 @@ export function PurchasePrintTemplateEditor({
     event.stopPropagation()
     setSelectedId(element.id)
     interactionRef.current = {
+      target: "element",
       id: element.id,
       mode,
       startX: event.clientX,
       startY: event.clientY,
       initial: { ...element },
+    }
+  }
+
+  const startOuterBorderInteraction = (
+    event: React.PointerEvent,
+    mode: OuterBorderDragMode,
+  ) => {
+    event.preventDefault()
+    event.stopPropagation()
+    setSelectedId(OUTER_BORDER_SELECTION_ID)
+    interactionRef.current = {
+      target: "outer-border",
+      mode,
+      startX: event.clientX,
+      startY: event.clientY,
+      initial: { ...draft.outer_border },
     }
   }
 
@@ -636,7 +791,6 @@ export function PurchasePrintTemplateEditor({
                   height: previewSize.height || undefined,
                   aspectRatio: `${draft.paper_width_mm} / ${draft.paper_height_mm}`,
                 }}
-                data-outer-border={draft.show_outer_border}
                 onClick={() => setSelectedId(null)}
               >
                 <PurchasePrintTemplateContent
@@ -647,6 +801,54 @@ export function PurchasePrintTemplateEditor({
                   onSelect={setSelectedId}
                   onPointerStart={startInteraction}
                 />
+                {draft.show_outer_border && (
+                  <div
+                    className={`purchase-outer-border-editor ${outerBorderSelected ? "purchase-outer-border-editor-selected" : ""}`}
+                    style={{
+                      left: `${(draft.outer_border.x / draft.paper_width_mm) * 100}%`,
+                      top: `${(draft.outer_border.y / draft.paper_height_mm) * 100}%`,
+                      width: `${(draft.outer_border.width / draft.paper_width_mm) * 100}%`,
+                      height: `${(draft.outer_border.height / draft.paper_height_mm) * 100}%`,
+                    }}
+                  >
+                    {(["top", "right", "bottom", "left"] as const).map((edge) => (
+                      <button
+                        type="button"
+                        key={edge}
+                        className={`purchase-outer-border-edge purchase-outer-border-edge-${edge}`}
+                        title="拖动外边框"
+                        aria-label={`拖动外边框${edge}`}
+                        onPointerDown={(event) => startOuterBorderInteraction(event, "move")}
+                        onClick={(event) => event.stopPropagation()}
+                      />
+                    ))}
+                    {outerBorderSelected && (
+                      <>
+                        <button
+                          type="button"
+                          className="purchase-outer-border-move-handle"
+                          title="拖动外边框"
+                          aria-label="拖动外边框"
+                          onPointerDown={(event) => startOuterBorderInteraction(event, "move")}
+                          onClick={(event) => event.stopPropagation()}
+                        >
+                          <Move aria-hidden="true" />
+                        </button>
+                        {(["nw", "n", "ne", "e", "se", "s", "sw", "w"] as const).map((mode) => (
+                          <button
+                            type="button"
+                            key={mode}
+                            className={`purchase-outer-border-resize-handle purchase-outer-border-resize-${mode}`}
+                            title="拖动调整外边框"
+                            aria-label={`向 ${mode} 方向调整外边框`}
+                            onPointerDown={(event) => startOuterBorderInteraction(event, mode)}
+                            onClick={(event) => event.stopPropagation()}
+                          />
+                        ))}
+                      </>
+                    )}
+                  </div>
+                )}
               </div>
             </div>
           </div>
@@ -737,12 +939,41 @@ export function PurchasePrintTemplateEditor({
                   <Plus className="size-3.5" />添加固定文字
                 </Button>
                 <label className="flex cursor-pointer items-center gap-2 text-sm">
-                  <input type="checkbox" checked={draft.show_outer_border} onChange={(event) => setDraft((current) => ({ ...current, show_outer_border: event.target.checked }))} />
+                  <input type="checkbox" checked={draft.show_outer_border} onChange={(event) => toggleOuterBorder(event.target.checked)} />
                   显示标签外边框
                 </label>
+                {draft.show_outer_border && (
+                  <div className="grid grid-cols-2 gap-2">
+                    {([
+                      ["x", "距左", 0, draft.paper_width_mm - draft.outer_border.width, 0.5],
+                      ["y", "距上", 0, draft.paper_height_mm - draft.outer_border.height, 0.5],
+                      ["width", "边框宽度", 1, draft.paper_width_mm - draft.outer_border.x, 0.5],
+                      ["height", "边框高度", 1, draft.paper_height_mm - draft.outer_border.y, 0.5],
+                      ["line_width", "线宽", 0.1, 2, 0.1],
+                    ] as const).map(([key, label, minimum, maximum, step]) => (
+                      <div className="space-y-1.5" key={key}>
+                        <Label htmlFor={`print-outer-border-${key}`}>{label} (mm)</Label>
+                        <Input
+                          id={`print-outer-border-${key}`}
+                          type="number"
+                          min={minimum}
+                          max={maximum}
+                          step={step}
+                          value={draft.outer_border[key]}
+                          onChange={(event) => updateOuterBorder(key, Number(event.target.value))}
+                        />
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
 
-              {!selected ? (
+              {outerBorderSelected ? (
+                <div className="flex min-h-32 flex-col items-center justify-center text-center text-muted-foreground">
+                  <Move className="mb-2 size-5" />
+                  <p className="text-sm">标签外边框</p>
+                </div>
+              ) : !selected ? (
                 <div className="flex min-h-48 flex-col items-center justify-center text-center text-muted-foreground">
                   <GripVertical className="mb-2 size-5" />
                   <p className="text-sm">选择画布中的内容进行编辑</p>

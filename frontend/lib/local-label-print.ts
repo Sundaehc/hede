@@ -287,9 +287,21 @@ export async function renderLocalLabelBitmap(
   context.fillRect(0, 0, canvas.width, canvas.height)
   config.elements.forEach((element) => drawTemplateElement(context, config, element, data))
   if (config.show_outer_border) {
+    const border = config.outer_border
+    const x = border.x / config.paper_width_mm * LABEL_WIDTH_PX
+    const y = border.y / config.paper_height_mm * LABEL_HEIGHT_PX
+    const width = border.width / config.paper_width_mm * LABEL_WIDTH_PX
+    const height = border.height / config.paper_height_mm * LABEL_HEIGHT_PX
+    const lineWidth = Math.max(1, border.line_width / config.paper_width_mm * LABEL_WIDTH_PX)
+    const inset = lineWidth / 2
     context.strokeStyle = "#000"
-    context.lineWidth = 2
-    context.strokeRect(1, 1, LABEL_WIDTH_PX - 2, LABEL_HEIGHT_PX - 2)
+    context.lineWidth = lineWidth
+    context.strokeRect(
+      x + inset,
+      y + inset,
+      Math.max(0, width - lineWidth),
+      Math.max(0, height - lineWidth),
+    )
   }
 
   const image = context.getImageData(0, 0, LABEL_WIDTH_PX, LABEL_HEIGHT_PX)

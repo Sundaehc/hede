@@ -1147,11 +1147,20 @@ export type PurchasePrintTemplateElement = {
   wrap: boolean
 }
 
+export type PurchasePrintTemplateOuterBorder = {
+  x: number
+  y: number
+  width: number
+  height: number
+  line_width: number
+}
+
 export type PurchasePrintTemplateConfig = {
   version: 6
   paper_width_mm: number
   paper_height_mm: number
   show_outer_border: boolean
+  outer_border: PurchasePrintTemplateOuterBorder
   elements: PurchasePrintTemplateElement[]
 }
 

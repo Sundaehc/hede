@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest"
 
-import { resolvePurchasePrintElementText } from "@/components/inventory-admin/purchase-print-template-editor"
+import {
+  applyOuterBorderDrag,
+  resolvePurchasePrintElementText,
+} from "@/components/inventory-admin/purchase-print-template-editor"
 import type {
   InventoryPrintLabel,
   PurchasePrintTemplateElement,
@@ -54,5 +57,35 @@ describe("resolvePurchasePrintElementText", () => {
 
   it("falls back to the label data when the custom level is empty", () => {
     expect(resolvePurchasePrintElementText(levelElement, label)).toBe("等级：合格品")
+  })
+})
+
+describe("applyOuterBorderDrag", () => {
+  const border = { x: 2, y: 3, width: 74, height: 54, line_width: 0.25 }
+
+  it("moves the border without leaving the paper", () => {
+    expect(applyOuterBorderDrag(border, "move", 20, 20, 80, 60)).toEqual({
+      ...border,
+      x: 6,
+      y: 6,
+    })
+  })
+
+  it("resizes from the northwest corner while keeping the opposite corner fixed", () => {
+    expect(applyOuterBorderDrag(border, "nw", 3, 2, 80, 60)).toEqual({
+      ...border,
+      x: 5,
+      y: 5,
+      width: 71,
+      height: 52,
+    })
+  })
+
+  it("clamps southeast resizing to the paper boundary", () => {
+    expect(applyOuterBorderDrag(border, "se", 20, 20, 80, 60)).toEqual({
+      ...border,
+      width: 78,
+      height: 57,
+    })
   })
 })

@@ -358,9 +358,72 @@ def test_purchase_print_template_normalizes_supported_elements() -> None:
     assert config["paper_width_mm"] == 80
     assert config["paper_height_mm"] == 60
     assert config["show_outer_border"] is False
+    assert config["outer_border"] == {
+        "x": 0.0,
+        "y": 0.0,
+        "width": 80.0,
+        "height": 60.0,
+        "line_width": 0.25,
+    }
     assert config["elements"][0]["field"] == "product_code"
     assert config["elements"][0]["font_size"] == 10.5
     assert config["elements"][0]["underline"] is False
+
+
+def test_purchase_print_template_preserves_custom_outer_border() -> None:
+    config = _normalize_purchase_print_template_config({
+        "paper_width_mm": 80,
+        "paper_height_mm": 60,
+        "show_outer_border": True,
+        "outer_border": {
+            "x": 2,
+            "y": 3,
+            "width": 75,
+            "height": 54,
+            "line_width": 0.5,
+        },
+        "elements": [{
+            "id": "product-code",
+            "kind": "text",
+            "field": "product_code",
+            "x": 2,
+            "y": 2,
+            "width": 30,
+            "height": 5,
+            "font_size": 9,
+        }],
+    })
+
+    assert config["outer_border"] == {
+        "x": 2.0,
+        "y": 3.0,
+        "width": 75.0,
+        "height": 54.0,
+        "line_width": 0.5,
+    }
+
+
+def test_purchase_print_template_rejects_outer_border_outside_paper() -> None:
+    with pytest.raises(HTTPException, match="外边框超出纸张范围"):
+        _normalize_purchase_print_template_config({
+            "outer_border": {
+                "x": 10,
+                "y": 0,
+                "width": 80,
+                "height": 60,
+                "line_width": 0.25,
+            },
+            "elements": [{
+                "id": "product-code",
+                "kind": "text",
+                "field": "product_code",
+                "x": 2,
+                "y": 2,
+                "width": 30,
+                "height": 5,
+                "font_size": 9,
+            }],
+        })
 
 
 def test_purchase_print_template_preserves_underline_style() -> None:

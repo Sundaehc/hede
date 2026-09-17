@@ -1130,6 +1130,42 @@ def _normalize_purchase_print_template_config(value: object) -> dict[str, object
         minimum=PURCHASE_PRINT_TEMPLATE_MIN_DIMENSION,
         maximum=PURCHASE_PRINT_TEMPLATE_MAX_DIMENSION,
     )
+    raw_outer_border = _dict_or_empty(config.get("outer_border"))
+    outer_border_x = _bounded_template_number(
+        raw_outer_border.get("x", 0),
+        field_name="外边框距左",
+        minimum=0,
+        maximum=paper_width,
+    )
+    outer_border_y = _bounded_template_number(
+        raw_outer_border.get("y", 0),
+        field_name="外边框距上",
+        minimum=0,
+        maximum=paper_height,
+    )
+    outer_border_width = _bounded_template_number(
+        raw_outer_border.get("width", paper_width),
+        field_name="外边框宽度",
+        minimum=1,
+        maximum=paper_width,
+    )
+    outer_border_height = _bounded_template_number(
+        raw_outer_border.get("height", paper_height),
+        field_name="外边框高度",
+        minimum=1,
+        maximum=paper_height,
+    )
+    if (
+        outer_border_x + outer_border_width > paper_width + 0.01
+        or outer_border_y + outer_border_height > paper_height + 0.01
+    ):
+        raise HTTPException(status_code=400, detail="打印模板外边框超出纸张范围")
+    outer_border_line_width = _bounded_template_number(
+        raw_outer_border.get("line_width", 0.25),
+        field_name="外边框线宽",
+        minimum=0.1,
+        maximum=2,
+    )
     raw_elements = config.get("elements")
     if not isinstance(raw_elements, list) or not raw_elements:
         raise HTTPException(status_code=400, detail="打印模板至少需要一个元素")
@@ -1224,6 +1260,13 @@ def _normalize_purchase_print_template_config(value: object) -> dict[str, object
         "paper_width_mm": paper_width,
         "paper_height_mm": paper_height,
         "show_outer_border": bool(config.get("show_outer_border", True)),
+        "outer_border": {
+            "x": outer_border_x,
+            "y": outer_border_y,
+            "width": outer_border_width,
+            "height": outer_border_height,
+            "line_width": outer_border_line_width,
+        },
         "elements": elements,
     }
 
