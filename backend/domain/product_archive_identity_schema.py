@@ -280,6 +280,10 @@ def _install_functions(connection: Connection) -> None:
         END;
         $$
     """))
+    install_document_product_link_function(connection)
+
+
+def install_document_product_link_function(connection: Connection) -> None:
     connection.execute(text("""
         CREATE OR REPLACE FUNCTION hede_refresh_document_product_links()
         RETURNS trigger
@@ -293,7 +297,7 @@ def _install_functions(connection: Connection) -> None:
                   AND product_identity_id IS NOT NULL;
             ELSIF NEW.document_type IS DISTINCT FROM OLD.document_type
                OR NEW.supplier IS DISTINCT FROM OLD.supplier
-               OR NEW.raw_payload IS DISTINCT FROM OLD.raw_payload THEN
+               OR NEW.raw_payload::jsonb IS DISTINCT FROM OLD.raw_payload::jsonb THEN
                 UPDATE inventory_details
                 SET product_identity_id = NULL,
                     product_code = product_code

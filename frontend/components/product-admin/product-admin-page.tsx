@@ -6,6 +6,7 @@ import { RotateCcw, Trash2, X } from "lucide-react"
 import { useAuth } from "@/components/auth/auth-provider"
 import { ConfirmDialog, MessageDialog } from "@/components/confirm-dialog"
 import { OperationLogDialog } from "@/components/operation-log-dialog"
+import { ProductDetailDialog } from "@/components/product-admin/product-detail-dialog"
 import { ProductFormDialog } from "@/components/product-admin/product-form-dialog"
 import { ProductTable } from "@/components/product-admin/product-table"
 import { ProductTabs } from "@/components/product-admin/product-tabs"
@@ -55,6 +56,7 @@ export function ProductAdminPage() {
   const [isDialogOpen, setIsDialogOpen] = useState(false)
   const [dialogMode, setDialogMode] = useState<"create" | "edit">("create")
   const [selectedItem, setSelectedItem] = useState<ProductListItem | null>(null)
+  const [detailItem, setDetailItem] = useState<ProductListItem | null>(null)
   const [previewImage, setPreviewImage] = useState<{ src: string; alt: string } | null>(null)
   const [operationLogOpen, setOperationLogOpen] = useState(false)
   const [managedBrands, setManagedBrands] = useState<SupplierBrandItem[]>([])
@@ -326,11 +328,12 @@ export function ProductAdminPage() {
   }
 
   const showBatchDelete = selectedProducts.size > 0
+  const canViewProducts = hasPermission("product.view")
   const canManageProducts = hasPermission("product.manage")
   const canExportProducts = hasPermission("product.export")
   const canImportProducts = hasPermission("product.import")
   const canSelectProducts = canManageProducts || canExportProducts
-  const canViewProductCost = !["客服部", "美工部"].includes(user?.department_code ?? "")
+  const canViewProductCost = user?.role_code === "super_admin" || !["客服部", "美工部"].includes(user?.department_code ?? "")
 
   return (
     <div className="app-page">
@@ -452,6 +455,7 @@ export function ProductAdminPage() {
               onToggleSelect={handleToggleSelect}
               onToggleSelectAll={handleToggleSelectAll}
               onBatchDelete={showBatchDelete && canManageProducts ? handleBatchDeleteRequest : undefined}
+              onView={canViewProducts ? setDetailItem : undefined}
               onEdit={!canManageProducts ? undefined : (item) => {
                 setDialogMode("edit")
                 setSelectedItem(item)
@@ -474,6 +478,15 @@ export function ProductAdminPage() {
             />
           </TabsContent>
         </Tabs>
+
+        {detailItem && canViewProducts ? (
+          <ProductDetailDialog
+            item={detailItem}
+            brands={productArchiveBrands}
+            showCost={canViewProductCost}
+            onClose={() => setDetailItem(null)}
+          />
+        ) : null}
 
         <ProductFormDialog
           key={dialogMode === "edit" && selectedItem ? `edit-${selectedItem.brand}-${selectedItem.id}` : `create-${brand}-${isDialogOpen ? "open" : "closed"}`}

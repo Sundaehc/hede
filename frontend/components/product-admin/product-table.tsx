@@ -1,4 +1,4 @@
-import { Check, Copy, Edit, RefreshCw, Trash2 } from "lucide-react"
+import { Check, Copy, Edit, Eye, RefreshCw, Trash2 } from "lucide-react"
 import { useState } from "react"
 import type { ProductListItem } from "@/lib/types"
 import { getProductFieldGroups, getProductFieldLabel } from "@/lib/fields"
@@ -29,6 +29,7 @@ type ProductTableProps = {
   onToggleSelect: (item: ProductListItem) => void
   onToggleSelectAll: () => void
   onBatchDelete?: () => void
+  onView?: (item: ProductListItem) => void
   onEdit?: (item: ProductListItem) => void
   onDelete?: (item: ProductListItem) => void
   onPreviewImage?: (item: ProductListItem) => void
@@ -135,18 +136,19 @@ async function copyProductCode(value: string) {
   textarea.remove()
 }
 
-function ProductCard({ item, selectable, showCost = true, selectedKeys, onToggleSelect, onEdit, onDelete, onPreviewImage }: {
+function ProductCard({ item, selectable, showCost = true, selectedKeys, onToggleSelect, onView, onEdit, onDelete, onPreviewImage }: {
   item: ProductListItem
   selectable?: boolean
   showCost?: boolean
   selectedKeys: Set<string>
   onToggleSelect: (item: ProductListItem) => void
+  onView?: (item: ProductListItem) => void
   onEdit?: (item: ProductListItem) => void
   onDelete?: (item: ProductListItem) => void
   onPreviewImage?: (item: ProductListItem) => void
 }) {
   const checked = selectedKeys.has(`${item.brand}:${item.id}`)
-  const canEdit = Boolean(onEdit)
+  const onOpen = onEdit ?? onView
   const costText = showCost ? productCostText(item) : ""
   const [copiedCode, setCopiedCode] = useState<string | null>(null)
   const handleCopyCode = async (event: React.MouseEvent<HTMLButtonElement>, value: string) => {
@@ -173,15 +175,16 @@ function ProductCard({ item, selectable, showCost = true, selectedKeys, onToggle
 
   return (
     <div
-      className={`surface-panel flex items-center gap-4 p-4 transition-shadow hover:shadow-md${canEdit ? " cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2" : ""}`}
-      role={canEdit ? "button" : undefined}
-      tabIndex={canEdit ? 0 : undefined}
-      onClick={canEdit ? () => onEdit?.(item) : undefined}
-      onKeyDown={canEdit ? (event) => {
+      className={`surface-panel flex items-center gap-4 p-4 transition-shadow hover:shadow-md${onOpen ? " cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2" : ""}`}
+      role={onOpen ? "button" : undefined}
+      aria-label={onOpen ? `${onEdit ? "编辑商品" : "查看商品详情"} ${item.sku || item.original_sku || item.id}` : undefined}
+      tabIndex={onOpen ? 0 : undefined}
+      onClick={onOpen ? () => onOpen(item) : undefined}
+      onKeyDown={onOpen ? (event) => {
         if (event.target !== event.currentTarget) return
         if (event.key === "Enter" || event.key === " ") {
           event.preventDefault()
-          onEdit?.(item)
+          onOpen(item)
         }
       } : undefined}
     >
@@ -232,8 +235,17 @@ function ProductCard({ item, selectable, showCost = true, selectedKeys, onToggle
               </button>
             ) : null}
           </div>
-          {(onEdit || onDelete) ? (
+          {(onView || onEdit || onDelete) ? (
             <div className="flex gap-2">
+              {onView && !onEdit ? (
+                <Button type="button" variant="outline" size="sm" onClick={(event) => {
+                  event.stopPropagation()
+                  onView(item)
+                }} className="cursor-pointer">
+                  <Eye className="h-3.5 w-3.5" />
+                  查看详情
+                </Button>
+              ) : null}
               {onEdit ? (
                 <Button type="button" variant="outline" size="sm" onClick={(event) => {
                   event.stopPropagation()
@@ -322,6 +334,7 @@ export function ProductTable({
   onToggleSelect,
   onToggleSelectAll,
   onBatchDelete,
+  onView,
   onEdit,
   onDelete,
   onPreviewImage,
@@ -428,6 +441,7 @@ export function ProductTable({
               showCost={showCost}
               selectedKeys={selectedKeys}
               onToggleSelect={onToggleSelect}
+              onView={onView}
               onEdit={onEdit}
               onDelete={onDelete}
               onPreviewImage={onPreviewImage}
