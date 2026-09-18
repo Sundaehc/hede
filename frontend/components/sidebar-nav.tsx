@@ -117,14 +117,8 @@ const NAV_ITEMS = [
     ],
   },
   {
-    section: "系统管理",
+    section: "其他管理",
     items: [
-      {
-        href: "/admin",
-        label: "用户管理",
-        icon: UserCog,
-        permission: "system.admin",
-      },
       {
         href: "/size-groups",
         label: "尺码组管理",
@@ -142,6 +136,17 @@ const NAV_ITEMS = [
         label: "辅助属性管理",
         icon: ListFilter,
         permission: "product.view",
+      },
+    ],
+  },
+  {
+    section: "系统管理",
+    items: [
+      {
+        href: "/admin",
+        label: "用户管理",
+        icon: UserCog,
+        permission: "system.admin",
       },
       {
         href: "/scheduled-tasks",
