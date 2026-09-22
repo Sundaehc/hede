@@ -1,8 +1,28 @@
 import { afterEach, expect, test, vi } from "vitest"
 
-import { getSavedProductCopywriting, regenerateProductCopywriting } from "@/lib/api"
+import { getProductCopywritingHistory, getProductCopywritingHistoryVersion, getSavedProductCopywriting, regenerateProductCopywriting } from "@/lib/api"
 
 afterEach(() => vi.unstubAllGlobals())
+
+test("history list and detail only read uncached product-scoped endpoints", async () => {
+  const fetchMock = vi.fn().mockImplementation(async () => new Response(JSON.stringify({ items: [], next_before_id: null }), { status: 200 }))
+  vi.stubGlobal("fetch", fetchMock)
+  await getProductCopywritingHistory("brand with space", 7)
+  await getProductCopywritingHistory("brand with space", 7, 23)
+  await getProductCopywritingHistoryVersion("brand with space", 7, 11)
+  const options = expect.objectContaining({ method: "GET", cache: "no-store", credentials: "include" })
+  expect(fetchMock).toHaveBeenNthCalledWith(1, "/api/product-copywriting/brand%20with%20space/7/history", options)
+  expect(fetchMock).toHaveBeenNthCalledWith(2, "/api/product-copywriting/brand%20with%20space/7/history?before_id=23", options)
+  expect(fetchMock).toHaveBeenNthCalledWith(3, "/api/product-copywriting/brand%20with%20space/7/history/11", options)
+})
+
+test("history preserves permission and unavailable errors without falling back to generation", async () => {
+  const fetchMock = vi.fn().mockImplementation(async () => new Response(JSON.stringify({ detail: "无权查看历史版本" }), { status: 403 }))
+  vi.stubGlobal("fetch", fetchMock)
+  await expect(getProductCopywritingHistory("cbanner_womens", 7)).rejects.toThrow("无权查看历史版本")
+  await expect(getProductCopywritingHistoryVersion("cbanner_womens", 7, 11)).rejects.toThrow("无权查看历史版本")
+  expect(fetchMock).toHaveBeenCalledTimes(2)
+})
 
 const result = { status: "completed", item: { content: "数据库已保存的提示词", model: "doubao-seed-pro" }, message: "" }
 

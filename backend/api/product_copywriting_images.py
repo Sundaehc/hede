@@ -4,6 +4,7 @@ import base64
 import hashlib
 from dataclasses import dataclass
 from pathlib import Path
+from urllib.error import HTTPError, URLError
 from urllib.parse import urlsplit
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 
@@ -23,9 +24,16 @@ class ProductCopywritingImage:
     sha256: str
     media_type: str
     size_bytes: int
+    source: str
+    us3_object_key: str | None = None
+    fallback_reason: str | None = None
 
     def metadata(self) -> dict[str, object]:
-        return {"sha256": self.sha256, "media_type": self.media_type, "size_bytes": self.size_bytes}
+        return {
+            "sha256": self.sha256, "media_type": self.media_type, "size_bytes": self.size_bytes,
+            "source": self.source, "transport": "base64_data_url",
+            "us3_object_key": self.us3_object_key, "fallback_reason": self.fallback_reason,
+        }
 
 
 class _NoImageRedirect(HTTPRedirectHandler):
@@ -36,7 +44,13 @@ class _NoImageRedirect(HTTPRedirectHandler):
 _image_opener = build_opener(_NoImageRedirect())
 
 
-def _encode_image(raw: bytes) -> ProductCopywritingImage:
+def _encode_image(
+    raw: bytes,
+    *,
+    source: str,
+    us3_object_key: str | None = None,
+    fallback_reason: str | None = None,
+) -> ProductCopywritingImage:
     if len(raw) > MAX_IMAGE_BYTES:
         raise HTTPException(status_code=422, detail="商品主图超过10MB，请压缩图片后重新生成")
     if raw.startswith(b"\xff\xd8\xff"):
@@ -52,6 +66,9 @@ def _encode_image(raw: bytes) -> ProductCopywritingImage:
         sha256=hashlib.sha256(raw).hexdigest(),
         media_type=media_type,
         size_bytes=len(raw),
+        source=source,
+        us3_object_key=us3_object_key,
+        fallback_reason=fallback_reason,
     )
 
 
@@ -73,22 +90,35 @@ def load_product_copywriting_image(settings, brand: str, item: dict) -> ProductC
     except (OSError, ValueError):
         raise HTTPException(status_code=422, detail="商品主图路径无效，请重新关联图片") from None
 
+    object_key = None
+    fallback_reason = "us3_not_configured"
     if getattr(settings, "ucloud_us3_configured", False):
+        fallback_reason = "us3_unavailable"
         try:
             storage = UCloudUS3ImageStorage.from_settings(settings)
             if storage is not None:
                 object_key = storage.object_key(brand, normalized)
+                fallback_reason = "us3_not_synced"
                 if storage.has_synced_object(object_key):
                     image_url = storage.private_download_url(object_key)
                     parsed = urlsplit(image_url)
                     if parsed.scheme != "https" or not parsed.hostname or parsed.username or parsed.password:
-                        raise ValueError("invalid image download URL")
-                    with _image_opener.open(Request(image_url, method="GET"), timeout=20) as response:
-                        return _encode_image(response.read(MAX_IMAGE_BYTES + 1))
+                        fallback_reason = "us3_invalid_url"
+                    else:
+                        with _image_opener.open(Request(image_url, method="GET"), timeout=20) as response:
+                            return _encode_image(response.read(MAX_IMAGE_BYTES + 1), source="us3", us3_object_key=object_key)
         except HTTPException:
             raise
+        except HTTPError:
+            fallback_reason = "us3_http_error"
+        except TimeoutError:
+            fallback_reason = "us3_timeout"
+        except URLError as error:
+            fallback_reason = "us3_timeout" if isinstance(error.reason, TimeoutError) else "us3_network_error"
+        except OSError:
+            fallback_reason = "us3_network_error"
         except Exception:
-            pass
+            fallback_reason = "us3_unavailable"
 
     try:
         resolved_root = root.resolve()
@@ -102,4 +132,5 @@ def load_product_copywriting_image(settings, brand: str, item: dict) -> ProductC
         raise HTTPException(status_code=422, detail="商品主图文件不存在，请检查图片同步后重新生成") from None
     except OSError:
         raise HTTPException(status_code=503, detail="无法读取商品主图，请检查图片共享目录权限或存储服务") from None
-    return _encode_image(raw)
+    source = "shared" if full_path.as_posix().startswith("//") else "local"
+    return _encode_image(raw, source=source, us3_object_key=object_key, fallback_reason=fallback_reason)

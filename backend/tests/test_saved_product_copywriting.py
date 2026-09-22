@@ -1,5 +1,7 @@
 import base64
 import hashlib
+import io
+import json
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
@@ -15,9 +17,10 @@ from sqlalchemy.pool import StaticPool
 
 from api.auth_middleware import auth_middleware
 from api import product_copywriting_jobs as jobs
+from api import product_copywriting_images as images
 from api.product_copywriting import COPYWRITING_SYSTEM_PROMPT, COPYWRITING_TEMPLATE_VERSION, build_product_copywriting_prompt, product_copywriting_facts, product_facts_hash
 from api.routes.product_copywriting import router
-from domain.product_copywriting_schema import PRODUCT_COPYWRITING_TABLE
+from domain.product_copywriting_schema import PRODUCT_COPYWRITING_HISTORY_TABLE, PRODUCT_COPYWRITING_TABLE
 from scripts import generate_product_copywriting as batch
 from storage.product_copywriting_repository import ProductCopywritingRepository
 
@@ -203,9 +206,54 @@ def test_batch_saves_actual_model_content_once_and_only_safe_facts(saved, settin
     assert row["template_version"] == COPYWRITING_TEMPLATE_VERSION
     model.assert_called_once_with(settings, row["input_prompt"], image_data_url=IMAGE_DATA_URL)
     assert row["input_image"] == {
-        "path": product["image_path"], "sha256": hashlib.sha256(IMAGE_BYTES).hexdigest(),
+        "archive_path": product["image_path"], "sha256": hashlib.sha256(IMAGE_BYTES).hexdigest(),
         "media_type": "image/png", "size_bytes": len(IMAGE_BYTES),
+        "source": "local", "transport": "base64_data_url",
+        "us3_object_key": None, "fallback_reason": "us3_not_configured",
     }
+
+
+def test_prepared_image_does_not_claim_a_source_before_loading(settings, product):
+    values = jobs.prepare_copywriting(settings, "cbanner_womens", 7, product)
+    assert values["input_image"] == {"archive_path": product["image_path"]}
+
+
+@pytest.mark.parametrize("model_fails", [False, True])
+def test_cloud_image_provenance_is_saved_before_model_call_and_legacy_backup_survives(saved, settings, product, monkeypatch, model_fails):
+    legacy_image = {"path": product["image_path"], "sha256": "legacy-hash"}
+    token = saved.claim({**saved_values(product), "input_image": legacy_image, "template_version": "legacy"}, timeout_seconds=180)
+    saved.complete("cbanner_womens", 7, token, "旧文案")
+    settings.ucloud_us3_configured = True
+    storage = Mock()
+    storage.object_key.return_value = "cbanner_womens/RM363238D45.png"
+    storage.has_synced_object.return_value = True
+    storage.private_download_url.return_value = "https://example.test/image?signature=private"
+    monkeypatch.setattr(images.UCloudUS3ImageStorage, "from_settings", Mock(return_value=storage))
+    monkeypatch.setattr(images._image_opener, "open", Mock(return_value=io.BytesIO(IMAGE_BYTES)))
+    def generate(*args, **kwargs):
+        image_record = saved.get("cbanner_womens", 7)["input_image"]
+        assert image_record["archive_path"] == product["image_path"]
+        assert image_record["source"] == "us3"
+        assert image_record["transport"] == "base64_data_url"
+        assert image_record["us3_object_key"] == "cbanner_womens/RM363238D45.png"
+        assert image_record["fallback_reason"] is None
+        assert "path" not in image_record
+        assert kwargs["image_data_url"] == IMAGE_DATA_URL
+        if model_fails:
+            raise HTTPException(status_code=504, detail="模型超时")
+        return "新文案"
+    model = Mock(side_effect=generate)
+    monkeypatch.setattr(jobs, "request_doubao_copywriting", model)
+    products = Mock(get_product=Mock(return_value=product))
+    result = batch.generate_one(settings, products, saved, "cbanner_womens", 7, refresh_outdated_template=True)
+    assert result["status"] == ("failed" if model_fails else "completed")
+    row = saved.get("cbanner_womens", 7)
+    assert row["previous_result"]["input_image"] == legacy_image
+    assert row["previous_result"]["content"] == "旧文案"
+    assert row["input_image"]["source"] == "us3"
+    assert "signature" not in json.dumps(row["input_image"])
+    assert IMAGE_DATA_URL not in json.dumps(row["input_image"])
+    model.assert_called_once()
 
 
 def test_batch_records_failure_without_fabricating_content(saved, settings, product, monkeypatch):
@@ -706,3 +754,150 @@ def test_previous_prompt_is_used_when_latest_record_has_none(client, saved, prod
     assert response["input_prompt"] == saved_values(product)["input_prompt"]
     assert response["prompt_source"] == "previous"
     assert response["item"]["content"] == "旧正文"
+
+
+def test_history_keeps_all_successful_versions_and_skips_failures(saved, product):
+    values = saved_values(product)
+    for index in range(4):
+        token = saved.claim({**values, "input_prompt": f"输入{index}"}, timeout_seconds=180, force_regenerate=True)
+        assert saved.complete("cbanner_womens", 7, token, f"正文{index}")
+        assert not saved.complete("cbanner_womens", 7, token, "迟到重复结果")
+    rows = saved.list_history("cbanner_womens", 7)
+    assert len(rows) == 4
+    assert [saved.get_history("cbanner_womens", 7, row["id"])["snapshot"]["content"] for row in rows] == ["正文3", "正文2", "正文1", "正文0"]
+    oldest = saved.get_history("cbanner_womens", 7, rows[-1]["id"])["snapshot"]
+    assert oldest["input_prompt"] == "输入0"
+    token = saved.claim(values, timeout_seconds=180, force_regenerate=True)
+    saved.fail("cbanner_womens", 7, token, "模型超时", 504)
+    assert saved.list_history("cbanner_womens", 7) == rows
+    saved.create_tables()
+    assert saved.list_history("cbanner_womens", 7) == rows
+
+
+@pytest.mark.parametrize("status", ["completed", "failed", "running"])
+def test_history_migration_preserves_existing_rows_and_imports_available_snapshots(saved, product, status):
+    values = saved_values(product)
+    previous = {**values, "content": "旧结果", "generated_at": "2026-09-21 15:04:49+08:00", "input_prompt": None}
+    previous = json.loads(json.dumps(previous, default=str))
+    with saved.engine.begin() as connection:
+        connection.execute(PRODUCT_COPYWRITING_TABLE.insert().values(
+            **values, status=status, previous_result=previous,
+            content="当前结果" if status == "completed" else None,
+            generated_at=datetime(2026, 9, 22, tzinfo=timezone.utc) if status == "completed" else None,
+        ))
+    PRODUCT_COPYWRITING_HISTORY_TABLE.drop(saved.engine)
+    before = saved.get("cbanner_womens", 7)
+    saved.create_tables()
+    saved.create_tables()
+    assert saved.get("cbanner_womens", 7) == before
+    rows = saved.list_history("cbanner_womens", 7)
+    assert len(rows) == (2 if status == "completed" else 1)
+    oldest = saved.get_history("cbanner_womens", 7, rows[-1]["id"])["snapshot"]
+    assert oldest["content"] == "旧结果"
+    assert oldest["input_prompt"] is None
+    assert oldest["generated_at"] == "2026-09-21T07:04:49+00:00"
+
+
+def test_history_insert_failure_rolls_back_completion(saved, product, monkeypatch):
+    token = saved.claim(saved_values(product), timeout_seconds=180)
+    before = saved.get("cbanner_womens", 7)
+    monkeypatch.setattr(saved, "_save_snapshot", Mock(side_effect=RuntimeError("history unavailable")))
+    with pytest.raises(RuntimeError):
+        saved.complete("cbanner_womens", 7, token, "不能部分保存")
+    assert saved.get("cbanner_womens", 7) == before
+    assert saved.list_history("cbanner_womens", 7) == []
+
+
+def test_history_same_text_on_distinct_generations_is_not_deduplicated(saved, product):
+    for _ in range(2):
+        token = saved.claim(saved_values(product), timeout_seconds=180, force_regenerate=True)
+        saved.complete("cbanner_womens", 7, token, "相同正文")
+    assert len(saved.list_history("cbanner_womens", 7)) == 2
+
+
+def test_late_imported_history_is_sorted_by_generation_time_not_insert_id(saved, product):
+    values = saved_values(product)
+    token = saved.claim(values, timeout_seconds=180)
+    saved.complete("cbanner_womens", 7, token, "较新的结果")
+    newest_id = saved.list_history("cbanner_womens", 7)[0]["id"]
+    with saved.engine.begin() as connection:
+        saved._save_snapshot(connection, "cbanner_womens", 7, {**values, "content": "晚补录的旧版", "generated_at": "2020-01-01T00:00:00Z"})
+    rows = saved.list_history("cbanner_womens", 7, limit=1)
+    assert rows[0]["id"] == newest_id
+    page = saved.list_history("cbanner_womens", 7, before_id=newest_id)
+    assert len(page) == 1
+    assert page[0]["id"] > newest_id
+    assert saved.list_history("eblan", 7, before_id=newest_id) == []
+
+
+def test_history_api_is_read_only_scoped_and_excludes_sensitive_metadata(client, saved, product, monkeypatch):
+    values = {**saved_values(product), "system_prompt": "private-system", "endpoint": "private-endpoint", "input_image": {"archive_path": "private-share", "us3_object_key": "private-key", "source": "us3", "sha256": "private-hash"}}
+    token = saved.claim(values, timeout_seconds=180)
+    saved.complete("cbanner_womens", 7, token, "历史正文")
+    before = saved.get("cbanner_womens", 7)
+    monkeypatch.setattr(saved, "_save_snapshot", Mock(side_effect=AssertionError("no writes on GET")))
+    monkeypatch.setattr(jobs, "request_doubao_copywriting", Mock(side_effect=AssertionError("no model on GET")))
+    monkeypatch.setattr(jobs, "load_product_copywriting_image", Mock(side_effect=AssertionError("no image on GET")))
+    client.app.state.settings = None
+    listing = client.http.get("/product-copywriting/cbanner_womens/7/history")
+    assert listing.status_code == 200
+    assert listing.headers["cache-control"] == "no-store"
+    assert "content" not in listing.text
+    version_id = listing.json()["items"][0]["id"]
+    detail = client.http.get(f"/product-copywriting/cbanner_womens/7/history/{version_id}")
+    assert detail.status_code == 200
+    assert detail.headers["cache-control"] == "no-store"
+    assert detail.json()["content"] == "历史正文"
+    assert detail.json()["input_prompt"] == values["input_prompt"]
+    assert detail.json()["image_source"] == "us3"
+    assert detail.json()["current_template"] is True
+    assert "private-" not in detail.text
+    assert "system_prompt" not in detail.text
+    assert client.http.get(f"/product-copywriting/eblan/7/history/{version_id}").status_code == 404
+    assert client.http.get(f"/product-copywriting/cbanner_womens/8/history/{version_id}").status_code == 404
+    assert client.http.get("/product-copywriting/eblan/7/history").json()["items"] == []
+    assert saved.get("cbanner_womens", 7) == before
+
+
+def test_history_api_paginates_without_duplicate_or_missing_versions(client, saved, product):
+    for index in range(23):
+        token = saved.claim(saved_values(product), timeout_seconds=180, force_regenerate=True)
+        saved.complete("cbanner_womens", 7, token, str(index))
+    first = client.http.get("/product-copywriting/cbanner_womens/7/history").json()
+    assert len(first["items"]) == 20
+    second = client.http.get(f'/product-copywriting/cbanner_womens/7/history?before_id={first["next_before_id"]}').json()
+    assert len(second["items"]) == 3
+    assert second["next_before_id"] is None
+    assert len({row["id"] for row in first["items"] + second["items"]}) == 23
+    assert client.http.get("/product-copywriting/cbanner_womens/7/history?before_id=0").status_code == 422
+
+
+@pytest.mark.parametrize("suffix", ["history", "history/1"])
+@pytest.mark.parametrize("denied", ["department", "permission", "missing_product", "invalid_brand", "login"])
+def test_history_requires_same_authorization_as_current_content(client, suffix, denied):
+    expected = 403
+    if denied == "department":
+        client.user["department_code"] = "财务部"
+    elif denied == "permission":
+        client.user["permissions"] = []
+    elif denied == "missing_product":
+        client.app.state.repository.get_product.return_value = None
+        expected = 404
+    elif denied == "invalid_brand":
+        client.app.state.repository.is_product_archive_brand.return_value = False
+        expected = 400
+    else:
+        client.app.state.auth_repository.get_user_by_session.return_value = None
+        expected = 401
+    assert client.http.get(f"/product-copywriting/cbanner_womens/7/{suffix}").status_code == expected
+
+
+def test_legacy_history_does_not_infer_prompt_or_image_source(client, saved, product):
+    values = {**saved_values(product), "input_prompt": None, "template_version": "old", "input_image": {"path": "private-share", "sha256": "old-hash"}}
+    token = saved.claim(values, timeout_seconds=180)
+    saved.complete("cbanner_womens", 7, token, "旧正文")
+    history_id = saved.list_history("cbanner_womens", 7)[0]["id"]
+    result = client.http.get(f"/product-copywriting/cbanner_womens/7/history/{history_id}").json()
+    assert result["input_prompt"] is None
+    assert result["image_source"] == "unknown"
+    assert result["current_template"] is False

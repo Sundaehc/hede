@@ -5,19 +5,22 @@ import { afterEach, beforeEach, expect, test, vi } from "vitest"
 import { ProductCopywritingDialog } from "@/components/product-admin/product-copywriting-dialog"
 import type { ProductListItem } from "@/lib/types"
 
-const { generate, regenerate } = vi.hoisted(() => ({ generate: vi.fn(), regenerate: vi.fn() }))
-vi.mock("@/lib/api", () => ({ getSavedProductCopywriting: generate, regenerateProductCopywriting: regenerate }))
+const { generate, regenerate, history, historyDetail } = vi.hoisted(() => ({ generate: vi.fn(), regenerate: vi.fn(), history: vi.fn(), historyDetail: vi.fn() }))
+vi.mock("@/lib/api", () => ({ getSavedProductCopywriting: generate, regenerateProductCopywriting: regenerate, getProductCopywritingHistory: history, getProductCopywritingHistoryVersion: historyDetail }))
 
 const item = { id: 7, brand: "cbanner_womens", sku: "RM363238D45", product_name: "女休闲鞋", color: "灰色" } as ProductListItem
 const content = "【主标题】\n灰色圆头日常穿搭\n【副标题】\n搭扣点缀休闲造型\n【主文案】\n根据真实档案生成的文案\n【卖点】\n鞋面材质：牛剖层皮革\n【图片建议】\n材质细节图\n【风险校对】\n重量信息未提供，待确认"
 const copyableContent = "【主标题】\n灰色圆头日常穿搭\n【副标题】\n搭扣点缀休闲造型\n【主文案】\n根据真实档案生成的文案\n【卖点】\n鞋面材质：牛剖层皮革\n【图片建议】\n材质细节图"
 const inputPrompt = "你是鞋类电商详情页文案编辑。\n产品名称或款号：【RM363238D45】\n请输出固定六个区块。"
 const result = { status: "completed", message: "", input_prompt: inputPrompt, prompt_source: "saved", item: { content, model: "doubao-seed-pro", generated_at: "2026-09-21T10:00:00Z", source_updated_at: "2026-09-21", stale: false, source_sku: "RM363238D45", launch_date: "2026-09-21" } }
+const historical = { id: 11, ...result.item, content: "【主标题】\n历史文案\n【风险校对】\n历史风险", input_prompt: "历史输入提示词", current_template: false, image_source: "unknown", has_image: false }
 
 beforeEach(() => {
   vi.clearAllMocks()
   generate.mockResolvedValue(result)
   regenerate.mockResolvedValue({ status: "running", message: "已提交重新生成任务，完成后请点击刷新内容查看最新结果。" })
+  history.mockResolvedValue({ items: [{ id: 11, generated_at: result.item.generated_at, model: result.item.model, sku: item.sku }], next_before_id: null })
+  historyDetail.mockResolvedValue(historical)
 })
 afterEach(() => {
   cleanup()
@@ -232,7 +235,8 @@ test("shows archived content with a warning when product facts changed", async (
   render(<ProductCopywritingDialog item={item} onClose={vi.fn()} />)
   expect(await screen.findByRole("alert")).toHaveTextContent("商品档案已变化")
   expect(screen.getByText("灰色圆头日常穿搭")).toBeInTheDocument()
-  expect(screen.getByText(/数据库已保存/)).toBeInTheDocument()
+  expect(screen.queryByText(/数据库已保存/)).not.toBeInTheDocument()
+  expect(screen.getByRole("button", { name: "历史版本" })).toBeEnabled()
 })
 
 test("shows the saved input prompt and submits exact edits with regeneration", async () => {
@@ -338,4 +342,117 @@ test("older backend responses still show content and use legacy regeneration", a
   expect(screen.queryByRole("textbox")).not.toBeInTheDocument()
   await user.click(screen.getByRole("button", { name: "重新生成" }))
   expect(regenerate).toHaveBeenCalledWith("cbanner_womens", 7)
+})
+
+test("history loads on demand and viewing preserves current unsent draft", async () => {
+  const user = userEvent.setup()
+  render(<ProductCopywritingDialog item={item} onClose={vi.fn()} />)
+  const editor = await screen.findByRole("textbox", { name: "生成提示词（可编辑）" })
+  fireEvent.change(editor, { target: { value: "当前未提交草稿" } })
+  expect(history).not.toHaveBeenCalled()
+  await user.click(screen.getByRole("button", { name: "历史版本" }))
+  await user.click(await screen.findByRole("button", { name: /查看版本/ }))
+  expect(await screen.findByText("历史文案")).toBeInTheDocument()
+  expect(screen.getByRole("button", { name: "重新生成" })).toBeDisabled()
+  await user.click(screen.getByText("当时使用的生成提示词"))
+  expect(screen.getByRole("textbox", { name: "历史生成提示词（只读）" })).toHaveValue("历史输入提示词")
+  expect(screen.getByRole("textbox", { name: "历史生成提示词（只读）" })).toHaveAttribute("readonly")
+  await user.click(screen.getByRole("button", { name: "返回当前版本" }))
+  expect(screen.getByRole("textbox", { name: "生成提示词（可编辑）" })).toHaveValue("当前未提交草稿")
+  expect(screen.getByText("灰色圆头日常穿搭")).toBeInTheDocument()
+  expect(regenerate).not.toHaveBeenCalled()
+})
+
+test("copying historical version omits risk review", async () => {
+  const user = userEvent.setup()
+  vi.stubGlobal("isSecureContext", true)
+  const copy = vi.spyOn(navigator.clipboard, "writeText").mockResolvedValue()
+  render(<ProductCopywritingDialog item={item} onClose={vi.fn()} />)
+  await screen.findByRole("heading", { name: "主标题" })
+  await user.click(screen.getByRole("button", { name: "历史版本" }))
+  await user.click(await screen.findByRole("button", { name: /查看版本/ }))
+  await user.click(await screen.findByRole("button", { name: "复制此版本" }))
+  expect(copy).toHaveBeenCalledWith("【主标题】\n历史文案")
+  expect(screen.getByText("历史风险")).toBeInTheDocument()
+})
+
+test("history supports pagination and read failures without hiding current content", async () => {
+  const user = userEvent.setup()
+  history.mockRejectedValueOnce(new Error("历史读取失败"))
+  render(<ProductCopywritingDialog item={item} onClose={vi.fn()} />)
+  await screen.findByRole("heading", { name: "主标题" })
+  await user.click(screen.getByRole("button", { name: "历史版本" }))
+  expect(await screen.findByRole("alert")).toHaveTextContent("历史读取失败")
+  expect(screen.getByText("灰色圆头日常穿搭")).toBeInTheDocument()
+  history.mockResolvedValueOnce({ items: [{ id: 11, generated_at: result.item.generated_at, model: "model", sku: item.sku }], next_before_id: 11 })
+  await user.click(screen.getByRole("button", { name: "刷新版本" }))
+  history.mockResolvedValueOnce({ items: [{ id: 10, generated_at: result.item.generated_at, model: "old-model", sku: item.sku }], next_before_id: null })
+  await user.click(await screen.findByRole("button", { name: "加载更早版本" }))
+  expect(await screen.findByText(/old-model/)).toBeInTheDocument()
+  expect(history).toHaveBeenLastCalledWith(item.brand, item.id, 11)
+  historyDetail.mockRejectedValueOnce(new Error("版本不存在"))
+  await user.click(screen.getAllByRole("button", { name: /查看版本/ })[0])
+  expect(await screen.findByRole("alert")).toHaveTextContent("版本不存在")
+  expect(screen.getByText("灰色圆头日常穿搭")).toBeInTheDocument()
+})
+
+test("history detail ignores late result after collapse or product switch", async () => {
+  const user = userEvent.setup()
+  let finish: (value: typeof historical) => void = () => undefined
+  historyDetail.mockImplementationOnce(() => new Promise((resolve) => { finish = resolve }))
+  const { rerender } = render(<ProductCopywritingDialog item={item} onClose={vi.fn()} />)
+  await screen.findByRole("heading", { name: "主标题" })
+  await user.click(screen.getByRole("button", { name: "历史版本" }))
+  await user.click(await screen.findByRole("button", { name: /查看版本/ }))
+  await user.click(screen.getByRole("button", { name: "收起历史" }))
+  await act(async () => finish(historical))
+  expect(screen.queryByText("历史文案")).not.toBeInTheDocument()
+  historyDetail.mockImplementationOnce(() => new Promise((resolve) => { finish = resolve }))
+  await user.click(screen.getByRole("button", { name: "历史版本" }))
+  await user.click(await screen.findByRole("button", { name: /查看版本/ }))
+  rerender(<ProductCopywritingDialog item={{ ...item, id: 8, sku: "NEXT" }} onClose={vi.fn()} />)
+  await act(async () => finish(historical))
+  expect(screen.queryByText("历史文案")).not.toBeInTheDocument()
+  expect(screen.getByText("NEXT")).toBeInTheDocument()
+})
+
+test("historical missing prompt stays unknown rather than using the current prompt", async () => {
+  const user = userEvent.setup()
+  historyDetail.mockResolvedValueOnce({ ...historical, input_prompt: null })
+  render(<ProductCopywritingDialog item={item} onClose={vi.fn()} />)
+  await screen.findByRole("heading", { name: "主标题" })
+  await user.click(screen.getByRole("button", { name: "历史版本" }))
+  await user.click(await screen.findByRole("button", { name: /查看版本/ }))
+  await user.click(await screen.findByText("当时使用的生成提示词"))
+  expect(screen.getByText(/不使用当前档案补填历史/)).toBeInTheDocument()
+  expect(screen.queryByRole("textbox")).not.toBeInTheDocument()
+})
+
+test("empty history does not fabricate versions or call the model", async () => {
+  const user = userEvent.setup()
+  history.mockResolvedValueOnce({ items: [], next_before_id: null })
+  render(<ProductCopywritingDialog item={item} onClose={vi.fn()} />)
+  await screen.findByRole("heading", { name: "主标题" })
+  await user.click(screen.getByRole("button", { name: "历史版本" }))
+  expect(await screen.findByText("暂无可查看的历史版本。")).toBeInTheDocument()
+  expect(historyDetail).not.toHaveBeenCalled()
+  expect(regenerate).not.toHaveBeenCalled()
+})
+
+test("newest clicked history response wins over a slower older selection", async () => {
+  const user = userEvent.setup()
+  history.mockResolvedValueOnce({ items: [11, 10].map((id) => ({ id, generated_at: result.item.generated_at, model: "model", sku: item.sku })), next_before_id: null })
+  let finish: (value: typeof historical) => void = () => undefined
+  historyDetail.mockImplementationOnce(() => new Promise((resolve) => { finish = resolve }))
+  historyDetail.mockResolvedValueOnce({ ...historical, id: 10, content: "【主标题】\n第二次选中的版本" })
+  render(<ProductCopywritingDialog item={item} onClose={vi.fn()} />)
+  await screen.findByRole("heading", { name: "主标题" })
+  await user.click(screen.getByRole("button", { name: "历史版本" }))
+  await screen.findAllByRole("button", { name: /查看版本/ })
+  await user.click(screen.getAllByRole("button", { name: /查看版本/ })[0])
+  await user.click(screen.getAllByRole("button", { name: /查看版本/ })[1])
+  expect(await screen.findByText("第二次选中的版本")).toBeInTheDocument()
+  await act(async () => finish(historical))
+  expect(screen.queryByText("历史文案")).not.toBeInTheDocument()
+  expect(screen.getByText("第二次选中的版本")).toBeInTheDocument()
 })

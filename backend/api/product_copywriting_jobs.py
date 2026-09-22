@@ -45,7 +45,7 @@ def prepare_copywriting(settings, brand: str, product_id: int, item: dict) -> di
         "template_version": COPYWRITING_TEMPLATE_VERSION,
         "input_prompt": build_product_copywriting_prompt(facts),
         "system_prompt": COPYWRITING_SYSTEM_PROMPT,
-        "input_image": {"path": str(item.get("image_path") or "").strip()},
+        "input_image": {"archive_path": str(item.get("image_path") or "").strip()},
     }
 
 

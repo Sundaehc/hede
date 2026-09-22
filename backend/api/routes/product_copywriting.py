@@ -1,6 +1,6 @@
 import logging
 
-from fastapi import APIRouter, HTTPException, Path, Request
+from fastapi import APIRouter, HTTPException, Path, Query, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -181,6 +181,40 @@ def get_saved_product_copywriting(request: Request, brand: str, product_id: int 
 @router.post("/{brand}/{product_id}/regenerate")
 def regenerate_product_copywriting(request: Request, brand: str, product_id: int = Path(gt=0), body: RegenerateCopywritingRequest | None = None):
     return _submit_regeneration(request, brand, product_id, body)
+
+
+@router.get("/{brand}/{product_id}/history")
+def list_product_copywriting_history(request: Request, brand: str, product_id: int = Path(gt=0), before_id: int | None = Query(default=None, gt=0)):
+    _authorized_product(request, brand, product_id)
+    saved = getattr(request.app.state, "product_copywriting_repository", None)
+    if saved is None:
+        raise HTTPException(status_code=503, detail="提示词数据库尚未初始化，请联系管理员")
+    rows = saved.list_history(brand, product_id, before_id=before_id, limit=21)
+    items = [{**row, "generated_at": row["generated_at"].isoformat()} for row in rows[:20]]
+    return JSONResponse({"items": items, "next_before_id": items[-1]["id"] if len(rows) > 20 else None}, headers={"Cache-Control": "no-store"})
+
+
+@router.get("/{brand}/{product_id}/history/{history_id}")
+def get_product_copywriting_history(request: Request, brand: str, product_id: int = Path(gt=0), history_id: int = Path(gt=0)):
+    _authorized_product(request, brand, product_id)
+    saved = getattr(request.app.state, "product_copywriting_repository", None)
+    if saved is None:
+        raise HTTPException(status_code=503, detail="提示词数据库尚未初始化，请联系管理员")
+    row = saved.get_history(brand, product_id, history_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="历史版本不存在或不属于该商品")
+    snapshot = row["snapshot"]
+    image = snapshot.get("input_image")
+    source = image.get("source") if isinstance(image, dict) else None
+    payload = {
+        "id": row["id"], "content": snapshot["content"], "input_prompt": snapshot.get("input_prompt"),
+        "model": row["model"], "generated_at": row["generated_at"].isoformat(), "source_sku": row["sku"],
+        "launch_date": snapshot.get("launch_date"), "source_updated_at": snapshot.get("source_updated_at"),
+        "current_template": snapshot.get("template_version") == COPYWRITING_TEMPLATE_VERSION,
+        "image_source": source if source in {"us3", "shared", "local"} else "unknown",
+        "has_image": bool(isinstance(image, dict) and image.get("sha256")),
+    }
+    return JSONResponse(payload, headers={"Cache-Control": "no-store"})
 
 
 @router.post("/{brand}/{product_id}", include_in_schema=False)

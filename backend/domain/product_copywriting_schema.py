@@ -36,3 +36,19 @@ PRODUCT_COPYWRITING_TABLE = Table(
     CheckConstraint("status <> 'completed' OR (content IS NOT NULL AND length(content) > 0 AND generated_at IS NOT NULL)", name="ck_product_copywriting_completed"),
 )
 Index("idx_product_copywriting_launch_status", PRODUCT_COPYWRITING_TABLE.c.launch_date, PRODUCT_COPYWRITING_TABLE.c.status)
+
+PRODUCT_COPYWRITING_HISTORY_TABLE = Table(
+    "product_copywriting_history",
+    METADATA,
+    Column("id", BigInteger().with_variant(Integer, "sqlite"), primary_key=True, autoincrement=True),
+    Column("brand", Text, nullable=False),
+    Column("source_product_id", BigInteger, nullable=False),
+    Column("snapshot_key", Text, nullable=False),
+    Column("generated_at", DateTime(timezone=True), nullable=False),
+    Column("model", Text, nullable=False),
+    Column("sku", Text, nullable=False),
+    Column("snapshot", JSON, nullable=False),
+    Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+    UniqueConstraint("brand", "source_product_id", "snapshot_key", name="uq_product_copywriting_history_snapshot"),
+)
+Index("idx_product_copywriting_history_product", PRODUCT_COPYWRITING_HISTORY_TABLE.c.brand, PRODUCT_COPYWRITING_HISTORY_TABLE.c.source_product_id, PRODUCT_COPYWRITING_HISTORY_TABLE.c.generated_at, PRODUCT_COPYWRITING_HISTORY_TABLE.c.id)

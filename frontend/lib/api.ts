@@ -650,6 +650,46 @@ export type RegenerateProductCopywritingResponse = {
   input_prompt: string
 }
 
+export type ProductCopywritingHistorySummary = {
+  id: number
+  generated_at: string
+  model: string
+  sku: string
+}
+
+export type ProductCopywritingHistoryPage = {
+  items: ProductCopywritingHistorySummary[]
+  next_before_id: number | null
+}
+
+export type ProductCopywritingHistoryVersion = {
+  id: number
+  content: string
+  input_prompt: string | null
+  model: string
+  generated_at: string
+  source_sku: string
+  launch_date: string | null
+  source_updated_at: string | null
+  current_template: boolean
+  image_source: "us3" | "shared" | "local" | "unknown"
+  has_image: boolean
+}
+
+export function getProductCopywritingHistory(brand: string, id: number, beforeId?: number) {
+  return request<ProductCopywritingHistoryPage>(
+    `/product-copywriting/${encodeURIComponent(brand)}/${id}/history${beforeId === undefined ? "" : `?before_id=${beforeId}`}`,
+    { method: "GET", cache: "no-store" }
+  )
+}
+
+export function getProductCopywritingHistoryVersion(brand: string, id: number, historyId: number) {
+  return request<ProductCopywritingHistoryVersion>(
+    `/product-copywriting/${encodeURIComponent(brand)}/${id}/history/${historyId}`,
+    { method: "GET", cache: "no-store" }
+  )
+}
+
 const pendingProductCopywritingRequests = new Map<string, Promise<SavedProductCopywriting>>()
 
 export function getSavedProductCopywriting(brand: string, id: number) {

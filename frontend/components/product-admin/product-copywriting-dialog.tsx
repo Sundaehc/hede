@@ -1,12 +1,13 @@
 "use client"
 
 import { useCallback, useEffect, useId, useRef, useState } from "react"
-import { Check, Copy, LoaderCircle, RefreshCw, Sparkles, X } from "lucide-react"
+import { ArrowLeft, Check, Copy, History, LoaderCircle, RefreshCw, Sparkles, X } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
-import { getSavedProductCopywriting, regenerateProductCopywriting, type SavedProductCopywriting } from "@/lib/api"
+import { getProductCopywritingHistoryVersion, getSavedProductCopywriting, regenerateProductCopywriting, type ProductCopywritingHistoryVersion, type SavedProductCopywriting } from "@/lib/api"
 import type { ProductListItem } from "@/lib/types"
+import { ProductCopywritingHistory } from "./product-copywriting-history"
 
 type ProductCopywritingDialogProps = {
   item: ProductListItem
@@ -17,7 +18,12 @@ const MAX_PROMPT_LENGTH = 30_000
 
 export function ProductCopywritingDialog({ item, onClose }: ProductCopywritingDialogProps) {
   const [saved, setSaved] = useState<SavedProductCopywriting | null>(null)
-  const result = saved?.item ?? null
+  const [historyOpen, setHistoryOpen] = useState(false)
+  const [historyVersion, setHistoryVersion] = useState<ProductCopywritingHistoryVersion | null>(null)
+  const [historyLoading, setHistoryLoading] = useState(false)
+  const [historyError, setHistoryError] = useState<string | null>(null)
+  const historyRequest = useRef(0)
+  const result = historyVersion ?? saved?.item ?? null
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
@@ -68,12 +74,16 @@ export function ProductCopywritingDialog({ item, onClose }: ProductCopywritingDi
 
   useEffect(() => {
     setSaved(null)
+    setHistoryOpen(false)
+    setHistoryVersion(null)
+    setHistoryLoading(false)
+    setHistoryError(null)
     setPromptDraft("")
     promptEditedRef.current = false
     regenerateRef.current = false
     setRegenerating(false)
     void load()
-    return () => { requestVersion.current += 1 }
+    return () => { requestVersion.current += 1; historyRequest.current += 1 }
   }, [load])
 
   useEffect(() => {
@@ -116,7 +126,7 @@ export function ProductCopywritingDialog({ item, onClose }: ProductCopywritingDi
   }
 
   async function handleRegenerate() {
-    if (loadingRef.current || regenerateRef.current || isGenerating || promptInvalid) return
+    if (historyVersion || historyLoading || loadingRef.current || regenerateRef.current || isGenerating || promptInvalid) return
     regenerateRef.current = true
     const version = ++requestVersion.current
     setRegenerating(true)
@@ -150,6 +160,31 @@ export function ProductCopywritingDialog({ item, onClose }: ProductCopywritingDi
     }
   }
 
+  function returnToCurrent() {
+    historyRequest.current += 1
+    setHistoryVersion(null)
+    setHistoryLoading(false)
+    setHistoryError(null)
+    setCopied(false)
+    setCopyError(null)
+  }
+
+  async function viewHistory(historyId: number) {
+    const request = ++historyRequest.current
+    setHistoryLoading(true)
+    setHistoryError(null)
+    setCopied(false)
+    setCopyError(null)
+    try {
+      const version = await getProductCopywritingHistoryVersion(item.brand, item.id, historyId)
+      if (request === historyRequest.current) setHistoryVersion(version)
+    } catch (loadError) {
+      if (request === historyRequest.current) setHistoryError(loadError instanceof Error ? loadError.message : "历史版本读取失败，请重试")
+    } finally {
+      if (request === historyRequest.current) setHistoryLoading(false)
+    }
+  }
+
   return (
     <Dialog open onOpenChange={(open) => { if (!open) onClose() }}>
       <DialogContent ref={contentRef} className="flex max-h-[90vh] w-[min(960px,calc(100vw-2rem))] max-w-none flex-col overflow-hidden p-0">
@@ -167,7 +202,27 @@ export function ProductCopywritingDialog({ item, onClose }: ProductCopywritingDi
           </div>
         </DialogHeader>
 
-        <div className="min-h-48 min-w-0 flex-1 overflow-y-auto px-6 py-5" aria-busy={loading || isGenerating}>
+        <div className="min-h-48 min-w-0 flex-1 overflow-y-auto px-6 py-5" aria-busy={loading || isGenerating || historyLoading}>
+          {historyOpen ? <ProductCopywritingHistory key={`${item.brand}:${item.id}`} brand={item.brand} productId={item.id} selectedId={historyVersion?.id ?? null} onSelect={(id) => void viewHistory(id)} /> : null}
+          {historyLoading ? <p role="status" className="mb-4 flex items-center gap-2 text-sm text-muted-foreground"><LoaderCircle className="h-4 w-4 animate-spin motion-reduce:animate-none" />正在读取版本内容…</p> : null}
+          {historyError ? <p role="alert" className="mb-4 text-sm text-destructive">{historyError}，可重新点击版本重试。</p> : null}
+          {historyVersion ? (
+            <section aria-label="历史版本预览" className="mb-5 rounded-xl border border-primary/20 bg-primary/5 p-4">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div><h3 className="text-sm font-semibold">历史版本 · 只读</h3><p className="mt-1 text-xs leading-5 text-muted-foreground">查看历史不会替换当前文案或未提交的提示词草稿。</p></div>
+                <Button type="button" size="sm" variant="outline" onClick={returnToCurrent}><ArrowLeft className="h-3.5 w-3.5" />返回当前版本</Button>
+              </div>
+              <div className="mt-3 flex flex-wrap gap-x-4 gap-y-2 text-xs text-muted-foreground">
+                <span>{historyVersion.current_template ? "当前模板" : "历史模板"}</span>
+                <span>模型：{historyVersion.model || "未记录"}</span>
+                <span>图片来源：{{ us3: "US3", shared: "共享目录", local: "本地", unknown: "未记录" }[historyVersion.image_source]}</span>
+              </div>
+              <details className="mt-4 border-t border-primary/15 pt-3">
+                <summary className="cursor-pointer text-sm font-medium">当时使用的生成提示词</summary>
+                {historyVersion.input_prompt ? <textarea aria-label="历史生成提示词（只读）" readOnly value={historyVersion.input_prompt} rows={8} className="mt-3 max-h-80 w-full resize-y rounded-lg border border-input bg-background p-3 text-sm leading-6" /> : <p className="mt-2 text-xs text-muted-foreground">该版本未保存输入提示词，不使用当前档案补填历史。</p>}
+              </details>
+            </section>
+          ) : null}
           {loading ? (
             <div role="status" className="flex items-center gap-3 rounded-lg border border-border bg-muted/40 p-4 text-sm">
               <LoaderCircle className="h-5 w-5 shrink-0 animate-spin text-primary motion-reduce:animate-none" />
@@ -175,9 +230,9 @@ export function ProductCopywritingDialog({ item, onClose }: ProductCopywritingDi
             </div>
           ) : null}
           {error ? <div role="alert" className="mb-4 rounded-lg border border-destructive/25 bg-destructive/5 p-4 text-sm text-destructive">{error}{result ? <p className="mt-2">下方保留上次读取的内容。</p> : null}</div> : null}
-          {!loading && saved?.message ? <div role={result?.stale || saved.status === "failed" ? "alert" : "status"} className="mb-4 rounded-lg border border-border bg-muted/40 p-4 text-sm">{saved.message}</div> : null}
+          {!historyVersion && !loading && saved?.message ? <div role={saved.item?.stale || saved.status === "failed" ? "alert" : "status"} className="mb-4 rounded-lg border border-border bg-muted/40 p-4 text-sm">{saved.message}</div> : null}
           {copyError ? <p role="alert" className="mb-3 text-sm text-destructive">{copyError}</p> : null}
-          {hasPrompt ? (
+          {!historyVersion && hasPrompt ? (
             <section className="mb-6 overflow-hidden rounded-xl border border-border bg-muted/20" aria-label="提示词编辑区">
               <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border px-4 py-3">
                 <label htmlFor={promptId} className="text-sm font-semibold">生成提示词（可编辑）</label>
@@ -231,9 +286,10 @@ export function ProductCopywritingDialog({ item, onClose }: ProductCopywritingDi
             {result ? <p className="break-all">{new Date(result.generated_at).toLocaleString("zh-CN", { timeZone: "Asia/Shanghai" })}</p> : null}
           </div>
           <div className="flex flex-wrap items-center gap-2">
+            <Button type="button" variant="outline" aria-expanded={historyOpen} onClick={() => { setHistoryOpen(!historyOpen); if (historyOpen) returnToCurrent() }} className="cursor-pointer"><History className="h-4 w-4" />{historyOpen ? "收起历史" : "历史版本"}</Button>
             <Button type="button" variant="outline" disabled={loading || regenerating} onClick={() => { if (!loadingRef.current) void load() }} className="cursor-pointer"><RefreshCw className="h-4 w-4" />刷新内容</Button>
-            <Button type="button" variant="outline" disabled={loading || isGenerating || promptInvalid} onClick={() => void handleRegenerate()} className="cursor-pointer">{isGenerating ? <LoaderCircle className="h-4 w-4 animate-spin motion-reduce:animate-none" /> : <Sparkles className="h-4 w-4" />}{regenerating ? "提交中…" : isGenerating ? "生成中…" : "重新生成"}</Button>
-            <Button type="button" disabled={!result || loading} onClick={() => void handleCopy()} className="cursor-pointer">{copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}{copied ? "已复制" : "复制全部"}</Button>
+            <Button type="button" variant="outline" disabled={!!historyVersion || historyLoading || loading || isGenerating || promptInvalid} onClick={() => void handleRegenerate()} className="cursor-pointer">{isGenerating ? <LoaderCircle className="h-4 w-4 animate-spin motion-reduce:animate-none" /> : <Sparkles className="h-4 w-4" />}{regenerating ? "提交中…" : isGenerating ? "生成中…" : "重新生成"}</Button>
+            <Button type="button" disabled={!result || loading || historyLoading} onClick={() => void handleCopy()} className="cursor-pointer">{copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}{copied ? "已复制" : historyVersion ? "复制此版本" : "复制全部"}</Button>
           </div>
         </DialogFooter>
       </DialogContent>

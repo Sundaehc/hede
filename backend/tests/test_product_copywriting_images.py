@@ -1,8 +1,10 @@
 import base64
 import hashlib
 import io
+import json
 from pathlib import Path
 from types import SimpleNamespace
+from urllib.error import HTTPError, URLError
 from unittest.mock import Mock
 
 import pytest
@@ -35,6 +37,8 @@ def test_local_image_uses_bytes_not_internal_path(settings, product):
     assert image.metadata() == {
         "sha256": hashlib.sha256(PNG_BYTES).hexdigest(),
         "media_type": "image/png", "size_bytes": len(PNG_BYTES),
+        "source": "local", "transport": "base64_data_url",
+        "us3_object_key": None, "fallback_reason": "us3_not_configured",
     }
     assert product["image_path"] not in image.data_url
 
@@ -42,6 +46,19 @@ def test_local_image_uses_bytes_not_internal_path(settings, product):
 def test_legacy_share_alias_reads_only_the_configured_root(settings, product, tmp_path):
     product["image_path"] = str(tmp_path / "old-share" / "product-images" / "RM363238D45.png")
     assert images.load_product_copywriting_image(settings, "cbanner_mens", product).sha256 == hashlib.sha256(PNG_BYTES).hexdigest()
+
+
+def test_shared_source_is_based_on_actual_read_path(settings, product, monkeypatch):
+    root = Path("//image-server/product-images")
+    settings.image_roots["cbanner"] = root
+    product["image_path"] = str(root / "RM363238D45.png")
+    monkeypatch.setattr(Path, "resolve", lambda path: path)
+    reader = Mock(return_value=io.BytesIO(PNG_BYTES))
+    monkeypatch.setattr(Path, "open", reader)
+    image = images.load_product_copywriting_image(settings, "cbanner_womens", product)
+    assert image.source == "shared"
+    assert image.fallback_reason == "us3_not_configured"
+    reader.assert_called_once_with("rb")
 
 
 @pytest.mark.parametrize("kind", ["missing", "outside", "traversal", "alternate-stream", "not-found", "unsupported", "empty"])
@@ -99,9 +116,18 @@ def configure_cloud(monkeypatch, settings, *, url="https://bucket.example.test/i
 
 def test_synced_cloud_image_is_downloaded_without_forwarding_signatures(settings, product, monkeypatch):
     storage, opener = configure_cloud(monkeypatch, settings)
+    cloud_bytes = b"\xff\xd8\xff\xe0cloud-image"
+    opener.return_value = io.BytesIO(cloud_bytes)
     monkeypatch.setattr(Path, "open", Mock(side_effect=AssertionError("must not read local file")))
     image = images.load_product_copywriting_image(settings, "cbanner_womens", product)
-    assert base64.b64decode(image.data_url.partition(",")[2]) == PNG_BYTES
+    assert base64.b64decode(image.data_url.partition(",")[2]) == cloud_bytes
+    assert image.metadata() == {
+        "sha256": hashlib.sha256(cloud_bytes).hexdigest(),
+        "media_type": "image/jpeg", "size_bytes": len(cloud_bytes),
+        "source": "us3", "transport": "base64_data_url",
+        "us3_object_key": "products/cbanner_womens/RM363238D45.png", "fallback_reason": None,
+    }
+    assert "signature" not in json.dumps(image.metadata())
     assert "signature" not in image.data_url
     storage.object_key.assert_called_once_with("cbanner_womens", "RM363238D45.png")
     request = opener.call_args.args[0]
@@ -113,14 +139,32 @@ def test_synced_cloud_image_is_downloaded_without_forwarding_signatures(settings
 @pytest.mark.parametrize("url", ["http://bucket.example.test/image.png", "file:///private", "https://user:private@bucket.example.test/image.png"])
 def test_unsafe_cloud_url_uses_local_image_without_request(settings, product, monkeypatch, url):
     _, opener = configure_cloud(monkeypatch, settings, url=url)
-    assert images.load_product_copywriting_image(settings, "cbanner_womens", product).media_type == "image/png"
+    image = images.load_product_copywriting_image(settings, "cbanner_womens", product)
+    assert image.media_type == "image/png"
+    assert image.source == "local"
+    assert image.fallback_reason == "us3_invalid_url"
+    assert url not in json.dumps(image.metadata())
     opener.assert_not_called()
 
 
-def test_cloud_failure_falls_back_to_local_without_leaking_error(settings, product, monkeypatch):
+@pytest.mark.parametrize("error,reason", [
+    (OSError("signature=private"), "us3_network_error"),
+    (URLError("signature=private"), "us3_network_error"),
+    (TimeoutError("signature=private"), "us3_timeout"),
+    (URLError(TimeoutError("signature=private")), "us3_timeout"),
+    (HTTPError("https://example.test/?signature=private", 403, "private", {}, None), "us3_http_error"),
+    (HTTPError("https://example.test/?signature=private", 302, "private", {}, None), "us3_http_error"),
+    (RuntimeError("signature=private"), "us3_unavailable"),
+])
+def test_cloud_failure_falls_back_to_local_without_leaking_error(settings, product, monkeypatch, error, reason):
     _, opener = configure_cloud(monkeypatch, settings)
-    opener.side_effect = OSError("signature=private")
-    assert images.load_product_copywriting_image(settings, "cbanner_womens", product).media_type == "image/png"
+    opener.side_effect = error
+    image = images.load_product_copywriting_image(settings, "cbanner_womens", product)
+    assert image.media_type == "image/png"
+    assert image.source == "local"
+    assert image.fallback_reason == reason
+    assert image.us3_object_key == "products/cbanner_womens/RM363238D45.png"
+    assert "private" not in json.dumps(image.metadata())
     monkeypatch.setattr(Path, "open", Mock(side_effect=PermissionError("private path")))
     with pytest.raises(HTTPException) as caught:
         images.load_product_copywriting_image(settings, "cbanner_womens", product)
@@ -130,9 +174,38 @@ def test_cloud_failure_falls_back_to_local_without_leaking_error(settings, produ
 
 def test_unsynced_image_does_not_request_cloud(settings, product, monkeypatch):
     storage, opener = configure_cloud(monkeypatch, settings, synced=False)
-    assert images.load_product_copywriting_image(settings, "cbanner_womens", product).media_type == "image/png"
+    image = images.load_product_copywriting_image(settings, "cbanner_womens", product)
+    assert image.media_type == "image/png"
+    assert image.source == "local"
+    assert image.fallback_reason == "us3_not_synced"
+    assert image.us3_object_key == "products/cbanner_womens/RM363238D45.png"
     storage.private_download_url.assert_not_called()
     opener.assert_not_called()
+
+
+@pytest.mark.parametrize("raises", [False, True])
+def test_unavailable_cloud_storage_records_safe_reason(settings, product, monkeypatch, raises):
+    configure_cloud(monkeypatch, settings)
+    storage_factory = Mock(return_value=None, side_effect=RuntimeError("private key") if raises else None)
+    monkeypatch.setattr(images.UCloudUS3ImageStorage, "from_settings", storage_factory)
+    image = images.load_product_copywriting_image(settings, "cbanner_womens", product)
+    assert image.source == "local"
+    assert image.us3_object_key is None
+    assert image.fallback_reason == "us3_unavailable"
+    assert "private" not in json.dumps(image.metadata())
+
+
+@pytest.mark.parametrize("invalid_bytes", [b"<html>private</html>", PNG_BYTES + b"oversized"])
+def test_invalid_cloud_image_does_not_silently_switch_source(settings, product, monkeypatch, invalid_bytes):
+    _, opener = configure_cloud(monkeypatch, settings)
+    opener.return_value = io.BytesIO(invalid_bytes)
+    monkeypatch.setattr(images, "MAX_IMAGE_BYTES", len(PNG_BYTES))
+    reader = Mock(side_effect=AssertionError("must not read local file"))
+    monkeypatch.setattr(Path, "open", reader)
+    with pytest.raises(HTTPException) as caught:
+        images.load_product_copywriting_image(settings, "cbanner_womens", product)
+    assert caught.value.status_code == 422
+    reader.assert_not_called()
 
 
 def test_image_download_never_follows_redirects():
