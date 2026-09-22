@@ -68,7 +68,7 @@ def run_workflow(settings, statuses, business_date: date) -> int:
             raise
         failed = bool(result.get("failed"))
         status = "failed" if failed else "success"
-        message = f"近7天商品提示词：新增成功{result.get('completed', 0)}，跳过{result.get('skipped', 0)}，失败{result.get('failed', 0)}；已有记录不变"
+        message = f"近3天商品提示词：新增成功{result.get('completed', 0)}，跳过{result.get('skipped', 0)}，失败{result.get('failed', 0)}；已有记录不变"
         statuses.mark_finished(COPYWRITING_TASK_NAME, business_date, status=status, message=message, result=result)
         statuses.mark_finished(TASK_NAME, business_date, status=status, message=message, result=result)
         print(f"[{'FAILED' if failed else 'OK'}] {business_date.isoformat()} {message}")

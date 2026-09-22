@@ -28,7 +28,7 @@ def business_today() -> date:
 
 
 def recent_launch_dates(business_date: date) -> tuple[date, ...]:
-    return tuple(business_date - timedelta(days=offset) for offset in range(6, -1, -1))
+    return tuple(business_date - timedelta(days=offset) for offset in range(2, -1, -1))
 
 
 def target_products(products, business_date: date) -> list[tuple[str, dict]]:
@@ -105,7 +105,7 @@ def run_daily_generation(settings, business_date: date) -> dict:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="仅补生成最近7天（含当天）有主图且无提示词记录的商品；默认只读预览")
+    parser = argparse.ArgumentParser(description="仅补生成最近3天（含当天）有主图且无提示词记录的商品；默认只读预览")
     parser.add_argument("--execute", action="store_true")
     args = parser.parse_args()
     settings = load_settings(require_database=True)
