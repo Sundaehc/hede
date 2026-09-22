@@ -2495,9 +2495,20 @@ class InventoryRepository:
         connection,
         product_identity_id: int | None,
     ) -> dict[str, object]:
+        return InventoryRepository.document_product_identity_scope(
+            connection, product_identity_id, document_type="进货订单",
+        )
+
+    @staticmethod
+    def document_product_identity_scope(
+        connection,
+        product_identity_id: int | None,
+        *,
+        document_type: str | None = None,
+    ) -> dict[str, object]:
         if product_identity_id is None:
             return {"details": 0, "documents": 0, "document_ids": []}
-        rows = connection.execute(
+        statement = (
             select(INVENTORY_DETAIL_TABLE.c.document_id)
             .select_from(
                 INVENTORY_DETAIL_TABLE.join(
@@ -2507,9 +2518,11 @@ class InventoryRepository:
             )
             .where(
                 INVENTORY_DETAIL_TABLE.c.product_identity_id == product_identity_id,
-                INVENTORY_TABLE.c.document_type == "进货订单",
             )
-        ).scalars().all()
+        )
+        if document_type:
+            statement = statement.where(INVENTORY_TABLE.c.document_type == document_type)
+        rows = connection.execute(statement).scalars().all()
         document_ids = sorted({int(document_id) for document_id in rows})
         return {
             "details": len(rows),

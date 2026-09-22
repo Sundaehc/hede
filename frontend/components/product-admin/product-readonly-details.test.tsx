@@ -1,4 +1,4 @@
-import { cleanup, render, screen, within } from "@testing-library/react"
+import { cleanup, render, screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
@@ -13,6 +13,9 @@ const {
   mockCreateProduct,
   mockUpdateProduct,
   mockEditOptions,
+  mockPreflight,
+  mockDownload,
+  mockCopywriting,
 } = vi.hoisted(() => ({
   mockAuth: {
     user: { role_code: "design_viewer", department_code: "美工部" },
@@ -22,6 +25,9 @@ const {
   mockCreateProduct: vi.fn(),
   mockUpdateProduct: vi.fn(),
   mockEditOptions: vi.fn(),
+  mockPreflight: vi.fn(),
+  mockDownload: vi.fn(),
+  mockCopywriting: vi.fn(),
 }))
 
 vi.mock("@/components/auth/auth-provider", () => ({
@@ -43,6 +49,9 @@ vi.mock("@/lib/api", async () => ({
   listSizeGroupOptions: mockEditOptions,
   listSuppliersByBrand: mockEditOptions,
   lookupImage: mockEditOptions,
+  assertProductExportAllowed: mockPreflight,
+  downloadProductExport: mockDownload,
+  getSavedProductCopywriting: mockCopywriting,
 }))
 
 const sampleItem = {
@@ -81,9 +90,78 @@ beforeEach(() => {
   })
   mockEditOptions.mockResolvedValue({ brand: "cbanner_mens", items: [] })
   mockUpdateProduct.mockResolvedValue({ item: sampleItem, message: "updated" })
+  mockPreflight.mockResolvedValue(undefined)
+  mockDownload.mockResolvedValue({ filename: "千百度男鞋物价.xlsx", size: 100 })
+  mockCopywriting.mockResolvedValue({ status: "completed", message: "", item: { content: "【主标题】\n档案生成测试文案", model: "doubao-test", generated_at: "2026-09-21T10:00:00Z", stale: false } })
 })
 
 afterEach(cleanup)
+
+it("design users see the copywriting button immediately after details and open the correct product", async () => {
+  const user = userEvent.setup()
+  render(<ProductAdminPage />)
+  const details = await screen.findByRole("button", { name: "查看详情" })
+  const button = screen.getByRole("button", { name: "生图提示词" })
+  expect(details.nextElementSibling).toBe(button)
+  await user.click(button)
+  expect(await screen.findByRole("dialog", { name: "生图提示词" })).toBeInTheDocument()
+  expect(screen.queryByRole("dialog", { name: "商品详情" })).not.toBeInTheDocument()
+  expect(mockCopywriting).toHaveBeenCalledWith("cbanner_mens", 7)
+  expect(mockUpdateProduct).not.toHaveBeenCalled()
+})
+
+it.each([
+  ["财务部", "finance_user", false],
+  ["客服部", "customer_service_viewer", false],
+  ["商品部", "product_user", false],
+  ["运营部", "operation_user", false],
+  ["开发部", "developer_user", false],
+  ["开发部", "super_admin", true],
+])("copywriting access for %s / %s is %s", async (department, role, allowed) => {
+  mockAuth.user = { department_code: department, role_code: role }
+  render(<ProductAdminPage />)
+  await screen.findByTestId("card-title-7")
+  expect(Boolean(screen.queryByRole("button", { name: "生图提示词" }))).toBe(allowed)
+  expect(mockCopywriting).not.toHaveBeenCalled()
+})
+
+it.each([
+  ["美工部", "design_viewer", false, "product.export"],
+  ["客服部", "customer_service_viewer", false, "product.export"],
+  ["商品部", "product_user", true, "product.export"],
+  ["美工部", "super_admin", true, "product.export"],
+  ["美工部", "design_viewer", false, "product.price_export"],
+  ["客服部", "customer_service_viewer", false, "product.price_export"],
+  ["财务部", "finance_user", true, "product.price_export"],
+  ["美工部", "super_admin", true, "product.price_export"],
+])("price export visibility for %s / %s is %s with %s", async (department, role, allowed, exportPermission) => {
+  mockAuth.user = { department_code: department, role_code: role }
+  mockAuth.hasPermission.mockImplementation((permission) => ["product.view", exportPermission].includes(permission))
+  render(<ProductAdminPage />)
+  await screen.findByTestId("card-title-7")
+  if (allowed) {
+    expect(screen.getByRole("button", { name: "物价导出" })).toBeInTheDocument()
+  } else {
+    expect(screen.queryByRole("button", { name: "物价导出" })).not.toBeInTheDocument()
+  }
+})
+
+it("finance can select and export prices without product editing or general export", async () => {
+  const user = userEvent.setup()
+  mockAuth.user = { department_code: "财务部", role_code: "finance_user" }
+  mockAuth.hasPermission.mockImplementation((permission) => ["product.view", "product.price_export"].includes(permission))
+  render(<ProductAdminPage />)
+
+  const checkbox = await screen.findByRole("checkbox", { name: "选择商品 READONLY-007" })
+  await user.click(checkbox)
+  expect(checkbox).toBeChecked()
+  expect(screen.queryByRole("button", { name: /^(新增商品|导入 Excel|编辑|批量删除|导出 Excel|导出选中|带尺码导出)/ })).not.toBeInTheDocument()
+  await user.click(screen.getByRole("button", { name: "物价导出" }))
+  await waitFor(() => expect(mockDownload).toHaveBeenCalledWith("cbanner_mens", [7], "price", expect.any(Function), undefined, undefined, undefined, undefined, undefined))
+  expect(mockPreflight).toHaveBeenCalledWith("cbanner_mens", [7], "price", undefined, undefined, undefined, undefined, undefined)
+  expect(mockCreateProduct).not.toHaveBeenCalled()
+  expect(mockUpdateProduct).not.toHaveBeenCalled()
+})
 
 describe("ProductDetailDialog", () => {
   it("shows full read-only values and hides costs by default", async () => {

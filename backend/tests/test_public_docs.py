@@ -47,6 +47,7 @@ def test_public_openapi_schema_only_contains_read_operations():
     )
     assert all(not path.startswith("/auth") for path in schema["paths"])
     assert all(not path.startswith("/operation-logs") for path in schema["paths"])
+    assert all(not path.startswith("/product-copywriting") for path in schema["paths"])
 
 
 def test_only_public_docs_are_public_without_login():

@@ -2,8 +2,9 @@ from __future__ import annotations
 
 from contextlib import asynccontextmanager
 from copy import deepcopy
+from concurrent.futures import ThreadPoolExecutor
 import logging
-from threading import Thread
+from threading import BoundedSemaphore, Thread
 from types import SimpleNamespace
 
 from fastapi import FastAPI
@@ -20,6 +21,7 @@ from api.routes.import_export import router as import_export_router
 from api.routes.inventory import router as inventory_router
 from api.routes.operation_logs import router as operation_logs_router
 from api.routes.products import router as products_router
+from api.routes.product_copywriting import router as product_copywriting_router
 from api.routes.product_goods import (
     list_product_goods,
     router as product_goods_router,
@@ -34,11 +36,13 @@ from storage.auth_repository import AuthRepository
 from storage.inventory_repository import InventoryRepository
 from storage.operation_log_repository import OperationLogRepository
 from storage.product_repository import ProductRepository
+from storage.product_copywriting_repository import ProductCopywritingRepository
 from storage.us3_image_storage import UCloudUS3ImageStorage
 
 
 PUBLIC_DOC_METHODS = {"get", "head"}
 PUBLIC_DOC_EXCLUDED_PREFIXES = (
+    "/product-copywriting",
     "/auth",
     "/operation-logs",
     "/public",
@@ -78,7 +82,12 @@ async def _app_lifespan(app: FastAPI):
         name="product-goods-cache-warmup",
         daemon=True,
     ).start()
-    yield
+    try:
+        yield
+    finally:
+        executor = getattr(app.state, "product_copywriting_executor", None)
+        if executor is not None:
+            executor.shutdown(wait=False, cancel_futures=True)
 
 
 def _is_public_read_path(path: str) -> bool:
@@ -176,6 +185,15 @@ def create_app(*, settings, repository=None, image_matchers=None, inventory_repo
     if hasattr(resolved_repository, "create_tables"):
         resolved_repository.create_tables()
     app.state.repository = resolved_repository
+    product_engine = getattr(resolved_repository, "engine", None)
+    app.state.product_copywriting_repository = ProductCopywritingRepository(product_engine) if product_engine is not None else None
+    if app.state.product_copywriting_repository is not None:
+        app.state.product_copywriting_repository.create_tables()
+    app.state.product_copywriting_executor = ThreadPoolExecutor(
+        max_workers=2,
+        thread_name_prefix="product-copywriting",
+    )
+    app.state.product_copywriting_slots = BoundedSemaphore(2)
     app.state.inventory_repository = resolved_inventory_repository
     app.state.auth_repository = resolved_auth_repository
     app.state.operation_log_repository = resolved_operation_log_repository
@@ -190,6 +208,7 @@ def create_app(*, settings, repository=None, image_matchers=None, inventory_repo
 
     app.include_router(auth_router)
     app.include_router(products_router)
+    app.include_router(product_copywriting_router)
     app.include_router(product_goods_router)
     app.include_router(fine_table_router)
     app.include_router(images_router)

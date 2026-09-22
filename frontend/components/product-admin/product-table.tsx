@@ -1,4 +1,4 @@
-import { Check, Copy, Edit, Eye, RefreshCw, Trash2 } from "lucide-react"
+import { Check, Copy, Edit, Eye, RefreshCw, Sparkles, Trash2 } from "lucide-react"
 import { useState } from "react"
 import type { ProductListItem } from "@/lib/types"
 import { getProductFieldGroups, getProductFieldLabel } from "@/lib/fields"
@@ -30,6 +30,7 @@ type ProductTableProps = {
   onToggleSelectAll: () => void
   onBatchDelete?: () => void
   onView?: (item: ProductListItem) => void
+  onCopywriting?: (item: ProductListItem) => void
   onEdit?: (item: ProductListItem) => void
   onDelete?: (item: ProductListItem) => void
   onPreviewImage?: (item: ProductListItem) => void
@@ -136,13 +137,14 @@ async function copyProductCode(value: string) {
   textarea.remove()
 }
 
-function ProductCard({ item, selectable, showCost = true, selectedKeys, onToggleSelect, onView, onEdit, onDelete, onPreviewImage }: {
+function ProductCard({ item, selectable, showCost = true, selectedKeys, onToggleSelect, onView, onCopywriting, onEdit, onDelete, onPreviewImage }: {
   item: ProductListItem
   selectable?: boolean
   showCost?: boolean
   selectedKeys: Set<string>
   onToggleSelect: (item: ProductListItem) => void
   onView?: (item: ProductListItem) => void
+  onCopywriting?: (item: ProductListItem) => void
   onEdit?: (item: ProductListItem) => void
   onDelete?: (item: ProductListItem) => void
   onPreviewImage?: (item: ProductListItem) => void
@@ -235,8 +237,8 @@ function ProductCard({ item, selectable, showCost = true, selectedKeys, onToggle
               </button>
             ) : null}
           </div>
-          {(onView || onEdit || onDelete) ? (
-            <div className="flex gap-2">
+          {(onView || onCopywriting || onEdit || onDelete) ? (
+            <div className="flex flex-wrap justify-end gap-2">
               {onView && !onEdit ? (
                 <Button type="button" variant="outline" size="sm" onClick={(event) => {
                   event.stopPropagation()
@@ -244,6 +246,15 @@ function ProductCard({ item, selectable, showCost = true, selectedKeys, onToggle
                 }} className="cursor-pointer">
                   <Eye className="h-3.5 w-3.5" />
                   查看详情
+                </Button>
+              ) : null}
+              {onCopywriting ? (
+                <Button type="button" variant="outline" size="sm" onClick={(event) => {
+                  event.stopPropagation()
+                  onCopywriting(item)
+                }} className="cursor-pointer">
+                  <Sparkles className="h-3.5 w-3.5" />
+                  生图提示词
                 </Button>
               ) : null}
               {onEdit ? (
@@ -335,6 +346,7 @@ export function ProductTable({
   onToggleSelectAll,
   onBatchDelete,
   onView,
+  onCopywriting,
   onEdit,
   onDelete,
   onPreviewImage,
@@ -442,6 +454,7 @@ export function ProductTable({
               selectedKeys={selectedKeys}
               onToggleSelect={onToggleSelect}
               onView={onView}
+              onCopywriting={onCopywriting}
               onEdit={onEdit}
               onDelete={onDelete}
               onPreviewImage={onPreviewImage}

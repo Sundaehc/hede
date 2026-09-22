@@ -398,6 +398,11 @@ def update_product(request: Request, brand: ProductArchiveBrandKey, product_id: 
             if product_codes_changed
             else {"details": 0, "documents": 0, "document_ids": []}
         )
+        document_product_sync = (
+            inventory_repository.document_product_identity_scope(connection, product_identity_id)
+            if product_codes_changed
+            else {"details": 0, "documents": 0, "document_ids": []}
+        )
     if item is None:
         # Re-check after the pre-read in case the row was deleted concurrently.
         raise HTTPException(status_code=404, detail="Product not found")
@@ -412,10 +417,10 @@ def update_product(request: Request, brand: ProductArchiveBrandKey, product_id: 
         }
     changes = build_changed_fields(existing, item, field_labels)
     sync_summary = ""
-    if purchase_order_sync["details"]:
+    if document_product_sync["details"]:
         sync_summary = (
-            f"；同步更新 {purchase_order_sync['details']} 条历史采购单明细"
-            f"（{purchase_order_sync['documents']} 张采购单）"
+            f"；同步更新 {document_product_sync['details']} 条关联单据明细"
+            f"（{document_product_sync['documents']} 张单据）"
         )
     write_operation_log(
         request,
@@ -432,9 +437,10 @@ def update_product(request: Request, brand: ProductArchiveBrandKey, product_id: 
     return {
         "item": {**item, "brand": brand},
         "purchase_order_sync": purchase_order_sync,
+        "document_product_sync": document_product_sync,
         "message": (
-            f"商品已更新，并同步 {purchase_order_sync['details']} 条历史采购单明细"
-            if purchase_order_sync["details"]
+            f"商品已更新，并同步 {document_product_sync['details']} 条关联单据明细"
+            if document_product_sync["details"]
             else "Product updated"
         ),
     }

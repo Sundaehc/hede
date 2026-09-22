@@ -6,7 +6,7 @@ import { FileDown, History, ImagePlus, Trash2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
 import { type ProductArchiveBrandKey } from "@/lib/brands"
-import { assertProductExportAllowed, downloadProductExport, downloadProductImportTemplate, getProductImageRefreshStatus, importProducts, refreshProductImages, type ProductExportProgress } from "@/lib/api"
+import { assertProductExportAllowed, downloadProductExport, downloadProductImportTemplate, getProductImageRefreshStatus, importProducts, refreshProductImages, type ProductExportMode, type ProductExportProgress } from "@/lib/api"
 import type { ProductImageRefreshStatus } from "@/lib/types"
 
 type ProductToolbarProps = {
@@ -19,6 +19,7 @@ type ProductToolbarProps = {
   isLoading: boolean
   selectedIds?: Set<number>
   canExport?: boolean
+  canExportPrices?: boolean
   canImport?: boolean
   canRefreshImages?: boolean
   onValueChange: (value: string) => void
@@ -54,6 +55,7 @@ export function ProductToolbar({
   isLoading,
   selectedIds,
   canExport = true,
+  canExportPrices = false,
   canImport = true,
   canRefreshImages = true,
   onValueChange,
@@ -74,7 +76,7 @@ export function ProductToolbar({
   const [downloadingTemplate, setDownloadingTemplate] = useState(false)
   const [refreshingImages, setRefreshingImages] = useState(false)
   const [exporting, setExporting] = useState(false)
-  const [exportingMode, setExportingMode] = useState<"default" | "with_sizes" | "range" | "range_with_sizes" | null>(null)
+  const [exportingMode, setExportingMode] = useState<"default" | ProductExportMode | "range" | "range_with_sizes" | null>(null)
   const [activityDateStart, setActivityDateStart] = useState(currentShanghaiDateValue)
   const [activityDateEnd, setActivityDateEnd] = useState(currentShanghaiDateValue)
   const [exportProgress, setExportProgress] = useState<ProductExportProgress | null>(null)
@@ -131,7 +133,7 @@ export function ProductToolbar({
     }
   }, [awaitingImageRefresh, imageRefreshStatus, onMessage, onRefresh])
 
-  const handleExport = async (mode?: "with_sizes", exportActivityDateStart?: string, exportActivityDateEnd?: string) => {
+  const handleExport = async (mode?: ProductExportMode, exportActivityDateStart?: string, exportActivityDateEnd?: string) => {
     const isActivityExport = Boolean(exportActivityDateStart || exportActivityDateEnd)
     if (isActivityExport && (!exportActivityDateStart || !exportActivityDateEnd)) {
       onMessage("请选择导出时间段", "开始日期和结束日期都需要填写")
@@ -227,7 +229,7 @@ export function ProductToolbar({
 
   const hasMultipleLines = value.includes("\n") || value.includes(",") || value.includes("，")
   const hasSelection = brand !== "all" && selectedIds && selectedIds.size > 0
-  const showActions = canExport || onCreate
+  const showActions = canExport || canExportPrices || onCreate
   const exportStatusText = exportProgress?.phase === "preparing"
     ? "准备导出..."
     : exportProgress?.percent !== null && exportProgress?.percent !== undefined
@@ -239,6 +241,7 @@ export function ProductToolbar({
     ? exportStatusText
     : hasSelection ? `导出选中 (${selectedIds!.size})` : query || skuPrefix ? "导出搜索结果" : "导出 Excel"
   const sizeExportLabel = exportingMode === "with_sizes" && exportStatusText ? exportStatusText : "带尺码导出"
+  const priceExportLabel = exportingMode === "price" && exportStatusText ? exportStatusText : "物价导出"
   const activityExportLabel = exportingMode === "range" && exportStatusText ? exportStatusText : "导出时间段内导入/新增"
   const activitySizeExportLabel = exportingMode === "range_with_sizes" && exportStatusText ? exportStatusText : "导出时间段内导入/新增带尺码"
   const lastImageRun = imageRefreshStatus?.last_run
@@ -335,10 +338,17 @@ export function ProductToolbar({
       {showActions ? (
         <div className="flex flex-wrap items-center gap-2 border-t border-border pt-3">
           {canExport ? (
+            <Button type="button" variant="outline" size="sm" onClick={() => void handleExport()} disabled={isLoading || exporting} className="cursor-pointer">
+              {defaultExportLabel}
+            </Button>
+          ) : null}
+          {canExportPrices ? (
+            <Button type="button" variant="outline" size="sm" onClick={() => void handleExport("price")} disabled={isLoading || exporting} className="cursor-pointer" title="导出货号、商品全名、主供应商、预设售价（成本）、工厂货号；优先导出勾选商品，否则导出当前筛选结果">
+              {priceExportLabel}
+            </Button>
+          ) : null}
+          {canExport ? (
             <>
-              <Button type="button" variant="outline" size="sm" onClick={() => void handleExport()} disabled={isLoading || exporting} className="cursor-pointer">
-                {defaultExportLabel}
-              </Button>
               {onCreate ? (
                 <Button type="button" variant="outline" size="sm" onClick={() => void handleExport("with_sizes")} disabled={isLoading || exporting} className="cursor-pointer">
                   {sizeExportLabel}

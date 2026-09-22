@@ -16,16 +16,22 @@ PUBLIC_PATHS = (
 )
 
 
-def required_permission_for_request(method: str, path: str) -> str | tuple[str, ...] | None:
+def required_permission_for_request(
+    method: str, path: str, *, export_mode: str | None = None
+) -> str | tuple[str, ...] | None:
     if path.startswith("/auth/admin"):
         return "system.admin"
     if path.startswith("/auth/"):
         return None
     if path.startswith("/operation-logs"):
         return ("system.admin", "product.view", "fine_table.view", "inventory.view", "purchase.view")
+    if path.startswith("/product-copywriting"):
+        return "product.view"
     if path.startswith("/products"):
         return "product.view" if method == "GET" else "product.manage"
     if path == "/export":
+        if method in {"GET", "HEAD"} and export_mode == "price":
+            return ("product.export", "product.price_export")
         return "product.export"
     if path == "/import/template":
         return "product.import"
@@ -128,7 +134,9 @@ async def auth_middleware(request: Request, call_next):
         request.state.current_user = user
         return await call_next(request)
 
-    permission = required_permission_for_request(request.method, path)
+    permission = required_permission_for_request(
+        request.method, path, export_mode=request.query_params.get("mode")
+    )
     if isinstance(permission, tuple):
         allowed = any(user_has_permission(user, item) for item in permission)
     else:

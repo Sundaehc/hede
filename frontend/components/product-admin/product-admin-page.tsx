@@ -7,6 +7,7 @@ import { useAuth } from "@/components/auth/auth-provider"
 import { ConfirmDialog, MessageDialog } from "@/components/confirm-dialog"
 import { OperationLogDialog } from "@/components/operation-log-dialog"
 import { ProductDetailDialog } from "@/components/product-admin/product-detail-dialog"
+import { ProductCopywritingDialog } from "@/components/product-admin/product-copywriting-dialog"
 import { ProductFormDialog } from "@/components/product-admin/product-form-dialog"
 import { ProductTable } from "@/components/product-admin/product-table"
 import { ProductTabs } from "@/components/product-admin/product-tabs"
@@ -57,6 +58,7 @@ export function ProductAdminPage() {
   const [dialogMode, setDialogMode] = useState<"create" | "edit">("create")
   const [selectedItem, setSelectedItem] = useState<ProductListItem | null>(null)
   const [detailItem, setDetailItem] = useState<ProductListItem | null>(null)
+  const [copywritingItem, setCopywritingItem] = useState<ProductListItem | null>(null)
   const [previewImage, setPreviewImage] = useState<{ src: string; alt: string } | null>(null)
   const [operationLogOpen, setOperationLogOpen] = useState(false)
   const [managedBrands, setManagedBrands] = useState<SupplierBrandItem[]>([])
@@ -332,8 +334,10 @@ export function ProductAdminPage() {
   const canManageProducts = hasPermission("product.manage")
   const canExportProducts = hasPermission("product.export")
   const canImportProducts = hasPermission("product.import")
-  const canSelectProducts = canManageProducts || canExportProducts
   const canViewProductCost = user?.role_code === "super_admin" || !["客服部", "美工部"].includes(user?.department_code ?? "")
+  const canExportPrices = (canExportProducts || hasPermission("product.price_export")) && canViewProductCost
+  const canSelectProducts = canManageProducts || canExportProducts || canExportPrices
+  const canGenerateCopywriting = canViewProducts && (user?.department_code === "美工部" || user?.role_code === "super_admin")
 
   return (
     <div className="app-page">
@@ -397,6 +401,7 @@ export function ProductAdminPage() {
                 isLoading={isLoading}
                 selectedIds={new Set(Array.from(selectedProducts.values(), (target) => target.id))}
                 canExport={canExportProducts}
+                canExportPrices={canExportPrices}
                 canImport={canImportProducts}
                 canRefreshImages={canManageProducts}
                 onValueChange={setSearchInput}
@@ -456,6 +461,7 @@ export function ProductAdminPage() {
               onToggleSelectAll={handleToggleSelectAll}
               onBatchDelete={showBatchDelete && canManageProducts ? handleBatchDeleteRequest : undefined}
               onView={canViewProducts ? setDetailItem : undefined}
+              onCopywriting={canGenerateCopywriting ? setCopywritingItem : undefined}
               onEdit={!canManageProducts ? undefined : (item) => {
                 setDialogMode("edit")
                 setSelectedItem(item)
@@ -485,6 +491,14 @@ export function ProductAdminPage() {
             brands={productArchiveBrands}
             showCost={canViewProductCost}
             onClose={() => setDetailItem(null)}
+          />
+        ) : null}
+
+        {copywritingItem && canGenerateCopywriting ? (
+          <ProductCopywritingDialog
+            key={`${copywritingItem.brand}:${copywritingItem.id}`}
+            item={copywritingItem}
+            onClose={() => setCopywritingItem(null)}
           />
         ) : null}
 

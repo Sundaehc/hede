@@ -1452,9 +1452,11 @@ def _validate_purchase_detail_remark(record: dict[str, object], payload: dict[st
     payload["remark"] = remark
 
 
-def _normalize_purchase_product_identity(record: dict[str, object], payload: dict[str, object]) -> None:
-    if _cell_text(record.get("document_type")) != "进货订单":
-        payload.pop("product_identity_id", None)
+def _normalize_inventory_product_identity(payload: dict[str, object]) -> None:
+    if "product_code" in payload and not _cell_text(payload.get("product_code")):
+        payload["product_identity_id"] = None
+        return
+    if "product_identity_id" not in payload:
         return
     raw_value = payload.get("product_identity_id")
     if raw_value in (None, ""):
@@ -2265,7 +2267,7 @@ def _build_purchase_order_import_template() -> Workbook:
     ]
     worksheet.append(headers)
     worksheet.append([
-        "说明：日期、收货仓库（选填）、单据类型和采购单备注均相同的记录会追加到同一张采购单；任一项不同则新建采购单。商品编码请填写带颜色和尺码的完整商品编码，系统导入时会自动拆解并匹配单价。",
+        "说明：供应商必须与供应商管理中的完整名称完全一致（括号、大小写须一致），不匹配时整份文件不导入，也不会自动新增供应商。日期、收货仓库（选填）、单据类型和采购单备注均相同的记录会追加到同一张采购单；任一项不同则新建采购单。商品编码请填写带颜色和尺码的完整商品编码，系统导入时会自动拆解并匹配单价。",
         "",
         "",
         "",
@@ -2293,7 +2295,7 @@ def _build_purchase_order_import_template() -> Workbook:
         auto_filter=False,
     )
     worksheet.auto_filter.ref = f"A1:{get_column_letter(len(headers))}1"
-    worksheet.row_dimensions[2].height = 36
+    worksheet.row_dimensions[2].height = 48
     worksheet.cell(row=2, column=1).alignment = Alignment(horizontal="left", vertical="center", wrap_text=True)
     return workbook
 
@@ -2513,7 +2515,7 @@ def _read_purchase_import_rows(content: bytes) -> tuple[list[dict[str, object]],
 
         parsed_rows: list[dict[str, object]] = []
         empty_streak = 0
-        for row in iterator:
+        for row_number, row in enumerate(iterator, start=header_index + 2):
             product_code = _cell_text(row[code_index] if code_index < len(row) else None)
             quantity = _cell_text(row[qty_index] if qty_index is not None and qty_index < len(row) else None)
             unit_price = _cell_text(row[unit_price_index] if unit_price_index is not None and unit_price_index < len(row) else None)
@@ -2532,6 +2534,7 @@ def _read_purchase_import_rows(content: bytes) -> tuple[list[dict[str, object]],
                 if not quantity and size_quantities:
                     quantity = _fmt_decimal(sum((_to_decimal(value) for value in size_quantities.values()), Decimal("0")))
                 parsed_rows.append({
+                    "source_row_number": row_number,
                     "product_code": product_code,
                     "quantity": quantity,
                     "unit_price": unit_price,
@@ -2608,6 +2611,7 @@ def _read_purchase_import_rows_xls(content: bytes) -> tuple[list[dict[str, objec
             if not quantity and size_quantities:
                 quantity = _fmt_decimal(sum((_to_decimal(value) for value in size_quantities.values()), Decimal("0")))
             parsed_rows.append({
+                "source_row_number": row_index + 1,
                 "product_code": product_code,
                 "quantity": quantity,
                 "unit_price": unit_price,
@@ -3916,8 +3920,15 @@ def _build_purchase_details_from_excel(
     wholesale_customer: str = "",
     wholesale_price_date: object | None = None,
     wholesale_exclude_document_id: object | None = None,
+    purchase_order_supplier: str | None = None,
 ) -> tuple[list[dict[str, object]], str]:
     rows, sheet_name = _read_purchase_import_rows(content)
+    if purchase_order_supplier is not None:
+        _validate_purchase_order_import_suppliers(
+            repository,
+            [{"supplier": purchase_order_supplier}, *rows],
+            carry_supplier=True,
+        )
     details = _build_purchase_details_from_rows(
         repository,
         rows,
@@ -4020,6 +4031,38 @@ def _group_purchase_import_rows_by_summary(
             group_rows.append(row)
 
     return [groups[key] for key in ordered_keys]
+
+
+def _validate_purchase_order_import_suppliers(
+    repository,
+    rows: list[dict[str, object]],
+    *,
+    carry_supplier: bool = False,
+) -> None:
+    validated_names: set[str] = set()
+    previous_supplier = ""
+    for row in rows:
+        supplier_name = _cell_text(row.get("supplier"))
+        if carry_supplier:
+            supplier_name = supplier_name or previous_supplier
+            previous_supplier = supplier_name
+        row_number = row.get("source_row_number")
+        label = f"Excel 第 {row_number} 行" if row_number else "采购单"
+        if not supplier_name:
+            raise HTTPException(status_code=400, detail=f"{label}：供应商不能为空；本次未导入任何数据")
+        if supplier_name in validated_names:
+            continue
+        supplier_record = repository.get_supplier_by_name(supplier_name)
+        if supplier_record is None or supplier_record.get("name") != supplier_name:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"{label}：供应商“{supplier_name}”在供应商管理中不存在完全一致的名称，"
+                    "请使用已有供应商的完整名称（括号、大小写须一致），或先在供应商管理中新增；"
+                    "本次未导入任何数据"
+                ),
+            )
+        validated_names.add(supplier_name)
 
 
 def _missing_purchase_order_import_fields(rows: list[dict[str, object]]) -> list[str]:
@@ -4318,10 +4361,7 @@ def export_inventory(
         page=1,
         page_size=100_000,
     )
-    items = [
-        item for item in result["items"]
-        if item.get("document_type") not in ACCOUNTING_DOCUMENT_TYPES
-    ]
+    items = result["items"]
     if selected_ids is not None:
         items = [item for item in items if int(item.get("id") or 0) in selected_ids]
     details = _list_inventory_export_details(
@@ -4358,8 +4398,14 @@ def export_inventory(
     ws = wb.active
     ws.title = "经营历程"
 
+    has_accounting_documents = any(item.get("document_type") in ACCOUNTING_DOCUMENT_TYPES for item in items)
+    is_accounting_export = document_type in ACCOUNTING_DOCUMENT_TYPES or (
+        bool(items) and all(item.get("document_type") in ACCOUNTING_DOCUMENT_TYPES for item in items)
+    )
     counterparty_label = (
-        "收货客户"
+        "单位全名"
+        if is_accounting_export
+        else "收货客户"
         if document_type in WHOLESALE_DOCUMENT_TYPES
         else "出货仓库"
         if document_type in TRANSFER_DOCUMENT_TYPES
@@ -4389,21 +4435,24 @@ def export_inventory(
     detail_ws = wb.create_sheet("单据明细")
     detail_headers = [
         "单据编号",
-        "订货日期",
-        "交货日期",
+        "日期" if is_accounting_export else "订货日期",
+        *([] if is_accounting_export else ["交货日期"]),
         "单据类型",
         f"{counterparty_label}",
         warehouse_label,
         "经手人",
         "摘要",
-        "货号",
-        "商品全名",
-        "颜色条码",
-        "颜色名称",
-        *PURCHASE_EXPORT_SIZE_LABELS,
-        "数量",
-        "单价",
+        *(["费用项目名 / 科目"] if is_accounting_export else [
+            "货号",
+            "商品全名 / 费用项目名 / 科目" if has_accounting_documents else "商品全名",
+            "颜色条码",
+            "颜色名称",
+            *PURCHASE_EXPORT_SIZE_LABELS,
+            "数量",
+            "单价",
+        ]),
         "金额",
+        "备注",
     ]
     detail_ws.append(detail_headers)
     for detail in details:
@@ -4420,7 +4469,7 @@ def export_inventory(
         common_values = [
             record.get("document_number") or record.get("id") or "",
             record.get("date") or "",
-            extra_fields.get("delivery_date") or "",
+            *([] if is_accounting_export else [extra_fields.get("delivery_date") or ""]),
             record.get("document_type") or "",
             record.get("supplier") or "",
             record.get("warehouse") or "",
@@ -4429,14 +4478,17 @@ def export_inventory(
         ]
         detail_ws.append([
             *common_values,
-            detail.get("product_code") or "",
-            detail.get("product_name") or "",
-            detail.get("color_barcode") or "",
-            detail.get("color_name") or detail.get("color_spec") or "",
-            *[size_quantities.get(size, "") for size in PURCHASE_EXPORT_SIZE_LABELS],
-            detail.get("quantity") or "",
-            detail.get("unit_price") or "",
-            detail.get("amount") or "",
+            *([detail.get("product_name") or ""] if is_accounting_export else [
+                detail.get("product_code") or "",
+                detail.get("product_name") or "",
+                detail.get("color_barcode") or "",
+                detail.get("color_name") or detail.get("color_spec") or "",
+                *[size_quantities.get(size, "") for size in PURCHASE_EXPORT_SIZE_LABELS],
+                detail.get("quantity") or "",
+                detail.get("unit_price") or "",
+            ]),
+            _excel_number(detail.get("amount")),
+            detail.get("remark") or "",
         ])
 
     style_excel_workbook(wb)
@@ -4516,6 +4568,7 @@ async def import_purchase_inventory(request: Request, file: UploadFile = None):
         if missing_fields:
             labels = "、".join(PURCHASE_ORDER_IMPORT_FIELD_LABELS[field] for field in missing_fields)
             raise HTTPException(status_code=400, detail=f"采购单导入模板必须包含并填写：{labels}")
+        _validate_purchase_order_import_suppliers(repository, rows, carry_supplier=True)
 
     groups = _group_purchase_import_rows_by_summary(rows, "" if is_purchase_order_import else summary)
     if not groups:
@@ -5913,6 +5966,7 @@ async def reimport_inventory_details_from_excel(request: Request, record_id: int
         wholesale_exclude_document_id=(
             record_id if document_type in WHOLESALE_DOCUMENT_TYPES else None
         ),
+        purchase_order_supplier=_cell_text(record.get("supplier")) if document_type == "进货订单" else None,
     )
     detail_payloads = []
     for detail in details:
@@ -5955,7 +6009,7 @@ def create_inventory_detail(request: Request, record_id: int, payload: dict):
     if record is None:
         raise HTTPException(status_code=404, detail="Record not found")
     _validate_purchase_detail_remark(record, payload)
-    _normalize_purchase_product_identity(record, payload)
+    _normalize_inventory_product_identity(payload)
     payload = _apply_product_archive_cost(repository, record, payload)
     payload["document_id"] = record_id
     detail_payloads = _gendered_detail_payloads(repository, record, payload)
@@ -5979,7 +6033,7 @@ def update_inventory_detail(request: Request, record_id: int, detail_id: int, pa
     if before is None:
         raise HTTPException(status_code=404, detail="Detail not found")
     _validate_purchase_detail_remark(record, payload)
-    _normalize_purchase_product_identity(record, payload)
+    _normalize_inventory_product_identity(payload)
     payload = _apply_product_archive_cost(repository, record, payload)
     payload["document_id"] = record_id
     detail_payloads = _gendered_detail_payloads(repository, record, payload)
@@ -6136,8 +6190,9 @@ async def import_inventory(request: Request, file: UploadFile = None):
     # Each row_entry = {doc: dict, detail: dict}
     groups: dict[tuple[str, str, str, str] | tuple[str, int], list[dict]] = {}
     group_order: list[tuple[str, str, str, str] | tuple[str, int]] = []  # preserve insertion order
+    purchase_order_rows: list[dict[str, object]] = []
 
-    for row in iterator:
+    for row_number, row in enumerate(iterator, start=2):
         row_dict = {}
         for idx, cell_value in enumerate(row):
             if idx < len(headers) and headers[idx]:
@@ -6183,6 +6238,11 @@ async def import_inventory(request: Request, file: UploadFile = None):
         # Validate document_type
         doc_type = normalize_document_type(doc_payload.get("document_type"))
         doc_payload["document_type"] = doc_type
+        if doc_type == "进货订单":
+            purchase_order_rows.append({
+                "supplier": doc_payload.get("supplier"),
+                "source_row_number": row_number,
+            })
         if doc_type and doc_type not in DOCUMENT_TYPES:
             extra_fields["原始单据类型"] = doc_type
             doc_payload["document_type"] = ""
@@ -6300,6 +6360,8 @@ async def import_inventory(request: Request, file: UploadFile = None):
 
     wb.close()
 
+    _validate_purchase_order_import_suppliers(repository, purchase_order_rows)
+
     # Phase 2: Create documents with details grouped by the append key.
     new_suppliers: set[str] = set()
     created_docs = 0
@@ -6316,7 +6378,7 @@ async def import_inventory(request: Request, file: UploadFile = None):
         doc_payload = first["doc"]
 
         supplier_name = str(doc_payload.get("supplier") or "").strip()
-        if supplier_name:
+        if supplier_name and doc_payload.get("document_type") != "进货订单":
             new_suppliers.add(supplier_name)
 
         try:

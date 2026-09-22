@@ -626,6 +626,49 @@ export function getFineTableSnapshotByDate(params: {
   )
 }
 
+export type ProductCopywritingResult = {
+  content: string
+  model: string
+  generated_at: string
+  source_updated_at: string
+  source_sku: string
+  launch_date: string
+  stale: boolean
+}
+
+export type SavedProductCopywriting = {
+  status: "missing" | "pending" | "running" | "failed" | "completed"
+  item: ProductCopywritingResult | null
+  message: string
+  input_prompt: string | null
+  prompt_source: "saved" | "previous" | "archive" | null
+}
+
+export type RegenerateProductCopywritingResponse = {
+  status: "running"
+  message: string
+  input_prompt: string
+}
+
+const pendingProductCopywritingRequests = new Map<string, Promise<SavedProductCopywriting>>()
+
+export function getSavedProductCopywriting(brand: string, id: number) {
+  const key = JSON.stringify([brand, id])
+  const pending = pendingProductCopywritingRequests.get(key)
+  if (pending) return pending
+  const promise = request<SavedProductCopywriting>(`/product-copywriting/${encodeURIComponent(brand)}/${id}`, { method: "GET", cache: "no-store" })
+    .finally(() => pendingProductCopywritingRequests.delete(key))
+  pendingProductCopywritingRequests.set(key, promise)
+  return promise
+}
+
+export function regenerateProductCopywriting(brand: string, id: number, inputPrompt?: string) {
+  return request<RegenerateProductCopywritingResponse>(
+    `/product-copywriting/${encodeURIComponent(brand)}/${id}/regenerate`,
+    { method: "POST", ...(inputPrompt === undefined ? {} : { body: JSON.stringify({ input_prompt: inputPrompt }) }) }
+  )
+}
+
 export function getProduct(brand: ProductArchiveRecordBrandKey, id: number) {
   return request<ProductListItem>(`/products/${brand}/${id}`)
 }
@@ -718,10 +761,12 @@ export function getProductImageRefreshStatus() {
   )
 }
 
+export type ProductExportMode = "with_sizes" | "price"
+
 export function buildProductExportUrl(
   brand: ProductArchiveBrandKey,
   ids?: number[],
-  mode?: "with_sizes",
+  mode?: ProductExportMode,
   activityDateStart?: string,
   activityDateEnd?: string,
   year?: string,
@@ -792,7 +837,7 @@ function downloadBlob(blob: Blob, filename: string) {
 export async function downloadProductExport(
   brand: ProductArchiveBrandKey,
   ids?: number[],
-  mode?: "with_sizes",
+  mode?: ProductExportMode,
   onProgress?: (progress: ProductExportProgress) => void,
   activityDateStart?: string,
   activityDateEnd?: string,
@@ -886,7 +931,7 @@ export async function downloadProductExport(
 export async function assertProductExportAllowed(
   brand: ProductArchiveBrandKey,
   ids?: number[],
-  mode?: "with_sizes",
+  mode?: ProductExportMode,
   activityDateStart?: string,
   activityDateEnd?: string,
   year?: string,
@@ -917,7 +962,7 @@ export async function assertProductExportAllowed(
 export function exportProducts(
   brand: ProductArchiveBrandKey,
   ids?: number[],
-  mode?: "with_sizes",
+  mode?: ProductExportMode,
   activityDateStart?: string,
   activityDateEnd?: string,
   year?: string,

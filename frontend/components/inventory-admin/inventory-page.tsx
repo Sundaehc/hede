@@ -1479,10 +1479,6 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
 
   const handleExport = async (purchaseExportMode?: PurchaseExportMode) => {
     try {
-      if (ACCOUNTING_DOCUMENT_TYPE_SET.has(submittedFilters.document_type || "")) {
-        showMessage("暂不支持导出", "应付款/应收款四类单据暂时不导出 Excel")
-        return
-      }
       const selectedExportIds = Array.from(selectedIds)
       const a = document.createElement("a")
       a.href = buildInventoryExportUrl({

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -87,6 +87,11 @@ class Settings:
     request_rate_limit_window_seconds: int = 60
     request_rate_limit_burst: int = 20
     request_rate_limit_trusted_proxy_ips: tuple[str, ...] = ("127.0.0.1", "::1")
+    ark_api_key: str | None = field(default=None, repr=False)
+    doubao_provider: str = "ark"
+    doubao_base_url: str = ""
+    doubao_text_model: str = "doubao-seed-2-1-pro-260915"
+    doubao_timeout_seconds: int = 90
 
     @property
     def frontend_origins(self) -> tuple[str, ...]:
@@ -302,6 +307,11 @@ def load_settings(require_database: bool = True) -> Settings:
             "UCLOUD_US3_SYNC_WORKERS", 4, minimum=1, maximum=16
         ),
         request_rate_limit_enabled=_bool_from_env("REQUEST_RATE_LIMIT_ENABLED", True),
+        ark_api_key=os.getenv("ARK_API_KEY", "").strip() or None,
+        doubao_provider=os.getenv("DOUBAO_PROVIDER", "ark").strip().lower() or "ark",
+        doubao_base_url=os.getenv("DOUBAO_BASE_URL", "").strip(),
+        doubao_text_model=os.getenv("DOUBAO_TEXT_MODEL", "doubao-seed-2-1-pro-260915").strip() or "doubao-seed-2-1-pro-260915",
+        doubao_timeout_seconds=_int_from_env("DOUBAO_TIMEOUT_SECONDS", 90, minimum=10, maximum=300),
         request_rate_limit_requests=_int_from_env(
             "REQUEST_RATE_LIMIT_REQUESTS", 120, minimum=1, maximum=100_000
         ),

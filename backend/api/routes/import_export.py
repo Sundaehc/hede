@@ -60,6 +60,8 @@ CBANNER_WOMENS_ONLY_EXPORT_COLUMNS = {
 }
 CN_TO_FIELD = {cn: en for cn, en in COLUMN_ALIASES.items() if en in EXPORT_COLUMNS}
 SIZE_EXPORT_MODE = "with_sizes"
+PRICE_EXPORT_MODE = "price"
+PRICE_EXPORT_HEADERS = ["货号", "商品全名", "主供应商", "预设售价", "工厂货号"]
 SIZE_EXPORT_HEADERS = [
     "供应商名",
     "商品编码",
@@ -1127,6 +1129,102 @@ def _export_products_with_sizes(
     return _excel_streaming_response(buf, raw_filename)
 
 
+def _validate_product_price_export_access(request: Request, mode: str | None) -> None:
+    if mode == PRICE_EXPORT_MODE and not request_can_view_product_cost(request):
+        raise HTTPException(status_code=403, detail="无权查看商品成本，不能导出物价")
+
+
+def _export_product_prices(
+    request: Request,
+    repository,
+    brand: str,
+    ids: str | None,
+    *,
+    activity_date_start: date_type | None = None,
+    activity_date_end: date_type | None = None,
+    year: str | None = None,
+    query: str | None = None,
+    sku_prefix: str | None = None,
+) -> StreamingResponse:
+    workbook = Workbook()
+    worksheet = workbook.active
+    worksheet.title = "物价"
+    worksheet.append(PRICE_EXPORT_HEADERS)
+    brands = repository.product_archive_brands() if brand == "all" else [brand]
+    selected_ids = _parse_id_list(ids) if brand != "all" and not activity_date_start else []
+    exported_rows = 0
+    for archive_brand in brands:
+        table = repository._table_for_brand(archive_brand)
+        conditions = [
+            table.c.deleted_at.is_(None),
+            not_excluded_sku_condition(table.c.sku, table.c.original_sku),
+        ]
+        if selected_ids:
+            conditions.append(table.c.id.in_(selected_ids))
+        else:
+            for condition in (
+                _year_export_condition(table, year) if year else None,
+                _product_search_condition(table, query),
+                _product_prefix_condition(table, sku_prefix),
+            ):
+                if condition is not None:
+                    conditions.append(condition)
+        if activity_date_start:
+            conditions.append(_activity_date_export_condition(table, activity_date_start, activity_date_end))
+        statement = select(
+            table.c.sku,
+            table.c.color,
+            table.c.supplier_name,
+            table.c.cost,
+            table.c.factory_sku,
+        ).where(*conditions).order_by(desc(table.c.id))
+        with repository.engine.connect() as connection:
+            for item in connection.execute(statement).mappings():
+                sku = _cell_text(item.get("sku"))
+                color = _cell_text(item.get("color"))
+                worksheet.append([
+                    _excel_cell_value(sku),
+                    _excel_cell_value(f"{sku}{color}"),
+                    _excel_cell_value(item.get("supplier_name")),
+                    item.get("cost"),
+                    _excel_cell_value(item.get("factory_sku")),
+                ])
+                exported_rows += 1
+    style_excel_worksheet(
+        worksheet,
+        text_headers={"货号", "商品全名", "主供应商", "工厂货号"},
+        numeric_headers={"预设售价"},
+        width_by_header={"主供应商": 26, "预设售价": 14},
+    )
+    buffer = io.BytesIO()
+    workbook.save(buffer)
+    workbook.close()
+    buffer.seek(0)
+    brand_label = BRAND_LABELS.get(brand, brand)
+    filename = f"{brand_label}物价.xlsx"
+    write_operation_log(
+        request,
+        module="product",
+        action="export",
+        entity_type="product_export",
+        entity_label=f"{brand_label}物价",
+        summary=f"导出商品物价：{brand_label}，{exported_rows} 条",
+        after_data={
+            "brand": brand,
+            "mode": PRICE_EXPORT_MODE,
+            "ids": selected_ids or None,
+            "year": year,
+            "query": query,
+            "sku_prefix": sku_prefix,
+            "activity_date_start": activity_date_start.isoformat() if activity_date_start else None,
+            "activity_date_end": activity_date_end.isoformat() if activity_date_end else None,
+            "exported_rows": exported_rows,
+            "filename": filename,
+        },
+    )
+    return _excel_streaming_response(buffer, filename)
+
+
 @router.get("/export")
 def export_products(
     request: Request,
@@ -1143,6 +1241,7 @@ def export_products(
 ):
     repository = request.app.state.repository
     _validate_product_export_request(repository, brand, mode)
+    _validate_product_price_export_access(request, mode)
     if request.method == "HEAD":
         return Response(status_code=200)
 
@@ -1155,6 +1254,19 @@ def export_products(
     export_year = year.strip() if year and not export_date_start else None
     export_query = query.strip() if query and not export_date_start else None
     export_sku_prefix = sku_prefix.strip() if sku_prefix and not export_date_start else None
+
+    if mode == PRICE_EXPORT_MODE:
+        return _export_product_prices(
+            request,
+            repository,
+            brand,
+            ids,
+            activity_date_start=export_date_start,
+            activity_date_end=export_date_end,
+            year=export_year,
+            query=export_query,
+            sku_prefix=export_sku_prefix,
+        )
 
     if mode == SIZE_EXPORT_MODE:
         return _export_products_with_sizes(
@@ -1264,6 +1376,7 @@ def check_export_products(
 ):
     repository = request.app.state.repository
     _validate_product_export_request(repository, brand, mode)
+    _validate_product_price_export_access(request, mode)
     _resolve_activity_export_range(
         activity_date=activity_date,
         activity_date_start=activity_date_start,

@@ -65,14 +65,21 @@ class _RouteProductRepository:
 
 
 class _RouteInventoryRepository:
-    def __init__(self, *, fail: bool = False) -> None:
+    def __init__(self, *, fail: bool = False, fail_all_documents: bool = False) -> None:
         self.fail = fail
+        self.fail_all_documents = fail_all_documents
 
     def purchase_order_product_identity_scope(self, connection, product_identity_id):
         if self.fail:
             raise RuntimeError("purchase-order-sync-failed")
         assert product_identity_id == 77
         return {"details": 4, "documents": 2, "document_ids": [11, 12]}
+
+    def document_product_identity_scope(self, connection, product_identity_id):
+        if self.fail_all_documents:
+            raise RuntimeError("document-product-sync-failed")
+        assert product_identity_id == 77
+        return {"details": 7, "documents": 5, "document_ids": [11, 12, 13, 14, 15]}
 
 
 def _product_update_request(product_repository, inventory_repository):
@@ -101,6 +108,8 @@ def test_product_update_and_purchase_order_sync_share_one_transaction(monkeypatc
 
     assert repository.transaction.committed is True
     assert result["purchase_order_sync"]["details"] == 4
+    assert result["document_product_sync"]["details"] == 7
+    assert "7 条关联单据明细" in result["message"]
 
 
 def test_product_update_rolls_back_when_purchase_order_scope_lookup_fails(monkeypatch) -> None:
@@ -124,7 +133,28 @@ def test_product_update_rolls_back_when_purchase_order_scope_lookup_fails(monkey
     assert operation_logs == []
 
 
-def test_stable_product_identity_syncs_purchase_orders_but_not_inventory_history(
+def test_product_update_rolls_back_when_all_document_scope_lookup_fails(monkeypatch) -> None:
+    repository = _RouteProductRepository()
+    request = _product_update_request(repository, _RouteInventoryRepository(fail_all_documents=True))
+    operation_logs: list[object] = []
+    monkeypatch.setattr(product_routes, "write_operation_log", lambda *_args, **kwargs: operation_logs.append(kwargs))
+
+    with pytest.raises(RuntimeError, match="document-product-sync-failed"):
+        product_routes.update_product(
+            request,
+            "cbanner_mens",
+            9,
+            ProductWriteRequest.model_validate({
+                "brand": "cbanner_mens",
+                "payload": {"sku": "NEW-CODE", "original_sku": "OLD-ORIGINAL"},
+            }),
+        )
+
+    assert repository.transaction.rolled_back is True
+    assert operation_logs == []
+
+
+def test_stable_product_identity_syncs_all_document_types(
     test_database_url: str,
     recreate_tables,
 ) -> None:
@@ -171,7 +201,7 @@ def test_stable_product_identity_syncs_purchase_orders_but_not_inventory_history
         "supplier": mens_supplier["name"],
         "warehouse": "测试仓库",
         "document_type": "进货单",
-        "summary": "经营历程不修改",
+        "summary": "经营历程同步修改",
     })
     other_brand_purchase = inventory.create_record({
         "date": "2026-09-17",
@@ -223,9 +253,12 @@ def test_stable_product_identity_syncs_purchase_orders_but_not_inventory_history
             .values(sku="NEW-CODE", original_sku="NEW-ORIGINAL-CODE")
         )
         scope = inventory.purchase_order_product_identity_scope(connection, product_identity_id)
+        all_scope = inventory.document_product_identity_scope(connection, product_identity_id)
 
     assert scope["details"] == 2
     assert scope["documents"] == 2
+    assert all_scope["details"] == 3
+    assert all_scope["documents"] == 3
     with inventory.engine.connect() as connection:
         rows = {
             int(row["id"]): dict(row)
@@ -240,8 +273,8 @@ def test_stable_product_identity_syncs_purchase_orders_but_not_inventory_history
     assert rows[int(details[0]["id"])]["extra_fields"]["image_code"] == "NEW-ORIGINAL-CODE"
     assert rows[int(details[0]["id"])]["extra_fields"]["style_code"] == "NEW-CODE"
     assert rows[int(details[1]["id"])]["product_code"] == "NEW-CODE"
-    assert rows[int(details[2]["id"])]["product_identity_id"] is None
-    assert rows[int(details[2]["id"])]["product_code"] == "OLD-CODE"
+    assert rows[int(details[2]["id"])]["product_identity_id"] == product_identity_id
+    assert rows[int(details[2]["id"])]["product_code"] == "NEW-CODE"
     assert rows[int(details[3]["id"])]["product_identity_id"] is None
     assert rows[int(details[3]["id"])]["product_code"] == "OLD-CODE"
     assert rows[int(details[4]["id"])]["product_identity_id"] is None

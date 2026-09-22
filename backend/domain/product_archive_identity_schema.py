@@ -157,13 +157,11 @@ def _install_functions(connection: Connection) -> None:
                     updated_at = date_trunc('minute', now())
                 FROM inventory_records AS record
                 WHERE detail.document_id = record.id
-                  AND record.document_type = '进货订单'
                   AND detail.product_identity_id = identity_id;
 
                 UPDATE inventory_records AS record
                 SET updated_at = date_trunc('minute', now())
-                WHERE record.document_type = '进货订单'
-                  AND EXISTS (
+                WHERE EXISTS (
                       SELECT 1
                       FROM inventory_details AS detail
                       WHERE detail.document_id = record.id
@@ -195,7 +193,7 @@ def _install_functions(connection: Connection) -> None:
             FROM inventory_records
             WHERE id = NEW.document_id;
 
-            IF record_type IS DISTINCT FROM '进货订单' THEN
+            IF NULLIF(btrim(NEW.product_code), '') IS NULL THEN
                 NEW.product_identity_id := NULL;
                 RETURN NEW;
             END IF;
@@ -203,11 +201,17 @@ def _install_functions(connection: Connection) -> None:
             IF TG_OP = 'UPDATE'
                AND NEW.product_code IS DISTINCT FROM OLD.product_code
                AND NEW.product_identity_id IS NOT DISTINCT FROM OLD.product_identity_id THEN
-                NEW.product_identity_id := NULL;
+                IF NOT EXISTS (
+                    SELECT 1 FROM product_archive_identities
+                    WHERE id = NEW.product_identity_id
+                      AND NULLIF(btrim(NEW.product_code), '') IN (sku, original_sku)
+                ) THEN
+                    NEW.product_identity_id := NULL;
+                END IF;
             END IF;
 
             IF NEW.product_identity_id IS NOT NULL THEN
-                SELECT sku
+                SELECT COALESCE(NULLIF(btrim(sku), ''), NULLIF(btrim(original_sku), ''))
                 INTO resolved_sku
                 FROM product_archive_identities
                 WHERE id = NEW.product_identity_id;
@@ -218,7 +222,8 @@ def _install_functions(connection: Connection) -> None:
                 NEW.product_identity_id := NULL;
             END IF;
 
-            IF record_brand = '' AND record_supplier <> '' THEN
+            IF record_brand = '' AND record_supplier <> ''
+               AND record_type IN ('进货订单', '进货单', '进货退货单') THEN
                 SELECT CASE
                     WHEN count(DISTINCT lower(btrim(brand))) = 1
                     THEN min(lower(btrim(brand)))
@@ -290,12 +295,7 @@ def install_document_product_link_function(connection: Connection) -> None:
         LANGUAGE plpgsql
         AS $$
         BEGIN
-            IF NEW.document_type IS DISTINCT FROM '进货订单' THEN
-                UPDATE inventory_details
-                SET product_identity_id = NULL
-                WHERE document_id = NEW.id
-                  AND product_identity_id IS NOT NULL;
-            ELSIF NEW.document_type IS DISTINCT FROM OLD.document_type
+            IF NEW.document_type IS DISTINCT FROM OLD.document_type
                OR NEW.supplier IS DISTINCT FROM OLD.supplier
                OR NEW.raw_payload::jsonb IS DISTINCT FROM OLD.raw_payload::jsonb THEN
                 UPDATE inventory_details
@@ -356,7 +356,7 @@ def _sync_archive_table(connection: Connection, table_name: str, brand: str) -> 
     """))
 
 
-def _backfill_purchase_order_details(connection: Connection) -> None:
+def _backfill_inventory_product_details(connection: Connection) -> None:
     connection.execute(text("""
         WITH purchase_details AS MATERIALIZED (
             SELECT
@@ -371,13 +371,13 @@ def _backfill_purchase_order_details(connection: Connection) -> None:
                             ELSE NULL
                         END
                         FROM suppliers AS supplier
-                        WHERE lower(btrim(supplier.name)) = lower(btrim(COALESCE(record.supplier, '')))
+                        WHERE record.document_type IN ('进货订单', '进货单', '进货退货单')
+                          AND lower(btrim(supplier.name)) = lower(btrim(COALESCE(record.supplier, '')))
                     )
                 ) AS brand
             FROM inventory_details AS detail
             JOIN inventory_records AS record ON record.id = detail.document_id
-            WHERE record.document_type = '进货订单'
-              AND detail.product_identity_id IS NULL
+            WHERE detail.product_identity_id IS NULL
               AND NULLIF(btrim(detail.product_code), '') IS NOT NULL
         ), matches AS (
             SELECT
@@ -417,13 +417,13 @@ def _backfill_purchase_order_details(connection: Connection) -> None:
                             ELSE NULL
                         END
                         FROM suppliers AS supplier
-                        WHERE lower(btrim(supplier.name)) = lower(btrim(COALESCE(record.supplier, '')))
+                        WHERE record.document_type IN ('进货订单', '进货单', '进货退货单')
+                          AND lower(btrim(supplier.name)) = lower(btrim(COALESCE(record.supplier, '')))
                     )
                 ) AS brand
             FROM inventory_details AS detail
             JOIN inventory_records AS record ON record.id = detail.document_id
-            WHERE record.document_type = '进货订单'
-              AND detail.product_identity_id IS NULL
+            WHERE detail.product_identity_id IS NULL
               AND NULLIF(btrim(detail.product_code), '') IS NOT NULL
         ), matches AS (
             SELECT
@@ -468,13 +468,13 @@ def _backfill_purchase_order_details(connection: Connection) -> None:
                             ELSE NULL
                         END
                         FROM suppliers AS supplier
-                        WHERE lower(btrim(supplier.name)) = lower(btrim(COALESCE(record.supplier, '')))
+                        WHERE record.document_type IN ('进货订单', '进货单', '进货退货单')
+                          AND lower(btrim(supplier.name)) = lower(btrim(COALESCE(record.supplier, '')))
                     )
                 ) AS brand
             FROM inventory_details AS detail
             JOIN inventory_records AS record ON record.id = detail.document_id
-            WHERE record.document_type = '进货订单'
-              AND detail.product_identity_id IS NULL
+            WHERE detail.product_identity_id IS NULL
               AND NULLIF(btrim(detail.product_code), '') IS NOT NULL
         ), matches AS (
             SELECT
@@ -503,14 +503,15 @@ def _backfill_purchase_order_details(connection: Connection) -> None:
             SELECT detail.id AS detail_id, btrim(detail.product_code) AS product_code
             FROM inventory_details AS detail
             JOIN inventory_records AS record ON record.id = detail.document_id
-            WHERE record.document_type = '进货订单'
-              AND detail.product_identity_id IS NULL
+            WHERE detail.product_identity_id IS NULL
               AND NULLIF(btrim(detail.product_code), '') IS NOT NULL
               AND NULLIF(lower(btrim(COALESCE(record.raw_payload ->> 'brand', ''))), '') IS NULL
               AND NOT EXISTS (
                   SELECT 1
                   FROM suppliers AS supplier
-                  WHERE lower(btrim(supplier.name)) = lower(btrim(COALESCE(record.supplier, '')))
+                  WHERE record.document_type IN ('进货订单', '进货单', '进货退货单')
+                    AND lower(btrim(supplier.name)) = lower(btrim(COALESCE(record.supplier, '')))
+                  HAVING count(DISTINCT NULLIF(lower(btrim(supplier.brand)), '')) = 1
               )
         ), matches AS (
             SELECT
@@ -534,6 +535,29 @@ def _backfill_purchase_order_details(connection: Connection) -> None:
     """))
 
 
+def _install_inventory_product_link_triggers(connection: Connection) -> None:
+    connection.execute(text(
+        "DROP TRIGGER IF EXISTS trg_hede_purchase_detail_product_link ON inventory_details"
+    ))
+    connection.execute(text("""
+        CREATE TRIGGER trg_hede_purchase_detail_product_link
+        BEFORE INSERT OR UPDATE OF product_code, product_identity_id, document_id
+        ON inventory_details
+        FOR EACH ROW
+        EXECUTE FUNCTION hede_link_purchase_order_detail_product()
+    """))
+    connection.execute(text(
+        "DROP TRIGGER IF EXISTS trg_hede_inventory_record_product_links ON inventory_records"
+    ))
+    connection.execute(text("""
+        CREATE TRIGGER trg_hede_inventory_record_product_links
+        AFTER UPDATE OF document_type, supplier, raw_payload
+        ON inventory_records
+        FOR EACH ROW
+        EXECUTE FUNCTION hede_refresh_document_product_links()
+    """))
+
+
 def ensure_product_archive_identity_schema(
     connection: Connection,
     *,
@@ -550,7 +574,7 @@ def ensure_product_archive_identity_schema(
     ):
         # ProductRepository is initialized before InventoryRepository on a new
         # database. The inventory repository will finish this installation as
-        # soon as both purchase-order tables exist.
+        # soon as both inventory tables exist.
         return
 
     connection.execute(text(
@@ -586,40 +610,29 @@ def ensure_product_archive_identity_schema(
     for table_name, brand in specs:
         _sync_archive_table(connection, table_name, str(brand).strip().lower())
 
-    connection.execute(text(
-        "DROP TRIGGER IF EXISTS trg_hede_purchase_detail_product_link ON inventory_details"
-    ))
-    connection.execute(text("""
-        CREATE TRIGGER trg_hede_purchase_detail_product_link
-        BEFORE INSERT OR UPDATE OF product_code, product_identity_id, document_id
-        ON inventory_details
-        FOR EACH ROW
-        EXECUTE FUNCTION hede_link_purchase_order_detail_product()
-    """))
-    connection.execute(text(
-        "DROP TRIGGER IF EXISTS trg_hede_inventory_record_product_links ON inventory_records"
-    ))
-    connection.execute(text("""
-        CREATE TRIGGER trg_hede_inventory_record_product_links
-        AFTER UPDATE OF document_type, supplier, raw_payload
-        ON inventory_records
-        FOR EACH ROW
-        EXECUTE FUNCTION hede_refresh_document_product_links()
-    """))
+    _install_inventory_product_link_triggers(connection)
     connection.execute(text("""
         UPDATE inventory_details AS detail
         SET product_identity_id = NULL
-        FROM inventory_records AS record
-        WHERE detail.document_id = record.id
-          AND record.document_type <> '进货订单'
+        WHERE NULLIF(btrim(detail.product_code), '') IS NULL
           AND detail.product_identity_id IS NOT NULL
     """))
-    _backfill_purchase_order_details(connection)
+    _backfill_inventory_product_details(connection)
 
 
 def product_archive_identity_coverage(connection: Connection) -> Mapping[str, int]:
     row = connection.execute(text("""
         SELECT
+            count(*) FILTER (
+                WHERE NULLIF(btrim(detail.product_code), '') IS NOT NULL
+            ) AS product_details,
+            count(*) FILTER (
+                WHERE detail.product_identity_id IS NOT NULL
+            ) AS linked_product_details,
+            count(*) FILTER (
+                WHERE NULLIF(btrim(detail.product_code), '') IS NOT NULL
+                  AND detail.product_identity_id IS NULL
+            ) AS unlinked_product_details,
             count(*) FILTER (WHERE record.document_type = '进货订单') AS purchase_details,
             count(*) FILTER (
                 WHERE record.document_type = '进货订单'
@@ -628,7 +641,7 @@ def product_archive_identity_coverage(connection: Connection) -> Mapping[str, in
             count(*) FILTER (
                 WHERE record.document_type <> '进货订单'
                   AND detail.product_identity_id IS NOT NULL
-            ) AS incorrectly_linked_non_purchase_details
+            ) AS linked_non_purchase_details
         FROM inventory_details AS detail
         JOIN inventory_records AS record ON record.id = detail.document_id
     """)).mappings().one()

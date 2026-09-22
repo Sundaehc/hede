@@ -1,4 +1,7 @@
-from storage.auth_repository import DEFAULT_ROLE_BY_DEPARTMENT, DEFAULT_ROLES, DEPARTMENTS
+from sqlalchemy import select, update
+
+from domain.auth_schema import AUTH_ROLE_TABLE, METADATA
+from storage.auth_repository import AuthRepository, DEFAULT_ROLE_BY_DEPARTMENT, DEFAULT_ROLES, DEPARTMENTS
 
 
 def test_finance_department_has_read_only_product_archive_permission():
@@ -6,9 +9,40 @@ def test_finance_department_has_read_only_product_archive_permission():
     permissions = set(role["permissions"].split(","))
 
     assert "product.view" in permissions
+    assert "product.price_export" in permissions
     assert "product.manage" not in permissions
     assert "product.import" not in permissions
     assert "product.export" not in permissions
+
+
+def test_seed_defaults_upgrades_existing_finance_role_without_broadening_product_access():
+    repository = AuthRepository("sqlite://")
+    try:
+        METADATA.create_all(repository.engine)
+        repository.seed_defaults()
+        with repository.engine.begin() as connection:
+            role = connection.execute(
+                select(AUTH_ROLE_TABLE).where(AUTH_ROLE_TABLE.c.code == "finance_user")
+            ).mappings().one()
+            role_id = role["id"]
+            previous_permissions = set(role["permissions"].split(",")) - {"product.price_export"}
+            connection.execute(
+                update(AUTH_ROLE_TABLE)
+                .where(AUTH_ROLE_TABLE.c.id == role_id)
+                .values(permissions=",".join(sorted(previous_permissions)))
+            )
+
+        repository.seed_defaults()
+        repository.seed_defaults()
+
+        with repository.engine.connect() as connection:
+            role = connection.execute(
+                select(AUTH_ROLE_TABLE).where(AUTH_ROLE_TABLE.c.code == "finance_user")
+            ).mappings().one()
+        assert role["id"] == role_id
+        assert set(role["permissions"].split(",")) == previous_permissions | {"product.price_export"}
+    finally:
+        repository.engine.dispose()
 
 
 def test_customer_service_department_has_product_view_only_role():
