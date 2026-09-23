@@ -1,0 +1,4 @@
+[mcp_servers.hede_readonly]
+url = "https://mcp.example.com/mcp"
+bearer_token_env_var = "HEDE_MCP_TOKEN"
+tool_timeout_sec = 30

@@ -9,10 +9,12 @@ wheels/
 
 # Virtual environments
 .venv
+.venv-mcp/
 
 # Local configuration
 .env
 backend/.env
+backend/.env.mcp-pending
 frontend/.env.local
 
 # Runtime logs

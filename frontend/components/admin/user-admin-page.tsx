@@ -1,5 +1,6 @@
 "use client"
 
+import Link from "next/link"
 import { useEffect, useMemo, useState, type ReactNode } from "react"
 import { AlertCircle, Ban, Building2, CheckCircle2, History, Loader2, Plus, RefreshCw, Save, ShieldCheck, UserCog, Users, type LucideIcon } from "lucide-react"
 
@@ -164,7 +165,7 @@ function FieldLabel({ children }: { children: ReactNode }) {
 
 
 export function UserAdminPage() {
-  const { hasPermission } = useAuth()
+  const { user: currentUser, hasPermission } = useAuth()
   const [users, setUsers] = useState<AuthUser[]>([])
   const [departments, setDepartments] = useState<AuthDepartment[]>([])
   const [roles, setRoles] = useState<AuthRole[]>([])
@@ -551,6 +552,14 @@ export function UserAdminPage() {
             <p className="page-subtitle">管理登录账号、部门、角色和账号状态</p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
+            {currentUser?.role_code === "super_admin" ? (
+              <Button asChild variant="outline">
+                <Link href="/admin/mcp-tokens">
+                  <ShieldCheck className="h-3.5 w-3.5" />
+                  MCP Token 管理
+                </Link>
+              </Button>
+            ) : null}
             <Button type="button" onClick={openCreateDialog}>
               <Plus className="h-3.5 w-3.5" />
               创建账号

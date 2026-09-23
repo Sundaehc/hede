@@ -48,6 +48,8 @@ type OperationLogDialogProps = {
 const PAGE_SIZE = 20
 
 const ACTION_LABELS: Record<string, string> = {
+  mcp_token_issue: "签发凭证",
+  mcp_token_revoke: "撤销凭证",
   create: "新增",
   update: "编辑",
   delete: "删除",

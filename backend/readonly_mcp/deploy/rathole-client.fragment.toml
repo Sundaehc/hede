@@ -1,0 +1,3 @@
+[client.services.hede_mcp]
+token = "REPLACE_WITH_SEPARATE_RANDOM_TUNNEL_TOKEN"
+local_addr = "127.0.0.1:8765"

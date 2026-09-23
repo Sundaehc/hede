@@ -15,6 +15,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from api.auth_middleware import auth_middleware
 from api.request_rate_limit import RequestRateLimitMiddleware
 from api.routes.auth import router as auth_router
+from api.routes.mcp_tokens import router as mcp_tokens_router
 from api.routes.images import router as images_router
 from api.routes.fine_table import router as fine_table_router
 from api.routes.import_export import router as import_export_router
@@ -207,6 +208,7 @@ def create_app(*, settings, repository=None, image_matchers=None, inventory_repo
         app.state.us3_image_storage = None
 
     app.include_router(auth_router)
+    app.include_router(mcp_tokens_router)
     app.include_router(products_router)
     app.include_router(product_copywriting_router)
     app.include_router(product_goods_router)

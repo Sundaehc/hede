@@ -309,6 +309,60 @@ def install_document_product_link_function(connection: Connection) -> None:
     """))
 
 
+def _ensure_trigger(
+    connection: Connection,
+    *,
+    table_name: str,
+    trigger_name: str,
+    function_name: str,
+    trigger_type: int,
+    columns: tuple[str, ...],
+    arguments: tuple[str, ...] = (),
+    definition: str,
+) -> None:
+    table_name = _identifier(table_name)
+    trigger_name = _identifier(trigger_name)
+    function_name = _identifier(function_name)
+    existing = connection.execute(text("""
+        SELECT trigger.tgtype, trigger.tgenabled, trigger.tgargs,
+            trigger.tgqual IS NULL AS unconditional,
+            trigger.tgconstraint = 0 AS ordinary,
+            trigger.tgoldtable IS NULL AND trigger.tgnewtable IS NULL AS no_transition_tables,
+            trigger.tgfoid = to_regprocedure(format('%I.%I()', current_schema(), CAST(:function_name AS text))) AS function_matches,
+            ARRAY(
+                SELECT attribute.attname::text
+                FROM unnest(trigger.tgattr::smallint[]) AS updated_column(attnum)
+                JOIN pg_catalog.pg_attribute attribute
+                    ON attribute.attrelid = trigger.tgrelid
+                    AND attribute.attnum = updated_column.attnum
+                ORDER BY attribute.attname
+            ) AS updated_columns
+        FROM pg_catalog.pg_trigger trigger
+        WHERE trigger.tgrelid = to_regclass(:table_name)
+            AND trigger.tgname = :trigger_name
+            AND NOT trigger.tgisinternal
+    """), {
+        "table_name": table_name,
+        "trigger_name": trigger_name,
+        "function_name": function_name,
+    }).mappings().first()
+    expected_arguments = b"".join(value.encode("utf-8") + b"\0" for value in arguments)
+    if existing is not None and (
+        existing["tgtype"] == trigger_type
+        and existing["tgenabled"] == "O"
+        and bytes(existing["tgargs"]) == expected_arguments
+        and existing["unconditional"]
+        and existing["ordinary"]
+        and existing["no_transition_tables"]
+        and existing["function_matches"]
+        and list(existing["updated_columns"]) == sorted(columns)
+    ):
+        return
+    if existing is not None:
+        connection.execute(text(f"DROP TRIGGER {trigger_name} ON {table_name}"))
+    connection.execute(text(definition))
+
+
 def _sync_archive_table(connection: Connection, table_name: str, brand: str) -> None:
     table_name = _identifier(table_name)
     brand = str(brand or "").strip().lower()
@@ -347,13 +401,21 @@ def _sync_archive_table(connection: Connection, table_name: str, brand: str) -> 
            OR product_archive_identities.original_sku IS DISTINCT FROM EXCLUDED.original_sku
            OR product_archive_identities.is_active IS DISTINCT FROM EXCLUDED.is_active
     """), {"brand": brand, "source_table": table_name})
-    connection.execute(text(f"DROP TRIGGER IF EXISTS trg_hede_product_identity_sync ON {table_name}"))
-    connection.execute(text(f"""
+    _ensure_trigger(
+        connection,
+        table_name=table_name,
+        trigger_name="trg_hede_product_identity_sync",
+        function_name="hede_sync_product_archive_identity",
+        trigger_type=29,
+        columns=("sku", "original_sku", "deleted_at"),
+        arguments=(brand,),
+        definition=f"""
         CREATE TRIGGER trg_hede_product_identity_sync
         AFTER INSERT OR DELETE OR UPDATE OF sku, original_sku, deleted_at ON {table_name}
         FOR EACH ROW
         EXECUTE FUNCTION hede_sync_product_archive_identity('{brand_literal}')
-    """))
+        """,
+    )
 
 
 def _backfill_inventory_product_details(connection: Connection) -> None:
@@ -536,26 +598,36 @@ def _backfill_inventory_product_details(connection: Connection) -> None:
 
 
 def _install_inventory_product_link_triggers(connection: Connection) -> None:
-    connection.execute(text(
-        "DROP TRIGGER IF EXISTS trg_hede_purchase_detail_product_link ON inventory_details"
-    ))
-    connection.execute(text("""
+    _ensure_trigger(
+        connection,
+        table_name="inventory_details",
+        trigger_name="trg_hede_purchase_detail_product_link",
+        function_name="hede_link_purchase_order_detail_product",
+        trigger_type=23,
+        columns=("product_code", "product_identity_id", "document_id"),
+        definition="""
         CREATE TRIGGER trg_hede_purchase_detail_product_link
         BEFORE INSERT OR UPDATE OF product_code, product_identity_id, document_id
         ON inventory_details
         FOR EACH ROW
         EXECUTE FUNCTION hede_link_purchase_order_detail_product()
-    """))
-    connection.execute(text(
-        "DROP TRIGGER IF EXISTS trg_hede_inventory_record_product_links ON inventory_records"
-    ))
-    connection.execute(text("""
+        """,
+    )
+    _ensure_trigger(
+        connection,
+        table_name="inventory_records",
+        trigger_name="trg_hede_inventory_record_product_links",
+        function_name="hede_refresh_document_product_links",
+        trigger_type=17,
+        columns=("document_type", "supplier", "raw_payload"),
+        definition="""
         CREATE TRIGGER trg_hede_inventory_record_product_links
         AFTER UPDATE OF document_type, supplier, raw_payload
         ON inventory_records
         FOR EACH ROW
         EXECUTE FUNCTION hede_refresh_document_product_links()
-    """))
+        """,
+    )
 
 
 def ensure_product_archive_identity_schema(
@@ -577,16 +649,17 @@ def ensure_product_archive_identity_schema(
         # soon as both inventory tables exist.
         return
 
-    connection.execute(text(
-        "ALTER TABLE IF EXISTS inventory_details "
-        "ADD COLUMN IF NOT EXISTS product_identity_id BIGINT"
-    ))
+    if not any(column["name"] == "product_identity_id" for column in inspector.get_columns("inventory_details")):
+        connection.execute(text(
+            "ALTER TABLE inventory_details ADD COLUMN product_identity_id BIGINT"
+        ))
     connection.execute(text("""
         DO $$
         BEGIN
             IF NOT EXISTS (
                 SELECT 1 FROM pg_constraint
                 WHERE conname = 'fk_inventory_details_product_identity'
+                  AND conrelid = to_regclass('inventory_details')
             ) THEN
                 ALTER TABLE inventory_details
                 ADD CONSTRAINT fk_inventory_details_product_identity
