@@ -47,8 +47,8 @@ class QueryExecutor:
                 elif profile in PROFILE_PERMISSIONS:
                     readable = tuple(f"mcp_readonly.{name}" for name, definition in DATASETS.items()
                         if name == "products" or dataset_allowed_for_profile(profile, name)
-                        or name in {"product_prices", "purchase_orders"} and
-                        ("product.view" if name == "product_prices" else "purchase.view") in profile_permissions(profile))
+                        or name == "product_prices" and dataset_allowed_for_profile(profile, name)
+                        or name == "purchase_orders" and "purchase.view" in profile_permissions(profile))
                 else:
                     readable = ("mcp_readonly.products",) + (("mcp_readonly.copywriting", "mcp_readonly.copywriting_history") if profile == "design" else ())
                 for relation in readable:

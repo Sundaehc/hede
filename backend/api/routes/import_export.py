@@ -30,6 +30,7 @@ from domain.excluded_skus import is_excluded_sku, not_excluded_sku_condition
 from domain.fields import PRODUCT_FIELDS
 from domain.gj_schema import GJ_MERGED_PRODUCT_INFO_TABLE
 from domain.product_defaults import apply_product_defaults
+from domain.product_archive_identity_schema import PURCHASE_PRODUCT_SYNC_FIELDS, product_sync_fields_changed
 from domain.product_size_code import build_product_size_code
 from domain.sources import CANONICAL_COLUMNS, COLUMN_ALIASES
 from domain.color_barcode_schema import COLOR_BARCODE_TABLE
@@ -1641,12 +1642,10 @@ async def import_products(
                             int(existing["id"]),
                             connection=connection,
                         )
-                        product_codes_changed = any(
-                            str(existing.get(field) or "").strip()
-                            != str(saved_item.get(field) or "").strip()
-                            for field in ("sku", "original_sku")
+                        product_fields_changed = product_sync_fields_changed(
+                            existing, saved_item, PURCHASE_PRODUCT_SYNC_FIELDS,
                         )
-                        if product_codes_changed and product_identity_id is not None:
+                        if product_fields_changed and product_identity_id is not None:
                             updated_product_identity_ids.add(product_identity_id)
                     if saved_item is not None:
                         imported_product_ids.append(int(saved_item["id"]))

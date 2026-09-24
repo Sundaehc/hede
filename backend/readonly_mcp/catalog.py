@@ -12,10 +12,14 @@ PROFILE_PERMISSIONS = {
     "merchandise": {"product.view", "product.manage", "fine_table.view", "purchase.view", "inventory.view"},
     "operation": {"product.view", "product.manage", "fine_table.view", "purchase.view"},
     "development": {"product.view", "product.manage", "fine_table.view", "purchase.view", "inventory.view"},
+    "customer_service": {"product.view"},
 }
 DEPARTMENT_PROFILES = {
     "财务部": "finance", "商品部": "merchandise", "运营部": "operation", "开发部": "development",
+    "美工部": "design", "客服部": "customer_service",
 }
+
+COST_VISIBLE_PROFILES = {"finance", "merchandise", "operation", "development"}
 
 
 def profile_permissions(profile):
@@ -30,8 +34,10 @@ REFERENCE_MANAGEMENT_DATASETS = {
 
 
 def dataset_allowed_for_profile(profile: str, name: str) -> bool:
+    if profile == "customer_service":
+        return False
     if name == "product_prices":
-        return "product.view" in profile_permissions(profile)
+        return profile in COST_VISIBLE_PROFILES
     if name == "purchase_orders":
         return "purchase.view" in profile_permissions(profile)
     definition = DATASETS.get(name)
@@ -176,7 +182,7 @@ def department_datasets(principal):
     for name, value in DATASETS.items():
         if dataset_allowed_for_profile(profile, name) and value.get("permission") in allowed:
             datasets[name] = value
-    if "product.view" in allowed:
+    if "product.view" in allowed and dataset_allowed_for_profile(profile, "product_prices"):
         datasets["product_prices"] = DATASETS["product_prices"]
     if "purchase.view" in allowed:
         datasets["purchase_orders"] = DATASETS["purchase_orders"]

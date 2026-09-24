@@ -14,6 +14,7 @@ from api.product_copywriting_jobs import normalized_launch_date, prepare_copywri
 from config import load_settings
 from domain.excluded_skus import not_excluded_sku_condition
 from domain.product_copywriting_schema import PRODUCT_COPYWRITING_TABLE
+from scripts.refresh_product_images import TASK_NAME as IMAGE_TASK_NAME
 from storage.product_copywriting_repository import ProductCopywritingRepository
 from storage.product_repository import ProductRepository
 from storage.task_status_repository import ScheduledTaskStatusRepository
@@ -126,6 +127,9 @@ def main() -> int:
     try:
         if not statuses.is_success("sync_products_daily", business_date):
             print("[SKIP] 当天商品档案尚未同步成功，不生成提示词")
+            return 1
+        if not statuses.is_success(IMAGE_TASK_NAME, business_date):
+            print("[SKIP] 当天商品图片尚未同步成功，不生成提示词")
             return 1
         result = run_daily_generation(settings, business_date)
         print(json.dumps({"summary": result}, ensure_ascii=False))

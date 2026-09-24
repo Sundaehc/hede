@@ -35,7 +35,7 @@ class ControlRepository:
                 return None
             if "*" not in permissions and not permissions.intersection(PROFILE_PERMISSIONS[row["profile"]]):
                 return None
-        elif row["profile"] not in {"products", "design"}:
+        elif row["profile"] != "design":
             return None
         return {"token_id": row["token_id"], "user_id": row["user_id"], "profile": row["profile"], "permissions": row["permissions"]}
 

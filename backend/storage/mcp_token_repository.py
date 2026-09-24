@@ -10,6 +10,7 @@ from readonly_mcp.catalog import DEPARTMENT_PROFILES
 PROFILE_PERMISSIONS = {
     "finance": "inventory.view", "merchandise": "fine_table.view",
     "operation": "fine_table.view", "development": "inventory.view",
+    "design": "product.view", "customer_service": "product.view",
 }
 
 
@@ -17,21 +18,18 @@ def allowed_profiles(user):
     permissions = {value.strip() for value in (user.get("permissions") or "").split(",")}
     if user.get("status") != "active" or not permissions.intersection({"*", "product.view"}):
         return []
-    profiles = ["products"]
     is_super_admin = user.get("role_code") == "super_admin"
-    if is_super_admin or user.get("department_code") == "美工部":
-        profiles.append("design")
     department_profile = DEPARTMENT_PROFILES.get(user.get("department_code"))
     if is_super_admin:
-        profiles.extend(DEPARTMENT_PROFILES.values())
-    elif department_profile and ("*" in permissions or PROFILE_PERMISSIONS[department_profile] in permissions):
-        profiles.append(department_profile)
-    return profiles
+        return list(dict.fromkeys(DEPARTMENT_PROFILES.values()))
+    if department_profile and ("*" in permissions or PROFILE_PERMISSIONS[department_profile] in permissions):
+        return [department_profile]
+    return []
 
 
 def issue_credential(connection, *, profile, days, label, user_id=None, username=None):
     label = label.strip()
-    if profile not in {"products", "design", *DEPARTMENT_PROFILES.values()} or (days is not None and (type(days) is not int or not 1 <= days <= 90)) or not 1 <= len(label) <= 100:
+    if profile not in set(DEPARTMENT_PROFILES.values()) or (days is not None and (type(days) is not int or not 1 <= days <= 90)) or not 1 <= len(label) <= 100:
         raise ValueError("profile、有效期或标签不正确（1至90天或永久有效）")
     condition = "users.id=:identity" if user_id is not None else "users.username=:identity"
     lock = " FOR SHARE OF users, roles" if connection.dialect.name == "postgresql" else ""
@@ -39,15 +37,21 @@ def issue_credential(connection, *, profile, days, label, user_id=None, username
         users.department_code,users.role_code,roles.permissions
         FROM public.auth_users users JOIN public.auth_roles roles ON roles.code=users.role_code
         WHERE {condition}{lock}"""), {"identity": user_id if user_id is not None else username}).mappings().first()
-    if user is None or "products" not in allowed_profiles(user):
+    profiles = allowed_profiles(user) if user is not None else []
+    if not profiles:
         raise ValueError("用户不存在、已停用或无商品查看权限")
-    if profile not in allowed_profiles(user):
+    if profile not in profiles:
         raise ValueError("该账号无此部门查询范围权限")
-    if profile in DEPARTMENT_PROFILES.values() and connection.dialect.name == "postgresql":
+    if connection.dialect.name == "postgresql":
+        required_views = "AND to_regclass('mcp_readonly.products') IS NOT NULL"
+        if profile == "design":
+            required_views += " AND to_regclass('mcp_readonly.copywriting') IS NOT NULL AND to_regclass('mcp_readonly.copywriting_history') IS NOT NULL"
+        elif profile in {"finance", "merchandise", "operation", "development"}:
+            required_views += " AND to_regclass('mcp_readonly.product_prices') IS NOT NULL"
+            required_views += " AND to_regclass('mcp_readonly.purchase_orders') IS NOT NULL"
         ready = connection.scalar(text("""SELECT EXISTS (
             SELECT 1 FROM pg_catalog.pg_roles WHERE rolname=:role)
-            AND to_regclass('mcp_readonly.product_prices') IS NOT NULL
-            AND to_regclass('mcp_readonly.purchase_orders') IS NOT NULL"""), {"role": f"hede_mcp_{profile}"})
+            """ + required_views), {"role": f"hede_mcp_{profile}"})
         if not ready:
             raise ValueError("部门MCP尚未升级；请先部署部门专用账号和视图")
     if days is None and connection.dialect.name == "postgresql":

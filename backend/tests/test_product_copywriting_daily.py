@@ -226,24 +226,25 @@ def workflow_clock(monkeypatch):
     monkeypatch.setattr(workflow, "business_today", lambda: BUSINESS_DATE)
 
 
-def test_workflow_runs_dependencies_archive_then_generation(settings, monkeypatch, workflow_clock):
+def test_workflow_runs_dependencies_archive_images_then_generation(settings, monkeypatch, workflow_clock):
     statuses = FakeStatuses()
     sequence = []
     def run_import(module, task_name, log_file):
         sequence.append(module)
-        statuses.states[module] = "success"
+        statuses.states[workflow.IMAGE_TASK_NAME if module == workflow.IMAGE_MODULE else module] = "success"
         return 0
     def generate(*args):
         assert statuses.is_success(workflow.PRODUCT_TASK_NAME, BUSINESS_DATE)
+        assert statuses.is_success(workflow.IMAGE_TASK_NAME, BUSINESS_DATE)
         sequence.append("copywriting")
         return {"target_count": 2, "completed": 2}
     monkeypatch.setattr(workflow, "run_import", run_import)
     monkeypatch.setattr(workflow, "run_daily_generation", generate)
     assert workflow.run_workflow(settings, statuses, BUSINESS_DATE) == 0
-    assert sequence == ["import_price_daily", "import_gj_merged_product_info_daily", "sync_products_daily", "copywriting"]
+    assert sequence == ["import_price_daily", "import_gj_merged_product_info_daily", "sync_products_daily", "refresh_product_images", "copywriting"]
     assert statuses.states[workflow.TASK_NAME] == "success"
     assert workflow.run_workflow(settings, statuses, BUSINESS_DATE) == 0
-    assert len(sequence) == 4
+    assert len(sequence) == 5
 
 
 def test_pending_sources_stop_archive_sync_and_model_generation(settings, monkeypatch, workflow_clock):
@@ -269,7 +270,7 @@ def test_archive_failure_or_missing_success_marker_prevents_generation(settings,
 
 
 def test_resume_after_archive_success_does_not_import_again(settings, monkeypatch, workflow_clock):
-    statuses = FakeStatuses([workflow.PRODUCT_TASK_NAME])
+    statuses = FakeStatuses([workflow.PRODUCT_TASK_NAME, workflow.IMAGE_TASK_NAME])
     importer = Mock()
     generator = Mock(return_value={"target_count": 1, "completed": 1})
     monkeypatch.setattr(workflow, "run_import", importer)
@@ -280,15 +281,16 @@ def test_resume_after_archive_success_does_not_import_again(settings, monkeypatc
 
 
 def test_generation_failure_does_not_undo_successful_archive(settings, monkeypatch, workflow_clock):
-    statuses = FakeStatuses([workflow.PRODUCT_TASK_NAME])
+    statuses = FakeStatuses([workflow.PRODUCT_TASK_NAME, workflow.IMAGE_TASK_NAME])
     monkeypatch.setattr(workflow, "run_daily_generation", Mock(return_value={"target_count": 1, "failed": 1}))
     assert workflow.run_workflow(settings, statuses, BUSINESS_DATE) == 1
     assert statuses.states[workflow.PRODUCT_TASK_NAME] == "success"
+    assert statuses.states[workflow.IMAGE_TASK_NAME] == "success"
     assert statuses.states[workflow.COPYWRITING_TASK_NAME] == "failed"
 
 
 def test_generation_exception_is_sanitized_and_logged_in_both_statuses(settings, monkeypatch, workflow_clock, capsys):
-    statuses = FakeStatuses([workflow.PRODUCT_TASK_NAME])
+    statuses = FakeStatuses([workflow.PRODUCT_TASK_NAME, workflow.IMAGE_TASK_NAME])
     monkeypatch.setattr(workflow, "run_daily_generation", Mock(side_effect=RuntimeError("test-secret")))
     assert workflow.run_workflow(settings, statuses, BUSINESS_DATE) == 1
     assert statuses.states[workflow.TASK_NAME] == "failed"
@@ -303,6 +305,97 @@ def test_midnight_crossover_prevents_using_old_business_date(settings, monkeypat
     monkeypatch.setattr(workflow, "run_daily_generation", generator)
     assert workflow.run_workflow(settings, statuses, BUSINESS_DATE) == 1
     generator.assert_not_called()
+
+
+@pytest.mark.parametrize("exit_code", [0, 1])
+def test_image_refresh_failure_or_missing_marker_blocks_copywriting(settings, monkeypatch, workflow_clock, exit_code):
+    statuses = FakeStatuses([workflow.PRODUCT_TASK_NAME])
+    calls = []
+
+    def importer(module, task_name, log_file):
+        calls.append(module)
+        return exit_code
+
+    monkeypatch.setattr(workflow, "run_import", importer)
+    generator = Mock()
+    monkeypatch.setattr(workflow, "run_daily_generation", generator)
+    assert workflow.run_workflow(settings, statuses, BUSINESS_DATE) == 1
+    assert calls == [workflow.IMAGE_MODULE]
+    generator.assert_not_called()
+    assert statuses.states[workflow.TASK_NAME] == "failed"
+
+
+def test_failed_images_retry_without_reimporting_archive(settings, monkeypatch, workflow_clock):
+    statuses = FakeStatuses([workflow.PRODUCT_TASK_NAME])
+    importer = Mock(return_value=1)
+    generator = Mock(return_value={"completed": 1})
+    monkeypatch.setattr(workflow, "run_import", importer)
+    monkeypatch.setattr(workflow, "run_daily_generation", generator)
+    assert workflow.run_workflow(settings, statuses, BUSINESS_DATE) == 1
+    generator.assert_not_called()
+
+    def recover(module, task_name, log_file):
+        assert module == workflow.IMAGE_MODULE
+        statuses.states[workflow.IMAGE_TASK_NAME] = "success"
+        return 0
+
+    importer.side_effect = recover
+    assert workflow.run_workflow(settings, statuses, BUSINESS_DATE) == 0
+    assert importer.call_count == 2
+    generator.assert_called_once_with(settings, BUSINESS_DATE)
+
+
+def test_nonzero_image_exit_blocks_even_with_success_marker(settings, monkeypatch, workflow_clock):
+    statuses = FakeStatuses([workflow.PRODUCT_TASK_NAME])
+
+    def importer(*args):
+        statuses.states[workflow.IMAGE_TASK_NAME] = "success"
+        return 1
+
+    monkeypatch.setattr(workflow, "run_import", importer)
+    generator = Mock()
+    monkeypatch.setattr(workflow, "run_daily_generation", generator)
+    assert workflow.run_workflow(settings, statuses, BUSINESS_DATE) == 1
+    generator.assert_not_called()
+
+
+def test_midnight_during_images_blocks_generation(settings, monkeypatch):
+    statuses = FakeStatuses([workflow.PRODUCT_TASK_NAME])
+    monkeypatch.setattr(workflow, "business_today", Mock(side_effect=[BUSINESS_DATE, BUSINESS_DATE + timedelta(days=1)]))
+
+    def importer(*args):
+        statuses.states[workflow.IMAGE_TASK_NAME] = "success"
+        return 0
+
+    monkeypatch.setattr(workflow, "run_import", importer)
+    generator = Mock()
+    monkeypatch.setattr(workflow, "run_daily_generation", generator)
+    assert workflow.run_workflow(settings, statuses, BUSINESS_DATE) == 1
+    generator.assert_not_called()
+    assert statuses.states[workflow.TASK_NAME] == "failed"
+
+
+def test_generation_retry_reuses_successful_archive_and_images(settings, monkeypatch, workflow_clock):
+    statuses = FakeStatuses([workflow.PRODUCT_TASK_NAME, workflow.IMAGE_TASK_NAME])
+    importer = Mock()
+    generator = Mock(side_effect=[{"failed": 1}, {"skipped": 1}])
+    monkeypatch.setattr(workflow, "run_import", importer)
+    monkeypatch.setattr(workflow, "run_daily_generation", generator)
+    assert workflow.run_workflow(settings, statuses, BUSINESS_DATE) == 1
+    assert workflow.run_workflow(settings, statuses, BUSINESS_DATE) == 0
+    importer.assert_not_called()
+    assert generator.call_count == 2
+
+
+def test_image_runner_uses_daily_mode_and_correct_business_status(monkeypatch):
+    runner = Mock(return_value=SimpleNamespace(returncode=0))
+    monkeypatch.setattr(workflow.subprocess, "run", runner)
+    assert workflow.run_import(workflow.IMAGE_MODULE, "HedeRefreshProductImages", "refresh_product_images.log") == 0
+    command = runner.call_args.args[0]
+    assert command[command.index("--skip-if-business-success") + 1] == workflow.IMAGE_TASK_NAME
+    assert command[-3:] == ["-m", "scripts.refresh_product_images", "--daily"]
+    assert "--lookback-days" not in command and "--allow-missing-current" not in command
+    assert "--force-us3" not in command and "--skip-us3" not in command
 
 
 def test_prerequisite_runner_uses_existing_logged_imports_without_force(monkeypatch):
@@ -374,6 +467,25 @@ def test_execute_cli_requires_successful_archive_sync(settings, monkeypatch):
     monkeypatch.setattr("sys.argv", ["generate_product_copywriting_daily", "--execute"])
     assert daily.main() == 1
     generator.assert_not_called()
+    statuses.engine.dispose.assert_called_once()
+
+
+@pytest.mark.parametrize("images_succeeded", [False, True])
+def test_execute_cli_requires_successful_images_after_archive(settings, monkeypatch, images_succeeded):
+    statuses = Mock()
+    statuses.is_success.side_effect = [True, images_succeeded]
+    monkeypatch.setattr(daily, "load_settings", Mock(return_value=settings))
+    monkeypatch.setattr(daily, "business_today", lambda: BUSINESS_DATE)
+    monkeypatch.setattr(daily, "ScheduledTaskStatusRepository", Mock(return_value=statuses))
+    generator = Mock(return_value={"completed": 1})
+    monkeypatch.setattr(daily, "run_daily_generation", generator)
+    monkeypatch.setattr("sys.argv", ["generate_product_copywriting_daily", "--execute"])
+    assert daily.main() == (0 if images_succeeded else 1)
+    if images_succeeded:
+        generator.assert_called_once_with(settings, BUSINESS_DATE)
+    else:
+        generator.assert_not_called()
+    statuses.is_success.assert_any_call(daily.IMAGE_TASK_NAME, BUSINESS_DATE)
     statuses.engine.dispose.assert_called_once()
 
 

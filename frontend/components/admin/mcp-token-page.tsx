@@ -40,7 +40,7 @@ import {
 } from "@/lib/mcp-tokens"
 import { cn } from "@/lib/utils"
 
-const PROFILE_NAMES: Record<McpProfile, string> = { products: "商品档案", design: "商品档案 + 美工文案", finance: "财务部数据", merchandise: "商品部数据", operation: "运营部数据", development: "开发部数据" }
+const PROFILE_NAMES: Record<McpProfile, string> = { products: "商品档案（历史凭证）", design: "商品档案 + 美工文案", finance: "财务部数据", merchandise: "商品部数据", operation: "运营部数据", development: "开发部数据", customer_service: "客服部数据" }
 const STATES = {
   active: {
     name: "有效",
@@ -197,7 +197,7 @@ function TokenManager() {
 
   function openCreate() {
     setSelectedUser(null)
-    setProfile("products")
+    setProfile("design")
     setDays("30")
     setPermanent(false)
     setLabel("")
@@ -333,11 +333,11 @@ function TokenManager() {
           </div>
           <div className="border-b border-border p-5 md:border-r md:border-b-0">
             <p className="text-[11px] font-semibold tracking-widest text-muted-foreground">
-              PRODUCTS
+              各部门数据
             </p>
-            <h2 className="mt-2 text-sm font-semibold">商品档案</h2>
+            <h2 className="mt-2 text-sm font-semibold">商品档案为基础</h2>
             <p className="mt-2 text-xs leading-6 text-muted-foreground">
-              开放授权的商品字段，不含成本、供应商及原始数据。
+              财务/商品/运营/开发/客服部按各自权限叠加成本、进销存等字段，均不含原始导入数据。
             </p>
           </div>
           <div className="p-5">
@@ -575,7 +575,7 @@ function TokenManager() {
                         (item) => item.id === Number(event.target.value)
                       ) ?? null
                     setSelectedUser(candidate)
-                    setProfile("products")
+                    if (candidate?.profiles.length) setProfile(candidate.profiles[0])
                   }}
                 >
                   <option value="">
@@ -645,11 +645,10 @@ function TokenManager() {
                       setProfile(event.target.value as McpProfile)
                     }
                   >
-                    <option value="products">商品档案</option>
-                    {selectedUser?.profiles.includes("design") ? (
-                      <option value="design">商品档案 + 美工文案</option>
+                    {!selectedUser?.profiles.length ? (
+                      <option value="">该账号无可用查询范围</option>
                     ) : null}
-                    {selectedUser?.profiles.filter((item) => !["products", "design"].includes(item)).map((item) => (
+                    {selectedUser?.profiles.map((item) => (
                       <option key={item} value={item}>{PROFILE_NAMES[item]}</option>
                     ))}
                   </Select>

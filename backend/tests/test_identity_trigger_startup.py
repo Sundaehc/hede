@@ -93,8 +93,8 @@ def trigger_engine(isolated_database):
     engine = create_engine(isolated_database, connect_args={"options": f"-c search_path={schema},pg_catalog"})
     with engine.begin() as connection:
         for statement in (
-            "CREATE TABLE inventory_records(id bigint PRIMARY KEY,document_type text,supplier text,raw_payload json,updated_at timestamptz)",
-            "CREATE TABLE inventory_details(id bigint PRIMARY KEY,document_id bigint,product_code text,product_name text,color_barcode text,extra_fields json,updated_at timestamptz)",
+            "CREATE TABLE inventory_records(id bigint PRIMARY KEY,document_type text,supplier text,raw_payload json,amount numeric,updated_at timestamptz)",
+            "CREATE TABLE inventory_details(id bigint PRIMARY KEY,document_id bigint,product_code text,product_name text,color_barcode text,color_name text,color_spec text,quantity numeric,unit_price numeric,amount numeric,extra_fields json,updated_at timestamptz)",
             "CREATE TABLE suppliers(id bigint PRIMARY KEY,name text,brand text)",
             "CREATE TABLE archive_test(id bigint PRIMARY KEY,sku text,original_sku text,deleted_at timestamptz)",
         ):
@@ -162,7 +162,7 @@ def test_second_startup_preserves_revoked_function_privileges_and_business_links
             WHERE routine.oid=to_regprocedure('hede_sync_product_archive_identity()') AND permission.grantee=0"""))
         assert public_execute == 0
         connection.exec_driver_sql("INSERT INTO archive_test VALUES(1,'OLD','ORIGINAL',NULL)")
-        connection.exec_driver_sql("INSERT INTO inventory_records VALUES(1,'purchase',NULL,'{\"brand\":\"test_brand\"}',NULL)")
+        connection.exec_driver_sql("INSERT INTO inventory_records(id,document_type,raw_payload) VALUES(1,'进货订单','{\"brand\":\"test_brand\"}')")
         connection.exec_driver_sql("INSERT INTO inventory_details(id,document_id,product_code,extra_fields) VALUES(1,1,'OLD','{\"image_code\":\"OLD\"}')")
         identity = connection.scalar(text("SELECT product_identity_id FROM inventory_details WHERE id=1"))
         assert identity is not None

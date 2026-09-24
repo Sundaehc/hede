@@ -37,6 +37,24 @@ STATIC_PRODUCT_ARCHIVE_TABLE_BRANDS = {
     for brand, table in PRODUCT_ARCHIVE_TABLES.items()
 }
 _IDENTIFIER = re.compile(r"^[a-z_][a-z0-9_]*$")
+HISTORY_PRODUCT_SYNC_FIELDS = ("color_code", "color", "size_range")
+PURCHASE_PRODUCT_EXTRA_FIELD_MAPPING = {
+    "factory_sku": "factory_code",
+    "upper_material": "upper_material",
+    "lining_material": "lining_material",
+    "outsole_material": "outsole_material",
+    "insole_material": "insole_material",
+    "shoe_box_spec": "shoe_box_spec",
+}
+PURCHASE_PRODUCT_SYNC_FIELDS = (
+    "sku", "original_sku", "product_name", "cost",
+    *HISTORY_PRODUCT_SYNC_FIELDS,
+    *PURCHASE_PRODUCT_EXTRA_FIELD_MAPPING,
+)
+
+
+def product_sync_fields_changed(before: Mapping, after: Mapping, fields: Iterable[str]) -> bool:
+    return any(before.get(field) != after.get(field) for field in fields)
 
 
 def _is_postgresql(connection: Connection) -> bool:
@@ -84,9 +102,9 @@ def _install_functions(connection: Connection) -> None:
                 cache_value := btrim(COALESCE(result ->> cache_key, ''));
                 replacement := NULL;
                 IF cache_value <> '' AND cache_value = btrim(COALESCE(old_sku, '')) THEN
-                    replacement := NULLIF(btrim(COALESCE(new_sku, '')), '');
+                    replacement := btrim(COALESCE(new_sku, ''));
                 ELSIF cache_value <> '' AND cache_value = btrim(COALESCE(old_original_sku, '')) THEN
-                    replacement := NULLIF(btrim(COALESCE(new_original_sku, '')), '');
+                    replacement := btrim(COALESCE(new_original_sku, ''));
                 END IF;
                 IF replacement IS NOT NULL THEN
                     result := jsonb_set(result, ARRAY[cache_key], to_jsonb(replacement), true);
@@ -96,6 +114,11 @@ def _install_functions(connection: Connection) -> None:
         END;
         $$
     """))
+    sync_fields_sql = ", ".join(f"'{field}'" for field in PURCHASE_PRODUCT_SYNC_FIELDS)
+    extra_fields_sql = ", ".join(
+        f"('{source}', '{target}')"
+        for source, target in PURCHASE_PRODUCT_EXTRA_FIELD_MAPPING.items()
+    )
     connection.execute(text("""
         CREATE OR REPLACE FUNCTION hede_sync_product_archive_identity()
         RETURNS trigger
@@ -105,6 +128,15 @@ def _install_functions(connection: Connection) -> None:
             archive_brand text := lower(btrim(TG_ARGV[0]));
             identity_id bigint;
             current_sku text;
+            old_product jsonb;
+            new_product jsonb;
+            changed_fields jsonb;
+            history_extra jsonb := '{}'::jsonb;
+            purchase_extra jsonb := '{}'::jsonb;
+            history_changed boolean;
+            size_labels text;
+            source_field text;
+            target_field text;
         BEGIN
             IF TG_OP = 'DELETE' THEN
                 UPDATE product_archive_identities
@@ -141,37 +173,113 @@ def _install_functions(connection: Connection) -> None:
                 updated_at = EXCLUDED.updated_at
             RETURNING id INTO identity_id;
 
-            IF TG_OP = 'UPDATE' AND (
-                NEW.sku IS DISTINCT FROM OLD.sku
-                OR NEW.original_sku IS DISTINCT FROM OLD.original_sku
-            ) THEN
+            IF TG_OP = 'UPDATE' THEN
+                old_product := to_jsonb(OLD);
+                new_product := to_jsonb(NEW);
+                SELECT COALESCE(jsonb_object_agg(key, value), '{}'::jsonb)
+                INTO changed_fields
+                FROM jsonb_each(new_product)
+                WHERE key IN (__SYNC_FIELDS__)
+                  AND value IS DISTINCT FROM old_product -> key;
+                IF changed_fields = '{}'::jsonb THEN
+                    RETURN NEW;
+                END IF;
+
+                history_changed := changed_fields ?| ARRAY['color_code', 'color', 'size_range'];
+                IF changed_fields ? 'size_range' THEN
+                    IF to_regclass('size_groups') IS NOT NULL AND to_regclass('size_group_items') IS NOT NULL THEN
+                        SELECT string_agg(item.size_name, '|' ORDER BY item.sort_order, item.id)
+                        INTO size_labels
+                        FROM size_group_items AS item
+                        JOIN size_groups AS size_group ON size_group.id = item.size_group_id
+                        WHERE size_group.name = new_product ->> 'size_range';
+                    END IF;
+                    history_extra := jsonb_build_object(
+                        'size_range', COALESCE(new_product ->> 'size_range', ''),
+                        'size_labels', COALESCE(size_labels, '')
+                    );
+                END IF;
+                purchase_extra := history_extra;
+                FOR source_field, target_field IN
+                    SELECT * FROM (VALUES __EXTRA_FIELDS__) AS mapping(source_field, target_field)
+                LOOP
+                    IF changed_fields ? source_field THEN
+                        purchase_extra := purchase_extra || jsonb_build_object(
+                            target_field, COALESCE(new_product ->> source_field, '')
+                        );
+                    END IF;
+                END LOOP;
+
                 UPDATE inventory_details AS detail
-                SET product_code = COALESCE(current_sku, detail.product_code),
-                    extra_fields = hede_replace_purchase_product_cache(
-                        detail.extra_fields,
-                        OLD.sku,
-                        NEW.sku,
-                        OLD.original_sku,
-                        NEW.original_sku
-                    ),
+                SET product_code = CASE WHEN changed_fields ?| ARRAY['sku', 'original_sku']
+                        THEN COALESCE(current_sku, detail.product_code) ELSE detail.product_code END,
+                    product_name = CASE WHEN changed_fields ? 'product_name'
+                        THEN new_product ->> 'product_name' ELSE detail.product_name END,
+                    color_barcode = CASE WHEN changed_fields ? 'color_code'
+                        THEN new_product ->> 'color_code' ELSE detail.color_barcode END,
+                    color_name = CASE WHEN changed_fields ? 'color'
+                        THEN new_product ->> 'color' ELSE detail.color_name END,
+                    color_spec = CASE WHEN changed_fields ? 'color'
+                        THEN new_product ->> 'color' ELSE detail.color_spec END,
+                    unit_price = CASE WHEN changed_fields ? 'cost'
+                        THEN (new_product ->> 'cost')::numeric ELSE detail.unit_price END,
+                    amount = CASE WHEN changed_fields ? 'cost'
+                        THEN round(COALESCE(detail.quantity, 0) * (new_product ->> 'cost')::numeric, 2)
+                        ELSE detail.amount END,
+                    extra_fields = ((CASE WHEN changed_fields ?| ARRAY['sku', 'original_sku']
+                        THEN hede_replace_purchase_product_cache(
+                            detail.extra_fields, OLD.sku, NEW.sku, OLD.original_sku, NEW.original_sku
+                        )::jsonb
+                        ELSE COALESCE(detail.extra_fields::jsonb, '{}'::jsonb)
+                    END) || purchase_extra)::json,
                     updated_at = date_trunc('minute', now())
                 FROM inventory_records AS record
                 WHERE detail.document_id = record.id
+                  AND record.document_type = '进货订单'
                   AND detail.product_identity_id = identity_id;
+
+                IF history_changed THEN
+                    UPDATE inventory_details AS detail
+                    SET color_barcode = CASE WHEN changed_fields ? 'color_code'
+                            THEN new_product ->> 'color_code' ELSE detail.color_barcode END,
+                        color_name = CASE WHEN changed_fields ? 'color'
+                            THEN new_product ->> 'color' ELSE detail.color_name END,
+                        extra_fields = CASE WHEN changed_fields ? 'size_range'
+                            THEN (COALESCE(detail.extra_fields::jsonb, '{}'::jsonb) || history_extra)::json
+                            ELSE detail.extra_fields END,
+                        updated_at = date_trunc('minute', now())
+                    FROM inventory_records AS record
+                    WHERE detail.document_id = record.id
+                      AND record.document_type IS DISTINCT FROM '进货订单'
+                      AND detail.product_identity_id = identity_id;
+                END IF;
 
                 UPDATE inventory_records AS record
                 SET updated_at = date_trunc('minute', now())
-                WHERE EXISTS (
+                WHERE (record.document_type = '进货订单' OR history_changed)
+                  AND EXISTS (
                       SELECT 1
                       FROM inventory_details AS detail
                       WHERE detail.document_id = record.id
                         AND detail.product_identity_id = identity_id
                   );
+                IF changed_fields ? 'cost' THEN
+                    UPDATE inventory_records AS record
+                    SET amount = (
+                        SELECT COALESCE(sum(detail.amount), 0)
+                        FROM inventory_details AS detail WHERE detail.document_id = record.id
+                    )
+                    WHERE record.document_type = '进货订单'
+                      AND EXISTS (
+                          SELECT 1 FROM inventory_details AS detail
+                          WHERE detail.document_id = record.id AND detail.product_identity_id = identity_id
+                      );
+                END IF;
             END IF;
             RETURN NEW;
         END;
         $$
-    """))
+    """.replace("__SYNC_FIELDS__", sync_fields_sql).replace("__EXTRA_FIELDS__", extra_fields_sql)))
     connection.execute(text("""
         CREATE OR REPLACE FUNCTION hede_link_purchase_order_detail_product()
         RETURNS trigger
@@ -216,7 +324,11 @@ def _install_functions(connection: Connection) -> None:
                 FROM product_archive_identities
                 WHERE id = NEW.product_identity_id;
                 IF FOUND THEN
-                    NEW.product_code := COALESCE(NULLIF(btrim(resolved_sku), ''), NEW.product_code);
+                    IF record_type = '进货订单' OR TG_OP = 'INSERT'
+                       OR NEW.product_identity_id IS DISTINCT FROM OLD.product_identity_id
+                       OR NEW.product_code IS DISTINCT FROM OLD.product_code THEN
+                        NEW.product_code := COALESCE(NULLIF(btrim(resolved_sku), ''), NEW.product_code);
+                    END IF;
                     RETURN NEW;
                 END IF;
                 NEW.product_identity_id := NULL;
@@ -299,7 +411,11 @@ def install_document_product_link_function(connection: Connection) -> None:
                OR NEW.supplier IS DISTINCT FROM OLD.supplier
                OR NEW.raw_payload::jsonb IS DISTINCT FROM OLD.raw_payload::jsonb THEN
                 UPDATE inventory_details
-                SET product_identity_id = NULL,
+                SET product_identity_id = CASE
+                        WHEN NEW.document_type IS NOT DISTINCT FROM OLD.document_type
+                         AND NEW.supplier IS NOT DISTINCT FROM OLD.supplier
+                         AND (NEW.raw_payload::jsonb ->> 'brand') IS NOT DISTINCT FROM (OLD.raw_payload::jsonb ->> 'brand')
+                        THEN product_identity_id ELSE NULL END,
                     product_code = product_code
                 WHERE document_id = NEW.id;
             END IF;
@@ -407,11 +523,11 @@ def _sync_archive_table(connection: Connection, table_name: str, brand: str) -> 
         trigger_name="trg_hede_product_identity_sync",
         function_name="hede_sync_product_archive_identity",
         trigger_type=29,
-        columns=("sku", "original_sku", "deleted_at"),
+        columns=(),
         arguments=(brand,),
         definition=f"""
         CREATE TRIGGER trg_hede_product_identity_sync
-        AFTER INSERT OR DELETE OR UPDATE OF sku, original_sku, deleted_at ON {table_name}
+        AFTER INSERT OR DELETE OR UPDATE ON {table_name}
         FOR EACH ROW
         EXECUTE FUNCTION hede_sync_product_archive_identity('{brand_literal}')
         """,

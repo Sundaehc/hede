@@ -118,7 +118,18 @@
       "WebSearch",
       "Bash(PYTHONPATH=e:/hede/backend python e:/hede/backend/scripts/import_monthly_order.py)",
       "Bash(PYTHONPATH=e:/hede/backend python e:/hede/backend/scripts/import_jst_daily.py)",
-      "Bash(python -m scripts.add_performance_indexes)"
+      "Bash(python -m scripts.add_performance_indexes)",
+      "Bash(pnpm exec *)",
+      "Bash(tasklist //FI \"IMAGENAME eq python.exe\" //V)",
+      "Bash(wmic process *)",
+      "Bash(taskkill //PID 39616 //F)",
+      "Bash(taskkill //PID 44984 //F)",
+      "Bash(cmd //c start_readonly_mcp.cmd)",
+      "Bash(cmd //c \"E:\\\\\\\\hede\\\\\\\\backend\\\\\\\\scripts\\\\\\\\start_readonly_mcp.cmd\")",
+      "Bash(pg_dump --version)",
+      "Bash(tasklist //FI \"IMAGENAME eq pg_dump.exe\")",
+      "Bash(\"/d/Postgresql/bin/pg_restore\" --list \"/e/hede/backend/backups/commodity_department_20260924_110303.dump\")",
+      "Bash(taskkill //PID 27052 //F)"
     ],
     "additionalDirectories": [
       "\\tmp"

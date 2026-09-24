@@ -76,12 +76,19 @@ uv run python -m scripts.sync_product_images_us3 --limit 1
 
 ## 定时任务
 
-现有 Windows 定时任务 `HedeRefreshProductImages` 每天 `23:00` 执行
-`backend/scripts/refresh_product_images_daily.cmd`。任务现在依次执行：
+图片更新已接入每日商品档案主流程：`HedeImportProductsDaily` 按北京时间 `04:00` 启动，商品档案同步成功后立即执行图片更新，图片步骤全部成功后才补生成提示词。未完成时每30分钟重试至16:00，已成功的档案和图片步骤不重复执行。
+
+图片步骤通过 `scripts.refresh_product_images --daily` 依次执行：
 
 1. 扫描共享图片目录并回填商品档案缺失的本地图片路径。
 2. 将商品档案引用的新图片或已变化图片增量同步到 US3。
 3. 将结果写入 `backend/logs/refresh_product_images.log` 和定时任务运行记录。
+
+每日图片业务状态为 `refresh_product_images_daily`。仅在当天档案已同步成功、共享目录可访问、路径刷新完成且US3上传无失败时标记成功；未配置US3、刷新失败、上传失败或执行跨日均不放行后续提示词生成。单个商品没有图片仍按原规则计入缺图，不冒充上传失败。
+
+2026-09-24已删除原每天 `23:00` 的 Windows 独立任务 `HedeRefreshProductImages`，不再保留夜间图片补偿。自动图片更新只由 `HedeImportProductsDaily` 主流程在档案更新成功后执行，并使用数据库会话锁防止每日图片步骤重复运行。主流程图片子步骤仍沿用 `HedeRefreshProductImages` 作为运行日志名称，这不代表存在同名独立定时任务。原 `backend/scripts/refresh_product_images_daily.cmd` 仅保留为手动运维入口，没有自动触发计划。
+
+手动执行 `scripts.refresh_product_images`（不带 `--daily`）仍支持 `--brand`、`--overwrite`、`--skip-us3`、`--force-us3` 和 `--dry-run-us3`，不读取或写入每日成功状态，也不会因当天自动任务成功而被跳过；这些参数不可与 `--daily` 组合。
 
 ## 增量清单
 

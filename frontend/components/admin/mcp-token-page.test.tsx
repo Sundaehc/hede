@@ -69,14 +69,14 @@ beforeEach(() => {
         username: "designer",
         display_name: "美工甲",
         department_code: "美工部",
-        profiles: ["products", "design"],
+        profiles: ["design"],
       },
       {
         id: 3,
         username: "finance",
         display_name: "财务甲",
         department_code: "财务部",
-        profiles: ["products"],
+        profiles: ["finance"],
       },
     ],
     total: 2,
@@ -160,7 +160,7 @@ describe("MCP token administration", () => {
     await screen.findByRole("dialog", { name: "Token 已签发，请立即保存" })
     expect(mocks.issue).toHaveBeenCalledWith({
       user_id: 2,
-      profile: "products",
+      profile: "design",
       days: null,
       label: "长期办公电脑",
     })
@@ -172,13 +172,11 @@ describe("MCP token administration", () => {
     fireEvent.change(screen.getByLabelText("中台账号"), {
       target: { value: "2" },
     })
-    fireEvent.change(screen.getByLabelText("查询范围"), {
-      target: { value: "design" },
-    })
+    expect(screen.getByLabelText("查询范围")).toHaveValue("design")
     fireEvent.change(screen.getByLabelText("中台账号"), {
       target: { value: "3" },
     })
-    expect(screen.getByLabelText("查询范围")).toHaveValue("products")
+    expect(screen.getByLabelText("查询范围")).toHaveValue("finance")
     expect(
       within(screen.getByLabelText("查询范围")).queryByRole("option", {
         name: "商品档案 + 美工文案",

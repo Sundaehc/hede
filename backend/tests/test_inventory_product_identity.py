@@ -13,6 +13,8 @@ from sqlalchemy import create_engine, event, text
 from api.routes import inventory as inventory_routes
 from domain.inventory_sources import ACCOUNTING_DOCUMENT_TYPES, DOCUMENT_TYPES
 from domain.product_archive_identity_schema import (
+    HISTORY_PRODUCT_SYNC_FIELDS,
+    PURCHASE_PRODUCT_EXTRA_FIELD_MAPPING,
     _backfill_inventory_product_details,
     _install_functions,
     _install_inventory_product_link_triggers,
@@ -37,7 +39,7 @@ def identity_connection(test_database_url):
                 statements = [
                     """CREATE TEMP TABLE inventory_records (
                         id bigint PRIMARY KEY, document_type text, supplier text,
-                        raw_payload json, updated_at timestamptz DEFAULT now()
+                        raw_payload json, amount numeric, updated_at timestamptz DEFAULT now()
                     ) ON COMMIT DROP""",
                     """CREATE TEMP TABLE product_archive_identities (
                         id bigserial PRIMARY KEY, brand text, source_table text,
@@ -48,7 +50,7 @@ def identity_connection(test_database_url):
                     """CREATE TEMP TABLE inventory_details (
                         id bigint PRIMARY KEY, document_id bigint REFERENCES inventory_records(id),
                         product_identity_id bigint REFERENCES product_archive_identities(id),
-                        product_code text, product_name text, color_barcode text, extra_fields json,
+                        product_code text, product_name text, color_barcode text, color_name text, color_spec text, extra_fields json,
                         quantity numeric, unit_price numeric, amount numeric,
                         size_quantities json, remark text, updated_at timestamptz DEFAULT now()
                     ) ON COMMIT DROP""",
@@ -56,7 +58,14 @@ def identity_connection(test_database_url):
                         id bigserial PRIMARY KEY, name text, brand text
                     ) ON COMMIT DROP""",
                     """CREATE TEMP TABLE test_product_archive (
-                        id bigint PRIMARY KEY, sku text, original_sku text, deleted_at timestamptz
+                        id bigint PRIMARY KEY, sku text, original_sku text, deleted_at timestamptz,
+                        product_name text, color_code text, color text, size_range text, cost numeric,
+                        factory_sku text, upper_material text, lining_material text,
+                        outsole_material text, insole_material text, shoe_box_spec text
+                    ) ON COMMIT DROP""",
+                    """CREATE TEMP TABLE size_groups (id bigint PRIMARY KEY, name text) ON COMMIT DROP""",
+                    """CREATE TEMP TABLE size_group_items (
+                        id bigint PRIMARY KEY, size_group_id bigint, size_name text, sort_order integer
                     ) ON COMMIT DROP""",
                 ]
                 for statement in statements:
@@ -127,7 +136,7 @@ def _other_brand_identity(connection, sku="OLD-CODE"):
 
 @pytest.mark.parametrize("document_type", DOCUMENT_TYPES)
 @pytest.mark.parametrize("explicit_identity", [False, True])
-def test_all_document_types_link_and_follow_archive_code_changes(
+def test_all_document_types_link_but_only_purchase_follows_archive_code_changes(
     identity_connection, document_type, explicit_identity,
 ):
     connection = identity_connection
@@ -140,14 +149,159 @@ def test_all_document_types_link_and_follow_archive_code_changes(
 
     detail = connection.execute(text("SELECT * FROM inventory_details WHERE id = 1")).mappings().one()
     assert detail["product_identity_id"] == identity_id
-    assert detail["product_code"] == "NEW-CODE"
-    assert detail["extra_fields"] == {"style_code": "NEW-CODE", "image_code": "NEW-ORIGINAL", "other": "keep"}
+    is_purchase = document_type == "进货订单"
+    assert detail["product_code"] == ("NEW-CODE" if is_purchase else "OLD-CODE")
+    assert detail["extra_fields"] == {
+        "style_code": "NEW-CODE" if is_purchase else "OLD-CODE",
+        "image_code": "NEW-ORIGINAL" if is_purchase else "ORIGINAL-CODE", "other": "keep",
+    }
     assert (detail["quantity"], detail["unit_price"], detail["amount"]) == (Decimal("2"), Decimal("123.45"), Decimal("246.90"))
     assert detail["size_quantities"] == {"230": "2"}
     assert detail["remark"] == "保持备注"
     assert InventoryRepository.document_product_identity_scope(connection, identity_id) == {
         "details": 1, "documents": 1, "document_ids": [1],
     }
+
+
+@pytest.mark.parametrize("document_type", DOCUMENT_TYPES)
+def test_archive_attributes_sync_by_document_type(identity_connection, document_type):
+    connection = identity_connection
+    identity_id = _product(connection)
+    _document(connection, document_type=document_type)
+    _detail(connection)
+    connection.execute(text("UPDATE inventory_details SET color_name='旧颜色', color_spec='旧规格'"))
+    connection.execute(text("INSERT INTO size_groups VALUES (1, '新尺码组')"))
+    connection.execute(text("INSERT INTO size_group_items VALUES (1, 1, '39', 2), (2, 1, '38', 1)"))
+    connection.execute(text("UPDATE inventory_records SET amount=246.90"))
+    connection.execute(text("""
+        UPDATE test_product_archive SET sku='NEW-CODE', original_sku='NEW-ORIGINAL',
+            product_name='新鞋名', color_code='80', color='黑色', size_range='新尺码组', cost=88.88,
+            factory_sku='NEW-FACTORY', upper_material='新鞋面', lining_material='新内里',
+            outsole_material='新大底', insole_material='新鞋垫', shoe_box_spec='新鞋盒'
+        WHERE id=1
+    """))
+    detail = connection.execute(text("SELECT * FROM inventory_details")).mappings().one()
+    is_purchase = document_type == '进货订单'
+    assert detail['product_identity_id'] == identity_id
+    assert detail['product_code'] == ('NEW-CODE' if is_purchase else 'OLD-CODE')
+    assert detail['product_name'] == ('新鞋名' if is_purchase else '测试鞋')
+    assert detail['color_barcode'] == '80'
+    assert detail['color_name'] == '黑色'
+    assert detail['color_spec'] == ('黑色' if is_purchase else '旧规格')
+    assert detail['unit_price'] == Decimal('88.88' if is_purchase else '123.45')
+    assert detail['amount'] == Decimal('177.76' if is_purchase else '246.90')
+    assert connection.scalar(text('SELECT amount FROM inventory_records')) == detail['amount']
+    assert detail['quantity'] == Decimal('2')
+    assert detail['size_quantities'] == {'230': '2'}
+    assert detail['remark'] == '保持备注'
+    expected_extra = {
+        'style_code': 'NEW-CODE' if is_purchase else 'OLD-CODE',
+        'image_code': 'NEW-ORIGINAL' if is_purchase else 'ORIGINAL-CODE',
+        'other': 'keep', 'size_range': '新尺码组', 'size_labels': '38|39',
+    }
+    if is_purchase:
+        expected_extra.update({
+            'factory_code': 'NEW-FACTORY', 'upper_material': '新鞋面', 'lining_material': '新内里',
+            'outsole_material': '新大底', 'insole_material': '新鞋垫', 'shoe_box_spec': '新鞋盒',
+        })
+    assert detail['extra_fields'] == expected_extra
+
+
+@pytest.mark.parametrize('document_type', ['进货订单', '进货单'])
+def test_archive_clearing_fields_preserves_unrelated_values(identity_connection, document_type):
+    connection = identity_connection
+    _product(connection)
+    connection.execute(text("UPDATE test_product_archive SET color='黑色', color_code='80', size_range='旧组', upper_material='皮革'"))
+    _document(connection, document_type=document_type)
+    _detail(connection)
+    connection.execute(text("""UPDATE inventory_details SET color_name='黑色', color_spec='规格保留',
+        extra_fields='{"size_range":"old","size_labels":"38|39","upper_material":"manual","other":"keep"}'"""))
+    connection.execute(text("UPDATE test_product_archive SET color=NULL, color_code=NULL, size_range=NULL, upper_material=NULL"))
+    detail = connection.execute(text('SELECT * FROM inventory_details')).mappings().one()
+    assert detail['color_name'] is None
+    assert detail['color_barcode'] is None
+    assert detail['extra_fields'] == {
+        'size_range': '', 'size_labels': '', 'other': 'keep',
+        'upper_material': '' if document_type == '进货订单' else 'manual',
+    }
+    assert detail['unit_price'] == Decimal('123.45')
+    assert detail['size_quantities'] == {'230': '2'}
+
+
+def test_history_save_after_archive_rename_keeps_identity_and_original_code(identity_connection):
+    connection = identity_connection
+    identity_id = _product(connection)
+    _document(connection)
+    _detail(connection)
+    connection.execute(text("UPDATE test_product_archive SET sku='NEW-CODE'"))
+    connection.execute(text("UPDATE inventory_details SET product_code=product_code, product_identity_id=product_identity_id, remark='changed'"))
+    connection.execute(text("UPDATE inventory_records SET raw_payload='{\"brand\":\"cbanner_mens\",\"note\":\"changed\"}'"))
+    connection.execute(text("UPDATE test_product_archive SET color='黑色'"))
+    assert connection.execute(text('SELECT product_identity_id, product_code, color_name FROM inventory_details')).one() == (identity_id, 'OLD-CODE', '黑色')
+
+
+@pytest.mark.parametrize('document_type', ['进货订单', '进货单'])
+@pytest.mark.parametrize(('field', 'value'), [
+    ('color', '黑色'), ('color_code', '80'), ('size_range', '新组'),
+    ('product_name', '新鞋名'), ('cost', '100'),
+    *[(field, 'changed') for field in PURCHASE_PRODUCT_EXTRA_FIELD_MAPPING],
+])
+def test_single_field_update_only_changes_corresponding_detail_fields(identity_connection, document_type, field, value):
+    connection = identity_connection
+    _product(connection)
+    _document(connection, document_type=document_type)
+    _detail(connection)
+    before = dict(connection.execute(text('SELECT * FROM inventory_details')).mappings().one())
+    connection.execute(text(f'UPDATE test_product_archive SET {field}=:value'), {'value': value})
+    after = dict(connection.execute(text('SELECT * FROM inventory_details')).mappings().one())
+    before.pop('updated_at')
+    after.pop('updated_at')
+    expected = {**before, 'extra_fields': dict(before['extra_fields'])}
+    if document_type == '进货订单' or field in HISTORY_PRODUCT_SYNC_FIELDS:
+        if field == 'color':
+            expected['color_name'] = value
+            if document_type == '进货订单':
+                expected['color_spec'] = value
+        elif field == 'color_code':
+            expected['color_barcode'] = value
+        elif field == 'size_range':
+            expected['extra_fields'].update(size_range=value, size_labels='')
+        elif field == 'cost':
+            expected.update(unit_price=Decimal(value), amount=Decimal(value) * 2)
+        elif field == 'product_name':
+            expected['product_name'] = value
+        else:
+            expected['extra_fields'][PURCHASE_PRODUCT_EXTRA_FIELD_MAPPING[field]] = value
+    assert after == expected
+    connection.execute(text("UPDATE inventory_details SET updated_at='2000-01-01'"))
+    connection.execute(text(f'UPDATE test_product_archive SET {field}=:value'), {'value': value})
+    assert connection.scalar(text('SELECT extract(year FROM updated_at) FROM inventory_details')) == 2000
+
+
+def test_purchase_cost_change_recalculates_whole_order_amount(identity_connection):
+    connection = identity_connection
+    _product(connection)
+    _document(connection, document_type='进货订单')
+    _detail(connection)
+    _detail(connection, detail_id=2, code='UNRELATED')
+    connection.execute(text('UPDATE test_product_archive SET cost=100'))
+    assert connection.scalar(text('SELECT amount FROM inventory_records')) == Decimal('446.90')
+    assert connection.execute(text('SELECT unit_price, amount FROM inventory_details WHERE id=2')).one() == (Decimal('123.45'), Decimal('246.90'))
+
+
+def test_attribute_sync_rollback_restores_purchase_and_history(identity_connection):
+    connection = identity_connection
+    _product(connection)
+    _document(connection, document_type='进货订单')
+    _document(connection, 2, '进货单')
+    _detail(connection)
+    _detail(connection, 2, 2)
+    before = [dict(row) for row in connection.execute(text('SELECT * FROM inventory_details ORDER BY id')).mappings()]
+    savepoint = connection.begin_nested()
+    connection.execute(text("UPDATE test_product_archive SET color='黑色', cost=100, size_range='new'"))
+    assert connection.scalar(text("SELECT count(*) FROM inventory_details WHERE color_name='黑色'")) == 2
+    savepoint.rollback()
+    assert [dict(row) for row in connection.execute(text('SELECT * FROM inventory_details ORDER BY id')).mappings()] == before
 
 
 def test_backfill_links_historical_rows_for_every_document_type(identity_connection):
@@ -164,7 +318,8 @@ def test_backfill_links_historical_rows_for_every_document_type(identity_connect
 
     assert connection.execute(text("SELECT count(*) FROM inventory_details WHERE product_identity_id = :identity_id"), {"identity_id": identity_id}).scalar_one() == len(DOCUMENT_TYPES)
     connection.execute(text("UPDATE test_product_archive SET sku = 'NEW-CODE' WHERE id = 1"))
-    assert connection.execute(text("SELECT DISTINCT product_code FROM inventory_details")).scalars().all() == ["NEW-CODE"]
+    assert connection.execute(text("SELECT count(*) FROM inventory_details WHERE product_code = 'NEW-CODE'")).scalar_one() == 1
+    assert connection.execute(text("SELECT count(*) FROM inventory_details WHERE product_code = 'OLD-CODE'")).scalar_one() == len(DOCUMENT_TYPES) - 1
     coverage = product_archive_identity_coverage(connection)
     assert coverage["linked_product_details"] == len(DOCUMENT_TYPES)
     assert coverage["linked_non_purchase_details"] == len(DOCUMENT_TYPES) - 1
@@ -193,7 +348,7 @@ def test_rename_preserves_explicit_identity_when_new_code_exists_in_another_bran
 
     connection.execute(text("UPDATE test_product_archive SET sku = 'NEW-CODE' WHERE id = 1"))
 
-    assert connection.execute(text("SELECT product_identity_id, product_code FROM inventory_details")).one() == (identity_id, "NEW-CODE")
+    assert connection.execute(text("SELECT product_identity_id, product_code FROM inventory_details")).one() == (identity_id, "OLD-CODE")
 
 
 def test_ambiguous_unbranded_codes_are_not_linked_or_renamed(identity_connection):
@@ -287,7 +442,7 @@ def test_document_type_and_brand_changes_relink_details(identity_connection):
 def test_archive_rename_rollback_restores_all_document_codes(identity_connection):
     connection = identity_connection
     _product(connection)
-    _document(connection, document_type="批发销售单")
+    _document(connection, document_type="进货订单")
     _detail(connection)
     savepoint = connection.begin_nested()
     connection.execute(text("UPDATE test_product_archive SET sku = 'NEW-CODE' WHERE id = 1"))

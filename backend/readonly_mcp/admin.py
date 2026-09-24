@@ -11,7 +11,7 @@ from sqlalchemy.engine import make_url
 
 from domain.excluded_skus import EXCLUDED_SKUS
 from domain.sources import TABLE_NAMES
-from readonly_mcp.catalog import PRODUCT_COLUMNS, BUSINESS_TABLE_PERMISSIONS, DATASETS, PROFILE_PERMISSIONS, dataset_allowed_for_profile, profile_permissions
+from readonly_mcp.catalog import COST_VISIBLE_PROFILES, PRODUCT_COLUMNS, BUSINESS_TABLE_PERMISSIONS, DATASETS, PROFILE_PERMISSIONS, dataset_allowed_for_profile, profile_permissions
 from readonly_mcp.settings import BACKEND_ROOT
 from storage.mcp_token_repository import issue_credential
 
@@ -245,7 +245,7 @@ def upgrade_department_scope(engine, finalize=None) -> dict:
         connection.exec_driver_sql("CREATE VIEW mcp_readonly.purchase_orders WITH (security_barrier=true) AS SELECT " + ",".join(quote(column) for column in DATASETS["purchase_orders"]["columns"]) + " FROM public.inventory_records WHERE deleted_at IS NULL AND document_type='进货订单'")
         for profile, allowed in PROFILE_PERMISSIONS.items():
             role = quote("hede_mcp_" + profile)
-            if "product.view" in allowed:
+            if profile in COST_VISIBLE_PROFILES:
                 connection.exec_driver_sql(f"GRANT SELECT ON mcp_readonly.product_prices TO {role}")
             if "purchase.view" in allowed:
                 connection.exec_driver_sql(f"GRANT SELECT ON mcp_readonly.purchase_orders TO {role}")
@@ -261,6 +261,37 @@ def upgrade_department_scope(engine, finalize=None) -> dict:
         if finalize is not None:
             finalize(created)
         return created
+
+
+def upgrade_customer_service_scope(engine, password: str, finalize=None) -> None:
+    role = "hede_mcp_customer_service"
+    with engine.begin() as connection:
+        connection.exec_driver_sql("SET LOCAL lock_timeout=1000")
+        connection.exec_driver_sql("SET LOCAL statement_timeout=10000")
+        connection.execute(text("SELECT pg_advisory_xact_lock(68473103)"))
+        if connection.scalar(text("SELECT to_regclass('mcp_private.tokens')")) is None or connection.scalar(text("SELECT to_regclass('mcp_readonly.products')")) is None:
+            raise ValueError("MCP尚未初始化")
+        if connection.scalar(text("SELECT 1 FROM pg_roles WHERE rolname=:role"), {"role": role}):
+            raise ValueError(f"{role}已存在；拒绝覆盖账号")
+        if not all(connection.scalar(text("SELECT 1 FROM pg_roles WHERE rolname=:role"), {"role": f"hede_mcp_{profile}"}) for profile in ("finance", "merchandise", "operation", "development")):
+            raise ValueError("请先完成四部门范围升级")
+        database = connection.scalar(text("SELECT current_database()"))
+        connection.exec_driver_sql(f"CREATE ROLE {quote(role)} LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLICATION NOBYPASSRLS CONNECTION LIMIT 8 PASSWORD {literal(password)}")
+        connection.exec_driver_sql(f"GRANT CONNECT ON DATABASE {quote(database)} TO {quote(role)}")
+        for setting, value in (("search_path", "pg_catalog"), ("default_transaction_read_only", "on"), ("statement_timeout", "'10s'"), ("lock_timeout", "'1s'"), ("idle_in_transaction_session_timeout", "'15s'")):
+            connection.exec_driver_sql(f"ALTER ROLE {quote(role)} SET {setting} = {value}")
+        connection.exec_driver_sql(f"GRANT USAGE ON SCHEMA mcp_readonly TO {quote(role)}")
+        connection.exec_driver_sql(f"GRANT SELECT ON mcp_readonly.products TO {quote(role)}")
+        constraints = connection.execute(text("""SELECT conname, pg_get_constraintdef(oid) AS definition
+            FROM pg_constraint WHERE conrelid='mcp_private.tokens'::regclass AND contype='c'""")).mappings().all()
+        existing = next((row for row in constraints if "products" in row["definition"] and "design" in row["definition"]), None)
+        if existing is None:
+            raise ValueError("Token范围约束异常，拒绝升级")
+        connection.exec_driver_sql(f"ALTER TABLE mcp_private.tokens DROP CONSTRAINT {quote(existing['conname'])}")
+        profiles = ",".join(literal(item) for item in ("products", "design", *PROFILE_PERMISSIONS))
+        connection.exec_driver_sql(f"ALTER TABLE mcp_private.tokens ADD CONSTRAINT tokens_profile_check CHECK (profile IN ({profiles}))")
+        if finalize is not None:
+            finalize()
 
 
 def upgrade_token_expiry(engine) -> bool:
@@ -291,7 +322,7 @@ def main():
     setup_parser.add_argument("--execute", action="store_true")
     issue = subparsers.add_parser("issue-token")
     issue.add_argument("--username", required=True)
-    issue.add_argument("--profile", choices=("products", "design", *PROFILE_PERMISSIONS), default="products")
+    issue.add_argument("--profile", choices=("design", *PROFILE_PERMISSIONS), required=True)
     expiry = issue.add_mutually_exclusive_group()
     expiry.add_argument("--days", type=int, default=30)
     expiry.add_argument("--permanent", action="store_true", help="永久有效，仍受撤销和账号权限约束")
@@ -306,6 +337,8 @@ def main():
     upgrade.add_argument("--execute", action="store_true")
     departments = subparsers.add_parser("upgrade-department-scope")
     departments.add_argument("--execute", action="store_true")
+    customer_service = subparsers.add_parser("upgrade-customer-service-scope")
+    customer_service.add_argument("--execute", action="store_true")
     args = parser.parse_args()
     load_dotenv(BACKEND_ROOT / ".env", override=False)
     if args.command == "verify":
@@ -328,7 +361,10 @@ def main():
         print("预览：仅允许mcp_private.tokens.expires_at为空以支持永久Token，不改变已有Token或账号权限；执行需加--execute。签发永久Token前须更新并重启独立MCP服务。")
         return
     if args.command == "upgrade-department-scope" and not args.execute:
-        print("预览：新增四个部门专用最小权限账号、授权业务只读视图及Token范围；不会更改现有Token。执行需加--execute，先停止MCP服务并备份数据库。")
+        print("预览：新增财务、商品、运营、开发、客服五个部门专用最小权限账号、授权业务只读视图及Token范围；不会更改现有Token。执行需加--execute，先停止MCP服务并备份数据库。")
+        return
+    if args.command == "upgrade-customer-service-scope" and not args.execute:
+        print("预览：已完成四部门升级的部署新增客服部只读商品档案角色及Token范围；不更改现有Token。执行需加--execute，先停止MCP服务并备份数据库与.env。")
         return
     database_url = os.getenv("DATABASE_URL")
     if not database_url:
@@ -384,6 +420,40 @@ def main():
             changed = upgrade_token_expiry(engine)
             print("已升级Token有效期结构，已有Token保持不变" if changed else "Token有效期结构已是新版，无需更改")
             print("签发永久Token前请确认独立MCP服务已更新并重启；无需重新setup或修改隧道配置")
+        elif args.command == "upgrade-customer-service-scope":
+            env_path = BACKEND_ROOT / ".env"
+            original = env_path.read_text(encoding="utf-8-sig")
+            if re.search(r"(?m)^\s*MCP_CUSTOMER_SERVICE_DATABASE_URL\s*=", original):
+                raise ValueError("客服部MCP配置已存在，拒绝覆盖")
+            base = make_url(database_url)
+            if base.drivername != "postgresql+psycopg" or not base.host or not base.database or base.query:
+                raise ValueError("升级要求标准postgresql+psycopg URL")
+            pending = env_path.with_name(".env.mcp-customer-service-pending")
+            if pending.exists():
+                raise ValueError("客服部MCP恢复文件已存在，先核对配置，不重复升级")
+            password = secrets.token_urlsafe(40)
+            line = f"MCP_CUSTOMER_SERVICE_DATABASE_URL='{base.set(username='hede_mcp_customer_service', password=password).render_as_string(hide_password=False)}'"
+            if "'" in line.partition("='")[2][:-1] or "\n" in line or "\r" in line:
+                raise ValueError("连接串包含不支持的.env字符")
+            def finalize_customer_service():
+                with pending.open("x", encoding="utf-8") as stream:
+                    protect_config(env_path, pending)
+                    stream.write(original.rstrip() + "\n\n" + line + "\n")
+                if env_path.read_text(encoding="utf-8-sig") != original:
+                    raise ValueError("升级期间.env已改变，请先核对恢复文件")
+            try:
+                upgrade_customer_service_scope(engine, password, finalize=finalize_customer_service)
+            except Exception:
+                if pending.exists():
+                    pending.unlink()
+                raise
+            if env_path.read_text(encoding="utf-8-sig") != original:
+                raise ValueError("数据库已升级但.env发生并发修改；凭证保存在.env.mcp-customer-service-pending，请人工恢复，不重复升级")
+            try:
+                pending.replace(env_path)
+            except Exception:
+                raise ValueError("数据库已升级但.env写入失败；凭证保存在.env.mcp-customer-service-pending，请人工恢复，不重复升级") from None
+            print("客服部MCP角色与Token范围已升级；请手动重启独立MCP与中台后端，再运行verify。现有Token未更改")
         elif args.command == "upgrade-department-scope":
             env_path = BACKEND_ROOT / ".env"
             original = env_path.read_text(encoding="utf-8-sig")

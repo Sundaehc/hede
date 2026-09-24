@@ -9,6 +9,7 @@ from sqlalchemy import text
 
 from config import BACKEND_ROOT, load_settings
 from scripts.generate_product_copywriting_daily import TASK_NAME as COPYWRITING_TASK_NAME, business_today, run_daily_generation
+from scripts.refresh_product_images import TASK_NAME as IMAGE_TASK_NAME
 from scripts.sync_products_daily import TASK_NAME as PRODUCT_TASK_NAME
 from storage.task_status_repository import ScheduledTaskStatusRepository
 
@@ -19,19 +20,24 @@ PREREQUISITES = (
     ("import_price_daily", "HedeImportPriceDaily", "import_price_daily.log"),
     ("import_gj_merged_product_info_daily", "hede_import_gj_merged_product_info_daily", "import_gj_merged_product_info.log"),
 )
+LOOKBACK_IMPORT_MODULES = {module for module, _, _ in PREREQUISITES}
+IMAGE_MODULE = "refresh_product_images"
 
 
 def run_import(module: str, task_name: str, log_file: str) -> int:
     environment = os.environ.copy()
     environment["PYTHONIOENCODING"] = "utf-8"
     environment["PYTHONUTF8"] = "1"
+    status_name = IMAGE_TASK_NAME if module == IMAGE_MODULE else module
     command = [
         sys.executable, "-m", "scripts.run_scheduled_task", "--task-name", task_name,
-        "--log-file", f"logs/{log_file}", "--skip-if-business-success", module,
+        "--log-file", f"logs/{log_file}", "--skip-if-business-success", status_name,
         "--", sys.executable, "-m", f"scripts.{module}",
     ]
-    if module != PRODUCT_TASK_NAME:
+    if module in LOOKBACK_IMPORT_MODULES:
         command.extend(["--lookback-days", "7", "--allow-missing-current"])
+    elif module == IMAGE_MODULE:
+        command.append("--daily")
     return subprocess.run(command, cwd=BACKEND_ROOT, env=environment, check=False).returncode
 
 
@@ -55,10 +61,24 @@ def run_workflow(settings, statuses, business_date: date) -> int:
                 return 0
             exit_code = run_import(PRODUCT_TASK_NAME, "HedeSyncProductArchives", "sync_product_archives.log")
             if exit_code != 0 or not statuses.is_success(PRODUCT_TASK_NAME, business_date):
-                statuses.mark_finished(TASK_NAME, business_date, status="failed", message="商品档案同步未成功，不执行提示词生成")
+                statuses.mark_finished(TASK_NAME, business_date, status="failed", message="商品档案同步未成功，不执行图片更新和提示词生成")
                 return 1
         if business_today() != business_date:
             statuses.mark_finished(TASK_NAME, business_date, status="failed", message="任务跨日，已停止生成，请按新业务日期重试")
+            return 1
+        if not statuses.is_success(IMAGE_TASK_NAME, business_date):
+            exit_code = run_import(IMAGE_MODULE, "HedeRefreshProductImages", "refresh_product_images.log")
+            if exit_code != 0 or not statuses.is_success(IMAGE_TASK_NAME, business_date):
+                statuses.mark_finished(
+                    TASK_NAME,
+                    business_date,
+                    status="failed",
+                    message="商品图片同步未成功，不执行提示词生成",
+                )
+                print("[WAIT] product image refresh did not succeed; copywriting generation was not started")
+                return 1
+        if business_today() != business_date:
+            statuses.mark_finished(TASK_NAME, business_date, status="failed", message="图片同步跨日，已停止生成，请按新业务日期重试")
             return 1
         statuses.mark_running(COPYWRITING_TASK_NAME, business_date)
         try:
@@ -74,7 +94,7 @@ def run_workflow(settings, statuses, business_date: date) -> int:
         print(f"[{'FAILED' if failed else 'OK'}] {business_date.isoformat()} {message}")
         return 1 if failed else 0
     except Exception:
-        statuses.mark_finished(TASK_NAME, business_date, status="failed", message="商品档案与提示词串行任务异常，请检查分步任务日志")
+        statuses.mark_finished(TASK_NAME, business_date, status="failed", message="商品档案、图片与提示词串行任务异常，请检查分步任务日志")
         print(f"[FAILED] {business_date.isoformat()} workflow interrupted; existing copywriting preserved")
         return 1
 

@@ -18,6 +18,11 @@ from api.schemas import BatchDeleteRequest, ProductArchiveBrandKey, ProductWrite
 from sqlalchemy import distinct as sa_distinct, select as sa_select
 
 from domain.color_barcode_schema import COLOR_BARCODE_TABLE
+from domain.product_archive_identity_schema import (
+    HISTORY_PRODUCT_SYNC_FIELDS,
+    PURCHASE_PRODUCT_SYNC_FIELDS,
+    product_sync_fields_changed,
+)
 from domain.ni_gendered_costs import FEMALE_KEY, MALE_KEY, GENDER_COSTS_FIELD, normalize_gender_costs
 from domain.excluded_skus import is_excluded_sku
 from domain.product_auxiliary_attribute_schema import PRODUCT_AUXILIARY_ATTRIBUTE_FIELDS, PRODUCT_AUXILIARY_ATTRIBUTE_TABLE
@@ -386,22 +391,24 @@ def update_product(request: Request, brand: ProductArchiveBrandKey, product_id: 
             if item is not None
             else None
         )
-        product_codes_changed = item is not None and any(
-            str(existing.get(field) or "").strip() != str(item.get(field) or "").strip()
-            for field in ("sku", "original_sku")
+        purchase_fields_changed = item is not None and product_sync_fields_changed(
+            existing, item, PURCHASE_PRODUCT_SYNC_FIELDS,
+        )
+        history_fields_changed = item is not None and product_sync_fields_changed(
+            existing, item, HISTORY_PRODUCT_SYNC_FIELDS,
         )
         purchase_order_sync = (
             inventory_repository.purchase_order_product_identity_scope(
                 connection,
                 product_identity_id,
             )
-            if product_codes_changed
+            if purchase_fields_changed
             else {"details": 0, "documents": 0, "document_ids": []}
         )
         document_product_sync = (
             inventory_repository.document_product_identity_scope(connection, product_identity_id)
-            if product_codes_changed
-            else {"details": 0, "documents": 0, "document_ids": []}
+            if history_fields_changed
+            else dict(purchase_order_sync)
         )
     if item is None:
         # Re-check after the pre-read in case the row was deleted concurrently.

@@ -149,7 +149,8 @@ def test_purchase_order_payload_changes_refresh_only_when_distinct(
         WHERE id = 1
     """), {"raw_payload": new_payload})
 
-    identity_id = None if expected_refreshes else 42
+    brand_changed = old_payload == '{"brand":"cbanner_mens"}' and new_payload == '{"brand":"cbanner_womens"}'
+    identity_id = None if brand_changed else 42
     assert connection.execute(text(
         "SELECT product_identity_id, product_code, refresh_count FROM inventory_details WHERE id = 1"
     )).one() == (identity_id, "TEST-SKU", expected_refreshes)
