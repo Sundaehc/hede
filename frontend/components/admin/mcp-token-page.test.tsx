@@ -52,8 +52,12 @@ async function openCreate() {
     expect(screen.getByRole("button", { name: "签发 Token" })).toBeEnabled()
   )
   fireEvent.click(screen.getByRole("button", { name: "签发 Token" }))
-  await screen.findByRole("option", { name: "designer · 美工甲 · 美工部" })
   await waitFor(() => expect(screen.getByLabelText("中台账号")).toBeEnabled())
+}
+
+async function selectAccount(username = "designer") {
+  fireEvent.click(screen.getByRole("button", { name: "中台账号" }))
+  fireEvent.click(await screen.findByRole("radio", { name: new RegExp(`^${username} ·`) }))
 }
 
 beforeEach(() => {
@@ -115,9 +119,7 @@ describe("MCP token administration", () => {
   it("issues once, copies only the secret, and removes it after closing", async () => {
     render(<McpTokenPage />)
     await openCreate()
-    fireEvent.change(screen.getByLabelText("中台账号"), {
-      target: { value: "2" },
-    })
+    await selectAccount()
     fireEvent.change(screen.getByLabelText("查询范围"), {
       target: { value: "design" },
     })
@@ -148,9 +150,7 @@ describe("MCP token administration", () => {
   it("issues a permanent token only when the explicit option is selected", async () => {
     render(<McpTokenPage />)
     await openCreate()
-    fireEvent.change(screen.getByLabelText("中台账号"), {
-      target: { value: "2" },
-    })
+    await selectAccount()
     fireEvent.click(screen.getByRole("checkbox", { name: /永久有效/ }))
     expect(screen.getByLabelText("有效期（天）")).toBeDisabled()
     fireEvent.change(screen.getByLabelText("用途备注"), {
@@ -169,13 +169,9 @@ describe("MCP token administration", () => {
   it("limits design scope to eligible users and resets scope when changing user", async () => {
     render(<McpTokenPage />)
     await openCreate()
-    fireEvent.change(screen.getByLabelText("中台账号"), {
-      target: { value: "2" },
-    })
+    await selectAccount()
     expect(screen.getByLabelText("查询范围")).toHaveValue("design")
-    fireEvent.change(screen.getByLabelText("中台账号"), {
-      target: { value: "3" },
-    })
+    await selectAccount("finance")
     expect(screen.getByLabelText("查询范围")).toHaveValue("finance")
     expect(
       within(screen.getByLabelText("查询范围")).queryByRole("option", {
@@ -206,9 +202,7 @@ describe("MCP token administration", () => {
     mocks.copy.mockRejectedValue(new Error("insecure context"))
     render(<McpTokenPage />)
     await openCreate()
-    fireEvent.change(screen.getByLabelText("中台账号"), {
-      target: { value: "2" },
-    })
+    await selectAccount()
     fireEvent.change(screen.getByLabelText("用途备注"), {
       target: { value: "办公电脑" },
     })
@@ -229,9 +223,7 @@ describe("MCP token administration", () => {
     )
     render(<McpTokenPage />)
     await openCreate()
-    fireEvent.change(screen.getByLabelText("中台账号"), {
-      target: { value: "2" },
-    })
+    await selectAccount()
     fireEvent.change(screen.getByLabelText("用途备注"), {
       target: { value: "办公电脑" },
     })
@@ -251,9 +243,7 @@ describe("MCP token administration", () => {
   it("removes the secret if administrator permissions change", async () => {
     const view = render(<McpTokenPage />)
     await openCreate()
-    fireEvent.change(screen.getByLabelText("中台账号"), {
-      target: { value: "2" },
-    })
+    await selectAccount()
     fireEvent.change(screen.getByLabelText("用途备注"), {
       target: { value: "办公电脑" },
     })
@@ -269,5 +259,36 @@ describe("MCP token administration", () => {
     render(<McpTokenPage />)
     expect(await screen.findByRole("alert")).toHaveTextContent("MCP尚未初始化")
     expect(screen.getByRole("button", { name: "签发 Token" })).toBeDisabled()
+  })
+
+  it("removes the requested explanatory paragraph without changing expiry controls", async () => {
+    render(<McpTokenPage />)
+    await openCreate()
+    expect(screen.queryByText(/默认有效期为 30 天/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/查询结果会进入员工使用的模型上下文/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/rathole 隧道密钥/)).not.toBeInTheDocument()
+    expect(screen.getByLabelText("有效期（天）")).toHaveValue(30)
+    expect(screen.getByRole("checkbox", { name: /永久有效/ })).not.toBeChecked()
+  })
+
+  it("omits the explanatory cards while keeping the token list and actions", async () => {
+    render(<McpTokenPage />)
+    await waitFor(() => expect(screen.getByRole("button", { name: "签发 Token" })).toBeEnabled())
+    expect(screen.queryByRole("region", { name: "凭证使用说明" })).not.toBeInTheDocument()
+    expect(screen.queryByText("一人一证，随时撤销")).not.toBeInTheDocument()
+    expect(screen.queryByText("商品档案为基础")).not.toBeInTheDocument()
+    expect(screen.queryByText("DESIGN")).not.toBeInTheDocument()
+    expect(screen.getByRole("region", { name: "已签发凭证" })).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "刷新" })).toBeEnabled()
+  })
+
+  it("closes the account picker with Escape without closing the issuance dialog", async () => {
+    render(<McpTokenPage />)
+    await openCreate()
+    fireEvent.click(screen.getByRole("button", { name: "中台账号" }))
+    fireEvent.keyDown(screen.getByRole("textbox", { name: "搜索中台账号" }), { key: "Escape" })
+    expect(screen.queryByRole("region", { name: "选择中台账号" })).not.toBeInTheDocument()
+    expect(screen.getByRole("dialog", { name: "签发个人 Token" })).toBeInTheDocument()
+    expect(mocks.issue).not.toHaveBeenCalled()
   })
 })

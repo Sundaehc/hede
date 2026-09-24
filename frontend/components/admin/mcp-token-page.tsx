@@ -11,11 +11,10 @@ import {
   Loader2,
   Plus,
   RefreshCw,
-  Search,
-  ShieldCheck,
 } from "lucide-react"
 
 import { useAuth } from "@/components/auth/auth-provider"
+import { McpAccountPicker } from "@/components/admin/mcp-account-picker"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -29,7 +28,6 @@ import { Input } from "@/components/ui/input"
 import { Select } from "@/components/ui/select"
 import {
   issueMcpToken,
-  listMcpCandidates,
   listMcpTokens,
   revokeMcpToken,
   type IssuedMcpToken,
@@ -105,15 +103,6 @@ function TokenManager() {
   const [error, setError] = useState("")
   const [notice, setNotice] = useState("")
   const [createOpen, setCreateOpen] = useState(false)
-  const [candidates, setCandidates] = useState<McpPage<McpCandidate> | null>(
-    null
-  )
-  const [candidatePage, setCandidatePage] = useState(1)
-  const [searchVersion, setSearchVersion] = useState(0)
-  const [search, setSearch] = useState("")
-  const [searchDraft, setSearchDraft] = useState("")
-  const [candidateLoading, setCandidateLoading] = useState(false)
-  const [candidateError, setCandidateError] = useState("")
   const [selectedUser, setSelectedUser] = useState<McpCandidate | null>(null)
   const [profile, setProfile] = useState<McpProfile>("products")
   const [days, setDays] = useState("30")
@@ -159,24 +148,6 @@ function TokenManager() {
     void load()
   }, [load])
 
-  useEffect(() => {
-    if (!createOpen) return
-    let cancelled = false
-    void listMcpCandidates(search, candidatePage)
-      .then((response) => {
-        if (!cancelled) setCandidates(response)
-      })
-      .catch((failure: unknown) => {
-        if (!cancelled) setCandidateError(messageOf(failure))
-      })
-      .finally(() => {
-        if (!cancelled) setCandidateLoading(false)
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [createOpen, search, candidatePage, searchVersion])
-
   function refreshList() {
     setLoading(true)
     void load()
@@ -187,26 +158,12 @@ function TokenManager() {
     setPage(next)
   }
 
-  function findCandidates(nextPage = 1) {
-    setCandidateLoading(true)
-    setCandidateError("")
-    setSearch(searchDraft.trim())
-    setCandidatePage(nextPage)
-    setSearchVersion((version) => version + 1)
-  }
-
   function openCreate() {
     setSelectedUser(null)
     setProfile("design")
     setDays("30")
     setPermanent(false)
     setLabel("")
-    setSearch("")
-    setSearchDraft("")
-    setCandidatePage(1)
-    setCandidateLoading(true)
-    setCandidateError("")
-    setCandidates(null)
     setMutationError("")
     setNotice("")
     setCreateOpen(true)
@@ -214,7 +171,7 @@ function TokenManager() {
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    if (busy.current || !selectedUser) return
+    if (busy.current || !selectedUser || !selectedUser.profiles.includes(profile)) return
     const lifetime = Number(days)
     if (
       (!permanent &&
@@ -319,37 +276,6 @@ function TokenManager() {
             </Button>
           </div>
         </div>
-
-        <section
-          className="surface-panel grid overflow-hidden md:grid-cols-[1.1fr_1fr_1fr]"
-          aria-label="凭证使用说明"
-        >
-          <div className="border-b border-border bg-muted/40 p-5 md:border-r md:border-b-0">
-            <ShieldCheck className="mb-3 size-5 text-primary" />
-            <h2 className="text-sm font-semibold">一人一证，随时撤销</h2>
-            <p className="mt-2 text-xs leading-6 text-muted-foreground">
-              账号停用或失去相应权限后，新请求自动失效。Token 明文仅签发时展示。
-            </p>
-          </div>
-          <div className="border-b border-border p-5 md:border-r md:border-b-0">
-            <p className="text-[11px] font-semibold tracking-widest text-muted-foreground">
-              各部门数据
-            </p>
-            <h2 className="mt-2 text-sm font-semibold">商品档案为基础</h2>
-            <p className="mt-2 text-xs leading-6 text-muted-foreground">
-              财务/商品/运营/开发/客服部按各自权限叠加成本、进销存等字段，均不含原始导入数据。
-            </p>
-          </div>
-          <div className="p-5">
-            <p className="text-[11px] font-semibold tracking-widest text-muted-foreground">
-              DESIGN
-            </p>
-            <h2 className="mt-2 text-sm font-semibold">商品档案 + 美工文案</h2>
-            <p className="mt-2 text-xs leading-6 text-muted-foreground">
-              增加当前文案及历史版本，仅美工部、超级管理员可开通。
-            </p>
-          </div>
-        </section>
 
         {error ? (
           <p
@@ -527,111 +453,14 @@ function TokenManager() {
               </DialogDescription>
             </DialogHeader>
             <form onSubmit={submit} className="mt-5 space-y-4">
-              <div className="space-y-2">
-                <label
-                  htmlFor="mcp-user-search"
-                  className="text-sm font-medium"
-                >
-                  查找账号
-                </label>
-                <div className="flex gap-2">
-                  <Input
-                    id="mcp-user-search"
-                    placeholder="用户名或姓名"
-                    value={searchDraft}
-                    maxLength={100}
-                    disabled={saving}
-                    onChange={(event) => setSearchDraft(event.target.value)}
-                    onKeyDown={(event) => {
-                      if (event.key === "Enter") {
-                        event.preventDefault()
-                        findCandidates()
-                      }
-                    }}
-                  />
-                  <Button
-                    type="button"
-                    variant="outline"
-                    disabled={saving}
-                    onClick={() => findCandidates()}
-                  >
-                    <Search className="size-4" />
-                    查找
-                  </Button>
-                </div>
-              </div>
-              <div className="space-y-2">
-                <label htmlFor="mcp-user" className="text-sm font-medium">
-                  中台账号
-                </label>
-                <Select
-                  id="mcp-user"
-                  required
-                  value={selectedUser?.id ?? ""}
-                  disabled={saving || candidateLoading || !!candidateError}
-                  onChange={(event) => {
-                    const candidate =
-                      candidates?.items.find(
-                        (item) => item.id === Number(event.target.value)
-                      ) ?? null
-                    setSelectedUser(candidate)
-                    if (candidate?.profiles.length) setProfile(candidate.profiles[0])
-                  }}
-                >
-                  <option value="">
-                    {candidateLoading ? "正在查找…" : "请选择账号"}
-                  </option>
-                  {selectedUser &&
-                  !candidates?.items.some(
-                    (item) => item.id === selectedUser.id
-                  ) ? (
-                    <option value={selectedUser.id}>
-                      {selectedUser.username} · {selectedUser.department_code}
-                    </option>
-                  ) : null}
-                  {candidates?.items.map((item) => (
-                    <option key={item.id} value={item.id}>
-                      {item.username} · {item.display_name} ·{" "}
-                      {item.department_code}
-                    </option>
-                  ))}
-                </Select>
-                {candidateError ? (
-                  <p role="alert" className="text-xs text-destructive">
-                    {candidateError}
-                  </p>
-                ) : (
-                  <div className="flex items-center justify-between text-xs text-muted-foreground">
-                    <span>{candidates?.total ?? 0} 个符合条件的账号</span>
-                    <div className="flex gap-2">
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="xs"
-                        disabled={
-                          candidateLoading || saving || candidatePage <= 1
-                        }
-                        onClick={() => findCandidates(candidatePage - 1)}
-                      >
-                        上一组
-                      </Button>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="xs"
-                        disabled={
-                          candidateLoading ||
-                          saving ||
-                          candidatePage * 30 >= (candidates?.total ?? 0)
-                        }
-                        onClick={() => findCandidates(candidatePage + 1)}
-                      >
-                        下一组
-                      </Button>
-                    </div>
-                  </div>
-                )}
-              </div>
+              <McpAccountPicker
+                value={selectedUser}
+                disabled={saving}
+                onChange={(candidate) => {
+                  setSelectedUser(candidate)
+                  setProfile(candidate.profiles[0])
+                }}
+              />
               <div className="grid gap-4 sm:grid-cols-[1fr_130px]">
                 <div className="space-y-2">
                   <label htmlFor="mcp-profile" className="text-sm font-medium">
@@ -707,11 +536,6 @@ function TokenManager() {
                   onChange={(event) => setLabel(event.target.value)}
                 />
               </div>
-              <p className="rounded-lg bg-muted/50 p-3 text-xs leading-6 text-muted-foreground">
-                默认有效期为 30 天，可设置 1～90 天或选择永久有效。
-                查询结果会进入员工使用的模型上下文，请确认该账号的数据使用范围。不要把
-                rathole 隧道密钥当作个人 Token。
-              </p>
               {mutationError ? (
                 <p role="alert" className="text-sm text-destructive">
                   {mutationError}
@@ -728,7 +552,7 @@ function TokenManager() {
                 </Button>
                 <Button
                   type="submit"
-                  disabled={saving || !selectedUser || !label.trim()}
+                  disabled={saving || !selectedUser?.profiles.includes(profile) || !label.trim()}
                 >
                   {saving ? (
                     <Loader2 className="size-4 animate-spin" />
