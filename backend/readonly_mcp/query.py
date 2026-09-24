@@ -8,6 +8,7 @@ from psycopg.errors import QueryCanceled
 from sqlalchemy import create_engine, text
 
 from readonly_mcp.sql_policy import ValidatedQuery
+from readonly_mcp.catalog import DATASETS, PROFILE_PERMISSIONS, dataset_allowed_for_profile, profile_permissions
 
 
 def json_value(value):
@@ -21,7 +22,8 @@ def json_value(value):
 class QueryExecutor:
     def __init__(self, settings):
         self.settings = settings
-        self.engines = {profile: create_engine(url, pool_size=2, max_overflow=0, pool_timeout=2, pool_pre_ping=True, hide_parameters=True, connect_args={"connect_timeout": 5}) for profile, url in (("products", settings.products_url), ("design", settings.design_url))}
+        urls = {"products": settings.products_url, "design": settings.design_url, **settings.department_urls}
+        self.engines = {profile: create_engine(url, pool_size=2, max_overflow=0, pool_timeout=2, pool_pre_ping=True, hide_parameters=True, connect_args={"connect_timeout": 5}) for profile, url in urls.items()}
 
     def verify_roles(self, control):
         for profile, engine in {**self.engines, "control": control.engine}.items():
@@ -40,7 +42,15 @@ class QueryExecutor:
                     WHERE space.nspname NOT IN ('pg_catalog','information_schema')
                     AND has_function_privilege(current_user,routine.oid,'EXECUTE')""")):
                     raise ValueError("MCP账号能执行自定义函数，请先审查其PUBLIC EXECUTE授权；本服务不自动修改其他业务授权")
-                readable = ("mcp_private.identities",) if profile == "control" else ("mcp_readonly.products",) + (("mcp_readonly.copywriting", "mcp_readonly.copywriting_history") if profile == "design" else ())
+                if profile == "control":
+                    readable = ("mcp_private.identities",)
+                elif profile in PROFILE_PERMISSIONS:
+                    readable = tuple(f"mcp_readonly.{name}" for name, definition in DATASETS.items()
+                        if name == "products" or dataset_allowed_for_profile(profile, name)
+                        or name in {"product_prices", "purchase_orders"} and
+                        ("product.view" if name == "product_prices" else "purchase.view") in profile_permissions(profile))
+                else:
+                    readable = ("mcp_readonly.products",) + (("mcp_readonly.copywriting", "mcp_readonly.copywriting_history") if profile == "design" else ())
                 for relation in readable:
                     if not connection.scalar(text("SELECT has_table_privilege(current_user,CAST(:relation AS regclass),'SELECT')"), {"relation": relation}):
                         raise ValueError("MCP授权视图缺失或不可读")

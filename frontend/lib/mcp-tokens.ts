@@ -1,4 +1,4 @@
-export type McpProfile = "products" | "design"
+export type McpProfile = "products" | "design" | "finance" | "merchandise" | "operation" | "development"
 
 export type McpTokenItem = {
   id: number

@@ -11,7 +11,7 @@ from sqlalchemy.engine import make_url
 
 from domain.excluded_skus import EXCLUDED_SKUS
 from domain.sources import TABLE_NAMES
-from readonly_mcp.catalog import PRODUCT_COLUMNS
+from readonly_mcp.catalog import PRODUCT_COLUMNS, BUSINESS_TABLE_PERMISSIONS, DATASETS, PROFILE_PERMISSIONS, dataset_allowed_for_profile, profile_permissions
 from readonly_mcp.settings import BACKEND_ROOT
 from storage.mcp_token_repository import issue_credential
 
@@ -170,6 +170,99 @@ def refresh_views(connection) -> int:
     return len(selections)
 
 
+def upgrade_department_scope(engine, finalize=None) -> dict:
+    with engine.begin() as connection:
+        connection.exec_driver_sql("SET LOCAL lock_timeout=1000")
+        connection.exec_driver_sql("SET LOCAL statement_timeout=60000")
+        connection.execute(text("SELECT pg_advisory_xact_lock(68473103)"))
+        if connection.scalar(text("SELECT to_regclass('mcp_private.tokens')")) is None:
+            raise ValueError("MCP尚未初始化")
+        database = connection.scalar(text("SELECT current_database()"))
+        inspector = inspect(connection)
+        created = {}
+        for profile in PROFILE_PERMISSIONS:
+            role = f"hede_mcp_{profile}"
+            if connection.scalar(text("SELECT 1 FROM pg_roles WHERE rolname=:role"), {"role": role}):
+                raise ValueError(f"{role}已存在；拒绝覆盖账号。请核对部署状态")
+            created[profile] = secrets.token_urlsafe(40)
+            connection.exec_driver_sql(f"CREATE ROLE {quote(role)} LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLICATION NOBYPASSRLS CONNECTION LIMIT 8 PASSWORD {literal(created[profile])}")
+            connection.exec_driver_sql(f"GRANT CONNECT ON DATABASE {quote(database)} TO {quote(role)}")
+            connection.exec_driver_sql(f"ALTER ROLE {quote(role)} SET search_path = pg_catalog")
+            connection.exec_driver_sql(f"ALTER ROLE {quote(role)} SET default_transaction_read_only = on")
+            connection.exec_driver_sql(f"ALTER ROLE {quote(role)} SET statement_timeout = '10s'")
+            connection.exec_driver_sql(f"ALTER ROLE {quote(role)} SET lock_timeout = '1s'")
+            connection.exec_driver_sql(f"ALTER ROLE {quote(role)} SET idle_in_transaction_session_timeout = '15s'")
+            connection.exec_driver_sql(f"GRANT USAGE ON SCHEMA mcp_readonly TO {quote(role)}")
+            if "product.view" in PROFILE_PERMISSIONS[profile]:
+                connection.exec_driver_sql(f"GRANT SELECT ON mcp_readonly.products TO {quote(role)}")
+        for name, permission in BUSINESS_TABLE_PERMISSIONS.items():
+            columns = DATASETS[name]["columns"]
+            if not columns:
+                continue
+            if name in {"jst_daily_sales", "vip_daily_sales", "product_goods_historical_sales",
+                        "product_goods_historical_orders", "product_goods_detail_snapshots"}:
+                available = sorted(table for table in inspector.get_table_names(schema="public")
+                    if re.fullmatch(rf"{name}_20\d{{2}}", table))
+                parent = name if inspector.has_table(name, schema="public") else None
+                if parent:
+                    available = [parent]
+                queries = []
+                for table in available:
+                    actual_columns = {column["name"] for column in inspector.get_columns(table, schema="public")}
+                    if not set(columns) <= actual_columns:
+                        raise ValueError(f"{table}字段与授权清单不匹配，拒绝升级")
+                    queries.append(f"SELECT {','.join(quote(column) for column in columns)} FROM public.{quote(table)}")
+                query = " UNION ALL ".join(queries) if queries else "SELECT " + ",".join(
+                    f"NULL::{kind} AS {quote(column)}" for column, kind in columns.items()) + " WHERE false"
+            elif inspector.has_table(name, schema="public"):
+                actual_columns = {column["name"] for column in inspector.get_columns(name, schema="public")}
+                if not set(columns) <= actual_columns:
+                    raise ValueError(f"{name}字段与授权清单不匹配，拒绝升级")
+                selection = ",".join(quote(column) for column in columns)
+                where = " WHERE deleted_at IS NULL" if name == "inventory_records" else ""
+                query = f"SELECT {selection} FROM public.{quote(name)}{where}"
+            else:
+                query = "SELECT " + ",".join(f"NULL::{kind} AS {quote(column)}" for column, kind in columns.items()) + " WHERE false"
+            connection.exec_driver_sql(f"CREATE VIEW mcp_readonly.{quote(name)} WITH (security_barrier=true) AS {query}")
+            for profile in PROFILE_PERMISSIONS:
+                allowed = profile_permissions(profile)
+                if permission in allowed and dataset_allowed_for_profile(profile, name):
+                    connection.exec_driver_sql(f"GRANT SELECT ON mcp_readonly.{quote(name)} TO {quote('hede_mcp_' + profile)}")
+        sources = {**TABLE_NAMES, "smiley": "smiley_products", "ni": "ni_products"}
+        if inspector.has_table("supplier_brands", schema="public"):
+            for row in connection.execute(text("SELECT code, product_table_name FROM public.supplier_brands WHERE product_archive_enabled=true")).mappings():
+                if row["code"] not in sources and re.fullmatch(r"manual_product_archive_[0-9]+", row["product_table_name"] or ""):
+                    sources[row["code"]] = row["product_table_name"]
+        price_views = []
+        exclusions = ",".join(literal(sku) for sku in sorted(EXCLUDED_SKUS))
+        for brand, table_name in sources.items():
+            if inspector.has_table(table_name, schema="public"):
+                where = "deleted_at IS NULL" + (f" AND (sku IS NULL OR sku NOT IN ({exclusions}))" if exclusions else "")
+                price_views.append(f"SELECT {literal(brand)}::text AS brand,id,sku,cost,supplier_name FROM public.{quote(table_name)} WHERE {where}")
+        if not price_views:
+            raise ValueError("商品档案来源缺失，拒绝升级部门范围")
+        connection.exec_driver_sql("CREATE VIEW mcp_readonly.product_prices WITH (security_barrier=true) AS " + " UNION ALL ".join(price_views))
+        connection.exec_driver_sql("CREATE VIEW mcp_readonly.purchase_orders WITH (security_barrier=true) AS SELECT " + ",".join(quote(column) for column in DATASETS["purchase_orders"]["columns"]) + " FROM public.inventory_records WHERE deleted_at IS NULL AND document_type='进货订单'")
+        for profile, allowed in PROFILE_PERMISSIONS.items():
+            role = quote("hede_mcp_" + profile)
+            if "product.view" in allowed:
+                connection.exec_driver_sql(f"GRANT SELECT ON mcp_readonly.product_prices TO {role}")
+            if "purchase.view" in allowed:
+                connection.exec_driver_sql(f"GRANT SELECT ON mcp_readonly.purchase_orders TO {role}")
+        existing = connection.execute(text("""SELECT conname, pg_get_constraintdef(oid) AS definition
+            FROM pg_constraint WHERE conrelid='mcp_private.tokens'::regclass AND contype='c'""")).mappings().all()
+        profile_constraint = next((row for row in existing if "products" in row["definition"] and "design" in row["definition"]), None)
+        if profile_constraint is None:
+            raise ValueError("Token范围约束异常，拒绝升级")
+        connection.exec_driver_sql(f"ALTER TABLE mcp_private.tokens DROP CONSTRAINT {quote(profile_constraint['conname'])}")
+        profiles = ",".join(literal(item) for item in ("products", "design", *PROFILE_PERMISSIONS))
+        connection.exec_driver_sql(f"ALTER TABLE mcp_private.tokens ADD CONSTRAINT tokens_profile_check CHECK (profile IN ({profiles}))")
+        connection.exec_driver_sql("REVOKE ALL ON ALL TABLES IN SCHEMA mcp_readonly FROM PUBLIC")
+        if finalize is not None:
+            finalize(created)
+        return created
+
+
 def upgrade_token_expiry(engine) -> bool:
     with engine.begin() as connection:
         connection.exec_driver_sql("SET LOCAL lock_timeout=1000")
@@ -198,7 +291,7 @@ def main():
     setup_parser.add_argument("--execute", action="store_true")
     issue = subparsers.add_parser("issue-token")
     issue.add_argument("--username", required=True)
-    issue.add_argument("--profile", choices=("products", "design"), default="products")
+    issue.add_argument("--profile", choices=("products", "design", *PROFILE_PERMISSIONS), default="products")
     expiry = issue.add_mutually_exclusive_group()
     expiry.add_argument("--days", type=int, default=30)
     expiry.add_argument("--permanent", action="store_true", help="永久有效，仍受撤销和账号权限约束")
@@ -211,6 +304,8 @@ def main():
     subparsers.add_parser("doctor")
     upgrade = subparsers.add_parser("upgrade-token-expiry")
     upgrade.add_argument("--execute", action="store_true")
+    departments = subparsers.add_parser("upgrade-department-scope")
+    departments.add_argument("--execute", action="store_true")
     args = parser.parse_args()
     load_dotenv(BACKEND_ROOT / ".env", override=False)
     if args.command == "verify":
@@ -231,6 +326,9 @@ def main():
         return
     if args.command == "upgrade-token-expiry" and not args.execute:
         print("预览：仅允许mcp_private.tokens.expires_at为空以支持永久Token，不改变已有Token或账号权限；执行需加--execute。签发永久Token前须更新并重启独立MCP服务。")
+        return
+    if args.command == "upgrade-department-scope" and not args.execute:
+        print("预览：新增四个部门专用最小权限账号、授权业务只读视图及Token范围；不会更改现有Token。执行需加--execute，先停止MCP服务并备份数据库。")
         return
     database_url = os.getenv("DATABASE_URL")
     if not database_url:
@@ -286,6 +384,39 @@ def main():
             changed = upgrade_token_expiry(engine)
             print("已升级Token有效期结构，已有Token保持不变" if changed else "Token有效期结构已是新版，无需更改")
             print("签发永久Token前请确认独立MCP服务已更新并重启；无需重新setup或修改隧道配置")
+        elif args.command == "upgrade-department-scope":
+            env_path = BACKEND_ROOT / ".env"
+            original = env_path.read_text(encoding="utf-8-sig")
+            if any(re.search(rf"(?m)^\s*MCP_{profile.upper()}_DATABASE_URL\s*=", original) for profile in PROFILE_PERMISSIONS):
+                raise ValueError("部门MCP数据库配置已存在，拒绝覆盖")
+            base = make_url(database_url)
+            if base.drivername != "postgresql+psycopg" or not base.host or not base.database or base.query:
+                raise ValueError("升级要求标准postgresql+psycopg URL")
+            pending = env_path.with_name(".env.mcp-department-pending")
+            if pending.exists():
+                raise ValueError("部门MCP恢复文件已存在，先核对配置，不重复升级")
+            def finalize(passwords):
+                lines = [f"MCP_{profile.upper()}_DATABASE_URL='{base.set(username=f'hede_mcp_{profile}', password=password).render_as_string(hide_password=False)}'" for profile, password in passwords.items()]
+                if any("'" in line.partition("='")[2][:-1] or "\n" in line or "\r" in line for line in lines):
+                    raise ValueError("连接串包含不支持的.env字符")
+                with pending.open("x", encoding="utf-8") as stream:
+                    protect_config(env_path, pending)
+                    stream.write(original.rstrip() + "\n\n" + "\n".join(lines) + "\n")
+                if env_path.read_text(encoding="utf-8-sig") != original:
+                    raise ValueError("升级期间.env已改变，请先核对恢复文件")
+            try:
+                upgrade_department_scope(engine, finalize=finalize)
+            except Exception:
+                if pending.exists():
+                    pending.unlink()
+                raise
+            if env_path.read_text(encoding="utf-8-sig") != original:
+                raise ValueError("数据库已升级但.env发生并发修改；凭证保存在.env.mcp-department-pending，请人工恢复，不重复升级")
+            try:
+                pending.replace(env_path)
+            except Exception:
+                raise ValueError("数据库已升级但.env写入失败；凭证保存在.env.mcp-department-pending，请人工恢复，不重复升级") from None
+            print("部门MCP角色与视图已升级，连接配置已写入backend/.env；请手动重启独立MCP与中台后端，最后运行verify。未签发或更改现有Token")
         elif args.command == "revoke-token":
             with engine.begin() as connection:
                 result = connection.execute(text("UPDATE mcp_private.tokens SET revoked_at=now() WHERE id=:id AND revoked_at IS NULL"), {"id": args.id})

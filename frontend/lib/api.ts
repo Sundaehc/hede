@@ -2209,10 +2209,12 @@ export function lookupInventoryDetail(params: {
   productCode: string
   quantity?: string
   brand?: string
+  documentId?: number
 }) {
   const search = new URLSearchParams({ product_code: params.productCode })
   if (params.quantity) search.set("quantity", params.quantity)
   if (params.brand) search.set("brand", params.brand)
+  if (params.documentId) search.set("document_id", String(params.documentId))
   return request<{ item: InventoryDetailLookupResult }>(
     `/inventory/detail-lookup?${search.toString()}`
   )

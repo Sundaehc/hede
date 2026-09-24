@@ -701,6 +701,7 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
           productCode,
           quantity: formData.quantity || undefined,
           brand: inventorySizeBrand,
+          documentId: documentId || undefined,
         })
         if (
           controller.signal.aborted

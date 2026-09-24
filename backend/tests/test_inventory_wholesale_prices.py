@@ -110,3 +110,50 @@ def test_latest_wholesale_sales_prices_uses_latest_matching_sales_document(
     )
     assert excluding_latest == {product_code: Decimal("120.00")}
     assert older_sale["id"] != latest_sale["id"]
+
+
+def test_latest_document_costs_prefers_latest_inbound_cost_and_ignores_other_documents(
+    test_database_url: str,
+    recreate_tables,
+) -> None:
+    repository = InventoryRepository(test_database_url)
+    product_code = "DOCUMENT-COST-TEST"
+    older = _create_priced_document(
+        repository,
+        date="2026-08-10",
+        customer="供应商A",
+        document_type="进货单",
+        product_code=product_code,
+        unit_price="120",
+    )
+    latest = _create_priced_document(
+        repository,
+        date="2026-08-18",
+        customer="供应商B",
+        document_type="进货单",
+        product_code=product_code,
+        unit_price="150",
+    )
+    _create_priced_document(
+        repository,
+        date="2026-08-19",
+        customer="客户A",
+        document_type="批发销售单",
+        product_code=product_code,
+        unit_price="999",
+    )
+
+    assert repository.latest_document_costs(
+        product_codes={product_code},
+        as_of_date="2026-08-20",
+    ) == {product_code: Decimal("150.00")}
+    assert repository.latest_document_costs(
+        product_codes={product_code},
+        as_of_date="2026-08-20",
+        exclude_document_id=latest["id"],
+    ) == {product_code: Decimal("120.00")}
+    assert repository.latest_document_costs(
+        product_codes={product_code},
+        as_of_date="2026-08-17",
+    ) == {product_code: Decimal("120.00")}
+    assert older["id"] != latest["id"]

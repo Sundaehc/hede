@@ -10,12 +10,16 @@
 | --- | --- | --- |
 | `products` | `products`商品档案视图 | 活跃系统用户且有 `product.view` 或 `*` 权限 |
 | `design` | 商品档案、`copywriting`当前文案记录、`copywriting_history`成功历史 | 上述条件且为美工部或超级管理员 |
+| `finance` | 商品档案、库存/供应商/采购只读视图、商品成本及供应商视图 | 财务部且有 `product.view`、`inventory.view`、`purchase.view` |
+| `merchandise` | 商品档案、精细表/销售/采购/库存/商品货品及基础资料视图 | 商品部现有权限 |
+| `operation` | 商品档案、精细表/销售/采购及商品货品视图 | 运营部现有权限；不开放进销存和基础资料维护表 |
+| `development` | 商品档案、精细表/销售/采购/库存/商品货品及基础资料视图 | 开发部现有权限 |
 
-第一版所有profile均不开放成本、采购、销量、库存、供应商、图片路径、系统提示词、原始JSON、账号/会话等原始表。查询权限不等于网站全部权限；超级管理员在MCP也只获得签发profile的范围。商品视图包含已有内置品牌与初始化时启用的自定义品牌，排除删除商品和商品排除清单。暂不提供逐用户品牌授权。自由文本可能含员工录入的敏感内容，启用前需审查允许发送给Codex模型的数据。
+各部门范围只开放与中台现有部门权限对应的安全视图；财务、商品、运营、开发四部门按现有商品成本可见规则开放成本及供应商视图，美工、客服不开放。所有范围均不开放图片路径、系统提示词、原始JSON、账号/会话及订单个人敏感字段。查询权限不等于网站全部权限；超级管理员在MCP也只获得签发profile的范围。商品视图包含已有内置品牌与初始化时启用的自定义品牌，排除删除商品和商品排除清单。自由文本可能含员工录入的敏感内容，启用前需审查允许发送给Codex模型的数据。
 
 ## 隔离与防护
 
-- 3个专用登录角色：`hede_mcp_products`仅SELECT商品视图；`hede_mcp_design`仅SELECT三张业务视图；`hede_mcp_control`仅SELECT身份投影视图、INSERT审计表。不把管理员连接用于运行时查询。角色默认只读、无角色继承、无超级权限；视图由初始化管理员所有，采用security_barrier，不给调用者底层表权限。
+- 旧的3个专用角色继续保留；新增 `hede_mcp_finance`、`hede_mcp_merchandise`、`hede_mcp_operation`、`hede_mcp_development` 四个部门专用角色，分别只SELECT本部门安全视图。`hede_mcp_control`仅SELECT身份投影视图、INSERT审计表。不把管理员连接用于运行时查询。角色默认只读、无角色继承、无超级权限；视图由初始化管理员所有，采用security_barrier，不给调用者底层表权限。
 - 启动校验角色、默认只读、额外表/列权限、schema/数据库CREATE权限及可执行的自定义函数。发现PUBLIC过度授权时拒绝启动，不自动修改其他业务用户授权；由管理员先审查和收紧。不要改为跳过检查，也不要换成管理员连接。系统内置函数仍由SQL语法/函数白名单限制。
 - SQL经SQLGlot PostgreSQL解析，单条SELECT/CTE/集合查询，字段校验、授权数据集映射、命名参数绑定；拒绝写入型CTE、多语句、原始表、其他schema、SELECT INTO、FOR UPDATE、递归、任意函数、危险类型、CROSS JOIN和缺少ON/USING的JOIN。第一版刻意不支持窗口函数、正则、EXPLAIN等未列入白名单语法。
 - 每次查询READ ONLY事务，业务时区Asia/Shanghai，statement_timeout=10秒、lock_timeout=1秒、200行、512KB数据结果上限、全局4个HTTP并发请求、每Token每分钟60次请求。返回 `truncated=true` 不代表已取全量；缩小范围或带明确排序分页。大聚合仍可能消耗资源，正式开放建议从少数用户开始。512KB是结果数据预算，MCP协议包装可能额外占用空间。
@@ -52,6 +56,22 @@ MCP_CONTROL_DATABASE_URL='postgresql+psycopg://hede_mcp_control:SECRET@HOST:5432
 
 `.env`含数据库秘密，仅服务运行账号/管理员可读，需使用Windows文件权限保护，不能共享给员工。异常发生在提交数据库后写.env时，恢复文件为 `backend/.env.mcp-pending`（同样敏感且被Git忽略）。确认恢复后删除，不重复setup。
 
+### 部门范围升级（已有部署）
+
+已有三账号部署不要重复执行 `setup --execute`。先停止独立MCP，备份数据库和 `backend/.env`，在本机 `backend` 目录执行预览：
+
+```powershell
+.\.venv-mcp\Scripts\python.exe -m readonly_mcp.admin upgrade-department-scope
+```
+
+确认范围和备份无误后，执行一次：
+
+```powershell
+.\.venv-mcp\Scripts\python.exe -m readonly_mcp.admin upgrade-department-scope --execute
+```
+
+命令会新增 `hede_mcp_finance`、`hede_mcp_merchandise`、`hede_mcp_operation`、`hede_mcp_development` 四个数据库只读角色、安全视图及Token范围，并把四个连接追加到 `backend/.env`；不修改现有Token。执行完成后由管理员手动更新并重启MCP，再运行 `verify`。如果 `.env.mcp-department-pending` 留下，先人工核对恢复，不要重复执行升级。
+
 ## 签发个人凭证
 
 ### 中台页面（超级管理员）
@@ -59,7 +79,7 @@ MCP_CONTROL_DATABASE_URL='postgresql+psycopg://hede_mcp_control:SECRET@HOST:5432
 入口：**系统管理 → 用户管理 → MCP Token 管理**，页面路径 `/admin/mcp-tokens`。该入口保留现有侧栏结构，不新增系统管理一级菜单。页面及API都只允许启用的超级管理员访问；即使普通角色具有system.admin权限，也不能签发凭证。
 
 1. 点击“签发 Token”，按用户名/姓名查找已启用且有商品查看权限的中台账号。
-2. 选择“商品档案”或“商品档案 + 美工文案”，后者仅对美工部/超级管理员开放；后端签发时再次校验当前权限。
+2. 选择“商品档案”“商品档案 + 美工文案”或当前账号所属部门范围；后端签发时再次校验当前部门和权限。
 3. 设置1～90天有效期或勾选“永久有效”，再填写用途备注并确认签发。默认仍为30天。
 4. 明文仅在成功弹窗中展示，可复制或手动选择；关闭、离开页面或失去管理员身份后不再展示，不写入浏览器持久存储。请通过安全渠道交付给本人。
 5. 列表显示所有网页/CLI签发的凭证、所属账号、范围、到期时间及有效/到期/撤销/账号权限失效状态；不能重新查看明文。撤销需二次确认，后续请求即被拒绝，已执行中的查询不保证立即中断。
@@ -75,6 +95,7 @@ MCP_CONTROL_DATABASE_URL='postgresql+psycopg://hede_mcp_control:SECRET@HOST:5432
 ```powershell
 .\.venv-mcp\Scripts\python.exe -m readonly_mcp.admin issue-token --username 实际系统用户名 --profile products --days 30 --label 员工Codex
 .\.venv-mcp\Scripts\python.exe -m readonly_mcp.admin issue-token --username 美工系统用户名 --profile design --days 30
+.\.venv-mcp\Scripts\python.exe -m readonly_mcp.admin issue-token --username 财务系统用户名 --profile finance --days 30
 .\.venv-mcp\Scripts\python.exe -m readonly_mcp.admin list-tokens
 .\.venv-mcp\Scripts\python.exe -m readonly_mcp.admin revoke-token --id 具体TokenID
 ```

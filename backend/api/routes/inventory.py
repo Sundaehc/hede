@@ -3494,6 +3494,21 @@ def _build_purchase_detail_lookup(connection, product_code: str, quantity: Decim
     return item
 
 
+def _latest_document_cost(repository, product_code: str, lookup: dict[str, object], record: dict[str, object]) -> Decimal | None:
+    if normalize_document_type(record.get("document_type")) in WHOLESALE_DOCUMENT_TYPES:
+        return None
+    candidates = tuple(dict.fromkeys(code for code in (
+        _cell_text(lookup.get("product_code")),
+        _cell_text(product_code),
+    ) if code))
+    prices = repository.latest_document_costs(
+        product_codes=set(candidates),
+        as_of_date=record.get("date_value") or record.get("date"),
+        exclude_document_id=record.get("id"),
+    )
+    return next((prices[code] for code in candidates if code in prices), None)
+
+
 def _gendered_detail_payloads(repository, record: dict[str, object], payload: dict[str, object]) -> list[dict[str, object]]:
     """Apply NI gender prices to manual detail saves as well as Excel imports."""
     if _cell_text(record.get("document_type")) in WHOLESALE_DOCUMENT_TYPES:
@@ -3513,6 +3528,11 @@ def _gendered_detail_payloads(repository, record: dict[str, object], payload: di
             _to_decimal(payload.get("quantity")),
             brand,
         )
+    if (
+        hasattr(repository, "latest_document_costs")
+        and _latest_document_cost(repository, product_code, lookup, record) is not None
+    ):
+        return [payload]
     gender_costs = lookup.get("gender_costs")
     gender_groups = split_sizes_by_gender(raw_sizes)
     quantity = _to_decimal(payload.get("quantity"))
@@ -3539,7 +3559,7 @@ def _gendered_detail_payloads(repository, record: dict[str, object], payload: di
 
 
 def _apply_product_archive_cost(repository, record: dict[str, object], payload: dict[str, object]) -> dict[str, object]:
-    """Use the matched product archive cost for manually saved details."""
+    """Prefer the latest document cost over the product lookup for manual details."""
     if _has_explicit_zero_unit_price(payload) and _allows_zero_unit_price(repository, record):
         normalized = dict(payload)
         normalized["unit_price"] = "0"
@@ -3566,7 +3586,13 @@ def _apply_product_archive_cost(repository, record: dict[str, object], payload: 
             _to_decimal(payload.get("quantity")),
             brand,
         )
-    price = _to_decimal(lookup.get("unit_price"))
+    price = (
+        _latest_document_cost(repository, product_code, lookup, record)
+        if hasattr(repository, "latest_document_costs")
+        else None
+    )
+    if price is None:
+        price = _to_decimal(lookup.get("unit_price"))
     if price == 0:
         return payload
     normalized = dict(payload)
@@ -3589,6 +3615,8 @@ def _build_purchase_details_from_rows(
     wholesale_customer: str = "",
     wholesale_price_date: object | None = None,
     wholesale_exclude_document_id: object | None = None,
+    document_date: object | None = None,
+    document_id: object | None = None,
 ) -> list[dict[str, object]]:
     if not rows:
         raise HTTPException(status_code=400, detail="Excel 中没有可导入的明细")
@@ -3670,6 +3698,8 @@ def _build_purchase_details_from_rows(
         )
         if code
     }
+
+
     wholesale_price_history = (
         repository.latest_wholesale_sales_prices(
             customer=wholesale_customer,
@@ -3678,6 +3708,15 @@ def _build_purchase_details_from_rows(
             exclude_document_id=wholesale_exclude_document_id,
         )
         if use_wholesale_price_history
+        else {}
+    )
+    document_costs = (
+        repository.latest_document_costs(
+            product_codes=wholesale_price_candidates,
+            as_of_date=document_date,
+            exclude_document_id=document_id,
+        )
+        if not use_wholesale_price_history and hasattr(repository, "latest_document_costs")
         else {}
     )
 
@@ -3720,6 +3759,12 @@ def _build_purchase_details_from_rows(
         )
         if matched_product_code:
             original_sku = matched_product_code
+        recent_cost = next((document_costs[code] for code in (
+            original_sku,
+            _cell_text(product_info.get("_archive_original_sku")),
+            _cell_text(row.get("original_sku")),
+            raw_code,
+        ) if code in document_costs), None)
         if (
             archive_size
             and matched_product_code
@@ -3793,6 +3838,7 @@ def _build_purchase_details_from_rows(
                     break
         should_apply_gender_price = (
             not use_wholesale_price_history
+            and recent_cost is None
             and not explicit_zero_price
             and (prefer_lookup_unit_price or not imported_unit_price)
         )
@@ -3817,7 +3863,7 @@ def _build_purchase_details_from_rows(
         for _, bucket_sizes in size_price_buckets:
             bucket_quantity = sum(bucket_sizes.values(), Decimal("0")) or quantity
             gendered_unit_price = price_for_sizes(product_info.get(GENDER_COSTS_FIELD), bucket_sizes)
-            lookup_price = gendered_unit_price or lookup_unit_price
+            lookup_price = recent_cost if recent_cost is not None else gendered_unit_price or lookup_unit_price
             if explicit_zero_price:
                 unit_price = Decimal("0")
                 has_unit_price = True
@@ -3921,6 +3967,8 @@ def _build_purchase_details_from_excel(
     wholesale_price_date: object | None = None,
     wholesale_exclude_document_id: object | None = None,
     purchase_order_supplier: str | None = None,
+    document_date: object | None = None,
+    document_id: object | None = None,
 ) -> tuple[list[dict[str, object]], str]:
     rows, sheet_name = _read_purchase_import_rows(content)
     if purchase_order_supplier is not None:
@@ -3939,6 +3987,8 @@ def _build_purchase_details_from_excel(
         wholesale_customer=wholesale_customer,
         wholesale_price_date=wholesale_price_date,
         wholesale_exclude_document_id=wholesale_exclude_document_id,
+        document_date=document_date,
+        document_id=document_id,
     )
     return details, sheet_name
 
@@ -4659,6 +4709,12 @@ async def import_purchase_inventory(request: Request, file: UploadFile = None):
             wholesale_exclude_document_id=(
                 plan["existing_record"].get("id")
                 if is_wholesale_import and isinstance(plan.get("existing_record"), dict)
+                else None
+            ),
+            document_date=plan["date"],
+            document_id=(
+                plan["existing_record"].get("id")
+                if isinstance(plan.get("existing_record"), dict)
                 else None
             ),
         )
@@ -5428,8 +5484,12 @@ def lookup_inventory_detail(
     product_code: str,
     quantity: str | None = None,
     brand: str | None = None,
+    document_id: int | None = None,
 ):
     repository = request.app.state.inventory_repository
+    record = repository.get_record(document_id) if document_id is not None else None
+    if document_id is not None and record is None:
+        raise HTTPException(status_code=404, detail="Record not found")
     with repository.engine.connect() as connection:
         item = _build_purchase_detail_lookup(
             connection,
@@ -5437,6 +5497,12 @@ def lookup_inventory_detail(
             _to_decimal(quantity),
             brand,
         )
+    if record is not None:
+        price = _latest_document_cost(repository, product_code, item, record)
+        if price is not None:
+            item["unit_price"] = _fmt_decimal(price)
+            quantity_value = _to_decimal(quantity)
+            item["amount"] = _fmt_decimal(quantity_value * price) if quantity_value else None
     return {"item": item}
 
 
@@ -5967,6 +6033,8 @@ async def reimport_inventory_details_from_excel(request: Request, record_id: int
             record_id if document_type in WHOLESALE_DOCUMENT_TYPES else None
         ),
         purchase_order_supplier=_cell_text(record.get("supplier")) if document_type == "进货订单" else None,
+        document_date=record.get("date_value") or record.get("date"),
+        document_id=record_id,
     )
     detail_payloads = []
     for detail in details:
@@ -6283,7 +6351,16 @@ async def import_inventory(request: Request, file: UploadFile = None):
                     lookup.get("gender_costs"),
                     detail_payload.get("size_quantities"),
                 )
-                lookup_unit_price = gendered_lookup_price or _to_decimal(lookup.get("unit_price"))
+                recent_cost = (
+                    _latest_document_cost(repository, product_code, lookup, doc_payload)
+                    if hasattr(repository, "latest_document_costs")
+                    else None
+                )
+                lookup_unit_price = (
+                    recent_cost
+                    if recent_cost is not None
+                    else gendered_lookup_price or _to_decimal(lookup.get("unit_price"))
+                )
                 size_range = _cell_text(lookup.get("size_range"))
                 size_labels = tuple(
                     _cell_text(size)
@@ -6336,6 +6413,10 @@ async def import_inventory(request: Request, file: UploadFile = None):
             elif is_wholesale_import:
                 detail_payload["unit_price"] = None
                 detail_payload["amount"] = None
+            elif not is_wholesale_import and recent_cost is not None:
+                detail_payload["unit_price"] = _fmt_decimal(recent_cost)
+                if quantity:
+                    detail_payload["amount"] = _fmt_decimal(quantity * recent_cost)
             elif imported_unit_price <= 0 and lookup_unit_price > 0:
                 detail_payload["unit_price"] = _fmt_decimal(lookup_unit_price)
                 if quantity:

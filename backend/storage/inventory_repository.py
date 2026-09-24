@@ -2638,6 +2638,52 @@ class InventoryRepository:
                     prices[product_code] = Decimal(str(row["unit_price"]))
         return prices
 
+    def latest_document_costs(
+        self,
+        *,
+        product_codes: set[str],
+        as_of_date: object | None = None,
+        exclude_document_id: object | None = None,
+    ) -> dict[str, Decimal]:
+        codes = {str(code).strip() for code in product_codes if str(code).strip()}
+        if not codes:
+            return {}
+        record = INVENTORY_TABLE
+        detail = INVENTORY_DETAIL_TABLE
+        conditions = [
+            record.c.deleted_at.is_(None),
+            record.c.document_type.in_(("进货单", "进货退货单", "进货订单")),
+            detail.c.product_code.in_(codes),
+            detail.c.unit_price > 0,
+        ]
+        parsed_date = parse_date(as_of_date)
+        if parsed_date is not None:
+            conditions.append(or_(
+                record.c.date_value <= parsed_date,
+                and_(record.c.date_value.is_(None), record.c.date <= parsed_date.isoformat()),
+            ))
+        if exclude_document_id is not None:
+            conditions.append(record.c.id != int(exclude_document_id))
+        statement = (
+            select(detail.c.product_code, detail.c.unit_price)
+            .select_from(detail.join(record, detail.c.document_id == record.c.id))
+            .where(and_(*conditions))
+            .order_by(
+                detail.c.product_code,
+                record.c.date_value.desc().nulls_last(),
+                record.c.date.desc().nulls_last(),
+                record.c.id.desc(),
+                detail.c.id.desc(),
+            )
+        )
+        prices: dict[str, Decimal] = {}
+        with self.engine.connect() as connection:
+            for row in connection.execute(statement).mappings():
+                code = str(row["product_code"]).strip()
+                if code not in prices:
+                    prices[code] = Decimal(str(row["unit_price"]))
+        return prices
+
     def create_detail(self, data: Mapping[str, object]) -> dict[str, object]:
         table = INVENTORY_DETAIL_TABLE
         payload = self._filter_table_payload(table, self._coerce_empty(data))

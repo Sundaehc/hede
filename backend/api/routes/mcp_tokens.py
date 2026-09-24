@@ -40,7 +40,7 @@ router = APIRouter(prefix="/auth/admin/mcp-tokens", dependencies=[Depends(requir
 class IssueTokenRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     user_id: Annotated[StrictInt, Field(gt=0)]
-    profile: Literal["products", "design"] = "products"
+    profile: Literal["products", "design", "finance", "merchandise", "operation", "development"] = "products"
     days: Annotated[StrictInt, Field(ge=1, le=90)] | None = 30
     label: str = Field(min_length=1, max_length=100)
 

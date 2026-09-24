@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import io
 from types import SimpleNamespace
+from decimal import Decimal
 
 import pytest
 from fastapi import HTTPException
@@ -709,6 +710,11 @@ class _WarehouseBrandRepository:
         return {"brand": "NI仓库"} if name == "NI仙岩仓库" else None
 
 
+class _DocumentCostRepository(_StubRepository):
+    def latest_document_costs(self, **kwargs):
+        return {"RCT63957D06": Decimal("150")}
+
+
 def _legacy_single_document_workbook() -> bytes:
     workbook = Workbook()
     worksheet = workbook.active
@@ -1070,6 +1076,33 @@ def test_internal_sales_import_preserves_explicit_zero_price(monkeypatch) -> Non
 
     assert details[0]["unit_price"] == "0"
     assert details[0]["amount"] == "0"
+
+
+def test_purchase_import_prefers_latest_document_cost_over_archive_cost(monkeypatch) -> None:
+    monkeypatch.setattr(inventory_routes, "_load_color_barcodes", lambda connection: [])
+    monkeypatch.setattr(
+        inventory_routes,
+        "_load_purchase_product_lookup",
+        lambda connection, brand, product_codes: {
+            "RCT63957D06": {
+                "original_goods_code": "RCT63957D06",
+                "unit_price": "137",
+            },
+        },
+    )
+    monkeypatch.setattr(inventory_routes, "_load_purchase_size_group_items", lambda connection, size_ranges: {})
+
+    details = _build_purchase_details_from_rows(
+        _DocumentCostRepository(),
+        [{"product_code": "RCT63957D06", "quantity": "3", "unit_price": ""}],
+        brand="cbanner_womens",
+        fallback_unit_price=0,
+        prefer_lookup_unit_price=True,
+        document_date="2026-09-23",
+    )
+
+    assert details[0]["unit_price"] == "150"
+    assert details[0]["amount"] == "450"
 
 
 def test_internal_sales_manual_detail_preserves_explicit_zero_price() -> None:

@@ -20,6 +20,7 @@ class MCPSettings:
     max_rows: int = 200
     timeout_ms: int = 10000
     max_bytes: int = 512000
+    department_urls: dict[str, str] = field(default_factory=dict, repr=False)
 
     @classmethod
     def load(cls):
@@ -37,4 +38,16 @@ class MCPSettings:
         origins = tuple(value.strip() for value in os.getenv("MCP_ALLOWED_ORIGINS", "").split(",") if value.strip())
         if not 1024 <= port <= 65535 or not hosts or any("*" in value for value in (*hosts, *origins)):
             raise ValueError("MCP端口或Host/Origin白名单不正确；不允许通配符")
-        return cls(*urls, port=port, allowed_hosts=hosts, allowed_origins=origins)
+        from readonly_mcp.catalog import PROFILE_PERMISSIONS
+        department_urls = {profile: os.getenv(f"MCP_{profile.upper()}_DATABASE_URL", "") for profile in PROFILE_PERMISSIONS}
+        if any(department_urls.values()) and not all(department_urls.values()):
+            raise ValueError("部门MCP数据库连接配置不完整")
+        if department_urls and all(department_urls.values()):
+            if any(make_url(value).drivername != "postgresql+psycopg" or
+                   (make_url(value).host, make_url(value).port, make_url(value).database) !=
+                   (parsed[0].host, parsed[0].port, parsed[0].database)
+                   for value in department_urls.values()):
+                raise ValueError("部门MCP数据库账号必须使用同一PostgreSQL库")
+        else:
+            department_urls = {}
+        return cls(*urls, port=port, allowed_hosts=hosts, allowed_origins=origins, department_urls=department_urls)

@@ -2,6 +2,7 @@ from datetime import datetime, timezone
 import hashlib
 
 from sqlalchemy import create_engine, text
+from readonly_mcp.catalog import DEPARTMENT_PROFILES, PROFILE_PERMISSIONS
 
 
 def utc(value):
@@ -29,9 +30,14 @@ class ControlRepository:
             return None
         if row["profile"] == "design" and row["role_code"] != "super_admin" and row["department_code"] != "美工部":
             return None
-        if row["profile"] not in {"products", "design"}:
+        if row["profile"] in PROFILE_PERMISSIONS:
+            if row["role_code"] != "super_admin" and DEPARTMENT_PROFILES.get(row["department_code"]) != row["profile"]:
+                return None
+            if "*" not in permissions and not permissions.intersection(PROFILE_PERMISSIONS[row["profile"]]):
+                return None
+        elif row["profile"] not in {"products", "design"}:
             return None
-        return {"token_id": row["token_id"], "user_id": row["user_id"], "profile": row["profile"]}
+        return {"token_id": row["token_id"], "user_id": row["user_id"], "profile": row["profile"], "permissions": row["permissions"]}
 
     def audit(self, request_id: str, principal: dict, tool: str, sql_hash: str | None, status: str, row_count: int = 0, elapsed_ms: int = 0):
         with self.engine.begin() as connection:

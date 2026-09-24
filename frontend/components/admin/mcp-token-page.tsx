@@ -40,7 +40,7 @@ import {
 } from "@/lib/mcp-tokens"
 import { cn } from "@/lib/utils"
 
-const PROFILE_NAMES = { products: "商品档案", design: "商品档案 + 美工文案" }
+const PROFILE_NAMES: Record<McpProfile, string> = { products: "商品档案", design: "商品档案 + 美工文案", finance: "财务部数据", merchandise: "商品部数据", operation: "运营部数据", development: "开发部数据" }
 const STATES = {
   active: {
     name: "有效",
@@ -649,6 +649,9 @@ function TokenManager() {
                     {selectedUser?.profiles.includes("design") ? (
                       <option value="design">商品档案 + 美工文案</option>
                     ) : null}
+                    {selectedUser?.profiles.filter((item) => !["products", "design"].includes(item)).map((item) => (
+                      <option key={item} value={item}>{PROFILE_NAMES[item]}</option>
+                    ))}
                   </Select>
                 </div>
                 <div className="space-y-2">
