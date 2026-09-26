@@ -76,7 +76,7 @@ uv run python -m scripts.sync_product_images_us3 --limit 1
 
 ## 定时任务
 
-图片更新已接入每日商品档案主流程：`HedeImportProductsDaily` 按北京时间 `04:00` 启动，商品档案同步成功后立即执行图片更新，图片步骤全部成功后才补生成提示词。未完成时每30分钟重试至16:00，已成功的档案和图片步骤不重复执行。
+图片更新已接入每日商品档案主流程：`HedeImportProductsDaily` 按北京时间 `04:00` 启动，商品档案同步成功后立即执行图片更新，图片步骤全部成功后才补生成提示词；提示词成功后再导入物价信息。未完成时每30分钟重试至16:00，已成功的档案、图片和提示词步骤不重复执行。物价任务 `HedeImportPriceDaily` 不再独立定时触发。
 
 图片步骤通过 `scripts.refresh_product_images --daily` 依次执行：
 

@@ -17,11 +17,11 @@ from storage.task_status_repository import ScheduledTaskStatusRepository
 TASK_NAME = "sync_products_and_copywriting_daily"
 WORKFLOW_LOCK_ID = 68473102
 PREREQUISITES = (
-    ("import_price_daily", "HedeImportPriceDaily", "import_price_daily.log"),
     ("import_gj_merged_product_info_daily", "hede_import_gj_merged_product_info_daily", "import_gj_merged_product_info.log"),
 )
 LOOKBACK_IMPORT_MODULES = {module for module, _, _ in PREREQUISITES}
 IMAGE_MODULE = "refresh_product_images"
+PRICE_MODULE = "import_price_daily"
 
 
 def run_import(module: str, task_name: str, log_file: str) -> int:
@@ -34,7 +34,7 @@ def run_import(module: str, task_name: str, log_file: str) -> int:
         "--log-file", f"logs/{log_file}", "--skip-if-business-success", status_name,
         "--", sys.executable, "-m", f"scripts.{module}",
     ]
-    if module in LOOKBACK_IMPORT_MODULES:
+    if module in LOOKBACK_IMPORT_MODULES or module == PRICE_MODULE:
         command.extend(["--lookback-days", "7", "--allow-missing-current"])
     elif module == IMAGE_MODULE:
         command.append("--daily")
@@ -80,19 +80,30 @@ def run_workflow(settings, statuses, business_date: date) -> int:
         if business_today() != business_date:
             statuses.mark_finished(TASK_NAME, business_date, status="failed", message="图片同步跨日，已停止生成，请按新业务日期重试")
             return 1
-        statuses.mark_running(COPYWRITING_TASK_NAME, business_date)
-        try:
-            result = run_daily_generation(settings, business_date)
-        except Exception:
-            statuses.mark_finished(COPYWRITING_TASK_NAME, business_date, status="failed", message="自动提示词生成未完成，请检查配置和日志")
-            raise
-        failed = bool(result.get("failed"))
-        status = "failed" if failed else "success"
-        message = f"近3天商品提示词：新增成功{result.get('completed', 0)}，跳过{result.get('skipped', 0)}，失败{result.get('failed', 0)}；已有记录不变"
-        statuses.mark_finished(COPYWRITING_TASK_NAME, business_date, status=status, message=message, result=result)
-        statuses.mark_finished(TASK_NAME, business_date, status=status, message=message, result=result)
-        print(f"[{'FAILED' if failed else 'OK'}] {business_date.isoformat()} {message}")
-        return 1 if failed else 0
+        if not statuses.is_success(COPYWRITING_TASK_NAME, business_date):
+            statuses.mark_running(COPYWRITING_TASK_NAME, business_date)
+            try:
+                result = run_daily_generation(settings, business_date)
+            except Exception:
+                statuses.mark_finished(COPYWRITING_TASK_NAME, business_date, status="failed", message="自动提示词生成未完成，请检查配置和日志")
+                raise
+            failed = bool(result.get("failed"))
+            status = "failed" if failed else "success"
+            message = f"近3天商品提示词：新增成功{result.get('completed', 0)}，跳过{result.get('skipped', 0)}，失败{result.get('failed', 0)}；已有记录不变"
+            statuses.mark_finished(COPYWRITING_TASK_NAME, business_date, status=status, message=message, result=result)
+            if failed:
+                statuses.mark_finished(TASK_NAME, business_date, status="failed", message=message, result=result)
+                print(f"[FAILED] {business_date.isoformat()} {message}")
+                return 1
+        if not statuses.is_success(PRICE_MODULE, business_date):
+            exit_code = run_import(PRICE_MODULE, "HedeImportPriceDaily", "import_price_daily.log")
+            if exit_code != 0 or not statuses.is_success(PRICE_MODULE, business_date):
+                statuses.mark_finished(TASK_NAME, business_date, status="skipped", message="物价信息尚未导入成功，等待下次计划重试")
+                print(f"[WAIT] {business_date.isoformat()} price import not ready")
+                return 0
+        statuses.mark_finished(TASK_NAME, business_date, status="success", message="商品档案、图片、提示词及物价信息更新完成")
+        print(f"[OK] {business_date.isoformat()} product archive, images, copywriting and price import completed")
+        return 0
     except Exception:
         statuses.mark_finished(TASK_NAME, business_date, status="failed", message="商品档案、图片与提示词串行任务异常，请检查分步任务日志")
         print(f"[FAILED] {business_date.isoformat()} workflow interrupted; existing copywriting preserved")

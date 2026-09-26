@@ -1,4 +1,4 @@
-"""Synchronize product archives once today's GJ and price imports are ready."""
+"""Synchronize product archives once today's GJ import is ready."""
 
 from __future__ import annotations
 
@@ -14,7 +14,6 @@ from storage.task_status_repository import ScheduledTaskStatusRepository
 TASK_NAME = "sync_products_daily"
 PREREQUISITE_TASKS = (
     "import_gj_merged_product_info_daily",
-    "import_price_daily",
 )
 
 
