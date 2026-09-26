@@ -1,4 +1,5 @@
 import {
+  act,
   cleanup,
   fireEvent,
   render,
@@ -20,7 +21,9 @@ const mocks = vi.hoisted(() => ({
   candidates: vi.fn(),
   issue: vi.fn(),
   revoke: vi.fn(),
+  audit: vi.fn(),
   copy: vi.fn(),
+  legacyCopy: vi.fn(),
 }))
 
 vi.mock("@/components/auth/auth-provider", () => ({
@@ -30,6 +33,7 @@ vi.mock("@/lib/mcp-tokens", () => ({
   listMcpTokens: mocks.list,
   listMcpCandidates: mocks.candidates,
   issueMcpToken: mocks.issue,
+  listMcpTokenAudit: mocks.audit,
   revokeMcpToken: mocks.revoke,
 }))
 
@@ -60,6 +64,16 @@ async function selectAccount(username = "designer") {
   fireEvent.click(await screen.findByRole("radio", { name: new RegExp(`^${username} ·`) }))
 }
 
+async function issueAndOpenSecret() {
+  await openCreate()
+  await selectAccount()
+  fireEvent.change(screen.getByLabelText("用途备注"), { target: { value: "办公电脑" } })
+  fireEvent.click(screen.getByRole("button", { name: "确认签发" }))
+  return await screen.findByLabelText<HTMLTextAreaElement>("新签发的 Token")
+}
+
+const originalExecCommand = Object.getOwnPropertyDescriptor(document, "execCommand")
+
 beforeEach(() => {
   vi.resetAllMocks()
   mocks.auth.user = { id: 1, role_code: "super_admin", status: "active" }
@@ -89,16 +103,61 @@ beforeEach(() => {
   })
   mocks.issue.mockResolvedValue({ token: "hmcp_synthetic-test-secret", item })
   mocks.revoke.mockResolvedValue({ changed: true, message: "凭证已撤销" })
+  mocks.audit.mockResolvedValue({ items: [], total: 0, page: 1, page_size: 20, details_available: true })
   mocks.copy.mockResolvedValue(undefined)
+  mocks.legacyCopy.mockReturnValue(false)
+  Object.defineProperty(document, "execCommand", { configurable: true, value: mocks.legacyCopy })
   Object.defineProperty(navigator, "clipboard", {
     configurable: true,
     value: { writeText: mocks.copy },
   })
 })
 
-afterEach(cleanup)
+afterEach(() => {
+  cleanup()
+  if (originalExecCommand) Object.defineProperty(document, "execCommand", originalExecCommand)
+  else Reflect.deleteProperty(document, "execCommand")
+})
 
 describe("MCP token administration", () => {
+  it("opens per-token query history with SQL and product identifiers", async () => {
+    mocks.list.mockResolvedValue({ items: [item], total: 1, page: 1, page_size: 20 })
+    mocks.audit.mockResolvedValue({
+      items: [{
+        id: 3,
+        request_id: "request-1234567890",
+        token_id: 12,
+        user_id: 2,
+        tool: "query_readonly",
+        status: "completed",
+        row_count: 1,
+        elapsed_ms: 18,
+        created_at: "2026-09-22T10:01:00Z",
+        datasets: ["products"],
+        query_sql: "SELECT sku, product_name FROM products WHERE sku=:sku",
+        query_params: { sku: { type: "str", length: 10 } },
+        result_summary: {
+          columns: ["sku", "product_name"],
+          rows: [["QT653891S73", "测试商品"]],
+          truncated: false,
+        },
+      }],
+      total: 1,
+      page: 1,
+      page_size: 20,
+      details_available: true,
+    })
+    render(<McpTokenPage />)
+    await waitFor(() => expect(screen.getByRole("button", { name: /查询.*记录/ })).toBeEnabled())
+    fireEvent.click(screen.getByRole("button", { name: /查询.*记录/ }))
+    expect(await screen.findByRole("dialog", { name: "Token 查询记录" })).toBeInTheDocument()
+    expect(mocks.audit).toHaveBeenCalledWith(12, 1)
+    fireEvent.click(screen.getByText("查看查询明细"))
+    expect(screen.getByText("SELECT sku, product_name FROM products WHERE sku=:sku")).toBeInTheDocument()
+    expect(screen.getByText("QT653891S73")).toBeInTheDocument()
+    expect(screen.getByText("测试商品")).toBeInTheDocument()
+  })
+
   it("does not fetch credentials for an unauthorized user", () => {
     mocks.auth.user.role_code = "staff"
     render(<McpTokenPage />)
@@ -212,6 +271,84 @@ describe("MCP token administration", () => {
     expect(screen.getByLabelText("新签发的 Token")).toHaveValue(
       "hmcp_synthetic-test-secret"
     )
+    const textarea = screen.getByLabelText<HTMLTextAreaElement>("新签发的 Token")
+    expect(textarea).toHaveFocus()
+    expect(textarea.selectionEnd - textarea.selectionStart).toBe(textarea.value.length)
+    expect(screen.queryByRole("button", { name: "已复制" })).not.toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "全选 Token" })).toBeEnabled()
+  })
+
+  it.each(["missing", "rejected"])("copies using the displayed textarea when clipboard is %s", async (mode) => {
+    if (mode === "missing") Object.defineProperty(navigator, "clipboard", { configurable: true, value: undefined })
+    else mocks.copy.mockRejectedValue(new Error("denied"))
+    mocks.legacyCopy.mockImplementation(() => {
+      const textarea = screen.getByLabelText<HTMLTextAreaElement>("新签发的 Token")
+      expect(textarea).toHaveFocus()
+      expect(textarea.value.slice(textarea.selectionStart, textarea.selectionEnd)).toBe("hmcp_synthetic-test-secret")
+      return true
+    })
+    render(<McpTokenPage />)
+    await issueAndOpenSecret()
+    fireEvent.click(screen.getByRole("button", { name: "复制 Token" }))
+    await screen.findByRole("button", { name: "已复制" })
+    expect(mocks.legacyCopy).toHaveBeenCalledExactlyOnceWith("copy")
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument()
+    expect(mocks.issue).toHaveBeenCalledTimes(1)
+    if (mode === "missing") expect(mocks.copy).not.toHaveBeenCalled()
+  })
+
+  it("lets users select the whole token without attempting to copy or closing the dialog", async () => {
+    render(<McpTokenPage />)
+    const textarea = await issueAndOpenSecret()
+    textarea.setSelectionRange(3, 4)
+    fireEvent.click(screen.getByRole("button", { name: "全选 Token" }))
+    expect(textarea).toHaveFocus()
+    expect(textarea.selectionStart).toBe(0)
+    expect(textarea.selectionEnd).toBe(textarea.value.length)
+    expect(mocks.copy).not.toHaveBeenCalled()
+    expect(mocks.legacyCopy).not.toHaveBeenCalled()
+    expect(screen.getByRole("dialog", { name: "Token 已签发，请立即保存" })).toBeInTheDocument()
+  })
+
+  it("allows retry after copy failure and clears the manual-copy message", async () => {
+    mocks.copy.mockRejectedValue(new Error("denied"))
+    render(<McpTokenPage />)
+    await issueAndOpenSecret()
+    fireEvent.click(screen.getByRole("button", { name: "复制 Token" }))
+    await screen.findByRole("alert")
+    mocks.legacyCopy.mockReturnValue(true)
+    fireEvent.click(screen.getByRole("button", { name: "复制 Token" }))
+    await screen.findByRole("button", { name: "已复制" })
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument()
+  })
+
+  it("ignores repeated clicks and a copy result arriving after the dialog closes", async () => {
+    let resolveCopy!: () => void
+    mocks.copy.mockReturnValue(new Promise<void>((resolve) => { resolveCopy = resolve }))
+    render(<McpTokenPage />)
+    await issueAndOpenSecret()
+    fireEvent.click(screen.getByRole("button", { name: "复制 Token" }))
+    expect(screen.getByRole("button", { name: "正在复制…" })).toBeDisabled()
+    fireEvent.click(screen.getByRole("button", { name: "正在复制…" }))
+    expect(mocks.copy).toHaveBeenCalledTimes(1)
+    fireEvent.click(screen.getByRole("button", { name: "我已保存，关闭" }))
+    await issueAndOpenSecret()
+    await act(async () => { resolveCopy() })
+    expect(screen.getByRole("button", { name: "复制 Token" })).toBeEnabled()
+    expect(screen.queryByRole("button", { name: "已复制" })).not.toBeInTheDocument()
+  })
+
+  it("does not copy from a closed dialog after administrator access is lost", async () => {
+    let rejectCopy!: (error: Error) => void
+    mocks.copy.mockReturnValue(new Promise((_resolve, reject) => { rejectCopy = reject }))
+    const view = render(<McpTokenPage />)
+    await issueAndOpenSecret()
+    fireEvent.click(screen.getByRole("button", { name: "复制 Token" }))
+    mocks.auth.user.role_code = "staff"
+    view.rerender(<McpTokenPage />)
+    await act(async () => { rejectCopy(new Error("denied")) })
+    expect(mocks.legacyCopy).not.toHaveBeenCalled()
+    expect(screen.queryByLabelText("新签发的 Token")).not.toBeInTheDocument()
   })
 
   it("prevents duplicate submissions and closing the form during issuance", async () => {

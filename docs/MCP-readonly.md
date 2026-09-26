@@ -24,7 +24,7 @@
 - SQL经SQLGlot PostgreSQL解析，单条SELECT/CTE/集合查询，字段校验、授权数据集映射、命名参数绑定；拒绝写入型CTE、多语句、原始表、其他schema、SELECT INTO、FOR UPDATE、递归、任意函数、危险类型、CROSS JOIN和缺少ON/USING的JOIN。第一版刻意不支持窗口函数、正则、EXPLAIN等未列入白名单语法。
 - 每次查询READ ONLY事务，业务时区Asia/Shanghai，statement_timeout=10秒、lock_timeout=1秒、200行、512KB数据结果上限、全局4个HTTP并发请求、每Token每分钟60次请求。返回 `truncated=true` 不代表已取全量；缩小范围或带明确排序分页。大聚合仍可能消耗资源，正式开放建议从少数用户开始。512KB是结果数据预算，MCP协议包装可能额外占用空间。
 - Token随机生成，数据库仅保存SHA-256；每次HTTP请求重新检查撤销、到期、用户状态和当前角色权限。已在执行的查询不会被撤销动作立刻中断，下一次请求拒绝。
-- 查询审计记录request_id、用户ID、Token ID、工具、SQL摘要、状态、行数与耗时，不记录完整SQL、参数、凭证或结果正文。审计不可用则不执行/不返回查询结果。Token通过中台超级管理员页面或本机CLI发放撤销，不能用MCP调用。网页签发/撤销与用户管理操作日志同事务提交，审计失败则回滚；日志不包含Token正文或哈希。
+- 查询审计记录request_id、用户ID、Token ID、工具、SQL摘要、状态、行数与耗时；升级审计明细后还记录授权数据集、SQL模板、参数类型/长度，以及结果中的货号、商品ID、商品名称、颜色等业务标识摘要，不保存参数原文或完整结果正文。审计不可用则不执行/不返回查询结果。Token通过中台超级管理员页面或本机CLI发放撤销，不能用MCP调用。网页签发/撤销与用户管理操作日志同事务提交，审计失败则回滚；日志不包含Token正文或哈希。
 - Host/Origin明确白名单；不允许通配符。不接受查询字符串Token，不在URL中传凭证。服务不会把数据库异常堆栈和内部地址返回客户端。
 
 ## 安装与初始化（管理员在本机执行）
@@ -83,8 +83,18 @@ MCP_CONTROL_DATABASE_URL='postgresql+psycopg://hede_mcp_control:SECRET@HOST:5432
 3. 设置1～90天有效期或勾选“永久有效”，再填写用途备注并确认签发。默认仍为30天。
 4. 明文仅在成功弹窗中展示，可复制或手动选择；关闭、离开页面或失去管理员身份后不再展示，不写入浏览器持久存储。请通过安全渠道交付给本人。
 5. 列表显示所有网页/CLI签发的凭证、所属账号、范围、到期时间及有效/到期/撤销/账号权限失效状态；不能重新查看明文。撤销需二次确认，后续请求即被拒绝，已执行中的查询不保证立即中断。
+6. 点击每条凭证的“查询记录”，可按时间查看成功、拒绝和失败请求，展开后查看数据集、SQL模板、参数类型/长度及货号等结果摘要；旧审计记录只能显示时间、状态、行数和耗时。
 
 签发或撤销不需要重启MCP。不自动重试签发请求；若网络中断、没有拿到明文，先刷新列表确认签发状态，必要时撤销该记录后重新签发，避免留下未知凭证。
+
+已有部署需要先停止独立MCP，在 `backend` 目录执行一次查询审计结构升级，再更新并重启独立MCP和中台后端：
+
+```powershell
+.\.venv-mcp\Scripts\python.exe -m readonly_mcp.admin upgrade-audit-details
+.\.venv-mcp\Scripts\python.exe -m readonly_mcp.admin upgrade-audit-details --execute
+```
+
+该升级只向 `mcp_private.audit` 追加明细字段，不修改已有Token或业务数据；升级前的历史查询无法补回具体SQL和商品标识。新部署通过 `setup --execute` 会自动创建这些字段。
 
 管理接口位于 `/auth/admin/mcp-tokens`，使用中台原有会话认证。写入要求JSON及专用请求头并校验Origin，页面使用no-store，签发/列表响应禁止缓存。用真实中台HTTPS域名访问；若新增域名，先把可信来源加入后端FRONTEND_ORIGIN配置，不放宽成通配符。HTTP局域网页面的剪贴板不可用时可以手动复制，但敏感凭证应优先通过HTTPS签发和交付。
 

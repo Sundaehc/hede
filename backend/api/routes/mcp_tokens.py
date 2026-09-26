@@ -8,7 +8,7 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from api.routes.auth import require_permission
 from domain.operation_log_schema import OPERATION_LOG_TABLE
-from storage.mcp_token_repository import issue_credential, list_candidates, list_credentials, revoke_credential
+from storage.mcp_token_repository import issue_credential, list_audit_records, list_candidates, list_credentials, revoke_credential
 
 
 NO_STORE = {"Cache-Control": "no-store", "Pragma": "no-cache"}
@@ -90,6 +90,15 @@ def candidates(request: Request, query: str = Query("", max_length=100), page: i
 def tokens(request: Request, page: int = Query(1, ge=1, le=100000), page_size: int = Query(20, ge=1, le=100)):
     with token_connection(request) as connection:
         return list_credentials(connection, page=page, page_size=page_size)
+
+
+@router.get("/{token_id}/audit")
+def token_audit(request: Request, token_id: int, page: int = Query(1, ge=1, le=100000), page_size: int = Query(20, ge=1, le=100)):
+    with token_connection(request) as connection:
+        result = list_audit_records(connection, token_id=token_id, page=page, page_size=page_size)
+        if result is None:
+            raise HTTPException(404, "?????", headers=NO_STORE)
+        return result
 
 
 @router.post("", status_code=201)

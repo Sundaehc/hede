@@ -39,14 +39,27 @@ class ControlRepository:
             return None
         return {"token_id": row["token_id"], "user_id": row["user_id"], "profile": row["profile"], "permissions": row["permissions"]}
 
-    def audit(self, request_id: str, principal: dict, tool: str, sql_hash: str | None, status: str, row_count: int = 0, elapsed_ms: int = 0):
+    def audit(self, request_id: str, principal: dict, tool: str, sql_hash: str | None, status: str, row_count: int = 0, elapsed_ms: int = 0, datasets: tuple[str, ...] = (), query_sql: str | None = None, query_params: str | None = None, result_summary: str | None = None):
         with self.engine.begin() as connection:
-            connection.execute(text("""INSERT INTO mcp_private.audit
-                (request_id, token_id, user_id, tool, sql_hash, status, row_count, elapsed_ms)
-                VALUES (:request_id, :token_id, :user_id, :tool, :sql_hash, :status, :row_count, :elapsed_ms)"""), {
+            columns = {row["column_name"] for row in connection.execute(text("""SELECT column_name
+                FROM information_schema.columns
+                WHERE table_schema='mcp_private' AND table_name='audit'""")).mappings()}
+            details = ""
+            values = {
                 "request_id": request_id, "token_id": principal["token_id"], "user_id": principal["user_id"],
                 "tool": tool, "sql_hash": sql_hash, "status": status, "row_count": row_count, "elapsed_ms": elapsed_ms,
-            })
+            }
+            if {"datasets", "query_sql", "query_params", "result_summary"} <= columns:
+                details = ", datasets, query_sql, query_params, result_summary"
+                values.update({
+                    "datasets": ",".join(datasets),
+                    "query_sql": query_sql,
+                    "query_params": query_params,
+                    "result_summary": result_summary,
+                })
+            connection.execute(text(f"""INSERT INTO mcp_private.audit
+                (request_id, token_id, user_id, tool, sql_hash, status, row_count, elapsed_ms{details})
+                VALUES (:request_id, :token_id, :user_id, :tool, :sql_hash, :status, :row_count, :elapsed_ms{', :datasets, :query_sql, :query_params, :result_summary' if details else ''})"""), values)
 
     def close(self):
         self.engine.dispose()

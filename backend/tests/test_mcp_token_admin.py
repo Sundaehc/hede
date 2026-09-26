@@ -143,6 +143,32 @@ def test_revoke_is_idempotent_and_logged_without_secrets(token_client):
         assert connection.scalar(text("SELECT count(*) FROM operation_logs WHERE action='mcp_token_revoke'")) == 1
 
 
+def test_token_audit_returns_latest_request_with_query_details(token_client):
+    token_id = issue(token_client).json()["item"]["id"]
+    with token_client.engine.begin() as connection:
+        connection.exec_driver_sql("""CREATE TABLE mcp_private.audit (
+            id INTEGER PRIMARY KEY, request_id TEXT, token_id INTEGER, user_id INTEGER,
+            tool TEXT, sql_hash TEXT, status TEXT, row_count INTEGER, elapsed_ms INTEGER,
+            datasets TEXT, query_sql TEXT, query_params TEXT, result_summary TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)""")
+        connection.exec_driver_sql("""INSERT INTO mcp_private.audit
+            (id,request_id,token_id,user_id,tool,status,row_count,elapsed_ms,datasets,query_sql,query_params,result_summary)
+            VALUES (1,'request-1',%s,2,'query_readonly','completed',1,18,'products',
+                'SELECT sku FROM products WHERE sku=:sku','{"sku":{"type":"str","length":10}}',
+                '{"columns":["sku"],"rows":[["QT653891S73"]],"truncated":false}')""" % token_id)
+        connection.exec_driver_sql("""INSERT INTO mcp_private.audit
+            (id,request_id,token_id,user_id,tool,status,row_count,elapsed_ms,datasets,query_sql,query_params,result_summary)
+            VALUES (2,'request-1',%s,2,'query_readonly','completed',1,20,'products',
+                'SELECT sku FROM products WHERE sku=:sku','{"sku":{"type":"str","length":10}}',
+                '{"columns":["sku"],"rows":[["QT653891S73"]],"truncated":false}')""" % token_id)
+    response = token_client.client.get(BASE + f"/{token_id}/audit")
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["total"] == 1
+    assert payload["items"][0]["elapsed_ms"] == 20
+    assert payload["items"][0]["result_summary"]["rows"] == [["QT653891S73"]]
+
+
 def test_expiry_and_current_permissions_are_reflected(token_client):
     item_id = issue(token_client).json()["item"]["id"]
     with token_client.engine.begin() as connection:

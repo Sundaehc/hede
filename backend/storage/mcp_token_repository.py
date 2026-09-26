@@ -1,5 +1,6 @@
 from datetime import datetime, timedelta, timezone
 import hashlib
+import json
 import secrets
 
 from sqlalchemy import text
@@ -121,6 +122,68 @@ def list_candidates(connection, *, query, page):
     items = [{"id": row["id"], "username": row["username"], "display_name": row["display_name"],
         "department_code": row["department_code"], "profiles": allowed_profiles(row)} for row in rows]
     return {"items": items, "total": total, "page": page, "page_size": 30}
+
+
+def list_audit_records(connection, *, token_id, page, page_size):
+    token_exists = connection.scalar(text("SELECT 1 FROM mcp_private.tokens WHERE id=:token_id"), {"token_id": token_id})
+    if token_exists is None:
+        return None
+    if connection.dialect.name == "sqlite":
+        columns = {row[1] for row in connection.exec_driver_sql("PRAGMA mcp_private.table_info(audit)").all()}
+    else:
+        columns = {
+            row["column_name"]
+            for row in connection.execute(text("""SELECT column_name
+                FROM information_schema.columns
+                WHERE table_schema='mcp_private' AND table_name='audit'""")).mappings()
+        }
+    details_available = {"datasets", "query_sql", "query_params", "result_summary"} <= columns
+    detail_select = (
+        "audit.datasets, audit.query_sql, audit.query_params, audit.result_summary"
+        if details_available
+        else "NULL AS datasets, NULL AS query_sql, NULL AS query_params, NULL AS result_summary"
+    )
+    total = connection.scalar(text("""SELECT count(*) FROM (
+        SELECT request_id FROM mcp_private.audit WHERE token_id=:token_id GROUP BY request_id
+    ) requests"""), {"token_id": token_id})
+    rows = connection.execute(text(f"""WITH latest AS (
+        SELECT audit.id, audit.request_id, audit.token_id, audit.user_id, audit.tool,
+            audit.status, audit.row_count, audit.elapsed_ms, audit.created_at,
+            {detail_select},
+            ROW_NUMBER() OVER (PARTITION BY audit.request_id ORDER BY audit.id DESC) AS row_number
+        FROM mcp_private.audit audit
+        WHERE audit.token_id=:token_id
+    )
+    SELECT id,request_id,token_id,user_id,tool,status,row_count,elapsed_ms,created_at,
+        datasets,query_sql,query_params,result_summary
+    FROM latest
+    WHERE row_number=1
+    ORDER BY id DESC
+    LIMIT :limit OFFSET :offset"""), {
+        "token_id": token_id, "limit": page_size, "offset": (page - 1) * page_size,
+    }).mappings()
+    items = []
+    for row in rows:
+        item = dict(row)
+        item["datasets"] = [value for value in (item["datasets"] or "").split(",") if value] or []
+        if item["query_params"]:
+            try:
+                item["query_params"] = json.loads(item["query_params"])
+            except (TypeError, ValueError):
+                item["query_params"] = None
+        if item["result_summary"]:
+            try:
+                item["result_summary"] = json.loads(item["result_summary"])
+            except (TypeError, ValueError):
+                item["result_summary"] = None
+        items.append(item)
+    return {
+        "items": items,
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+        "details_available": details_available,
+    }
 
 
 def revoke_credential(connection, token_id):

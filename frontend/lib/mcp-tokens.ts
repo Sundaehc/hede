@@ -30,6 +30,30 @@ export type McpPage<T> = {
 }
 export type IssuedMcpToken = { token: string; item: McpTokenItem }
 
+export type McpAuditItem = {
+  id: number
+  request_id: string
+  token_id: number
+  user_id: number
+  tool: "list_datasets" | "describe_dataset" | "query_readonly" | string
+  status: "started" | "completed" | "rejected" | "failed" | string
+  row_count: number
+  elapsed_ms: number
+  created_at: string
+  datasets: string[]
+  query_sql: string | null
+  query_params: Record<string, unknown> | null
+  result_summary: {
+    columns: string[]
+    rows: unknown[][]
+    truncated: boolean
+  } | null
+}
+
+export type McpAuditPage = McpPage<McpAuditItem> & {
+  details_available: boolean
+}
+
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   const response = await fetch(`/api/auth/admin/mcp-tokens${path}`, {
     ...init,
@@ -76,4 +100,8 @@ export function revokeMcpToken(id: number) {
     method: "POST",
     body: "{}",
   })
+}
+
+export function listMcpTokenAudit(id: number, page = 1) {
+  return request<McpAuditPage>(`/${id}/audit?page=${page}&page_size=20`)
 }

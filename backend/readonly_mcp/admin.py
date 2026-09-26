@@ -107,7 +107,8 @@ def setup(engine, passwords: dict[str, str], finalize=None) -> dict:
             id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
             request_id TEXT NOT NULL, token_id BIGINT NOT NULL, user_id INTEGER NOT NULL,
             tool TEXT NOT NULL, sql_hash TEXT, status TEXT NOT NULL, row_count INTEGER NOT NULL,
-            elapsed_ms INTEGER NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT now())""")
+            elapsed_ms INTEGER NOT NULL, datasets TEXT, query_sql TEXT, query_params TEXT, result_summary TEXT,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT now())""")
         connection.exec_driver_sql("CREATE INDEX mcp_audit_request ON mcp_private.audit(request_id)")
         connection.exec_driver_sql("CREATE INDEX mcp_audit_created ON mcp_private.audit(created_at)")
         connection.exec_driver_sql("""CREATE VIEW mcp_private.identities WITH (security_barrier=true) AS
@@ -309,6 +310,26 @@ def upgrade_token_expiry(engine) -> bool:
         return bool(required)
 
 
+def upgrade_audit_details(engine) -> bool:
+    with engine.begin() as connection:
+        connection.exec_driver_sql("SET LOCAL lock_timeout=1000")
+        connection.exec_driver_sql("SET LOCAL statement_timeout=5000")
+        if connection.scalar(text("SELECT to_regclass('mcp_private.audit')")) is None:
+            raise ValueError("MCP audit table is not initialized")
+        existing = {
+            row["column_name"]
+            for row in connection.execute(text("""SELECT column_name
+                FROM information_schema.columns
+                WHERE table_schema='mcp_private' AND table_name='audit'""")).mappings()
+        }
+        added = False
+        for column, definition in (("datasets", "TEXT"), ("query_sql", "TEXT"), ("query_params", "TEXT"), ("result_summary", "TEXT")):
+            if column not in existing:
+                connection.exec_driver_sql(f"ALTER TABLE mcp_private.audit ADD COLUMN {quote(column)} {definition}")
+                added = True
+        return added
+
+
 def issue_token(engine, username: str, profile: str, days: int | None, label: str) -> tuple[str, int]:
     with engine.begin() as connection:
         result = issue_credential(connection, username=username, profile=profile, days=days, label=label)
@@ -335,6 +356,8 @@ def main():
     subparsers.add_parser("doctor")
     upgrade = subparsers.add_parser("upgrade-token-expiry")
     upgrade.add_argument("--execute", action="store_true")
+    audit_details = subparsers.add_parser("upgrade-audit-details")
+    audit_details.add_argument("--execute", action="store_true")
     departments = subparsers.add_parser("upgrade-department-scope")
     departments.add_argument("--execute", action="store_true")
     customer_service = subparsers.add_parser("upgrade-customer-service-scope")
@@ -359,6 +382,9 @@ def main():
         return
     if args.command == "upgrade-token-expiry" and not args.execute:
         print("预览：仅允许mcp_private.tokens.expires_at为空以支持永久Token，不改变已有Token或账号权限；执行需加--execute。签发永久Token前须更新并重启独立MCP服务。")
+        return
+    if args.command == "upgrade-audit-details" and not args.execute:
+        print("Preview: add MCP audit detail fields; use --execute to apply.")
         return
     if args.command == "upgrade-department-scope" and not args.execute:
         print("预览：新增财务、商品、运营、开发、客服五个部门专用最小权限账号、授权业务只读视图及Token范围；不会更改现有Token。执行需加--execute，先停止MCP服务并备份数据库。")
@@ -420,6 +446,9 @@ def main():
             changed = upgrade_token_expiry(engine)
             print("已升级Token有效期结构，已有Token保持不变" if changed else "Token有效期结构已是新版，无需更改")
             print("签发永久Token前请确认独立MCP服务已更新并重启；无需重新setup或修改隧道配置")
+        elif args.command == "upgrade-audit-details":
+            changed = upgrade_audit_details(engine)
+            print("MCP audit detail fields upgraded; restart MCP and backend" if changed else "MCP audit detail fields are already current")
         elif args.command == "upgrade-customer-service-scope":
             env_path = BACKEND_ROOT / ".env"
             original = env_path.read_text(encoding="utf-8-sig")
