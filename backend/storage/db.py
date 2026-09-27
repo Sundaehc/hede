@@ -24,6 +24,7 @@ from domain import data_governance_schema  # noqa: F401 - register data-governan
 from domain import dewu_order_schema  # noqa: F401 - register Dewu order tables on METADATA
 from domain import factory_channel_sales_summary_schema  # noqa: F401 - register factory-channel summaries on METADATA
 from domain import product_auxiliary_attribute_schema  # noqa: F401 - register product auxiliary attributes on METADATA
+from domain import product_tag_schema  # noqa: F401 - register product tags on METADATA
 
 
 NONEMPTY_DAILY_REFRESH_FIELDS = (

@@ -48,6 +48,7 @@ export type OperationLogItem = {
     | "size_group"
     | "color_barcode"
     | "product_goods"
+    | "product_tag"
     | "fine_table"
     | "inventory"
     | "purchase"
@@ -136,6 +137,18 @@ export type ProductListItem = {
   source_workbook: string
   source_sheet: string
   source_row_number: string
+}
+
+export type ProductTagDefinition = {
+  id: number
+  tag_code: string
+  tag_name: string
+  tag_group: string
+  value_type: "single" | "multiple"
+  source_type: "manual" | "rule" | "import"
+  is_active: boolean
+  is_manual_override: boolean
+  sort_order: number
 }
 
 export type ProductListResponse = {

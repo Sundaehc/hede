@@ -26,6 +26,7 @@ type OperationLogModule =
   | "size_group"
   | "color_barcode"
   | "product_auxiliary_attribute"
+  | "product_tag"
   | "product_goods"
   | "fine_table"
   | "inventory"
@@ -72,6 +73,7 @@ const ACTION_LABELS: Record<string, string> = {
   batch_update_costs: "批量改价",
   update_requirement: "订单要求",
   refresh_images: "刷新图片",
+  rebuild: "重建标签",
 }
 
 function formatDateTime(value: string | null) {

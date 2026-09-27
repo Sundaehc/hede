@@ -391,7 +391,7 @@ export function ProductAdminPage() {
                 </div>
               )}
 
-              <ProductToolbar
+            <ProductToolbar
                 brand={brand}
                 year={year}
                 value={searchInput}

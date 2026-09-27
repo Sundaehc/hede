@@ -15,6 +15,7 @@ from domain.product_defaults import apply_product_defaults
 from domain.inventory_schema import SUPPLIER_BRAND_TABLE
 from domain.product_archive_identity_schema import PRODUCT_ARCHIVE_IDENTITY_TABLE, ensure_product_archive_identity_schema
 from domain.schema import PRODUCT_ARCHIVE_TABLES, PRODUCT_TABLES, build_product_archive_table
+from domain.product_tag_schema import ensure_product_tag_schema
 from domain.vip_schema import JST_PRICE_TABLE
 
 
@@ -325,6 +326,7 @@ class ProductRepository:
     def create_tables(self) -> None:
         """Apply lightweight, backwards-compatible product archive schema additions."""
         with self.engine.begin() as connection:
+            ensure_product_tag_schema(connection)
             for table in PRODUCT_ARCHIVE_TABLES.values():
                 table.create(connection, checkfirst=True)
                 connection.execute(text(
@@ -757,7 +759,6 @@ class ProductRepository:
             conditions.append(
                 or_(table.c.year.startswith(year), table.c.year.startswith(prefix2))
             )
-
         if conditions:
             criterion = conditions[0] if len(conditions) == 1 else and_(*conditions)
             count_statement = count_statement.where(criterion)

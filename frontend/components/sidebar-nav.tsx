@@ -25,6 +25,7 @@ import {
   Ruler,
   Palette,
   ListFilter,
+  Tags,
   Activity,
 } from "lucide-react"
 
@@ -137,6 +138,12 @@ const NAV_ITEMS = [
         icon: ListFilter,
         permission: "product.view",
       },
+      {
+        href: "/product-tags",
+        label: "商品标签",
+        icon: Tags,
+        permission: "product.view",
+      },
     ],
   },
   {
@@ -184,6 +191,7 @@ export function SidebarNav() {
     user?.role_code === "super_admin" ||
     ["商品部", "开发部"].includes(user?.department_code ?? "")
   const canAccessAuxiliaryAttributes = canAccessColorManagement
+  const canAccessProductTags = user?.role_code === "super_admin" || user?.department_code === "开发部"
   const canAccessScheduledTasks =
     user?.role_code === "super_admin" || user?.department_code === "开发部"
   const isProductDepartment =
@@ -205,6 +213,7 @@ export function SidebarNav() {
         (item.href !== "/color-barcodes" || canAccessColorManagement) &&
         (item.href !== "/auxiliary-attributes" ||
           canAccessAuxiliaryAttributes) &&
+        (item.href !== "/product-tags" || canAccessProductTags) &&
         (item.href !== "/scheduled-tasks" || canAccessScheduledTasks) &&
         (!isProductDepartment ||
           ![

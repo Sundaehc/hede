@@ -8,6 +8,7 @@ import type {
   ProductListItem,
   ProductListResponse,
   ProductRecycleResponse,
+  ProductTagDefinition,
   ProductGoodsResponse,
   FactoryChannelDashboardResponse,
   ProductMutationPayload,
@@ -174,6 +175,7 @@ export function listOperationLogs(params: {
     | "size_group"
     | "color_barcode"
     | "product_auxiliary_attribute"
+    | "product_tag"
     | "product_goods"
     | "fine_table"
     | "inventory"
@@ -260,7 +262,6 @@ export function listProducts(params: {
   if (params.year) {
     search.set("year", params.year)
   }
-
   return request<ProductListResponse>(`/products?${search.toString()}`)
 }
 
@@ -634,6 +635,34 @@ export type ProductCopywritingResult = {
   source_sku: string
   launch_date: string
   stale: boolean
+}
+
+export function listProductTags(params: { group?: string; query?: string; includeInactive?: boolean } = {}) {
+  const search = new URLSearchParams()
+  if (params.group) search.set("group", params.group)
+  if (params.query) search.set("query", params.query)
+  if (params.includeInactive) search.set("include_inactive", "true")
+  return request<{ items: ProductTagDefinition[]; total: number }>(`/product-tags?${search.toString()}`)
+}
+
+export function getProductTagMetadata() {
+  return request<{ groups: string[]; sources: string[]; statuses: string[] }>("/product-tags/metadata")
+}
+
+export function rebuildProductTagsFromProducts() {
+  return request<{ result: { brands: number; products: number; tag_definitions: number; assignments: number }; message: string }>("/product-tags/rebuild-from-products", {
+    method: "POST",
+  })
+}
+
+export function updateProductTag(
+  id: number,
+  payload: { tag_name: string; tag_group: string; sort_order: number; is_active: boolean },
+) {
+  return request<{ item: ProductTagDefinition; message: string }>(`/product-tags/definitions/${id}`, {
+    method: "PUT",
+    body: JSON.stringify(payload),
+  })
 }
 
 export type SavedProductCopywriting = {

@@ -12,6 +12,7 @@ from domain import (  # noqa: F401 - register tables on METADATA
     gj_schema,
     inventory_schema,
     product_archive_identity_schema,
+    product_tag_schema,
     size_group_schema,
     task_status_schema,
     vip_schema,

@@ -111,6 +111,8 @@ def list_products(
 
     if brand == "all":
         payload = repository.list_all_products(query=query, sku_prefix=sku_prefix, page=page, page_size=page_size)
+        for item in payload["items"]:
+            item["brand"] = str(item.get("brand") or "")
         return {
             **payload,
             "items": [
@@ -124,6 +126,8 @@ def list_products(
         raise HTTPException(status_code=400, detail=f"Invalid brand: {brand}")
 
     payload = repository.list_products(brand, query=query, sku_prefix=sku_prefix, year=year, page=page, page_size=page_size)
+    for item in payload["items"]:
+        item["brand"] = brand
     return {
         **payload,
         "items": [
