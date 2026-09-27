@@ -130,7 +130,6 @@ export function ProductTagManagementPage() {
         <div className="page-header">
           <div>
             <h1 className="page-title">商品标签管理</h1>
-            <p className="page-subtitle">标签默认根据商品信息档案字段生成，支持人工调整并在重建时保留。</p>
           </div>
           <div className="flex flex-wrap gap-2">
             <Button type="button" variant="outline" className="cursor-pointer" disabled={rebuilding} onClick={() => void rebuild()}>
