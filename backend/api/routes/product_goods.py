@@ -2230,7 +2230,6 @@ def _recent_sales_payload(
             )
             .where(or_(*code_conditions))
             .where(table.c.sales_date.between(start_30_date, latest))
-            .where(_consumer_sales_channel_condition(table.c.channel))
             .group_by(
                 table.c.goods_code,
                 table.c.style_code,

@@ -348,7 +348,7 @@ def sync_changed_product_tags(repository, business_date: date, *, batch_size: in
                     definition_ids = dict(connection.execute(
                         select(definitions_table.c.tag_code, definitions_table.c.id)
                         .where(definitions_table.c.tag_code.in_(definitions))
-                    ))
+                    ).all())
                 else:
                     definition_ids = {}
                 product_ids = [int(row["id"]) for row in rows]

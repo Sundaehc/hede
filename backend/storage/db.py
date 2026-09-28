@@ -3,8 +3,9 @@ from __future__ import annotations
 from collections.abc import Iterable
 
 import orjson
-from sqlalchemy import case, create_engine, delete, func, insert, or_, text
+from sqlalchemy import JSON, case, cast, create_engine, delete, func, insert, or_, text
 from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy.dialects.postgresql import JSONB
 
 from domain.product_defaults import apply_product_defaults
 from domain.schema import METADATA, PRODUCT_ARCHIVE_TABLES
@@ -43,6 +44,18 @@ NONEMPTY_DAILY_REFRESH_FIELDS = (
 
 def _json_serializer(value):
     return orjson.dumps(value)
+
+
+def _changed_fields_condition(table, set_values):
+    return or_(
+        *(
+            cast(table.c[column], JSONB).is_distinct_from(cast(value, JSONB))
+            if isinstance(table.c[column].type, JSON)
+            else table.c[column].is_distinct_from(value)
+            for column, value in set_values.items()
+            if column not in {"updated_at", "last_imported_at"}
+        )
+    )
 
 
 class Database:
@@ -240,13 +253,7 @@ class Database:
                 # persisted archive value during product-source upserts.
                 set_values["cost"] = table.c.cost
                 set_values["cost_manual_override"] = table.c.cost_manual_override
-                changed_condition = or_(
-                    *(
-                        table.c[column].is_distinct_from(value)
-                        for column, value in set_values.items()
-                        if column not in {"updated_at", "last_imported_at"}
-                    )
-                )
+                changed_condition = _changed_fields_condition(table, set_values)
                 set_values["updated_at"] = case(
                     (changed_condition, func.date_trunc("minute", func.now())),
                     else_=table.c.updated_at,

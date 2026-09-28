@@ -3,9 +3,27 @@ from __future__ import annotations
 from decimal import Decimal
 
 from sqlalchemy import select, text
+from sqlalchemy.dialects import postgresql
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from domain.schema import PRODUCT_TABLES
-from storage.db import Database
+from storage.db import Database, _changed_fields_condition
+
+
+def test_json_change_comparison_uses_jsonb():
+    table = PRODUCT_TABLES["cbanner_womens"]
+    excluded = pg_insert(table).excluded
+    expression = _changed_fields_condition(
+        table,
+        {"raw_payload": excluded.raw_payload, "extra_fields": excluded.extra_fields, "category": excluded.category},
+    )
+    compiled = str(expression.compile(dialect=postgresql.dialect()))
+    assert "CAST(cbanner_womens_products.raw_payload AS JSONB)" in compiled
+    assert "CAST(excluded.raw_payload AS JSONB)" in compiled
+    assert "CAST(cbanner_womens_products.extra_fields AS JSONB)" in compiled
+    assert "CAST(excluded.extra_fields AS JSONB)" in compiled
+    assert "cbanner_womens_products.category IS DISTINCT FROM excluded.category" in compiled
+    assert "IS DISTINCT FROM" in compiled
 
 
 def test_insert_new_brand_rows_does_not_overwrite_existing_products(test_database_url: str, recreate_tables):
