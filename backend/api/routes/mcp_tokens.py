@@ -87,9 +87,14 @@ def candidates(request: Request, query: str = Query("", max_length=100), page: i
 
 
 @router.get("")
-def tokens(request: Request, page: int = Query(1, ge=1, le=100000), page_size: int = Query(20, ge=1, le=100)):
+def tokens(
+    request: Request,
+    page: int = Query(1, ge=1, le=100000),
+    page_size: int = Query(20, ge=1, le=100),
+    status: Literal["active", "revoked"] = Query("active"),
+):
     with token_connection(request) as connection:
-        return list_credentials(connection, page=page, page_size=page_size)
+        return list_credentials(connection, page=page, page_size=page_size, status=status)
 
 
 @router.get("/{token_id}/audit")

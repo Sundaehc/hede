@@ -1,4 +1,5 @@
 export type McpProfile = "products" | "design" | "finance" | "merchandise" | "operation" | "development" | "customer_service"
+export type McpTokenStatus = "active" | "revoked"
 
 export type McpTokenItem = {
   id: number
@@ -74,8 +75,8 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   return response.json() as Promise<T>
 }
 
-export function listMcpTokens(page: number) {
-  return request<McpPage<McpTokenItem>>(`?page=${page}&page_size=20`)
+export function listMcpTokens(page: number, status: McpTokenStatus = "active") {
+  return request<McpPage<McpTokenItem>>(`?page=${page}&page_size=20&status=${status}`)
 }
 
 export function listMcpCandidates(query: string, page: number) {

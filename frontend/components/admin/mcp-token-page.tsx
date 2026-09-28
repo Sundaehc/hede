@@ -39,6 +39,7 @@ import {
   type McpCandidate,
   type McpPage,
   type McpProfile,
+  type McpTokenStatus,
   type McpTokenItem,
 } from "@/lib/mcp-tokens"
 import { cn } from "@/lib/utils"
@@ -125,6 +126,7 @@ export function McpTokenPage() {
 
 function TokenManager() {
   const [result, setResult] = useState<McpPage<McpTokenItem> | null>(null)
+  const [status, setStatus] = useState<McpTokenStatus>("active")
   const [page, setPage] = useState(1)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState("")
@@ -163,7 +165,7 @@ function TokenManager() {
 
   const load = useCallback(() => {
     const sequence = ++listSequence.current
-    return listMcpTokens(page)
+    return listMcpTokens(page, status)
       .then((response) => {
         if (mounted.current && sequence === listSequence.current) {
           setResult(response)
@@ -178,7 +180,7 @@ function TokenManager() {
         if (mounted.current && sequence === listSequence.current)
           setLoading(false)
       })
-  }, [page])
+  }, [page, status])
 
   useEffect(() => {
     void load()
@@ -206,6 +208,13 @@ function TokenManager() {
   function changePage(next: number) {
     setLoading(true)
     setPage(next)
+  }
+
+  function changeStatus(next: McpTokenStatus) {
+    if (next === status) return
+    setLoading(true)
+    setPage(1)
+    setStatus(next)
   }
 
   function openAudit(item: McpTokenItem) {
@@ -363,12 +372,27 @@ function TokenManager() {
           aria-label="已签发凭证"
         >
           <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border px-5 py-4">
-            <h2 className="text-sm font-semibold">
-              凭证记录{" "}
-              <span className="ml-2 font-mono text-muted-foreground">
-                {result?.total ?? "—"}
-              </span>
-            </h2>
+            <div className="flex items-center gap-4">
+              <h2 className="text-sm font-semibold">凭证记录</h2>
+              <div className="flex items-center gap-1 rounded-lg bg-muted/50 p-1" role="tablist" aria-label="凭证状态">
+                {(["active", "revoked"] as const).map((value) => (
+                  <button
+                    key={value}
+                    type="button"
+                    role="tab"
+                    aria-selected={status === value}
+                    className={cn(
+                      "rounded-md px-3 py-1.5 text-xs transition-colors",
+                      status === value ? "bg-background font-medium text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
+                    )}
+                    onClick={() => changeStatus(value)}
+                  >
+                    {value === "active" ? "有效" : "已撤销"}
+                    {status === value ? <span className="ml-1.5 font-mono">{result?.total ?? "—"}</span> : null}
+                  </button>
+                ))}
+              </div>
+            </div>
           </div>
           <div className="overflow-x-auto" aria-busy={loading}>
             <table className="w-full min-w-[800px] text-left text-sm">
@@ -472,7 +496,7 @@ function TokenManager() {
                   <tr>
                     <td colSpan={6} className="p-12 text-center">
                       <KeyRound className="mx-auto mb-3 size-6 text-muted-foreground" />
-                      <p className="font-medium">还没有签发凭证</p>
+                      <p className="font-medium">{status === "active" ? "还没有有效凭证" : "还没有已撤销凭证"}</p>
                       <p className="mt-2 text-xs text-muted-foreground">
                         点击“签发 Token”，为一个中台账号开通查询。
                       </p>

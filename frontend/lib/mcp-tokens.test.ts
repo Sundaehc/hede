@@ -32,7 +32,7 @@ describe("MCP token API", () => {
     )
     await listMcpTokens(2)
     expect(fetch).toHaveBeenLastCalledWith(
-      "/api/auth/admin/mcp-tokens?page=2&page_size=20",
+      "/api/auth/admin/mcp-tokens?page=2&page_size=20&status=active",
       expect.objectContaining({ cache: "no-store" })
     )
   })

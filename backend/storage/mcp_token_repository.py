@@ -87,16 +87,20 @@ def credential_state(row):
     return "active"
 
 
-def list_credentials(connection, *, page, page_size):
-    total = connection.scalar(text("SELECT count(*) FROM mcp_private.tokens"))
-    rows = connection.execute(text("""SELECT token.id,token.user_id,token.label,token.profile,
+def list_credentials(connection, *, page, page_size, status="active"):
+    if status not in {"active", "revoked"}:
+        raise ValueError("Unsupported credential status")
+    revoked_condition = "revoked_at IS NOT NULL" if status == "revoked" else "revoked_at IS NULL"
+    total = connection.scalar(text(f"SELECT count(*) FROM mcp_private.tokens WHERE {revoked_condition}"))
+    rows = connection.execute(text(f"""SELECT token.id,token.user_id,token.label,token.profile,
         token.expires_at,token.revoked_at,token.created_at,users.username,users.display_name,
         users.department_code,users.status,users.role_code,roles.permissions
         FROM mcp_private.tokens token JOIN public.auth_users users ON users.id=token.user_id
         JOIN public.auth_roles roles ON roles.code=users.role_code
+        WHERE {revoked_condition}
         ORDER BY token.id DESC LIMIT :limit OFFSET :offset"""), {
-            "limit": page_size, "offset": (page - 1) * page_size,
-        }).mappings()
+        "limit": page_size, "offset": (page - 1) * page_size,
+    }).mappings()
     items = []
     for row in rows:
         item = dict(row)
