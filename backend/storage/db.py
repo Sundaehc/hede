@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections.abc import Iterable
 
 import orjson
-from sqlalchemy import create_engine, delete, func, insert, or_, text
+from sqlalchemy import case, create_engine, delete, func, insert, or_, text
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from domain.product_defaults import apply_product_defaults
@@ -240,7 +240,17 @@ class Database:
                 # persisted archive value during product-source upserts.
                 set_values["cost"] = table.c.cost
                 set_values["cost_manual_override"] = table.c.cost_manual_override
-                set_values["updated_at"] = func.date_trunc("minute", func.now())
+                changed_condition = or_(
+                    *(
+                        table.c[column].is_distinct_from(value)
+                        for column, value in set_values.items()
+                        if column not in {"updated_at", "last_imported_at"}
+                    )
+                )
+                set_values["updated_at"] = case(
+                    (changed_condition, func.date_trunc("minute", func.now())),
+                    else_=table.c.updated_at,
+                )
                 stmt = stmt.on_conflict_do_update(
                     index_elements=["sku"],
                     set_=set_values,

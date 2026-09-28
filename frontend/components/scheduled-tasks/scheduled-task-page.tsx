@@ -47,6 +47,7 @@ const TASK_LABELS: Record<string, string> = {
   HedeImportPriceDaily: "商品物价信息更新",
   hede_import_gj_merged_product_info_daily: "管家婆商品信息更新",
   HedeImportProductsDaily: "商品信息档案更新",
+  sync_product_tags_daily: "商品标签增量同步",
   HedeImportSmileyFineTableDaily: "笑脸精细表导入",
   "Hede Fine Table Snapshot Daily": "精细表每日快照",
   "Hede Fine Table Export Daily": "精细表日报导出",

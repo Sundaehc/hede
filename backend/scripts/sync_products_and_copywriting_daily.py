@@ -8,6 +8,7 @@ from datetime import date
 from sqlalchemy import text
 
 from config import BACKEND_ROOT, load_settings
+from scripts.sync_product_tags_daily import TASK_NAME as TAG_TASK_NAME, run_daily_sync as run_daily_tag_sync
 from scripts.generate_product_copywriting_daily import TASK_NAME as COPYWRITING_TASK_NAME, business_today, run_daily_generation
 from scripts.refresh_product_images import TASK_NAME as IMAGE_TASK_NAME
 from scripts.sync_products_daily import TASK_NAME as PRODUCT_TASK_NAME
@@ -95,13 +96,29 @@ def run_workflow(settings, statuses, business_date: date) -> int:
                 statuses.mark_finished(TASK_NAME, business_date, status="failed", message=message, result=result)
                 print(f"[FAILED] {business_date.isoformat()} {message}")
                 return 1
+        if business_today() != business_date:
+            statuses.mark_finished(TASK_NAME, business_date, status="failed", message="提示词生成跨日，已停止标签同步，请按新业务日期重试")
+            return 1
+        if not statuses.is_success(TAG_TASK_NAME, business_date):
+            statuses.mark_running(TAG_TASK_NAME, business_date)
+            try:
+                tag_result = run_daily_tag_sync(settings, business_date)
+            except Exception:
+                statuses.mark_finished(TAG_TASK_NAME, business_date, status="failed", message="商品标签同步失败，请检查任务日志")
+                statuses.mark_finished(TASK_NAME, business_date, status="failed", message="商品标签同步失败，等待下次计划重试")
+                return 1
+            statuses.mark_finished(
+                TAG_TASK_NAME, business_date, status="success",
+                message=f"商品标签同步完成：处理{tag_result['products']}个商品，新增{tag_result['tag_definitions']}个标签",
+                result=tag_result,
+            )
         if not statuses.is_success(PRICE_MODULE, business_date):
             exit_code = run_import(PRICE_MODULE, "HedeImportPriceDaily", "import_price_daily.log")
             if exit_code != 0 or not statuses.is_success(PRICE_MODULE, business_date):
                 statuses.mark_finished(TASK_NAME, business_date, status="skipped", message="物价信息尚未导入成功，等待下次计划重试")
                 print(f"[WAIT] {business_date.isoformat()} price import not ready")
                 return 0
-        statuses.mark_finished(TASK_NAME, business_date, status="success", message="商品档案、图片、提示词及物价信息更新完成")
+        statuses.mark_finished(TASK_NAME, business_date, status="success", message="商品档案、图片、提示词、标签及物价信息更新完成")
         print(f"[OK] {business_date.isoformat()} product archive, images, copywriting and price import completed")
         return 0
     except Exception:

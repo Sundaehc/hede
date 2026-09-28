@@ -3,9 +3,10 @@ from __future__ import annotations
 import hashlib
 import re
 from collections import defaultdict
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, time, timedelta, timezone
 
-from sqlalchemy import delete, insert, select
+from sqlalchemy import and_, delete, exists, insert, or_, select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from domain.product_tag_schema import (
     PRODUCT_STYLE_ENTITIES_TABLE,
@@ -31,6 +32,13 @@ GENERATED_TAG_GROUPS = (
 _GROUP_SORT_ORDER = {group: index for index, group in enumerate(GENERATED_TAG_GROUPS)}
 _YEAR_PATTERN = re.compile(r"(?:19|20)\d{2}|\d{2}(?=年)")
 _TOKEN_SPLIT_PATTERN = re.compile(r"[,，、;；+/]+")
+_BUSINESS_TIMEZONE = timezone(timedelta(hours=8))
+_SELECTED_FIELDS = (
+    "category", "season_category", "year", "product_level", "upper_material",
+    "lining_material", "outsole_material", "sole_style", "fashion_elements",
+    "toe_shape", "closure_type", "selling_points", "internal_height_increase",
+    "launch_date", "image_path",
+)
 
 
 def _text(value: object) -> str:
@@ -220,6 +228,8 @@ def _add_lifecycle_and_quality_tags(
     product_id: int,
     definitions: dict[str, dict[str, object]],
     product_tags: dict[tuple[str, int], dict[str, dict[str, object]]],
+    *,
+    business_date: date | None = None,
 ) -> None:
     launch_date = _text(row.get("launch_date"))
     parsed_date = None
@@ -230,7 +240,7 @@ def _add_lifecycle_and_quality_tags(
         except (TypeError, ValueError):
             continue
     if parsed_date is not None:
-        today = date.today()
+        today = business_date or date.today()
         if parsed_date >= today - timedelta(days=180):
             _add_tag(
                 definitions,
@@ -262,41 +272,144 @@ def _add_lifecycle_and_quality_tags(
             )
 
 
+def _generate_for_row(row, brand, definitions, product_tags, *, business_date: date | None = None) -> None:
+    if row.get("deleted_at") is not None:
+        return
+    product_id = int(row["id"])
+    _add_exact_field_tags(row, brand, product_id, definitions, product_tags)
+    _add_keyword_tags(row, brand, product_id, definitions, product_tags)
+    _add_lifecycle_and_quality_tags(row, brand, product_id, definitions, product_tags, business_date=business_date)
+
+
+def _changed_product_ids(product_ids, product_tags, existing_tags) -> list[int]:
+    return [
+        product_id for product_id in product_ids
+        if product_tags.get(product_id, {}) != existing_tags.get(product_id, {})
+    ]
+
+
+def sync_changed_product_tags(repository, business_date: date, *, batch_size: int = 500) -> dict[str, int]:
+    if batch_size < 1:
+        raise ValueError("batch_size must be positive")
+    definitions_table = PRODUCT_TAG_DEFINITIONS_TABLE
+    assignments_table = PRODUCT_TAG_ASSIGNMENTS_TABLE
+    result = {"brands": 0, "products": 0, "updated_products": 0, "tag_definitions": 0, "assignments": 0}
+    start = datetime.combine(business_date, time.min, _BUSINESS_TIMEZONE)
+    end = start + timedelta(days=1)
+    expired_new_tag_date = business_date - timedelta(days=181)
+    with repository.engine.begin() as connection:
+        ensure_product_tag_schema(connection)
+
+    for brand in repository.product_archive_brands():
+        table = repository._table_for_brand(brand)
+        last_id = 0
+        result["brands"] += 1
+        while True:
+            has_rule_assignment = exists(
+                select(assignments_table.c.id).where(
+                    assignments_table.c.brand == brand,
+                    assignments_table.c.product_id == table.c.id,
+                    assignments_table.c.source_type == "rule",
+                )
+            )
+            statement = (
+                select(table.c.id, table.c.deleted_at, *(table.c[field] for field in _SELECTED_FIELDS))
+                .where(table.c.id > last_id)
+                .where(or_(
+                    (table.c.created_at >= start) & (table.c.created_at < end),
+                    (table.c.updated_at >= start) & (table.c.updated_at < end),
+                    (table.c.deleted_at >= start) & (table.c.deleted_at < end),
+                    and_(table.c.deleted_at.is_(None), ~has_rule_assignment),
+                    and_(table.c.deleted_at.is_(None), table.c.launch_date == expired_new_tag_date.isoformat()),
+                    and_(table.c.deleted_at.is_(None), table.c.launch_date == expired_new_tag_date.strftime("%Y/%m/%d")),
+                ))
+                .order_by(table.c.id)
+                .limit(batch_size)
+            )
+            with repository.engine.connect() as connection:
+                rows = connection.execute(statement).mappings().all()
+            if not rows:
+                break
+            last_id = int(rows[-1]["id"])
+            definitions: dict[str, dict[str, object]] = {}
+            product_tags: dict[tuple[str, int], dict[str, dict[str, object]]] = defaultdict(dict)
+            for row in rows:
+                _generate_for_row(row, brand, definitions, product_tags, business_date=business_date)
+
+            with repository.engine.begin() as connection:
+                if definitions:
+                    inserted = connection.execute(
+                        pg_insert(definitions_table)
+                        .values(list(definitions.values()))
+                        .on_conflict_do_nothing(index_elements=["tag_code"])
+                        .returning(definitions_table.c.id)
+                    ).scalars().all()
+                    result["tag_definitions"] += len(inserted)
+                    definition_ids = dict(connection.execute(
+                        select(definitions_table.c.tag_code, definitions_table.c.id)
+                        .where(definitions_table.c.tag_code.in_(definitions))
+                    ))
+                else:
+                    definition_ids = {}
+                product_ids = [int(row["id"]) for row in rows]
+                existing_tags: dict[int, dict[str, dict[str, object]]] = defaultdict(dict)
+                for assignment in connection.execute(
+                    select(assignments_table.c.product_id, definitions_table.c.tag_code, assignments_table.c.evidence)
+                    .join(definitions_table, definitions_table.c.id == assignments_table.c.tag_id)
+                    .where(
+                        assignments_table.c.brand == brand,
+                        assignments_table.c.product_id.in_(product_ids),
+                        assignments_table.c.source_type == "rule",
+                    )
+                ).mappings():
+                    existing_tags[int(assignment["product_id"])][str(assignment["tag_code"])] = assignment["evidence"]
+                desired_tags = {
+                    product_id: product_tags.get((brand, product_id), {})
+                    for product_id in product_ids
+                }
+                changed_ids = _changed_product_ids(product_ids, desired_tags, existing_tags)
+                if changed_ids:
+                    connection.execute(
+                        delete(assignments_table).where(
+                            assignments_table.c.brand == brand,
+                            assignments_table.c.product_id.in_(changed_ids),
+                            assignments_table.c.source_type == "rule",
+                        )
+                    )
+                assignment_rows = [
+                    {
+                        "tag_id": definition_ids[code], "brand": brand,
+                        "product_id": product_id, "target_type": "sku", "source_type": "rule",
+                        "confidence": 100, "evidence": evidence, "status": "confirmed",
+                        "is_locked": False,
+                    }
+                    for product_id in changed_ids
+                    for tags in (desired_tags[product_id],)
+                    for code, evidence in tags.items()
+                ]
+                if assignment_rows:
+                    connection.execute(insert(assignments_table), assignment_rows)
+            result["products"] += len(rows)
+            result["updated_products"] += len(changed_ids)
+            result["assignments"] += len(assignment_rows)
+    return result
+
+
 def rebuild_product_tags(repository) -> dict[str, int]:
     product_tags: dict[tuple[str, int], dict[str, dict[str, object]]] = defaultdict(dict)
     definitions: dict[str, dict[str, object]] = {}
     product_count = 0
     brand_count = 0
-    selected_fields = (
-        "category",
-        "season_category",
-        "year",
-        "product_level",
-        "upper_material",
-        "lining_material",
-        "outsole_material",
-        "sole_style",
-        "fashion_elements",
-        "toe_shape",
-        "closure_type",
-        "selling_points",
-        "internal_height_increase",
-        "launch_date",
-        "image_path",
-    )
     with repository.engine.connect() as connection:
         for brand in repository.product_archive_brands():
             table = repository._table_for_brand(brand)
-            statement = select(table.c.id, *(getattr(table.c, field) for field in selected_fields)).where(table.c.deleted_at.is_(None))
+            statement = select(table.c.id, *(table.c[field] for field in _SELECTED_FIELDS)).where(table.c.deleted_at.is_(None))
             rows = connection.execute(statement).mappings()
             brand_count += 1
             for raw_row in rows:
                 row = dict(raw_row)
-                product_id = int(row["id"])
                 product_count += 1
-                _add_exact_field_tags(row, brand, product_id, definitions, product_tags)
-                _add_keyword_tags(row, brand, product_id, definitions, product_tags)
-                _add_lifecycle_and_quality_tags(row, brand, product_id, definitions, product_tags)
+                _generate_for_row(row, brand, definitions, product_tags)
 
     with repository.engine.begin() as connection:
         ensure_product_tag_schema(connection)

@@ -224,6 +224,7 @@ class FakeStatuses:
 @pytest.fixture
 def workflow_clock(monkeypatch):
     monkeypatch.setattr(workflow, "business_today", lambda: BUSINESS_DATE)
+    monkeypatch.setattr(workflow, "run_daily_tag_sync", lambda *_: {"brands": 1, "products": 0, "tag_definitions": 0, "assignments": 0})
 
 
 def test_workflow_runs_dependencies_archive_images_then_generation(settings, monkeypatch, workflow_clock):
@@ -238,13 +239,18 @@ def test_workflow_runs_dependencies_archive_images_then_generation(settings, mon
         assert statuses.is_success(workflow.IMAGE_TASK_NAME, BUSINESS_DATE)
         sequence.append("copywriting")
         return {"target_count": 2, "completed": 2}
+    def sync_tags(*args):
+        assert statuses.is_success(workflow.COPYWRITING_TASK_NAME, BUSINESS_DATE)
+        sequence.append("tags")
+        return {"brands": 1, "products": 2, "tag_definitions": 1, "assignments": 2}
     monkeypatch.setattr(workflow, "run_import", run_import)
     monkeypatch.setattr(workflow, "run_daily_generation", generate)
+    monkeypatch.setattr(workflow, "run_daily_tag_sync", sync_tags)
     assert workflow.run_workflow(settings, statuses, BUSINESS_DATE) == 0
-    assert sequence == ["import_gj_merged_product_info_daily", "sync_products_daily", "refresh_product_images", "copywriting", "import_price_daily"]
+    assert sequence == ["import_gj_merged_product_info_daily", "sync_products_daily", "refresh_product_images", "copywriting", "tags", "import_price_daily"]
     assert statuses.states[workflow.TASK_NAME] == "success"
     assert workflow.run_workflow(settings, statuses, BUSINESS_DATE) == 0
-    assert len(sequence) == 5
+    assert len(sequence) == 6
 
 
 def test_pending_sources_stop_archive_sync_and_model_generation(settings, monkeypatch, workflow_clock):
@@ -393,6 +399,7 @@ def test_generation_retry_reuses_successful_archive_and_images(settings, monkeyp
 def test_price_retry_does_not_repeat_copywriting(settings, monkeypatch, workflow_clock):
     statuses = FakeStatuses([workflow.PRODUCT_TASK_NAME, workflow.IMAGE_TASK_NAME])
     generator = Mock(return_value={"completed": 1})
+    sync_tags = Mock(return_value={"products": 1, "tag_definitions": 0})
     attempts = []
 
     def import_price(module, task_name, log_file):
@@ -403,12 +410,33 @@ def test_price_retry_does_not_repeat_copywriting(settings, monkeypatch, workflow
 
     monkeypatch.setattr(workflow, "run_import", import_price)
     monkeypatch.setattr(workflow, "run_daily_generation", generator)
+    monkeypatch.setattr(workflow, "run_daily_tag_sync", sync_tags)
     assert workflow.run_workflow(settings, statuses, BUSINESS_DATE) == 0
     assert statuses.states[workflow.TASK_NAME] == "skipped"
     assert workflow.run_workflow(settings, statuses, BUSINESS_DATE) == 0
     assert statuses.states[workflow.TASK_NAME] == "success"
     assert attempts == [workflow.PRICE_MODULE, workflow.PRICE_MODULE]
     generator.assert_called_once_with(settings, BUSINESS_DATE)
+    sync_tags.assert_called_once_with(settings, BUSINESS_DATE)
+
+
+def test_tag_failure_retries_without_repeating_archive_or_copywriting(settings, monkeypatch, workflow_clock):
+    statuses = FakeStatuses([workflow.PRODUCT_TASK_NAME, workflow.IMAGE_TASK_NAME, workflow.PRICE_MODULE])
+    generator = Mock(return_value={"completed": 1})
+    sync_tags = Mock(side_effect=[RuntimeError("private-error"), {"products": 1, "tag_definitions": 1}])
+    importer = Mock()
+    monkeypatch.setattr(workflow, "run_import", importer)
+    monkeypatch.setattr(workflow, "run_daily_generation", generator)
+    monkeypatch.setattr(workflow, "run_daily_tag_sync", sync_tags)
+
+    assert workflow.run_workflow(settings, statuses, BUSINESS_DATE) == 1
+    assert statuses.states[workflow.TAG_TASK_NAME] == "failed"
+    assert statuses.states[workflow.TASK_NAME] == "failed"
+    assert workflow.run_workflow(settings, statuses, BUSINESS_DATE) == 0
+    assert statuses.states[workflow.TAG_TASK_NAME] == "success"
+    importer.assert_not_called()
+    generator.assert_called_once_with(settings, BUSINESS_DATE)
+    assert sync_tags.call_count == 2
 
 
 def test_image_runner_uses_daily_mode_and_correct_business_status(monkeypatch):
