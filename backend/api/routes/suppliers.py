@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import io
 import urllib.parse
+from decimal import Decimal
 
 from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
@@ -19,6 +20,7 @@ from api.operation_log_utils import (
 from api.product_goods_cache import clear_product_goods_cache
 from domain.gj_brand import CBANNER_MENS_BRAND, infer_supplier_brand_from_name
 from domain.schema import PRODUCT_ARCHIVE_TABLES
+from storage.date_normalization import parse_date
 
 router = APIRouter()
 
@@ -63,10 +65,19 @@ def list_suppliers(
     page_size: int | None = Query(None, ge=1, le=200),
     query: str | None = None,
     brand: str | None = None,
+    include_balances: bool = False,
+    date_start: str | None = None,
+    date_end: str | None = None,
 ):
     repository = request.app.state.inventory_repository
     normalized_brand = _normalize_brand(repository, brand)
-    if page is None and page_size is None and not query:
+    if date_start and parse_date(date_start) is None:
+        raise HTTPException(status_code=400, detail="起始日期无效")
+    if date_end and parse_date(date_end) is None:
+        raise HTTPException(status_code=400, detail="截止日期无效")
+    if date_start and date_end and parse_date(date_start) > parse_date(date_end):
+        raise HTTPException(status_code=400, detail="起始日期不能晚于截止日期")
+    if page is None and page_size is None and not query and not include_balances:
         items = repository.list_suppliers(brand=normalized_brand)
         return {
             "items": items,
@@ -74,18 +85,36 @@ def list_suppliers(
             "page": 1,
             "page_size": len(items),
         }
-    return repository.list_suppliers_page(page=page or 1, page_size=page_size or 30, query=query, brand=normalized_brand)
+    return repository.list_suppliers_page(
+        page=page or 1, page_size=page_size or 30, query=query, brand=normalized_brand,
+        include_balances=include_balances, date_start=date_start, date_end=date_end,
+    )
 
 
 @router.get("/suppliers/export")
-def export_suppliers(request: Request, query: str | None = None, brand: str | None = None):
+def export_suppliers(
+    request: Request,
+    query: str | None = None,
+    brand: str | None = None,
+    date_start: str | None = None,
+    date_end: str | None = None,
+):
     repository = request.app.state.inventory_repository
     normalized_brand = _normalize_brand(repository, brand)
+    if date_start and parse_date(date_start) is None:
+        raise HTTPException(status_code=400, detail="起始日期无效")
+    if date_end and parse_date(date_end) is None:
+        raise HTTPException(status_code=400, detail="截止日期无效")
+    if date_start and date_end and parse_date(date_start) > parse_date(date_end):
+        raise HTTPException(status_code=400, detail="起始日期不能晚于截止日期")
     items = repository.list_suppliers_page(
         page=1,
         page_size=200,
         query=query,
         brand=normalized_brand,
+        include_balances=True,
+        date_start=date_start,
+        date_end=date_end,
     )
     rows = list(items.get("items") or [])
     while len(rows) < int(items.get("total") or 0):
@@ -95,6 +124,9 @@ def export_suppliers(request: Request, query: str | None = None, brand: str | No
             page_size=200,
             query=query,
             brand=normalized_brand,
+            include_balances=True,
+            date_start=date_start,
+            date_end=date_end,
         )
         next_rows = list(next_page.get("items") or [])
         if not next_rows:
@@ -104,18 +136,16 @@ def export_suppliers(request: Request, query: str | None = None, brand: str | No
     workbook = Workbook()
     worksheet = workbook.active
     worksheet.title = "供应商"
-    worksheet.append(["供应商名称", "工厂代码", "联系人", "微信号", "合作状态", "地址", "备注"])
+    worksheet.append(["供应商名称", "工厂代码", "期初余额", "本期发生额", "期末余额"])
     for item in rows:
         worksheet.append([
             item.get("name") or "",
             item.get("factory_code") or "",
-            item.get("contact") or "",
-            item.get("wechat") or "",
-            item.get("cooperation_status") or "",
-            item.get("address") or "",
-            item.get("notes") or "",
+            Decimal(str(item.get("beginning_balance") or "0")),
+            Decimal(str(item.get("period_amount") or "0")),
+            Decimal(str(item.get("ending_balance") or "0")),
         ])
-    style_excel_worksheet(worksheet, width_by_header={"供应商名称": 28, "联系人": 16, "微信号": 20, "合作状态": 14, "地址": 30, "备注": 30})
+    style_excel_worksheet(worksheet, width_by_header={"供应商名称": 28, "工厂代码": 16, "期初余额": 18, "本期发生额": 18, "期末余额": 18})
 
     selected_brand = repository.get_supplier_brand_by_code(normalized_brand) if normalized_brand else None
     brand_label = "全部品牌" if selected_brand is None else str(selected_brand.get("name") or normalized_brand)
@@ -127,7 +157,7 @@ def export_suppliers(request: Request, query: str | None = None, brand: str | No
         action="export",
         entity_type="supplier",
         summary=summary,
-        after_data={"count": len(rows), "brand": normalized_brand, "query": keyword},
+        after_data={"count": len(rows), "brand": normalized_brand, "query": keyword, "date_start": date_start, "date_end": date_end},
     )
     filename = f"供应商管理_{brand_label}.xlsx"
     return _stream_supplier_export(workbook, filename)

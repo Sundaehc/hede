@@ -499,12 +499,17 @@ class InventoryRepository:
         warehouse: object,
         document_type: object,
         summary: object,
+        supplier: object | None = None,
+        allow_empty_warehouse: bool = False,
+        match_warehouse: bool = True,
     ) -> dict[str, object] | None:
         normalized_summary = str(summary or "").strip()
         normalized_warehouse = str(warehouse or "").strip()
         normalized_document_type = str(document_type or "").strip()
         normalized_date = parse_date(date_value)
-        if not (normalized_summary and normalized_warehouse and normalized_document_type and normalized_date):
+        if not (normalized_summary and normalized_document_type and normalized_date):
+            return None
+        if match_warehouse and not normalized_warehouse and not allow_empty_warehouse:
             return None
 
         table = INVENTORY_TABLE
@@ -516,15 +521,175 @@ class InventoryRepository:
                     table.c.date_value == normalized_date,
                     table.c.date == normalized_date.isoformat(),
                 ),
-                table.c.warehouse == normalized_warehouse,
                 table.c.document_type == normalized_document_type,
                 table.c.summary == normalized_summary,
             )
             .order_by(desc(table.c.id))
         )
+        if supplier is not None:
+            normalized_supplier = str(supplier or "").strip()
+            statement = statement.where(
+                table.c.supplier == normalized_supplier if normalized_supplier else or_(table.c.supplier.is_(None), table.c.supplier == "")
+            )
+        if match_warehouse:
+            statement = statement.where(
+                table.c.warehouse == normalized_warehouse if normalized_warehouse else or_(table.c.warehouse.is_(None), table.c.warehouse == "")
+            )
         with self.engine.connect() as connection:
             row = connection.execute(statement).mappings().first()
         return None if row is None else dict(row)
+
+    def get_records_by_date_summary(self, *, date_value: object, summary: object) -> list[dict[str, object]]:
+        normalized_date = parse_date(date_value)
+        normalized_summary = str(summary or "").strip()
+        if not normalized_date or not normalized_summary:
+            return []
+        table = INVENTORY_TABLE
+        statement = (
+            select(table)
+            .where(
+                table.c.deleted_at.is_(None),
+                or_(table.c.date_value == normalized_date, table.c.date == normalized_date.isoformat()),
+                table.c.summary == normalized_summary,
+            )
+            .order_by(desc(table.c.id))
+        )
+        with self.engine.connect() as connection:
+            return [dict(row) for row in connection.execute(statement).mappings()]
+
+    def preview_template_documents(self, documents: list[object]) -> dict[str, object]:
+        record = INVENTORY_TABLE
+        dates = {parse_date(document.date) for document in documents}
+        with self.engine.connect() as connection:
+            existing = [dict(row) for row in connection.execute(
+                select(record.c.id, record.c.date_value, record.c.date, record.c.document_number,
+                       record.c.document_type, record.c.supplier, record.c.warehouse, record.c.summary,
+                       record.c.raw_payload)
+                .where(or_(record.c.date_value.in_(dates), record.c.date.in_([value.isoformat() for value in dates])))
+                .where(record.c.deleted_at.is_(None))
+                .order_by(record.c.id.desc())
+            ).mappings()]
+        seen: list[object] = []
+        conflicts: list[dict[str, object]] = []
+        for document in documents:
+            matches = [row for row in existing if
+                       ((row.get("date_value") and row.get("date_value").isoformat()) or str(row.get("date") or "")) == document.date
+                       and row.get("summary") == document.summary
+                       and row.get("document_type") == document.document_type
+                       and str(row.get("supplier") or "") == document.supplier
+                       and str(row.get("warehouse") or "") == document.warehouse]
+            matches.extend(previous for previous in seen if
+                           (previous.date, previous.summary, previous.document_type, previous.supplier, previous.warehouse)
+                           == (document.date, document.summary, document.document_type, document.supplier, document.warehouse))
+            if matches:
+                conflicts.append({
+                    "key": document.key, "date": document.date, "summary": document.summary,
+                    "document_type": document.document_type,
+                    "existing_number": str(matches[0].get("document_number") or "") if isinstance(matches[0], dict) else "",
+                    "can_merge": True,
+                })
+            seen.append(document)
+        return {"total": len(documents), "conflicts": conflicts}
+
+    def import_template_documents(self, plans: list[dict[str, object]]) -> dict[str, int]:
+        record_table = INVENTORY_TABLE
+        detail_table = INVENTORY_DETAIL_TABLE
+        created = replaced = skipped = detail_count = 0
+        with self.engine.begin() as connection:
+            if connection.dialect.name == "postgresql":
+                connection.execute(text("SELECT pg_advisory_xact_lock(42917001)"))
+            for plan in plans:
+                if plan.get("decision") == "skip":
+                    skipped += 1
+                    continue
+                date_value = parse_date(plan["date"])
+                label = f"{plan['date']} {plan['document_type']}（摘要：{plan['summary']}）"
+                matched = connection.execute(
+                    select(record_table)
+                    .where(
+                        record_table.c.deleted_at.is_(None),
+                        or_(record_table.c.date_value == date_value, record_table.c.date == plan["date"]),
+                        record_table.c.summary == plan["summary"],
+                        record_table.c.document_type == plan["document_type"],
+                        record_table.c.supplier == plan["supplier"],
+                        or_(record_table.c.warehouse.is_(None), record_table.c.warehouse == "")
+                        if not plan["warehouse"] else record_table.c.warehouse == plan["warehouse"],
+                    )
+                    .order_by(record_table.c.id.desc())
+                ).mappings().first()
+                decision = plan.get("decision")
+                if matched and decision not in {"overwrite", "new"}:
+                    raise ValueError(f"{label}：同日同摘要、同类型、同往来单位、同仓库单据已存在，请先确认覆盖或新增")
+                if not matched and decision == "overwrite":
+                    raise ValueError(f"{label}：目标单据已变化，请重新预检查")
+                if not matched and decision == "new" and not plan.get("same_file_conflict"):
+                    raise ValueError(f"{label}：冲突单据已变化，请重新预检查")
+                if decision == "new":
+                    new_summary = str(plan.get("new_summary") or "").strip()
+                    if not new_summary or new_summary == plan["summary"]:
+                        raise ValueError(f"{label}：新建单据必须修改摘要")
+                    duplicate_summary = connection.execute(
+                        select(record_table.c.id).where(
+                            record_table.c.deleted_at.is_(None),
+                            or_(record_table.c.date_value == date_value, record_table.c.date == plan["date"]),
+                            record_table.c.document_type == plan["document_type"],
+                            record_table.c.supplier == plan["supplier"],
+                            or_(record_table.c.warehouse.is_(None), record_table.c.warehouse == "")
+                            if not plan["warehouse"] else record_table.c.warehouse == plan["warehouse"],
+                            record_table.c.summary == new_summary,
+                        ).limit(1)
+                    ).scalar_one_or_none()
+                    if duplicate_summary is not None:
+                        raise ValueError(f"{label}：修改后的摘要仍与已有单据重复")
+                if matched and decision == "overwrite":
+                    document_id = matched["id"]
+                    connection.execute(delete(detail_table).where(detail_table.c.document_id == document_id))
+                    connection.execute(update(record_table).where(record_table.c.id == document_id).values(
+                        warehouse=plan["warehouse"] or None,
+                        handler=plan["handler"],
+                        source_workbook=plan["source_workbook"],
+                        source_sheet=plan["source_sheet"],
+                        source_row_number="template",
+                        raw_payload={"import_type": "universal_template", "brand": plan.get("brand") or ""},
+                    ))
+                    replaced += 1
+                else:
+                    generated_number = self._generate_document_number(
+                        connection,
+                        plan["date"],
+                        plan["document_type"],
+                    )
+                    payload = self._prepare_record({
+                        "document_number": generated_number,
+                        "date": plan["date"],
+                        "document_type": plan["document_type"],
+                        "supplier": plan["supplier"],
+                        "warehouse": plan["warehouse"],
+                        "handler": plan["handler"],
+                        "summary": plan.get("new_summary") if decision == "new" else plan["summary"],
+                        "source_workbook": plan["source_workbook"],
+                        "source_sheet": plan["source_sheet"],
+                        "source_row_number": "template",
+                        "raw_payload": {
+                            "import_type": "universal_template",
+                            "brand": plan.get("brand") or "",
+                        },
+                    })
+                    document_id = connection.execute(
+                        insert(record_table).values(**payload).returning(record_table.c.id)
+                    ).scalar_one()
+                    created += 1
+                rows = [dict(row, document_id=document_id) for row in plan["details"]]
+                connection.execute(insert(detail_table), rows)
+                detail_count += len(rows)
+                totals = connection.execute(select(
+                    func.sum(detail_table.c.quantity), func.sum(detail_table.c.amount)
+                ).where(detail_table.c.document_id == document_id)).one()
+                is_accounting = plan["document_type"] in ACCOUNTING_DOCUMENT_TYPES
+                quantity = None if is_accounting else self._apply_document_total_sign(plan["document_type"], totals[0])
+                amount = totals[1] if is_accounting else self._apply_document_total_sign(plan["document_type"], totals[1])
+                connection.execute(update(record_table).where(record_table.c.id == document_id).values(total_count=quantity, amount=amount))
+        return {"created": created, "replaced": replaced, "skipped": skipped, "details": detail_count}
 
     def create_record(self, record: Mapping[str, object]) -> dict[str, object]:
         table = INVENTORY_TABLE
@@ -880,6 +1045,9 @@ class InventoryRepository:
         page_size: int,
         query: str | None = None,
         brand: str | None = None,
+        include_balances: bool = False,
+        date_start: str | None = None,
+        date_end: str | None = None,
     ) -> dict[str, object]:
         count_statement = select(func.count()).select_from(SUPPLIER_TABLE)
         items_statement = (
@@ -897,8 +1065,6 @@ class InventoryRepository:
             conditions.append(or_(
                 SUPPLIER_TABLE.c.name.ilike(like),
                 SUPPLIER_TABLE.c.factory_code.ilike(like),
-                SUPPLIER_TABLE.c.contact.ilike(like),
-                SUPPLIER_TABLE.c.wechat.ilike(like),
             ))
         if conditions:
             criterion = conditions[0] if len(conditions) == 1 else and_(*conditions)
@@ -907,12 +1073,86 @@ class InventoryRepository:
         with self.engine.begin() as connection:
             total = connection.execute(count_statement).scalar_one()
             items = [dict(row) for row in connection.execute(items_statement).mappings()]
+            if include_balances and items:
+                balances = self._supplier_balance_summaries(
+                    connection,
+                    [str(item["name"]) for item in items],
+                    date_start=date_start,
+                    date_end=date_end,
+                )
+                for item in items:
+                    item.update(balances.get(str(item["name"]), {
+                        "beginning_balance": "0", "period_amount": "0", "ending_balance": "0",
+                    }))
         return {
             "items": items,
             "total": total,
             "page": page,
             "page_size": page_size,
         }
+
+    def _supplier_balance_summaries(
+        self,
+        connection,
+        names: list[str],
+        *,
+        date_start: str | None,
+        date_end: str | None,
+    ) -> dict[str, dict[str, str]]:
+        record = INVENTORY_TABLE
+        detail = INVENTORY_DETAIL_TABLE
+        start_date = parse_date(date_start) if date_start else None
+        end_date = parse_date(date_end) if date_end else None
+        detail_record = record.alias("supplier_balance_record")
+        detail_amount = (
+            select(
+                detail.c.document_id.label("document_id"),
+                func.coalesce(func.sum(detail.c.amount), 0).label("detail_amount"),
+            )
+            .select_from(detail.join(detail_record, detail_record.c.id == detail.c.document_id))
+            .where(detail_record.c.supplier.in_(names))
+            .where(detail_record.c.date_value <= end_date if end_date else True)
+            .group_by(detail.c.document_id)
+            .subquery()
+        )
+        amount = func.abs(func.coalesce(detail_amount.c.detail_amount, record.c.amount, 0))
+        signed_amount = case(
+            (record.c.document_type.in_(SUPPLIER_LEDGER_INCREASE_TYPES), amount),
+            (record.c.document_type.in_(SUPPLIER_LEDGER_DECREASE_TYPES), -amount),
+            else_=0,
+        )
+        record_date = record.c.date_value
+        beginning = func.coalesce(func.sum(case((record_date < start_date, signed_amount), else_=0)), 0) if start_date else func.cast(0, record.c.amount.type)
+        period_conditions = []
+        if start_date:
+            period_conditions.append(record_date >= start_date)
+        if end_date:
+            period_conditions.append(record_date <= end_date)
+        period = (
+            func.coalesce(func.sum(case((and_(*period_conditions), signed_amount), else_=0)), 0)
+            if period_conditions else func.coalesce(func.sum(signed_amount), 0)
+        )
+        statement = (
+            select(record.c.supplier, beginning.label("beginning_balance"), period.label("period_amount"))
+            .outerjoin(detail_amount, detail_amount.c.document_id == record.c.id)
+            .where(
+                record.c.deleted_at.is_(None),
+                record.c.supplier.in_(names),
+                record.c.document_type.in_((*SUPPLIER_LEDGER_INCREASE_TYPES, *SUPPLIER_LEDGER_DECREASE_TYPES)),
+                record.c.date_value <= end_date if end_date else True,
+            )
+            .group_by(record.c.supplier)
+        )
+        summaries = {}
+        for row in connection.execute(statement).mappings():
+            opening = Decimal(str(row["beginning_balance"] or 0))
+            change = Decimal(str(row["period_amount"] or 0))
+            summaries[row["supplier"]] = {
+                "beginning_balance": self._format_decimal(opening),
+                "period_amount": self._format_decimal(change),
+                "ending_balance": self._format_decimal(opening + change),
+            }
+        return summaries
 
     def create_supplier(self, data: Mapping[str, object]) -> dict[str, object]:
         statement = insert(SUPPLIER_TABLE).values(**self._prepare_supplier(data)).returning(SUPPLIER_TABLE)
@@ -921,8 +1161,6 @@ class InventoryRepository:
         return dict(row)
 
     def update_supplier(self, supplier_id: int, data: Mapping[str, object]) -> dict[str, object] | None:
-        payload = self._prepare_supplier(data)
-        payload.pop("id", None)
         with self.engine.begin() as connection:
             before = connection.execute(
                 select(SUPPLIER_TABLE)
@@ -931,6 +1169,8 @@ class InventoryRepository:
             ).mappings().first()
             if before is None:
                 return None
+
+            payload = self._prepare_supplier({**before, **data})
 
             row = connection.execute(
                 update(SUPPLIER_TABLE)
@@ -2718,6 +2958,56 @@ class InventoryRepository:
             return 0
         return result.rowcount if result.rowcount and result.rowcount > 0 else len(payload)
 
+    def overwrite_imported_document(
+        self,
+        document_id: int,
+        *,
+        expected_date: object,
+        expected_summary: str,
+        expected_document_type: str,
+        expected_supplier: str,
+        expected_warehouse: str,
+        record: Mapping[str, object],
+        details: list[Mapping[str, object]],
+    ) -> dict[str, object] | None:
+        record_table = INVENTORY_TABLE
+        detail_table = INVENTORY_DETAIL_TABLE
+        payload = self._prepare_record(record)
+        payload.pop("document_number", None)
+        detail_payloads = [
+            self._filter_table_payload(detail_table, self._coerce_empty(dict(detail, document_id=document_id)))
+            for detail in details
+        ]
+        with self.engine.begin() as connection:
+            existing = connection.execute(
+                select(record_table).where(record_table.c.id == document_id, record_table.c.deleted_at.is_(None))
+                .with_for_update()
+            ).mappings().first()
+            if existing is None or (
+                parse_date(existing.get("date_value") or existing.get("date")) != parse_date(expected_date)
+                or str(existing.get("summary") or "").strip() != expected_summary
+                or str(existing.get("document_type") or "").strip() != expected_document_type
+                or str(existing.get("supplier") or "").strip() != expected_supplier
+                or str(existing.get("warehouse") or "").strip() != expected_warehouse
+            ):
+                return None
+            connection.execute(delete(detail_table).where(detail_table.c.document_id == document_id))
+            if detail_payloads:
+                connection.execute(insert(detail_table), detail_payloads)
+            totals = connection.execute(select(
+                func.sum(detail_table.c.quantity), func.sum(detail_table.c.amount)
+            ).where(detail_table.c.document_id == document_id)).one()
+            if expected_document_type in ACCOUNTING_DOCUMENT_TYPES:
+                payload["total_count"] = None
+                payload["amount"] = totals[1]
+            else:
+                payload["total_count"] = self._apply_document_total_sign(expected_document_type, totals[0] or 0)
+                payload["amount"] = self._apply_document_total_sign(expected_document_type, totals[1] or 0)
+            updated = connection.execute(
+                update(record_table).where(record_table.c.id == document_id).values(**payload).returning(record_table)
+            ).mappings().one()
+        return dict(updated)
+
     def merge_imported_details(self, document_id: object, rows: list[Mapping[str, object]]) -> dict[str, int]:
         """Merge Excel-imported details without removing existing detail rows.
 
@@ -3566,8 +3856,7 @@ class InventoryRepository:
                       WHEN upper(coalesce(bad.name, '')) LIKE '%EBLAN%'
                         OR coalesce(bad.name, '') LIKE '%伊伴%' THEN 'eblan'
                       WHEN upper(coalesce(bad.name, '')) LIKE '%SMILEY%'
-                        OR coalesce(bad.name, '') LIKE '%笑脸%'
-                        OR coalesce(bad.name, '') LIKE '%小莲%' THEN 'smiley'
+                        OR coalesce(bad.name, '') LIKE '%笑脸%' THEN 'smiley'
                       WHEN upper(btrim(coalesce(bad.name, ''))) ~ '(^|[（([:space:]])NI($|[）)[:space:]])' THEN 'ni'
                       WHEN coalesce(bad.name, '') LIKE '%千百度女鞋%' THEN 'cbanner_womens'
                       ELSE bad.brand
@@ -3580,7 +3869,6 @@ class InventoryRepository:
                       OR coalesce(bad.name, '') LIKE '%伊伴%'
                       OR upper(coalesce(bad.name, '')) LIKE '%SMILEY%'
                       OR coalesce(bad.name, '') LIKE '%笑脸%'
-                      OR coalesce(bad.name, '') LIKE '%小莲%'
                       OR upper(btrim(coalesce(bad.name, ''))) ~ '(^|[（([:space:]])NI($|[）)[:space:]])'
                       OR coalesce(bad.name, '') LIKE '%千百度女鞋%'
                   )
@@ -3597,8 +3885,7 @@ class InventoryRepository:
                     WHEN upper(coalesce(name, '')) LIKE '%EBLAN%'
                       OR coalesce(name, '') LIKE '%伊伴%' THEN 'eblan'
                     WHEN upper(coalesce(name, '')) LIKE '%SMILEY%'
-                      OR coalesce(name, '') LIKE '%笑脸%'
-                      OR coalesce(name, '') LIKE '%小莲%' THEN 'smiley'
+                      OR coalesce(name, '') LIKE '%笑脸%' THEN 'smiley'
                     WHEN upper(btrim(coalesce(name, ''))) ~ '(^|[（([:space:]])NI($|[）)[:space:]])' THEN 'ni'
                     WHEN coalesce(name, '') LIKE '%千百度品牌方%' THEN :default_brand
                     WHEN coalesce(name, '') LIKE '%千百度女鞋%' THEN 'cbanner_womens'
@@ -3612,9 +3899,8 @@ class InventoryRepository:
                         OR coalesce(name, '') LIKE '%烟斗%'
                         OR upper(coalesce(name, '')) LIKE '%EBLAN%'
                         OR coalesce(name, '') LIKE '%伊伴%'
-                        OR upper(coalesce(name, '')) LIKE '%SMILEY%'
-                        OR coalesce(name, '') LIKE '%笑脸%'
-                        OR coalesce(name, '') LIKE '%小莲%'
+                         OR upper(coalesce(name, '')) LIKE '%SMILEY%'
+                         OR coalesce(name, '') LIKE '%笑脸%'
                         OR upper(btrim(coalesce(name, ''))) ~ '(^|[（([:space:]])NI($|[）)[:space:]])'
                         OR coalesce(name, '') LIKE '%千百度女鞋%'
                    )

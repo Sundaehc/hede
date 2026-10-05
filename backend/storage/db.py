@@ -7,7 +7,7 @@ from sqlalchemy import JSON, case, cast, create_engine, delete, func, insert, or
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.dialects.postgresql import JSONB
 
-from domain.product_defaults import apply_product_defaults
+from domain.product_defaults import SMILEY_DEFAULT_SIZE_RANGE, apply_product_defaults, smiley_color_code
 from domain.schema import METADATA, PRODUCT_ARCHIVE_TABLES
 from domain import fine_table_snapshot_schema  # noqa: F401 - register fine table snapshot tables on METADATA
 from domain.inventory_schema import INVENTORY_TABLE, INVENTORY_DETAIL_TABLE, JST_STOCK_TABLE, SUPPLIER_TABLE, WAREHOUSE_TABLE  # noqa: F401 - register on METADATA
@@ -171,9 +171,15 @@ class Database:
         refresh_launch_year: int,
     ) -> int:
         table = PRODUCT_ARCHIVE_TABLES[brand_group]
-        payload = self._dedupe_by_sku(
-            [dict(apply_product_defaults(brand_group, dict(row))) for row in rows]
-        )
+        prepared_rows = []
+        for row in rows:
+            prepared = dict(apply_product_defaults(brand_group, dict(row)))
+            if brand_group == "smiley":
+                color_code = smiley_color_code(prepared.get("sku"))
+                if color_code:
+                    prepared["color_code"] = color_code
+            prepared_rows.append(prepared)
+        payload = self._dedupe_by_sku(prepared_rows)
         if not payload:
             return 0
 
@@ -268,6 +274,20 @@ class Database:
                 ).returning(table.c.id)
                 result = connection.execute(stmt)
                 affected += len(result.scalars().all())
+                if brand_group == "smiley":
+                    suffix = func.substr(table.c.sku, -4)
+                    connection.execute(
+                        table.update()
+                        .where(table.c.sku.in_([row["sku"] for row in payload[index:index + 1000]]))
+                        .where(table.c.color_code.is_distinct_from(suffix))
+                        .values(color_code=suffix, updated_at=func.date_trunc("minute", func.now()))
+                    )
+            if brand_group == "smiley":
+                connection.execute(
+                    table.update()
+                    .where(or_(table.c.size_range.is_(None), func.btrim(table.c.size_range) == ""))
+                    .values(size_range=SMILEY_DEFAULT_SIZE_RANGE)
+                )
         return affected
 
     def sync_yandou_product_models(self) -> int:

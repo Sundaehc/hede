@@ -33,7 +33,6 @@ const PAGE_SIZE = 30
 type PageToken = number | "start-ellipsis" | "end-ellipsis"
 type SupplierBrand = string
 const DEFAULT_SUPPLIER_BRAND = "cbanner_mens"
-const COOPERATION_STATUS_OPTIONS = ["未合作", "合作中", "暂停", "淘汰"] as const
 
 function getErrorMessage(error: unknown) {
   if (error instanceof ApiError) return error.message || `请求失败（${error.status}）`
@@ -43,6 +42,11 @@ function getErrorMessage(error: unknown) {
 
 function formatNumber(value: number) {
   return new Intl.NumberFormat("zh-CN").format(value)
+}
+
+function formatBalance(value: string | undefined) {
+  const amount = Number(value || 0)
+  return Number.isFinite(amount) ? new Intl.NumberFormat("zh-CN", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(amount) : "-"
 }
 
 function getPageTokens(currentPage: number, totalPages: number): PageToken[] {
@@ -83,7 +87,12 @@ export default function SuppliersPage() {
   const [brand, setBrand] = useState<SupplierBrand | "all">(DEFAULT_SUPPLIER_BRAND)
   const [queryInput, setQueryInput] = useState("")
   const [query, setQuery] = useState("")
+  const [dateStartInput, setDateStartInput] = useState("")
+  const [dateEndInput, setDateEndInput] = useState("")
+  const [dateStart, setDateStart] = useState("")
+  const [dateEnd, setDateEnd] = useState("")
   const [isLoading, setIsLoading] = useState(true)
+  const [loadError, setLoadError] = useState("")
   const [isExporting, setIsExporting] = useState(false)
 
   const [formOpen, setFormOpen] = useState(false)
@@ -92,20 +101,10 @@ export default function SuppliersPage() {
     brand: SupplierBrand
     name: string
     factory_code: string
-    contact: string
-    wechat: string
-    cooperation_status: string
-    address: string
-    notes: string
   }>({
     brand: DEFAULT_SUPPLIER_BRAND,
     name: "",
     factory_code: "",
-    contact: "",
-    wechat: "",
-    cooperation_status: "",
-    address: "",
-    notes: "",
   })
   const [editingId, setEditingId] = useState<number | null>(null)
   const [editingOriginalName, setEditingOriginalName] = useState("")
@@ -121,8 +120,9 @@ export default function SuppliersPage() {
 
   const load = useCallback(async () => {
     setIsLoading(true)
+    setLoadError("")
     try {
-      const res = await listSuppliers({ page, pageSize: PAGE_SIZE, query, brand })
+      const res = await listSuppliers({ page, pageSize: PAGE_SIZE, query, brand, includeBalances: true, dateStart, dateEnd })
       const nextTotalPages = Math.max(1, Math.ceil(res.total / PAGE_SIZE))
       if (page > nextTotalPages) {
         setPage(nextTotalPages)
@@ -130,13 +130,14 @@ export default function SuppliersPage() {
       }
       setItems(res.items)
       setTotal(res.total)
-    } catch {
+    } catch (error) {
       setItems([])
       setTotal(0)
+      setLoadError(getErrorMessage(error))
     } finally {
       setIsLoading(false)
     }
-  }, [brand, page, query])
+  }, [brand, page, query, dateStart, dateEnd])
 
   const loadBrands = useCallback(async () => {
     try {
@@ -174,11 +175,6 @@ export default function SuppliersPage() {
       brand: brand === "all" ? brands[0]?.code || DEFAULT_SUPPLIER_BRAND : brand,
       name: "",
       factory_code: "",
-      contact: "",
-      wechat: "",
-      cooperation_status: "",
-      address: "",
-      notes: "",
     })
     setEditingId(null)
     setEditingOriginalName("")
@@ -193,11 +189,6 @@ export default function SuppliersPage() {
       brand: item.brand,
       name: item.name,
       factory_code: item.factory_code || "",
-      contact: item.contact || "",
-      wechat: item.wechat || "",
-      cooperation_status: item.cooperation_status || "",
-      address: item.address || "",
-      notes: item.notes || "",
     })
     setFormOpen(true)
   }
@@ -258,7 +249,7 @@ export default function SuppliersPage() {
   const handleExport = async () => {
     setIsExporting(true)
     try {
-      const blob = await exportSuppliers({ query, brand })
+      const blob = await exportSuppliers({ query, brand, dateStart, dateEnd })
       const link = document.createElement("a")
       link.href = URL.createObjectURL(blob)
       const brandLabel = brand === "all" ? "总览" : brands.find((item) => item.code === brand)?.name || "供应商"
@@ -283,7 +274,7 @@ export default function SuppliersPage() {
 
   return (
     <div className="app-page">
-      <div className="app-content-narrow">
+      <div className="app-content-wide">
         <div className="page-header">
           <div className="flex items-center gap-3">
             <div>
@@ -322,28 +313,43 @@ export default function SuppliersPage() {
         </div>
 
         <form
-          className="surface-panel mb-3 flex flex-col gap-2 p-3 sm:flex-row sm:items-center"
+          className="surface-panel mb-3 flex flex-col gap-3 p-3"
           onSubmit={(event) => {
             event.preventDefault()
+            if (dateStartInput && dateEndInput && dateStartInput > dateEndInput) {
+              setLoadError("起始日期不能晚于截止日期")
+              return
+            }
+            setLoadError("")
             setPage(1)
             setQuery(queryInput.trim())
+            setDateStart(dateStartInput)
+            setDateEnd(dateEndInput)
           }}
         >
-          <div className="relative min-w-0 flex-1">
+          <div className="relative min-w-0">
             <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
             <Input
               value={queryInput}
               onChange={(event) => setQueryInput(event.target.value)}
-              placeholder="搜索名称、工厂代码、联系人或微信"
+              placeholder="搜索名称或工厂代码"
               className="pl-9"
-              aria-label="搜索供应商名称、工厂代码、联系人或微信"
+              aria-label="搜索供应商名称或工厂代码"
             />
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-end gap-2">
+            <div className="min-w-[160px] flex-1 space-y-1 sm:max-w-[210px]">
+              <Label htmlFor="supplier-date-start">起始日期</Label>
+              <Input id="supplier-date-start" type="date" value={dateStartInput} onChange={(event) => setDateStartInput(event.target.value)} />
+            </div>
+            <div className="min-w-[160px] flex-1 space-y-1 sm:max-w-[210px]">
+              <Label htmlFor="supplier-date-end">截止日期</Label>
+              <Input id="supplier-date-end" type="date" value={dateEndInput} onChange={(event) => setDateEndInput(event.target.value)} />
+            </div>
             <Button type="submit" disabled={isLoading}>
               查询
             </Button>
-            {(queryInput || query) && (
+            {(queryInput || query || dateStartInput || dateEndInput || dateStart || dateEnd) && (
               <Button
                 type="button"
                 variant="outline"
@@ -352,6 +358,11 @@ export default function SuppliersPage() {
                 onClick={() => {
                   setQueryInput("")
                   setQuery("")
+                  setDateStartInput("")
+                  setDateEndInput("")
+                  setDateStart("")
+                  setDateEnd("")
+                  setLoadError("")
                   setPage(1)
                 }}
                 aria-label="清空搜索"
@@ -360,6 +371,8 @@ export default function SuppliersPage() {
               </Button>
             )}
           </div>
+          <p className="text-xs text-muted-foreground">本期发生额为净变动：进货单、应付款增加计正，进货退货单、应付款减少计负；罚款、调账、付货款按对应单据计入。未选日期时，期末余额为当前余额。点击供应商可查看明细账。</p>
+          {loadError && <p role="alert" className="text-sm text-destructive">{loadError}</p>}
         </form>
 
         <div className="table-panel relative overflow-hidden">
@@ -369,36 +382,34 @@ export default function SuppliersPage() {
             </div>
           )}
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[1120px] table-fixed text-sm">
+            <table className="w-full min-w-[1050px] table-fixed text-sm">
               <colgroup>
-                <col className="w-[23%]" />
-                <col className="w-[11%]" />
-                <col className="w-[11%]" />
-                <col className="w-[13%]" />
-                <col className="w-[10%]" />
-                <col className="w-[20%]" />
+                <col className="w-[25%]" />
+                <col className="w-[12%]" />
+                <col className="w-[17%]" />
+                <col className="w-[17%]" />
+                <col className="w-[17%]" />
                 <col className="w-[12%]" />
               </colgroup>
               <thead>
                 <tr className="table-head-row">
                   <th className="px-4 py-3 font-medium">名称</th>
                   <th className="px-4 py-3 font-medium">工厂代码</th>
-                  <th className="px-4 py-3 font-medium">联系人</th>
-                  <th className="px-4 py-3 font-medium">微信号</th>
-                  <th className="px-4 py-3 font-medium">合作状态</th>
-                  <th className="px-4 py-3 font-medium">地址</th>
+                  <th className="px-3 py-3 text-right font-medium">期初余额</th>
+                  <th className="px-3 py-3 text-right font-medium">本期发生额</th>
+                  <th className="px-3 py-3 text-right font-medium">期末余额</th>
                   <th className="sticky right-0 z-20 w-32 border-l border-border bg-muted px-4 py-3 text-center font-medium shadow-[-5px_0_10px_-9px_rgb(0_0_0_/_0.45)]">操作</th>
                 </tr>
               </thead>
               <tbody className={`divide-y divide-border transition-opacity ${isLoading && hasRows ? "opacity-55" : "opacity-100"}`}>
                 {isLoading && !hasRows && (
                   <tr>
-                    <td colSpan={7} className="px-4 py-12 text-center text-muted-foreground">加载中...</td>
+                    <td colSpan={6} className="px-4 py-12 text-center text-muted-foreground">加载中...</td>
                   </tr>
                 )}
                 {!isLoading && !hasRows && (
                   <tr>
-                    <td colSpan={7} className="px-4 py-12 text-center text-muted-foreground">
+                    <td colSpan={6} className="px-4 py-12 text-center text-muted-foreground">
                       {query ? "暂无匹配供应商" : "暂无供应商数据"}
                     </td>
                   </tr>
@@ -412,10 +423,9 @@ export default function SuppliersPage() {
                   >
                     <td className="truncate px-4 py-2.5 font-medium" title={item.name}>{item.name}</td>
                     <td className="truncate px-4 py-2.5 tabular-nums" title={item.factory_code || ""}>{item.factory_code || "-"}</td>
-                    <td className="truncate px-4 py-2.5" title={item.contact || ""}>{item.contact || "-"}</td>
-                    <td className="truncate px-4 py-2.5" title={item.wechat || ""}>{item.wechat || "-"}</td>
-                    <td className="truncate px-4 py-2.5" title={item.cooperation_status || ""}>{item.cooperation_status || "-"}</td>
-                    <td className="truncate px-4 py-2.5" title={item.address || ""}>{item.address || "-"}</td>
+                    <td className="whitespace-nowrap px-3 py-2.5 text-right font-mono tabular-nums">{formatBalance(item.beginning_balance)}</td>
+                    <td className="whitespace-nowrap px-3 py-2.5 text-right font-mono tabular-nums">{formatBalance(item.period_amount)}</td>
+                    <td className="whitespace-nowrap px-3 py-2.5 text-right font-mono font-medium tabular-nums">{formatBalance(item.ending_balance)}</td>
                     <td className="sticky right-0 z-10 border-l border-border bg-card px-4 py-2.5 shadow-[-5px_0_10px_-9px_rgb(0_0_0_/_0.45)]">
                       {canManageSuppliers ? (
                         <div className="flex items-center gap-0.5">
@@ -524,36 +534,6 @@ export default function SuppliersPage() {
             <div className="space-y-1.5">
               <Label htmlFor="supplier-factory-code">工厂代码</Label>
               <Input id="supplier-factory-code" value={formData.factory_code} onChange={(e) => setFormData((prev) => ({ ...prev, factory_code: e.target.value }))} placeholder="单位编号" />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="supplier-contact">联系人</Label>
-              <Input id="supplier-contact" value={formData.contact} onChange={(e) => setFormData((prev) => ({ ...prev, contact: e.target.value }))} placeholder="联系人" />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="supplier-wechat">微信号</Label>
-              <Input id="supplier-wechat" value={formData.wechat} onChange={(e) => setFormData((prev) => ({ ...prev, wechat: e.target.value }))} placeholder="微信号" />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="supplier-cooperation-status">合作状态</Label>
-              <select
-                id="supplier-cooperation-status"
-                value={formData.cooperation_status}
-                onChange={(e) => setFormData((prev) => ({ ...prev, cooperation_status: e.target.value }))}
-                className="flex h-9 w-full rounded-lg border border-input bg-card px-3 py-2 text-sm shadow-xs outline-none transition-colors focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/35"
-              >
-                <option value="">不选择</option>
-                {COOPERATION_STATUS_OPTIONS.map((status) => (
-                  <option key={status} value={status}>{status}</option>
-                ))}
-              </select>
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="supplier-address">地址</Label>
-              <Input id="supplier-address" value={formData.address} onChange={(e) => setFormData((prev) => ({ ...prev, address: e.target.value }))} placeholder="地址" />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="supplier-notes">备注</Label>
-              <Input id="supplier-notes" value={formData.notes} onChange={(e) => setFormData((prev) => ({ ...prev, notes: e.target.value }))} placeholder="备注" />
             </div>
           </div>
           <DialogFooter>

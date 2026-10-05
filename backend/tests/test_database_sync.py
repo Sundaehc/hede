@@ -6,7 +6,7 @@ from sqlalchemy import select, text
 from sqlalchemy.dialects import postgresql
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
-from domain.schema import PRODUCT_TABLES
+from domain.schema import PRODUCT_ARCHIVE_TABLES, PRODUCT_TABLES
 from storage.db import Database, _changed_fields_condition
 
 
@@ -256,6 +256,56 @@ def test_sync_brand_rows_preserves_yandou_product_model_from_archive(test_databa
         row = connection.execute(select(table).where(table.c.sku == "YD-001")).mappings().one()
 
     assert row["product_model"] == "男式休闲鞋"
+
+
+def test_smiley_daily_sync_fills_missing_size_groups_and_refreshes_color_suffix(test_database_url: str, recreate_tables):
+    database = Database(test_database_url)
+    table = PRODUCT_ARCHIVE_TABLES["smiley"]
+    database.replace_brand_rows("smiley", [
+        {
+            "source_workbook": "manual", "source_sheet": "manual", "source_row_number": "1", "raw_payload": {},
+            "sku": "XL2026AB12", "original_sku": "ORIGINAL-01", "launch_date": "2026-04-01",
+            "size_range": "笑脸男鞋38-44", "color_code": "OLD1",
+        },
+        {
+            "source_workbook": "manual", "source_sheet": "manual", "source_row_number": "2", "raw_payload": {},
+            "sku": "XL2025CD34", "original_sku": "ORIGINAL-02", "launch_date": "2025-04-01",
+            "size_range": "笑脸男鞋38-44", "color_code": "OLD2", "product_name": "历史品名",
+        },
+    ])
+    with database.engine.begin() as connection:
+        connection.execute(table.update().where(table.c.sku == "XL2025CD34").values(size_range=""))
+
+    assert database.sync_brand_rows("smiley", [
+        {
+            "source_workbook": "daily", "source_sheet": "daily", "source_row_number": "1", "raw_payload": {},
+            "sku": "XL2026AB12", "original_sku": "ORIGINAL-01", "launch_date": "2026-04-01",
+            "size_range": None, "color_code": "WRONG",
+        },
+        {
+            "source_workbook": "daily", "source_sheet": "daily", "source_row_number": "2", "raw_payload": {},
+            "sku": "XL2025CD34", "original_sku": "ORIGINAL-02", "launch_date": "2025-04-01",
+        },
+        {
+            "source_workbook": "daily", "source_sheet": "daily", "source_row_number": "3", "raw_payload": {},
+            "sku": "NEW2026EF56", "original_sku": "ORIGINAL-03", "launch_date": "2026-04-01",
+        },
+    ], refresh_launch_year=2026) == 2
+
+    with database.engine.connect() as connection:
+        rows = {
+            row["sku"]: dict(row)
+            for row in connection.execute(select(table)).mappings()
+        }
+
+    assert rows["XL2026AB12"]["size_range"] == "笑脸男鞋38-44"
+    assert rows["XL2026AB12"]["color_code"] == "AB12"
+    assert rows["XL2025CD34"]["size_range"] == "笑脸女鞋34-40"
+    assert rows["XL2025CD34"]["color_code"] == "CD34"
+    assert rows["XL2025CD34"]["product_name"] == "历史品名"
+    assert rows["XL2025CD34"]["source_workbook"] == "manual"
+    assert rows["NEW2026EF56"]["size_range"] == "笑脸女鞋34-40"
+    assert rows["NEW2026EF56"]["color_code"] == "EF56"
 
 
 def test_sync_yandou_product_models_fills_blank_archive_value_from_latest_gj_source(test_database_url: str, recreate_tables):

@@ -43,6 +43,13 @@ import {
   listInventoryCostDocumentOptions,
   batchDeleteInventory,
   importPurchaseInventory,
+  previewPurchaseInventory,
+  previewInventoryTemplate,
+  importInventoryTemplate,
+  buildInventoryTemplateUrl,
+  type InventoryTemplateKind,
+  type InventoryTemplatePreview,
+  type PurchaseImportPreview,
   listPurchaseOrderRequirements,
   updatePurchaseOrderRequirement,
   buildInventoryExportUrl,
@@ -72,6 +79,13 @@ const ACCOUNTING_DOCUMENT_TYPES = ["应付款减少", "应付款增加", "应收
 const PURCHASE_ORDER_DOCUMENT_TYPE = "进货订单"
 const INVENTORY_DOCUMENT_TYPES = ["进货单", "进货退货单", "报溢单", "报损单", "批发销售单", "批发销售退货单", "同价调拨单", ...ACCOUNTING_DOCUMENT_TYPES]
 const DETAIL_IMPORT_DOCUMENT_TYPES = ["进货单", "进货退货单", "报溢单", "报损单", "批发销售单", "批发销售退货单", "同价调拨单"]
+const UNIVERSAL_TEMPLATE_OPTIONS: Array<{ kind: InventoryTemplateKind; label: string }> = [
+  { kind: "purchase", label: "进货单" },
+  { kind: "purchase_return", label: "进货退货单" },
+  { kind: "sale", label: "销售单" },
+  { kind: "sale_return", label: "销售退货单" },
+  { kind: "accounting", label: "应收应付" },
+]
 const WHOLESALE_DOCUMENT_TYPES = new Set(["批发销售单", "批发销售退货单"])
 const TRANSFER_DOCUMENT_TYPES = new Set(["同价调拨单"])
 const STOCK_ADJUSTMENT_DOCUMENT_TYPES = new Set(["报溢单", "报损单"])
@@ -419,7 +433,7 @@ function inferImportBrand(documentType: string, supplierName: string, suppliers:
   if (![PURCHASE_ORDER_DOCUMENT_TYPE, ...DETAIL_IMPORT_DOCUMENT_TYPES].includes(documentType)) return "cbanner_mens"
   const normalizedName = supplierName.trim()
   if (/(^|[（(\s])NI($|[）)\s])/i.test(normalizedName)) return "ni"
-  if (normalizedName.includes("笑脸") || normalizedName.includes("小莲")) return "smiley"
+  if (normalizedName.includes("笑脸")) return "smiley"
   const supplier = suppliers.find((item) => item.name === supplierName)
   if (supplier?.brand) return supplier.brand
   return "cbanner_mens"
@@ -917,10 +931,20 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
   const importDragDepthRef = useRef(0)
   const [isImporting, setIsImporting] = useState(false)
   const [importDialogOpen, setImportDialogOpen] = useState(false)
+  const [importMode, setImportMode] = useState<"existing" | "template">("existing")
+  const [templateBrand, setTemplateBrand] = useState("")
+  const [templatePreview, setTemplatePreview] = useState<InventoryTemplatePreview | null>(null)
+  const [templateDecisions, setTemplateDecisions] = useState<Record<string, { action: "overwrite" | "new" | "skip"; new_summary?: string }>>({})
+  const [purchasePreview, setPurchasePreview] = useState<PurchaseImportPreview | null>(null)
+  const [purchaseDecisions, setPurchaseDecisions] = useState<Record<string, { action: "overwrite" | "new" | "skip"; new_summary?: string }>>({})
   const [importFormData, setImportFormData] = useState<Record<string, string>>({ ...EMPTY_IMPORT_FORM })
   const [importFile, setImportFile] = useState<File | null>(null)
   const [isImportDragging, setIsImportDragging] = useState(false)
   const [importError, setImportError] = useState("")
+  useEffect(() => {
+    setPurchasePreview(null)
+    setPurchaseDecisions({})
+  }, [importFormData])
   const [requirementsDialogOpen, setRequirementsDialogOpen] = useState(false)
   const [requirementDrafts, setRequirementDrafts] = useState<Record<string, string>>({})
   const [selectedRequirementBrand, setSelectedRequirementBrand] = useState<PurchaseOrderRequirementBrand>("cbanner_mens")
@@ -1163,6 +1187,11 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
   const openImportDialog = () => {
     setImportError("")
     setImportFile(null)
+    setImportMode("existing")
+    setTemplatePreview(null)
+    setTemplateDecisions({})
+    setPurchasePreview(null)
+    setPurchaseDecisions({})
     setIsImportDragging(false)
     importDragDepthRef.current = 0
     if (fileInputRef.current) fileInputRef.current.value = ""
@@ -1178,6 +1207,10 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
 
   const handleImportFileSelection = (file: File | null) => {
     setImportError("")
+    setTemplatePreview(null)
+    setTemplateDecisions({})
+    setPurchasePreview(null)
+    setPurchaseDecisions({})
     if (!file) {
       setImportFile(null)
       return
@@ -1195,6 +1228,9 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
 
   const clearImportFile = () => {
     setImportError("")
+    setTemplatePreview(null)
+    setPurchasePreview(null)
+    setPurchaseDecisions({})
     setImportFile(null)
     if (fileInputRef.current) fileInputRef.current.value = ""
   }
@@ -1442,19 +1478,45 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
       setImportError("请选择交货日期")
       return
     }
+    const payload = {
+      file: importFile,
+      date: importFormData.date,
+      delivery_date: importFormData.delivery_date,
+      supplier: importFormData.supplier,
+      warehouse: importFormData.warehouse,
+      document_type: importFormData.document_type,
+      handler: importFormData.handler,
+      summary: importFormData.summary,
+      brand: inferImportBrand(importFormData.document_type, importFormData.supplier, supplierOptions),
+    }
+    if (purchasePreview) {
+      for (const conflict of purchasePreview.conflicts) {
+        const decision = purchaseDecisions[conflict.key]
+        if (!decision?.action) {
+          setImportError(`请为 ${conflict.date} 的单据（摘要：${conflict.summary}）选择覆盖、新增或取消该单据`)
+          return
+        }
+        if (decision.action === "overwrite" && !conflict.can_merge) {
+          setImportError(`摘要 ${conflict.summary} 没有相同日期、类型、往来单位及仓库的单据，不能覆盖`)
+          return
+        }
+        if (decision.action === "new" && (!decision.new_summary?.trim() || decision.new_summary.trim() === conflict.summary)) {
+          setImportError(`摘要 ${conflict.summary} 新建时必须填写不同的摘要`)
+          return
+        }
+      }
+    }
     setIsImporting(true)
     try {
-      const result = await importPurchaseInventory({
-        file: importFile,
-        date: importFormData.date,
-        delivery_date: importFormData.delivery_date,
-        supplier: importFormData.supplier,
-        warehouse: importFormData.warehouse,
-        document_type: importFormData.document_type,
-        handler: importFormData.handler,
-        summary: importFormData.summary,
-        brand: inferImportBrand(importFormData.document_type, importFormData.supplier, supplierOptions),
-      })
+      if (!purchasePreview) {
+        const preview = await previewPurchaseInventory(payload)
+        if (preview.conflicts.length > 0) {
+          setPurchasePreview(preview)
+          setPurchaseDecisions({})
+          return
+        }
+      }
+      const result = await importPurchaseInventory({ ...payload, decisions: purchaseDecisions })
       showMessage("导入完成", result.message)
       if (!isPurchasePage) {
         setLastInventoryEntryDefaults({
@@ -1466,14 +1528,70 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
       }
       setImportDialogOpen(false)
       setImportFile(null)
+      setPurchasePreview(null)
+      setPurchaseDecisions({})
       setIsImportDragging(false)
       importDragDepthRef.current = 0
       setReloadToken((t) => t + 1)
     } catch (err) {
       setImportError(getErrorMessage(err))
+      if (err instanceof ApiError && err.status === 409) setPurchasePreview(null)
     } finally {
       setIsImporting(false)
-      if (fileInputRef.current) fileInputRef.current.value = ""
+    }
+  }
+
+  const handleTemplateImport = async () => {
+    setImportError("")
+    if (!importFile) {
+      setImportError("请选择 Excel 文件")
+      return
+    }
+    if (!templatePreview) {
+      setIsImporting(true)
+      try {
+        const preview = await previewInventoryTemplate(importFile)
+        setTemplatePreview(preview)
+        setTemplateDecisions({})
+      } catch (error) {
+        setImportError(getErrorMessage(error))
+      } finally {
+        setIsImporting(false)
+      }
+      return
+    }
+    if (templatePreview.kind !== "accounting" && templatePreview.unresolved_brand_keys.some((key) => templateDecisions[key]?.action !== "skip") && !templateBrand) {
+      setImportError("请选择品牌，以便匹配商品档案和尺码")
+      return
+    }
+    for (const conflict of templatePreview.conflicts) {
+      const decision = templateDecisions[conflict.key]
+      if (!decision) {
+        setImportError(`请为 ${conflict.date} 的单据（摘要：${conflict.summary}）选择覆盖、新增或取消该单据`)
+        return
+      }
+      if (decision.action === "overwrite" && !conflict.can_merge) {
+        setImportError(`摘要 ${conflict.summary} 没有相同日期、类型、往来单位及仓库的单据，不能覆盖`)
+        return
+      }
+      if (decision.action === "new" && (!decision.new_summary?.trim() || decision.new_summary.trim() === conflict.summary)) {
+        setImportError(`摘要 ${conflict.summary} 新建时必须填写不同的摘要`)
+        return
+      }
+    }
+    setIsImporting(true)
+    try {
+      const result = await importInventoryTemplate({ file: importFile, brand: templateBrand, decisions: templateDecisions })
+      showMessage("导入完成", result.message)
+      setImportDialogOpen(false)
+      setImportFile(null)
+      setTemplatePreview(null)
+      setReloadToken((token) => token + 1)
+    } catch (error) {
+      setImportError(getErrorMessage(error))
+      setTemplatePreview(null)
+    } finally {
+      setIsImporting(false)
     }
   }
 
@@ -1832,527 +1950,526 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
 
         <Tabs defaultValue="records">
           <>
-              {!isPurchaseOrderTab && (
-                <div className="surface-panel p-1.5">
-                  <Tabs defaultValue="completed" value={recordCompletionStatus} onValueChange={handleCompletionTabChange}>
-                    <TabsList className="rounded-xl bg-muted/60 p-1">
-                      {COMPLETION_TABS.map((item) => (
-                        <TabsTrigger key={item.value} value={item.value} className="cursor-pointer">
-                          {item.label}
-                        </TabsTrigger>
-                      ))}
-                    </TabsList>
-                  </Tabs>
-                </div>
-              )}
-              <form
-                className="surface-panel relative z-30 p-4"
-                onKeyDown={(event) => {
-                  if (
-                    event.key !== "Enter"
-                    || event.defaultPrevented
-                    || event.nativeEvent.isComposing
-                    || event.target instanceof HTMLTextAreaElement
-                  ) return
-                  event.preventDefault()
-                  search()
-                }}
-                onSubmit={(event) => {
-                  event.preventDefault()
-                  search()
-                }}
-              >
-                <div className="grid gap-3 xl:grid-cols-[1fr_auto] xl:items-end">
-                  <div className="grid gap-3 lg:grid-cols-12">
-                    <div className="space-y-1.5 lg:col-span-6 xl:col-span-5">
-                      <Label className="text-xs text-muted-foreground">日期范围</Label>
-                      <div className="grid grid-cols-[minmax(8.75rem,1fr)_auto_minmax(8.75rem,1fr)] items-center gap-2">
-                        <input
-                          type="date"
-                          value={searchDateStart}
-                          max={searchDateEnd || undefined}
-                          onChange={(e) => setSearchDateStart(e.target.value)}
-                          className="h-9 min-w-0 rounded-lg border border-input bg-card px-3 py-2 text-sm shadow-xs outline-none transition-colors focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/35"
-                        />
-                        <span className="text-xs text-muted-foreground">至</span>
-                        <input
-                          type="date"
-                          value={searchDateEnd}
-                          min={searchDateStart || undefined}
-                          onChange={(e) => setSearchDateEnd(e.target.value)}
-                          className="h-9 min-w-0 rounded-lg border border-input bg-card px-3 py-2 text-sm shadow-xs outline-none transition-colors focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/35"
-                        />
-                      </div>
-                    </div>
-                    {!isPurchaseOrderTab && (
-                      <div className="space-y-1.5 lg:col-span-3 xl:col-span-2">
-                        <Label className="text-xs text-muted-foreground">单据类型</Label>
-                        <Select
-                          value={searchDocumentType}
-                          onChange={(e) => setSearchDocumentType(e.target.value)}
-                          className="w-full"
-                        >
-                          <option value="">全部</option>
-                          {documentTypeOptions.map((dt) => (<option key={dt} value={dt}>{dt}</option>))}
-                        </Select>
-                      </div>
-                    )}
-                    {!isPurchaseOrderTab && (
-                      <div className="space-y-1.5 lg:col-span-3 xl:col-span-2">
-                        <Label className="text-xs text-muted-foreground">仓库</Label>
-                        <Select value={searchWarehouse} onChange={(e) => setSearchWarehouse(e.target.value)} className="w-full">
-                          <option value="">全部</option>
-                          {warehouseOptions.map((w) => (<option key={w.id} value={w.name}>{w.name}</option>))}
-                        </Select>
-                      </div>
-                    )}
-                    <div className="space-y-1.5 lg:col-span-3 xl:col-span-3">
-                      <Label className="text-xs text-muted-foreground">客户/供应商</Label>
-                      <SearchableFilterInput
-                        value={searchSupplier}
-                        options={counterpartySearchOptions}
-                        onChange={setSearchSupplier}
-                        onSubmit={search}
-                        placeholder="输入客户或供应商"
+            {!isPurchaseOrderTab && (
+              <div className="surface-panel p-1.5">
+                <Tabs defaultValue="completed" value={recordCompletionStatus} onValueChange={handleCompletionTabChange}>
+                  <TabsList className="rounded-xl bg-muted/60 p-1">
+                    {COMPLETION_TABS.map((item) => (
+                      <TabsTrigger key={item.value} value={item.value} className="cursor-pointer">
+                        {item.label}
+                      </TabsTrigger>
+                    ))}
+                  </TabsList>
+                </Tabs>
+              </div>
+            )}
+            <form
+              className="surface-panel relative z-30 p-4"
+              onKeyDown={(event) => {
+                if (
+                  event.key !== "Enter"
+                  || event.defaultPrevented
+                  || event.nativeEvent.isComposing
+                  || event.target instanceof HTMLTextAreaElement
+                ) return
+                event.preventDefault()
+                search()
+              }}
+              onSubmit={(event) => {
+                event.preventDefault()
+                search()
+              }}
+            >
+              <div className="grid gap-3 xl:grid-cols-[1fr_auto] xl:items-end">
+                <div className="grid gap-3 lg:grid-cols-12">
+                  <div className="space-y-1.5 lg:col-span-6 xl:col-span-5">
+                    <Label className="text-xs text-muted-foreground">日期范围</Label>
+                    <div className="grid grid-cols-[minmax(8.75rem,1fr)_auto_minmax(8.75rem,1fr)] items-center gap-2">
+                      <input
+                        type="date"
+                        value={searchDateStart}
+                        max={searchDateEnd || undefined}
+                        onChange={(e) => setSearchDateStart(e.target.value)}
+                        className="h-9 min-w-0 rounded-lg border border-input bg-card px-3 py-2 text-sm shadow-xs outline-none transition-colors focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/35"
+                      />
+                      <span className="text-xs text-muted-foreground">至</span>
+                      <input
+                        type="date"
+                        value={searchDateEnd}
+                        min={searchDateStart || undefined}
+                        onChange={(e) => setSearchDateEnd(e.target.value)}
+                        className="h-9 min-w-0 rounded-lg border border-input bg-card px-3 py-2 text-sm shadow-xs outline-none transition-colors focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/35"
                       />
                     </div>
-                    <div className="space-y-1.5 lg:col-span-3 xl:col-span-2">
-                      <Label className="text-xs text-muted-foreground">经手人</Label>
-                      <Input value={searchHandler} onChange={(e) => setSearchHandler(e.target.value)} placeholder="经手人" className="h-9" />
-                    </div>
-                    <div className="space-y-1.5 lg:col-span-3 xl:col-span-2">
-                      <Label className="text-xs text-muted-foreground">{isPurchaseOrderTab ? "货号" : "原始货号"}</Label>
-                      <Input value={searchOriginalSku} onChange={(e) => setSearchOriginalSku(e.target.value)} placeholder={isPurchaseOrderTab ? "货号" : "原始货号"} className="h-9" />
-                    </div>
-                    {!isPurchaseOrderTab && (
-                      <div className="space-y-1.5 lg:col-span-3 xl:col-span-2">
-                        <Label className="text-xs text-muted-foreground">商品编码</Label>
-                        <Input value={searchProductCode} onChange={(e) => setSearchProductCode(e.target.value)} placeholder="商品编码" className="h-9" />
-                      </div>
-                    )}
-                    <div className="space-y-1.5 lg:col-span-6 xl:col-span-4">
-                      <Label className="text-xs text-muted-foreground">备注</Label>
-                      <Input value={searchSummary} onChange={(e) => setSearchSummary(e.target.value)} placeholder="摘要/备注" className="h-9" />
-                    </div>
                   </div>
-                  <div className="flex flex-wrap gap-2 xl:justify-end">
-                    <Button type="submit" size="sm" disabled={isLoading} className="cursor-pointer">
-                      <Search className="h-4 w-4" />
-                      <span className="ml-1.5">搜索</span>
-                    </Button>
-                    {hasFilters && (
-                      <Button type="button" variant="outline" size="sm" onClick={clearSearch} className="cursor-pointer">
-                        <X className="h-4 w-4" />
-                        <span className="ml-1.5">清空</span>
-                      </Button>
-                    )}
-                    <Button type="button" variant="outline" size="sm" onClick={() => setReloadToken((t) => t + 1)} disabled={isLoading} className="cursor-pointer">
-                      <RefreshCw className={`h-4 w-4 ${isLoading ? "animate-spin" : ""}`} />
-                    </Button>
-                  </div>
-                </div>
-              </form>
-
-              {/* Selection & Summary Bar */}
-              <div className="flex flex-col gap-2 text-sm text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
-                <div className="flex flex-wrap items-center gap-3">
-                  <input
-                    type="checkbox"
-                    checked={allSelected}
-                    ref={(el) => { if (el) el.indeterminate = !allSelected && someSelected }}
-                    onChange={handleToggleSelectAll}
-                    className="h-4 w-4 cursor-pointer rounded border border-input accent-primary"
-                  />
-                  <span>
-                    共 {total} 条{hasFilters ? " (已筛选)" : ""}
-                    {selectedIds.size > 0 && <span className="ml-2 font-medium text-foreground">已选 {selectedIds.size} 项</span>}
-                  </span>
-                  {isPurchaseDetailSearch && (
-                    <div className="flex items-center gap-2">
-                      <div className="inline-flex items-center rounded-lg border border-border bg-muted/55 p-0.5" aria-label="采购单货号搜索展示方式">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setPurchaseDetailView("summary")
-                            setPage(1)
-                            setSelectedIds(new Set())
-                          }}
-                          className={`h-7 cursor-pointer rounded-md px-3 text-xs font-medium transition-colors ${purchaseDetailView === "summary" ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
-                        >
-                          明细汇总
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setPurchaseDetailView("size_rows")
-                            setPage(1)
-                            setSelectedIds(new Set())
-                          }}
-                          className={`h-7 cursor-pointer rounded-md px-3 text-xs font-medium transition-colors ${purchaseDetailView === "size_rows" ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
-                        >
-                          按尺码
-                        </button>
-                      </div>
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        onClick={() => void handleExport(purchaseDetailView)}
-                        disabled={total === 0 || isLoading}
-                        className="h-8 cursor-pointer gap-1.5 px-2.5 text-xs"
-                        title={`导出当前${purchaseDetailView === "summary" ? "明细汇总" : "尺码明细"}`}
+                  {!isPurchaseOrderTab && (
+                    <div className="space-y-1.5 lg:col-span-3 xl:col-span-2">
+                      <Label className="text-xs text-muted-foreground">单据类型</Label>
+                      <Select
+                        value={searchDocumentType}
+                        onChange={(e) => setSearchDocumentType(e.target.value)}
+                        className="w-full"
                       >
-                        <Download className="size-3.5" />
-                        导出
-                      </Button>
+                        <option value="">全部</option>
+                        {documentTypeOptions.map((dt) => (<option key={dt} value={dt}>{dt}</option>))}
+                      </Select>
                     </div>
                   )}
+                  {!isPurchaseOrderTab && (
+                    <div className="space-y-1.5 lg:col-span-3 xl:col-span-2">
+                      <Label className="text-xs text-muted-foreground">仓库</Label>
+                      <Select value={searchWarehouse} onChange={(e) => setSearchWarehouse(e.target.value)} className="w-full">
+                        <option value="">全部</option>
+                        {warehouseOptions.map((w) => (<option key={w.id} value={w.name}>{w.name}</option>))}
+                      </Select>
+                    </div>
+                  )}
+                  <div className="space-y-1.5 lg:col-span-3 xl:col-span-3">
+                    <Label className="text-xs text-muted-foreground">客户/供应商</Label>
+                    <SearchableFilterInput
+                      value={searchSupplier}
+                      options={counterpartySearchOptions}
+                      onChange={setSearchSupplier}
+                      onSubmit={search}
+                      placeholder="输入客户或供应商"
+                    />
+                  </div>
+                  <div className="space-y-1.5 lg:col-span-3 xl:col-span-2">
+                    <Label className="text-xs text-muted-foreground">经手人</Label>
+                    <Input value={searchHandler} onChange={(e) => setSearchHandler(e.target.value)} placeholder="经手人" className="h-9" />
+                  </div>
+                  <div className="space-y-1.5 lg:col-span-3 xl:col-span-2">
+                    <Label className="text-xs text-muted-foreground">{isPurchaseOrderTab ? "货号" : "原始货号"}</Label>
+                    <Input value={searchOriginalSku} onChange={(e) => setSearchOriginalSku(e.target.value)} placeholder={isPurchaseOrderTab ? "货号" : "原始货号"} className="h-9" />
+                  </div>
+                  {!isPurchaseOrderTab && (
+                    <div className="space-y-1.5 lg:col-span-3 xl:col-span-2">
+                      <Label className="text-xs text-muted-foreground">商品编码</Label>
+                      <Input value={searchProductCode} onChange={(e) => setSearchProductCode(e.target.value)} placeholder="商品编码" className="h-9" />
+                    </div>
+                  )}
+                  <div className="space-y-1.5 lg:col-span-6 xl:col-span-4">
+                    <Label className="text-xs text-muted-foreground">备注</Label>
+                    <Input value={searchSummary} onChange={(e) => setSearchSummary(e.target.value)} placeholder="摘要/备注" className="h-9" />
+                  </div>
                 </div>
-                <div className="flex items-center gap-2">
-                  {selectedIds.size > 0 && (
-                    <Button variant="outline" size="sm" className="text-destructive hover:text-destructive cursor-pointer" onClick={() => setBatchDeleteOpen(true)}>
-                      <Trash2 className="h-4 w-4" />
-                      <span className="ml-1.5">批量删除 ({selectedIds.size})</span>
+                <div className="flex flex-wrap gap-2 xl:justify-end">
+                  <Button type="submit" size="sm" disabled={isLoading} className="cursor-pointer">
+                    <Search className="h-4 w-4" />
+                    <span className="ml-1.5">搜索</span>
+                  </Button>
+                  {hasFilters && (
+                    <Button type="button" variant="outline" size="sm" onClick={clearSearch} className="cursor-pointer">
+                      <X className="h-4 w-4" />
+                      <span className="ml-1.5">清空</span>
                     </Button>
                   )}
-                  <span>每页</span>
-                  <Select value={String(pageSize)} onChange={(e) => { setPageSize(Number(e.target.value)); setPage(1) }} className="w-20">
-                    {PAGE_SIZES.map((s) => (<option key={s} value={String(s)}>{s} 条</option>))}
-                  </Select>
+                  <Button type="button" variant="outline" size="sm" onClick={() => setReloadToken((t) => t + 1)} disabled={isLoading} className="cursor-pointer">
+                    <RefreshCw className={`h-4 w-4 ${isLoading ? "animate-spin" : ""}`} />
+                  </Button>
                 </div>
               </div>
+            </form>
 
-              {/* Error */}
-              {error && !isLoading && (
-                <Alert className="border-destructive/30">
-                  <AlertDescription>{error}</AlertDescription>
-                </Alert>
-              )}
-
-              {/* Table */}
-              <div className="table-panel relative overflow-x-auto">
-                {isLoading && items.length > 0 && (
-                  <div className="pointer-events-none absolute right-3 top-3 z-30 inline-flex items-center gap-1.5 rounded-full border border-border bg-card/95 px-2.5 py-1 text-xs text-muted-foreground shadow-sm">
-                    <RefreshCw className="size-3 animate-spin" aria-hidden="true" />
-                    更新中
+            {/* Selection & Summary Bar */}
+            <div className="flex flex-col gap-2 text-sm text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex flex-wrap items-center gap-3">
+                <input
+                  type="checkbox"
+                  checked={allSelected}
+                  ref={(el) => { if (el) el.indeterminate = !allSelected && someSelected }}
+                  onChange={handleToggleSelectAll}
+                  className="h-4 w-4 cursor-pointer rounded border border-input accent-primary"
+                />
+                <span>
+                  共 {total} 条{hasFilters ? " (已筛选)" : ""}
+                  {selectedIds.size > 0 && <span className="ml-2 font-medium text-foreground">已选 {selectedIds.size} 项</span>}
+                </span>
+                {isPurchaseDetailSearch && (
+                  <div className="flex items-center gap-2">
+                    <div className="inline-flex items-center rounded-lg border border-border bg-muted/55 p-0.5" aria-label="采购单货号搜索展示方式">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setPurchaseDetailView("summary")
+                          setPage(1)
+                          setSelectedIds(new Set())
+                        }}
+                        className={`h-7 cursor-pointer rounded-md px-3 text-xs font-medium transition-colors ${purchaseDetailView === "summary" ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
+                      >
+                        明细汇总
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setPurchaseDetailView("size_rows")
+                          setPage(1)
+                          setSelectedIds(new Set())
+                        }}
+                        className={`h-7 cursor-pointer rounded-md px-3 text-xs font-medium transition-colors ${purchaseDetailView === "size_rows" ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
+                      >
+                        按尺码
+                      </button>
+                    </div>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => void handleExport(purchaseDetailView)}
+                      disabled={total === 0 || isLoading}
+                      className="h-8 cursor-pointer gap-1.5 px-2.5 text-xs"
+                      title={`导出当前${purchaseDetailView === "summary" ? "明细汇总" : "尺码明细"}`}
+                    >
+                      <Download className="size-3.5" />
+                      导出
+                    </Button>
                   </div>
                 )}
-                <table className="w-full table-fixed text-sm" style={{ minWidth: tableMinWidth }}>
-                  <colgroup>
-                    <col className="w-12" />
+              </div>
+              <div className="flex items-center gap-2">
+                {selectedIds.size > 0 && (
+                  <Button variant="outline" size="sm" className="text-destructive hover:text-destructive cursor-pointer" onClick={() => setBatchDeleteOpen(true)}>
+                    <Trash2 className="h-4 w-4" />
+                    <span className="ml-1.5">批量删除 ({selectedIds.size})</span>
+                  </Button>
+                )}
+                <span>每页</span>
+                <Select value={String(pageSize)} onChange={(e) => { setPageSize(Number(e.target.value)); setPage(1) }} className="w-20">
+                  {PAGE_SIZES.map((s) => (<option key={s} value={String(s)}>{s} 条</option>))}
+                </Select>
+              </div>
+            </div>
+
+            {/* Error */}
+            {error && !isLoading && (
+              <Alert className="border-destructive/30">
+                <AlertDescription>{error}</AlertDescription>
+              </Alert>
+            )}
+
+            {/* Table */}
+            <div className="table-panel relative overflow-x-auto">
+              {isLoading && items.length > 0 && (
+                <div className="pointer-events-none absolute right-3 top-3 z-30 inline-flex items-center gap-1.5 rounded-full border border-border bg-card/95 px-2.5 py-1 text-xs text-muted-foreground shadow-sm">
+                  <RefreshCw className="size-3 animate-spin" aria-hidden="true" />
+                  更新中
+                </div>
+              )}
+              <table className="w-full table-fixed text-sm" style={{ minWidth: tableMinWidth }}>
+                <colgroup>
+                  <col className="w-12" />
+                  {isPurchaseDetailSearch ? (
+                    <>
+                      <col className="w-40" />
+                      <col className="w-28" />
+                      <col className="w-28" />
+                      <col className="w-52" />
+                      <col className="w-40" />
+                      <col className="w-52" />
+                      <col className="w-32" />
+                      {purchaseDetailView === "size_rows" && <col className="w-24" />}
+                      <col className="w-24" />
+                      <col className="w-24" />
+                      <col className="w-28" />
+                      <col className="w-40" />
+                    </>
+                  ) : isPurchaseOrderTab ? (
+                    <>
+                      {PURCHASE_TABLE_COLUMN_ORDER.map((columnKey) => <col key={columnKey} style={{ width: inventoryColumnWidths[columnKey] }} />)}
+                    </>
+                  ) : (
+                    inventoryColumnOrder.map((columnKey) => <col key={columnKey} style={{ width: inventoryColumnWidths[columnKey] }} />)
+                  )}
+                  <col className="w-28" />
+                </colgroup>
+                <thead>
+                  <tr className="table-head-row">
+                    <th className="px-4 py-3"></th>
                     {isPurchaseDetailSearch ? (
                       <>
-                        <col className="w-40" />
-                        <col className="w-28" />
-                        <col className="w-28" />
-                        <col className="w-52" />
-                        <col className="w-40" />
-                        <col className="w-52" />
-                        <col className="w-32" />
-                        {purchaseDetailView === "size_rows" && <col className="w-24" />}
-                        <col className="w-24" />
-                        <col className="w-24" />
-                        <col className="w-28" />
-                        <col className="w-40" />
+                        <th className="px-4 py-3 font-medium"><SortableColumnLabel label="单据编号" sortRule={getSortRule("document_number")} onClick={(event) => handleTableSort("document_number", event.shiftKey)} /></th>
+                        <th className="px-4 py-3 font-medium"><SortableColumnLabel label="订货日期" sortRule={getSortRule("date")} onClick={(event) => handleTableSort("date", event.shiftKey)} /></th>
+                        <th className="px-4 py-3 font-medium">交货日期</th>
+                        <th className="px-4 py-3 font-medium"><SortableColumnLabel label="供应商" sortRule={getSortRule("supplier")} onClick={(event) => handleTableSort("supplier", event.shiftKey)} /></th>
+                        <th className="px-4 py-3 font-medium">货号</th>
+                        <th className="px-4 py-3 font-medium">商品名称</th>
+                        <th className="px-4 py-3 font-medium">颜色</th>
+                        {purchaseDetailView === "size_rows" && <th className="px-4 py-3 text-center font-medium">尺码</th>}
+                        <th className="px-4 py-3 text-right font-medium">数量</th>
+                        <th className="px-4 py-3 text-right font-medium">单价</th>
+                        <th className="px-4 py-3 text-right font-medium">金额</th>
+                        <th className="px-4 py-3 font-medium"><SortableColumnLabel label="最后修改时间" sortRule={getSortRule("updated_at")} onClick={(event) => handleTableSort("updated_at", event.shiftKey)} /></th>
                       </>
                     ) : isPurchaseOrderTab ? (
                       <>
-                        {PURCHASE_TABLE_COLUMN_ORDER.map((columnKey) => <col key={columnKey} style={{ width: inventoryColumnWidths[columnKey] }} />)}
+                        <th className="relative px-4 py-3 pr-7 font-medium"><SortableColumnLabel label="单据编号" sortRule={getSortRule("document_number")} onClick={(event) => handleTableSort("document_number", event.shiftKey)} /><ColumnResizeHandle columnKey="document_number" label="单据编号" onResizeStart={handleInventoryColumnResizeStart} /></th>
+                        <th className="relative px-4 py-3 pr-7 font-medium"><SortableColumnLabel label="订货日期" sortRule={getSortRule("date")} onClick={(event) => handleTableSort("date", event.shiftKey)} /><ColumnResizeHandle columnKey="date" label="订货日期" onResizeStart={handleInventoryColumnResizeStart} /></th>
+                        <th className="relative px-4 py-3 pr-7 font-medium"><SortableColumnLabel label="交货日期" sortRule={getSortRule("delivery_date")} onClick={(event) => handleTableSort("delivery_date", event.shiftKey)} /><ColumnResizeHandle columnKey="delivery_date" label="交货日期" onResizeStart={handleInventoryColumnResizeStart} /></th>
+                        <th className="relative px-4 py-3 pr-7 font-medium"><SortableColumnLabel label="供应商/收货客户/出货仓库" sortRule={getSortRule("supplier")} onClick={(event) => handleTableSort("supplier", event.shiftKey)} /><ColumnResizeHandle columnKey="supplier" label="供应商/收货客户/出货仓库" onResizeStart={handleInventoryColumnResizeStart} /></th>
+                        <th className="relative px-4 py-3 pr-7 font-medium"><SortableColumnLabel label="经手人" sortRule={getSortRule("handler")} onClick={(event) => handleTableSort("handler", event.shiftKey)} /><ColumnResizeHandle columnKey="handler" label="经手人" onResizeStart={handleInventoryColumnResizeStart} /></th>
+                        <th className="relative px-4 py-3 pr-7 font-medium"><SortableColumnLabel label="摘要" sortRule={getSortRule("summary")} onClick={(event) => handleTableSort("summary", event.shiftKey)} /><ColumnResizeHandle columnKey="summary" label="摘要" onResizeStart={handleInventoryColumnResizeStart} /></th>
+                        <th className="relative px-4 py-3 pr-7 font-medium"><SortableColumnLabel label="附加说明" sortRule={getSortRule("additional_note")} onClick={(event) => handleTableSort("additional_note", event.shiftKey)} /><ColumnResizeHandle columnKey="additional_note" label="附加说明" onResizeStart={handleInventoryColumnResizeStart} /></th>
+                        <th className="relative px-4 py-3 pr-7 font-medium"><SortableColumnLabel label="最后修改时间" sortRule={getSortRule("updated_at")} onClick={(event) => handleTableSort("updated_at", event.shiftKey)} /><ColumnResizeHandle columnKey="updated_at" label="最后修改时间" onResizeStart={handleInventoryColumnResizeStart} /></th>
                       </>
-                    ) : (
-                      inventoryColumnOrder.map((columnKey) => <col key={columnKey} style={{ width: inventoryColumnWidths[columnKey] }} />)
-                    )}
-                    <col className="w-28" />
-                  </colgroup>
-                  <thead>
-                    <tr className="table-head-row">
-                      <th className="px-4 py-3"></th>
-                      {isPurchaseDetailSearch ? (
-                        <>
-                          <th className="px-4 py-3 font-medium"><SortableColumnLabel label="单据编号" sortRule={getSortRule("document_number")} onClick={(event) => handleTableSort("document_number", event.shiftKey)} /></th>
-                          <th className="px-4 py-3 font-medium"><SortableColumnLabel label="订货日期" sortRule={getSortRule("date")} onClick={(event) => handleTableSort("date", event.shiftKey)} /></th>
-                          <th className="px-4 py-3 font-medium">交货日期</th>
-                          <th className="px-4 py-3 font-medium"><SortableColumnLabel label="供应商" sortRule={getSortRule("supplier")} onClick={(event) => handleTableSort("supplier", event.shiftKey)} /></th>
-                          <th className="px-4 py-3 font-medium">货号</th>
-                          <th className="px-4 py-3 font-medium">商品名称</th>
-                          <th className="px-4 py-3 font-medium">颜色</th>
-                          {purchaseDetailView === "size_rows" && <th className="px-4 py-3 text-center font-medium">尺码</th>}
-                          <th className="px-4 py-3 text-right font-medium">数量</th>
-                          <th className="px-4 py-3 text-right font-medium">单价</th>
-                          <th className="px-4 py-3 text-right font-medium">金额</th>
-                          <th className="px-4 py-3 font-medium"><SortableColumnLabel label="最后修改时间" sortRule={getSortRule("updated_at")} onClick={(event) => handleTableSort("updated_at", event.shiftKey)} /></th>
-                        </>
-                      ) : isPurchaseOrderTab ? (
-                        <>
-                          <th className="relative px-4 py-3 pr-7 font-medium"><SortableColumnLabel label="单据编号" sortRule={getSortRule("document_number")} onClick={(event) => handleTableSort("document_number", event.shiftKey)} /><ColumnResizeHandle columnKey="document_number" label="单据编号" onResizeStart={handleInventoryColumnResizeStart} /></th>
-                          <th className="relative px-4 py-3 pr-7 font-medium"><SortableColumnLabel label="订货日期" sortRule={getSortRule("date")} onClick={(event) => handleTableSort("date", event.shiftKey)} /><ColumnResizeHandle columnKey="date" label="订货日期" onResizeStart={handleInventoryColumnResizeStart} /></th>
-                          <th className="relative px-4 py-3 pr-7 font-medium"><SortableColumnLabel label="交货日期" sortRule={getSortRule("delivery_date")} onClick={(event) => handleTableSort("delivery_date", event.shiftKey)} /><ColumnResizeHandle columnKey="delivery_date" label="交货日期" onResizeStart={handleInventoryColumnResizeStart} /></th>
-                          <th className="relative px-4 py-3 pr-7 font-medium"><SortableColumnLabel label="供应商/收货客户/出货仓库" sortRule={getSortRule("supplier")} onClick={(event) => handleTableSort("supplier", event.shiftKey)} /><ColumnResizeHandle columnKey="supplier" label="供应商/收货客户/出货仓库" onResizeStart={handleInventoryColumnResizeStart} /></th>
-                          <th className="relative px-4 py-3 pr-7 font-medium"><SortableColumnLabel label="经手人" sortRule={getSortRule("handler")} onClick={(event) => handleTableSort("handler", event.shiftKey)} /><ColumnResizeHandle columnKey="handler" label="经手人" onResizeStart={handleInventoryColumnResizeStart} /></th>
-                          <th className="relative px-4 py-3 pr-7 font-medium"><SortableColumnLabel label="摘要" sortRule={getSortRule("summary")} onClick={(event) => handleTableSort("summary", event.shiftKey)} /><ColumnResizeHandle columnKey="summary" label="摘要" onResizeStart={handleInventoryColumnResizeStart} /></th>
-                          <th className="relative px-4 py-3 pr-7 font-medium"><SortableColumnLabel label="附加说明" sortRule={getSortRule("additional_note")} onClick={(event) => handleTableSort("additional_note", event.shiftKey)} /><ColumnResizeHandle columnKey="additional_note" label="附加说明" onResizeStart={handleInventoryColumnResizeStart} /></th>
-                          <th className="relative px-4 py-3 pr-7 font-medium"><SortableColumnLabel label="最后修改时间" sortRule={getSortRule("updated_at")} onClick={(event) => handleTableSort("updated_at", event.shiftKey)} /><ColumnResizeHandle columnKey="updated_at" label="最后修改时间" onResizeStart={handleInventoryColumnResizeStart} /></th>
-                        </>
-                      ) : inventoryColumnOrder.map((columnKey) => (
-                        <th
-                          key={columnKey}
-                          onDragOver={(event) => handleInventoryColumnDragOver(event, columnKey)}
-                          onDrop={(event) => handleInventoryColumnDrop(event, columnKey)}
-                          className={`relative select-none px-4 py-3 pr-7 font-medium transition-colors ${
-                            dragOverInventoryColumn === columnKey ? "bg-primary/15 text-primary" : ""
+                    ) : inventoryColumnOrder.map((columnKey) => (
+                      <th
+                        key={columnKey}
+                        onDragOver={(event) => handleInventoryColumnDragOver(event, columnKey)}
+                        onDrop={(event) => handleInventoryColumnDrop(event, columnKey)}
+                        className={`relative select-none px-4 py-3 pr-7 font-medium transition-colors ${dragOverInventoryColumn === columnKey ? "bg-primary/15 text-primary" : ""
                           } ${draggedInventoryColumn === columnKey ? "opacity-50" : ""}`}
-                        >
-                          <div className="flex items-center gap-1.5">
-                            <button
-                              type="button"
-                              draggable
-                              onDragStart={(event) => handleInventoryColumnDragStart(event, columnKey)}
-                              onDragEnd={handleInventoryColumnDragEnd}
-                              className="-ml-1 flex size-5 shrink-0 cursor-grab items-center justify-center rounded text-muted-foreground hover:bg-muted-foreground/10 hover:text-foreground active:cursor-grabbing"
-                              aria-label={`拖拽排序${INVENTORY_TABLE_COLUMN_LABELS[columnKey]}`}
-                              title="拖拽调整列顺序"
-                            >
-                              <GripVertical className="size-3.5" />
-                            </button>
-                            <SortableColumnLabel
-                              label={columnKey === "supplier"
-                                ? inventoryCounterpartyColumnLabel
-                                : columnKey === "warehouse"
-                                  ? inventoryWarehouseColumnLabel
-                                  : INVENTORY_TABLE_COLUMN_LABELS[columnKey]}
-                              sortRule={getSortRule(columnKey)}
-                              onClick={(event) => handleTableSort(columnKey, event.shiftKey)}
-                            />
-                          </div>
-                          <ColumnResizeHandle columnKey={columnKey} label={INVENTORY_TABLE_COLUMN_LABELS[columnKey]} onResizeStart={handleInventoryColumnResizeStart} />
-                        </th>
-                      ))}
-                      <th className="sticky right-0 z-20 w-28 border-l border-border bg-muted px-4 py-3 text-center font-medium shadow-[-5px_0_10px_-9px_rgb(0_0_0_/_0.45)]">操作</th>
+                      >
+                        <div className="flex items-center gap-1.5">
+                          <button
+                            type="button"
+                            draggable
+                            onDragStart={(event) => handleInventoryColumnDragStart(event, columnKey)}
+                            onDragEnd={handleInventoryColumnDragEnd}
+                            className="-ml-1 flex size-5 shrink-0 cursor-grab items-center justify-center rounded text-muted-foreground hover:bg-muted-foreground/10 hover:text-foreground active:cursor-grabbing"
+                            aria-label={`拖拽排序${INVENTORY_TABLE_COLUMN_LABELS[columnKey]}`}
+                            title="拖拽调整列顺序"
+                          >
+                            <GripVertical className="size-3.5" />
+                          </button>
+                          <SortableColumnLabel
+                            label={columnKey === "supplier"
+                              ? inventoryCounterpartyColumnLabel
+                              : columnKey === "warehouse"
+                                ? inventoryWarehouseColumnLabel
+                                : INVENTORY_TABLE_COLUMN_LABELS[columnKey]}
+                            sortRule={getSortRule(columnKey)}
+                            onClick={(event) => handleTableSort(columnKey, event.shiftKey)}
+                          />
+                        </div>
+                        <ColumnResizeHandle columnKey={columnKey} label={INVENTORY_TABLE_COLUMN_LABELS[columnKey]} onResizeStart={handleInventoryColumnResizeStart} />
+                      </th>
+                    ))}
+                    <th className="sticky right-0 z-20 w-28 border-l border-border bg-muted px-4 py-3 text-center font-medium shadow-[-5px_0_10px_-9px_rgb(0_0_0_/_0.45)]">操作</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border">
+                  {isLoading && items.length === 0 && (
+                    <tr>
+                      <td colSpan={isPurchaseDetailSearch ? (purchaseDetailView === "size_rows" ? 14 : 13) : isPurchaseOrderTab ? 10 : 12} className="px-4 py-12 text-center text-muted-foreground">加载中...</td>
                     </tr>
-                  </thead>
-                  <tbody className="divide-y divide-border">
-                    {isLoading && items.length === 0 && (
-                      <tr>
-                        <td colSpan={isPurchaseDetailSearch ? (purchaseDetailView === "size_rows" ? 14 : 13) : isPurchaseOrderTab ? 10 : 12} className="px-4 py-12 text-center text-muted-foreground">加载中...</td>
-                      </tr>
-                    )}
-                    {!isLoading && !error && items.length === 0 && (
-                      <tr>
+                  )}
+                  {!isLoading && !error && items.length === 0 && (
+                    <tr>
                       <td colSpan={isPurchaseDetailSearch ? (purchaseDetailView === "size_rows" ? 14 : 13) : isPurchaseOrderTab ? 10 : 12} className="px-4 py-12 text-center text-muted-foreground">
-                          {hasFilters ? `没有符合条件的${completionLabel}` : `暂无${completionLabel}`}
+                        {hasFilters ? `没有符合条件的${completionLabel}` : `暂无${completionLabel}`}
+                      </td>
+                    </tr>
+                  )}
+                  {!error && items.map((item) => {
+                    const isAccountingRow = ACCOUNTING_DOCUMENT_TYPE_SET.has(item.document_type || "")
+                    return (
+                      <tr key={item.row_key || item.id} className="group table-row">
+                        <td className="px-4 py-3 align-middle">
+                          <input
+                            type="checkbox"
+                            checked={selectedIds.has(item.id)}
+                            onChange={() => handleToggleSelect(item.id)}
+                            className="h-4 w-4 cursor-pointer rounded border border-input accent-primary"
+                          />
+                        </td>
+                        {isPurchaseDetailSearch ? (
+                          <>
+                            <td className="px-4 py-3 align-middle font-mono text-xs leading-4 tabular-nums">
+                              <CopyableDocumentNumber value={String(item.document_number || item.id)} className="whitespace-nowrap" />
+                            </td>
+                            <td className="px-4 py-3 align-middle whitespace-nowrap tabular-nums">{item.date || "-"}</td>
+                            <td className="px-4 py-3 align-middle whitespace-nowrap tabular-nums">
+                              {typeof item.extra_fields?.delivery_date === "string" ? item.extra_fields.delivery_date : "-"}
+                            </td>
+                            <td className="px-4 py-3 align-middle">
+                              <span className="block truncate" title={item.supplier || ""}>{item.supplier || "-"}</span>
+                            </td>
+                            <td className="px-4 py-3 align-middle font-mono text-xs">
+                              <span className="block break-all" title={item.product_code || ""}>{item.product_code || "-"}</span>
+                            </td>
+                            <td className="px-4 py-3 align-middle">
+                              <span className="block whitespace-normal break-words leading-5" title={item.product_name || ""}>{item.product_name || "-"}</span>
+                            </td>
+                            <td className="px-4 py-3 align-middle">
+                              <span className="block truncate" title={[item.color_barcode, item.color_name].filter(Boolean).join(" / ")}>
+                                {[item.color_barcode, item.color_name].filter(Boolean).join(" / ") || "-"}
+                              </span>
+                            </td>
+                            {purchaseDetailView === "size_rows" && (
+                              <td className="px-4 py-3 text-center align-middle font-mono tabular-nums">{item.size_name || "-"}</td>
+                            )}
+                            <td className="px-4 py-3 text-right align-middle font-mono font-medium tabular-nums">{item.quantity ?? "-"}</td>
+                            <td className="px-4 py-3 text-right align-middle font-mono tabular-nums">{item.unit_price ?? "-"}</td>
+                            <td className="px-4 py-3 text-right align-middle font-mono tabular-nums">{item.amount ?? "-"}</td>
+                            <td className="px-4 py-3 align-middle whitespace-nowrap text-xs tabular-nums text-muted-foreground" title={item.updated_at || ""}>
+                              {formatLastModifiedAt(item.updated_at)}
+                            </td>
+                          </>
+                        ) : isPurchaseOrderTab ? (
+                          <>
+                            <td className="px-4 py-3 align-middle font-mono text-xs leading-4 tabular-nums">
+                              <CopyableDocumentNumber value={String(item.document_number || item.id)} className="whitespace-nowrap" />
+                            </td>
+                            <td className="px-4 py-3 align-middle whitespace-nowrap tabular-nums">{item.date || "-"}</td>
+                            <td className="px-4 py-3 align-middle whitespace-nowrap tabular-nums">
+                              {typeof item.extra_fields?.delivery_date === "string" ? item.extra_fields.delivery_date : "-"}
+                            </td>
+                            <td className="px-4 py-3 align-middle">
+                              <span className="block truncate" title={item.supplier || ""}>{item.supplier || "-"}</span>
+                            </td>
+                            <td className="px-4 py-3 align-middle">
+                              <span className="block truncate" title={item.handler || ""}>{item.handler || "-"}</span>
+                            </td>
+                            <td className="px-4 py-3 align-middle">
+                              <span className="block whitespace-normal break-words leading-5" title={item.summary || ""}>{item.summary || "-"}</span>
+                            </td>
+                            <td className="px-4 py-3 align-middle">
+                              <span className="block whitespace-normal break-words leading-5" title={item.additional_note || ""}>{item.additional_note || "-"}</span>
+                            </td>
+                            <td className="px-4 py-3 align-middle whitespace-nowrap text-xs tabular-nums text-muted-foreground" title={item.updated_at || ""}>
+                              {formatLastModifiedAt(item.updated_at)}
+                            </td>
+                          </>
+                        ) : inventoryColumnOrder.map((columnKey) => {
+                          switch (columnKey) {
+                            case "document_number":
+                              return (
+                                <td key={columnKey} className="px-4 py-3 align-middle font-mono text-xs leading-4 tabular-nums">
+                                  <CopyableDocumentNumber value={String(item.document_number || item.id)} className="max-w-full" />
+                                </td>
+                              )
+                            case "date":
+                              return <td key={columnKey} className="px-4 py-3 align-middle whitespace-nowrap tabular-nums">{item.date || "-"}</td>
+                            case "document_type":
+                              return (
+                                <td key={columnKey} className="px-4 py-3 align-middle whitespace-nowrap">
+                                  {item.document_type ? (
+                                    <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${OUTBOUND_DOCUMENT_TYPES.has(item.document_type) ? "bg-red-100 text-red-700"
+                                      : INBOUND_DOCUMENT_TYPES.has(item.document_type) ? "bg-green-100 text-green-700"
+                                        : "bg-blue-100 text-blue-700"
+                                      }`}>
+                                      {item.document_type}
+                                    </span>
+                                  ) : "-"}
+                                </td>
+                              )
+                            case "supplier":
+                              return (
+                                <td key={columnKey} className="px-4 py-3 align-middle">
+                                  <span className="block truncate" title={item.supplier || ""}>{item.supplier || "-"}</span>
+                                </td>
+                              )
+                            case "total_count":
+                              return <td key={columnKey} className="px-4 py-3 align-middle text-right font-mono tabular-nums">{isAccountingRow ? "" : item.total_count || "-"}</td>
+                            case "amount":
+                              return <td key={columnKey} className="px-4 py-3 align-middle text-right font-mono tabular-nums">{item.amount ?? "-"}</td>
+                            case "warehouse":
+                              return (
+                                <td key={columnKey} className="px-4 py-3 align-middle">
+                                  <span className="block whitespace-normal break-words leading-5" title={item.warehouse || ""}>{isAccountingRow ? "" : item.warehouse || "-"}</span>
+                                </td>
+                              )
+                            case "handler":
+                              return (
+                                <td key={columnKey} className="px-4 py-3 align-middle">
+                                  <span className="block truncate" title={item.handler || ""}>{item.handler || "-"}</span>
+                                </td>
+                              )
+                            case "summary":
+                              return (
+                                <td key={columnKey} className="px-4 py-3 align-middle">
+                                  <span className="block whitespace-normal break-words leading-5" title={item.summary || ""}>{item.summary || "-"}</span>
+                                </td>
+                              )
+                            case "updated_at":
+                              return (
+                                <td key={columnKey} className="px-4 py-3 align-middle whitespace-nowrap text-xs tabular-nums text-muted-foreground" title={item.updated_at || ""}>
+                                  {formatLastModifiedAt(item.updated_at)}
+                                </td>
+                              )
+                          }
+                        })}
+                        <td className="sticky right-0 z-10 w-28 border-l border-border bg-card px-4 py-3 align-middle shadow-[-5px_0_10px_-9px_rgb(0_0_0_/_0.45)] transition-colors group-hover:bg-muted">
+                          <div className="flex items-center justify-center gap-1">
+                            <Button variant="ghost" size="icon-sm" onClick={() => setDetailDocumentId(item.id)} className="cursor-pointer" title="明细">
+                              <List className="h-4 w-4" />
+                            </Button>
+                            <Button variant="ghost" size="icon-sm" onClick={() => openEdit(item)} className="cursor-pointer" title="编辑">
+                              <Edit className="h-4 w-4" />
+                            </Button>
+                            <Button variant="ghost" size="icon-sm" onClick={() => setDeleteTarget(item)} className="cursor-pointer" title="删除">
+                              <Trash2 className="h-4 w-4 text-destructive" />
+                            </Button>
+                          </div>
                         </td>
                       </tr>
-                    )}
-                    {!error && items.map((item) => {
-                      const isAccountingRow = ACCOUNTING_DOCUMENT_TYPE_SET.has(item.document_type || "")
-                      return (
-                        <tr key={item.row_key || item.id} className="group table-row">
-                          <td className="px-4 py-3 align-middle">
-                            <input
-                              type="checkbox"
-                              checked={selectedIds.has(item.id)}
-                              onChange={() => handleToggleSelect(item.id)}
-                              className="h-4 w-4 cursor-pointer rounded border border-input accent-primary"
-                            />
-                          </td>
-                          {isPurchaseDetailSearch ? (
-                            <>
-                              <td className="px-4 py-3 align-middle font-mono text-xs leading-4 tabular-nums">
-                                <CopyableDocumentNumber value={String(item.document_number || item.id)} className="whitespace-nowrap" />
-                              </td>
-                              <td className="px-4 py-3 align-middle whitespace-nowrap tabular-nums">{item.date || "-"}</td>
-                              <td className="px-4 py-3 align-middle whitespace-nowrap tabular-nums">
-                                {typeof item.extra_fields?.delivery_date === "string" ? item.extra_fields.delivery_date : "-"}
-                              </td>
-                              <td className="px-4 py-3 align-middle">
-                                <span className="block truncate" title={item.supplier || ""}>{item.supplier || "-"}</span>
-                              </td>
-                              <td className="px-4 py-3 align-middle font-mono text-xs">
-                                <span className="block break-all" title={item.product_code || ""}>{item.product_code || "-"}</span>
-                              </td>
-                              <td className="px-4 py-3 align-middle">
-                                <span className="block whitespace-normal break-words leading-5" title={item.product_name || ""}>{item.product_name || "-"}</span>
-                              </td>
-                              <td className="px-4 py-3 align-middle">
-                                <span className="block truncate" title={[item.color_barcode, item.color_name].filter(Boolean).join(" / ")}>
-                                  {[item.color_barcode, item.color_name].filter(Boolean).join(" / ") || "-"}
-                                </span>
-                              </td>
-                              {purchaseDetailView === "size_rows" && (
-                                <td className="px-4 py-3 text-center align-middle font-mono tabular-nums">{item.size_name || "-"}</td>
-                              )}
-                              <td className="px-4 py-3 text-right align-middle font-mono font-medium tabular-nums">{item.quantity ?? "-"}</td>
-                              <td className="px-4 py-3 text-right align-middle font-mono tabular-nums">{item.unit_price ?? "-"}</td>
-                              <td className="px-4 py-3 text-right align-middle font-mono tabular-nums">{item.amount ?? "-"}</td>
-                              <td className="px-4 py-3 align-middle whitespace-nowrap text-xs tabular-nums text-muted-foreground" title={item.updated_at || ""}>
-                                {formatLastModifiedAt(item.updated_at)}
-                              </td>
-                            </>
-                          ) : isPurchaseOrderTab ? (
-                            <>
-                              <td className="px-4 py-3 align-middle font-mono text-xs leading-4 tabular-nums">
-                                <CopyableDocumentNumber value={String(item.document_number || item.id)} className="whitespace-nowrap" />
-                              </td>
-                              <td className="px-4 py-3 align-middle whitespace-nowrap tabular-nums">{item.date || "-"}</td>
-                              <td className="px-4 py-3 align-middle whitespace-nowrap tabular-nums">
-                                {typeof item.extra_fields?.delivery_date === "string" ? item.extra_fields.delivery_date : "-"}
-                              </td>
-                              <td className="px-4 py-3 align-middle">
-                                <span className="block truncate" title={item.supplier || ""}>{item.supplier || "-"}</span>
-                              </td>
-                              <td className="px-4 py-3 align-middle">
-                                <span className="block truncate" title={item.handler || ""}>{item.handler || "-"}</span>
-                              </td>
-                              <td className="px-4 py-3 align-middle">
-                                <span className="block whitespace-normal break-words leading-5" title={item.summary || ""}>{item.summary || "-"}</span>
-                              </td>
-                              <td className="px-4 py-3 align-middle">
-                                <span className="block whitespace-normal break-words leading-5" title={item.additional_note || ""}>{item.additional_note || "-"}</span>
-                              </td>
-                              <td className="px-4 py-3 align-middle whitespace-nowrap text-xs tabular-nums text-muted-foreground" title={item.updated_at || ""}>
-                                {formatLastModifiedAt(item.updated_at)}
-                              </td>
-                            </>
-                          ) : inventoryColumnOrder.map((columnKey) => {
-                            switch (columnKey) {
-                              case "document_number":
-                                return (
-                                  <td key={columnKey} className="px-4 py-3 align-middle font-mono text-xs leading-4 tabular-nums">
-                                    <CopyableDocumentNumber value={String(item.document_number || item.id)} className="max-w-full" />
-                                  </td>
-                                )
-                              case "date":
-                                return <td key={columnKey} className="px-4 py-3 align-middle whitespace-nowrap tabular-nums">{item.date || "-"}</td>
-                              case "document_type":
-                                return (
-                                  <td key={columnKey} className="px-4 py-3 align-middle whitespace-nowrap">
-                                    {item.document_type ? (
-                                      <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${OUTBOUND_DOCUMENT_TYPES.has(item.document_type) ? "bg-red-100 text-red-700"
-                                          : INBOUND_DOCUMENT_TYPES.has(item.document_type) ? "bg-green-100 text-green-700"
-                                            : "bg-blue-100 text-blue-700"
-                                        }`}>
-                                        {item.document_type}
-                                      </span>
-                                    ) : "-"}
-                                  </td>
-                                )
-                              case "supplier":
-                                return (
-                                  <td key={columnKey} className="px-4 py-3 align-middle">
-                                    <span className="block truncate" title={item.supplier || ""}>{item.supplier || "-"}</span>
-                                  </td>
-                                )
-                              case "total_count":
-                                return <td key={columnKey} className="px-4 py-3 align-middle text-right font-mono tabular-nums">{isAccountingRow ? "" : item.total_count || "-"}</td>
-                              case "amount":
-                                return <td key={columnKey} className="px-4 py-3 align-middle text-right font-mono tabular-nums">{item.amount ?? "-"}</td>
-                              case "warehouse":
-                                return (
-                                  <td key={columnKey} className="px-4 py-3 align-middle">
-                                    <span className="block whitespace-normal break-words leading-5" title={item.warehouse || ""}>{isAccountingRow ? "" : item.warehouse || "-"}</span>
-                                  </td>
-                                )
-                              case "handler":
-                                return (
-                                  <td key={columnKey} className="px-4 py-3 align-middle">
-                                    <span className="block truncate" title={item.handler || ""}>{item.handler || "-"}</span>
-                                  </td>
-                                )
-                              case "summary":
-                                return (
-                                  <td key={columnKey} className="px-4 py-3 align-middle">
-                                    <span className="block whitespace-normal break-words leading-5" title={item.summary || ""}>{item.summary || "-"}</span>
-                                  </td>
-                                )
-                              case "updated_at":
-                                return (
-                                  <td key={columnKey} className="px-4 py-3 align-middle whitespace-nowrap text-xs tabular-nums text-muted-foreground" title={item.updated_at || ""}>
-                                    {formatLastModifiedAt(item.updated_at)}
-                                  </td>
-                                )
-                            }
-                          })}
-                          <td className="sticky right-0 z-10 w-28 border-l border-border bg-card px-4 py-3 align-middle shadow-[-5px_0_10px_-9px_rgb(0_0_0_/_0.45)] transition-colors group-hover:bg-muted">
-                            <div className="flex items-center justify-center gap-1">
-                              <Button variant="ghost" size="icon-sm" onClick={() => setDetailDocumentId(item.id)} className="cursor-pointer" title="明细">
-                                <List className="h-4 w-4" />
-                              </Button>
-                              <Button variant="ghost" size="icon-sm" onClick={() => openEdit(item)} className="cursor-pointer" title="编辑">
-                                <Edit className="h-4 w-4" />
-                              </Button>
-                              <Button variant="ghost" size="icon-sm" onClick={() => setDeleteTarget(item)} className="cursor-pointer" title="删除">
-                                <Trash2 className="h-4 w-4 text-destructive" />
-                              </Button>
-                            </div>
-                          </td>
-                        </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Pagination */}
+            {totalPages > 1 && (
+              <div className="flex items-center justify-center gap-4">
+                <Pagination>
+                  <PaginationContent>
+                    <PaginationItem>
+                      <PaginationPrevious
+                        text="上一页"
+                        onClick={() => setPage((p) => Math.max(1, p - 1))}
+                        className={page <= 1 ? "pointer-events-none opacity-50" : "cursor-pointer"}
+                      />
+                    </PaginationItem>
+                    {pageRange.map((p, i) =>
+                      p === "ellipsis" ? (
+                        <PaginationItem key={`ellipsis-${i}`}>
+                          <PaginationEllipsis />
+                        </PaginationItem>
+                      ) : (
+                        <PaginationItem key={p}>
+                          <PaginationLink
+                            isActive={p === page}
+                            onClick={() => p !== page && setPage(p)}
+                            className={p === page ? "cursor-default" : "cursor-pointer"}
+                          >
+                            {p}
+                          </PaginationLink>
+                        </PaginationItem>
                       )
-                    })}
-                  </tbody>
-                </table>
-              </div>
-
-              {/* Pagination */}
-              {totalPages > 1 && (
-                <div className="flex items-center justify-center gap-4">
-                  <Pagination>
-                    <PaginationContent>
-                      <PaginationItem>
-                        <PaginationPrevious
-                          text="上一页"
-                          onClick={() => setPage((p) => Math.max(1, p - 1))}
-                          className={page <= 1 ? "pointer-events-none opacity-50" : "cursor-pointer"}
-                        />
-                      </PaginationItem>
-                      {pageRange.map((p, i) =>
-                        p === "ellipsis" ? (
-                          <PaginationItem key={`ellipsis-${i}`}>
-                            <PaginationEllipsis />
-                          </PaginationItem>
-                        ) : (
-                          <PaginationItem key={p}>
-                            <PaginationLink
-                              isActive={p === page}
-                              onClick={() => p !== page && setPage(p)}
-                              className={p === page ? "cursor-default" : "cursor-pointer"}
-                            >
-                              {p}
-                            </PaginationLink>
-                          </PaginationItem>
-                        )
-                      )}
-                      <PaginationItem>
-                        <PaginationNext
-                          text="下一页"
-                          onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-                          className={page >= totalPages ? "pointer-events-none opacity-50" : "cursor-pointer"}
-                        />
-                      </PaginationItem>
-                    </PaginationContent>
-                  </Pagination>
-                  <div className="flex items-center gap-1 text-sm text-muted-foreground whitespace-nowrap">
-                    <span>跳至</span>
-                    <input
-                      type="number"
-                      min={1}
-                      max={totalPages}
-                      className="h-8 w-16 rounded-md border border-input bg-card px-2 text-center text-sm outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/35"
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter") {
-                          const target = parseInt((e.target as HTMLInputElement).value, 10)
-                          if (target >= 1 && target <= totalPages) setPage(target)
-                        }
-                      }}
-                    />
-                    <span>页</span>
-                  </div>
+                    )}
+                    <PaginationItem>
+                      <PaginationNext
+                        text="下一页"
+                        onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                        className={page >= totalPages ? "pointer-events-none opacity-50" : "cursor-pointer"}
+                      />
+                    </PaginationItem>
+                  </PaginationContent>
+                </Pagination>
+                <div className="flex items-center gap-1 text-sm text-muted-foreground whitespace-nowrap">
+                  <span>跳至</span>
+                  <input
+                    type="number"
+                    min={1}
+                    max={totalPages}
+                    className="h-8 w-16 rounded-md border border-input bg-card px-2 text-center text-sm outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/35"
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        const target = parseInt((e.target as HTMLInputElement).value, 10)
+                        if (target >= 1 && target <= totalPages) setPage(target)
+                      }
+                    }}
+                  />
+                  <span>页</span>
                 </div>
-              )}
-
-              {/* Total summary footer */}
-              <div className="text-center text-xs text-muted-foreground">
-                {completionLabel}共 {total} 条 · 第 {total === 0 ? 0 : (page - 1) * pageSize + 1}-{Math.min(page * pageSize, total)} 条
               </div>
+            )}
+
+            {/* Total summary footer */}
+            <div className="text-center text-xs text-muted-foreground">
+              {completionLabel}共 {total} 条 · 第 {total === 0 ? 0 : (page - 1) * pageSize + 1}-{Math.min(page * pageSize, total)} 条
+            </div>
           </>
         </Tabs>
       </div>
@@ -2526,7 +2643,7 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
           }
         }}
       >
-        <DialogContent className="max-w-xl">
+        <DialogContent className="max-h-[90vh] max-w-xl overflow-y-auto">
           <DialogHeader>
             <DialogTitle>{isPurchaseOrderTab ? "导入采购单" : "导入单据明细"}</DialogTitle>
           </DialogHeader>
@@ -2535,169 +2652,266 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
               <AlertDescription>{importError}</AlertDescription>
             </Alert>
           )}
-          <div className="grid grid-cols-2 gap-4 py-2">
-            {!isImportPurchaseOrder && (
-              <>
-                <div className="space-y-1.5">
-                  <Label>{importFormData.document_type === PURCHASE_ORDER_DOCUMENT_TYPE ? "订货日期" : "单据日期"}</Label>
-                  <input
-                    type="date"
-                    value={importFormData.date}
-                    onChange={(e) => { setImportError(""); setImportFormData((prev) => ({ ...prev, date: e.target.value })) }}
-                    className="flex h-9 w-full rounded-lg border border-input bg-card px-3 py-2 text-sm shadow-xs outline-none transition-colors focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/35"
-                  />
+          {!isPurchaseOrderTab && (
+            <div className="flex gap-2">
+              <Button type="button" variant={importMode === "existing" ? "default" : "outline"} onClick={() => { setImportMode("existing"); setImportError(""); setTemplatePreview(null); setPurchasePreview(null); setPurchaseDecisions({}); setImportFile(null); if (fileInputRef.current) fileInputRef.current.value = "" }} disabled={isImporting}>普通导入</Button>
+              <Button type="button" variant={importMode === "template" ? "default" : "outline"} onClick={() => { setImportMode("template"); setImportError(""); setTemplatePreview(null); setPurchasePreview(null); setPurchaseDecisions({}); setImportFile(null); if (fileInputRef.current) fileInputRef.current.value = "" }} disabled={isImporting}>按模板导入</Button>
+            </div>
+          )}
+          {importMode === "template" && !isPurchaseOrderTab ? (
+            <div className="space-y-4 pt-2">
+              <div className="flex flex-wrap gap-2">
+                {UNIVERSAL_TEMPLATE_OPTIONS.map((option) => (
+                  <Button key={option.kind} type="button" size="sm" variant="outline" onClick={() => {
+                    const link = document.createElement("a")
+                    link.href = buildInventoryTemplateUrl(option.kind)
+                    link.rel = "noopener"
+                    link.click()
+                  }}><Download className="mr-1 h-3.5 w-3.5" />{option.label}模板</Button>
+                ))}
+              </div>
+              <div className="space-y-1.5">
+                <Label>备用品牌（无法从往来单位或仓库识别时使用）</Label>
+                <Select value={templateBrand} onChange={(event) => { setTemplateBrand(event.target.value); setImportError("") }}>
+                  <option value="">不设置</option>
+                  {Object.entries(INVENTORY_BRAND_LABELS).filter(([code]) => code !== "通用").map(([code, label]) => (
+                    <option key={code} value={code}>{label}</option>
+                  ))}
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <Label>Excel 文件</Label>
+                <Input type="file" accept=".xls,.xlsx,.xlsm" disabled={isImporting} onChange={(event) => handleImportFileSelection(event.target.files?.[0] ?? null)} />
+                {importFile && <p className="text-xs text-muted-foreground">已选：{importFile.name}</p>}
+              </div>
+              {templatePreview && (
+                <div className="space-y-3 rounded-lg border p-3">
+                  <p className="text-sm">共 {templatePreview.total} 张单据；日期、摘要、类型、往来单位及仓库均相同的 {templatePreview.conflicts.length} 张需确认。</p>
+                  {templatePreview.kind !== "accounting" && (
+                    <p className="text-xs text-muted-foreground">
+                      已自动识别品牌 {Object.keys(templatePreview.brand_by_key).length} 张；无法识别 {templatePreview.unresolved_brand_keys.length} 张。
+                    </p>
+                  )}
+                  {templatePreview.conflicts.map((conflict) => {
+                    const decision = templateDecisions[conflict.key]
+                    return (
+                      <div key={conflict.key} className="space-y-2 border-t pt-3 text-sm">
+                        <p>{conflict.date} · {conflict.document_type}</p>
+                        <p className="text-muted-foreground">摘要：{conflict.summary}；{conflict.existing_number ? `已有单据：${conflict.existing_number}` : "与本次导入的其他单据匹配字段相同"}</p>
+                        <Select value={decision?.action ?? ""} onChange={(event) => {
+                          const action = event.target.value as "overwrite" | "new" | "skip"
+                          setTemplateDecisions((previous) => ({ ...previous, [conflict.key]: { action, new_summary: previous[conflict.key]?.new_summary ?? "" } }))
+                          setImportError("")
+                        }}>
+                          <option value="">请选择处理方式</option>
+                          {conflict.can_merge && <option value="overwrite">覆盖已有单据（替换原明细，保留编号）</option>}
+                          <option value="new">另增一张单据（修改摘要）</option>
+                          <option value="skip">取消该单据（其他单据继续导入）</option>
+                        </Select>
+                        {decision?.action === "new" && (
+                          <Input value={decision.new_summary ?? ""} placeholder="请输入不同于原摘要的新摘要" onChange={(event) => setTemplateDecisions((previous) => ({ ...previous, [conflict.key]: { action: "new", new_summary: event.target.value } }))} />
+                        )}
+                      </div>
+                    )
+                  })}
                 </div>
-                {!isPurchaseOrderTab && (
+              )}
+            </div>
+          ) : (
+            <div className="grid grid-cols-2 gap-4 py-2">
+              {!isImportPurchaseOrder && (
+                <>
                   <div className="space-y-1.5">
-                    <Label>单据类型</Label>
-                    <Select
-                      value={importFormData.document_type}
-                      onChange={(e) => { setImportError(""); setImportFormData((prev) => ({ ...prev, document_type: e.target.value, supplier: "" })) }}
-                    >
-                      <option value="">请选择</option>
-                      {detailImportDocumentTypeOptions.map((dt) => (<option key={dt} value={dt}>{dt}</option>))}
-                    </Select>
-                  </div>
-                )}
-                {importFormData.document_type === PURCHASE_ORDER_DOCUMENT_TYPE && (
-                  <div className="space-y-1.5">
-                    <Label>交货日期</Label>
+                    <Label>{importFormData.document_type === PURCHASE_ORDER_DOCUMENT_TYPE ? "订货日期" : "单据日期"}</Label>
                     <input
                       type="date"
-                      value={importFormData.delivery_date}
-                      min={importFormData.date || undefined}
-                      onChange={(e) => { setImportError(""); setImportFormData((prev) => ({ ...prev, delivery_date: e.target.value })) }}
-                      className="flex h-9 w-full rounded-lg border border-input bg-card px-3 py-2 text-sm shadow-xs outline-none transition-colors focus-visible:border-ring focus-visible:ring-ring/35"
+                      value={importFormData.date}
+                      onChange={(e) => { setImportError(""); setImportFormData((prev) => ({ ...prev, date: e.target.value })) }}
+                      className="flex h-9 w-full rounded-lg border border-input bg-card px-3 py-2 text-sm shadow-xs outline-none transition-colors focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/35"
                     />
                   </div>
-                )}
-                {!isImportStockAdjustment && (
+                  {!isPurchaseOrderTab && (
+                    <div className="space-y-1.5">
+                      <Label>单据类型</Label>
+                      <Select
+                        value={importFormData.document_type}
+                        onChange={(e) => { setImportError(""); setImportFormData((prev) => ({ ...prev, document_type: e.target.value, supplier: "" })) }}
+                      >
+                        <option value="">请选择</option>
+                        {detailImportDocumentTypeOptions.map((dt) => (<option key={dt} value={dt}>{dt}</option>))}
+                      </Select>
+                    </div>
+                  )}
+                  {importFormData.document_type === PURCHASE_ORDER_DOCUMENT_TYPE && (
+                    <div className="space-y-1.5">
+                      <Label>交货日期</Label>
+                      <input
+                        type="date"
+                        value={importFormData.delivery_date}
+                        min={importFormData.date || undefined}
+                        onChange={(e) => { setImportError(""); setImportFormData((prev) => ({ ...prev, delivery_date: e.target.value })) }}
+                        className="flex h-9 w-full rounded-lg border border-input bg-card px-3 py-2 text-sm shadow-xs outline-none transition-colors focus-visible:border-ring focus-visible:ring-ring/35"
+                      />
+                    </div>
+                  )}
+                  {!isImportStockAdjustment && (
+                    <div className="space-y-1.5">
+                      <Label>{isImportTransfer ? "出货仓库" : isImportWholesale ? "收货客户" : "供货单位"}</Label>
+                      <HierarchicalSelect
+                        value={importFormData.supplier}
+                        options={importCounterpartyHierarchicalOptions}
+                        onChange={(nextValue) => setImportFormData((prev) => ({ ...prev, supplier: nextValue }))}
+                        onTouched={() => setImportError("")}
+                        placeholder={isImportTransfer ? "选择品牌后选出货仓库" : isImportWholesale ? "选择品牌后选收货客户" : "选择品牌后选供货单位"}
+                      />
+                    </div>
+                  )}
                   <div className="space-y-1.5">
-                    <Label>{isImportTransfer ? "出货仓库" : isImportWholesale ? "收货客户" : "供货单位"}</Label>
+                    <Label>{isImportStockAdjustment ? "仓库" : isImportTransfer ? "入货仓库" : isImportWholesale ? "发货仓库" : isImportPurchaseOrder ? "收货仓库（选填）" : "收货仓库"}</Label>
                     <HierarchicalSelect
-                      value={importFormData.supplier}
-                      options={importCounterpartyHierarchicalOptions}
-                      onChange={(nextValue) => setImportFormData((prev) => ({ ...prev, supplier: nextValue }))}
+                      value={importFormData.warehouse}
+                      options={warehouseHierarchicalOptions}
+                      onChange={(nextValue) => setImportFormData((prev) => ({ ...prev, warehouse: nextValue }))}
                       onTouched={() => setImportError("")}
-                      placeholder={isImportTransfer ? "选择品牌后选出货仓库" : isImportWholesale ? "选择品牌后选收货客户" : "选择品牌后选供货单位"}
+                      placeholder={isImportStockAdjustment ? "选择品牌后选仓库" : isImportTransfer ? "选择品牌后选入货仓库" : isImportWholesale ? "选择品牌后选发货仓库" : "选择品牌后选收货仓库"}
                     />
                   </div>
-                )}
-                <div className="space-y-1.5">
-                  <Label>{isImportStockAdjustment ? "仓库" : isImportTransfer ? "入货仓库" : isImportWholesale ? "发货仓库" : isImportPurchaseOrder ? "收货仓库（选填）" : "收货仓库"}</Label>
-                  <HierarchicalSelect
-                    value={importFormData.warehouse}
-                    options={warehouseHierarchicalOptions}
-                    onChange={(nextValue) => setImportFormData((prev) => ({ ...prev, warehouse: nextValue }))}
-                    onTouched={() => setImportError("")}
-                    placeholder={isImportStockAdjustment ? "选择品牌后选仓库" : isImportTransfer ? "选择品牌后选入货仓库" : isImportWholesale ? "选择品牌后选发货仓库" : "选择品牌后选收货仓库"}
-                  />
+                  <div className="space-y-1.5">
+                    <Label>经手人</Label>
+                    <Input value={importFormData.handler} onChange={(e) => { setImportError(""); setImportFormData((prev) => ({ ...prev, handler: e.target.value })) }} placeholder="经手人" />
+                  </div>
+                  <div className="col-span-2 space-y-1.5">
+                    <Label>摘要</Label>
+                    <Input value={importFormData.summary} onChange={(e) => { setImportError(""); setImportFormData((prev) => ({ ...prev, summary: e.target.value })) }} placeholder="摘要" />
+                  </div>
+                </>
+              )}
+              <div className="col-span-2 space-y-1.5">
+                <div className="flex items-center justify-between gap-3">
+                  <Label>Excel 文件</Label>
+                  {isPurchaseOrderTab && (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={handleDownloadPurchaseTemplate}
+                      disabled={isImporting}
+                      className="h-8 cursor-pointer"
+                    >
+                      <Download className="h-3.5 w-3.5" />
+                      <span className="ml-1.5">模版下载</span>
+                    </Button>
+                  )}
                 </div>
-                <div className="space-y-1.5">
-                  <Label>经手人</Label>
-                  <Input value={importFormData.handler} onChange={(e) => { setImportError(""); setImportFormData((prev) => ({ ...prev, handler: e.target.value })) }} placeholder="经手人" />
-                </div>
-                <div className="col-span-2 space-y-1.5">
-                  <Label>摘要</Label>
-                  <Input value={importFormData.summary} onChange={(e) => { setImportError(""); setImportFormData((prev) => ({ ...prev, summary: e.target.value })) }} placeholder="摘要" />
-                </div>
-              </>
-            )}
-            <div className="col-span-2 space-y-1.5">
-              <div className="flex items-center justify-between gap-3">
-                <Label>Excel 文件</Label>
-                {isPurchaseOrderTab && (
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={handleDownloadPurchaseTemplate}
-                    disabled={isImporting}
-                    className="h-8 cursor-pointer"
-                  >
-                    <Download className="h-3.5 w-3.5" />
-                    <span className="ml-1.5">模版下载</span>
-                  </Button>
-                )}
-              </div>
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept=".xlsx,.xls,.xlsm"
-                onChange={(event) => handleImportFileSelection(event.target.files?.[0] ?? null)}
-                className="sr-only"
-                tabIndex={-1}
-              />
-              <div
-                role="button"
-                tabIndex={isImporting ? -1 : 0}
-                aria-disabled={isImporting}
-                onClick={() => {
-                  if (!isImporting) fileInputRef.current?.click()
-                }}
-                onKeyDown={(event) => {
-                  if (!isImporting && (event.key === "Enter" || event.key === " ")) {
-                    event.preventDefault()
-                    fileInputRef.current?.click()
-                  }
-                }}
-                onDragEnter={handleImportDragEnter}
-                onDragOver={handleImportDragOver}
-                onDragLeave={handleImportDragLeave}
-                onDrop={handleImportDrop}
-                className={`flex min-h-28 w-full cursor-pointer items-center justify-center rounded-lg border border-dashed px-5 py-4 text-center outline-none transition-colors focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/35 ${
-                  isImportDragging
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept=".xlsx,.xls,.xlsm"
+                  onChange={(event) => handleImportFileSelection(event.target.files?.[0] ?? null)}
+                  className="sr-only"
+                  tabIndex={-1}
+                />
+                <div
+                  role="button"
+                  tabIndex={isImporting ? -1 : 0}
+                  aria-disabled={isImporting}
+                  onClick={() => {
+                    if (!isImporting) fileInputRef.current?.click()
+                  }}
+                  onKeyDown={(event) => {
+                    if (!isImporting && (event.key === "Enter" || event.key === " ")) {
+                      event.preventDefault()
+                      fileInputRef.current?.click()
+                    }
+                  }}
+                  onDragEnter={handleImportDragEnter}
+                  onDragOver={handleImportDragOver}
+                  onDragLeave={handleImportDragLeave}
+                  onDrop={handleImportDrop}
+                  className={`flex min-h-28 w-full cursor-pointer items-center justify-center rounded-lg border border-dashed px-5 py-4 text-center outline-none transition-colors focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/35 ${isImportDragging
                     ? "border-primary bg-primary/5 ring-3 ring-primary/15"
                     : importFile
                       ? "border-primary/50 bg-primary/[0.03] hover:border-primary/70 hover:bg-primary/[0.05]"
                       : "border-input bg-muted/20 hover:border-primary/50 hover:bg-muted/35"
-                } ${isImporting ? "cursor-not-allowed opacity-60" : ""}`}
-              >
-                {importFile ? (
-                  <div className="flex w-full min-w-0 items-center gap-3 text-left">
-                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
-                      <FileText className="h-5 w-5" />
+                    } ${isImporting ? "cursor-not-allowed opacity-60" : ""}`}
+                >
+                  {importFile ? (
+                    <div className="flex w-full min-w-0 items-center gap-3 text-left">
+                      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                        <FileText className="h-5 w-5" />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm font-medium text-foreground" title={importFile.name}>{importFile.name}</p>
+                        <p className="mt-0.5 text-xs text-muted-foreground">
+                          {importFile.size >= 1024 * 1024
+                            ? `${(importFile.size / 1024 / 1024).toFixed(2)} MB`
+                            : `${Math.max(1, Math.ceil(importFile.size / 1024))} KB`}
+                          <span className="mx-1.5">·</span>可重新拖入文件替换
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        aria-label="移除已选文件"
+                        title="移除文件"
+                        disabled={isImporting}
+                        onClick={(event) => {
+                          event.stopPropagation()
+                          clearImportFile()
+                        }}
+                        className="flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive disabled:cursor-not-allowed"
+                      >
+                        <X className="h-4 w-4" />
+                      </button>
                     </div>
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm font-medium text-foreground" title={importFile.name}>{importFile.name}</p>
-                      <p className="mt-0.5 text-xs text-muted-foreground">
-                        {importFile.size >= 1024 * 1024
-                          ? `${(importFile.size / 1024 / 1024).toFixed(2)} MB`
-                          : `${Math.max(1, Math.ceil(importFile.size / 1024))} KB`}
-                        <span className="mx-1.5">·</span>可重新拖入文件替换
+                  ) : (
+                    <div className="flex flex-col items-center">
+                      <div className="mb-2 flex h-10 w-10 items-center justify-center rounded-lg bg-muted text-muted-foreground">
+                        <Upload className="h-5 w-5" />
+                      </div>
+                      <p className="text-sm font-medium text-foreground">
+                        {isImportDragging ? "松开即可添加文件" : `拖拽${isPurchaseOrderTab ? "采购单" : "单据"} Excel 到此处，或点击选择`}
                       </p>
+                      <p className="mt-1 text-xs text-muted-foreground">支持 .xlsx、.xls、.xlsm</p>
                     </div>
-                    <button
-                      type="button"
-                      aria-label="移除已选文件"
-                      title="移除文件"
-                      disabled={isImporting}
-                      onClick={(event) => {
-                        event.stopPropagation()
-                        clearImportFile()
-                      }}
-                      className="flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive disabled:cursor-not-allowed"
-                    >
-                      <X className="h-4 w-4" />
-                    </button>
-                  </div>
-                ) : (
-                  <div className="flex flex-col items-center">
-                    <div className="mb-2 flex h-10 w-10 items-center justify-center rounded-lg bg-muted text-muted-foreground">
-                      <Upload className="h-5 w-5" />
-                    </div>
-                    <p className="text-sm font-medium text-foreground">
-                      {isImportDragging ? "松开即可添加文件" : `拖拽${isPurchaseOrderTab ? "采购单" : "单据"} Excel 到此处，或点击选择`}
-                    </p>
-                    <p className="mt-1 text-xs text-muted-foreground">支持 .xlsx、.xls、.xlsm</p>
+                  )}
+                </div>
+                {purchasePreview && (
+                  <div className="col-span-2 space-y-3 rounded-lg border p-3">
+                    <p className="text-sm">共 {purchasePreview.total} 张单据；日期、摘要、类型、往来单位及仓库均相同的 {purchasePreview.conflicts.length} 张需确认。</p>
+                    {purchasePreview.conflicts.map((conflict) => {
+                      const decision = purchaseDecisions[conflict.key]
+                      return (
+                        <div key={conflict.key} className="space-y-2 border-t pt-3 text-sm">
+                          <p>{conflict.date} · {conflict.document_type}</p>
+                          <p className="text-muted-foreground">摘要：{conflict.summary}；{conflict.existing_number ? `已有单据：${conflict.existing_number}` : "与本次导入的其他单据匹配字段相同"}</p>
+                          <Select value={decision?.action ?? ""} onChange={(event) => {
+                            const action = event.target.value as "overwrite" | "new" | "skip" | ""
+                            setPurchaseDecisions((previous) => {
+                              if (!action) {
+                                const updated = { ...previous }
+                                delete updated[conflict.key]
+                                return updated
+                              }
+                              return { ...previous, [conflict.key]: { action, new_summary: previous[conflict.key]?.new_summary ?? "" } }
+                            })
+                            setImportError("")
+                          }}>
+                            <option value="">请选择处理方式</option>
+                            {conflict.can_merge && <option value="overwrite">覆盖已有单据（替换原明细，保留编号）</option>}
+                            <option value="new">另增一张单据（修改摘要）</option>
+                            <option value="skip">取消该单据（其他单据继续导入）</option>
+                          </Select>
+                          {decision?.action === "new" && (
+                            <Input value={decision.new_summary ?? ""} placeholder="请输入不同于原摘要的新摘要" onChange={(event) => setPurchaseDecisions((previous) => ({ ...previous, [conflict.key]: { action: "new", new_summary: event.target.value } }))} />
+                          )}
+                        </div>
+                      )
+                    })}
                   </div>
                 )}
               </div>
-              <p className="text-xs text-muted-foreground">
-                日期、仓库、单据类型和摘要均相同的记录会追加明细并重新汇总，不会覆盖原有明细。
-              </p>
             </div>
-          </div>
+          )}
           <DialogFooter>
             <Button
               variant="outline"
@@ -2707,9 +2921,9 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
               disabled={isImporting}
               className="cursor-pointer"
             >
-              取消
+              关闭
             </Button>
-            <Button onClick={() => void handleImport()} disabled={isImporting} className="cursor-pointer">{isImporting ? "导入中..." : "导入"}</Button>
+            <Button onClick={() => void (importMode === "template" && !isPurchaseOrderTab ? handleTemplateImport() : handleImport())} disabled={isImporting} className="cursor-pointer">{isImporting ? "处理中..." : importMode === "template" && !isPurchaseOrderTab ? templatePreview ? "确认导入" : "预检查" : purchasePreview ? "确认导入" : "预检查"}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

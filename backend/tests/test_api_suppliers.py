@@ -33,6 +33,28 @@ def test_suppliers_are_scoped_by_brand(test_app_client: TestClient):
     assert womens_body["items"][0]["factory_code"] == "W01"
 
 
+def test_updating_visible_supplier_fields_preserves_hidden_values(test_app_client: TestClient):
+    created = test_app_client.post("/suppliers", json={
+        "brand": "cbanner_mens", "name": "保留资料供应商", "factory_code": "A01",
+        "contact": "张三", "wechat": "wechat-01", "cooperation_status": "合作中",
+        "address": "杭州", "notes": "历史备注",
+    })
+    assert created.status_code == 200
+    supplier_id = created.json()["item"]["id"]
+
+    updated = test_app_client.put(f"/suppliers/{supplier_id}", json={
+        "brand": "cbanner_mens", "name": "保留资料供应商", "factory_code": "A02",
+    })
+
+    assert updated.status_code == 200
+    item = updated.json()["item"]
+    assert item["factory_code"] == "A02"
+    assert {field: item[field] for field in ("contact", "wechat", "cooperation_status", "address", "notes")} == {
+        "contact": "张三", "wechat": "wechat-01", "cooperation_status": "合作中",
+        "address": "杭州", "notes": "历史备注",
+    }
+
+
 def test_suppliers_reject_duplicate_name_in_same_brand(test_app_client: TestClient):
     response = test_app_client.post(
         "/suppliers",
@@ -72,7 +94,7 @@ def test_suppliers_infer_brand_suffixes_from_unit_supplier_name(test_app_client:
         ("百吉鸿女鞋（烟斗）", "yandou"),
         ("笑脸华东工厂", "smiley"),
         ("SMILEY供应商", "smiley"),
-        ("小莲供应商", "smiley"),
+        ("小莲供应商", "cbanner_mens"),
         ("NI", "ni"),
         ("6N6（千百度女鞋）", "cbanner_womens"),
         ("Y8Y9（千百度）", "cbanner_mens"),

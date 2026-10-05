@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import io
+import json
 import re
 import urllib.parse
 from collections import defaultdict
@@ -36,6 +37,7 @@ from domain.color_barcode_schema import COLOR_BARCODE_TABLE
 from domain.gj_brand import CBANNER_MENS_BRAND, CBANNER_WOMENS_BRAND, EBLAN_BRAND, NI_BRAND, SMILEY_BRAND, SUPPLIER_BRANDS, YANDOU_BRAND, infer_supplier_brand_from_name
 from domain.gj_schema import GJ_MERGED_PRODUCT_INFO_TABLE
 from domain.inventory_schema import SUPPLIER_BRAND_TABLE, SUPPLIER_TABLE
+from domain.inventory_template_import import TEMPLATE_HEADERS, read_template_documents
 from domain.ni_gendered_costs import GENDER_COSTS_FIELD, price_for_sizes, split_sizes_by_gender
 from domain.product_defaults import BARCODE_SIZE_RULE
 from domain.product_archive_identity_schema import PRODUCT_ARCHIVE_IDENTITY_TABLE
@@ -4000,33 +4002,40 @@ def _purchase_import_brand_for_supplier(
     fallback_brand: str,
     warehouse: str = "",
 ) -> str:
+    inferred_brand, _ = _infer_inventory_template_brand(repository, supplier, warehouse)
+    return inferred_brand or fallback_brand or _purchase_import_brand(document_type)
+
+
+def _infer_inventory_template_brand(repository, supplier: object, warehouse: object) -> tuple[str, str]:
     supplier_name = _cell_text(supplier)
     if supplier_name:
         supplier_record = repository.get_supplier_by_name(supplier_name)
         supplier_brand = _cell_text(supplier_record.get("brand") if supplier_record else "").lower()
-        if supplier_brand:
-            return supplier_brand
-        inferred_brand = infer_supplier_brand_from_name(supplier_name)
+        if supplier_brand in SUPPLIER_BRANDS:
+            return supplier_brand, "往来单位档案"
+        inferred_brand = infer_supplier_brand_from_name(supplier_brand) or infer_supplier_brand_from_name(supplier_name)
         if inferred_brand:
-            return inferred_brand
+            return inferred_brand, "往来单位名称"
 
     warehouse_name = _cell_text(warehouse)
     warehouse_record = repository.get_warehouse_by_name(warehouse_name) if warehouse_name else None
-    warehouse_brand = _cell_text(warehouse_record.get("brand") if warehouse_record else "")
+    warehouse_brand = _cell_text(warehouse_record.get("brand") if warehouse_record else "").lower()
+    if warehouse_brand in SUPPLIER_BRANDS:
+        return warehouse_brand, "仓库档案"
     warehouse_context = f"{warehouse_brand} {warehouse_name}".upper()
     if "NI" in warehouse_context:
-        return "ni"
+        return "ni", "仓库名称"
     if "笑脸" in warehouse_context or "SMILEY" in warehouse_context:
-        return "smiley"
-    if "伊伴" in warehouse_context:
-        return "eblan"
-    if "烟斗" in warehouse_context:
-        return "yandou"
+        return "smiley", "仓库名称"
+    if "伊伴" in warehouse_context or "EBLAN" in warehouse_context:
+        return "eblan", "仓库名称"
+    if "烟斗" in warehouse_context or "TRUMPPIPE" in warehouse_context:
+        return "yandou", "仓库名称"
     if "女鞋" in warehouse_context:
-        return "cbanner_womens"
+        return "cbanner_womens", "仓库名称"
     if "男鞋" in warehouse_context:
-        return "cbanner_mens"
-    return fallback_brand or _purchase_import_brand(document_type)
+        return "cbanner_mens", "仓库名称"
+    return "", ""
 
 
 def _purchase_import_brand_for_record(repository, record: dict[str, object]) -> str:
@@ -4043,8 +4052,8 @@ def _group_purchase_import_rows_by_summary(
     rows: list[dict[str, object]],
     fallback_summary: str,
 ) -> list[dict[str, object]]:
-    groups: dict[tuple[str, str, str] | tuple[str, int], dict[str, object]] = {}
-    ordered_keys: list[tuple[str, str, str] | tuple[str, int]] = []
+    groups: dict[tuple[str, str, str, str] | tuple[str, int], dict[str, object]] = {}
+    ordered_keys: list[tuple[str, str, str, str] | tuple[str, int]] = []
     carried_fields: dict[str, str] = {}
     doc_fields = tuple(PURCHASE_IMPORT_DOC_FIELD_ALIASES.keys())
 
@@ -4064,6 +4073,7 @@ def _group_purchase_import_rows_by_summary(
         group_key = (
             effective_fields.get("date", ""),
             effective_fields.get("warehouse", ""),
+            effective_fields.get("supplier", ""),
             summary,
         ) if summary else ("__missing_summary", row_index)
         if group_key not in groups:
@@ -4081,6 +4091,23 @@ def _group_purchase_import_rows_by_summary(
             group_rows.append(row)
 
     return [groups[key] for key in ordered_keys]
+
+
+def _preview_purchase_import_plans(repository, plans: list[dict[str, object]], document_type: str) -> dict[str, object]:
+    conflicts = []
+    seen: set[tuple[object, object, object, object]] = set()
+    for plan in plans:
+        target = plan["existing_record"]
+        match_key = (plan["date"], plan["summary"], plan["supplier"], plan["warehouse"])
+        if target is not None or match_key in seen:
+            conflicts.append({
+                "key": plan["key"], "date": plan["date"], "summary": plan["summary"],
+                "document_type": document_type,
+                "existing_number": str(target.get("document_number") or "") if target else "",
+                "can_merge": target is not None,
+            })
+        seen.add(match_key)
+    return {"total": len(plans), "conflicts": conflicts}
 
 
 def _validate_purchase_order_import_suppliers(
@@ -4587,12 +4614,143 @@ def download_purchase_import_template():
     return _stream_excel_workbook(_build_purchase_order_import_template(), "采购单导入模板.xlsx")
 
 
+@router.get("/inventory/import-template/download/{kind}")
+def download_inventory_template(kind: str):
+    headers = TEMPLATE_HEADERS.get(kind)
+    if headers is None:
+        raise HTTPException(status_code=404, detail="未知模板类型")
+    workbook = Workbook()
+    worksheet = workbook.active
+    worksheet.title = "导入数据"
+    worksheet.append(headers)
+    style_excel_workbook(workbook)
+    names = {
+        "purchase": "进货单", "purchase_return": "进货退货单",
+        "sale": "销售单", "sale_return": "销售退货单", "accounting": "应收应付",
+    }
+    return _stream_excel_workbook(workbook, f"{names[kind]}通用导入模板.xlsx")
+
+
+@router.post("/inventory/import-template/preview")
+async def preview_inventory_template(request: Request, file: UploadFile = None):
+    if file is None:
+        raise HTTPException(status_code=400, detail="请选择 Excel 文件")
+    kind, _, documents = read_template_documents(await file.read())
+    preview = request.app.state.inventory_repository.preview_template_documents(documents)
+    brand_by_key: dict[str, str] = {}
+    brand_sources: dict[str, str] = {}
+    unresolved_brand_keys: list[str] = []
+    if kind != "accounting":
+        repository = request.app.state.inventory_repository
+        for document in documents:
+            inferred_brand, source = _infer_inventory_template_brand(repository, document.supplier, document.warehouse)
+            if inferred_brand:
+                brand_by_key[document.key] = inferred_brand
+                brand_sources[document.key] = source
+            else:
+                unresolved_brand_keys.append(document.key)
+    return {
+        "kind": kind,
+        "brand_by_key": brand_by_key,
+        "brand_sources": brand_sources,
+        "unresolved_brand_keys": unresolved_brand_keys,
+        **preview,
+    }
+
+
+@router.post("/inventory/import-template")
+async def import_inventory_template(request: Request, file: UploadFile = None):
+    if file is None:
+        raise HTTPException(status_code=400, detail="请选择 Excel 文件")
+    form = await request.form()
+    try:
+        decisions = json.loads(str(form.get("decisions") or "{}"))
+    except (ValueError, TypeError) as error:
+        raise HTTPException(status_code=400, detail="确认信息格式不正确") from error
+    if not isinstance(decisions, dict):
+        raise HTTPException(status_code=400, detail="确认信息格式不正确")
+    brand = str(form.get("brand") or "").strip().lower()
+    kind, sheet_name, documents = read_template_documents(await file.read())
+    repository = request.app.state.inventory_repository
+    conflicts = {conflict["key"] for conflict in repository.preview_template_documents(documents)["conflicts"]}
+    plans = []
+    seen_documents: set[tuple[str, str, str, str, str]] = set()
+    for document in documents:
+        label = f"{document.date} {document.document_type}（摘要：{document.summary}）"
+        match_key = (document.date, document.document_type, document.supplier, document.warehouse, document.summary)
+        same_file_conflict = match_key in seen_documents
+        seen_documents.add(match_key)
+        decision = decisions.get(document.key) or {}
+        if not isinstance(decision, dict):
+            raise HTTPException(status_code=400, detail=f"{label}：确认信息格式不正确")
+        if decision.get("action") not in (None, "overwrite", "new", "skip"):
+            raise HTTPException(status_code=400, detail=f"{label}：确认选项不正确")
+        if document.key in conflicts and decision.get("action") is None:
+            raise HTTPException(status_code=409, detail=f"{label}：请先选择覆盖、新增或取消该单据")
+        if document.key not in conflicts and decision.get("action") is not None:
+            raise HTTPException(status_code=409, detail=f"{label}：冲突单据已变化，请重新预检查")
+        if decision.get("action") == "skip":
+            plans.append({"decision": "skip"})
+            continue
+        if kind == "accounting":
+            details = document.rows
+        else:
+            inferred_brand, _ = _infer_inventory_template_brand(repository, document.supplier, document.warehouse)
+            document_brand = inferred_brand or brand
+            if not document_brand:
+                raise HTTPException(status_code=400, detail=f"{label}：无法根据往来单位或仓库判断品牌，请选择备用品牌")
+            details = _build_purchase_details_from_rows(
+                repository,
+                document.rows,
+                brand=document_brand,
+                fallback_unit_price=Decimal("0"),
+                wholesale_customer=document.supplier if kind in {"sale", "sale_return"} else "",
+                wholesale_price_date=document.date if kind in {"sale", "sale_return"} else None,
+                document_date=document.date,
+            )
+        plans.append({
+            "date": document.date,
+            "document_type": document.document_type, "supplier": document.supplier,
+            "warehouse": document.warehouse, "handler": document.handler,
+            "summary": document.summary, "details": details,
+            "source_workbook": file.filename or "", "source_sheet": sheet_name,
+            "brand": (document_brand if kind != "accounting" else ""), "decision": decision.get("action"),
+            "new_summary": str(decision.get("new_summary") or "").strip(),
+            "same_file_conflict": same_file_conflict,
+        })
+    if plans and all(plan["decision"] == "skip" for plan in plans):
+        return {"created": 0, "replaced": 0, "skipped": len(plans), "details": 0,
+                "message": f"已取消 {len(plans)} 张单据，本次没有导入数据"}
+    try:
+        result = repository.import_template_documents(plans)
+    except ValueError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
+    write_operation_log(
+        request, module="inventory", action="import", entity_type="inventory_record",
+        entity_label=file.filename or "模板导入", summary=(
+            f"按通用模板导入：新增 {result['created']} 条，覆盖 {result['replaced']} 条，取消 {result['skipped']} 条，"
+            f"明细 {result['details']} 条"
+        ), after_data={"filename": file.filename, **result},
+    )
+    return {**result, "message": (
+        f"导入完成：新增 {result['created']} 条，覆盖 {result['replaced']} 条，取消 {result['skipped']} 条，"
+        f"明细 {result['details']} 条"
+    )}
+
+
 @router.post("/inventory/import-purchase")
 async def import_purchase_inventory(request: Request, file: UploadFile = None):
     if file is None:
         raise HTTPException(status_code=400, detail="No file uploaded")
 
     form = await request.form()
+    preview_only = str(form.get("preview") or "").lower() == "true"
+    try:
+        decisions = json.loads(str(form.get("decisions") or "{}"))
+    except (ValueError, TypeError) as error:
+        raise HTTPException(status_code=400, detail="确认信息格式不正确") from error
+    if not isinstance(decisions, dict):
+        raise HTTPException(status_code=400, detail="确认信息格式不正确")
     document_type = normalize_document_type(form.get("document_type")) or "进货订单"
     if document_type not in PURCHASE_IMPORT_TYPES:
         raise HTTPException(status_code=400, detail="只支持进货订单、进货单、进货退货单、报溢单、报损单、批发销售单、批发销售退货单、同价调拨单导入")
@@ -4667,6 +4825,8 @@ async def import_purchase_inventory(request: Request, file: UploadFile = None):
             warehouse=group_warehouse,
             document_type=document_type,
             summary=group_summary,
+            supplier=group_supplier,
+            allow_empty_warehouse=is_purchase_order_import,
         )
 
         group_rows = group.get("rows") if isinstance(group.get("rows"), list) else []
@@ -4678,6 +4838,7 @@ async def import_purchase_inventory(request: Request, file: UploadFile = None):
             group_warehouse,
         )
         plans.append({
+            "key": str(index),
             "summary": group_summary,
             "supplier": group_supplier,
             "warehouse": group_warehouse,
@@ -4693,6 +4854,51 @@ async def import_purchase_inventory(request: Request, file: UploadFile = None):
                 {"document_type": document_type, "supplier": group_supplier},
             ),
         })
+
+    preview = _preview_purchase_import_plans(repository, plans, document_type)
+    conflicts = {conflict["key"]: conflict for conflict in preview["conflicts"]}
+    for plan in plans:
+        conflict = conflicts.get(plan["key"])
+        if preview_only:
+            continue
+        decision = decisions.get(plan["key"]) or {}
+        if not isinstance(decision, dict) or decision.get("action") not in (None, "overwrite", "new", "skip"):
+            raise HTTPException(status_code=400, detail=f"摘要 {plan['summary']}：确认选项不正确")
+        action = decision.get("action")
+        if action == "skip" and not conflict:
+            raise HTTPException(status_code=409, detail=f"摘要 {plan['summary']} 的冲突已变化，请重新预检查")
+        if conflict and not action:
+            raise HTTPException(status_code=409, detail=f"摘要 {plan['summary']} 与同日同类型、同往来单位、同仓库单据重复，请先预检查并确认处理方式")
+        if action == "overwrite" and (not conflict or not plan["existing_record"]):
+            raise HTTPException(status_code=409, detail=f"摘要 {plan['summary']} 的覆盖目标已变化，请重新预检查")
+        if action is None and plan["existing_record"]:
+            raise HTTPException(status_code=409, detail=f"摘要 {plan['summary']} 已有可覆盖单据，请重新预检查")
+        if action == "new":
+            new_summary = _cell_text(decision.get("new_summary"))
+            if not conflict or not new_summary or new_summary == plan["summary"]:
+                raise HTTPException(status_code=400, detail=f"摘要 {plan['summary']}：新建时必须填写不同的摘要")
+            plan["summary"] = new_summary
+            plan["existing_record"] = None
+        plan["decision"] = action
+    if preview_only:
+        return preview
+    skipped_docs = sum(plan["decision"] == "skip" for plan in plans)
+    plans = [plan for plan in plans if plan["decision"] != "skip"]
+    if not plans:
+        return {"created": 0, "replaced": 0, "skipped": skipped_docs, "details": 0,
+                "message": f"已取消 {skipped_docs} 张单据，本次没有导入数据"}
+
+    effective_summaries: set[tuple[str, str, str, str, str]] = set()
+    for plan in plans:
+        summary_key = (str(plan["date"]), document_type, str(plan["supplier"]), str(plan["warehouse"]), str(plan["summary"]))
+        if summary_key in effective_summaries:
+            raise HTTPException(status_code=409, detail=f"摘要 {plan['summary']} 的同日同类型、同往来单位、同仓库单据在本次导入中重复，请修改新建摘要")
+        effective_summaries.add(summary_key)
+        if plan["decision"] == "new" and repository.get_record_for_append(
+            date_value=plan["date"], document_type=document_type, supplier=plan["supplier"],
+            warehouse=plan["warehouse"], summary=plan["summary"], allow_empty_warehouse=is_purchase_order_import,
+        ):
+            raise HTTPException(status_code=409, detail=f"新摘要 {plan['summary']} 已存在，请修改后重试")
 
     for plan in plans:
         is_wholesale_import = document_type in WHOLESALE_DOCUMENT_TYPES
@@ -4721,11 +4927,25 @@ async def import_purchase_inventory(request: Request, file: UploadFile = None):
 
     created_docs = 0
     created_details = 0
-    appended_docs = 0
-    appended_details = 0
+    replaced_docs = 0
+    replaced_details = 0
     first_doc: dict[str, object] | None = None
     created_records: list[dict[str, object]] = []
-    appended_records: list[dict[str, object]] = []
+    replaced_records: list[dict[str, object]] = []
+    for plan in plans:
+        current_target = repository.get_record_for_append(
+            date_value=plan["date"], document_type=document_type, supplier=plan["supplier"],
+            warehouse=plan["warehouse"], summary=plan["summary"], allow_empty_warehouse=is_purchase_order_import,
+        )
+        if plan["decision"] == "new" and current_target:
+            raise HTTPException(status_code=409, detail=f"新摘要 {plan['summary']} 已存在，请重新预检查")
+        if plan["decision"] == "overwrite":
+            target = plan["existing_record"]
+            if current_target is None or current_target.get("id") != target.get("id"):
+                raise HTTPException(status_code=409, detail=f"摘要 {plan['summary']} 的覆盖目标已变化，请重新预检查")
+        elif plan["decision"] is None and current_target:
+            raise HTTPException(status_code=409, detail=f"摘要 {plan['summary']} 已存在，请重新预检查")
+
     for plan in plans:
         details = plan["details"] if isinstance(plan.get("details"), list) else []
         total_count = sum((_to_decimal(detail.get("quantity")) for detail in details), Decimal("0"))
@@ -4753,17 +4973,21 @@ async def import_purchase_inventory(request: Request, file: UploadFile = None):
         if existing_record:
             doc_id = existing_record.get("id")
             if doc_id is None:
-                raise HTTPException(status_code=400, detail=f"摘要 {plan['summary']} 对应的已有单据编号异常，无法追加")
-            doc = existing_record
+                raise HTTPException(status_code=400, detail=f"摘要 {plan['summary']} 对应的已有单据编号异常，无法覆盖")
             for detail in details:
                 item = dict(detail)
-                item["document_id"] = doc["id"]
+                item["document_id"] = doc_id
                 detail_payloads.append(item)
-            repository.create_details(detail_payloads, doc["id"])
-            doc = repository.get_record(int(doc["id"])) or doc
-            appended_docs += 1
-            appended_details += len(detail_payloads)
-            appended_records.append(doc)
+            doc = repository.overwrite_imported_document(
+                int(doc_id), expected_date=plan["date"], expected_summary=str(plan["summary"]),
+                expected_document_type=document_type, expected_supplier=str(plan["supplier"]),
+                expected_warehouse=str(plan["warehouse"]), record=doc_payload, details=detail_payloads,
+            )
+            if doc is None:
+                raise HTTPException(status_code=409, detail=f"摘要 {plan['summary']} 的覆盖目标已变化，请重新预检查")
+            replaced_docs += 1
+            replaced_details += len(detail_payloads)
+            replaced_records.append(doc)
         else:
             doc = repository.create_record(doc_payload)
             created_records.append(doc)
@@ -4776,13 +5000,15 @@ async def import_purchase_inventory(request: Request, file: UploadFile = None):
             created_details += len(detail_payloads)
         if first_doc is None:
             first_doc = doc
-    total_details = created_details + appended_details
+    total_details = created_details + replaced_details
     summary_parts = [f"新增 {created_docs} 条单据"]
-    if appended_docs:
-        summary_parts.append(f"追加 {appended_docs} 条单据")
+    if replaced_docs:
+        summary_parts.append(f"覆盖 {replaced_docs} 条单据")
+    if skipped_docs:
+        summary_parts.append(f"取消 {skipped_docs} 条单据")
     summary_parts.append(f"{total_details} 条明细")
     result_message = f"导入完成：{'，'.join(summary_parts)}"
-    affected_records = [*created_records, *appended_records]
+    affected_records = [*created_records, *replaced_records]
     document_numbers = _document_numbers(affected_records)
 
     write_operation_log(
@@ -4798,18 +5024,20 @@ async def import_purchase_inventory(request: Request, file: UploadFile = None):
             "filename": file.filename,
             "document_type": document_type,
             "documents": created_records[:200],
-            "appended_documents": appended_records[:200],
+            "replaced_documents": replaced_records[:200],
             "document_numbers": document_numbers,
             "document_count": created_docs,
-            "appended_count": appended_docs,
+            "replaced_count": replaced_docs,
+            "skipped_count": skipped_docs,
             "detail_count": total_details,
             "created_detail_count": created_details,
-            "appended_detail_count": appended_details,
+            "replaced_detail_count": replaced_details,
         },
     )
     return {
         "created": created_docs,
-        "appended": appended_docs,
+        "replaced": replaced_docs,
+        "skipped": skipped_docs,
         "details": total_details,
         "message": result_message,
         "item": first_doc,

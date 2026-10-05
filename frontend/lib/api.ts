@@ -1357,6 +1357,9 @@ export type SupplierItem = {
   cooperation_status: string | null
   address: string | null
   notes: string | null
+  beginning_balance?: string
+  period_amount?: string
+  ending_balance?: string
 }
 
 export type SupplierListResponse = {
@@ -1722,6 +1725,8 @@ export type InventoryImportResult = {
   created: number
   details?: number
   appended?: number
+  replaced?: number
+  skipped?: number
   message: string
   item?: InventoryRecord
 }
@@ -1817,7 +1822,7 @@ export function listGeneralCustomerShops() {
   )
 }
 
-export function importPurchaseInventory(payload: {
+export type PurchaseImportPayload = {
   file: File
   date?: string
   delivery_date?: string
@@ -1827,7 +1832,16 @@ export function importPurchaseInventory(payload: {
   handler: string
   summary: string
   brand?: string
-}) {
+  preview?: boolean
+  decisions?: Record<string, { action: "overwrite" | "new" | "skip"; new_summary?: string }>
+}
+
+export type PurchaseImportPreview = {
+  total: number
+  conflicts: InventoryTemplateConflict[]
+}
+
+function submitPurchaseInventory(payload: PurchaseImportPayload): Promise<InventoryImportResult | PurchaseImportPreview> {
   const formData = new FormData()
   formData.append("file", payload.file)
   formData.append("date", payload.date ?? "")
@@ -1838,6 +1852,8 @@ export function importPurchaseInventory(payload: {
   formData.append("handler", payload.handler)
   formData.append("summary", payload.summary)
   formData.append("brand", payload.brand ?? "")
+  if (payload.preview) formData.append("preview", "true")
+  if (payload.decisions) formData.append("decisions", JSON.stringify(payload.decisions))
   const controller = new AbortController()
   const timeout = window.setTimeout(() => controller.abort(), 120_000)
   return fetch(`${API_PREFIX}/inventory/import-purchase`, {
@@ -1850,7 +1866,7 @@ export function importPurchaseInventory(payload: {
       if (!response.ok) {
         throw new ApiError(response.status, await readApiError(response))
       }
-      return (await response.json()) as InventoryImportResult
+      return (await response.json()) as InventoryImportResult | PurchaseImportPreview
     })
     .catch((error) => {
       if (error instanceof DOMException && error.name === "AbortError") {
@@ -2081,6 +2097,60 @@ export function listDetails(
     page: number
     page_size: number
   }>(`/inventory/${documentId}/details${suffix}`)
+}
+
+export function importPurchaseInventory(payload: PurchaseImportPayload): Promise<InventoryImportResult> {
+  return submitPurchaseInventory(payload) as Promise<InventoryImportResult>
+}
+
+export function previewPurchaseInventory(payload: PurchaseImportPayload): Promise<PurchaseImportPreview> {
+  return submitPurchaseInventory({ ...payload, preview: true }) as Promise<PurchaseImportPreview>
+}
+
+export type InventoryTemplateKind = "purchase" | "purchase_return" | "sale" | "sale_return" | "accounting"
+
+export type InventoryTemplateConflict = {
+  key: string
+  date: string
+  summary: string
+  document_type: string
+  existing_number: string
+  can_merge: boolean
+}
+
+export type InventoryTemplatePreview = {
+  kind: InventoryTemplateKind
+  total: number
+  conflicts: InventoryTemplateConflict[]
+  brand_by_key: Record<string, string>
+  brand_sources: Record<string, string>
+  unresolved_brand_keys: string[]
+}
+
+export function buildInventoryTemplateUrl(kind: InventoryTemplateKind) {
+  return `${API_PREFIX}/inventory/import-template/download/${kind}`
+}
+
+export async function previewInventoryTemplate(file: File): Promise<InventoryTemplatePreview> {
+  const formData = new FormData()
+  formData.append("file", file)
+  const response = await fetch(`${API_PREFIX}/inventory/import-template/preview`, { method: "POST", body: formData, credentials: "include" })
+  if (!response.ok) throw new ApiError(response.status, await readApiError(response))
+  return response.json()
+}
+
+export async function importInventoryTemplate(payload: {
+  file: File
+  brand: string
+  decisions: Record<string, { action: "overwrite" | "new" | "skip"; new_summary?: string }>
+}): Promise<InventoryImportResult> {
+  const formData = new FormData()
+  formData.append("file", payload.file)
+  formData.append("brand", payload.brand)
+  formData.append("decisions", JSON.stringify(payload.decisions))
+  const response = await fetch(`${API_PREFIX}/inventory/import-template`, { method: "POST", body: formData, credentials: "include" })
+  if (!response.ok) throw new ApiError(response.status, await readApiError(response))
+  return response.json()
 }
 
 export type InventoryDetailUnitPriceOption = {
@@ -2495,6 +2565,9 @@ export function listSuppliers(params?: {
   pageSize?: number
   query?: string
   brand?: string
+  includeBalances?: boolean
+  dateStart?: string
+  dateEnd?: string
 }) {
   if (!params) {
     return request<SupplierListResponse>("/suppliers")
@@ -2505,6 +2578,9 @@ export function listSuppliers(params?: {
   })
   if (params.query) search.set("query", params.query)
   if (params.brand) search.set("brand", params.brand)
+  if (params.includeBalances) search.set("include_balances", "true")
+  if (params.dateStart) search.set("date_start", params.dateStart)
+  if (params.dateEnd) search.set("date_end", params.dateEnd)
   return request<SupplierListResponse>(`/suppliers?${search.toString()}`)
 }
 
@@ -2649,10 +2725,14 @@ export function listSuppliersByBrand(brand: ProductArchiveRecordBrandKey) {
 export async function exportSuppliers(params?: {
   query?: string
   brand?: string
+  dateStart?: string
+  dateEnd?: string
 }) {
   const search = new URLSearchParams()
   if (params?.query?.trim()) search.set("query", params.query.trim())
   if (params?.brand && params.brand !== "all") search.set("brand", params.brand)
+  if (params?.dateStart) search.set("date_start", params.dateStart)
+  if (params?.dateEnd) search.set("date_end", params.dateEnd)
   const suffix = search.size ? `?${search.toString()}` : ""
   const response = await fetch(`${API_PREFIX}/suppliers/export${suffix}`, {
     credentials: "include",

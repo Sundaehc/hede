@@ -1946,7 +1946,11 @@ def _sales_matrix_payload(
     inspector = inspect(engine)
     jst_tables = []
     vip_tables = []
-    for year in (date.today().year,):
+    sales_year = as_of_date.year if as_of_date else date.today().year
+    previous_year = sales_year - 1
+    for year in (sales_year, previous_year):
+        if year in HISTORICAL_SALES_YEARS and inspector.has_table(product_goods_historical_sales_table_for_year(year).name):
+            continue
         jst_table = jst_daily_sales_table_for_year(year)
         vip_table = vip_daily_sales_table_for_year(year)
         if inspector.has_table(jst_table.name):
@@ -1954,7 +1958,7 @@ def _sales_matrix_payload(
         if inspector.has_table(vip_table.name):
             vip_tables.append(vip_table)
     tables = [*jst_tables, *vip_tables]
-    if not tables:
+    if not tables and as_of_date is None:
         return [], {}, {}, {}, {}
     latest_candidates = [
         connection.execute(
@@ -1990,7 +1994,7 @@ def _sales_matrix_payload(
     })
     week_start = latest - timedelta(days=6)
     previous_week_start = latest - timedelta(days=13)
-    month_start = latest.replace(day=1)
+    rolling_30_start = latest - timedelta(days=29)
     def add_sale(
         code: str,
         day: date,
@@ -2012,7 +2016,7 @@ def _sales_matrix_payload(
             summary["sales_2025"] = int(summary["sales_2025"] or 0) + quantity
         if day.year == latest.year:
             summary["year_sales"] = int(summary["year_sales"] or 0) + quantity
-        if day >= month_start:
+        if rolling_30_start <= day <= latest:
             summary["month_sales"] = int(summary["month_sales"] or 0) + quantity
         if day >= week_start:
             summary["week_sales"] = int(summary["week_sales"] or 0) + quantity
@@ -2035,7 +2039,7 @@ def _sales_matrix_payload(
         for period_key, matches_period in (
             ("daily", day == latest),
             ("weekly", day >= week_start),
-            ("monthly", day >= month_start),
+            ("monthly", rolling_30_start <= day <= latest),
         ):
             if matches_period:
                 period_values = platform_by_sku[code].setdefault(period_key, {})
@@ -2129,7 +2133,7 @@ def _sales_matrix_payload(
         for row in history_rows:
             code = _resolve_jst_product_code(row["product_code"], row["original_sku"], product_codes, unique_style_codes)
             sales_date = row["sales_date"]
-            if code is None or not isinstance(sales_date, date):
+            if code is None or not isinstance(sales_date, date) or sales_date > latest:
                 continue
             platform = _platform_name(row["channel"], shop_channel_mappings)
             add_sale(
@@ -3156,7 +3160,7 @@ def list_product_goods(
     normalized_snapshot_date = snapshot_date.isoformat() if snapshot_date else ""
     parsed_filters = _parse_product_goods_filters(filters)
     normalized_filters = tuple(sorted((item.field, item.operator, item.value or "", tuple(sorted(item.values or []))) for item in parsed_filters))
-    cache_key = (brand, view, "style-summary-v3" if view == "style_summary" else "shortage-risk-v3" if view == "shortage_risk" else "goods-v2", normalized_query, normalized_platform, normalized_year, normalized_filters, normalized_snapshot_date, page, page_size)
+    cache_key = (brand, view, "style-summary-v4" if view == "style_summary" else "shortage-risk-v3" if view == "shortage_risk" else "goods-v3", normalized_query, normalized_platform, normalized_year, normalized_filters, normalized_snapshot_date, page, page_size)
     if not cache_bust:
         cached = get_product_goods_cache(cache_key)
         if cached is not None:
@@ -3337,6 +3341,7 @@ def list_product_goods(
             recent_30_day_sales_by_size = {}
             recent_14_day_sales = {}
             recent_30_day_sales = {}
+        has_daily_sales_source = bool(daily_dates)
         supplier_names = sorted({str(row.get("supplier_name") or "").strip() for row in rows if str(row.get("supplier_name") or "").strip()})
         supplier_codes = {
             str(row["name"]): row["factory_code"]
@@ -3507,6 +3512,8 @@ def list_product_goods(
             "month_sales": sales.get("month_sales"),
         }
         metrics.update(snapshot_metrics)
+        if view != "shortage_risk" and has_daily_sales_source:
+            metrics["month_sales"] = sales.get("month_sales", 0)
         items.append({
             "id": row["id"], "brand": brand, "year": detail_snapshot.get("year") or row.get("year"), "season": detail_snapshot.get("season") or row.get("season_category"),
             "platform": detail_snapshot.get("platform") or row.get("platform"), "category_l4": detail_snapshot.get("category_l4") or row.get("category_l4"),
@@ -3528,7 +3535,7 @@ def list_product_goods(
             "platform_sales": platform_sales.get(sku, {}),
             "daily_platform_sales": detail_snapshot.get("daily_platform_sales") or platform_sales.get(sku, {}).get("daily", {}),
             "weekly_platform_sales": detail_snapshot.get("weekly_platform_sales") or platform_sales.get(sku, {}).get("weekly", {}),
-            "monthly_platform_sales": detail_snapshot.get("monthly_platform_sales") or platform_sales.get(sku, {}).get("monthly", {}),
+            "monthly_platform_sales": platform_sales.get(sku, {}).get("monthly", {}) if view != "shortage_risk" and has_daily_sales_source else detail_snapshot.get("monthly_platform_sales") or {},
             "in_transit_by_size": in_transit_by_size, "inventory_by_size": inventory_by_size, "shortage_by_size": shortage_by_size,
             "sales_by_size": sales_by_size_values, "replenishment_by_size": replenishment_by_size, "post_replenishment_by_size": post_replenishment_by_size,
             "metrics": metrics,

@@ -45,7 +45,7 @@ def infer_supplier_brand_from_name(name: object) -> str | None:
     supplier_upper = supplier.upper()
     if re.search(r"(^|[（(\s])NI($|[）)\s])", supplier_upper):
         return NI_BRAND
-    if "SMILEY" in supplier_upper or "笑脸" in supplier or "小莲" in supplier:
+    if "SMILEY" in supplier_upper or "笑脸" in supplier:
         return SMILEY_BRAND
     if "TRUMPPIPE" in supplier_upper or "烟斗" in supplier:
         return YANDOU_BRAND

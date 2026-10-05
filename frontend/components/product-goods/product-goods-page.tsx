@@ -157,7 +157,7 @@ type ColumnGroup =
   | "补单后尺码"
   | "日销量"
   | "周销量"
-  | "月销量"
+  | "近30天销量"
 type TableColumn = {
   key: string
   label: string
@@ -872,7 +872,7 @@ function createColumns(data: ProductGoodsResponse): TableColumn[] {
     },
     {
       key: "month_sales",
-      label: "月度销量",
+      label: "近30天销量",
       group: "销售",
       render: (row) => metric(row, "month_sales"),
     },
@@ -937,7 +937,7 @@ function createColumns(data: ProductGoodsResponse): TableColumn[] {
   const platforms = [
     ["日销量", "daily_platform_sales"],
     ["周销量", "weekly_platform_sales"],
-    ["月销量", "monthly_platform_sales"],
+    ["近30天销量", "monthly_platform_sales"],
   ] as Array<
     [
       ColumnGroup,
