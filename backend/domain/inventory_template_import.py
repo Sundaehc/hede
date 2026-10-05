@@ -14,10 +14,16 @@ from domain.inventory_sources import ACCOUNTING_DOCUMENT_TYPES
 
 
 TEMPLATE_HEADERS = {
+    "purchase": ("日期", "单据类型", "单位全名", "仓库全名", "经手人", "摘要", "商品编码", "数量", "单价"),
+    "purchase_return": ("日期", "单据类型", "单位全名", "仓库全名", "经手人", "摘要", "商品编码", "数量", "单价"),
+    "sale": ("日期", "单据类型", "单位全名", "仓库全名", "经手人", "摘要", "商品编码", "数量", "单价"),
+    "sale_return": ("日期", "单据类型", "单位全名", "仓库全名", "经手人", "摘要", "商品编码", "数量", "单价"),
+    "accounting": ("日期", "单据类型", "经手人", "单位全名", "摘要", "费用项目名", "总金额"),
+}
+LEGACY_TEMPLATE_HEADERS = {
     "purchase": ("单据日期", "单据类型", "单位全名", "仓库全名", "制单人", "摘要", "商品编码", "数量", "单价"),
     "purchase_return": ("日期", "单据类型", "单位全名", "仓库全名", "制单人", "摘要", "商品编码", "数量", "单价"),
     "sale": ("日期", "单据类型", "单位全名", "仓库全名", "经手人", "摘要", "商品编码", "销售数量", "单价"),
-    "sale_return": ("日期", "单据类型", "单位全名", "仓库全名", "经手人", "摘要", "商品编码", "数量", "单价"),
     "accounting": ("日期", "单据类型", "制单人", "往来单位全名", "摘要", "费用项目名", "总金额"),
 }
 LEGACY_NUMBER_HEADER = "单据编号"
@@ -94,24 +100,28 @@ def read_template_documents(content: bytes) -> tuple[str, str, list[TemplateDocu
             datemode = 1 if workbook.epoch.year == 1904 else 0
         headers = tuple(_text(cell) for cell in next(rows, ()))
         import_headers = headers[:-1] if headers and headers[-1] == LEGACY_NUMBER_HEADER else headers
-        kind = next(
-            (key for key, columns in TEMPLATE_HEADERS.items()
-             if import_headers == columns or (
-                 key in {"sale", "sale_return"}
-                 and import_headers == tuple("系统码" if column == "商品编码" else column for column in columns)
-             )),
-            None,
-        )
-        if kind is None:
+        matched_kinds = {
+            key
+            for template_headers in (TEMPLATE_HEADERS, LEGACY_TEMPLATE_HEADERS)
+            for key, columns in template_headers.items()
+            if import_headers == columns or (
+                key in {"sale", "sale_return"}
+                and import_headers == tuple("系统码" if column == "商品编码" else column for column in columns)
+            )
+        }
+        if not matched_kinds:
             raise HTTPException(status_code=400, detail="模板表头不匹配，请使用五种通用模板之一，不要修改列名或顺序")
         documents: OrderedDict[str, TemplateDocument] = OrderedDict()
+        kind = None
         for row_number, values in enumerate(rows, start=2):
             if not any(_text(cell) for cell in values):
                 continue
             data = dict(zip(headers, values))
             document_type = _text(data["单据类型"])
-            if document_type not in TEMPLATE_TYPES[kind]:
+            row_kind = next((key for key in matched_kinds if document_type in TEMPLATE_TYPES[key]), None)
+            if row_kind is None or kind is not None and row_kind != kind:
                 raise HTTPException(status_code=400, detail=f"Excel 第 {row_number} 行：单据类型与模板不匹配：{document_type}")
+            kind = row_kind
             document_date = _date(data.get("单据日期", data.get("日期")), datemode)
             supplier = _text(data.get("单位全名", data.get("往来单位全名")))
             warehouse = _text(data.get("仓库全名"))
@@ -145,6 +155,7 @@ def read_template_documents(content: bytes) -> tuple[str, str, list[TemplateDocu
             document.rows.append(detail)
         if not documents:
             raise HTTPException(status_code=400, detail="模板没有可导入的单据")
+        assert kind is not None
         return kind, sheet_name, list(documents.values())
     except HTTPException:
         raise

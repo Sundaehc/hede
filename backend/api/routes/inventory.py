@@ -4631,12 +4631,53 @@ def download_inventory_template(kind: str):
     return _stream_excel_workbook(workbook, f"{names[kind]}通用导入模板.xlsx")
 
 
+def _validate_inventory_template_master_data(repository, documents) -> None:
+    supplier_names = {document.supplier for document in documents if document.document_type in {
+        "进货单", "进货退货单", "应付款增加", "应付款减少",
+    }}
+    customer_names = {document.supplier for document in documents if document.document_type in {
+        "批发销售单", "批发销售退货单", "应收款增加", "应收款减少",
+    }}
+    warehouse_names = {document.warehouse for document in documents if document.warehouse}
+    subject_names = {
+        str(detail.get("product_name") or "").strip()
+        for document in documents
+        if document.document_type in ACCOUNTING_DOCUMENT_TYPES
+        for detail in document.rows
+    }
+    missing: list[str] = []
+    if supplier_names:
+        known = {str(row.get("name") or "").strip() for row in repository.list_suppliers()}
+        if unknown := supplier_names - known:
+            missing.append(f"供应商（供应商管理）：{'、'.join(sorted(unknown))}")
+    if warehouse_names:
+        known = {str(row.get("name") or "").strip() for row in repository.list_warehouses()}
+        if unknown := warehouse_names - known:
+            missing.append(f"仓库（仓库管理）：{'、'.join(sorted(unknown))}")
+    if customer_names:
+        known = {str(row.get("shop_name") or "").strip() for row in repository.list_general_customer_shops()}
+        known.update(str(row.get("unit_name") or "").strip() for row in repository.list_general_customer_units())
+        if unknown := customer_names - known:
+            missing.append(f"一般客户（一般客户管理）：{'、'.join(sorted(unknown))}")
+    if subject_names:
+        known = {str(row.get("name") or "").strip() for row in repository.list_account_subjects()}
+        if unknown := subject_names - known:
+            missing.append(f"费用项目名/科目（科目管理）：{'、'.join(sorted(unknown))}")
+    if missing:
+        raise HTTPException(
+            status_code=400,
+            detail=f"模板中的以下档案不存在：{'；'.join(missing)}。请先在对应管理页面处理后再导入；本次未导入任何数据",
+        )
+
+
 @router.post("/inventory/import-template/preview")
 async def preview_inventory_template(request: Request, file: UploadFile = None):
     if file is None:
         raise HTTPException(status_code=400, detail="请选择 Excel 文件")
     kind, _, documents = read_template_documents(await file.read())
-    preview = request.app.state.inventory_repository.preview_template_documents(documents)
+    repository = request.app.state.inventory_repository
+    _validate_inventory_template_master_data(repository, documents)
+    preview = repository.preview_template_documents(documents)
     brand_by_key: dict[str, str] = {}
     brand_sources: dict[str, str] = {}
     unresolved_brand_keys: list[str] = []
@@ -4672,6 +4713,13 @@ async def import_inventory_template(request: Request, file: UploadFile = None):
     brand = str(form.get("brand") or "").strip().lower()
     kind, sheet_name, documents = read_template_documents(await file.read())
     repository = request.app.state.inventory_repository
+    active_documents = [
+        document for document in documents
+        if not isinstance(decisions.get(document.key), dict)
+        or decisions[document.key].get("action") != "skip"
+    ]
+    if active_documents:
+        _validate_inventory_template_master_data(repository, active_documents)
     conflicts = {conflict["key"] for conflict in repository.preview_template_documents(documents)["conflicts"]}
     plans = []
     seen_documents: set[tuple[str, str, str, str, str]] = set()

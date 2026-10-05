@@ -598,6 +598,55 @@ class InventoryRepository:
         with self.engine.begin() as connection:
             if connection.dialect.name == "postgresql":
                 connection.execute(text("SELECT pg_advisory_xact_lock(42917001)"))
+            active_plans = [plan for plan in plans if plan.get("decision") != "skip"]
+            supplier_names = {
+                str(plan.get("supplier") or "").strip() for plan in active_plans
+                if plan.get("document_type") in {"进货单", "进货退货单", "应付款增加", "应付款减少"}
+            }
+            customer_names = {
+                str(plan.get("supplier") or "").strip() for plan in active_plans
+                if plan.get("document_type") in {"批发销售单", "批发销售退货单", "应收款增加", "应收款减少"}
+            }
+            warehouse_names = {str(plan.get("warehouse") or "").strip() for plan in active_plans if plan.get("warehouse")}
+            accounting_subjects = {
+                str(detail.get("product_name") or "").strip()
+                for plan in active_plans
+                if plan.get("document_type") in ACCOUNTING_DOCUMENT_TYPES
+                for detail in plan.get("details") or []
+            }
+            missing: list[str] = []
+            if supplier_names:
+                known = set(connection.execute(
+                    select(SUPPLIER_TABLE.c.name).where(SUPPLIER_TABLE.c.name.in_(supplier_names))
+                ).scalars())
+                if unknown := supplier_names - known:
+                    missing.append(f"供应商（供应商管理）：{'、'.join(sorted(unknown))}")
+            if warehouse_names:
+                known = set(connection.execute(
+                    select(WAREHOUSE_TABLE.c.name).where(WAREHOUSE_TABLE.c.name.in_(warehouse_names))
+                ).scalars())
+                if unknown := warehouse_names - known:
+                    missing.append(f"仓库（仓库管理）：{'、'.join(sorted(unknown))}")
+            if customer_names:
+                known = set(connection.execute(
+                    select(GENERAL_CUSTOMER_SHOP_TABLE.c.shop_name)
+                    .where(GENERAL_CUSTOMER_SHOP_TABLE.c.shop_name.in_(customer_names))
+                ).scalars())
+                known.update(connection.execute(
+                    select(GENERAL_CUSTOMER_UNIT_TABLE.c.unit_name)
+                    .where(GENERAL_CUSTOMER_UNIT_TABLE.c.unit_name.in_(customer_names))
+                ).scalars())
+                if unknown := customer_names - known:
+                    missing.append(f"一般客户（一般客户管理）：{'、'.join(sorted(unknown))}")
+            if accounting_subjects:
+                known = set(connection.execute(
+                    select(INVENTORY_ACCOUNT_SUBJECT_TABLE.c.name)
+                    .where(INVENTORY_ACCOUNT_SUBJECT_TABLE.c.name.in_(accounting_subjects))
+                ).scalars())
+                if unknown := accounting_subjects - known:
+                    missing.append(f"费用项目名/科目（科目管理）：{'、'.join(sorted(unknown))}")
+            if missing:
+                raise ValueError(f"模板中的以下档案不存在：{'；'.join(missing)}。请先在对应管理页面处理后再导入；本次未导入任何数据")
             for plan in plans:
                 if plan.get("decision") == "skip":
                     skipped += 1
