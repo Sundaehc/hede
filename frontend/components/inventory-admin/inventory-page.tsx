@@ -2643,7 +2643,7 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
           }
         }}
       >
-        <DialogContent className="max-h-[90vh] max-w-xl overflow-y-auto">
+        <DialogContent className="flex max-h-[90vh] max-w-xl flex-col gap-4 overflow-y-auto">
           <DialogHeader>
             <DialogTitle>{isPurchaseOrderTab ? "导入采购单" : "导入单据明细"}</DialogTitle>
           </DialogHeader>
@@ -2659,7 +2659,7 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
             </div>
           )}
           {importMode === "template" && !isPurchaseOrderTab ? (
-            <div className="space-y-4 pt-2">
+            <div className="space-y-4">
               <div className="flex flex-wrap gap-2">
                 {UNIVERSAL_TEMPLATE_OPTIONS.map((option) => (
                   <Button key={option.kind} type="button" size="sm" variant="outline" onClick={() => {

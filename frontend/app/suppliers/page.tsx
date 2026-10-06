@@ -371,7 +371,6 @@ export default function SuppliersPage() {
               </Button>
             )}
           </div>
-          <p className="text-xs text-muted-foreground">本期发生额为净变动：进货单、应付款增加计正，进货退货单、应付款减少计负；罚款、调账、付货款按对应单据计入。未选日期时，期末余额为当前余额。点击供应商可查看明细账。</p>
           {loadError && <p role="alert" className="text-sm text-destructive">{loadError}</p>}
         </form>
 
