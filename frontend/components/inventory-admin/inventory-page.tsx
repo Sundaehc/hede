@@ -720,6 +720,7 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
   const [searchSupplier, setSearchSupplier] = useState("")
   const [searchWarehouse, setSearchWarehouse] = useState("")
   const [searchDocumentType, setSearchDocumentType] = useState("")
+  const [searchDocumentNumber, setSearchDocumentNumber] = useState("")
   const [searchSummary, setSearchSummary] = useState("")
   const [searchOriginalSku, setSearchOriginalSku] = useState("")
   const [searchProductCode, setSearchProductCode] = useState("")
@@ -1025,6 +1026,7 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
           warehouse: isPurchaseOrderTab ? undefined : submittedFilters.warehouse || undefined,
           document_type: isPurchaseOrderTab ? PURCHASE_ORDER_DOCUMENT_TYPE : submittedFilters.document_type || undefined,
           exclude_document_type: isPurchaseOrderTab ? undefined : PURCHASE_ORDER_DOCUMENT_TYPE,
+          document_number: isPurchaseOrderTab ? undefined : submittedFilters.document_number || undefined,
           summary: submittedFilters.summary || undefined,
           original_sku: isPurchaseOrderTab ? undefined : submittedFilters.original_sku || undefined,
           product_code: submittedFilters.product_code || undefined,
@@ -1607,6 +1609,7 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
         warehouse: isPurchaseOrderTab ? undefined : submittedFilters.warehouse || undefined,
         document_type: isPurchaseOrderTab ? PURCHASE_ORDER_DOCUMENT_TYPE : submittedFilters.document_type || undefined,
         exclude_document_type: isPurchaseOrderTab ? undefined : PURCHASE_ORDER_DOCUMENT_TYPE,
+        document_number: isPurchaseOrderTab ? undefined : submittedFilters.document_number || undefined,
         summary: submittedFilters.summary || undefined,
         original_sku: isPurchaseOrderTab ? undefined : submittedFilters.original_sku || undefined,
         product_code: submittedFilters.product_code || undefined,
@@ -1636,6 +1639,7 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
       supplier: searchSupplier,
       warehouse: isPurchaseOrderTab ? "" : searchWarehouse,
       document_type: isPurchaseOrderTab ? PURCHASE_ORDER_DOCUMENT_TYPE : searchDocumentType,
+      document_number: isPurchaseOrderTab ? "" : searchDocumentNumber.trim(),
       summary: searchSummary,
       original_sku: isPurchaseOrderTab ? "" : searchOriginalSku,
       product_code: isPurchaseOrderTab ? searchOriginalSku : searchProductCode,
@@ -1712,6 +1716,7 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
     setSearchSupplier("")
     setSearchWarehouse("")
     setSearchDocumentType("")
+    setSearchDocumentNumber("")
     setSearchSummary("")
     setSearchOriginalSku("")
     setSearchProductCode("")
@@ -2013,6 +2018,12 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
                         <option value="">全部</option>
                         {documentTypeOptions.map((dt) => (<option key={dt} value={dt}>{dt}</option>))}
                       </Select>
+                    </div>
+                  )}
+                  {!isPurchaseOrderTab && (
+                    <div className="space-y-1.5 lg:col-span-3 xl:col-span-2">
+                      <Label className="text-xs text-muted-foreground">单据编号</Label>
+                      <Input value={searchDocumentNumber} onChange={(e) => setSearchDocumentNumber(e.target.value)} placeholder="输入单据编号" className="h-9" />
                     </div>
                   )}
                   {!isPurchaseOrderTab && (

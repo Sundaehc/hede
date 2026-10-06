@@ -124,6 +124,17 @@ def test_export_selected_accounting_records_limits_both_sheets():
     repository.list_details_for_documents.assert_called_once_with([2])
 
 
+def test_export_passes_document_number_filter_to_repository():
+    repository = _repository([_record()], [_detail()])
+
+    workbook = _export(repository, document_number="0001")
+    try:
+        assert _rows(workbook["经营历程"])[0]["单据编号"] == "TEST-0001"
+    finally:
+        workbook.close()
+    assert repository.list_records.call_args.kwargs["document_number"] == "0001"
+
+
 def test_export_mixed_accounting_and_product_records_preserves_both_details():
     product_detail = {
         **_detail(2, "30"),

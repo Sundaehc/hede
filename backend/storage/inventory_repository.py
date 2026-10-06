@@ -91,6 +91,7 @@ class InventoryRepository:
         warehouse: str | None = None,
         document_type: str | None = None,
         exclude_document_type: str | None = None,
+        document_number: str | None = None,
         summary: str | None = None,
         original_sku: str | None = None,
         product_code: str | None = None,
@@ -124,6 +125,8 @@ class InventoryRepository:
             conditions.append(table.c.document_type == document_type)
         if exclude_document_type:
             conditions.append(or_(table.c.document_type.is_(None), table.c.document_type != exclude_document_type))
+        if document_number and document_number.strip():
+            conditions.append(table.c.document_number.ilike(f"%{document_number.strip()}%"))
         if summary:
             conditions.append(table.c.summary.ilike(f"%{summary.strip()}%"))
         if handler:

@@ -24,8 +24,20 @@ def test_smiley_defaults_missing_size_range_without_overwriting_existing_group()
 
 def test_smiley_color_code_uses_product_sku_suffix():
     assert smiley_color_code("  XL2026AB12  ") == "AB12"
+    assert smiley_color_code("6362022365400") == "5400"
     assert smiley_color_code("123") == "123"
     assert smiley_color_code(None) == ""
+
+
+def test_smiley_defaults_replace_full_sku_color_code_but_preserve_manual_code():
+    row = apply_product_defaults("smiley", {
+        "sku": "6362022365400",
+        "color_code": "6362022365400",
+    })
+
+    assert row["color_code"] == "5400"
+    assert apply_product_defaults("smiley", {"sku": "6362022365400", "color_code": "0100"})["color_code"] == "0100"
+    assert apply_product_defaults("cbanner_mens", {"sku": "6362022365400", "color_code": "01"})["color_code"] == "01"
 
 
 def test_product_defaults_set_fixed_barcode_rules_for_product_brands():

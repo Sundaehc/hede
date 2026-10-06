@@ -530,6 +530,8 @@ class ProductRepository:
                 for row in rows:
                     current_name = _normalize_code(row.get("color"))
                     current_code = _normalize_code(row.get("color_code"))
+                    if brand == "smiley" and current_code and current_code != match_code:
+                        continue
                     linked_to_previous = bool(
                         match_code
                         and (
@@ -650,6 +652,8 @@ class ProductRepository:
                     updates: list[dict[str, object]] = []
                     ambiguous = 0
                     for product_row in product_rows:
+                        if brand == "smiley" and _normalize_code(product_row.get("color_code")):
+                            continue
                         product_color = _normalize_code(product_row.get("color"))
                         desired_product_code = resolved_codes.get(product_color)
                         if desired_product_code is None:
@@ -944,7 +948,7 @@ class ProductRepository:
         manual_cost_override: bool = False,
     ) -> dict[str, object]:
         table = self._table_for_brand(brand)
-        payload = self._prepare_record(record, brand=brand)
+        payload = self._prepare_record(record, brand=brand, connection=connection)
         payload["cost_manual_override"] = bool(
             manual_cost_override and payload.get("cost") not in (None, "")
         )
@@ -968,7 +972,7 @@ class ProductRepository:
         manual_cost_override: bool = False,
     ) -> dict[str, object] | None:
         table = self._table_for_brand(brand)
-        payload = self._prepare_record(record, brand=brand)
+        payload = self._prepare_record(record, brand=brand, connection=connection)
         payload.pop("id", None)
         if manual_cost_override and "cost" in record:
             existing_cost = None
@@ -1190,13 +1194,25 @@ class ProductRepository:
                 )
         return rows
 
-    def _prepare_record(self, record: Mapping[str, object], *, brand: str | None = None) -> dict[str, object]:
+    def _prepare_record(self, record: Mapping[str, object], *, brand: str | None = None, connection=None) -> dict[str, object]:
         payload = dict(record)
         if brand is not None:
             payload = dict(apply_product_defaults(brand, payload))
             color_name = _normalize_code(payload.get("color"))
             color_code = _normalize_code(payload.get("color_code"))
-            if color_name and not color_code:
+            if brand == "smiley" and color_code:
+                statement = select(COLOR_BARCODE_TABLE.c.color_name).where(
+                    COLOR_BARCODE_TABLE.c.brand == "smiley",
+                    COLOR_BARCODE_TABLE.c.color_barcode == color_code,
+                )
+                if connection is not None:
+                    mapped_color = connection.execute(statement).scalar_one_or_none()
+                else:
+                    with self.engine.connect() as lookup_connection:
+                        mapped_color = lookup_connection.execute(statement).scalar_one_or_none()
+                if mapped_color:
+                    payload["color"] = mapped_color
+            elif color_name and not color_code:
                 resolved_color_code = self._color_codes_for_brand(brand).get(color_name)
                 if resolved_color_code:
                     payload["color_code"] = resolved_color_code

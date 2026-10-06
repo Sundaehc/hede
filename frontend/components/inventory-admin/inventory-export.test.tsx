@@ -81,6 +81,27 @@ test("exports all filtered fine records rather than only the visible page", asyn
   expect(params.has("page")).toBe(false)
 })
 
+test("searches and exports by document number, then clears the filter", async () => {
+  const user = userEvent.setup()
+  render(<InventoryPage />)
+  await screen.findByText("EXPORT-0001")
+
+  await user.type(screen.getByPlaceholderText("输入单据编号"), "0001")
+  await user.click(screen.getByRole("button", { name: "搜索" }))
+  await waitFor(() => expect(mockListInventory).toHaveBeenLastCalledWith(expect.objectContaining({
+    document_number: "0001", exclude_document_type: "进货订单",
+  })))
+
+  await user.click(screen.getByRole("button", { name: "导出Excel" }))
+  expect(new URL(downloadUrls[0]).searchParams.get("document_number")).toBe("0001")
+
+  await user.click(screen.getByRole("button", { name: "清空" }))
+  expect(screen.getByPlaceholderText("输入单据编号")).toHaveValue("")
+  await waitFor(() => expect(mockListInventory).toHaveBeenLastCalledWith(expect.objectContaining({
+    document_number: undefined,
+  })))
+})
+
 test.each(["应付款减少", "应付款增加", "应收款减少", "应收款增加"])(
   "allows exporting when %s is the selected document type",
   async (documentType) => {

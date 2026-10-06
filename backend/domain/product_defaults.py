@@ -34,8 +34,13 @@ def apply_product_defaults(brand_group: str, row: MutableMapping[str, object]) -
         group_name = row.get("group_name")
         if group_name is None or not str(group_name).strip():
             row["group_name"] = CBANNER_WOMENS_DEFAULT_GROUP_NAME
-    if brand_group == "smiley" and not str(row.get("size_range") or "").strip():
-        row["size_range"] = SMILEY_DEFAULT_SIZE_RANGE
+    if brand_group == "smiley":
+        if not str(row.get("size_range") or "").strip():
+            row["size_range"] = SMILEY_DEFAULT_SIZE_RANGE
+        color_code = smiley_color_code(row.get("sku"))
+        existing_color_code = str(row.get("color_code") or "").strip()
+        if color_code and (not existing_color_code or existing_color_code == str(row.get("sku") or "").strip()):
+            row["color_code"] = color_code
     barcode_rule = fixed_barcode_build_rule(
         brand_group,
         row.get("sku"),

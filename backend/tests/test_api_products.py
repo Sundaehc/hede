@@ -550,6 +550,45 @@ def test_import_products_updates_by_original_sku_without_clearing_blank_cells(
     assert listing["total"] == 1
 
 
+def test_smiley_import_preserves_saved_code_unless_explicitly_supplied(
+    test_app_client: TestClient,
+    repository,
+):
+    existing = repository.create_product(
+        "smiley",
+        build_admin_record("smiley", {
+            "sku": "6362022365400", "original_sku": "6362022365400",
+            "color_code": "0100", "color": "黑色（笑脸）",
+        }),
+    )
+
+    def import_row(headers, values):
+        workbook = Workbook()
+        worksheet = workbook.active
+        worksheet.append(headers)
+        worksheet.append(values)
+        buffer = io.BytesIO()
+        workbook.save(buffer)
+        response = test_app_client.post(
+            "/import",
+            params={"brand": "smiley"},
+            files={"file": (
+                "smiley-products.xlsx", buffer.getvalue(),
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            )},
+        )
+        assert response.status_code == 200, response.text
+        assert response.json()["updated"] == 1
+        return repository.get_product("smiley", existing["id"])
+
+    saved = import_row(["货号", "品名"], ["6362022365400", "更新品名"])
+    assert saved["color_code"] == "0100"
+    assert saved["color"] == "黑色（笑脸）"
+
+    saved = import_row(["货号", "颜色代码"], ["6362022365400", "0200"])
+    assert saved["color_code"] == "0200"
+
+
 def test_import_products_restores_recycled_product_with_the_same_sku(
     test_app_client: TestClient,
     repository,

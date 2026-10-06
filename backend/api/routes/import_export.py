@@ -1608,6 +1608,12 @@ async def import_products(
                     normalized = normalize_admin_field(key, value)
                     if normalized is not None and str(normalized).strip():
                         import_fields[key] = normalized
+                if (
+                    brand == "smiley"
+                    and existing is not None
+                    and not str(row_dict.get("color_code") or row_dict.get("颜色代码") or "").strip()
+                ):
+                    import_fields.pop("color_code", None)
 
                 if image_matcher and not import_fields.get("image_path"):
                     found_path = image_matcher.find(original_sku_val) if original_sku_val else None

@@ -1479,6 +1479,7 @@ export function listInventory(params: {
   warehouse?: string
   document_type?: string
   exclude_document_type?: string
+  document_number?: string
   summary?: string
   original_sku?: string
   product_code?: string
@@ -1502,6 +1503,7 @@ export function listInventory(params: {
   if (params.document_type) search.set("document_type", params.document_type)
   if (params.exclude_document_type)
     search.set("exclude_document_type", params.exclude_document_type)
+  if (params.document_number) search.set("document_number", params.document_number)
   if (params.summary) search.set("summary", params.summary)
   if (params.original_sku) search.set("original_sku", params.original_sku)
   if (params.product_code) search.set("product_code", params.product_code)
@@ -1755,6 +1757,7 @@ export function buildInventoryExportUrl(
     warehouse?: string
     document_type?: string
     exclude_document_type?: string
+    document_number?: string
     summary?: string
     original_sku?: string
     product_code?: string
@@ -1773,6 +1776,7 @@ export function buildInventoryExportUrl(
   if (params.document_type) search.set("document_type", params.document_type)
   if (params.exclude_document_type)
     search.set("exclude_document_type", params.exclude_document_type)
+  if (params.document_number) search.set("document_number", params.document_number)
   if (params.summary) search.set("summary", params.summary)
   if (params.original_sku) search.set("original_sku", params.original_sku)
   if (params.product_code) search.set("product_code", params.product_code)
@@ -1798,6 +1802,7 @@ export function exportInventory(
     warehouse?: string
     document_type?: string
     exclude_document_type?: string
+    document_number?: string
     summary?: string
     original_sku?: string
     product_code?: string

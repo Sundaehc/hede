@@ -72,6 +72,7 @@ function findUniqueColorCode(colorName: string, options: ProductColorBarcodeItem
 }
 
 type ColorCodeSearchSelectProps = {
+  allowCustomValue?: boolean
   disabled: boolean
   id: string
   isLoading: boolean
@@ -80,7 +81,7 @@ type ColorCodeSearchSelectProps = {
   value: string
 }
 
-function ColorCodeSearchSelect({ disabled, id, isLoading, onChange, options, value }: ColorCodeSearchSelectProps) {
+function ColorCodeSearchSelect({ allowCustomValue = false, disabled, id, isLoading, onChange, options, value }: ColorCodeSearchSelectProps) {
   const listboxId = useId()
   const inputRef = useRef<HTMLInputElement>(null)
   const rootRef = useRef<HTMLDivElement>(null)
@@ -152,6 +153,7 @@ function ColorCodeSearchSelect({ disabled, id, isLoading, onChange, options, val
         onChange={(event) => {
           setQuery(event.target.value)
           setIsOpen(true)
+          if (allowCustomValue) onChange(event.target.value)
         }}
         onKeyDown={(event) => {
           if (event.key === "Escape") {
@@ -491,6 +493,10 @@ function toFormValues(item?: ProductListItem | null): ProductFormValues {
     }),
   )
 
+  if (item.brand === "smiley" && item.sku && (!item.color_code || item.color_code === item.sku)) {
+    base.color_code = item.sku.trim().slice(-4)
+  }
+
   return {
     brand: item.brand as ProductArchiveRecordBrandKey,
     ...base,
@@ -532,6 +538,7 @@ export function ProductFormDialog({ brands = PRODUCT_ARCHIVE_BRANDS, item, mode,
   const [supplierOptions, setSupplierOptions] = useState<SupplierItem[]>([])
   const [isLoadingSuppliers, setIsLoadingSuppliers] = useState(false)
   const autoMatchedColorCodeRef = useRef("")
+  const manuallyEditedSmileyCodeRef = useRef(false)
   const [sizeGroups, setSizeGroups] = useState<SizeGroup[]>([])
   const [isLoadingSizeGroups, setIsLoadingSizeGroups] = useState(false)
   const [auxiliaryOptionState, setAuxiliaryOptionState] = useState<{
@@ -557,10 +564,13 @@ export function ProductFormDialog({ brands = PRODUCT_ARCHIVE_BRANDS, item, mode,
   useEffect(() => {
     setValues(initialValues)
     autoMatchedColorCodeRef.current = ""
+    manuallyEditedSmileyCodeRef.current = Boolean(
+      item?.brand === "smiley" && item.color_code && item.color_code !== item.sku?.trim().slice(-4) && item.color_code !== item.sku,
+    )
     setLookupStatus({ status: "idle", message: null })
     setSubmitError(null)
     setBrandError(null)
-  }, [initialValues, open])
+  }, [initialValues, item, open])
 
   useEffect(() => {
     if (!open || !values.brand) {
@@ -642,7 +652,7 @@ export function ProductFormDialog({ brands = PRODUCT_ARCHIVE_BRANDS, item, mode,
   }, [open, values.brand])
 
   useEffect(() => {
-    if (!open || values.color_code.trim()) return
+    if (!open || values.brand === "smiley" || values.color_code.trim()) return
     const colorCode = findUniqueColorCode(values.color, colorBarcodeOptions)
     if (!colorCode) return
     autoMatchedColorCodeRef.current = colorCode
@@ -652,6 +662,16 @@ export function ProductFormDialog({ brands = PRODUCT_ARCHIVE_BRANDS, item, mode,
         : { ...current, color_code: colorCode }
     ))
   }, [colorBarcodeOptions, open, values.color, values.color_code])
+
+  useEffect(() => {
+    if (!open || values.brand !== "smiley" || !values.color_code.trim()) return
+    const matched = colorBarcodeOptions.find((option) => option.color_code === values.color_code.trim())
+    if (matched && values.color !== matched.color_name) {
+      setValues((current) => current.color_code.trim() === matched.color_code
+        ? { ...current, color: matched.color_name }
+        : current)
+    }
+  }, [colorBarcodeOptions, open, values.brand, values.color, values.color_code])
 
   useEffect(() => {
     if (!open) return
@@ -682,6 +702,10 @@ export function ProductFormDialog({ brands = PRODUCT_ARCHIVE_BRANDS, item, mode,
 
   const handleFieldChange = (field: keyof ProductFormValues, nextValue: string) => {
     if (field === "color") {
+      if (values.brand === "smiley") {
+        setValues((current) => ({ ...current, color: nextValue }))
+        return
+      }
       const currentColorCode = values.color_code.trim()
       const canReplaceColorCode = !currentColorCode || currentColorCode === autoMatchedColorCodeRef.current
       const matchedColorCode = canReplaceColorCode ? findUniqueColorCode(nextValue, colorBarcodeOptions) : currentColorCode
@@ -697,17 +721,25 @@ export function ProductFormDialog({ brands = PRODUCT_ARCHIVE_BRANDS, item, mode,
     if (field === "brand") {
       const shouldClearAutoMatchedCode = values.color_code.trim() === autoMatchedColorCodeRef.current
       autoMatchedColorCodeRef.current = ""
+      manuallyEditedSmileyCodeRef.current = false
       setValues((current) => ({
         ...current,
         brand: nextValue as ProductArchiveRecordBrandKey | "",
         ...(shouldClearAutoMatchedCode ? { color_code: "" } : {}),
+        ...(nextValue === "smiley" ? { color_code: current.sku.trim().slice(-4) } : {}),
         ...(current.brand !== nextValue ? { supplier_name: "" } : {}),
       }))
       setBrandError(null)
       return
     }
 
-    setValues((current) => ({ ...current, [field]: nextValue }))
+    setValues((current) => ({
+      ...current,
+      [field]: nextValue,
+      ...(field === "sku" && current.brand === "smiley" && !manuallyEditedSmileyCodeRef.current
+        ? { color_code: nextValue.trim().slice(-4) }
+        : {}),
+    }))
 
     if (field === "original_sku" || field === "sku") {
       setLookupStatus({ status: "idle", message: null })
@@ -717,10 +749,11 @@ export function ProductFormDialog({ brands = PRODUCT_ARCHIVE_BRANDS, item, mode,
   const handleColorCodeChange = (nextValue: string) => {
     const selected = colorBarcodeOptions.find((option) => option.color_code === nextValue)
     autoMatchedColorCodeRef.current = ""
+    if (values.brand === "smiley") manuallyEditedSmileyCodeRef.current = true
     setValues((current) => ({
       ...current,
       color_code: nextValue,
-      color: selected?.color_name ?? current.color,
+      color: selected?.color_name ?? (current.brand === "smiley" ? "" : current.color),
     }))
   }
 
@@ -785,6 +818,9 @@ export function ProductFormDialog({ brands = PRODUCT_ARCHIVE_BRANDS, item, mode,
       const finalValues = { ...values }
       if (finalValues.original_sku.trim() && !finalValues.sku.trim()) {
         finalValues.sku = finalValues.original_sku
+      }
+      if (finalValues.brand === "smiley" && !finalValues.color_code.trim()) {
+        finalValues.color_code = finalValues.sku.trim().slice(-4)
       }
 
       const payload = toPayload(finalValues)
@@ -977,6 +1013,7 @@ export function ProductFormDialog({ brands = PRODUCT_ARCHIVE_BRANDS, item, mode,
                                 options={colorBarcodeOptions}
                                 isLoading={isLoadingColorBarcodes}
                                 disabled={!values.brand || isLoadingColorBarcodes}
+                                allowCustomValue={values.brand === "smiley"}
                                 onChange={handleColorCodeChange}
                               />
                             ) : (

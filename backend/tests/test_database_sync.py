@@ -2,10 +2,11 @@ from __future__ import annotations
 
 from decimal import Decimal
 
-from sqlalchemy import select, text
+from sqlalchemy import create_engine, event, select, text
 from sqlalchemy.dialects import postgresql
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
+from domain.color_barcode_schema import COLOR_BARCODE_TABLE
 from domain.schema import PRODUCT_ARCHIVE_TABLES, PRODUCT_TABLES
 from storage.db import Database, _changed_fields_condition
 
@@ -258,7 +259,7 @@ def test_sync_brand_rows_preserves_yandou_product_model_from_archive(test_databa
     assert row["product_model"] == "男式休闲鞋"
 
 
-def test_smiley_daily_sync_fills_missing_size_groups_and_refreshes_color_suffix(test_database_url: str, recreate_tables):
+def test_smiley_daily_sync_preserves_manual_code_and_repairs_legacy_full_sku(test_database_url: str, recreate_tables):
     database = Database(test_database_url)
     table = PRODUCT_ARCHIVE_TABLES["smiley"]
     database.replace_brand_rows("smiley", [
@@ -274,7 +275,9 @@ def test_smiley_daily_sync_fills_missing_size_groups_and_refreshes_color_suffix(
         },
     ])
     with database.engine.begin() as connection:
-        connection.execute(table.update().where(table.c.sku == "XL2025CD34").values(size_range=""))
+        connection.execute(table.update().where(table.c.sku == "XL2025CD34").values(
+            size_range="", color_code="XL2025CD34",
+        ))
 
     assert database.sync_brand_rows("smiley", [
         {
@@ -299,13 +302,65 @@ def test_smiley_daily_sync_fills_missing_size_groups_and_refreshes_color_suffix(
         }
 
     assert rows["XL2026AB12"]["size_range"] == "笑脸男鞋38-44"
-    assert rows["XL2026AB12"]["color_code"] == "AB12"
+    assert rows["XL2026AB12"]["color_code"] == "OLD1"
     assert rows["XL2025CD34"]["size_range"] == "笑脸女鞋34-40"
     assert rows["XL2025CD34"]["color_code"] == "CD34"
     assert rows["XL2025CD34"]["product_name"] == "历史品名"
     assert rows["XL2025CD34"]["source_workbook"] == "manual"
     assert rows["NEW2026EF56"]["size_range"] == "笑脸女鞋34-40"
     assert rows["NEW2026EF56"]["color_code"] == "EF56"
+
+
+def test_smiley_full_replace_preserves_saved_code_and_mapped_color():
+    engine = create_engine("sqlite://")
+    event.listen(engine, "connect", lambda connection, _record: connection.create_function(
+        "date_trunc", 2, lambda _unit, value: value,
+    ))
+    database = Database(None)
+    database.engine = engine
+    table = PRODUCT_ARCHIVE_TABLES["smiley"]
+    COLOR_BARCODE_TABLE.create(engine)
+    table.create(engine)
+    with engine.begin() as connection:
+        connection.execute(COLOR_BARCODE_TABLE.insert().values(
+            id=1, brand="smiley", color_barcode="0100", color_name="黑色（笑脸）",
+            source_workbook="test", source_sheet="test", source_row_number="1", raw_payload={},
+        ))
+
+    def source_row(sku, color_code=None):
+        return {
+            "id": {"6362022365400": 1, "6362022365500": 2, "6362022365600": 3}[sku],
+            "source_workbook": "daily", "source_sheet": "daily", "source_row_number": "1",
+            "raw_payload": {}, "sku": sku, "original_sku": sku,
+            "color_code": color_code, "color": "棕色（笑脸）",
+        }
+
+    try:
+        database.replace_brand_rows("smiley", [
+            source_row("6362022365400", "0100"),
+            source_row("6362022365500"),
+        ])
+        with engine.begin() as connection:
+            connection.execute(table.update().where(table.c.sku == "6362022365500").values(
+                color_code="6362022365500",
+            ))
+        database.replace_brand_rows("smiley", [
+            source_row("6362022365400"),
+            source_row("6362022365500"),
+            source_row("6362022365600"),
+        ])
+
+        with engine.connect() as connection:
+            rows = {
+                row.sku: row
+                for row in connection.execute(select(table.c.sku, table.c.color_code, table.c.color))
+            }
+        assert rows["6362022365400"].color_code == "0100"
+        assert rows["6362022365400"].color == "黑色（笑脸）"
+        assert rows["6362022365500"].color_code == "5500"
+        assert rows["6362022365600"].color_code == "5600"
+    finally:
+        engine.dispose()
 
 
 def test_sync_yandou_product_models_fills_blank_archive_value_from_latest_gj_source(test_database_url: str, recreate_tables):

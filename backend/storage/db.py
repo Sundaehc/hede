@@ -3,11 +3,12 @@ from __future__ import annotations
 from collections.abc import Iterable
 
 import orjson
-from sqlalchemy import JSON, case, cast, create_engine, delete, func, insert, or_, text
+from sqlalchemy import JSON, case, cast, create_engine, delete, func, insert, or_, select, text
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.dialects.postgresql import JSONB
 
 from domain.product_defaults import SMILEY_DEFAULT_SIZE_RANGE, apply_product_defaults, smiley_color_code
+from domain.color_barcode_schema import COLOR_BARCODE_TABLE
 from domain.schema import METADATA, PRODUCT_ARCHIVE_TABLES
 from domain import fine_table_snapshot_schema  # noqa: F401 - register fine table snapshot tables on METADATA
 from domain.inventory_schema import INVENTORY_TABLE, INVENTORY_DETAIL_TABLE, JST_STOCK_TABLE, SUPPLIER_TABLE, WAREHOUSE_TABLE  # noqa: F401 - register on METADATA
@@ -108,6 +109,43 @@ class Database:
             payload = deduped
 
         with self._require_engine().begin() as connection:
+            if brand_group == "smiley" and payload:
+                existing_by_sku = {}
+                skus = [row["sku"] for row in payload if row.get("sku")]
+                for index in range(0, len(skus), 1000):
+                    existing_by_sku.update({
+                        row.sku: row
+                        for row in connection.execute(
+                            select(table.c.sku, table.c.color_code, table.c.color)
+                            .where(table.c.sku.in_(skus[index:index + 1000]))
+                        )
+                    })
+                retained_codes = set()
+                retained_skus = set()
+                for row in payload:
+                    existing = existing_by_sku.get(row.get("sku"))
+                    if existing is None:
+                        continue
+                    saved_code = str(existing.color_code or "").strip()
+                    if saved_code and saved_code != existing.sku:
+                        row["color_code"] = saved_code
+                        retained_codes.add(saved_code)
+                        retained_skus.add(existing.sku)
+                color_names = {}
+                sorted_codes = sorted(retained_codes)
+                for index in range(0, len(sorted_codes), 1000):
+                    color_names.update({
+                        row.color_barcode: row.color_name
+                        for row in connection.execute(
+                            select(COLOR_BARCODE_TABLE.c.color_barcode, COLOR_BARCODE_TABLE.c.color_name)
+                            .where(COLOR_BARCODE_TABLE.c.brand == "smiley")
+                            .where(COLOR_BARCODE_TABLE.c.color_barcode.in_(sorted_codes[index:index + 1000]))
+                        )
+                    })
+                for row in payload:
+                    if row.get("sku") in retained_skus:
+                        existing = existing_by_sku[row["sku"]]
+                        row["color"] = color_names.get(row["color_code"], existing.color)
             connection.execute(delete(table))
             if payload:
                 connection.execute(insert(table), payload)
@@ -223,6 +261,11 @@ class Database:
                     func.nullif(func.btrim(table.c.color_code), ""),
                     getattr(excluded, "color_code"),
                 )
+                if brand_group == "smiley":
+                    set_values["color_code"] = case(
+                        (table.c.color_code == table.c.sku, getattr(excluded, "color_code")),
+                        else_=set_values["color_code"],
+                    )
                 # Product names and models entered in the archive are manual
                 # master data. Daily sources may fill blanks only.
                 set_values["product_name"] = func.coalesce(
@@ -279,6 +322,11 @@ class Database:
                     connection.execute(
                         table.update()
                         .where(table.c.sku.in_([row["sku"] for row in payload[index:index + 1000]]))
+                        .where(or_(
+                            table.c.color_code.is_(None),
+                            func.btrim(table.c.color_code) == "",
+                            table.c.color_code == table.c.sku,
+                        ))
                         .where(table.c.color_code.is_distinct_from(suffix))
                         .values(color_code=suffix, updated_at=func.date_trunc("minute", func.now()))
                     )
