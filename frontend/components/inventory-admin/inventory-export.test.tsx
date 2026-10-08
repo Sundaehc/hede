@@ -1,4 +1,4 @@
-import { cleanup, render, screen, waitFor, within } from "@testing-library/react"
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { afterEach, beforeEach, expect, test, vi } from "vitest"
 
@@ -134,4 +134,81 @@ test("exports selected accounting documents by ID", async () => {
 
   expect(downloadUrls).toHaveLength(1)
   expect(new URL(downloadUrls[0]).searchParams.get("ids")).toBe("1")
+})
+
+test("aligns inventory totals with their table headers", async () => {
+  mockListInventory.mockResolvedValueOnce({
+    items: [{ id: 1, document_number: "ALIGN-0001", document_type: "进货单", date: "2026-09-03", total_count: "5", amount: "100" }],
+    total: 1,
+    totals: {
+      current_page: { total_count: "5", amount: "100" },
+      all: { total_count: "50", amount: "1000" },
+    },
+  })
+  render(<InventoryPage />)
+  await screen.findByText("ALIGN-0001")
+
+  const table = screen.getByText("ALIGN-0001").closest("table")!
+  const headers = Array.from(table.querySelectorAll("thead th"))
+  const rows = Array.from(table.querySelectorAll("tfoot tr"))
+  expect(rows).toHaveLength(2)
+  for (const [rowIndex, values] of [["5", "100"], ["50", "1000"]].entries()) {
+    const cells = Array.from(rows[rowIndex].querySelectorAll("td"))
+    expect(cells).toHaveLength(headers.length)
+    expect(cells[headers.findIndex((header) => header.textContent?.includes("总数"))]).toHaveTextContent(values[0])
+    expect(cells[headers.findIndex((header) => header.textContent?.includes("金额"))]).toHaveTextContent(values[1])
+  }
+})
+
+test("keeps totals under their headers after dragging amount and count", async () => {
+  mockListInventory.mockResolvedValueOnce({
+    items: [{ id: 1, document_number: "ALIGN-0002", document_type: "进货单", date: "2026-09-03", total_count: "5", amount: "100" }],
+    total: 1,
+    totals: {
+      current_page: { total_count: "5", amount: "100" },
+      all: { total_count: "50", amount: "1000" },
+    },
+  })
+  render(<InventoryPage />)
+  await screen.findByText("ALIGN-0002")
+
+  const table = screen.getByText("ALIGN-0002").closest("table")!
+  const dataTransfer = {
+    effectAllowed: "move",
+    dropEffect: "move",
+    setData: vi.fn(),
+    getData: vi.fn(() => "amount"),
+  }
+  fireEvent.dragStart(screen.getByRole("button", { name: "拖拽排序金额" }), { dataTransfer })
+  fireEvent.dragOver(screen.getByRole("button", { name: "拖拽排序日期" }).closest("th")!, { dataTransfer })
+  fireEvent.drop(screen.getByRole("button", { name: "拖拽排序日期" }).closest("th")!, { dataTransfer })
+
+  const headers = Array.from(table.querySelectorAll("thead th"))
+  const totalRows = Array.from(table.querySelectorAll("tfoot tr"))
+  const bodyCells = Array.from(table.querySelector("tbody tr")!.querySelectorAll("td"))
+  const amountIndex = headers.findIndex((header) => header.textContent?.includes("金额"))
+  const countIndex = headers.findIndex((header) => header.textContent?.includes("总数"))
+  expect(amountIndex).toBe(2)
+  expect(bodyCells[amountIndex]).toHaveTextContent("100")
+  expect(bodyCells[countIndex]).toHaveTextContent("5")
+  for (const [rowIndex, values] of [["100", "5"], ["1000", "50"]].entries()) {
+    const cells = Array.from(totalRows[rowIndex].querySelectorAll("td"))
+    expect(cells).toHaveLength(headers.length)
+    expect(cells[amountIndex]).toHaveTextContent(values[0])
+    expect(cells[countIndex]).toHaveTextContent(values[1])
+  }
+
+  dataTransfer.getData.mockReturnValue("total_count")
+  fireEvent.dragStart(screen.getByRole("button", { name: "拖拽排序总数" }), { dataTransfer })
+  fireEvent.drop(screen.getByRole("button", { name: "拖拽排序单据编号" }).closest("th")!, { dataTransfer })
+
+  const reorderedHeaders = Array.from(table.querySelectorAll("thead th"))
+  const reorderedCountIndex = reorderedHeaders.findIndex((header) => header.textContent?.includes("总数"))
+  const reorderedAmountIndex = reorderedHeaders.findIndex((header) => header.textContent?.includes("金额"))
+  expect(reorderedCountIndex).toBe(1)
+  for (const [rowIndex, values] of [["5", "100"], ["50", "1000"]].entries()) {
+    const cells = Array.from(totalRows[rowIndex].querySelectorAll("td"))
+    expect(cells[reorderedCountIndex]).toHaveTextContent(values[0])
+    expect(cells[reorderedAmountIndex]).toHaveTextContent(values[1])
+  }
 })

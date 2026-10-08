@@ -3,9 +3,8 @@
 import { Fragment, useCallback, useEffect, useMemo, useState } from "react"
 import { Download, RefreshCw, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { DateRangeControl } from "@/components/ui/date-range-control"
 import { useAuth } from "@/components/auth/auth-provider"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import {
   ApiError,
@@ -221,15 +220,8 @@ export function CounterpartyLedgerDialog({ open, counterpartyType, name, onOpenC
         </DialogHeader>
 
         <div className="space-y-3 overflow-hidden">
-          <div className="grid gap-3 rounded-lg border border-border bg-muted/25 p-3 md:grid-cols-[1fr_1fr_auto] md:items-end">
-            <div className="space-y-1.5">
-              <Label htmlFor="ledger-date-start">开始日期</Label>
-              <Input id="ledger-date-start" type="date" value={dateStart} onChange={(event) => setDateStart(event.target.value)} />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="ledger-date-end">结束日期</Label>
-              <Input id="ledger-date-end" type="date" value={dateEnd} onChange={(event) => setDateEnd(event.target.value)} />
-            </div>
+          <div className="flex flex-wrap items-center gap-3 rounded-lg border border-border bg-muted/25 p-3">
+            <DateRangeControl start={dateStart} end={dateEnd} onStartChange={setDateStart} onEndChange={setDateEnd} />
             <div className="flex items-center gap-2">
               <Button onClick={() => void load()} disabled={isLoading || !name} className="cursor-pointer">
                 <RefreshCw className={`h-4 w-4 ${isLoading ? "animate-spin" : ""}`} />

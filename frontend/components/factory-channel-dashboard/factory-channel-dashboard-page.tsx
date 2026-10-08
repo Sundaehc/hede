@@ -15,6 +15,7 @@ import {
 } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
+import { DateRangeControl } from "@/components/ui/date-range-control"
 import { Input } from "@/components/ui/input"
 import { Select } from "@/components/ui/select"
 import { getFactoryChannelDashboard } from "@/lib/api"
@@ -357,7 +358,7 @@ export function FactoryChannelDashboardPage() {
 
         <section className="mt-5 rounded-lg border border-border bg-card p-4 shadow-sm">
           <div className="flex flex-col gap-3 xl:flex-row xl:items-end">
-            <div className="grid flex-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-5">
+            <div className="grid flex-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
               <label className="grid gap-1.5 text-xs font-medium text-muted-foreground">
                 品牌
                 <Select value={brand} onChange={(event) => setBrand(event.target.value as DashboardBrand)}>
@@ -383,15 +384,8 @@ export function FactoryChannelDashboardPage() {
                   />
                 </div>
               </label>
-              <label className="grid gap-1.5 text-xs font-medium text-muted-foreground">
-                开始日期
-                <Input className="cursor-pointer [&::-webkit-calendar-picker-indicator]:cursor-pointer" type="date" value={dateStart} onChange={(event) => setDateStart(event.target.value)} />
-              </label>
-              <label className="grid gap-1.5 text-xs font-medium text-muted-foreground">
-                结束日期
-                <Input className="cursor-pointer [&::-webkit-calendar-picker-indicator]:cursor-pointer" type="date" value={dateEnd} onChange={(event) => setDateEnd(event.target.value)} />
-              </label>
             </div>
+            <DateRangeControl start={dateStart} end={dateEnd} onStartChange={setDateStart} onEndChange={setDateEnd} />
             <div className="flex shrink-0 gap-2">
               <Button type="button" variant="outline" onClick={resetFilters}>重置</Button>
               <Button type="button" onClick={() => setRefreshToken((value) => value + 1)} disabled={loading}>

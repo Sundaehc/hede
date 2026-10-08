@@ -18,6 +18,8 @@ TEMPLATE_HEADERS = {
     "purchase_return": ("日期", "单据类型", "单位全名", "仓库全名", "经手人", "摘要", "商品编码", "数量", "单价"),
     "sale": ("日期", "单据类型", "单位全名", "仓库全名", "经手人", "摘要", "商品编码", "数量", "单价"),
     "sale_return": ("日期", "单据类型", "单位全名", "仓库全名", "经手人", "摘要", "商品编码", "数量", "单价"),
+    "stock_loss": ("日期", "单据类型", "仓库全名", "经手人", "摘要", "商品编码", "数量"),
+    "stock_gain": ("日期", "单据类型", "仓库全名", "经手人", "摘要", "商品编码", "数量"),
     "accounting": ("日期", "单据类型", "经手人", "单位全名", "摘要", "费用项目名", "总金额"),
 }
 LEGACY_TEMPLATE_HEADERS = {
@@ -32,6 +34,8 @@ TEMPLATE_TYPES = {
     "purchase_return": {"进货退货单"},
     "sale": {"批发销售单"},
     "sale_return": {"批发销售退货单"},
+    "stock_loss": {"报损单"},
+    "stock_gain": {"报溢单"},
     "accounting": set(ACCOUNTING_DOCUMENT_TYPES),
 }
 
@@ -110,7 +114,7 @@ def read_template_documents(content: bytes) -> tuple[str, str, list[TemplateDocu
             )
         }
         if not matched_kinds:
-            raise HTTPException(status_code=400, detail="模板表头不匹配，请使用五种通用模板之一，不要修改列名或顺序")
+            raise HTTPException(status_code=400, detail="模板表头不匹配，请使用通用导入模板，不要修改列名或顺序")
         documents: OrderedDict[str, TemplateDocument] = OrderedDict()
         kind = None
         for row_number, values in enumerate(rows, start=2):
@@ -127,7 +131,9 @@ def read_template_documents(content: bytes) -> tuple[str, str, list[TemplateDocu
             warehouse = _text(data.get("仓库全名"))
             handler = _text(data.get("制单人", data.get("经手人")))
             summary = _text(data.get("摘要"))
-            required_fields = {"往来单位": supplier, "摘要": summary, "经手人/制单人": handler}
+            required_fields = {"摘要": summary, "经手人/制单人": handler}
+            if kind not in {"stock_loss", "stock_gain"}:
+                required_fields["往来单位"] = supplier
             if kind != "accounting":
                 required_fields["仓库全名"] = warehouse
             for field, value in required_fields.items():
@@ -145,7 +151,7 @@ def read_template_documents(content: bytes) -> tuple[str, str, list[TemplateDocu
                 detail = {
                     "product_code": code,
                     "quantity": _amount(data.get("销售数量", data.get("数量")), row_number, "数量"),
-                    "unit_price": _amount(data["单价"], row_number, "单价", required=False),
+                    "unit_price": _amount(data.get("单价"), row_number, "单价", required=False),
                 }
             key = "\x1f".join((document_date, document_type, supplier, warehouse, handler, summary))
             document = documents.get(key)

@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select } from "@/components/ui/select"
+import { DateRangeControl } from "@/components/ui/date-range-control"
 import {
   Dialog,
   DialogContent,
@@ -84,6 +85,8 @@ const UNIVERSAL_TEMPLATE_OPTIONS: Array<{ kind: InventoryTemplateKind; label: st
   { kind: "purchase_return", label: "进货退货单" },
   { kind: "sale", label: "销售单" },
   { kind: "sale_return", label: "销售退货单" },
+  { kind: "stock_loss", label: "报损单" },
+  { kind: "stock_gain", label: "报溢单" },
   { kind: "accounting", label: "应收应付" },
 ]
 const WHOLESALE_DOCUMENT_TYPES = new Set(["批发销售单", "批发销售退货单"])
@@ -1783,6 +1786,7 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
   const allRecycleSelected = recycleItems.length > 0 && recycleItems.every((item) => selectedRecycleIds.has(item.id))
   const recycleActionBusy = isBatchRestoring || isRecycleBatchDeleting
   const tableColumnKeys: InventorySortKey[] = isPurchaseOrderTab ? PURCHASE_TABLE_COLUMN_ORDER : inventoryColumnOrder
+  const inventoryTotalLabelColumn = inventoryColumnOrder.find((columnKey) => columnKey !== "total_count" && columnKey !== "amount")
   const tableMinWidth = isPurchaseDetailSearch
     ? purchaseDetailView === "size_rows" ? 1630 : 1540
     : 160 + tableColumnKeys.reduce(
@@ -1924,7 +1928,7 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
 
   return (
     <div className="app-page">
-      <div className="app-content">
+      <div className={isPurchasePage ? "app-content" : "flex w-full min-w-0 flex-col gap-5"}>
         <div className="page-header">
           <div>
             <h1 className="page-title">{isPurchasePage ? "采购单管理" : "进销存管理"}</h1>
@@ -2036,26 +2040,7 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
             >
               <div className="grid gap-3 xl:grid-cols-[1fr_auto] xl:items-end">
                 <div className="grid gap-3 lg:grid-cols-12">
-                  <div className="space-y-1.5 lg:col-span-6 xl:col-span-5">
-                    <Label className="text-xs text-muted-foreground">日期范围</Label>
-                    <div className="grid grid-cols-[minmax(8.75rem,1fr)_auto_minmax(8.75rem,1fr)] items-center gap-2">
-                      <input
-                        type="date"
-                        value={searchDateStart}
-                        max={searchDateEnd || undefined}
-                        onChange={(e) => setSearchDateStart(e.target.value)}
-                        className="h-9 min-w-0 rounded-lg border border-input bg-card px-3 py-2 text-sm shadow-xs outline-none transition-colors focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/35"
-                      />
-                      <span className="text-xs text-muted-foreground">至</span>
-                      <input
-                        type="date"
-                        value={searchDateEnd}
-                        min={searchDateStart || undefined}
-                        onChange={(e) => setSearchDateEnd(e.target.value)}
-                        className="h-9 min-w-0 rounded-lg border border-input bg-card px-3 py-2 text-sm shadow-xs outline-none transition-colors focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/35"
-                      />
-                    </div>
-                  </div>
+                  <DateRangeControl className="lg:col-span-12" start={searchDateStart} end={searchDateEnd} onStartChange={setSearchDateStart} onEndChange={setSearchDateEnd} />
                   {!isPurchaseOrderTab && (
                     <div className="space-y-1.5 lg:col-span-3 xl:col-span-3">
                       <Label className="text-xs text-muted-foreground">品牌</Label>
@@ -2483,27 +2468,27 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
                 {!isPurchaseOrderTab && !isPurchaseDetailSearch && (
                   <tfoot className="border-t-2 border-border bg-muted/60 font-medium">
                     <tr>
-                      <td colSpan={2} className="whitespace-nowrap px-4 py-3">当前页合计</td>
+                      <td className="px-4 py-3" />
                       {inventoryColumnOrder.map((columnKey) => (
-                        <td key={`current-total-${columnKey}`} className="px-4 py-3 text-right font-mono tabular-nums">
+                        <td key={`current-total-${columnKey}`} className={`whitespace-nowrap px-4 py-3 ${columnKey === inventoryTotalLabelColumn ? "text-left" : "text-right font-mono tabular-nums"}`}>
                           {columnKey === "total_count"
                             ? inventoryTotals.current_page.total_count
                             : columnKey === "amount"
                               ? inventoryTotals.current_page.amount
-                              : ""}
+                              : columnKey === inventoryTotalLabelColumn ? "当前页合计" : ""}
                         </td>
                       ))}
                       <td className="sticky right-0 border-l border-border bg-muted/60 px-4 py-3" />
                     </tr>
                     <tr>
-                      <td colSpan={2} className="whitespace-nowrap px-4 py-3">全部合计</td>
+                      <td className="px-4 py-3" />
                       {inventoryColumnOrder.map((columnKey) => (
-                        <td key={`all-total-${columnKey}`} className="px-4 py-3 text-right font-mono tabular-nums">
+                        <td key={`all-total-${columnKey}`} className={`whitespace-nowrap px-4 py-3 ${columnKey === inventoryTotalLabelColumn ? "text-left" : "text-right font-mono tabular-nums"}`}>
                           {columnKey === "total_count"
                             ? inventoryTotals.all.total_count
                             : columnKey === "amount"
                               ? inventoryTotals.all.amount
-                              : ""}
+                              : columnKey === inventoryTotalLabelColumn ? "全部合计" : ""}
                         </td>
                       ))}
                       <td className="sticky right-0 border-l border-border bg-muted/60 px-4 py-3" />
@@ -3101,40 +3086,27 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
               </Alert>
             )}
             <div className="grid grid-cols-1 gap-4 py-2 sm:grid-cols-2">
-              <div className="space-y-1.5">
-                <Label>开始日期</Label>
-                <input
-                  type="date"
-                  value={costFormData.date_start}
-                  max={costFormData.date_end || undefined}
-                  onChange={(e) => {
+              <DateRangeControl
+                className="sm:col-span-2"
+                start={costFormData.date_start}
+                end={costFormData.date_end}
+                onStartChange={(value) => {
                     setCostError("")
                     setCostDocumentNumbers([])
                     setCostDocumentOptions([])
                     setCostDocumentOptionsError("")
                     setIsCostDocumentOptionsLoading(false)
-                    setCostFormData((prev) => ({ ...prev, date_start: e.target.value }))
-                  }}
-                  className="flex h-9 w-full rounded-lg border border-input bg-card px-3 py-2 text-sm shadow-xs outline-none transition-colors focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/35"
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label>结束日期</Label>
-                <input
-                  type="date"
-                  value={costFormData.date_end}
-                  min={costFormData.date_start || undefined}
-                  onChange={(e) => {
+                    setCostFormData((prev) => ({ ...prev, date_start: value }))
+                }}
+                onEndChange={(value) => {
                     setCostError("")
                     setCostDocumentNumbers([])
                     setCostDocumentOptions([])
                     setCostDocumentOptionsError("")
                     setIsCostDocumentOptionsLoading(false)
-                    setCostFormData((prev) => ({ ...prev, date_end: e.target.value }))
-                  }}
-                  className="flex h-9 w-full rounded-lg border border-input bg-card px-3 py-2 text-sm shadow-xs outline-none transition-colors focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/35"
-                />
-              </div>
+                    setCostFormData((prev) => ({ ...prev, date_end: value }))
+                }}
+              />
               <div className="space-y-1.5">
                 <Label>单据类型</Label>
                 <Select

@@ -1,0 +1,187 @@
+====================================================================================================
+### 货品表 Excel 文件
+快照日=2026-10-07   来源文件=赫德货品表（千百度）10.7.xlsx   sheet=商品明细表   行号=826
+====================================================================================================
+顶层字段: ['annual_sales', 'category_l4', 'color', 'cost', 'daily_platform_sales', 'daily_sales_by_date', 'factory_code', 'factory_name', 'factory_sku', 'first_order_date', 'in_transit_by_size', 'inventory_by_size', 'metrics', 'monthly_platform_sales', 'monthly_sales', 'platform', 'post_replenishment_by_size', 'product_type', 'replenishment_by_size', 'sales_by_size', 'season', 'shortage_by_size', 'stock_by_size', 'weekly_platform_sales', 'year']
+
+metrics 共 23 项：
+    clearance_sales                          = 0
+    clearance_week_sales                     = 0
+    in_transit_total                         = 3
+    inventory_total                          = 1169
+    last_week_sales                          = 4
+    normal_shelf_sales                       = 1
+    normal_shelf_week_sales                  = 1
+    post_replenishment_stock                 = 1169
+    post_replenishment_total                 = 1169
+    post_replenishment_turnover_days         = 4091.5
+    replenishment_total                      = 0
+    return_qty                               = 22528
+    sales_size_total                         = 55544
+    same_week_non_douyin_sales               = 0
+    same_week_sales                          = 0
+    shortage_total                           = 0
+    stock_plus_purchase                      = 1166
+    stock_total                              = 1166
+    three_day_change                         = 0
+    total_order_count                        = 19385
+    total_sales                              = 64843
+    week_sales                               = 2
+    yesterday_sales                          = 1
+
+[annual_sales] {"2022": 0, "2023": 0, "2024": 0, "2025": 9292, "2026": 55551}
+
+[monthly_sales] {"2022-1": 0, "2022-2": 0, "2022-3": 0, "2022-4": 0, "2022-5": 0, "2022-6": 0, "2022-7": 0, "2022-8": 0, "2022-9": 0, "2022-10": 0, "2022-11": 0, "2022-12": 0, "2023-1": 0, "2023-2": 0, "2023-3": 0, "2023-4": 0, "2023-5": 0, "2023-6": 0, "2023-7": 0, "2023-8": 0, "2023-9": 0, "2023-10": 0, "2023-11": 0, "2023-12": 0, "2025-7": 8973, "2025-8": 297, "2025-9": 15, "2025-10": 4, "2025-11": 1, "2025-12": 2, "2026-1": 0, "2026-2": 2, "2026-3": 85, "2026-4": 5845, "2026-5": 26884, "2026-6": 17667, "2026-7": 4834, "2026-8": 203, "2026-9": 30, "2026-10": 1}
+
+[sales_by_size] {"34": 0, "35": 7218, "36": 12885, "37": 15875, "38": 11926, "39": 5408, "40": 2232, "41": 0, "42": 0, "43": 0, "44": 0}
+
+[daily_sales_by_date] 共 14 天，最后 8 天: {"2026-09-29": 0, "2026-09-30": 1, "2026-10-01": 0, "2026-10-02": 0, "2026-10-03": 0, "2026-10-04": 0, "2026-10-05": 0, "2026-10-06": 1}
+
+====================================================================================================
+### 数据库计算
+快照日=2026-10-06   来源文件=database_calculated_product_goods   sheet=goods   行号=6575
+====================================================================================================
+顶层字段: ['annual_sales', 'category_l4', 'clearance', 'color', 'cost', 'daily_platform_sales', 'daily_sales_by_date', 'douyin_hot', 'factory_code', 'factory_name', 'factory_sku', 'first_order_date', 'image_url', 'in_transit_by_size', 'inventory_by_size', 'metrics', 'monthly_platform_sales', 'monthly_sales', 'platform', 'post_replenishment_by_size', 'product_role', 'product_type', 'remark', 'replenishment_by_size', 'sales_by_size', 'season', 'shortage_by_size', 'snapshot_format', 'stock_by_size', 'style_code', 'weekly_platform_sales', 'year']
+
+metrics 共 33 项：
+    broken_size_sku                          = None
+    clearance_sales                          = 0
+    clearance_week_sales                     = 0
+    day_over_day                             = 1
+    expected_replenishment_stock             = None
+    in_transit_total                         = 4
+    inventory_total                          = 1171
+    last_week_sales                          = 5
+    month_sales                              = 17
+    normal_shelf_sales                       = 1
+    normal_shelf_week_sales                  = 2
+    post_replenishment_stock                 = None
+    post_replenishment_total                 = None
+    post_replenishment_turnover_days         = None
+    recent_14_day_sales                      = None
+    recent_30_day_sales                      = None
+    replenishment_total                      = None
+    return_qty                               = 26544
+    sales_2024                               = 0
+    sales_2025                               = 9292
+    sales_size_total                         = 0
+    same_week_non_douyin_sales               = None
+    same_week_sales                          = None
+    shortage_total                           = 0
+    stock_health                             = 积压风险
+    stock_plus_purchase                      = 1167
+    stock_total                              = 1167
+    three_day_change                         = None
+    total_order_count                        = 19385
+    total_sales                              = 26545
+    week_sales                               = 2
+    year_sales                               = 17253
+    yesterday_sales                          = 1
+
+[annual_sales] {"2022": 0, "2023": 0, "2024": 0, "2025": 9292, "2026": 53835}
+
+[monthly_sales] {"22-1": 0, "22-2": 0, "22-3": 0, "22-4": 0, "22-5": 0, "22-6": 0, "22-7": 0, "22-8": 0, "22-9": 0, "22-10": 0, "22-11": 0, "22-12": 0, "23-1": 0, "23-2": 0, "23-3": 0, "23-4": 0, "23-5": 0, "23-6": 0, "23-7": 0, "23-8": 0, "23-9": 0, "23-10": 0, "23-11": 0, "23-12": 0, "25-7": 8973, "25-8": 297, "25-9": 15, "25-10": 4, "25-11": 1, "25-12": 2, "26-1": 0, "26-2": 2, "26-3": 85, "26-4": 5845, "26-5": 26884, "26-6": 17667, "26-7": 3352, "26-8": 307, "26-10": 1, "26-9": 42}
+
+[snapshot_format] "product_goods_calculated_snapshot_v1"
+
+[sales_by_size] {"35": 0, "36": 0, "37": 0, "38": 0, "39": 0, "40": 0}
+
+[daily_sales_by_date] 共 13 天，最后 8 天: {"2026-09-29": 0, "2026-09-30": 1, "2026-10-01": 0, "2026-10-02": 0, "2026-10-03": 0, "2026-10-04": 0, "2026-10-05": 0, "2026-10-06": 1}
+
+====================================================================================================
+### 并排对比
+====================================================================================================
+字段                                              Excel货品表           数据库计算    一致
+broken_size_sku                                     None            None     是
+clearance_sales                                        0               0     是
+clearance_week_sales                                   0               0     是
+day_over_day                                        None               1     否
+expected_replenishment_stock                        None            None     是
+in_transit_total                                       3               4     否
+inventory_total                                     1169            1171     否
+last_week_sales                                        4               5     否
+month_sales                                         None              17     否
+normal_shelf_sales                                     1               1     是
+normal_shelf_week_sales                                1               2     否
+post_replenishment_stock                            1169            None     否
+post_replenishment_total                            1169            None     否
+post_replenishment_turnover_days                  4091.5            None     否
+recent_14_day_sales                                 None            None     是
+recent_30_day_sales                                 None            None     是
+replenishment_total                                    0            None     否
+return_qty                                         22528           26544     否
+sales_2024                                          None               0     否
+sales_2025                                          None            9292     否
+sales_size_total                                   55544               0     否
+same_week_non_douyin_sales                             0            None     否
+same_week_sales                                        0            None     否
+shortage_total                                         0               0     是
+stock_health                                        None            积压风险     否
+stock_plus_purchase                                 1166            1167     否
+stock_total                                         1166            1167     否
+three_day_change                                       0            None     否
+total_order_count                                  19385           19385     是
+total_sales                                        64843           26545     否
+week_sales                                             2               2     是
+year_sales                                          None           17253     否
+yesterday_sales                                        1               1     是
+
+====================================================================================================
+### product_goods_historical_sales_2025
+====================================================================================================
+列: ['id', 'brand', 'sales_year', 'sales_date', 'channel', 'style_code', 'product_code', 'original_sku', 'size', 'color', 'sales_quantity', 'sales_amount', 'source_workbook', 'source_sheet', 'source_row_number', 'created_at']
+该货号: 行数=132  日期=2025-07-01~2025-12-22  sum(sales_quantity)=9292  渠道数=7
+
+渠道分布:
+渠道                               行数          销量
+直播赛道                             43        8742
+商品卡                              38         299
+唯品                               19         199
+天猫                               22          39
+京东                                7          10
+拼多多                               2           2
+得物                                1           1
+
+样本 6 行:
+    {"id": 647058, "brand": "cbanner_womens", "sales_year": 2025, "sales_date": "2025-12-22", "channel": "拼多多", "style_code": "QT653891S30", "product_code": "QT653891S3030235", "original_sku": "QT653891S30", "size": "235", "color": null, "sales_quantity": 1, "sales_amount": "279.00", "source_workbook": "赫德货品表（千百度）7.15.xlsx", "source_sheet": "2025年销量", "source_row_number": 510482, "created_at": "2026-07-19 14:47:00+08:00"}
+    {"id": 638762, "brand": "cbanner_womens", "sales_year": 2025, "sales_date": "2025-12-19", "channel": "直播赛道", "style_code": "QT653891S30", "product_code": "QT653891S3030235", "original_sku": "QT653891S30", "size": "235", "color": null, "sales_quantity": 1, "sales_amount": "279.00", "source_workbook": "赫德货品表（千百度）7.15.xlsx", "source_sheet": "2025年销量", "source_row_number": 502186, "created_at": "2026-07-19 14:47:00+08:00"}
+    {"id": 569043, "brand": "cbanner_womens", "sales_year": 2025, "sales_date": "2025-11-30", "channel": "拼多多", "style_code": "QT653891S30", "product_code": "QT653891S3030235", "original_sku": "QT653891S30", "size": "235", "color": null, "sales_quantity": 1, "sales_amount": "279.00", "source_workbook": "赫德货品表（千百度）7.15.xlsx", "source_sheet": "2025年销量", "source_row_number": 432468, "created_at": "2026-07-19 14:47:00+08:00"}
+    {"id": 801068, "brand": "cbanner_womens", "sales_year": 2025, "sales_date": "2025-10-25", "channel": "商品卡", "style_code": "QT653891S30", "product_code": "QT653891S3030225", "original_sku": "QT653891S30", "size": "225", "color": null, "sales_quantity": 1, "sales_amount": "233.12", "source_workbook": "赫德货品表（千百度）7.15.xlsx", "source_sheet": "2025年销量", "source_row_number": 123032, "created_at": "2026-07-19 14:47:00+08:00"}
+    {"id": 763276, "brand": "cbanner_womens", "sales_year": 2025, "sales_date": "2025-10-12", "channel": "商品卡", "style_code": "QT653891S30", "product_code": "QT653891S3030245", "original_sku": "QT653891S30", "size": "245", "color": null, "sales_quantity": 1, "sales_amount": "230.74", "source_workbook": "赫德货品表（千百度）7.15.xlsx", "source_sheet": "2025年销量", "source_row_number": 85240, "created_at": "2026-07-19 14:47:00+08:00"}
+    {"id": 742150, "brand": "cbanner_womens", "sales_year": 2025, "sales_date": "2025-10-01", "channel": "天猫", "style_code": "QT653891S30", "product_code": "QT653891S3030240", "original_sku": "QT653891S30", "size": "240", "color": null, "sales_quantity": 1, "sales_amount": "299.00", "source_workbook": "赫德货品表（千百度）7.15.xlsx", "source_sheet": "2025年销量", "source_row_number": 64113, "created_at": "2026-07-19 14:47:00+08:00"}
+
+====================================================================================================
+### jst_daily_sales 列定义
+====================================================================================================
+    id                             bigint
+    sales_date                     date
+    channel                        text
+    product_code                   text
+    style_code                     text
+    color_spec                     text
+    channel_code                   text
+    barcode                        text
+    order_type                     text
+    supplier                       text
+    supplier_style_code            text
+    product_name                   text
+    product_category               text
+    brand                          text
+    cost_price                     numeric(18,4)
+    shipped_order_count            integer
+    sales_order_count              integer
+    return_order_count             integer
+    sales_quantity                 integer
+    shipped_quantity               integer
+    return_quantity                integer
+    net_sales_quantity             integer
+    sales_amount                   numeric(18,2)
+    net_sales_amount               numeric(18,2)
+    cost_amount                    numeric(18,2)
+    gross_profit                   numeric(18,2)
+    source_workbook                text
+    source_sheet                   text
+    source_row_number              integer
+    raw_payload                    json
+    created_at                     timestamp with time zone
+    updated_at                     timestamp with time zone

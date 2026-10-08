@@ -4681,6 +4681,7 @@ def download_inventory_template(kind: str):
     names = {
         "purchase": "进货单", "purchase_return": "进货退货单",
         "sale": "销售单", "sale_return": "销售退货单", "accounting": "应收应付",
+        "stock_loss": "报损单", "stock_gain": "报溢单",
     }
     return _stream_excel_workbook(workbook, f"{names[kind]}通用导入模板.xlsx")
 

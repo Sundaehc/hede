@@ -5,6 +5,7 @@ import { ArrowLeft, Eye, LoaderCircle, Search, X } from "lucide-react"
 
 import { ApiError, getWarehouseInventory, listWarehouseInventoryMovements, type WarehouseInventoryItem, type WarehouseInventoryMovementItem, type WarehouseItem } from "@/lib/api"
 import { Button } from "@/components/ui/button"
+import { DateRangeControl } from "@/components/ui/date-range-control"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -197,14 +198,7 @@ export function WarehouseInventoryDialog({
           {showFilters && (
             <div className="rounded-lg border border-border bg-muted/20 p-3">
               <div className="flex flex-wrap items-end gap-3">
-                <div className="space-y-1.5">
-                  <Label className="text-xs text-muted-foreground">期间</Label>
-                  <div className="grid grid-cols-[minmax(8.75rem,1fr)_auto_minmax(8.75rem,1fr)] items-center gap-2">
-                    <input type="date" value={dateStart} max={dateEnd || undefined} onChange={(event) => setDateStart(event.target.value)} className="h-9 min-w-0 rounded-lg border border-input bg-card px-3 py-2 text-sm shadow-xs outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/35" />
-                    <span className="text-xs text-muted-foreground">至</span>
-                    <input type="date" value={dateEnd} min={dateStart || undefined} onChange={(event) => setDateEnd(event.target.value)} className="h-9 min-w-0 rounded-lg border border-input bg-card px-3 py-2 text-sm shadow-xs outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/35" />
-                  </div>
-                </div>
+                <DateRangeControl label="期间" start={dateStart} end={dateEnd} onStartChange={setDateStart} onEndChange={setDateEnd} />
                 <div className="space-y-1.5">
                   <Label className="text-xs text-muted-foreground">商品货号</Label>
                   <Input value={productCode} onChange={(event) => setProductCode(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") submitSearch() }} placeholder="输入商品货号" className="w-48" />

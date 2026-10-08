@@ -1,0 +1,112 @@
+====================================================================================================
+1) jst_aftersale_returns 全部分区（父表）
+====================================================================================================
+分区                                       行数    returned_qty合计
+jst_aftersale_returns               1517500           1518273
+jst_aftersale_returns_2024           601462            601619
+jst_aftersale_returns_2024_application_date_value_idx      ERR(psycopg.errors.WrongObjectType) cannot 
+jst_aftersale_returns_2024_coalesce_idx      ERR(psycopg.errors.WrongObjectType) cannot 
+jst_aftersale_returns_2024_coalesce_original_goods_code_idx      ERR(psycopg.errors.WrongObjectType) cannot 
+jst_aftersale_returns_2024_id_idx       ERR(psycopg.errors.WrongObjectType) cannot 
+jst_aftersale_returns_2024_order_date_value_idx      ERR(psycopg.errors.WrongObjectType) cannot 
+jst_aftersale_returns_2024_order_time_value_idx      ERR(psycopg.errors.WrongObjectType) cannot 
+jst_aftersale_returns_2024_original_goods_code_idx      ERR(psycopg.errors.WrongObjectType) cannot 
+jst_aftersale_returns_2025           557060            557425
+jst_aftersale_returns_2025_application_date_value_idx      ERR(psycopg.errors.WrongObjectType) cannot 
+jst_aftersale_returns_2025_coalesce_idx      ERR(psycopg.errors.WrongObjectType) cannot 
+jst_aftersale_returns_2025_coalesce_original_goods_code_idx      ERR(psycopg.errors.WrongObjectType) cannot 
+jst_aftersale_returns_2025_id_idx       ERR(psycopg.errors.WrongObjectType) cannot 
+jst_aftersale_returns_2025_order_date_value_idx      ERR(psycopg.errors.WrongObjectType) cannot 
+jst_aftersale_returns_2025_order_time_value_idx      ERR(psycopg.errors.WrongObjectType) cannot 
+jst_aftersale_returns_2025_original_goods_code_idx      ERR(psycopg.errors.WrongObjectType) cannot 
+jst_aftersale_returns_2026           358978            359229
+jst_aftersale_returns_2026_application_date_value_idx      ERR(psycopg.errors.WrongObjectType) cannot 
+jst_aftersale_returns_2026_coalesce_idx      ERR(psycopg.errors.WrongObjectType) cannot 
+jst_aftersale_returns_2026_coalesce_original_goods_code_idx      ERR(psycopg.errors.WrongObjectType) cannot 
+jst_aftersale_returns_2026_id_idx       ERR(psycopg.errors.WrongObjectType) cannot 
+jst_aftersale_returns_2026_order_date_value_idx      ERR(psycopg.errors.WrongObjectType) cannot 
+jst_aftersale_returns_2026_order_time_value_idx      ERR(psycopg.errors.WrongObjectType) cannot 
+jst_aftersale_returns_2026_original_goods_code_idx      ERR(psycopg.errors.WrongObjectType) cannot 
+jst_aftersale_returns_2027                0              None
+jst_aftersale_returns_2027_application_date_value_idx      ERR(psycopg.errors.WrongObjectType) cannot 
+jst_aftersale_returns_2027_coalesce_idx      ERR(psycopg.errors.WrongObjectType) cannot 
+jst_aftersale_returns_2027_coalesce_original_goods_code_idx      ERR(psycopg.errors.WrongObjectType) cannot 
+jst_aftersale_returns_2027_id_idx       ERR(psycopg.errors.WrongObjectType) cannot 
+jst_aftersale_returns_2027_order_date_value_idx      ERR(psycopg.errors.WrongObjectType) cannot 
+jst_aftersale_returns_2027_order_time_value_idx      ERR(psycopg.errors.WrongObjectType) cannot 
+jst_aftersale_returns_2027_original_goods_code_idx      ERR(psycopg.errors.WrongObjectType) cannot 
+jst_aftersale_returns_default             0              None
+jst_aftersale_returns_default_application_date_value_idx      ERR(psycopg.errors.WrongObjectType) cannot 
+jst_aftersale_returns_default_coalesce_idx      ERR(psycopg.errors.WrongObjectType) cannot 
+jst_aftersale_returns_default_coalesce_original_goods_code_idx      ERR(psycopg.errors.WrongObjectType) cannot 
+jst_aftersale_returns_default_id_idx      ERR(psycopg.errors.WrongObjectType) cannot 
+jst_aftersale_returns_default_order_date_value_idx      ERR(psycopg.errors.WrongObjectType) cannot 
+jst_aftersale_returns_default_order_time_value_idx      ERR(psycopg.errors.WrongObjectType) cannot 
+jst_aftersale_returns_default_original_goods_code_idx      ERR(psycopg.errors.WrongObjectType) cannot 
+jst_aftersale_returns_partition_id_seq      ERR(psycopg.errors.UndefinedColumn) 字段 "ret
+
+-- 该款式在父表上的各种口径 --
+精确等值 original_goods_code = 货号                行数=  21,499  sum(returned_qty)=    21,518
+  加 as_of_date<=2026-10-06                   行数=  21,499  sum(returned_qty)=    21,518
+前缀 starts_with(original_goods_code)          行数=  21,499  sum(returned_qty)=    21,518
+  加 as_of_date<=2026-10-06                   行数=  21,499  sum(returned_qty)=    21,518
+
+-- 按年份分布（prefix 匹配）--
+年              行数  returned_qty
+2025         2398          2398
+2026        19101         19120
+
+-- original_goods_code 明细（前 15 个，观察前缀匹配是否过宽）--
+   QT653891S30                    行数= 21,499  退货量=  21,518
+
+====================================================================================================
+2) 该款式的 SKU 列表（product_codes）
+====================================================================================================
+   jst_daily_sales: ('QT653891S3030225', 'QT653891S30')
+   jst_daily_sales: ('QT653891S3030230', 'QT653891S30')
+   jst_daily_sales: ('QT653891S3030235', 'QT653891S30')
+   jst_daily_sales: ('QT653891S3030240', 'QT653891S30')
+   jst_daily_sales: ('QT653891S3030245', 'QT653891S30')
+   jst_daily_sales: ('QT653891S3030250', 'QT653891S30')
+   vip_daily_sales: ('QT653891S30', 'QT653891S')
+
+====================================================================================================
+3) 2026 年逐月：数据库 vs 货品表 Excel
+====================================================================================================
+(Excel 的 monthly_sales: 26-2:2 26-3:85 26-4:5845 26-5:26884 26-6:17667 26-7:4834 26-8:203 26-9:30 26-10:1 = 55551)
+
+月份              jst净销量       jst退货     jst订单     vip销量
+2026-01              0           0         0         0
+2026-02              1           1         2         0
+2026-03             44          43        76        18
+2026-04            571       1,020     1,525       132
+2026-05          7,630      12,692    19,663     1,631
+2026-06          6,196      10,493    15,674       999
+2026-07          2,685       2,289     4,669       389
+2026-08            249           9       159        58
+2026-09             35           0        23         7
+2026-10              2           0         0         0
+
+-- product_goods_historical_sales_2025 逐月（数据库用来补 2025 的）--
+   2025-07: 8,973
+   2025-08: 297
+   2025-09: 15
+   2025-10: 4
+   2025-11: 1
+   2025-12: 2
+
+-- 是否存在 product_goods_historical_sales_2026 --
+    None
+
+====================================================================================================
+4) jst_daily_sales 全表口径校验（判断 return 列是否全局异常）
+====================================================================================================
+全表行数=1,248,238
+  sum(sales_quantity)      = 3,509,247
+  sum(shipped_quantity)    = 1,986,853
+  sum(return_quantity)     = 682,962
+  sum(net_sales_quantity)  = 2,826,285
+  sum(return_order_count)  = 434,117
+  sum(sales_order_count)   = 1,414,837
+  校验 net == sales - return ? 2826285 == 3509247 - 682962 = 2826285
+  全表 return>sales 行数 = 6,466 ; net <> sales-return 行数 = 0

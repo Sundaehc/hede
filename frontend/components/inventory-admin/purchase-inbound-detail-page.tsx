@@ -9,6 +9,7 @@ import { OperationLogDialog } from "@/components/operation-log-dialog"
 import { SearchableFilterInput, SearchableMultiFilterInput, type SearchableFilterOption } from "@/components/inventory-admin/searchable-filter-input"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { DateRangeControl } from "@/components/ui/date-range-control"
 import {
   Pagination,
   PaginationContent,
@@ -271,14 +272,7 @@ export function PurchaseInboundDetailPage() {
 
         <div className="rounded-lg border border-border bg-card px-4 py-3 shadow-xs">
           <div className="grid items-end gap-x-3 gap-y-2.5 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
-            <div className={FILTER_FIELD_CLASS_NAME}>
-              <Label className={FILTER_LABEL_CLASS_NAME}>开始日期</Label>
-              <Input className={FILTER_CONTROL_CLASS_NAME} type="date" value={dateStart} max={dateEnd || undefined} onChange={(event) => setDateStart(event.target.value)} />
-            </div>
-            <div className={FILTER_FIELD_CLASS_NAME}>
-              <Label className={FILTER_LABEL_CLASS_NAME}>结束日期</Label>
-              <Input className={FILTER_CONTROL_CLASS_NAME} type="date" value={dateEnd} min={dateStart || undefined} onChange={(event) => setDateEnd(event.target.value)} />
-            </div>
+            <DateRangeControl className="md:col-span-2 lg:col-span-3 xl:col-span-5" start={dateStart} end={dateEnd} onStartChange={setDateStart} onEndChange={setDateEnd} />
             <div className={FILTER_FIELD_CLASS_NAME}>
               <Label className={FILTER_LABEL_CLASS_NAME}>单据类型</Label>
               <Select className={FILTER_CONTROL_CLASS_NAME} value={documentType} onChange={(event) => setDocumentType(event.target.value)}>

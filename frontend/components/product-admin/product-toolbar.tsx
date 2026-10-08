@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react"
 import { FileDown, History, ImagePlus, Trash2 } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
+import { DateRangeControl } from "@/components/ui/date-range-control"
 import { Label } from "@/components/ui/label"
 import { type ProductArchiveBrandKey } from "@/lib/brands"
 import { assertProductExportAllowed, downloadProductExport, downloadProductImportTemplate, getProductImageRefreshStatus, importProducts, refreshProductImages, type ProductExportMode, type ProductExportProgress } from "@/lib/api"
@@ -355,29 +356,7 @@ export function ProductToolbar({
                 </Button>
               ) : null}
               <div className="flex flex-wrap items-center gap-1.5">
-                <Label htmlFor="product-activity-export-date-start" className="whitespace-nowrap text-xs text-muted-foreground">导出时间段</Label>
-                <input
-                  id="product-activity-export-date-start"
-                  type="date"
-                  value={activityDateStart}
-                  max={activityDateEnd && activityDateEnd < currentDate ? activityDateEnd : currentDate}
-                  aria-label="导出开始日期"
-                  onChange={(event) => setActivityDateStart(event.target.value)}
-                  disabled={isLoading || exporting}
-                  className="h-8 cursor-pointer rounded-md border border-input bg-card px-2 text-xs shadow-xs outline-none transition-colors focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/35 disabled:cursor-not-allowed disabled:opacity-50"
-                />
-                <span className="text-xs text-muted-foreground">至</span>
-                <input
-                  id="product-activity-export-date-end"
-                  type="date"
-                  value={activityDateEnd}
-                  min={activityDateStart || undefined}
-                  max={currentDate}
-                  aria-label="导出结束日期"
-                  onChange={(event) => setActivityDateEnd(event.target.value)}
-                  disabled={isLoading || exporting}
-                  className="h-8 cursor-pointer rounded-md border border-input bg-card px-2 text-xs shadow-xs outline-none transition-colors focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/35 disabled:cursor-not-allowed disabled:opacity-50"
-                />
+                <DateRangeControl label="导出时间段" start={activityDateStart} end={activityDateEnd} onStartChange={setActivityDateStart} onEndChange={setActivityDateEnd} maxDate={currentDate} disabled={isLoading || exporting} />
                 <Button type="button" variant="outline" size="sm" onClick={() => void handleExport(undefined, activityDateStart, activityDateEnd)} disabled={isLoading || exporting || !activityDateStart || !activityDateEnd} className="cursor-pointer">
                   {activityExportLabel}
                 </Button>

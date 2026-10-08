@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react"
 import { ChevronLeft, ChevronRight, Download, Edit, History, Plus, Search, Trash2, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { DateRangeControl } from "@/components/ui/date-range-control"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
@@ -338,14 +339,7 @@ export default function SuppliersPage() {
             />
           </div>
           <div className="flex flex-wrap items-end gap-2">
-            <div className="min-w-[160px] flex-1 space-y-1 sm:max-w-[210px]">
-              <Label htmlFor="supplier-date-start">起始日期</Label>
-              <Input id="supplier-date-start" type="date" value={dateStartInput} onChange={(event) => setDateStartInput(event.target.value)} />
-            </div>
-            <div className="min-w-[160px] flex-1 space-y-1 sm:max-w-[210px]">
-              <Label htmlFor="supplier-date-end">截止日期</Label>
-              <Input id="supplier-date-end" type="date" value={dateEndInput} onChange={(event) => setDateEndInput(event.target.value)} />
-            </div>
+            <DateRangeControl start={dateStartInput} end={dateEndInput} onStartChange={setDateStartInput} onEndChange={setDateEndInput} />
             <Button type="submit" disabled={isLoading}>
               查询
             </Button>

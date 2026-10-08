@@ -38,7 +38,7 @@ from domain.product_goods_detail_snapshot_schema import (
 )
 from domain.gj_schema import GJ_MERGED_PRODUCT_INFO_TABLE
 from domain.schema import PRODUCT_TABLES
-from domain.vip_schema import JST_SIZE_STOCK_TABLE, JST_STOCK_SUMMARY_TABLE
+from domain.vip_schema import JST_AFTERSALE_RETURN_TABLE, JST_SIZE_STOCK_TABLE, JST_STOCK_SUMMARY_TABLE
 from domain.daily_sales_schema import jst_daily_sales_table_for_year, vip_daily_sales_table_for_year
 from domain.factory_channel_sales import (
     channel_group as factory_channel_group,
@@ -1873,6 +1873,33 @@ def _resolve_jst_product_code(
     return unique_style_codes.get(str(style_code or "").strip())
 
 
+def _aftersale_return_quantities(connection, product_codes: list[str], *, as_of_date: date | None = None) -> dict[str, int]:
+    if not product_codes or not inspect(connection).has_table(JST_AFTERSALE_RETURN_TABLE.name):
+        return {}
+    product_codes = sorted(set(product_codes), key=len, reverse=True)
+    table = JST_AFTERSALE_RETURN_TABLE
+    business_date = func.coalesce(
+        table.c.application_date_value,
+        table.c.order_date_value,
+        table.c.order_time_value,
+    )
+    rows = connection.execute(
+        select(
+            table.c.original_goods_code,
+            func.sum(table.c.returned_qty).label("quantity"),
+        )
+        .where(or_(*(table.c.original_goods_code.startswith(code) for code in product_codes)))
+        .where(business_date <= (as_of_date or date.today()))
+        .group_by(table.c.original_goods_code)
+    ).mappings()
+    quantities: dict[str, int] = defaultdict(int)
+    for row in rows:
+        code = _resolve_jst_product_code(row["original_goods_code"], None, product_codes, {})
+        if code is not None:
+            quantities[code] += int(row["quantity"] or 0)
+    return dict(quantities)
+
+
 def _historical_order_targets(
     original_sku: object,
     product_codes: list[str],
@@ -1978,7 +2005,6 @@ def _sales_matrix_payload(
     summary_by_sku: dict[str, dict[str, int | None]] = defaultdict(lambda: {
         "total_order_count": 0,
         "total_sales": 0,
-        "return_qty": 0,
         "yesterday_sales": None,
         "previous_day_sales": None,
         "normal_shelf_sales": 0,
@@ -2001,7 +2027,6 @@ def _sales_matrix_payload(
         quantity: int,
         *,
         order_count: int = 0,
-        return_quantity: int = 0,
         platform: str,
         is_clearance: bool = False,
         size: str | None = None,
@@ -2009,7 +2034,6 @@ def _sales_matrix_payload(
         summary = summary_by_sku[code]
         summary["total_order_count"] = int(summary["total_order_count"] or 0) + order_count
         summary["total_sales"] = int(summary["total_sales"] or 0) + quantity
-        summary["return_qty"] = int(summary["return_qty"] or 0) + return_quantity
         if day.year == 2024:
             summary["sales_2024"] = int(summary["sales_2024"] or 0) + quantity
         if day.year == 2025:
@@ -2078,7 +2102,6 @@ def _sales_matrix_payload(
                 table.c.product_code, table.c.style_code, table.c.sales_date, table.c.channel, table.c.color_spec,
                 func.sum(func.coalesce(table.c.net_sales_quantity, 0)).label("quantity"),
                 func.sum(func.coalesce(table.c.sales_order_count, 0)).label("order_count"),
-                func.sum(func.coalesce(table.c.return_quantity, 0)).label("return_quantity"),
             )
             .where(or_(*code_conditions))
             .where(table.c.sales_date <= latest)
@@ -2099,7 +2122,6 @@ def _sales_matrix_payload(
                 day,
                 quantity,
                 order_count=int(row["order_count"] or 0),
-                return_quantity=int(row["return_quantity"] or 0),
                 platform=platform,
                 is_clearance=_is_clearance_channel(row["channel"], platform),
                 size=_size_from_color_spec(row["color_spec"]),
@@ -3160,7 +3182,7 @@ def list_product_goods(
     normalized_snapshot_date = snapshot_date.isoformat() if snapshot_date else ""
     parsed_filters = _parse_product_goods_filters(filters)
     normalized_filters = tuple(sorted((item.field, item.operator, item.value or "", tuple(sorted(item.values or []))) for item in parsed_filters))
-    cache_key = (brand, view, "style-summary-v4" if view == "style_summary" else "shortage-risk-v3" if view == "shortage_risk" else "goods-v3", normalized_query, normalized_platform, normalized_year, normalized_filters, normalized_snapshot_date, page, page_size)
+    cache_key = (brand, view, "style-summary-v5" if view == "style_summary" else "shortage-risk-v4" if view == "shortage_risk" else "goods-v4", normalized_query, normalized_platform, normalized_year, normalized_filters, normalized_snapshot_date, page, page_size)
     if not cache_bust:
         cached = get_product_goods_cache(cache_key)
         if cached is not None:
@@ -3288,6 +3310,7 @@ def list_product_goods(
             for row in rows
             if str(row.get("sku") or "").strip()
         }
+        return_quantities = _aftersale_return_quantities(connection, product_codes, as_of_date=snapshot_date)
         detail_snapshots = _detail_snapshot_payload(
             connection,
             product_codes,
@@ -3483,7 +3506,7 @@ def list_product_goods(
             "total_sales": sales.get("total_sales"),
             "stock_plus_purchase": stock_total,
             "in_transit_total": in_transit_total,
-            "return_qty": sales.get("return_qty"),
+            "return_qty": return_quantities.get(sku, 0),
             "expected_replenishment_stock": expected_replenishment_stock,
             "post_replenishment_stock": post_replenishment_stock,
             "post_replenishment_turnover_days": post_replenishment_turnover_days,
@@ -3512,6 +3535,7 @@ def list_product_goods(
             "month_sales": sales.get("month_sales"),
         }
         metrics.update(snapshot_metrics)
+        metrics["return_qty"] = return_quantities.get(sku, 0)
         if view != "shortage_risk" and has_daily_sales_source:
             metrics["month_sales"] = sales.get("month_sales", 0)
         items.append({

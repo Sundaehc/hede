@@ -7,11 +7,11 @@ from unittest.mock import AsyncMock, Mock
 
 import pytest
 from fastapi import HTTPException, UploadFile
-from openpyxl import Workbook
+from openpyxl import Workbook, load_workbook
 from sqlalchemy import create_engine, event, select
 
 from domain.inventory_template_import import TEMPLATE_HEADERS, TemplateDocument, read_template_documents
-from domain.inventory_schema import GENERAL_CUSTOMER_SHOP_TABLE, GENERAL_CUSTOMER_UNIT_TABLE, INVENTORY_ACCOUNT_SUBJECT_TABLE, INVENTORY_DETAIL_TABLE, INVENTORY_TABLE, SUPPLIER_TABLE, WAREHOUSE_TABLE
+from domain.inventory_schema import GENERAL_CUSTOMER_SHOP_TABLE, GENERAL_CUSTOMER_UNIT_TABLE, INVENTORY_ACCOUNT_SUBJECT_TABLE, INVENTORY_DETAIL_TABLE, INVENTORY_TABLE, SUPPLIER_TABLE, WAREHOUSE_BRAND_TABLE, WAREHOUSE_TABLE
 from api.routes import inventory as inventory_routes
 from storage.inventory_repository import InventoryRepository
 
@@ -43,13 +43,144 @@ def _seed_template_purchase_master_data(engine):
 
 
 def test_all_downloadable_templates_omit_document_number_and_system_code():
-    assert len(TEMPLATE_HEADERS) == 5
+    assert len(TEMPLATE_HEADERS) == 7
     assert all("单据编号" not in headers and "系统码" not in headers for headers in TEMPLATE_HEADERS.values())
     assert "商品编码" in TEMPLATE_HEADERS["sale"]
     assert "商品编码" in TEMPLATE_HEADERS["sale_return"]
     assert {headers[0] for headers in TEMPLATE_HEADERS.values()} == {"日期"}
-    assert {headers[2] for headers in TEMPLATE_HEADERS.values()} == {"单位全名", "经手人"}
+    assert {headers[2] for headers in TEMPLATE_HEADERS.values()} == {"单位全名", "经手人", "仓库全名"}
+    assert TEMPLATE_HEADERS["stock_loss"] == TEMPLATE_HEADERS["stock_gain"] == (
+        "日期", "单据类型", "仓库全名", "经手人", "摘要", "商品编码", "数量",
+    )
     assert all("数量" in headers for headers in TEMPLATE_HEADERS.values() if headers[-1] == "单价")
+
+
+@pytest.mark.parametrize("kind, document_type", [
+    ("stock_loss", "报损单"),
+    ("stock_gain", "报溢单"),
+])
+def test_stock_adjustment_template_download_and_read(kind, document_type):
+    response = inventory_routes.download_inventory_template(kind)
+
+    async def read_content():
+        return b"".join([chunk async for chunk in response.body_iterator])
+
+    workbook = load_workbook(BytesIO(asyncio.run(read_content())), read_only=True)
+    try:
+        assert tuple(cell.value for cell in workbook.active[1]) == TEMPLATE_HEADERS[kind]
+    finally:
+        workbook.close()
+
+    content = _workbook(TEMPLATE_HEADERS[kind], [
+        [date(2025, 4, 30), document_type, "NI仙岩仓库", "陈章瑜", "月末调整", "NI24Q1A02020139", 2],
+        [date(2025, 4, 30), document_type, "NI仙岩仓库", "陈章瑜", "月末调整", "NI24Q1A02020436", 1],
+    ])
+    parsed_kind, _, documents = read_template_documents(content)
+    assert parsed_kind == kind
+    assert len(documents) == 1
+    assert (documents[0].date, documents[0].document_type, documents[0].supplier) == (
+        "2025-04-30", document_type, "",
+    )
+    assert documents[0].warehouse == "NI仙岩仓库"
+    assert documents[0].rows == [
+        {"product_code": "NI24Q1A02020139", "quantity": "2", "unit_price": ""},
+        {"product_code": "NI24Q1A02020436", "quantity": "1", "unit_price": ""},
+    ]
+
+
+@pytest.mark.parametrize("kind, document_type", [
+    ("stock_loss", "报损单"),
+    ("stock_gain", "报溢单"),
+])
+def test_stock_adjustment_template_rejects_wrong_document_type(kind, document_type):
+    wrong_type = "报溢单" if document_type == "报损单" else "报损单"
+    content = _workbook(TEMPLATE_HEADERS[kind], [
+        ["2025-04-30", document_type, "NI仙岩仓库", "陈章瑜", "月末调整", "NI24Q1A02020139", 2],
+        ["2025-04-30", wrong_type, "NI仙岩仓库", "陈章瑜", "月末调整", "NI24Q1A02020436", 1],
+    ])
+    with pytest.raises(HTTPException, match="单据类型与模板不匹配"):
+        read_template_documents(content)
+
+
+@pytest.mark.parametrize("kind, document_type", [
+    ("stock_loss", "报损单"),
+    ("stock_gain", "报溢单"),
+])
+def test_stock_adjustment_template_preview_needs_warehouse_but_no_supplier(kind, document_type):
+    content = _workbook(TEMPLATE_HEADERS[kind], [
+        ["2025-04-30", document_type, "NI仙岩仓库", "陈章瑜", "月末调整", "NI24Q1A02020139", 2],
+    ])
+    repository = Mock(spec=InventoryRepository)
+    repository.list_warehouses.return_value = [{"name": "NI仙岩仓库"}]
+    repository.get_warehouse_by_name.return_value = {"name": "NI仙岩仓库", "brand": "ni"}
+    repository.preview_template_documents.return_value = {"total": 1, "conflicts": []}
+    request = SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace(inventory_repository=repository)))
+
+    preview = asyncio.run(inventory_routes.preview_inventory_template(
+        request, UploadFile(filename="调整.xlsx", file=BytesIO(content)),
+    ))
+    assert preview["kind"] == kind
+    assert preview["brand_by_key"]
+    repository.list_suppliers.assert_not_called()
+
+    repository.list_warehouses.return_value = []
+    with pytest.raises(HTTPException, match="仓库"):
+        asyncio.run(inventory_routes.preview_inventory_template(
+            request, UploadFile(filename="调整.xlsx", file=BytesIO(content)),
+        ))
+
+
+@pytest.mark.parametrize("kind, document_type", [
+    ("stock_loss", "报损单"),
+    ("stock_gain", "报溢单"),
+])
+def test_stock_adjustment_template_import_creates_document_without_supplier(kind, document_type, monkeypatch):
+    content = _workbook(TEMPLATE_HEADERS[kind], [
+        ["2025-04-30", document_type, "NI仙岩仓库", "陈章瑜", "月末调整", "NI24Q1A02020139", 2],
+    ])
+    engine = create_engine("sqlite://")
+    event.listen(engine, "connect", lambda connection, _record: connection.create_function(
+        "date_trunc", 2, lambda _unit, value: value,
+    ))
+    INVENTORY_TABLE.create(engine)
+    INVENTORY_DETAIL_TABLE.create(engine)
+    WAREHOUSE_BRAND_TABLE.create(engine)
+    WAREHOUSE_TABLE.create(engine)
+    with engine.begin() as connection:
+        connection.execute(WAREHOUSE_TABLE.insert().values(id=1, name="NI仙岩仓库", brand="ni"))
+    repository = object.__new__(InventoryRepository)
+    repository.engine = engine
+    repository._prepare_record = lambda record: {**InventoryRepository._prepare_record(record), "id": 1}
+    build_details = Mock(return_value=[
+        {"id": 1, "product_code": "NI24Q1A020201", "quantity": 2, "unit_price": 10, "amount": 20},
+    ])
+    monkeypatch.setattr(inventory_routes, "_build_purchase_details_from_rows", build_details)
+    monkeypatch.setattr(inventory_routes, "write_operation_log", lambda *_args, **_kwargs: None)
+    request = SimpleNamespace(
+        app=SimpleNamespace(state=SimpleNamespace(inventory_repository=repository)),
+        form=AsyncMock(return_value={"decisions": "{}"}),
+    )
+    try:
+        result = asyncio.run(inventory_routes.import_inventory_template(
+            request, UploadFile(filename="调整.xlsx", file=BytesIO(content)),
+        ))
+        with engine.connect() as connection:
+            record = connection.execute(select(INVENTORY_TABLE)).mappings().one()
+            detail = connection.execute(select(INVENTORY_DETAIL_TABLE)).mappings().one()
+        assert (result["created"], result["details"]) == (1, 1)
+        assert record["document_type"] == document_type
+        assert record["supplier"] is None
+        assert record["warehouse"] == "NI仙岩仓库"
+        assert record["raw_payload"]["brand"] == "ni"
+        assert record["total_count"] == 2
+        assert record["amount"] == 20
+        assert detail["product_code"] == "NI24Q1A020201"
+        assert build_details.call_args.args[1] == [
+            {"product_code": "NI24Q1A02020139", "quantity": "2", "unit_price": ""},
+        ]
+        assert build_details.call_args.kwargs["brand"] == "ni"
+    finally:
+        engine.dispose()
 
 
 def test_read_legacy_template_headers_are_still_supported():

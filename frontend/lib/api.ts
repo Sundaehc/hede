@@ -2138,7 +2138,7 @@ export function previewPurchaseInventory(payload: PurchaseImportPayload): Promis
   return submitPurchaseInventory({ ...payload, preview: true }) as Promise<PurchaseImportPreview>
 }
 
-export type InventoryTemplateKind = "purchase" | "purchase_return" | "sale" | "sale_return" | "accounting"
+export type InventoryTemplateKind = "purchase" | "purchase_return" | "sale" | "sale_return" | "stock_loss" | "stock_gain" | "accounting"
 
 export type InventoryTemplateConflict = {
   key: string
