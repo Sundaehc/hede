@@ -34,7 +34,7 @@ from api.operation_log_utils import (
     write_operation_log,
 )
 from domain.color_barcode_schema import COLOR_BARCODE_TABLE
-from domain.gj_brand import CBANNER_MENS_BRAND, CBANNER_WOMENS_BRAND, EBLAN_BRAND, NI_BRAND, SMILEY_BRAND, SUPPLIER_BRANDS, YANDOU_BRAND, infer_supplier_brand_from_name
+from domain.gj_brand import CBANNER_MENS_BRAND, CBANNER_WOMENS_BRAND, EBLAN_BRAND, EBLAN_WOMENS_SUPPLIER_BRAND, NI_BRAND, SMILEY_BRAND, SUPPLIER_BRANDS, YANDOU_BRAND, infer_supplier_brand_from_name
 from domain.gj_schema import GJ_MERGED_PRODUCT_INFO_TABLE
 from domain.inventory_schema import SUPPLIER_BRAND_TABLE, SUPPLIER_TABLE
 from domain.inventory_template_import import TEMPLATE_HEADERS, read_template_documents
@@ -59,6 +59,16 @@ from domain.size_group_schema import SIZE_GROUP_ITEMS_TABLE, SIZE_GROUPS_TABLE
 from domain.vip_schema import JST_PRICE_TABLE
 
 router = APIRouter()
+
+
+def _query_values(value: object) -> list[str]:
+    if value is None:
+        return []
+    if isinstance(value, str):
+        return [value]
+    if isinstance(value, (list, tuple, set)):
+        return [str(item) for item in value]
+    return []
 
 
 def _normalize_product_archive_brand(brand: object) -> str:
@@ -1407,6 +1417,8 @@ def _purchase_size_export_product_code(
 def _purchase_record_brand(record: dict[str, object]) -> str:
     raw_payload = _dict_or_empty(record.get("raw_payload"))
     brand = _cell_text(raw_payload.get("brand")).lower()
+    if brand == EBLAN_WOMENS_SUPPLIER_BRAND:
+        return EBLAN_BRAND
     if brand:
         return brand
 
@@ -1586,6 +1598,8 @@ def _purchase_record_export_context(
     supplier_name = _cell_text(record.get("supplier"))
     supplier_context = _supplier_export_context(record, supplier_lookup)
     brand = supplier_context.get("brand") or _purchase_record_brand(record)
+    if brand == EBLAN_WOMENS_SUPPLIER_BRAND:
+        brand = EBLAN_BRAND
     return {
         "document_type": _cell_text(record.get("document_type")),
         "document_number": _first_text(record.get("document_number"), record.get("id")),
@@ -4011,10 +4025,14 @@ def _infer_inventory_template_brand(repository, supplier: object, warehouse: obj
     if supplier_name:
         supplier_record = repository.get_supplier_by_name(supplier_name)
         supplier_brand = _cell_text(supplier_record.get("brand") if supplier_record else "").lower()
+        if supplier_brand == EBLAN_WOMENS_SUPPLIER_BRAND:
+            return EBLAN_BRAND, "往来单位档案"
         if supplier_brand in SUPPLIER_BRANDS:
             return supplier_brand, "往来单位档案"
         inferred_brand = infer_supplier_brand_from_name(supplier_brand) or infer_supplier_brand_from_name(supplier_name)
         if inferred_brand:
+            if inferred_brand == EBLAN_WOMENS_SUPPLIER_BRAND:
+                inferred_brand = EBLAN_BRAND
             return inferred_brand, "往来单位名称"
 
     warehouse_name = _cell_text(warehouse)
@@ -4160,8 +4178,12 @@ def list_inventory(
     date_start: str | None = None,
     date_end: str | None = None,
     supplier: str | None = None,
+    suppliers: list[str] | None = Query(None),
+    brands: list[str] | None = Query(None),
     warehouse: str | None = None,
+    warehouses: list[str] | None = Query(None),
     document_type: str | None = None,
+    document_types: list[str] | None = Query(None),
     exclude_document_type: str | None = None,
     document_number: str | None = None,
     summary: str | None = None,
@@ -4179,6 +4201,14 @@ def list_inventory(
     repository = request.app.state.inventory_repository
     document_type = normalize_document_type(document_type) if document_type else None
     exclude_document_type = normalize_document_type(exclude_document_type) if exclude_document_type else None
+    normalized_suppliers = _query_values(suppliers)
+    normalized_brands = _query_values(brands)
+    normalized_warehouses = _query_values(warehouses)
+    normalized_document_types = list(dict.fromkeys(
+        normalize_document_type(value)
+        for value in _query_values(document_types)
+        if str(value or "").strip()
+    ))
     sort_rules: list[tuple[str, str]] = []
     for raw_rule in sort or []:
         key, separator, direction = str(raw_rule).partition(":")
@@ -4193,7 +4223,7 @@ def list_inventory(
     should_expand_purchase_details = bool(
         normalized_purchase_detail_mode
         and product_code
-        and document_type == "进货订单"
+        and (document_type == "进货订单" or normalized_document_types == ["进货订单"])
     )
     if should_expand_purchase_details:
         list_page = 1
@@ -4203,8 +4233,12 @@ def list_inventory(
         date_start=date_start,
         date_end=date_end,
         supplier=supplier,
+        suppliers=normalized_suppliers,
+        brands=normalized_brands,
         warehouse=warehouse,
+        warehouses=normalized_warehouses,
         document_type=document_type,
+        document_types=normalized_document_types,
         exclude_document_type=exclude_document_type,
         document_number=document_number,
         summary=summary,
@@ -4399,8 +4433,12 @@ def export_inventory(
     date_start: str | None = None,
     date_end: str | None = None,
     supplier: str | None = None,
+    suppliers: list[str] | None = Query(None),
+    brands: list[str] | None = Query(None),
     warehouse: str | None = None,
+    warehouses: list[str] | None = Query(None),
     document_type: str | None = None,
+    document_types: list[str] | None = Query(None),
     exclude_document_type: str | None = None,
     document_number: str | None = None,
     summary: str | None = None,
@@ -4413,6 +4451,14 @@ def export_inventory(
     repository = request.app.state.inventory_repository
     document_type = normalize_document_type(document_type) if document_type else None
     exclude_document_type = normalize_document_type(exclude_document_type) if exclude_document_type else None
+    normalized_suppliers = _query_values(suppliers)
+    normalized_brands = _query_values(brands)
+    normalized_warehouses = _query_values(warehouses)
+    normalized_document_types = list(dict.fromkeys(
+        normalize_document_type(value)
+        for value in _query_values(document_types)
+        if str(value or "").strip()
+    ))
     selected_ids: set[int] | None = None
     if ids:
         selected_ids = set()
@@ -4430,8 +4476,12 @@ def export_inventory(
         date_start=date_start,
         date_end=date_end,
         supplier=supplier,
+        suppliers=normalized_suppliers,
+        brands=normalized_brands,
         warehouse=warehouse,
+        warehouses=normalized_warehouses,
         document_type=document_type,
+        document_types=normalized_document_types,
         exclude_document_type=exclude_document_type,
         document_number=document_number,
         summary=summary,

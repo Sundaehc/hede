@@ -315,6 +315,7 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
   const [isReplacing, setIsReplacing] = useState(false)
 
   const [formOpen, setFormOpen] = useState(false)
+  const [formError, setFormError] = useState("")
   const [formMode, setFormMode] = useState<"create" | "edit">("create")
   const [formData, setFormData] = useState<Record<string, string>>({ ...EMPTY_DETAIL })
   const [sizeQuantities, setSizeQuantities] = useState<Record<string, string>>({})
@@ -548,6 +549,7 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
   }
 
   const openCreate = () => {
+    setFormError("")
     setFormMode("create")
     setFormData({ ...EMPTY_DETAIL })
     setSizeQuantities({})
@@ -563,6 +565,7 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
   }
 
   const openEdit = (item: InventoryDetail) => {
+    setFormError("")
     setFormMode("edit")
     setEditingId(item.id)
     setFormData({
@@ -576,7 +579,7 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
       ...(item.extra_fields || {}),
       quantity: item.quantity || "",
       unit_price: item.unit_price || "",
-      amount: item.amount || "",
+      amount: String(item.amount ?? ""),
       remark: item.remark || "",
     })
     const detailSizeColumns = getPurchaseDetailSizeColumns(item)
@@ -638,13 +641,17 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
   }
 
   const handleSave = async () => {
-    if (!documentId) return
+    setFormError("")
+    if (!documentId || (formMode === "edit" && editingId === null)) {
+      setFormError("单据或明细不存在，请刷新后重试")
+      return
+    }
     if (isAccountingDocument && (!formData.product_name?.trim() || !formData.amount?.trim())) {
-      showMessage("保存失败", "请填写科目和金额")
+      setFormError("请填写科目和金额")
       return
     }
     if (isPurchaseOrder && (formData.remark || "").length > 20) {
-      showMessage("保存失败", "商品备注最多 20 个字")
+      setFormError("商品备注最多 20 个字")
       return
     }
     setIsSaving(true)
@@ -671,13 +678,14 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
       await load()
       onTotalChanged()
     } catch (e) {
-      showMessage("保存失败", getErrorMessage(e))
+      setFormError(getErrorMessage(e))
     } finally {
       setIsSaving(false)
     }
   }
 
   const handleSubjectSelect = (subjectName: string) => {
+    setFormError("")
     setFormData((prev) => ({
       ...prev,
       product_name: subjectName,
@@ -1443,7 +1451,7 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
                   )}
                   <td className="sticky right-0 z-10 border-l border-border bg-background px-4 py-2.5 shadow-[-5px_0_10px_-9px_rgb(0_0_0_/_0.45)] transition-colors group-hover:bg-muted">
                     <div className="flex items-center gap-0.5">
-                      <Button variant="ghost" size="icon" onClick={() => openEdit(item)} className="h-8 w-8 cursor-pointer">
+                      <Button variant="ghost" size="icon" onClick={() => openEdit(item)} aria-label="编辑明细" className="h-8 w-8 cursor-pointer">
                         <Edit className="h-3.5 w-3.5" />
                       </Button>
                       <Button variant="ghost" size="icon" onClick={() => setDeleteTarget(item)} className="h-8 w-8 cursor-pointer">
@@ -1898,6 +1906,7 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
               </>
             )}
           </div>
+          {formError && <p role="alert" className="text-sm text-destructive">保存失败：{formError}</p>}
           <DialogFooter>
             <Button variant="outline" onClick={() => setFormOpen(false)} disabled={isSaving} className="cursor-pointer">取消</Button>
             <Button onClick={handleSave} disabled={isSaving || isLookupLoading} className="cursor-pointer">

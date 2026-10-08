@@ -6,6 +6,7 @@ CBANNER_MENS_BRAND = "cbanner_mens"
 CBANNER_WOMENS_BRAND = "cbanner_womens"
 YANDOU_BRAND = "yandou"
 EBLAN_BRAND = "eblan"
+EBLAN_WOMENS_SUPPLIER_BRAND = "eblan_womens"
 SMILEY_BRAND = "smiley"
 NI_BRAND = "ni"
 
@@ -37,7 +38,8 @@ def infer_gj_fine_table_brand(row: dict[str, object]) -> str | None:
     if "EBLAN" in brand_upper or "伊伴" in brand:
         return EBLAN_BRAND
 
-    return infer_supplier_brand_from_name(supplier)
+    inferred_brand = infer_supplier_brand_from_name(supplier)
+    return EBLAN_BRAND if inferred_brand == EBLAN_WOMENS_SUPPLIER_BRAND else inferred_brand
 
 
 def infer_supplier_brand_from_name(name: object) -> str | None:
@@ -50,6 +52,8 @@ def infer_supplier_brand_from_name(name: object) -> str | None:
     if "TRUMPPIPE" in supplier_upper or "烟斗" in supplier:
         return YANDOU_BRAND
     if "EBLAN" in supplier_upper or "伊伴" in supplier:
+        if any(marker in supplier for marker in ("女鞋", "女靴", "女士", "女款")):
+            return EBLAN_WOMENS_SUPPLIER_BRAND
         return EBLAN_BRAND
     if "千百度品牌方" in supplier:
         return None

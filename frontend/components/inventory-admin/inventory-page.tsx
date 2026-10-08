@@ -345,6 +345,12 @@ function inventoryBrandLabel(brand: string | null | undefined) {
   return INVENTORY_BRAND_LABELS[normalizedBrand] || normalizedBrand
 }
 
+function supplierBrandLabel(brand: string) {
+  if (brand === "eblan") return "伊伴男鞋"
+  if (brand === "eblan_womens") return "伊伴女鞋"
+  return inventoryBrandLabel(brand)
+}
+
 function formatDeletedAt(value: string | null) {
   if (!value) return "-"
   const date = new Date(value)
@@ -435,7 +441,7 @@ function inferImportBrand(documentType: string, supplierName: string, suppliers:
   if (/(^|[（(\s])NI($|[）)\s])/i.test(normalizedName)) return "ni"
   if (normalizedName.includes("笑脸")) return "smiley"
   const supplier = suppliers.find((item) => item.name === supplierName)
-  if (supplier?.brand) return supplier.brand
+  if (supplier?.brand) return supplier.brand === "eblan_womens" ? "eblan" : supplier.brand
   return "cbanner_mens"
 }
 
@@ -711,21 +717,37 @@ type InventoryPageProps = {
   mode?: "inventory" | "purchase-orders"
 }
 
+type InventorySubmittedFilters = {
+  date_start?: string
+  date_end?: string
+  brands?: string[]
+  suppliers?: string[]
+  warehouses?: string[]
+  document_types?: string[]
+  document_type?: string
+  document_number?: string
+  summary?: string
+  original_sku?: string
+  product_code?: string
+  handler?: string
+}
+
 export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
   const { user } = useAuth()
   const isPurchasePage = mode === "purchase-orders"
   const accountHandler = user?.display_name || user?.username || ""
   const [searchDateStart, setSearchDateStart] = useState("")
   const [searchDateEnd, setSearchDateEnd] = useState("")
-  const [searchSupplier, setSearchSupplier] = useState("")
-  const [searchWarehouse, setSearchWarehouse] = useState("")
-  const [searchDocumentType, setSearchDocumentType] = useState("")
+  const [searchBrands, setSearchBrands] = useState<string[]>([])
+  const [searchSuppliers, setSearchSuppliers] = useState<string[]>([])
+  const [searchWarehouses, setSearchWarehouses] = useState<string[]>([])
+  const [searchDocumentTypes, setSearchDocumentTypes] = useState<string[]>([])
   const [searchDocumentNumber, setSearchDocumentNumber] = useState("")
   const [searchSummary, setSearchSummary] = useState("")
   const [searchOriginalSku, setSearchOriginalSku] = useState("")
   const [searchProductCode, setSearchProductCode] = useState("")
   const [searchHandler, setSearchHandler] = useState("")
-  const [submittedFilters, setSubmittedFilters] = useState<Record<string, string>>({})
+  const [submittedFilters, setSubmittedFilters] = useState<InventorySubmittedFilters>({})
   const [purchaseDetailView, setPurchaseDetailView] = useState<PurchaseDetailView>("summary")
 
   const [supplierOptions, setSupplierOptions] = useState<SupplierItem[]>([])
@@ -742,6 +764,10 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
   const [reloadToken, setReloadToken] = useState(0)
   const [items, setItems] = useState<InventoryRecord[]>([])
   const [total, setTotal] = useState(0)
+  const [inventoryTotals, setInventoryTotals] = useState({
+    current_page: { total_count: "0", amount: "0" },
+    all: { total_count: "0", amount: "0" },
+  })
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
@@ -1022,9 +1048,11 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
         const response = await listInventory({
           date_start: submittedFilters.date_start || undefined,
           date_end: submittedFilters.date_end || undefined,
-          supplier: submittedFilters.supplier || undefined,
-          warehouse: isPurchaseOrderTab ? undefined : submittedFilters.warehouse || undefined,
-          document_type: isPurchaseOrderTab ? PURCHASE_ORDER_DOCUMENT_TYPE : submittedFilters.document_type || undefined,
+          suppliers: submittedFilters.suppliers as string[] | undefined,
+          brands: isPurchaseOrderTab ? undefined : (submittedFilters.brands as string[] | undefined),
+          warehouses: isPurchaseOrderTab ? undefined : (submittedFilters.warehouses as string[] | undefined),
+          document_types: isPurchaseOrderTab ? undefined : (submittedFilters.document_types as string[] | undefined),
+          document_type: isPurchaseOrderTab ? PURCHASE_ORDER_DOCUMENT_TYPE : undefined,
           exclude_document_type: isPurchaseOrderTab ? undefined : PURCHASE_ORDER_DOCUMENT_TYPE,
           document_number: isPurchaseOrderTab ? undefined : submittedFilters.document_number || undefined,
           summary: submittedFilters.summary || undefined,
@@ -1042,10 +1070,18 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
         if (cancelled) return
         setItems(response.items)
         setTotal(response.total)
+        setInventoryTotals(response.totals ?? {
+          current_page: { total_count: "0", amount: "0" },
+          all: { total_count: "0", amount: "0" },
+        })
       } catch (e) {
         if (cancelled) return
         setItems([])
         setTotal(0)
+        setInventoryTotals({
+          current_page: { total_count: "0", amount: "0" },
+          all: { total_count: "0", amount: "0" },
+        })
         setError(getErrorMessage(e))
       } finally {
         if (!cancelled) setIsLoading(false)
@@ -1605,9 +1641,11 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
         ids: selectedExportIds.length > 0 ? selectedExportIds : undefined,
         date_start: submittedFilters.date_start || undefined,
         date_end: submittedFilters.date_end || undefined,
-        supplier: submittedFilters.supplier || undefined,
-        warehouse: isPurchaseOrderTab ? undefined : submittedFilters.warehouse || undefined,
-        document_type: isPurchaseOrderTab ? PURCHASE_ORDER_DOCUMENT_TYPE : submittedFilters.document_type || undefined,
+        suppliers: submittedFilters.suppliers as string[] | undefined,
+        brands: isPurchaseOrderTab ? undefined : (submittedFilters.brands as string[] | undefined),
+        warehouses: isPurchaseOrderTab ? undefined : (submittedFilters.warehouses as string[] | undefined),
+        document_types: isPurchaseOrderTab ? undefined : (submittedFilters.document_types as string[] | undefined),
+        document_type: isPurchaseOrderTab ? PURCHASE_ORDER_DOCUMENT_TYPE : undefined,
         exclude_document_type: isPurchaseOrderTab ? undefined : PURCHASE_ORDER_DOCUMENT_TYPE,
         document_number: isPurchaseOrderTab ? undefined : submittedFilters.document_number || undefined,
         summary: submittedFilters.summary || undefined,
@@ -1636,9 +1674,11 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
     setSubmittedFilters({
       date_start: searchDateStart,
       date_end: searchDateEnd,
-      supplier: searchSupplier,
-      warehouse: isPurchaseOrderTab ? "" : searchWarehouse,
-      document_type: isPurchaseOrderTab ? PURCHASE_ORDER_DOCUMENT_TYPE : searchDocumentType,
+      brands: isPurchaseOrderTab ? [] : searchBrands,
+      suppliers: searchSuppliers,
+      warehouses: isPurchaseOrderTab ? [] : searchWarehouses,
+      document_types: isPurchaseOrderTab ? [] : searchDocumentTypes,
+      document_type: isPurchaseOrderTab ? PURCHASE_ORDER_DOCUMENT_TYPE : "",
       document_number: isPurchaseOrderTab ? "" : searchDocumentNumber.trim(),
       summary: searchSummary,
       original_sku: isPurchaseOrderTab ? "" : searchOriginalSku,
@@ -1713,9 +1753,10 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
   const clearSearch = () => {
     setSearchDateStart("")
     setSearchDateEnd("")
-    setSearchSupplier("")
-    setSearchWarehouse("")
-    setSearchDocumentType("")
+    setSearchBrands([])
+    setSearchSuppliers([])
+    setSearchWarehouses([])
+    setSearchDocumentTypes([])
     setSearchDocumentNumber("")
     setSearchSummary("")
     setSearchOriginalSku("")
@@ -1732,7 +1773,7 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
   }
 
   const hasFilters = Object.entries(submittedFilters).some(
-    ([key, value]) => value && !(isPurchaseOrderTab && key === "document_type" && value === PURCHASE_ORDER_DOCUMENT_TYPE),
+    ([key, value]) => Boolean(value && (!Array.isArray(value) || value.length > 0)) && !(isPurchaseOrderTab && key === "document_type" && value === PURCHASE_ORDER_DOCUMENT_TYPE),
   )
   const isPurchaseDetailSearch = Boolean(isPurchaseOrderTab && submittedFilters.product_code)
   const totalPages = Math.max(1, Math.ceil(total / pageSize))
@@ -1752,10 +1793,10 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
   const completionLabel = isPurchaseOrderTab ? "采购单" : COMPLETION_TABS.find((item) => item.value === recordCompletionStatus)?.label ?? "单据"
   const inventoryCounterpartyColumnLabel = isPurchaseOrderTab
     ? "供应商"
-    : inventoryCounterpartyLabel(submittedFilters.document_type)
+    : inventoryCounterpartyLabel(Array.isArray(submittedFilters.document_types) && submittedFilters.document_types.length === 1 ? submittedFilters.document_types[0] : undefined)
   const inventoryWarehouseColumnLabel = isPurchaseOrderTab
     ? "仓库"
-    : inventoryWarehouseLabel(submittedFilters.document_type)
+    : inventoryWarehouseLabel(Array.isArray(submittedFilters.document_types) && submittedFilters.document_types.length === 1 ? submittedFilters.document_types[0] : undefined)
   const pageRange = buildPageRange(page, totalPages)
   const isFormWholesale = WHOLESALE_DOCUMENT_TYPES.has(formData.document_type || "")
   const isFormTransfer = TRANSFER_DOCUMENT_TYPES.has(formData.document_type || "")
@@ -1777,6 +1818,10 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
     value: warehouse.name,
     label: warehouse.name,
   }))
+  const warehouseBrandSelectOptions = warehouseBrandOptions.map((brand) => ({
+    value: brand.name,
+    label: inventoryBrandLabel(brand.name).replace(/仓库$/, ""),
+  }))
   const customerShopSelectOptions = customerShopOptions.map((shop) => ({
     value: shop.shop_name,
     label: `${shop.customer_name} / ${shop.shop_name}`,
@@ -1796,9 +1841,9 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
       group.push(supplier)
       suppliersByBrand.set(brand, group)
     }
-    return Array.from(suppliersByBrand.entries()).sort(([left], [right]) => inventoryBrandLabel(left).localeCompare(inventoryBrandLabel(right), "zh-CN")).map(([brand, suppliers]) => ({
+    return Array.from(suppliersByBrand.entries()).sort(([left], [right]) => supplierBrandLabel(left).localeCompare(supplierBrandLabel(right), "zh-CN")).map(([brand, suppliers]) => ({
       id: `supplier-brand:${brand}`,
-      label: inventoryBrandLabel(brand),
+      label: supplierBrandLabel(brand),
       children: suppliers.sort((left, right) => left.name.localeCompare(right.name, "zh-CN")).map((supplier) => ({
         id: `supplier:${supplier.id}`,
         label: supplier.name,
@@ -1870,6 +1915,10 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
   const formCounterpartyHierarchicalOptions = isFormTransfer ? warehouseHierarchicalOptions : (isFormWholesale || isFormReceivable) ? customerHierarchicalOptions : supplierHierarchicalOptions
   const importCounterpartyHierarchicalOptions = isImportTransfer ? warehouseHierarchicalOptions : isImportWholesale ? customerHierarchicalOptions : supplierHierarchicalOptions
   const documentTypeOptions = INVENTORY_DOCUMENT_TYPES
+  const documentTypeSelectOptions = documentTypeOptions.map((documentType) => ({
+    value: documentType,
+    label: documentType,
+  }))
   const detailImportDocumentTypeOptions = DETAIL_IMPORT_DOCUMENT_TYPES
   const currentRequirementContent = requirementDrafts[selectedRequirementBrand] ?? ""
 
@@ -2008,16 +2057,27 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
                     </div>
                   </div>
                   {!isPurchaseOrderTab && (
-                    <div className="space-y-1.5 lg:col-span-3 xl:col-span-2">
+                    <div className="space-y-1.5 lg:col-span-3 xl:col-span-3">
+                      <Label className="text-xs text-muted-foreground">品牌</Label>
+                      <SearchableMultiFilterInput
+                        values={searchBrands}
+                        options={warehouseBrandSelectOptions}
+                        onChange={setSearchBrands}
+                        onSubmit={search}
+                        placeholder="选择品牌"
+                      />
+                    </div>
+                  )}
+                  {!isPurchaseOrderTab && (
+                    <div className="space-y-1.5 lg:col-span-3 xl:col-span-3">
                       <Label className="text-xs text-muted-foreground">单据类型</Label>
-                      <Select
-                        value={searchDocumentType}
-                        onChange={(e) => setSearchDocumentType(e.target.value)}
-                        className="w-full"
-                      >
-                        <option value="">全部</option>
-                        {documentTypeOptions.map((dt) => (<option key={dt} value={dt}>{dt}</option>))}
-                      </Select>
+                      <SearchableMultiFilterInput
+                        values={searchDocumentTypes}
+                        options={documentTypeSelectOptions}
+                        onChange={setSearchDocumentTypes}
+                        onSubmit={search}
+                        placeholder="选择单据类型"
+                      />
                     </div>
                   )}
                   {!isPurchaseOrderTab && (
@@ -2027,22 +2087,25 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
                     </div>
                   )}
                   {!isPurchaseOrderTab && (
-                    <div className="space-y-1.5 lg:col-span-3 xl:col-span-2">
+                    <div className="space-y-1.5 lg:col-span-3 xl:col-span-3">
                       <Label className="text-xs text-muted-foreground">仓库</Label>
-                      <Select value={searchWarehouse} onChange={(e) => setSearchWarehouse(e.target.value)} className="w-full">
-                        <option value="">全部</option>
-                        {warehouseOptions.map((w) => (<option key={w.id} value={w.name}>{w.name}</option>))}
-                      </Select>
+                      <SearchableMultiFilterInput
+                        values={searchWarehouses}
+                        options={warehouseSelectOptions}
+                        onChange={setSearchWarehouses}
+                        onSubmit={search}
+                        placeholder="选择仓库"
+                      />
                     </div>
                   )}
                   <div className="space-y-1.5 lg:col-span-3 xl:col-span-3">
                     <Label className="text-xs text-muted-foreground">客户/供应商</Label>
-                    <SearchableFilterInput
-                      value={searchSupplier}
+                    <SearchableMultiFilterInput
+                      values={searchSuppliers}
                       options={counterpartySearchOptions}
-                      onChange={setSearchSupplier}
+                      onChange={setSearchSuppliers}
                       onSubmit={search}
-                      placeholder="输入客户或供应商"
+                      placeholder="选择客户/供应商"
                     />
                   </div>
                   <div className="space-y-1.5 lg:col-span-3 xl:col-span-2">
@@ -2417,6 +2480,36 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
                     )
                   })}
                 </tbody>
+                {!isPurchaseOrderTab && !isPurchaseDetailSearch && (
+                  <tfoot className="border-t-2 border-border bg-muted/60 font-medium">
+                    <tr>
+                      <td colSpan={2} className="whitespace-nowrap px-4 py-3">当前页合计</td>
+                      {inventoryColumnOrder.map((columnKey) => (
+                        <td key={`current-total-${columnKey}`} className="px-4 py-3 text-right font-mono tabular-nums">
+                          {columnKey === "total_count"
+                            ? inventoryTotals.current_page.total_count
+                            : columnKey === "amount"
+                              ? inventoryTotals.current_page.amount
+                              : ""}
+                        </td>
+                      ))}
+                      <td className="sticky right-0 border-l border-border bg-muted/60 px-4 py-3" />
+                    </tr>
+                    <tr>
+                      <td colSpan={2} className="whitespace-nowrap px-4 py-3">全部合计</td>
+                      {inventoryColumnOrder.map((columnKey) => (
+                        <td key={`all-total-${columnKey}`} className="px-4 py-3 text-right font-mono tabular-nums">
+                          {columnKey === "total_count"
+                            ? inventoryTotals.all.total_count
+                            : columnKey === "amount"
+                              ? inventoryTotals.all.amount
+                              : ""}
+                        </td>
+                      ))}
+                      <td className="sticky right-0 border-l border-border bg-muted/60 px-4 py-3" />
+                    </tr>
+                  </tfoot>
+                )}
               </table>
             </div>
 

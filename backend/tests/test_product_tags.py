@@ -44,10 +44,50 @@ def test_product_tags_are_generated_from_archive_fields():
     names = {item["tag_name"] for item in definitions.values()}
     assert "品类：运动鞋" in names
     assert "年份：2026" in names
-    assert "鞋面材质：织物" in names
+    assert "鞋面材质：网布" in names
     assert "透气" in names
     assert "新品（近180天上市）" in names
     assert set(product_tags[("cbanner_mens", 1)]) == set(definitions)
+
+
+def test_upper_material_tags_keep_specific_leather_types():
+    definitions, product_tags = _generated_tags({
+        "upper_material": "牛皮+头层羊皮",
+    })
+
+    names = {item["tag_name"] for item in definitions.values()}
+    assert "鞋面材质：牛皮" in names
+    assert "鞋面材质：羊皮" in names
+    assert "鞋面材质：头层" in names
+    assert "鞋面材质：真皮" not in names
+    material_tags = {
+        item["tag_name"]
+        for code, item in definitions.items()
+        if code.startswith("archive_upper_material:")
+    }
+    assert material_tags == {"鞋面材质：牛皮", "鞋面材质：羊皮", "鞋面材质：头层"}
+
+
+def test_material_tags_keep_other_specific_keywords():
+    definitions, _ = _generated_tags({
+        "upper_material": "超纤网面",
+        "lining_material": "羊毛绒布里",
+        "outsole_material": "TPU+EVA发泡",
+    })
+
+    names = {item["tag_name"] for item in definitions.values()}
+    assert {
+        "鞋面材质：超纤",
+        "鞋面材质：网面",
+        "内里材质：羊毛",
+        "内里材质：绒",
+        "内里材质：布里",
+        "鞋底材质：TPU",
+        "鞋底材质：EVA",
+        "鞋底材质：发泡",
+    } <= names
+    assert "内里材质：毛" not in names
+    assert "鞋底材质：PU" not in names
 
 
 def test_product_tags_include_missing_archive_data_quality_tags():

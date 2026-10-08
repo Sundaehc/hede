@@ -1,0 +1,161 @@
+==============================================================================
+A. NULL MAP (pg_stats, tables > 5,000 rows, null_frac > 0.5%)
+   注意: 统计信息来自上一次 ANALYZE(最迟 2026-08-27), 仅作线索, 后续逐项实测
+==============================================================================
+  候选列数: 120
+  table                                        column                        est_rows null_frac   est_nulls
+  vip_daily_sales_2026                         product_type                15,305,680    1.0000  15,305,680
+  jst_product_price                            member_price                 9,097,398    1.0000   9,097,398
+  jst_product_price                            preset_commission            9,097,398    1.0000   9,097,398
+  jst_product_price                            extra_fields                 9,097,398    1.0000   9,097,398
+  jst_product_price                            preset_discount              9,097,398    1.0000   9,097,398
+  jst_product_price                            preset_commission_name       9,097,398    1.0000   9,097,095
+  jst_product_price                            retail_price                 9,097,398    0.8944   8,136,713
+  vip_product_ops_snapshots                    extra_fields                 7,850,066    1.0000   7,850,066
+  gj_merged_product_info                       disabled_flag                7,310,101    0.9433   6,895,618
+  jst_product_price                            cost_unit_price              9,097,398    0.7300   6,640,797
+  jst_monthly_orders_2024                      shop_style_code              5,971,371    1.0000   5,971,371
+  jst_monthly_orders_2024                      cost_price                   5,971,371    1.0000   5,971,371
+  jst_monthly_orders_2024                      extra_fields                 5,971,371    1.0000   5,971,371
+  jst_monthly_orders_2024                      registered_qty               5,971,371    1.0000   5,971,371
+  jst_monthly_orders_2024                      actual_return_qty            5,971,371    1.0000   5,971,371
+  jst_monthly_orders_2024                      address                      5,971,371    1.0000   5,971,371
+  jst_monthly_orders_2024                      category                     5,971,371    1.0000   5,971,371
+  jst_monthly_orders_2025                      cost_price                   5,166,132    1.0000   5,166,132
+  jst_monthly_orders_2025                      category                     5,166,132    1.0000   5,166,132
+  jst_monthly_orders_2025                      registered_qty               5,166,132    1.0000   5,166,132
+  jst_monthly_orders_2025                      extra_fields                 5,166,132    1.0000   5,166,132
+  jst_monthly_orders_2025                      actual_return_qty            5,166,132    1.0000   5,166,132
+  jst_monthly_orders_2025                      address                      5,166,132    1.0000   5,166,132
+  jst_monthly_orders_2025                      shop_style_code              5,166,132    1.0000   5,166,132
+  vip_product_ops_snapshots                    goods_tag                    7,850,066    0.5236   4,110,556
+  gj_merged_product_info                       shoe_box_spec                7,310,101    0.4087   2,987,882
+  jst_monthly_orders_2024                      ship_date_value              5,971,371    0.4986   2,977,126
+  jst_monthly_orders_2024                      ship_date                    5,971,371    0.4986   2,977,126
+  jst_monthly_orders_2026                      address                      2,924,114    1.0000   2,924,114
+  jst_monthly_orders_2026                      cost_price                   2,924,114    1.0000   2,924,114
+  jst_monthly_orders_2026                      actual_return_qty            2,924,114    1.0000   2,924,114
+  jst_monthly_orders_2026                      shop_style_code              2,924,114    1.0000   2,924,114
+  jst_monthly_orders_2026                      extra_fields                 2,924,114    1.0000   2,924,114
+  jst_monthly_orders_2026                      registered_qty               2,924,114    1.0000   2,924,114
+  jst_monthly_orders_2026                      category                     2,924,114    1.0000   2,924,114
+  jst_monthly_orders_2025                      ship_date_value              5,166,132    0.4838   2,499,375
+  jst_monthly_orders_2025                      ship_date                    5,166,132    0.4838   2,499,375
+  jst_product_price                            latest_purchase_price        9,097,398    0.2562   2,330,753
+  gj_merged_product_info                       row_no                       7,310,101    0.2407   1,759,785
+  jst_monthly_orders_2026                      ship_date_value              2,924,114    0.4669   1,365,366
+  jst_monthly_orders_2026                      ship_date                    2,924,114    0.4669   1,365,366
+  product_goods_historical_sales_2025          color                        1,220,417    1.0000   1,220,417
+  jst_daily_sales_2026                         supplier_style_code          1,240,372    0.9416   1,167,976
+  vip_product_daily_snapshots                  extra_fields                 1,158,578    1.0000   1,158,578
+  jst_monthly_orders_2024                      online_sub_order_id          5,971,371    0.1754   1,047,578
+  jst_monthly_orders_2025                      online_sub_order_id          5,166,132    0.1914     988,970
+  jst_daily_sales_2026                         return_order_count           1,240,372    0.7550     936,481
+  jst_daily_sales_2026                         return_quantity              1,240,372    0.7550     936,481
+  jst_monthly_orders_2026                      record_key                   2,924,114    0.2733     799,160
+  product_goods_historical_sales_2024          color                          620,414    1.0000     620,414
+  jst_monthly_orders_2026                      online_sub_order_id          2,924,114    0.2110     616,988
+  jst_aftersale_returns_2024                   order_time_value               601,410    1.0000     601,410
+  jst_aftersale_returns_2024                   extra_fields                   601,410    1.0000     601,410
+  jst_aftersale_returns_2024                   order_time                     601,410    1.0000     601,410
+  jst_aftersale_returns_2024                   platform_site                  601,410    1.0000     601,410
+  product_tag_assignments                      created_by                     557,280    1.0000     557,280
+  product_tag_assignments                      valid_from                     557,280    1.0000     557,280
+  product_tag_assignments                      style_id                       557,280    1.0000     557,280
+  product_tag_assignments                      valid_to                       557,280    1.0000     557,280
+  jst_aftersale_returns_2025                   order_time_value               557,060    1.0000     557,060
+  jst_aftersale_returns_2025                   order_time                     557,060    1.0000     557,060
+  jst_aftersale_returns_2025                   extra_fields                   557,060    1.0000     557,060
+  jst_aftersale_returns_2025                   platform_site                  557,060    1.0000     557,060
+  jst_product_profiles                         extra_fields                   418,201    1.0000     418,201
+  jst_aftersale_returns_2026                   platform_site                  360,982    1.0000     360,982
+  jst_aftersale_returns_2026                   order_time_value               360,982    1.0000     360,982
+  jst_aftersale_returns_2026                   order_time                     360,982    1.0000     360,982
+  jst_aftersale_returns_2026                   extra_fields                   360,982    1.0000     360,982
+  jst_daily_sales_2026                         shipped_order_count          1,240,372    0.2585     320,636
+  jst_daily_sales_2026                         sales_order_count            1,240,372    0.2501     310,217
+  jst_daily_sales_2026                         net_sales_amount             1,240,372    0.2214     274,618
+  vip_product_detail_daily                     member_benefit_cost            252,923    1.0000     252,923
+  vip_product_detail_daily                     member_benefit_sales_amount     252,923    1.0000     252,923
+  vip_product_detail_daily                     member_benefit_roi             252,923    1.0000     252,923
+  vip_product_detail_daily                     shop_name                      252,923    1.0000     252,923
+  vip_product_detail_daily                     shop_code                      252,923    1.0000     252,923
+  vip_product_detail_daily                     vipshare_roi                   252,923    0.9976     252,324
+  jst_full_stock                               safety_stock_max_qty           247,897    1.0000     247,897
+  jst_full_stock                               safety_stock_min_qty           247,897    1.0000     247,897
+  jst_full_stock                               main_warehouse_location        247,897    1.0000     247,897
+  jst_full_stock                               purchase_feature               247,897    0.9970     247,145
+  jst_full_stock                               yesterday_return_qty           247,897    0.9961     246,930
+  jst_full_stock                               return_in_transit_qty          247,897    0.9871     244,691
+  jst_full_stock                               yesterday_sales_qty            247,897    0.9845     244,046
+  jst_full_stock                               return_7d_qty                  247,897    0.9792     242,749
+  jst_product_price                            preset_discount_name         9,097,398    0.0263     239,262
+  jst_product_price                            preset_price                 9,097,398    0.0263     239,262
+  jst_product_price                            preset_price_name            9,097,398    0.0263     239,262
+  jst_full_stock                               stock_sale_days                247,897    0.9640     238,964
+  jst_full_stock                               return_15d_qty                 247,897    0.9638     238,923
+  jst_full_stock                               sales_7d_qty                   247,897    0.9414     233,362
+  vip_product_detail_daily                     user_strategy_roi              252,923    0.9192     232,487
+  vip_product_detail_daily                     vipshare_cost                  252,923    0.9098     230,109
+  vip_product_detail_daily                     vipshare_sales_amount          252,923    0.9098     230,109
+  jst_full_stock                               product_tag                    247,897    0.9139     226,553
+  jst_full_stock                               sales_15d_qty                  247,897    0.9039     224,074
+  product_goods_detail_snapshots_2024          style_code                   1,352,191    0.1393     188,360
+  jst_monthly_orders_2025                      buyer_account                5,166,132    0.0344     177,715
+  gj_merged_product_info                       insole_material              7,310,101    0.0235     171,544
+  jst_size_stock                               extra_fields                   159,290    1.0000     159,290
+  jst_monthly_orders_2025                      shop_status                  5,166,132    0.0247     127,431
+  inventory_details                            remark                         121,455    0.9672     117,467
+  jst_daily_sales_2026                         cost_amount                  1,240,372    0.0944     117,132
+  jst_daily_sales_2026                         gross_profit                 1,240,372    0.0927     114,982
+  jst_monthly_orders_2024                      shop_status                  5,971,371    0.0189     112,660
+  vip_product_detail_daily                     goods_type_tags                252,923    0.4227     106,902
+  dewu_orders_2026                             full_payment_amount            105,053    1.0000     105,053
+  dewu_orders_2026                             intent_deposit_amount          105,053    1.0000     105,053
+  dewu_orders_2026                             buyer_remark                   105,053    1.0000     105,053
+  dewu_orders_2026                             custom_product_detail          105,053    1.0000     105,053
+  dewu_orders_2026                             delivery_party                 105,053    1.0000     105,053
+  dewu_orders_2026                             onsite_ticket_address          105,053    1.0000     105,053
+  dewu_orders_2026                             preorder_number                105,053    1.0000     105,053
+  dewu_orders_2026                             appointment_number             105,053    1.0000     105,053
+  dewu_orders_2026                             service_guarantee              105,053    1.0000     105,053
+  dewu_orders_2026                             platform_shipping_time         105,053    1.0000     105,053
+  dewu_orders_2026                             direct_shipping_pickup_time     105,053    1.0000     105,053
+  dewu_orders_2026                             sub_waybill_number             105,053    1.0000     105,053
+  dewu_orders_2026                             third_party_order_number       105,053    1.0000     105,053
+  dewu_orders_2026                             appointment_store              105,053    1.0000     105,053
+
+==============================================================================
+B. FOREIGN KEY ORPHANS (child rows whose parent is missing)
+==============================================================================
+  fine_table_snapshot_refs_2026              fine_table_snapshot_refs_2026_batch_id_fkey orphans=       0 fk_all_null=       0
+  fine_table_snapshot_refs_2026              fine_table_snapshot_refs_2026_metrics_id_fkey orphans=       0 fk_all_null=       0
+  fine_table_snapshot_refs_2026              fine_table_snapshot_refs_2026_payload_id_fkey orphans=       0 fk_all_null=       0
+  product_tag_assignments                    product_tag_assignments_tag_id_fkey        orphans=       0 fk_all_null=       0
+  product_tag_assignments                    product_tag_assignments_style_id_fkey      orphans=       0 fk_all_null=  560303
+  inventory_details                          fk_inventory_details_product_identity      orphans=       0 fk_all_null=    1390
+  inventory_details                          inventory_details_document_id_fkey         orphans=       0 fk_all_null=       0
+  auth_sessions                              fk_auth_sessions_user_id                   orphans=       0 fk_all_null=       0
+  auth_users                                 fk_auth_users_department_code              orphans=       0 fk_all_null=       0
+  auth_users                                 fk_auth_users_role_code                    orphans=       0 fk_all_null=       0
+  smiley_product_copy_base                   smiley_product_copy_base_representative_product_id_fkey orphans=       0 fk_all_null=       0
+  auth_roles                                 fk_auth_roles_department_code              orphans=       0 fk_all_null=       1
+  general_customer_units                     general_customer_units_shop_id_fkey        orphans=       0 fk_all_null=       0
+  fine_table_snapshot_refs_2025              fine_table_snapshot_refs_2025_batch_id_fkey orphans=       0 fk_all_null=       0
+  fine_table_snapshot_refs_2024              fine_table_snapshot_refs_2024_metrics_id_fkey orphans=       0 fk_all_null=       0
+  fine_table_snapshot_refs_2025              fine_table_snapshot_refs_2025_metrics_id_fkey orphans=       0 fk_all_null=       0
+  fine_table_snapshot_refs_2024              fine_table_snapshot_refs_2024_payload_id_fkey orphans=       0 fk_all_null=       0
+  fine_table_snapshot_refs_2024              fine_table_snapshot_refs_2024_batch_id_fkey orphans=       0 fk_all_null=       0
+  size_group_items                           size_group_items_size_group_id_fkey        orphans=       0 fk_all_null=       0
+  fine_table_snapshot_refs_2025              fine_table_snapshot_refs_2025_payload_id_fkey orphans=       0 fk_all_null=       0
+
+==============================================================================
+C. COLUMN METADATA FOR ALL PUBLIC TABLES (written to columns.txt)
+==============================================================================
+  2262 columns across 108 tables -> columns.txt
+
+==============================================================================
+D. COMPLETELY EMPTY TABLES (exact count = 0)
+==============================================================================
+  空表 (9): data_quality_issues, dewu_orders_2027, dewu_orders_default, jst_aftersale_returns_2027, jst_aftersale_returns_default, jst_monthly_orders_2023, jst_monthly_orders_2027, jst_monthly_orders_default, product_style_entities
+

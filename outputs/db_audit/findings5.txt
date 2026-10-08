@@ -1,0 +1,102 @@
+## CLOCK: db date=2026-10-07 now=2026-10-07 17:35:38.223039+08:00
+## SERVER: PostgreSQL 18.3 on x86_64-windows, compiled by msvc-19.44.35222, 64-bit
+
+## TABLES WITH NO UNIQUE/PRIMARY INDEX AT ALL AND > 50k ROWS
+  public.jst_aftersale_returns_2024                  live=    601410    1427 MB indexes=7 partition=True
+  public.jst_aftersale_returns_2025                  live=    557060    1249 MB indexes=7 partition=True
+  public.jst_aftersale_returns_2026                  live=    360982    1177 MB indexes=7 partition=True
+  public.jst_purchase_restore_20260926_164350        live=   2706116    1116 MB indexes=0 partition=False
+  public.jst_purchase_backup_20260926_164350         live=   1608213     690 MB indexes=0 partition=False
+  public.dewu_orders_2026                            live=    105053      94 MB indexes=6 partition=True
+
+## SHAPE OF THE THREE BIGGEST TABLES
+  fine_table_snapshot_payloads: 5 columns
+      id                        bigint                 notnull=True avg_width=8
+      brand                     text                   notnull=True avg_width=10
+      content_hash              text                   notnull=True avg_width=65
+      payload                   jsonb                  notnull=True avg_width=1127
+      created_at                timestamp with time zone notnull=False avg_width=8
+  fine_table_snapshot_metrics: 5 columns
+      id                        bigint                 notnull=True avg_width=8
+      brand                     text                   notnull=True avg_width=11
+      content_hash              text                   notnull=True avg_width=65
+      payload                   jsonb                  notnull=True avg_width=1079
+      created_at                timestamp with time zone notnull=False avg_width=8
+  fine_table_snapshot_refs_2026: 9 columns
+      id                        bigint                 notnull=True avg_width=8
+      batch_id                  bigint                 notnull=True avg_width=8
+      snapshot_date             date                   notnull=True avg_width=4
+      sku                       text                   notnull=False avg_width=12
+      original_sku              text                   notnull=False avg_width=11
+      row_index                 integer                notnull=True avg_width=4
+      payload_id                bigint                 notnull=True avg_width=8
+      metrics_id                bigint                 notnull=True avg_width=8
+      created_at                timestamp with time zone notnull=False avg_width=8
+
+## INDEX vs HEAP RATIO RANKING (>200MB total)
+  public.fine_table_snapshot_refs_2026          heap=    1,313MB idx=    3,887MB ratio= 2.96 indexes=9 scans=1,300
+  public.fine_table_snapshot_refs_2024          heap=      585MB idx=    1,555MB ratio= 2.66 indexes=9 scans=12
+  public.fine_table_snapshot_refs_2025          heap=    1,083MB idx=    2,857MB ratio= 2.64 indexes=9 scans=23
+  public.jst_daily_stock                        heap=    1,220MB idx=    2,808MB ratio= 2.30 indexes=6 scans=6,090,253
+  public.product_goods_sales_periods            heap=      120MB idx=      161MB ratio= 1.34 indexes=5 scans=5,527,206
+  public.product_tag_assignments                heap=       97MB idx=      113MB ratio= 1.17 indexes=7 scans=16,653
+  public.factory_channel_sales_daily_summaries  heap=      127MB idx=      125MB ratio= 0.98 indexes=3 scans=1,209
+  public.product_goods_historical_sales_2024    heap=      118MB idx=      114MB ratio= 0.96 indexes=6 scans=2,742,188
+  public.product_goods_historical_sales_2025    heap=      234MB idx=      217MB ratio= 0.93 indexes=6 scans=2,056,170
+  public.jst_stock_summary_snapshots            heap=      262MB idx=      209MB ratio= 0.80 indexes=3 scans=1,410,000
+  public.jst_size_stock_snapshots               heap=    1,268MB idx=      922MB ratio= 0.73 indexes=3 scans=7,191,420
+  public.gj_merged_product_info                 heap=    6,884MB idx=    2,539MB ratio= 0.37 indexes=10 scans=180,461,699
+  public.jst_product_price                      heap=    5,225MB idx=    1,678MB ratio= 0.32 indexes=4 scans=1,594,897
+  public.jst_full_stock                         heap=      200MB idx=       59MB ratio= 0.30 indexes=5 scans=2,637,728
+  public.jst_purchase_inbound_daily             heap=    1,849MB idx=      525MB ratio= 0.28 indexes=2 scans=1,272
+  public.jst_monthly_orders_2025                heap=    7,655MB idx=    1,686MB ratio= 0.22 indexes=7 scans=5,192,490
+  public.vip_product_daily                      heap=      263MB idx=       57MB ratio= 0.22 indexes=4 scans=893,856
+  public.vip_product_detail_daily               heap=      207MB idx=       37MB ratio= 0.18 indexes=6 scans=179,448
+  public.jst_monthly_orders_2026                heap=    5,367MB idx=      971MB ratio= 0.18 indexes=7 scans=3,523,879
+  public.jst_monthly_orders_2024                heap=    8,792MB idx=    1,530MB ratio= 0.17 indexes=7 scans=5,995,223
+  public.jst_aftersale_returns_2024             heap=      269MB idx=       41MB ratio= 0.15 indexes=7 scans=221
+  public.vip_product_daily_snapshots            heap=    1,514MB idx=      218MB ratio= 0.14 indexes=5 scans=526,315
+  public.vip_product_ops                        heap=      182MB idx=       26MB ratio= 0.14 indexes=3 scans=1,063,676
+  public.fine_table_snapshot_metrics            heap=   12,061MB idx=    1,455MB ratio= 0.12 indexes=2 scans=15,939,151
+  public.jst_aftersale_returns_2026             heap=      445MB idx=       52MB ratio= 0.12 indexes=7 scans=342
+  public.jst_daily_sales_2026                   heap=    2,344MB idx=      272MB ratio= 0.12 indexes=5 scans=3,177,924
+  public.alimama_creative_daily                 heap=      179MB idx=       21MB ratio= 0.12 indexes=5 scans=176,689
+  public.fine_table_snapshot_payloads           heap=   36,900MB idx=    4,133MB ratio= 0.11 indexes=2 scans=17,872,210
+  public.zhiyi_hot_item_range                   heap=      176MB idx=       18MB ratio= 0.10 indexes=4 scans=216,040
+  public.vip_daily_sales_2026                   heap=   20,105MB idx=    2,051MB ratio= 0.10 indexes=5 scans=7,672,874
+  public.jst_product_profiles                   heap=      624MB idx=       63MB ratio= 0.10 indexes=4 scans=4,389
+  public.jst_aftersale_returns_2025             heap=      396MB idx=       40MB ratio= 0.10 indexes=7 scans=207
+  public.vip_product_ops_snapshots              heap=   10,297MB idx=    1,044MB ratio= 0.10 indexes=4 scans=2,549,488
+  public.product_goods_detail_snapshots_2024    heap=    1,835MB idx=      173MB ratio= 0.09 indexes=3 scans=73
+  public.product_goods_detail_snapshots_2025    heap=    5,117MB idx=      460MB ratio= 0.09 indexes=3 scans=1,025
+  public.product_goods_detail_snapshots_2026    heap=   11,055MB idx=      809MB ratio= 0.07 indexes=3 scans=2,942
+  public.jst_purchase_backup_20260926_164350    heap=      690MB idx=        0MB ratio= 0.00 indexes=0 scans=0
+  public.jst_purchase_restore_20260926_164350   heap=    1,116MB idx=        0MB ratio= 0.00 indexes=0 scans=0
+
+## TOTAL RECLAIMABLE INDEX SPACE SUMMARY
+  unused non-unique indexes: 93 = 5,301.6MB
+  of which pg_trgm indexes: 6 = 1,701.8MB
+
+## DUPLICATE CHECK: jst_aftersale_returns_2026 NATURAL KEY
+  columns: id,source_workbook,source_sheet,source_row_number,raw_payload,original_goods_code,returned_qty,order_date,order_date_value,extra_fields,created_at,updated_at,order_time,platform_site,shop_name,online_order_id,order_time_value,application_date_value
+  rows: 359,632
+
+## DUPLICATE CHECK: fine_table_snapshot_payloads BRAND+HASH
+  rows=28,175,109 distinct(brand,content_hash)=28,175,109 duplicates=0
+
+## API-FACING HOT TABLES: size, indexes, scans
+  product_tag_assignments        live=  560303 dead=   5949 seq=     19 idx=    16653 idx#=  7 210 MB
+  inventory_details              live=  122776 dead=      6 seq=  25923 idx= 29188286 idx#=  5 121 MB
+  cbanner_mens_products          live=   19644 dead=   2830 seq=  13586 idx= 66044864 idx#=  9 68 MB
+  yandou_products                live=   17261 dead=   1417 seq=  14866 idx=   834410 idx#=  9 58 MB
+  cbanner_womens_products        live=   15931 dead=     38 seq=   7920 idx= 25598153 idx#=  9 51 MB
+  eblan_products                 live=   10259 dead=   1120 seq=  23287 idx=   507310 idx#=  9 38 MB
+  operation_logs                 live=   10437 dead=      0 seq=     80 idx=      716 idx#=  4 16 MB
+  inventory_records              live=    6567 dead=    580 seq=  11166 idx=   377704 idx#= 11 5944 kB
+  product_goods_overrides        live=     512 dead=    110 seq=  14130 idx= 43003613 idx#=  2 5536 kB
+  suppliers                      live=    1048 dead=      0 seq=   8258 idx=   986885 idx#=  5 1968 kB
+  smiley_products                live=     439 dead=      0 seq=   9428 idx=    19384 idx#=  6 1664 kB
+  scheduled_task_runs            live=    2090 dead=    204 seq=    616 idx=    11860 idx#=  3 1320 kB
+  auth_sessions                  live=     919 dead=    110 seq=    144 idx=   246568 idx#=  4 584 kB
+  ni_products                    live=       0 dead=      3 seq=  10115 idx=      158 idx#=  6 312 kB
+  warehouses                     live=       7 dead=      2 seq=   9019 idx=      812 idx#=  3 64 kB

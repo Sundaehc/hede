@@ -48,3 +48,33 @@ def test_purchase_inbound_details_support_multiple_exact_warehouses(
 
     assert result["total"] == 2
     assert {item["product_code"] for item in result["items"]} == {"A001", "B001"}
+
+
+def test_purchase_inbound_details_keep_return_totals_negative(
+    test_database_url: str,
+    recreate_tables,
+) -> None:
+    repository = InventoryRepository(test_database_url)
+    purchase = repository.create_record({"document_type": "进货单", "date": "2026-08-04"})
+    purchase_return = repository.create_record({"document_type": "进货退货单", "date": "2026-08-05"})
+    repository.create_details([_detail(int(purchase["id"]), "A001")], int(purchase["id"]))
+    repository.create_details([_detail(int(purchase_return["id"]), "A002")], int(purchase_return["id"]))
+
+    result = repository.list_purchase_inbound_details(page=1, page_size=1)
+
+    assert result["items"][0]["purchase_quantity"] == "1"
+    assert result["items"][0]["purchase_amount"] == "10"
+    assert result["totals"]["current_page"] == {
+        "purchase_quantity": "1",
+        "purchase_amount": "10",
+        "retail_amount": "",
+    }
+    assert result["totals"]["all"] == {
+        "purchase_quantity": "0",
+        "purchase_amount": "0",
+        "retail_amount": "",
+    }
+
+    result = repository.list_purchase_inbound_details(page=2, page_size=1)
+    assert result["items"][0]["purchase_quantity"] == "-1"
+    assert result["items"][0]["purchase_amount"] == "-10"

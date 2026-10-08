@@ -96,7 +96,13 @@ export function PurchaseInboundDetailPage() {
   const [pageSize, setPageSize] = useState(PAGE_SIZES[0])
   const [items, setItems] = useState<PurchaseInboundDetailItem[]>([])
   const [total, setTotal] = useState(0)
-  const [totals, setTotals] = useState({ purchase_quantity: "0", purchase_amount: "0", retail_amount: "" })
+  const [totals, setTotals] = useState({
+    purchase_quantity: "0",
+    purchase_amount: "0",
+    retail_amount: "",
+    current_page: { purchase_quantity: "0", purchase_amount: "0", retail_amount: "" },
+    all: { purchase_quantity: "0", purchase_amount: "0", retail_amount: "" },
+  })
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [operationLogOpen, setOperationLogOpen] = useState(false)
@@ -166,7 +172,13 @@ export function PurchaseInboundDetailPage() {
         if (cancelled) return
         setItems([])
         setTotal(0)
-        setTotals({ purchase_quantity: "0", purchase_amount: "0", retail_amount: "" })
+        setTotals({
+          purchase_quantity: "0",
+          purchase_amount: "0",
+          retail_amount: "",
+          current_page: { purchase_quantity: "0", purchase_amount: "0", retail_amount: "" },
+          all: { purchase_quantity: "0", purchase_amount: "0", retail_amount: "" },
+        })
         setError(getErrorMessage(loadError))
       } finally {
         if (!cancelled) setIsLoading(false)
@@ -399,10 +411,10 @@ export function PurchaseInboundDetailPage() {
               </TableBody>
               <TableFooter className="sticky bottom-0 bg-muted">
                 <TableRow>
-                  <TableCell colSpan={6} className="font-medium">合计</TableCell>
-                  <TableCell className={cn("text-right font-mono tabular-nums", numericTone(totals.purchase_quantity))}>{formatCell(totals.purchase_quantity)}</TableCell>
-                  <TableCell className={cn("text-right font-mono tabular-nums", numericTone(totals.purchase_amount))}>{formatCell(totals.purchase_amount)}</TableCell>
-                  <TableCell className="text-right font-mono tabular-nums">{formatCell(totals.retail_amount)}</TableCell>
+                  <TableCell colSpan={6} className="font-medium">全部合计</TableCell>
+                  <TableCell className={cn("text-right font-mono tabular-nums", numericTone(totals.all.purchase_quantity))}>{formatCell(totals.all.purchase_quantity)}</TableCell>
+                  <TableCell className={cn("text-right font-mono tabular-nums", numericTone(totals.all.purchase_amount))}>{formatCell(totals.all.purchase_amount)}</TableCell>
+                  <TableCell className="text-right font-mono tabular-nums">{formatCell(totals.all.retail_amount)}</TableCell>
                   <TableCell colSpan={3} />
                 </TableRow>
               </TableFooter>

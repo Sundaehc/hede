@@ -1206,7 +1206,7 @@ export type InventoryDetail = {
   extra_fields: Record<string, string> | null
   quantity: string | null
   unit_price: string | null
-  amount: string | null
+  amount: string | number | null
   remark: string | null
   created_at: string | null
   updated_at: string | null
@@ -1318,6 +1318,16 @@ export type InventoryListResponse = {
   total: number
   page: number
   page_size: number
+  totals?: {
+    current_page: {
+      total_count: string
+      amount: string
+    }
+    all: {
+      total_count: string
+      amount: string
+    }
+  }
   view?: PurchaseDetailView
 }
 
@@ -1476,8 +1486,12 @@ export function listInventory(params: {
   date_start?: string
   date_end?: string
   supplier?: string
+  suppliers?: string[]
+  brands?: string[]
   warehouse?: string
+  warehouses?: string[]
   document_type?: string
+  document_types?: string[]
   exclude_document_type?: string
   document_number?: string
   summary?: string
@@ -1499,8 +1513,12 @@ export function listInventory(params: {
   if (params.date_start) search.set("date_start", params.date_start)
   if (params.date_end) search.set("date_end", params.date_end)
   if (params.supplier) search.set("supplier", params.supplier)
+  for (const supplier of params.suppliers ?? []) if (supplier) search.append("suppliers", supplier)
+  for (const brand of params.brands ?? []) if (brand) search.append("brands", brand)
   if (params.warehouse) search.set("warehouse", params.warehouse)
+  for (const warehouse of params.warehouses ?? []) if (warehouse) search.append("warehouses", warehouse)
   if (params.document_type) search.set("document_type", params.document_type)
+  for (const documentType of params.document_types ?? []) if (documentType) search.append("document_types", documentType)
   if (params.exclude_document_type)
     search.set("exclude_document_type", params.exclude_document_type)
   if (params.document_number) search.set("document_number", params.document_number)
@@ -1754,8 +1772,12 @@ export function buildInventoryExportUrl(
     date_start?: string
     date_end?: string
     supplier?: string
+    suppliers?: string[]
+    brands?: string[]
     warehouse?: string
+    warehouses?: string[]
     document_type?: string
+    document_types?: string[]
     exclude_document_type?: string
     document_number?: string
     summary?: string
@@ -1772,8 +1794,12 @@ export function buildInventoryExportUrl(
   if (params.date_start) search.set("date_start", params.date_start)
   if (params.date_end) search.set("date_end", params.date_end)
   if (params.supplier) search.set("supplier", params.supplier)
+  for (const supplier of params.suppliers ?? []) if (supplier) search.append("suppliers", supplier)
+  for (const brand of params.brands ?? []) if (brand) search.append("brands", brand)
   if (params.warehouse) search.set("warehouse", params.warehouse)
+  for (const warehouse of params.warehouses ?? []) if (warehouse) search.append("warehouses", warehouse)
   if (params.document_type) search.set("document_type", params.document_type)
+  for (const documentType of params.document_types ?? []) if (documentType) search.append("document_types", documentType)
   if (params.exclude_document_type)
     search.set("exclude_document_type", params.exclude_document_type)
   if (params.document_number) search.set("document_number", params.document_number)
@@ -2430,6 +2456,16 @@ export type PurchaseInboundDetailResponse = {
     purchase_quantity: string
     purchase_amount: string
     retail_amount: string
+    current_page: {
+      purchase_quantity: string
+      purchase_amount: string
+      retail_amount: string
+    }
+    all: {
+      purchase_quantity: string
+      purchase_amount: string
+      retail_amount: string
+    }
   }
 }
 

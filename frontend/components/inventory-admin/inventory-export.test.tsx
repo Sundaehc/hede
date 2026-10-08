@@ -108,18 +108,18 @@ test.each(["应付款减少", "应付款增加", "应收款减少", "应收款�
     const user = userEvent.setup()
     render(<InventoryPage />)
     await screen.findByText("EXPORT-0001")
-    const typeOption = screen.getByRole("option", { name: documentType })
-    await user.selectOptions(typeOption.closest("select")!, documentType)
+    await user.click(screen.getByPlaceholderText("选择单据类型"))
+    await user.click(screen.getByRole("button", { name: documentType }))
     await user.click(screen.getByRole("button", { name: "搜索" }))
     await waitFor(() => expect(mockListInventory).toHaveBeenLastCalledWith(expect.objectContaining({
-      document_type: documentType,
+      document_types: [documentType],
     })))
     const exportButton = screen.getByRole("button", { name: "导出Excel" })
     await waitFor(() => expect(exportButton).toBeEnabled())
     await user.click(exportButton)
 
     expect(downloadUrls).toHaveLength(1)
-    expect(new URL(downloadUrls[0]).searchParams.get("document_type")).toBe(documentType)
+    expect(new URL(downloadUrls[0]).searchParams.getAll("document_types")).toEqual([documentType])
     expect(screen.queryByText("暂不支持导出")).not.toBeInTheDocument()
   },
 )

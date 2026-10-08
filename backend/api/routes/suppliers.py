@@ -18,7 +18,7 @@ from api.operation_log_utils import (
     write_operation_log,
 )
 from api.product_goods_cache import clear_product_goods_cache
-from domain.gj_brand import CBANNER_MENS_BRAND, infer_supplier_brand_from_name
+from domain.gj_brand import CBANNER_MENS_BRAND, EBLAN_BRAND, EBLAN_WOMENS_SUPPLIER_BRAND, infer_supplier_brand_from_name
 from domain.schema import PRODUCT_ARCHIVE_TABLES
 from storage.date_normalization import parse_date
 
@@ -266,6 +266,8 @@ def create_supplier(request: Request, payload: dict):
     repository = request.app.state.inventory_repository
     name = str(payload.get("name") or "").strip()
     brand = payload.get("brand") or infer_supplier_brand_from_name(name) or CBANNER_MENS_BRAND
+    if brand == EBLAN_BRAND and infer_supplier_brand_from_name(name) == EBLAN_WOMENS_SUPPLIER_BRAND:
+        brand = EBLAN_WOMENS_SUPPLIER_BRAND
     normalized_brand = _normalize_brand(repository, str(brand))
     if not name:
         raise HTTPException(status_code=400, detail="供应商名称不能为空")
@@ -295,6 +297,8 @@ def update_supplier(request: Request, supplier_id: int, payload: dict):
     repository = request.app.state.inventory_repository
     name = str(payload.get("name") or "").strip()
     brand = payload.get("brand") or infer_supplier_brand_from_name(name) or CBANNER_MENS_BRAND
+    if brand == EBLAN_BRAND and infer_supplier_brand_from_name(name) == EBLAN_WOMENS_SUPPLIER_BRAND:
+        brand = EBLAN_WOMENS_SUPPLIER_BRAND
     normalized_brand = _normalize_brand(repository, str(brand))
     if not name:
         raise HTTPException(status_code=400, detail="供应商名称不能为空")

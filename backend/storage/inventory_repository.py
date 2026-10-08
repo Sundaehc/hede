@@ -15,7 +15,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from domain.gj_schema import GJ_MERGED_PRODUCT_INFO_TABLE
 from domain.inventory_schema import GENERAL_CUSTOMER_BRAND_TABLE, GENERAL_CUSTOMER_SHOP_TABLE, GENERAL_CUSTOMER_SORT_PREFERENCE_TABLE, GENERAL_CUSTOMER_UNIT_TABLE, INVENTORY_ACCOUNT_SUBJECT_TABLE, INVENTORY_DETAIL_TABLE, INVENTORY_TABLE, JST_STOCK_TABLE, PURCHASE_ORDER_REQUIREMENT_TABLE, PURCHASE_PRINT_TEMPLATE_TABLE, SUPPLIER_BRAND_TABLE, SUPPLIER_TABLE, WAREHOUSE_BRAND_TABLE, WAREHOUSE_TABLE
 from domain.inventory_sources import ACCOUNTING_DOCUMENT_TYPES, ACCOUNT_SUBJECT_CATEGORIES
-from domain.gj_brand import CBANNER_MENS_BRAND, GJ_FINE_TABLE_BRANDS, SUPPLIER_BRANDS, infer_supplier_brand_from_name
+from domain.gj_brand import CBANNER_MENS_BRAND, EBLAN_BRAND, EBLAN_WOMENS_SUPPLIER_BRAND, GJ_FINE_TABLE_BRANDS, SUPPLIER_BRANDS, infer_supplier_brand_from_name
 from domain import jst_stock_snapshot_schema  # noqa: F401 - register JST stock snapshot tables on METADATA
 from domain import product_goods_schema  # noqa: F401 - register goods table overrides on METADATA
 from domain import product_size_group_mapping_schema  # noqa: F401 - register product size group mappings on METADATA
@@ -88,8 +88,12 @@ class InventoryRepository:
         date_start: str | None = None,
         date_end: str | None = None,
         supplier: str | None = None,
+        suppliers: list[str] | None = None,
+        brands: list[str] | None = None,
         warehouse: str | None = None,
+        warehouses: list[str] | None = None,
         document_type: str | None = None,
+        document_types: list[str] | None = None,
         exclude_document_type: str | None = None,
         document_number: str | None = None,
         summary: str | None = None,
@@ -107,6 +111,22 @@ class InventoryRepository:
         detail = INVENTORY_DETAIL_TABLE
         stock = JST_STOCK_TABLE
         count_statement = select(func.count()).select_from(table)
+        totals_statement = select(
+            func.coalesce(
+                func.sum(case(
+                    (table.c.document_type == "进货退货单", func.abs(func.coalesce(table.c.total_count, 0))),
+                    else_=func.coalesce(table.c.total_count, 0),
+                )),
+                0,
+            ).label("total_count"),
+            func.coalesce(
+                func.sum(case(
+                    (table.c.document_type == "进货退货单", func.abs(func.coalesce(table.c.amount, 0))),
+                    else_=func.coalesce(table.c.amount, 0),
+                )),
+                0,
+            ).label("amount"),
+        ).select_from(table)
         items_statement = select(table)
 
         self.purge_expired_deleted_records()
@@ -117,12 +137,28 @@ class InventoryRepository:
         if date_end:
             parsed = parse_date(date_end)
             conditions.append(table.c.date_value <= parsed if parsed else table.c.date <= date_end)
-        if supplier:
+        supplier_values = [str(value).strip() for value in (suppliers or []) if str(value).strip()]
+        if supplier_values:
+            conditions.append(table.c.supplier.in_(supplier_values))
+        elif supplier:
             conditions.append(table.c.supplier.ilike(f"%{supplier.strip()}%"))
-        if warehouse:
+        warehouse_values = [str(value).strip() for value in (warehouses or []) if str(value).strip()]
+        if warehouse_values:
+            conditions.append(table.c.warehouse.in_(warehouse_values))
+        elif warehouse:
             conditions.append(table.c.warehouse == warehouse)
-        if document_type:
+        document_type_values = [str(value).strip() for value in (document_types or []) if str(value).strip()]
+        if document_type_values:
+            conditions.append(table.c.document_type.in_(document_type_values))
+        elif document_type:
             conditions.append(table.c.document_type == document_type)
+        brand_values = [str(value).strip() for value in (brands or []) if str(value).strip()]
+        if brand_values:
+            conditions.append(
+                table.c.warehouse.in_(
+                    select(WAREHOUSE_TABLE.c.name).where(WAREHOUSE_TABLE.c.brand.in_(brand_values))
+                )
+            )
         if exclude_document_type:
             conditions.append(or_(table.c.document_type.is_(None), table.c.document_type != exclude_document_type))
         if document_number and document_number.strip():
@@ -277,6 +313,7 @@ class InventoryRepository:
             criterion = conditions[0] if len(conditions) == 1 else and_(*conditions)
             items_statement = items_statement.where(criterion)
             count_statement = count_statement.where(criterion)
+            totals_statement = totals_statement.where(criterion)
 
         sort_columns = {
             "document_number": table.c.document_number,
@@ -316,14 +353,38 @@ class InventoryRepository:
         with self.engine.connect() as connection:
             total = connection.execute(count_statement).scalar_one()
             items = [dict(row) for row in connection.execute(items_statement).mappings()]
+            all_totals = connection.execute(totals_statement).mappings().one()
         for item in items:
             self._clear_accounting_record_summary(item)
+            if item.get("document_type") == "进货退货单":
+                for field in ("total_count", "amount"):
+                    if item.get(field) is not None:
+                        item[field] = abs(Decimal(str(item[field])))
+
+        page_total_count = sum(
+            (Decimal(str(item.get("total_count") or "0")) for item in items),
+            Decimal("0"),
+        )
+        page_amount = sum(
+            (Decimal(str(item.get("amount") or "0")) for item in items),
+            Decimal("0"),
+        )
 
         return {
             "items": items,
             "total": total,
             "page": page,
             "page_size": page_size,
+            "totals": {
+                "current_page": {
+                    "total_count": self._format_decimal(page_total_count),
+                    "amount": self._format_decimal(page_amount),
+                },
+                "all": {
+                    "total_count": self._format_decimal(Decimal(str(all_totals["total_count"] or "0"))),
+                    "amount": self._format_decimal(Decimal(str(all_totals["amount"] or "0"))),
+                },
+            },
         }
 
     def list_purchase_inbound_details(
@@ -469,6 +530,14 @@ class InventoryRepository:
 
         quantity_total = Decimal(str(totals.get("quantity_total") or "0"))
         purchase_amount_total = Decimal(str(totals.get("purchase_amount_total") or "0"))
+        page_quantity_total = sum(
+            (Decimal(str(item.get("purchase_quantity") or "0")) for item in items),
+            Decimal("0"),
+        )
+        page_purchase_amount_total = sum(
+            (Decimal(str(item.get("purchase_amount") or "0")) for item in items),
+            Decimal("0"),
+        )
         return {
             "items": items,
             "total": total,
@@ -478,6 +547,16 @@ class InventoryRepository:
                 "purchase_quantity": self._format_decimal(quantity_total),
                 "purchase_amount": self._format_decimal(purchase_amount_total),
                 "retail_amount": "",
+                "current_page": {
+                    "purchase_quantity": self._format_decimal(page_quantity_total),
+                    "purchase_amount": self._format_decimal(page_purchase_amount_total),
+                    "retail_amount": "",
+                },
+                "all": {
+                    "purchase_quantity": self._format_decimal(quantity_total),
+                    "purchase_amount": self._format_decimal(purchase_amount_total),
+                    "retail_amount": "",
+                },
             },
         }
 
@@ -1255,6 +1334,8 @@ class InventoryRepository:
         previous_name: str,
         current_name: str,
     ) -> int:
+        if brand == EBLAN_WOMENS_SUPPLIER_BRAND:
+            brand = EBLAN_BRAND
         product_table = PRODUCT_ARCHIVE_TABLES.get(brand)
         if product_table is None:
             table_name = connection.execute(
@@ -3821,7 +3902,8 @@ class InventoryRepository:
             ("cbanner_mens", "千百度男鞋"),
             ("cbanner_womens", "千百度女鞋"),
             ("yandou", "烟斗"),
-            ("eblan", "伊伴"),
+            ("eblan", "伊伴男鞋"),
+            ("eblan_womens", "伊伴女鞋"),
             ("smiley", "笑脸"),
             ("ni", "NI"),
         )
@@ -3829,19 +3911,25 @@ class InventoryRepository:
             connection.execute(
                 text(
                     """
-                    INSERT INTO supplier_brands (code, name, sort_order)
-                    VALUES (:code, :name, :sort_order)
+                    INSERT INTO supplier_brands (code, name, sort_order, product_archive_enabled)
+                    VALUES (:code, :name, :sort_order, :product_archive_enabled)
                     ON CONFLICT (code) DO NOTHING
                     """
                 ),
-                {"code": code, "name": name, "sort_order": index},
+                {"code": code, "name": name,
+                 "sort_order": index - (code == EBLAN_WOMENS_SUPPLIER_BRAND),
+                 "product_archive_enabled": code != EBLAN_WOMENS_SUPPLIER_BRAND},
             )
+        connection.execute(text("""
+            UPDATE supplier_brands SET name = '伊伴男鞋'
+            WHERE code = 'eblan' AND name = '伊伴'
+        """))
         manual_brand_ids = connection.execute(text("""
             SELECT id
             FROM supplier_brands
             WHERE product_archive_enabled = TRUE
               AND product_table_name IS NULL
-              AND code NOT IN ('cbanner_mens', 'cbanner_womens', 'yandou', 'eblan', 'smiley', 'ni')
+              AND code NOT IN ('cbanner_mens', 'cbanner_womens', 'yandou', 'eblan', 'eblan_womens', 'smiley', 'ni')
         """)).scalars()
         for brand_id in manual_brand_ids:
             connection.execute(
@@ -3905,6 +3993,18 @@ class InventoryRepository:
                   AND good.brand = CASE
                       WHEN upper(coalesce(bad.name, '')) LIKE '%TRUMPPIPE%'
                         OR coalesce(bad.name, '') LIKE '%烟斗%' THEN 'yandou'
+                      WHEN (upper(coalesce(bad.name, '')) LIKE '%EBLAN%'
+                        OR coalesce(bad.name, '') LIKE '%伊伴%')
+                        AND (coalesce(bad.name, '') LIKE '%女鞋%'
+                          OR coalesce(bad.name, '') LIKE '%女靴%'
+                          OR coalesce(bad.name, '') LIKE '%女士%'
+                          OR coalesce(bad.name, '') LIKE '%女款%') THEN 'eblan_womens'
+                      WHEN bad.brand = 'eblan' AND (
+                          coalesce(bad.name, '') LIKE '%女鞋%'
+                          OR coalesce(bad.name, '') LIKE '%女靴%'
+                          OR coalesce(bad.name, '') LIKE '%女士%'
+                          OR coalesce(bad.name, '') LIKE '%女款%'
+                      ) THEN 'eblan_womens'
                       WHEN upper(coalesce(bad.name, '')) LIKE '%EBLAN%'
                         OR coalesce(bad.name, '') LIKE '%伊伴%' THEN 'eblan'
                       WHEN upper(coalesce(bad.name, '')) LIKE '%SMILEY%'
@@ -3919,6 +4019,12 @@ class InventoryRepository:
                       OR coalesce(bad.name, '') LIKE '%烟斗%'
                       OR upper(coalesce(bad.name, '')) LIKE '%EBLAN%'
                       OR coalesce(bad.name, '') LIKE '%伊伴%'
+                      OR bad.brand = 'eblan' AND (
+                          coalesce(bad.name, '') LIKE '%女鞋%'
+                          OR coalesce(bad.name, '') LIKE '%女靴%'
+                          OR coalesce(bad.name, '') LIKE '%女士%'
+                          OR coalesce(bad.name, '') LIKE '%女款%'
+                      )
                       OR upper(coalesce(bad.name, '')) LIKE '%SMILEY%'
                       OR coalesce(bad.name, '') LIKE '%笑脸%'
                       OR upper(btrim(coalesce(bad.name, ''))) ~ '(^|[（([:space:]])NI($|[）)[:space:]])'
@@ -3934,6 +4040,18 @@ class InventoryRepository:
                 SET brand = CASE
                     WHEN upper(coalesce(name, '')) LIKE '%TRUMPPIPE%'
                       OR coalesce(name, '') LIKE '%烟斗%' THEN 'yandou'
+                    WHEN (upper(coalesce(name, '')) LIKE '%EBLAN%'
+                      OR coalesce(name, '') LIKE '%伊伴%')
+                      AND (coalesce(name, '') LIKE '%女鞋%'
+                        OR coalesce(name, '') LIKE '%女靴%'
+                        OR coalesce(name, '') LIKE '%女士%'
+                        OR coalesce(name, '') LIKE '%女款%') THEN 'eblan_womens'
+                    WHEN brand = 'eblan' AND (
+                        coalesce(name, '') LIKE '%女鞋%'
+                        OR coalesce(name, '') LIKE '%女靴%'
+                        OR coalesce(name, '') LIKE '%女士%'
+                        OR coalesce(name, '') LIKE '%女款%'
+                    ) THEN 'eblan_womens'
                     WHEN upper(coalesce(name, '')) LIKE '%EBLAN%'
                       OR coalesce(name, '') LIKE '%伊伴%' THEN 'eblan'
                     WHEN upper(coalesce(name, '')) LIKE '%SMILEY%'
@@ -3946,16 +4064,22 @@ class InventoryRepository:
                 END
                 WHERE brand IS NULL
                    OR brand = ''
-                   OR (
+                   OR (brand IS DISTINCT FROM 'eblan_womens' AND (
                         upper(coalesce(name, '')) LIKE '%TRUMPPIPE%'
                         OR coalesce(name, '') LIKE '%烟斗%'
                         OR upper(coalesce(name, '')) LIKE '%EBLAN%'
                         OR coalesce(name, '') LIKE '%伊伴%'
+                        OR brand = 'eblan' AND (
+                            coalesce(name, '') LIKE '%女鞋%'
+                            OR coalesce(name, '') LIKE '%女靴%'
+                            OR coalesce(name, '') LIKE '%女士%'
+                            OR coalesce(name, '') LIKE '%女款%'
+                        )
                          OR upper(coalesce(name, '')) LIKE '%SMILEY%'
                          OR coalesce(name, '') LIKE '%笑脸%'
                         OR upper(btrim(coalesce(name, ''))) ~ '(^|[（([:space:]])NI($|[）)[:space:]])'
                         OR coalesce(name, '') LIKE '%千百度女鞋%'
-                   )
+                   ))
                 """
             ),
             {"default_brand": CBANNER_MENS_BRAND},
@@ -4016,9 +4140,12 @@ class InventoryRepository:
             brand = infer_supplier_brand_from_name(name) or str(row["fine_table_brand"] or "").strip()
             if not brand or not name:
                 continue
+            matching_brands = (EBLAN_BRAND, EBLAN_WOMENS_SUPPLIER_BRAND) if brand in {
+                EBLAN_BRAND, EBLAN_WOMENS_SUPPLIER_BRAND,
+            } else (brand,)
             exists = connection.execute(
                 select(SUPPLIER_TABLE.c.id).where(
-                    SUPPLIER_TABLE.c.brand == brand,
+                    SUPPLIER_TABLE.c.brand.in_(matching_brands),
                     SUPPLIER_TABLE.c.name == name,
                 )
             ).first()

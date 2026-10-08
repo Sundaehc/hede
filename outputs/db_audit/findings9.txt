@@ -1,0 +1,31 @@
+## COLUMN STATISTICS PRESENCE (pg_stats) vs pg_stat_user_tables counters
+  table                                       cols cols_with_stats rows_in_pg_statistic    reltuples
+  fine_table_snapshot_payloads                   5               5                    5   27,043,096
+  fine_table_snapshot_metrics                    5               5                    5    9,762,598
+  fine_table_snapshot_refs_2026                  9               9                    9   12,690,483
+  fine_table_snapshot_refs_2025                  9               9                    9   11,048,994
+  fine_table_snapshot_refs_2024                  9               9                    9    5,950,423
+  jst_product_profiles                          12              12                   12      418,201
+  product_goods_historical_sales_2025           16              16                   16    1,220,417
+  product_goods_historical_sales_2024           16              16                   16      620,414
+  product_size_group_mappings                    8               8                    8       61,529
+  gj_merged_product_info                        29              29                   29    7,310,101
+  jst_product_price                             22              22                   22    9,097,398
+  jst_daily_stock                                6               6                    6   14,972,697
+  vip_product_ops_snapshots                     20              20                   20    7,850,066
+  vip_product_daily_snapshots                   35              35                   35    1,158,578
+  jst_purchase_inbound_daily                    22              22                   22    3,665,807
+  jst_aftersale_returns_2024                    18              18                   18      601,410
+  jst_aftersale_returns_2025                    18              18                   18      557,060
+  jst_daily_sales_2026                          32              32                   32    1,240,372
+  product_goods_detail_snapshots_2026           11              11                   11    7,416,605
+
+## STATS-FRESHNESS WINDOW
+  pg_stat_wal.stats_reset (server start proxy) = 2026-08-27 15:35:47.265124+08:00
+  postmaster start time                        = 2026-08-27 15:35:47.043535+08:00
+  now                                          = 2026-10-07 17:43:44.589796+08:00
+
+## TABLES WHOSE reltuples DISAGREES WITH THE EXACT COUNT BY >20%
+  jst_product_profiles                       exact=   421,427 reltuples=   418,201 delta=+0.8%
+  fine_table_snapshot_refs_2026              exact=13,140,535 reltuples=12,690,483 delta=+3.4%
+

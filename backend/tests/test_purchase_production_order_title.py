@@ -7,6 +7,7 @@ from api.routes.inventory import (
     _purchase_production_detail_rows,
     _purchase_production_size_labels,
     _purchase_production_order_title,
+    _purchase_record_export_context,
 )
 
 
@@ -19,6 +20,15 @@ def test_production_purchase_order_title_uses_supplier_brand():
 
 def test_production_purchase_order_title_does_not_mislabel_unknown_brand():
     assert _purchase_production_order_title("unknown") == "赫德电商生产采购单"
+
+
+def test_eblan_womens_supplier_export_uses_eblan_product_archive():
+    context = _purchase_record_export_context(
+        {"supplier": "168（伊伴女鞋）", "document_type": "进货订单"},
+        {"168（伊伴女鞋）": [{"brand": "eblan_womens", "factory_code": "168"}]},
+    )
+    assert context["brand"] == "eblan"
+    assert context["unit_code"] == "168"
 
 
 def test_production_purchase_export_keeps_zero_size_columns_and_values():

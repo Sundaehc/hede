@@ -1,0 +1,105 @@
+## EXACT DDL OF INDEXES PROPOSED FOR REMOVAL (standalone)
+  [  751.8MB scans=0] jst_daily_stock
+      CREATE INDEX idx_jst_stock_date_qty ON public.jst_daily_stock USING btree (stock_date, product_code, available_qty);
+  [  548.5MB scans=0] fine_table_snapshot_refs_2026
+      CREATE INDEX idx_fine_table_snapshot_refs_2026_batch_original_sku ON public.fine_table_snapshot_refs_2026 USING btree (batch_id, original_sku);
+  [  396.2MB scans=0] fine_table_snapshot_refs_2025
+      CREATE INDEX idx_fine_table_snapshot_refs_2025_batch_original_sku ON public.fine_table_snapshot_refs_2025 USING btree (batch_id, original_sku);
+  [  362.2MB scans=0] fine_table_snapshot_refs_2026
+      CREATE INDEX idx_fine_table_snapshot_refs_2026_sku_trgm ON public.fine_table_snapshot_refs_2026 USING gin (sku gin_trgm_ops);
+  [  345.0MB scans=0] fine_table_snapshot_refs_2025
+      CREATE INDEX idx_fine_table_snapshot_refs_2025_sku_trgm ON public.fine_table_snapshot_refs_2025 USING gin (sku gin_trgm_ops);
+  [  338.1MB scans=0] vip_product_ops_snapshots
+      CREATE INDEX idx_ops_snapshots_goods_code_date ON public.vip_product_ops_snapshots USING btree (goods_code, snapshot_date);
+  [  332.4MB scans=0] fine_table_snapshot_refs_2025
+      CREATE INDEX idx_fine_table_snapshot_refs_2025_batch_row_index ON public.fine_table_snapshot_refs_2025 USING btree (batch_id, row_index);
+  [  320.5MB scans=0] fine_table_snapshot_refs_2026
+      CREATE INDEX idx_fine_table_snapshot_refs_2026_original_sku_trgm ON public.fine_table_snapshot_refs_2026 USING gin (original_sku gin_trgm_ops);
+  [  299.8MB scans=0] fine_table_snapshot_refs_2025
+      CREATE INDEX idx_fine_table_snapshot_refs_2025_original_sku_trgm ON public.fine_table_snapshot_refs_2025 USING gin (original_sku gin_trgm_ops);
+  [  200.9MB scans=0] fine_table_snapshot_refs_2024
+      CREATE INDEX idx_fine_table_snapshot_refs_2024_sku_trgm ON public.fine_table_snapshot_refs_2024 USING gin (sku gin_trgm_ops);
+  [  196.8MB scans=0] fine_table_snapshot_refs_2024
+      CREATE INDEX idx_fine_table_snapshot_refs_2024_batch_original_sku ON public.fine_table_snapshot_refs_2024 USING btree (batch_id, original_sku);
+  [  179.1MB scans=0] fine_table_snapshot_refs_2024
+      CREATE INDEX idx_fine_table_snapshot_refs_2024_batch_row_index ON public.fine_table_snapshot_refs_2024 USING btree (batch_id, row_index);
+  [  173.4MB scans=0] fine_table_snapshot_refs_2024
+      CREATE INDEX idx_fine_table_snapshot_refs_2024_original_sku_trgm ON public.fine_table_snapshot_refs_2024 USING gin (original_sku gin_trgm_ops);
+  [   52.5MB scans=0] vip_product_ops_snapshots
+      CREATE INDEX idx_ops_snapshots_snapshot_date ON public.vip_product_ops_snapshots USING btree (snapshot_date);
+  [   11.2MB scans=0] vip_product_detail_daily
+      CREATE INDEX idx_vip_product_detail_daily_goods_code_date ON public.vip_product_detail_daily USING btree (goods_code, report_date DESC);
+  [    2.0MB scans=0] vip_product_detail_daily
+      CREATE INDEX idx_vip_product_detail_daily_brand_date ON public.vip_product_detail_daily USING btree (brand_sn, report_date DESC);
+  [    0.0MB scans=0] vip_product_detail_daily
+      CREATE INDEX idx_vip_product_detail_daily_shop_date ON public.vip_product_detail_daily USING btree (shop_code, report_date DESC) WHERE (shop_code IS NOT NULL);
+  [    5.0MB scans=0] product_archive_identities
+      CREATE INDEX idx_product_archive_identities_brand_sku ON public.product_archive_identities USING btree (brand, sku);
+  [    4.3MB scans=0] jst_stock_summary
+      CREATE INDEX idx_jst_stock_summary_date_value_code ON public.jst_stock_summary USING btree (stock_date_value, product_code);
+  [    2.6MB scans=0] zhiyi_hot_item_range
+      CREATE INDEX zhiyi_hot_item_range_item_id_idx ON public.zhiyi_hot_item_range USING btree (item_id);
+  [    0.5MB scans=0] jst_purchase_inbound_items
+      CREATE INDEX ix_jst_purchase_inbound_style_color ON public.jst_purchase_inbound_items USING btree (style_color_code);
+  [    0.3MB scans=0] jst_purchase_inbound_items
+      CREATE INDEX ix_jst_purchase_inbound_style_color_normalized ON public.jst_purchase_inbound_items USING btree (upper(btrim(style_color_code)));
+  [    0.3MB scans=0] jst_purchase_inbound_items
+      CREATE INDEX ix_jst_purchase_inbound_womens_date ON public.jst_purchase_inbound_items USING btree (is_womens, inbound_date);
+  [    0.3MB scans=0] yandou_products
+      CREATE INDEX idx_yandou_products_last_imported_at ON public.yandou_products USING btree (last_imported_at);
+  [    0.1MB scans=0] operation_logs
+      CREATE INDEX idx_operation_logs_user ON public.operation_logs USING btree (username);
+  [    0.1MB scans=0] product_auxiliary_attributes
+      CREATE INDEX idx_product_auxiliary_attributes_name ON public.product_auxiliary_attributes USING btree (attribute_name);
+  [    0.1MB scans=0] suppliers
+      CREATE INDEX idx_suppliers_factory_grade ON public.suppliers USING btree (factory_grade);
+  [   11.9MB scans=31] inventory_details
+      CREATE INDEX idx_inventory_details_product_code_trgm ON public.inventory_details USING gin (product_code gin_trgm_ops);
+  !! NOT FOUND: idx_jst_daily_stock_product_code
+  [  105.7MB scans=79359] vip_daily_sales_2026
+      CREATE INDEX idx_vip_daily_sales_2026_sales_date ON public.vip_daily_sales_2026 USING btree (sales_date);
+  [   10.9MB scans=79669] jst_daily_sales_2026
+      CREATE INDEX idx_jst_daily_sales_2026_sales_date ON public.jst_daily_sales_2026 USING btree (sales_date);
+  [  167.7MB scans=330] jst_size_stock_snapshots
+      CREATE INDEX idx_jst_size_stock_snapshots_date_code ON public.jst_size_stock_snapshots USING btree (snapshot_date, product_code);
+  [   11.8MB scans=690] factory_channel_sales_daily_summaries
+      CREATE INDEX idx_factory_channel_sales_daily_summary_brand_date ON public.factory_channel_sales_daily_summaries USING btree (brand, sales_date);
+  [   49.0MB scans=41039] gj_merged_product_info
+      CREATE INDEX idx_gj_merged_product_info_source_date ON public.gj_merged_product_info USING btree (source_date_value);
+  [   78.6MB scans=70] jst_stock_summary_snapshots
+      CREATE INDEX idx_jst_stock_summary_snapshots_date_code ON public.jst_stock_summary_snapshots USING btree (snapshot_date, product_code);
+  [    0.5MB scans=299] inventory_records
+      CREATE INDEX idx_inventory_records_document_number ON public.inventory_records USING btree (document_number);
+
+## EXACT DDL OF PARTITIONED-PARENT INDEXES PROPOSED FOR REMOVAL
+  [  147.8MB across 6 children, scans=3] jst_monthly_orders
+      CREATE INDEX idx_jst_monthly_orders_product_code ON ONLY public.jst_monthly_orders USING btree (product_code);
+  [  136.7MB across 6 children, scans=29] jst_monthly_orders
+      CREATE INDEX idx_jst_monthly_orders_style_code ON ONLY public.jst_monthly_orders USING btree (style_code);
+  [  121.8MB across 6 children, scans=192] jst_monthly_orders
+      CREATE INDEX idx_jst_monthly_orders_ship_date_value ON ONLY public.jst_monthly_orders USING btree (ship_date_value);
+  [  278.3MB across 6 children, scans=52415] jst_monthly_orders
+      CREATE INDEX idx_jst_monthly_orders_order_time_at ON ONLY public.jst_monthly_orders USING btree (order_time_at);
+  [   38.5MB across 5 children, scans=6] jst_aftersale_returns
+      CREATE INDEX idx_jst_aftersale_returns_id ON ONLY public.jst_aftersale_returns USING btree (id);
+  [   13.4MB across 5 children, scans=24] jst_aftersale_returns
+      CREATE INDEX idx_jst_aftersale_returns_application_date ON ONLY public.jst_aftersale_returns USING btree (application_date_value);
+  [   13.7MB across 5 children, scans=34] jst_aftersale_returns
+      CREATE INDEX idx_jst_aftersale_returns_order_time ON ONLY public.jst_aftersale_returns USING btree (order_time_value);
+  [   13.4MB across 5 children, scans=207] jst_aftersale_returns
+      CREATE INDEX idx_jst_aftersale_returns_business_date ON ONLY public.jst_aftersale_returns USING btree (COALESCE(application_date_value, order_date_value, order_time_value));
+
+## KEPT-INDEX VERIFICATION (the indexes that will serve the traffic instead)
+  [  751.8MB scans=0] CREATE INDEX idx_jst_stock_date_qty ON public.jst_daily_stock USING btree (stock_date, product_code, available_qty);
+  [  587.0MB scans=406] CREATE INDEX idx_jst_stock_date_value_code ON public.jst_daily_stock USING btree (stock_date_value, product_code);
+  [  613.9MB scans=6089094] CREATE UNIQUE INDEX uq_jst_stock_date_code ON public.jst_daily_stock USING btree (stock_date, product_code);
+  [  801.0MB scans=181] CREATE INDEX idx_fine_table_snapshot_refs_2026_batch_sku ON public.fine_table_snapshot_refs_2026 USING btree (batch_id, sku);
+  [  308.3MB scans=183] CREATE INDEX idx_fine_table_snapshot_refs_2026_payload_id ON public.fine_table_snapshot_refs_2026 USING btree (payload_id);
+  [  338.1MB scans=0] CREATE INDEX idx_ops_snapshots_goods_code_date ON public.vip_product_ops_snapshots USING btree (goods_code, snapshot_date);
+  [  474.6MB scans=2549485] CREATE UNIQUE INDEX uq_ops_snapshot_date_goods ON public.vip_product_ops_snapshots USING btree (snapshot_date, goods_id);
+  [    0.0MB scans=None] CREATE INDEX idx_jst_monthly_orders_time_product ON ONLY public.jst_monthly_orders USING btree (order_time_at, product_code);
+  [    0.0MB scans=None] CREATE UNIQUE INDEX uq_jst_monthly_orders_order_time_record_key ON ONLY public.jst_monthly_orders USING btree (order_time_at, record_key);
+
+## FK THAT NEEDS AN INDEX
+  product_tag_assignments product_tag_assignments_style_id_fkey: FOREIGN KEY (style_id) REFERENCES product_style_entities(id) ON DELETE CASCADE
+

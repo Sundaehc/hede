@@ -1,0 +1,433 @@
+==============================================================================
+A. 核心业务表: 逐列缺失 (NULL 与空字符串分开统计)
+   商品档案表 —— 应用真正读取的字段
+==============================================================================
+
+  cbanner_mens_products  (总行数 19,675)
+      100.00%  sole_style                     NULL=19,675
+      100.00%  shoe_box_type                  NULL=19,675
+      100.00%  selling_points                 NULL=19,675
+      100.00%  rear_heel_height               NULL=19,675
+      100.00%  opening_depth                  NULL=19,675
+      100.00%  mesh_upper_type                NULL=19,675
+      100.00%  internal_height_note           NULL=19,675
+      100.00%  fashion_elements               NULL=19,675
+      100.00%  deleted_at                     NULL=19,675
+      100.00%  boot_shaft                     NULL=19,675
+       97.80%  last_imported_at               NULL=19,243
+       78.83%  internal_height_increase       NULL=15,510
+       52.96%  shaft_height                   NULL=10,419
+       52.94%  shaft_circumference            NULL=10,416
+       35.62%  shoe_length                    NULL=7,008
+       35.61%  shoe_width                     NULL=7,007
+       34.83%  heel_height                    NULL=6,852
+       32.25%  closure_type                   NULL=6,345
+       30.30%  toe_shape                      NULL=5,961
+       29.60%  upper_height                   NULL=5,823
+       22.88%  first_order_time               NULL=4,501
+       21.12%  product_level                  NULL=4,156
+       14.73%  group_name                     NULL=2,899
+       11.86%  season_category                NULL=2,333
+       11.74%  year                           NULL=2,310
+        6.95%  category                       NULL=1,367
+        6.42%  shoe_box_spec                  NULL=1,264
+        1.49%  insole_material                NULL=293
+        1.32%  image_path                     NULL=260
+        0.77%  cost                           NULL=151
+        0.62%  execution_standard             NULL=122
+        0.25%  size_range                     NULL=50
+        0.24%  lining_material                NULL=48
+        0.21%  product_model                  NULL=41
+        0.09%  outsole_material               NULL=17
+        0.03%  upper_material                 NULL=5
+        0.03%  product_name                   NULL=5
+        0.02%  color_code                     NULL=4
+
+  cbanner_womens_products  (总行数 15,931)
+      100.00%  shoe_box_type                  NULL=15,931
+      100.00%  selling_points                 NULL=15,931
+      100.00%  mesh_upper_type                NULL=15,931
+       99.96%  deleted_at                     NULL=15,925
+       99.87%  last_imported_at               NULL=15,910
+       99.13%  boot_shaft                     NULL=15,792
+       96.30%  internal_height_note           NULL=15,342
+       95.84%  opening_depth                  NULL=15,268
+       95.76%  sole_style                     NULL=15,255
+       95.76%  rear_heel_height               NULL=15,255
+       95.76%  fashion_elements               NULL=15,255
+       94.78%  closure_type                   NULL=15,100
+       94.76%  toe_shape                      NULL=15,096
+       93.82%  shaft_circumference            NULL=14,947
+       93.14%  shoe_box_spec                  NULL=14,838
+       92.79%  internal_height_increase       NULL=14,783
+       89.34%  shaft_height                   NULL=14,233
+       84.58%  upper_height                   NULL=13,475
+       73.40%  product_level                  NULL=11,694
+       47.29%  shoe_width                     NULL=7,533
+       47.29%  shoe_length                    NULL=7,533
+       34.88%  heel_height                    NULL=5,556
+       32.29%  first_order_time               NULL=5,144
+       18.74%  image_path                     NULL=2,985
+       17.75%  season_category                NULL=2,828
+       16.05%  year                           NULL=2,557
+        6.20%  category                       NULL=987
+        2.82%  insole_material                NULL=449
+        0.24%  lining_material                NULL=39
+        0.16%  product_name                   NULL=26
+        0.16%  cost                           NULL=25
+        0.03%  size_range                     NULL=5
+        0.03%  outsole_material               NULL=5
+        0.01%  upper_material                 NULL=2
+        0.01%  extra_fields                   NULL=2
+        0.01%  execution_standard             NULL=2
+
+  yandou_products  (总行数 17,261)
+      100.00%  sole_style                     NULL=17,261
+      100.00%  shoe_box_type                  NULL=17,261
+      100.00%  selling_points                 NULL=17,261
+      100.00%  rear_heel_height               NULL=17,261
+      100.00%  product_level                  NULL=17,261
+      100.00%  opening_depth                  NULL=17,261
+      100.00%  mesh_upper_type                NULL=17,261
+      100.00%  last_imported_at               NULL=17,261
+      100.00%  internal_height_note           NULL=17,261
+      100.00%  group_name                     NULL=17,261
+      100.00%  fashion_elements               NULL=17,261
+      100.00%  deleted_at                     NULL=17,261
+      100.00%  boot_shaft                     NULL=17,261
+       81.92%  internal_height_increase       NULL=14,141
+       81.17%  image_path                     NULL=14,011
+       58.39%  shaft_circumference            NULL=10,079
+       58.28%  shaft_height                   NULL=10,059
+       57.23%  shoe_width                     NULL=9,878
+       57.23%  shoe_length                    NULL=9,878
+       57.23%  heel_height                    NULL=9,878
+       42.75%  upper_height                   NULL=7,379
+       36.23%  closure_type                   NULL=6,254
+       36.09%  toe_shape                      NULL=6,229
+       31.99%  first_order_time               NULL=5,522
+       31.36%  season_category                NULL=5,413
+       30.45%  year                           NULL=5,256
+        9.12%  category                       NULL=1,574
+        9.08%  size_range                     NULL=1,567
+        4.39%  lining_material                NULL=757
+        4.22%  insole_material                NULL=728
+        2.51%  shoe_box_spec                  NULL=434
+        1.74%  outsole_material               NULL=301
+        1.34%  barcode_build_rule             NULL=231
+        0.50%  color_code                     NULL=87
+        0.49%  color                          NULL=84
+        0.11%  cost                           NULL=19
+        0.06%  execution_standard             NULL=11
+        0.03%  upper_material                 NULL=5
+        0.03%  supplier_name                  NULL=5
+        0.02%  factory_sku                    NULL=3
+        0.01%  product_name                   NULL=2
+        0.01%  product_model                  NULL=2
+
+  eblan_products  (总行数 10,259)
+      100.00%  sole_style                     NULL=10,259
+      100.00%  rear_heel_height               NULL=10,259
+      100.00%  opening_depth                  NULL=10,259
+      100.00%  mesh_upper_type                NULL=10,259
+      100.00%  internal_height_note           NULL=10,259
+      100.00%  fashion_elements               NULL=10,259
+      100.00%  deleted_at                     NULL=10,259
+      100.00%  boot_shaft                     NULL=10,259
+       99.96%  last_imported_at               NULL=10,255
+       99.91%  group_name                     NULL=10,250
+       99.80%  closure_type                   NULL=10,238
+       99.78%  upper_height                   NULL=10,236
+       99.69%  toe_shape                      NULL=10,227
+       95.47%  selling_points                 NULL=9,794
+       94.93%  shoe_box_spec                  NULL=9,739
+       94.13%  shoe_box_type                  NULL=9,657
+       93.06%  internal_height_increase       NULL=9,547
+       70.74%  shaft_height                   NULL=7,257
+       70.71%  shaft_circumference            NULL=7,254
+       53.03%  first_order_time               NULL=5,440
+       30.30%  product_level                  NULL=3,108
+       28.10%  shoe_length                    NULL=2,883
+       28.10%  heel_height                    NULL=2,883
+       28.09%  shoe_width                     NULL=2,882
+       21.97%  season_category                NULL=2,254
+        2.65%  category                       NULL=272
+        1.77%  image_path                     NULL=182
+        0.50%  insole_material                NULL=51
+        0.16%  size_range                     NULL=16
+        0.10%  lining_material                NULL=10
+        0.07%  product_name                   NULL=7
+        0.04%  color_code                     NULL=4
+        0.03%  year                           NULL=3
+        0.03%  upper_material                 NULL=3
+        0.03%  outsole_material               NULL=3
+        0.03%  execution_standard             NULL=3
+        0.03%  cost                           NULL=3
+        0.03%  color                          NULL=3
+        0.02%  supplier_name                  NULL=2
+        0.02%  product_model                  NULL=2
+
+  smiley_products  (总行数 439)
+      100.00%  upper_height                   NULL=439
+      100.00%  toe_shape                      NULL=439
+      100.00%  sole_style                     NULL=439
+      100.00%  shoe_width                     NULL=439
+      100.00%  shoe_length                    NULL=439
+      100.00%  shoe_box_type                  NULL=439
+      100.00%  shaft_height                   NULL=439
+      100.00%  shaft_circumference            NULL=439
+      100.00%  selling_points                 NULL=439
+      100.00%  rear_heel_height               NULL=439
+      100.00%  product_level                  NULL=439
+      100.00%  opening_depth                  NULL=439
+      100.00%  mesh_upper_type                NULL=439
+      100.00%  internal_height_note           NULL=439
+      100.00%  internal_height_increase       NULL=439
+      100.00%  heel_height                    NULL=439
+      100.00%  group_name                     NULL=439
+      100.00%  fashion_elements               NULL=439
+      100.00%  deleted_at                     NULL=439
+      100.00%  closure_type                   NULL=439
+      100.00%  boot_shaft                     NULL=439
+       46.47%  shoe_box_spec                  NULL=204
+       43.74%  first_order_time               NULL=192
+       41.46%  last_imported_at               NULL=182
+       12.98%  category                       NULL=57
+       12.07%  cost                           NULL=53
+        1.14%  lining_material                NULL=5
+        1.14%  insole_material                NULL=5
+        0.68%  year                           NULL=3
+        0.68%  season_category                NULL=3
+
+  ni_products  (总行数 87)
+      100.00%  upper_height                   NULL=87
+      100.00%  toe_shape                      NULL=87
+      100.00%  sole_style                     NULL=87
+      100.00%  shoe_width                     NULL=87
+      100.00%  shoe_length                    NULL=87
+      100.00%  shoe_box_type                  NULL=87
+      100.00%  shoe_box_spec                  NULL=87
+      100.00%  shaft_height                   NULL=87
+      100.00%  shaft_circumference            NULL=87
+      100.00%  selling_points                 NULL=87
+      100.00%  season_category                NULL=87
+      100.00%  rear_heel_height               NULL=87
+      100.00%  product_level                  NULL=87
+      100.00%  opening_depth                  NULL=87
+      100.00%  mesh_upper_type                NULL=87
+      100.00%  last_imported_at               NULL=87
+      100.00%  internal_height_note           NULL=87
+      100.00%  internal_height_increase       NULL=87
+      100.00%  heel_height                    NULL=87
+      100.00%  first_order_time               NULL=87
+      100.00%  fashion_elements               NULL=87
+      100.00%  deleted_at                     NULL=87
+      100.00%  closure_type                   NULL=87
+      100.00%  category                       NULL=87
+      100.00%  boot_shaft                     NULL=87
+       20.69%  insole_material                NULL=18
+       12.64%  lining_material                NULL=11
+        8.05%  outsole_material               NULL=7
+        1.15%  cost                           NULL=1
+
+  manual_product_archive_31  (总行数 37)
+      100.00%  upper_height                   NULL=37
+      100.00%  toe_shape                      NULL=37
+      100.00%  sole_style                     NULL=37
+      100.00%  shoe_width                     NULL=37
+      100.00%  shoe_length                    NULL=37
+      100.00%  shoe_box_type                  NULL=37
+      100.00%  shaft_height                   NULL=37
+      100.00%  shaft_circumference            NULL=37
+      100.00%  selling_points                 NULL=37
+      100.00%  rear_heel_height               NULL=37
+      100.00%  product_level                  NULL=37
+      100.00%  opening_depth                  NULL=37
+      100.00%  mesh_upper_type                NULL=37
+      100.00%  internal_height_note           NULL=37
+      100.00%  internal_height_increase       NULL=37
+      100.00%  image_path                     NULL=37
+      100.00%  heel_height                    NULL=37
+      100.00%  first_order_time               NULL=37
+      100.00%  fashion_elements               NULL=37
+      100.00%  deleted_at                     NULL=37
+      100.00%  closure_type                   NULL=37
+      100.00%  boot_shaft                     NULL=37
+       64.86%  shoe_box_spec                  NULL=24
+       43.24%  color_code                     NULL=16
+       24.32%  category                       NULL=9
+
+==============================================================================
+A2. 进销存表 (inventory_records / inventory_details / suppliers / warehouses)
+==============================================================================
+
+  inventory_records  (总行数 6,576)
+       92.72%  deleted_at                     NULL=6,097
+       88.53%  additional_note                NULL=5,822
+       18.17%  extra_fields                   NULL=1,195
+        5.46%  warehouse                      NULL=359
+        5.46%  total_count                    NULL=359
+        4.05%  source_workbook                NULL=0 空串=266
+        4.05%  source_sheet                   NULL=0 空串=266
+        4.05%  source_row_number              NULL=0 空串=266
+        2.81%  supplier                       NULL=185
+
+  inventory_details  (总行数 119,932)
+      100.00%  remark                         NULL=112,037 空串=7,893
+        1.16%  product_identity_id            NULL=1,390
+        0.54%  unit_price                     NULL=653
+        0.30%  quantity                       NULL=361
+        0.30%  color_spec                     NULL=361
+        0.30%  color_name                     NULL=361
+        0.30%  size_quantities                NULL=359
+        0.30%  product_code                   NULL=359
+        0.30%  extra_fields                   NULL=359
+        0.30%  color_barcode                  NULL=359
+        0.25%  amount                         NULL=295
+
+  suppliers  (总行数 1,048)
+      100.00%  wechat                         NULL=1,048
+      100.00%  notes                          NULL=1,048
+      100.00%  cooperation_status             NULL=1,048
+      100.00%  address                        NULL=1,048
+       98.19%  contact                        NULL=1,001 空串=28
+        7.16%  factory_suggestion             NULL=75
+        7.16%  factory_grade                  NULL=75
+        3.24%  factory_code                   NULL=34
+
+  warehouses  (总行数 33)
+      100.00%  notes                          NULL=0 空串=33
+      100.00%  address                        NULL=0 空串=33
+
+==============================================================================
+B. 进销存勾稽与一致性
+==============================================================================
+  单据总数=6,576  已软删除=479
+  没有任何明细行的单据数量 = 0
+    其中未软删除的 '空单据' = 0
+  挂在已软删除单据下的明细行 = 3,960
+  total_count 与明细合计不符的单据 = 1,202
+  amount 与明细合计不符的单据 = 902
+  明细 quantity 为 NULL = 361
+  明细 quantity 为 0 = 0
+  明细 unit_price 或 amount 为 NULL = 654
+  明细 amount ≠ quantity × unit_price = 1,359
+  明细缺少商品编码 product_code = 359
+  明细缺少颜色规格 color_spec = 361
+  明细缺少尺码数量 size_quantities = 359
+
+==============================================================================
+C. 大表可疑列实测 (只看缺失率 >= 1% 的列)
+==============================================================================
+
+  !! jst_product_price: 这些列不存在, 已忽略: ['product_code']
+  jst_product_price  (总行数 9,308,199)
+      100.00%  preset_discount                NULL=9,308,199
+      100.00%  preset_commission              NULL=9,308,199
+      100.00%  member_price                   NULL=9,308,199
+      100.00%  extra_fields                   NULL=9,308,199
+      100.00%  preset_commission_name         NULL=9,307,842
+       89.50%  retail_price                   NULL=8,330,597
+       72.75%  cost_unit_price                NULL=6,771,438
+       25.51%  latest_purchase_price          NULL=2,374,214
+
+  jst_monthly_orders_2026  (总行数 2,934,920)
+      100.00%  shop_style_code                NULL=2,934,920
+      100.00%  registered_qty                 NULL=2,934,920
+      100.00%  cost_price                     NULL=2,934,920
+      100.00%  category                       NULL=2,934,920
+      100.00%  address                        NULL=2,934,920
+      100.00%  actual_return_qty              NULL=2,934,920
+       46.94%  ship_date_value                NULL=1,377,557
+       27.61%  record_key                     NULL=810,447
+       20.73%  online_sub_order_id            NULL=608,332
+
+  vip_daily_sales_2026  (总行数 15,350,579)
+      100.00%  product_type                   NULL=15,350,579
+
+  vip_product_ops_snapshots  (总行数 7,921,359)
+      100.00%  extra_fields                   NULL=7,921,359
+       99.08%  goods_tag                      NULL=4,132,704 空串=3,715,730
+
+  jst_daily_sales_2026  (总行数 1,244,893)
+       94.21%  supplier_style_code            NULL=1,172,802
+       75.52%  return_quantity                NULL=940,168
+       22.27%  net_sales_amount               NULL=277,259
+        9.15%  cost_amount                    NULL=113,856
+        8.93%  gross_profit                   NULL=111,125
+
+  gj_merged_product_info  (总行数 7,436,076)
+       94.24%  disabled_flag                  NULL=7,007,677
+       40.85%  shoe_box_spec                  NULL=3,037,721
+       24.13%  row_no                         NULL=1,794,435
+        2.46%  insole_material                NULL=183,240
+
+  jst_daily_stock  (总行数 15,298,482)
+      无缺失
+
+  dewu_orders_2026  (总行数 105,053)
+      100.00%  intent_deposit_amount          NULL=105,053
+      100.00%  full_payment_amount            NULL=105,053
+      100.00%  delivery_party                 NULL=105,053
+      100.00%  buyer_remark                   NULL=105,053
+
+  jst_full_stock  (总行数 248,332)
+      100.00%  safety_stock_min_qty           NULL=248,332
+      100.00%  safety_stock_max_qty           NULL=248,332
+      100.00%  main_warehouse_location        NULL=248,332
+
+  vip_product_detail_daily  (总行数 252,923)
+      100.00%  shop_name                      NULL=252,923
+      100.00%  shop_code                      NULL=252,923
+      100.00%  member_benefit_cost            NULL=252,923
+
+  product_tag_assignments  (总行数 563,358)
+      100.00%  valid_to                       NULL=563,358
+      100.00%  valid_from                     NULL=563,358
+      100.00%  style_id                       NULL=563,358
+      100.00%  created_by                     NULL=563,358
+
+  jst_aftersale_returns_2026  (总行数 358,978)
+      100.00%  platform_site                  NULL=358,978
+      100.00%  order_time_value               NULL=358,978
+      100.00%  order_time                     NULL=358,978
+      100.00%  extra_fields                   NULL=358,978
+
+  product_goods_historical_sales_2025  (总行数 1,220,417)
+      100.00%  color                          NULL=1,220,417
+
+  jst_product_profiles  (总行数 421,427)
+      100.00%  extra_fields                   NULL=421,427
+
+  fine_table_snapshot_refs_2026  (总行数 13,203,581)
+      无缺失
+
+  product_goods_detail_snapshots_2026  (总行数 7,504,812)
+      无缺失
+
+==============================================================================
+D. 日粒度序列的日期断档
+==============================================================================
+  jst_daily_stock.stock_date: 检查失败 TypeError: unsupported operand type(s) for -: 'str' and 'str'
+  jst_daily_sales_2026.sales_date: 2026-01-01 ~ 2026-10-06 跨度=279天 有数据天数=279 缺=0 行数=1,244,893
+  vip_daily_sales_2026.sales_date: 2026-01-01 ~ 2026-10-06 跨度=279天 有数据天数=279 缺=0 行数=15,350,579
+  fine_table_snapshot_refs_2026.snapshot_date: 2026-01-01 ~ 2026-10-07 跨度=280天 有数据天数=272 缺=8 行数=13,203,581
+      缺失日期: 2026-08-16, 2026-08-17, 2026-08-18, 2026-08-19, 2026-08-20, 2026-08-21, 2026-08-22, 2026-08-23
+  product_goods_detail_snapshots_2026.snapshot_date: 2026-01-01 ~ 2026-10-07 跨度=280天 有数据天数=267 缺=13 行数=7,504,812
+      缺失日期: 2026-02-11, 2026-02-12, 2026-02-13, 2026-02-14, 2026-02-15, 2026-02-16, 2026-02-17, 2026-02-18, 2026-02-19, 2026-02-20, 2026-02-21, 2026-02-22, 2026-02-23
+  vip_product_daily_snapshots.snapshot_date: 2025-06-07 ~ 2026-10-06 跨度=487天 有数据天数=144 缺=343 行数=1,168,723
+      缺失日期: 2025-06-08, 2025-06-09, 2025-06-11, 2025-06-12, 2025-06-13, 2025-06-17, 2025-06-21, 2025-06-22, 2025-06-23, 2025-06-24, 2025-06-25, 2025-06-27, 2025-06-28, 2025-07-01, 2025-07-02, 2025-07-03, 2025-07-05, 2025-07-07, 2025-07-10, 2025-07-11, 2025-07-12, 2025-07-14, 2025-07-15, 2025-07-16, 2025-07-17, 2025-07-18, 2025-07-19, 2025-07-20, 2025-07-23, 2025-07-24, 2025-07-28, 2025-07-29, 2025-07-30, 2025-07-31, 2025-08-01, 2025-08-02, 2025-08-03, 2025-08-04, 2025-08-06, 2025-08-08
+  product_goods_historical_orders_2026.order_date: 2026-01-02 ~ 2026-10-06 跨度=278天 有数据天数=239 缺=39 行数=9,185
+      缺失日期: 2026-01-25, 2026-01-27, 2026-01-31, 2026-02-01, 2026-02-02, 2026-02-04, 2026-02-05, 2026-02-06, 2026-02-07, 2026-02-08, 2026-02-09, 2026-02-10, 2026-02-11, 2026-02-12, 2026-02-13, 2026-02-14, 2026-02-15, 2026-02-16, 2026-02-17, 2026-02-18, 2026-02-19, 2026-02-20, 2026-02-21, 2026-02-22, 2026-02-23, 2026-03-21, 2026-05-01, 2026-07-18, 2026-07-24, 2026-07-26, 2026-08-01, 2026-08-09, 2026-08-20, 2026-08-23, 2026-08-25, 2026-08-30, 2026-09-01, 2026-09-25, 2026-10-01
+  dewu_orders_2026.order_date: 2026-01-01 ~ 2026-10-07 跨度=280天 有数据天数=280 缺=0 行数=105,053
+
+==============================================================================
+E. 交叉引用缺失
+==============================================================================
+  明细商品编码不在任何商品档案(sku/original_sku)中的行数 = 114
+  product_size_group_mappings 行数 = 61,616
+    其中 product_code 不在商品档案中 = 3,690
+  product_goods_overrides 行数 = 21,751
+  标签体系: definitions=307 assignments=563,358 style_entities=0 distinct_tags=307 distinct_styles=0
+  商品身份表 product_archive_identities=63,712 ; 未关联身份的明细=1,390/119,932
+

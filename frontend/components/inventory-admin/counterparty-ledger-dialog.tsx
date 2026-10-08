@@ -44,7 +44,7 @@ function monthStartText() {
   return `${year}-${month}-01`
 }
 
-function formatMoney(value: string | null | undefined) {
+function formatMoney(value: string | number | null | undefined) {
   if (!value) return "-"
   const numeric = Number(value)
   if (!Number.isFinite(numeric)) return value

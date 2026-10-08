@@ -1,0 +1,199 @@
+## PARTITIONED (PARENT) INDEXES: usage aggregated over children
+  dewu_orders                         idx_dewu_orders_order_number                               children=16 size=    22 MB scans=          36 unique=False
+        CREATE INDEX idx_dewu_orders_order_number ON ONLY public.dewu_orders USING btree (order_number)
+  dewu_orders                         idx_dewu_orders_id                                         children=16 size=    16 MB scans=          16 unique=False
+        CREATE INDEX idx_dewu_orders_id ON ONLY public.dewu_orders USING btree (id)
+  dewu_orders                         idx_dewu_orders_sku_id                                     children=16 size=  8448 kB scans=          16 unique=False
+        CREATE INDEX idx_dewu_orders_sku_id ON ONLY public.dewu_orders USING btree (sku_id)
+  dewu_orders                         idx_dewu_orders_goods_code                                 children=16 size=  6688 kB scans=          16 unique=False
+        CREATE INDEX idx_dewu_orders_goods_code ON ONLY public.dewu_orders USING btree (goods_code text_pattern_ops)
+  dewu_orders                         idx_dewu_orders_brand_order_date                           children=16 size=  5088 kB scans=         328 unique=False
+        CREATE INDEX idx_dewu_orders_brand_order_date ON ONLY public.dewu_orders USING btree (brand_group, order_date)
+  dewu_orders                         idx_dewu_orders_order_status                               children=16 size=  4960 kB scans=          48 unique=False
+        CREATE INDEX idx_dewu_orders_order_status ON ONLY public.dewu_orders USING btree (order_status)
+  jst_aftersale_returns               idx_jst_aftersale_returns_id                               children=25 size=   192 MB scans=          30 unique=False
+        CREATE INDEX idx_jst_aftersale_returns_id ON ONLY public.jst_aftersale_returns USING btree (id)
+  jst_aftersale_returns               idx_jst_aftersale_returns_business_code                    children=25 size=   134 MB scans=         915 unique=False
+        CREATE INDEX idx_jst_aftersale_returns_business_code ON ONLY public.jst_aftersale_returns USING btree (COALESCE(application_date_value, order_date_value, order_time_value), original_goods_code)
+  jst_aftersale_returns               idx_jst_aftersale_returns_original_code                    children=25 size=    70 MB scans=       1,200 unique=False
+        CREATE INDEX idx_jst_aftersale_returns_original_code ON ONLY public.jst_aftersale_returns USING btree (original_goods_code)
+  jst_aftersale_returns               idx_jst_aftersale_returns_order_time                       children=25 size=    69 MB scans=         170 unique=False
+        CREATE INDEX idx_jst_aftersale_returns_order_time ON ONLY public.jst_aftersale_returns USING btree (order_time_value)
+  jst_aftersale_returns               idx_jst_aftersale_returns_business_date                    children=25 size=    67 MB scans=       1,035 unique=False
+        CREATE INDEX idx_jst_aftersale_returns_business_date ON ONLY public.jst_aftersale_returns USING btree (COALESCE(application_date_value, order_date_value, order_time_value))
+  jst_aftersale_returns               idx_jst_aftersale_returns_application_date                 children=25 size=    67 MB scans=         120 unique=False
+        CREATE INDEX idx_jst_aftersale_returns_application_date ON ONLY public.jst_aftersale_returns USING btree (application_date_value)
+  jst_aftersale_returns               idx_jst_aftersale_returns_order_date                       children=25 size=    66 MB scans=         895 unique=False
+        CREATE INDEX idx_jst_aftersale_returns_order_date ON ONLY public.jst_aftersale_returns USING btree (order_date_value)
+  jst_monthly_orders                  uq_jst_monthly_orders_order_time_record_key                children=36 size=    11 GB scans=  86,299,284 unique=True
+        CREATE UNIQUE INDEX uq_jst_monthly_orders_order_time_record_key ON ONLY public.jst_monthly_orders USING btree (order_time_at, record_key)
+  jst_monthly_orders                  idx_jst_monthly_orders_time_product                        children=36 size=  4902 MB scans=     409,314 unique=False
+        CREATE INDEX idx_jst_monthly_orders_time_product ON ONLY public.jst_monthly_orders USING btree (order_time_at, product_code)
+  jst_monthly_orders                  idx_jst_monthly_orders_style_time                          children=36 size=  4886 MB scans=   1,546,050 unique=False
+        CREATE INDEX idx_jst_monthly_orders_style_time ON ONLY public.jst_monthly_orders USING btree (style_code, order_time_at)
+  jst_monthly_orders                  idx_jst_monthly_orders_order_time_at                       children=36 size=  1670 MB scans=     314,490 unique=False
+        CREATE INDEX idx_jst_monthly_orders_order_time_at ON ONLY public.jst_monthly_orders USING btree (order_time_at)
+  jst_monthly_orders                  idx_jst_monthly_orders_product_code                        children=36 size=   887 MB scans=          18 unique=False
+        CREATE INDEX idx_jst_monthly_orders_product_code ON ONLY public.jst_monthly_orders USING btree (product_code)
+  jst_monthly_orders                  idx_jst_monthly_orders_style_code                          children=36 size=   820 MB scans=         174 unique=False
+        CREATE INDEX idx_jst_monthly_orders_style_code ON ONLY public.jst_monthly_orders USING btree (style_code)
+  jst_monthly_orders                  idx_jst_monthly_orders_ship_date_value                     children=36 size=   731 MB scans=       1,152 unique=False
+        CREATE INDEX idx_jst_monthly_orders_ship_date_value ON ONLY public.jst_monthly_orders USING btree (ship_date_value)
+
+## jst_aftersale_returns: per-index usage (standalone partitions, no parent index)
+  jst_aftersale_returns_2024   jst_aftersale_returns_2024_id_idx                       scans=      2     13 MB
+        CREATE INDEX jst_aftersale_returns_2024_id_idx ON public.jst_aftersale_returns_2024 USING btree (id)
+  jst_aftersale_returns_2024   jst_aftersale_returns_2024_coalesce_original_goods_code_idx scans=      6   7256 kB
+        CREATE INDEX jst_aftersale_returns_2024_coalesce_original_goods_code_idx ON public.jst_aftersale_returns_2024 USING btree (COALESCE(application_date_value, order_date_value, order_time_value), original_goods_code)
+  jst_aftersale_returns_2024   jst_aftersale_returns_2024_original_goods_code_idx      scans=     80   4424 kB
+        CREATE INDEX jst_aftersale_returns_2024_original_goods_code_idx ON public.jst_aftersale_returns_2024 USING btree (original_goods_code)
+  jst_aftersale_returns_2024   jst_aftersale_returns_2024_coalesce_idx                 scans=     48   4248 kB
+        CREATE INDEX jst_aftersale_returns_2024_coalesce_idx ON public.jst_aftersale_returns_2024 USING btree (COALESCE(application_date_value, order_date_value, order_time_value))
+  jst_aftersale_returns_2024   jst_aftersale_returns_2024_application_date_value_idx   scans=      9   4248 kB
+        CREATE INDEX jst_aftersale_returns_2024_application_date_value_idx ON public.jst_aftersale_returns_2024 USING btree (application_date_value)
+  jst_aftersale_returns_2024   jst_aftersale_returns_2024_order_date_value_idx         scans=     57   4248 kB
+        CREATE INDEX jst_aftersale_returns_2024_order_date_value_idx ON public.jst_aftersale_returns_2024 USING btree (order_date_value)
+  jst_aftersale_returns_2024   jst_aftersale_returns_2024_order_time_value_idx         scans=     19   4096 kB
+        CREATE INDEX jst_aftersale_returns_2024_order_time_value_idx ON public.jst_aftersale_returns_2024 USING btree (order_time_value)
+  jst_aftersale_returns_2025   jst_aftersale_returns_2025_id_idx                       scans=      1     12 MB
+        CREATE INDEX jst_aftersale_returns_2025_id_idx ON public.jst_aftersale_returns_2025 USING btree (id)
+  jst_aftersale_returns_2025   jst_aftersale_returns_2025_coalesce_original_goods_code_idx scans=      0   9168 kB
+        CREATE INDEX jst_aftersale_returns_2025_coalesce_original_goods_code_idx ON public.jst_aftersale_returns_2025 USING btree (COALESCE(application_date_value, order_date_value, order_time_value), original_goods_code)
+  jst_aftersale_returns_2025   jst_aftersale_returns_2025_original_goods_code_idx      scans=     80   4200 kB
+        CREATE INDEX jst_aftersale_returns_2025_original_goods_code_idx ON public.jst_aftersale_returns_2025 USING btree (original_goods_code)
+  jst_aftersale_returns_2025   jst_aftersale_returns_2025_coalesce_idx                 scans=     48   3944 kB
+        CREATE INDEX jst_aftersale_returns_2025_coalesce_idx ON public.jst_aftersale_returns_2025 USING btree (COALESCE(application_date_value, order_date_value, order_time_value))
+  jst_aftersale_returns_2025   jst_aftersale_returns_2025_application_date_value_idx   scans=      9   3944 kB
+        CREATE INDEX jst_aftersale_returns_2025_application_date_value_idx ON public.jst_aftersale_returns_2025 USING btree (application_date_value)
+  jst_aftersale_returns_2025   jst_aftersale_returns_2025_order_date_value_idx         scans=     57   3944 kB
+        CREATE INDEX jst_aftersale_returns_2025_order_date_value_idx ON public.jst_aftersale_returns_2025 USING btree (order_date_value)
+  jst_aftersale_returns_2025   jst_aftersale_returns_2025_order_time_value_idx         scans=     12   3792 kB
+        CREATE INDEX jst_aftersale_returns_2025_order_time_value_idx ON public.jst_aftersale_returns_2025 USING btree (order_time_value)
+  jst_aftersale_returns_2026   jst_aftersale_returns_2026_id_idx                       scans=      1     14 MB
+        CREATE INDEX jst_aftersale_returns_2026_id_idx ON public.jst_aftersale_returns_2026 USING btree (id)
+  jst_aftersale_returns_2026   jst_aftersale_returns_2026_coalesce_original_goods_code_idx scans=     77     11 MB
+        CREATE INDEX jst_aftersale_returns_2026_coalesce_original_goods_code_idx ON public.jst_aftersale_returns_2026 USING btree (COALESCE(application_date_value, order_date_value, order_time_value), original_goods_code)
+  jst_aftersale_returns_2026   jst_aftersale_returns_2026_order_time_value_idx         scans=      3   6160 kB
+        CREATE INDEX jst_aftersale_returns_2026_order_time_value_idx ON public.jst_aftersale_returns_2026 USING btree (order_time_value)
+  jst_aftersale_returns_2026   jst_aftersale_returns_2026_original_goods_code_idx      scans=     80   5688 kB
+        CREATE INDEX jst_aftersale_returns_2026_original_goods_code_idx ON public.jst_aftersale_returns_2026 USING btree (original_goods_code)
+  jst_aftersale_returns_2026   jst_aftersale_returns_2026_application_date_value_idx   scans=      6   5496 kB
+        CREATE INDEX jst_aftersale_returns_2026_application_date_value_idx ON public.jst_aftersale_returns_2026 USING btree (application_date_value)
+  jst_aftersale_returns_2026   jst_aftersale_returns_2026_coalesce_idx                 scans=    111   5496 kB
+        CREATE INDEX jst_aftersale_returns_2026_coalesce_idx ON public.jst_aftersale_returns_2026 USING btree (COALESCE(application_date_value, order_date_value, order_time_value))
+  jst_aftersale_returns_2026   jst_aftersale_returns_2026_order_date_value_idx         scans=     65   5376 kB
+        CREATE INDEX jst_aftersale_returns_2026_order_date_value_idx ON public.jst_aftersale_returns_2026 USING btree (order_date_value)
+  jst_aftersale_returns_2027   jst_aftersale_returns_2027_application_date_value_idx   scans=      0     16 kB
+        CREATE INDEX jst_aftersale_returns_2027_application_date_value_idx ON public.jst_aftersale_returns_2027 USING btree (application_date_value)
+  jst_aftersale_returns_2027   jst_aftersale_returns_2027_coalesce_original_goods_code_idx scans=     50     16 kB
+        CREATE INDEX jst_aftersale_returns_2027_coalesce_original_goods_code_idx ON public.jst_aftersale_returns_2027 USING btree (COALESCE(application_date_value, order_date_value, order_time_value), original_goods_code)
+  jst_aftersale_returns_2027   jst_aftersale_returns_2027_id_idx                       scans=      1     16 kB
+        CREATE INDEX jst_aftersale_returns_2027_id_idx ON public.jst_aftersale_returns_2027 USING btree (id)
+  jst_aftersale_returns_2027   jst_aftersale_returns_2027_coalesce_idx                 scans=      0     16 kB
+        CREATE INDEX jst_aftersale_returns_2027_coalesce_idx ON public.jst_aftersale_returns_2027 USING btree (COALESCE(application_date_value, order_date_value, order_time_value))
+  jst_aftersale_returns_2027   jst_aftersale_returns_2027_original_goods_code_idx      scans=      0     16 kB
+        CREATE INDEX jst_aftersale_returns_2027_original_goods_code_idx ON public.jst_aftersale_returns_2027 USING btree (original_goods_code)
+  jst_aftersale_returns_2027   jst_aftersale_returns_2027_order_date_value_idx         scans=      0     16 kB
+        CREATE INDEX jst_aftersale_returns_2027_order_date_value_idx ON public.jst_aftersale_returns_2027 USING btree (order_date_value)
+  jst_aftersale_returns_2027   jst_aftersale_returns_2027_order_time_value_idx         scans=      0     16 kB
+        CREATE INDEX jst_aftersale_returns_2027_order_time_value_idx ON public.jst_aftersale_returns_2027 USING btree (order_time_value)
+
+## vip_daily_sales / jst_daily_sales / snapshots: per-index usage
+  dewu_orders_2026                    dewu_orders_2026_order_number_idx                          scans=           5   5200 kB
+  dewu_orders_2026                    dewu_orders_2026_id_idx                                    scans=           1   3696 kB
+  dewu_orders_2026                    dewu_orders_2026_sku_id_idx                                scans=           2   1952 kB
+  dewu_orders_2026                    dewu_orders_2026_goods_code_idx                            scans=           2   1536 kB
+  dewu_orders_2026                    dewu_orders_2026_brand_group_order_date_idx                scans=          79   1144 kB
+  dewu_orders_2026                    dewu_orders_2026_order_status_idx                          scans=           7   1120 kB
+  gj_merged_product_info              idx_gj_merged_product_info_source_brand_id_desc            scans=       5,184    570 MB
+  gj_merged_product_info              idx_gj_merged_product_info_source_date_goods_updated       scans= 180,250,476    452 MB
+  gj_merged_product_info              idx_gj_merged_product_info_source_date_id_desc             scans=      14,510    396 MB
+  gj_merged_product_info              uq_gj_merged_product_info_date_code                        scans=      22,071    349 MB
+  gj_merged_product_info              idx_gj_merged_product_info_goods_code_trgm                 scans=         144    232 MB
+  gj_merged_product_info              idx_gj_merged_product_info_original_goods_code_trgm        scans=         139    195 MB
+  gj_merged_product_info              gj_merged_product_info_pkey                                scans=           0    169 MB
+  gj_merged_product_info              idx_gj_merged_product_info_original_code                   scans=      59,774     67 MB
+  gj_merged_product_info              idx_gj_merged_product_info_goods_code                      scans=      68,362     60 MB
+  gj_merged_product_info              idx_gj_merged_product_info_source_date                     scans=      41,039     49 MB
+  jst_daily_sales_2026                uq_jst_daily_sales_2026_business_key                       scans=     323,930    203 MB
+  jst_daily_sales_2026                jst_daily_sales_2026_pkey                                  scans=          69     28 MB
+  jst_daily_sales_2026                idx_jst_daily_sales_2026_product_code_pattern              scans=   2,636,344     17 MB
+  jst_daily_sales_2026                idx_jst_daily_sales_2026_style_code                        scans=     137,912     13 MB
+  jst_daily_sales_2026                idx_jst_daily_sales_2026_sales_date                        scans=      79,669     11 MB
+  jst_daily_stock                     idx_jst_stock_date_qty                                     scans=           0    752 MB
+  jst_daily_stock                     uq_jst_stock_date_code                                     scans=   6,089,094    614 MB
+  jst_daily_stock                     idx_jst_stock_date_value_code                              scans=         406    587 MB
+  jst_daily_stock                     idx_jst_stock_product_code_trgm                            scans=         748    388 MB
+  jst_daily_stock                     jst_daily_stock_pkey                                       scans=           3    340 MB
+  jst_daily_stock                     idx_jst_stock_product_code                                 scans=           2    128 MB
+  jst_product_price                   uq_jst_price_date_code_name                                scans=   1,521,033    803 MB
+  jst_product_price                   idx_jst_price_code_date_updated                            scans=      73,729    615 MB
+  jst_product_price                   jst_product_price_pkey                                     scans=           0    201 MB
+  jst_product_price                   idx_jst_price_source_date_value                            scans=         135     59 MB
+  jst_size_stock_snapshots            uq_jst_size_stock_snapshot                                 scans=   7,191,090    484 MB
+  jst_size_stock_snapshots            jst_size_stock_snapshots_pkey                              scans=           0    270 MB
+  jst_size_stock_snapshots            idx_jst_size_stock_snapshots_date_code                     scans=         330    168 MB
+  product_goods_detail_snapshots_2026 uq_product_goods_detail_snapshots_2026_brand_date_goods    scans=       2,712    573 MB
+  product_goods_detail_snapshots_2026 product_goods_detail_snapshots_2026_pkey                   scans=          10    165 MB
+  product_goods_detail_snapshots_2026 idx_product_goods_detail_snapshots_2026_brand_style        scans=         220     70 MB
+  vip_daily_sales_2026                uq_vip_daily_sales_2026_business_key                       scans=   4,642,207   1315 MB
+  vip_daily_sales_2026                vip_daily_sales_2026_pkey                                  scans=           9    352 MB
+  vip_daily_sales_2026                idx_vip_daily_sales_2026_goods_code_pattern                scans=   2,632,326    146 MB
+  vip_daily_sales_2026                idx_vip_daily_sales_2026_style_code                        scans=     318,973    132 MB
+  vip_daily_sales_2026                idx_vip_daily_sales_2026_sales_date                        scans=      79,359    106 MB
+  vip_product_ops_snapshots           uq_ops_snapshot_date_goods                                 scans=   2,549,485    475 MB
+  vip_product_ops_snapshots           idx_ops_snapshots_goods_code_date                          scans=           0    338 MB
+  vip_product_ops_snapshots           vip_product_ops_snapshots_pkey                             scans=           3    178 MB
+  vip_product_ops_snapshots           idx_ops_snapshots_snapshot_date                            scans=           0     52 MB
+
+## TABLES WITH ZERO-SCAN INDEXES: aggregate waste per table
+  fine_table_snapshot_refs_2025                 unused= 4/9     1373 MB of 3941 MB
+  fine_table_snapshot_refs_2026                 unused= 3/9     1231 MB of 5201 MB
+  jst_daily_stock                               unused= 1/6      752 MB of 4028 MB
+  fine_table_snapshot_refs_2024                 unused= 4/9      750 MB of 2140 MB
+  vip_product_ops_snapshots                     unused= 2/4      391 MB of 11 GB
+  jst_monthly_orders_2024                       unused= 1/7      332 MB of 10 GB
+  jst_monthly_orders_2025                       unused= 1/7      288 MB of 9343 MB
+  vip_product_detail_daily                      unused= 3/6       13 MB of 660 MB
+  jst_aftersale_returns_2025                    unused= 1/7     9168 kB of 1249 MB
+  product_archive_identities                    unused= 1/5     5160 kB of 34 MB
+  jst_stock_summary                             unused= 1/4     4376 kB of 23 MB
+  zhiyi_hot_item_range                          unused= 1/4     2680 kB of 194 MB
+  jst_purchase_inbound_items                    unused= 3/6     1048 kB of 56 MB
+  yandou_products                               unused= 1/9      328 kB of 58 MB
+  operation_logs                                unused= 1/4      128 kB of 16 MB
+  product_auxiliary_attributes                  unused= 1/4      112 kB of 1104 kB
+  suppliers                                     unused= 1/5       88 kB of 1968 kB
+  jst_aftersale_returns_2027                    unused= 5/7       80 kB of 128 kB
+  dewu_orders_2027                              unused= 5/6       80 kB of 112 kB
+  jst_monthly_orders_2027                       unused= 5/7       80 kB of 128 kB
+
+## SERVER GUCs THAT NEED A RESTART vs RELOAD
+  max_connections                     100          context=postmaster   pending_restart=False
+  max_worker_processes                8            context=postmaster   pending_restart=False
+  shared_buffers                      16384        context=postmaster   pending_restart=False
+  shared_preload_libraries                         context=postmaster   pending_restart=False
+  autovacuum_analyze_scale_factor     0.1          context=sighup       pending_restart=False
+  autovacuum_max_workers              3            context=sighup       pending_restart=False
+  autovacuum_vacuum_cost_limit        -1           context=sighup       pending_restart=False
+  autovacuum_vacuum_scale_factor      0.2          context=sighup       pending_restart=False
+  max_wal_size                        1024         context=sighup       pending_restart=False
+  track_io_timing                     off          context=superuser    pending_restart=False
+  wal_compression                     off          context=superuser    pending_restart=False
+  default_toast_compression           pglz         context=user         pending_restart=False
+  effective_cache_size                524288       context=user         pending_restart=False
+  effective_io_concurrency            16           context=user         pending_restart=False
+  jit                                 on           context=user         pending_restart=False
+  maintenance_work_mem                65536        context=user         pending_restart=False
+  random_page_cost                    4            context=user         pending_restart=False
+  work_mem                            4096         context=user         pending_restart=False
+
+## DATABASE-LEVEL SETTINGS (ALTER DATABASE) IF ANY
+  role hede_mcp_products: ['search_path=pg_catalog', 'statement_timeout=10s', 'lock_timeout=1s', 'idle_in_transaction_session_timeout=15s', 'default_transaction_read_only=on']
+  role hede_mcp_design: ['search_path=pg_catalog', 'statement_timeout=10s', 'lock_timeout=1s', 'idle_in_transaction_session_timeout=15s', 'default_transaction_read_only=on']
+  role hede_mcp_control: ['search_path=pg_catalog', 'statement_timeout=10s', 'lock_timeout=1s', 'idle_in_transaction_session_timeout=15s']
+  role hede_mcp_finance: ['search_path=pg_catalog', 'default_transaction_read_only=on', 'statement_timeout=10s', 'lock_timeout=1s', 'idle_in_transaction_session_timeout=15s']
+  role hede_mcp_merchandise: ['search_path=pg_catalog', 'default_transaction_read_only=on', 'statement_timeout=10s', 'lock_timeout=1s', 'idle_in_transaction_session_timeout=15s']
+  role hede_mcp_operation: ['search_path=pg_catalog', 'default_transaction_read_only=on', 'statement_timeout=10s', 'lock_timeout=1s', 'idle_in_transaction_session_timeout=15s']
+  role hede_mcp_development: ['search_path=pg_catalog', 'default_transaction_read_only=on', 'statement_timeout=10s', 'lock_timeout=1s', 'idle_in_transaction_session_timeout=15s']
+  role hede_mcp_customer_service: ['search_path=pg_catalog', 'default_transaction_read_only=on', 'statement_timeout=10s', 'lock_timeout=1s', 'idle_in_transaction_session_timeout=15s']

@@ -1,0 +1,95 @@
+## INVENTORY_DETAILS: COLUMNS AND INDEX COVERAGE
+  id                     bigint                 avg_width=     8 n_distinct=-1.0
+  document_id            bigint                 avg_width=     8 n_distinct=3629.0
+  product_code           text                   avg_width=    12 n_distinct=10909.0
+  quantity               numeric(10,2)          avg_width=     5 n_distinct=185.0
+  unit_price             numeric(10,2)          avg_width=     5 n_distinct=2048.0
+  amount                 numeric(10,2)          avg_width=     5 n_distinct=5162.0
+  created_at             timestamp without time zone avg_width=     8 n_distinct=1703.0
+  updated_at             timestamp without time zone avg_width=     8 n_distinct=516.0
+  product_name           text                   avg_width=    18 n_distinct=10176.0
+  color_spec             text                   avg_width=     7 n_distinct=259.0
+  color_barcode          text                   avg_width=     3 n_distinct=233.0
+  color_name             text                   avg_width=     7 n_distinct=277.0
+  size_quantities        json                   avg_width=    19 n_distinct=0.0
+  remark                 text                   avg_width=     1 n_distinct=1.0
+  extra_fields           json                   avg_width=   346 n_distinct=0.0
+  product_identity_id    bigint                 avg_width=     8 n_distinct=10685.0
+  INDEX idx_inventory_details_product_code_trgm       scans=        31    11.87MB
+        CREATE INDEX idx_inventory_details_product_code_trgm ON public.inventory_details USING gin (product_code gin_trgm_ops)
+  INDEX inventory_details_pkey                        scans=    105246     4.89MB
+        CREATE UNIQUE INDEX inventory_details_pkey ON public.inventory_details USING btree (id)
+  INDEX idx_inventory_details_product_code            scans=     10373     2.29MB
+        CREATE INDEX idx_inventory_details_product_code ON public.inventory_details USING btree (product_code)
+  INDEX idx_inventory_details_product_identity        scans=      4967     2.01MB
+        CREATE INDEX idx_inventory_details_product_identity ON public.inventory_details USING btree (product_identity_id)
+  INDEX idx_inventory_details_document_id             scans=  29087398     1.95MB
+        CREATE INDEX idx_inventory_details_document_id ON public.inventory_details USING btree (document_id)
+  stats inventory_records: seq_scan=11,166 seq_rows=46,235,059 idx_scan=378,092 live=6,567
+  stats inventory_details: seq_scan=25,992 seq_rows=2,201,342,302 idx_scan=29,208,015 live=122,776
+
+## DUPLICATE-KEY CHECK ON TABLES WITHOUT A UNIQUE CONSTRAINT
+  jst_aftersale_returns_2026       key=(source_workbook, source_sheet, source_row_number) rows=359,632 distinct=359,632 duplicates=0
+  jst_aftersale_returns_2025       key=(source_workbook, source_sheet, source_row_number) rows=557,060 distinct=557,060 duplicates=0
+  dewu_orders_2026                 key=(order_number) rows=105,053 distinct=105,053 duplicates=0
+
+## GLOBAL INDEX FOOTPRINT
+  {"n_indexes": 502, "index_size": "32 GB"}
+  {"heap_size": "145 GB", "index_size": "32 GB", "total_size": "181 GB"}
+  non-unique, non-primary indexes: 317
+
+## TOP 20 PARTITIONS BY SIZE (row identity check)
+  vip_daily_sales_2026                     rows=  15305680 unique_idx=2 pk=1 22 GB
+  product_goods_detail_snapshots_2026      rows=   7416605 unique_idx=2 pk=1 12 GB
+  jst_monthly_orders_2024                  rows=   5971371 unique_idx=1 pk=0 10 GB
+  jst_monthly_orders_2025                  rows=   5166132 unique_idx=1 pk=0 9343 MB
+  jst_monthly_orders_2026                  rows=   2924114 unique_idx=1 pk=0 6339 MB
+  product_goods_detail_snapshots_2025      rows=   3805890 unique_idx=2 pk=1 5578 MB
+  jst_daily_sales_2026                     rows=   1240372 unique_idx=2 pk=1 2616 MB
+  product_goods_detail_snapshots_2024      rows=   1352191 unique_idx=2 pk=1 2008 MB
+  jst_aftersale_returns_2024               rows=    601410 unique_idx=0 pk=0 1427 MB
+  jst_aftersale_returns_2025               rows=    557060 unique_idx=0 pk=0 1249 MB
+  jst_aftersale_returns_2026               rows=    360982 unique_idx=0 pk=0 1177 MB
+  jst_monthly_orders_2025_order_time_at_record_key_key rows=   5166132 unique_idx=0 pk=0 811 MB
+  jst_monthly_orders_2024_order_time_at_record_key_key rows=   5971371 unique_idx=0 pk=0 661 MB
+  product_goods_historical_sales_2025      rows=   1220417 unique_idx=2 pk=1 451 MB
+  jst_monthly_orders_2026_order_time_at_record_key_key rows=   2924114 unique_idx=0 pk=0 399 MB
+  jst_monthly_orders_2025_order_time_at_product_code_idx rows=   5166132 unique_idx=0 pk=0 341 MB
+  jst_monthly_orders_2024_style_code_order_time_at_idx rows=   5971371 unique_idx=0 pk=0 332 MB
+  jst_monthly_orders_2024_order_time_at_product_code_idx rows=   5971371 unique_idx=0 pk=0 293 MB
+  jst_monthly_orders_2025_style_code_order_time_at_idx rows=   5166132 unique_idx=0 pk=0 288 MB
+  product_goods_historical_sales_2024      rows=    620414 unique_idx=2 pk=1 232 MB
+
+## REDUNDANT INDEX CANDIDATES - CONSOLIDATED (safe drops)
+  index                                                            size  reason
+  idx_fine_table_snapshot_refs_2026_batch_row_index              503.9MB  identical to uq_..._batch_row_index
+  idx_fine_table_snapshot_refs_2025_batch_row_index              332.4MB  identical to uq_..._batch_row_index
+  idx_fine_table_snapshot_refs_2024_batch_row_index              179.1MB  identical to uq_..._batch_row_index
+  idx_jst_stock_date_qty                                         751.8MB  leading cols covered by uq_jst_stock_date_code; 0 scans
+  idx_jst_stock_summary_snapshots_date_code                       78.6MB  identical to uq_jst_stock_summary_snapshot
+  idx_fine_table_snapshot_refs_2026_batch_original_sku           548.5MB  0 scans
+  idx_fine_table_snapshot_refs_2026_sku_trgm                     362.2MB  0 scans
+  idx_fine_table_snapshot_refs_2026_original_sku_trgm            320.5MB  0 scans
+  idx_fine_table_snapshot_refs_2025_batch_original_sku           396.2MB  0 scans (table not appended to)
+  idx_fine_table_snapshot_refs_2025_sku_trgm                     345.0MB  0 scans
+  idx_fine_table_snapshot_refs_2025_original_sku_trgm            299.8MB  0 scans
+  idx_ops_snapshots_goods_code_date                              338.1MB  0 scans
+  jst_monthly_orders_2024_style_code_order_time_at_idx           332.0MB  prefix covered by wider index/0 scans
+  jst_monthly_orders_2025_style_code_order_time_at_idx           288.1MB  prefix covered by wider index/0 scans
+  idx_fine_table_snapshot_refs_2024_sku_trgm                     200.9MB  0 scans
+  idx_fine_table_snapshot_refs_2024_batch_original_sku           196.8MB  0 scans
+  idx_fine_table_snapshot_refs_2024_original_sku_trgm            173.4MB  0 scans
+  jst_monthly_orders_2024_product_code_idx                        54.4MB  0 scans
+  jst_monthly_orders_2025_product_code_idx                        49.6MB  0 scans
+  jst_monthly_orders_2026_product_code_idx                        43.8MB  0 scans
+  idx_inventory_records_document_number                            0.4MB  identical to uq_inventory_records_active_document_number
+  idx_product_goods_detail_snapshot_batches_brand_date             0.1MB  identical to uq_..._batch
+  idx_purchase_order_requirement_brand                             0.0MB  identical to uq_..._brand
+  idx_inventory_account_subjects_name                              0.0MB  identical to uq_..._name
+  idx_purchase_print_templates_user                                0.0MB  identical key to uq_..._user_default
+  idx_vip_daily_sales_2026_sales_date                            105.7MB  prefix of uq_vip_daily_sales_2026_business_key
+  idx_jst_daily_sales_2026_sales_date                             10.9MB  prefix of uq_jst_daily_sales_2026_business_key
+  idx_jst_size_stock_snapshots_date_code                         167.7MB  prefix of uq_jst_size_stock_snapshot
+  idx_factory_channel_sales_daily_summary_brand_date              11.8MB  prefix of uq_..._key
+  idx_gj_merged_product_info_source_date                          49.0MB  prefix of idx_..._source_date_id_desc
+  -> candidate reclaim: 6,140.7MB

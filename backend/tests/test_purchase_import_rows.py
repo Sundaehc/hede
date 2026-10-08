@@ -3,6 +3,7 @@ from __future__ import annotations
 import io
 from types import SimpleNamespace
 from decimal import Decimal
+from unittest.mock import Mock
 
 import pytest
 from fastapi import HTTPException
@@ -1435,6 +1436,14 @@ def test_surplus_import_uses_warehouse_brand_when_supplier_is_empty() -> None:
         "cbanner_mens",
         "NI仙岩仓库",
     ) == "ni"
+
+
+def test_eblan_womens_supplier_import_uses_eblan_product_archive() -> None:
+    repository = Mock()
+    repository.get_supplier_by_name.return_value = {"brand": "eblan_womens"}
+    assert _purchase_import_brand_for_supplier(
+        repository, "168（伊伴女鞋）", "进货订单", "cbanner_mens",
+    ) == "eblan"
 
 
 def test_warehouse_brand_overrides_legacy_default_brand_for_saved_record() -> None:

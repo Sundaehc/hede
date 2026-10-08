@@ -1,6 +1,7 @@
 "use client"
 
-import { useEffect, useMemo, useRef, useState } from "react"
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react"
+import { createPortal } from "react-dom"
 import { Search, X } from "lucide-react"
 
 export type SearchableFilterOption = {
@@ -29,6 +30,60 @@ type SearchableMultiFilterInputProps = {
   className?: string
 }
 
+type DropdownPosition = {
+  top: number
+  left: number
+  width: number
+}
+
+function DropdownPortal({
+  open,
+  rootRef,
+  dropdownRef,
+  children,
+}: {
+  open: boolean
+  rootRef: { current: HTMLDivElement | null }
+  dropdownRef: { current: HTMLDivElement | null }
+  children: ReactNode
+}) {
+  const [position, setPosition] = useState<DropdownPosition | null>(null)
+
+  useEffect(() => {
+    if (!open) {
+      setPosition(null)
+      return
+    }
+
+    const updatePosition = () => {
+      const rect = rootRef.current?.getBoundingClientRect()
+      if (!rect) return
+      setPosition({ top: rect.bottom + 4, left: rect.left, width: rect.width })
+    }
+
+    updatePosition()
+    window.addEventListener("resize", updatePosition)
+    window.addEventListener("scroll", updatePosition, true)
+    return () => {
+      window.removeEventListener("resize", updatePosition)
+      window.removeEventListener("scroll", updatePosition, true)
+    }
+  }, [open, rootRef])
+
+  if (!open || !position) return null
+
+  return createPortal(
+    <div
+      ref={dropdownRef}
+      className="fixed z-[10000] max-h-72 overflow-auto rounded-lg border border-border bg-popover p-1 text-sm text-popover-foreground shadow-lg"
+      style={{ top: position.top, left: position.left, width: position.width }}
+    >
+      {children}
+    </div>,
+    document.body,
+  )
+}
+
 export function SearchableFilterInput({
   value,
   options,
@@ -39,6 +94,7 @@ export function SearchableFilterInput({
   className = "",
 }: SearchableFilterInputProps) {
   const rootRef = useRef<HTMLDivElement>(null)
+  const dropdownRef = useRef<HTMLDivElement>(null)
   const [open, setOpen] = useState(false)
   const searchTerm = value.trim().toLowerCase()
   const visibleOptions = useMemo(() => (
@@ -50,7 +106,7 @@ export function SearchableFilterInput({
 
   useEffect(() => {
     const handlePointerDown = (event: MouseEvent) => {
-      if (!rootRef.current?.contains(event.target as Node)) {
+      if (!rootRef.current?.contains(event.target as Node) && !dropdownRef.current?.contains(event.target as Node)) {
         setOpen(false)
       }
     }
@@ -105,8 +161,7 @@ export function SearchableFilterInput({
           <X className="h-3.5 w-3.5" />
         </button>
       ) : null}
-      {open ? (
-        <div className="absolute z-50 mt-1 max-h-72 w-full overflow-auto rounded-lg border border-border bg-popover p-1 text-sm shadow-lg">
+      <DropdownPortal open={open} rootRef={rootRef} dropdownRef={dropdownRef}>
           {visibleOptions.length === 0 ? (
             <div className="px-3 py-2 text-muted-foreground">{emptyText}</div>
           ) : visibleOptions.map((option) => (
@@ -123,8 +178,7 @@ export function SearchableFilterInput({
           {visibleOptions.length === 80 ? (
             <div className="border-t border-border px-3 py-2 text-xs text-muted-foreground">结果较多，请继续输入缩小范围</div>
           ) : null}
-        </div>
-      ) : null}
+      </DropdownPortal>
     </div>
   )
 }
@@ -139,6 +193,7 @@ export function SearchableMultiFilterInput({
   className = "",
 }: SearchableMultiFilterInputProps) {
   const rootRef = useRef<HTMLDivElement>(null)
+  const dropdownRef = useRef<HTMLDivElement>(null)
   const [open, setOpen] = useState(false)
   const [searchTerm, setSearchTerm] = useState("")
   const normalizedSearchTerm = searchTerm.trim().toLowerCase()
@@ -155,7 +210,7 @@ export function SearchableMultiFilterInput({
 
   useEffect(() => {
     const handlePointerDown = (event: MouseEvent) => {
-      if (!rootRef.current?.contains(event.target as Node)) setOpen(false)
+      if (!rootRef.current?.contains(event.target as Node) && !dropdownRef.current?.contains(event.target as Node)) setOpen(false)
     }
     document.addEventListener("mousedown", handlePointerDown)
     return () => document.removeEventListener("mousedown", handlePointerDown)
@@ -216,8 +271,7 @@ export function SearchableMultiFilterInput({
           </button>
         ) : null}
       </div>
-      {open ? (
-        <div className="absolute z-50 mt-1 max-h-72 w-full overflow-auto rounded-lg border border-border bg-popover p-1 text-sm shadow-lg">
+      <DropdownPortal open={open} rootRef={rootRef} dropdownRef={dropdownRef}>
           {visibleOptions.length === 0 ? (
             <div className="px-3 py-2 text-muted-foreground">{emptyText}</div>
           ) : visibleOptions.map((option) => (
@@ -234,8 +288,7 @@ export function SearchableMultiFilterInput({
           {visibleOptions.length === 80 ? (
             <div className="border-t border-border px-3 py-2 text-xs text-muted-foreground">结果较多，请继续输入缩小范围</div>
           ) : null}
-        </div>
-      ) : null}
+      </DropdownPortal>
     </div>
   )
 }

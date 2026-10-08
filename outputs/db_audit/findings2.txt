@@ -1,0 +1,229 @@
+## EXACT COUNTS, PARTITION STATUS, BLOAT FOR WATCHED TABLES
+table                                           exact_rows   relpages    reltuples part parent
+fine_table_snapshot_refs_2024                              5950423      74833      5950423 standalone
+fine_table_snapshot_refs_2025                             11048994     138668     11048994 standalone
+fine_table_snapshot_refs_2026                             13140535     168081     12690483 standalone
+jst_product_profiles                                        421427      79815       418201 standalone
+product_goods_historical_sales_2024                         620414      15156       620414 partition of product_goods_historical_sales
+product_goods_historical_sales_2025                        1220417      29960      1220417 partition of product_goods_historical_sales
+product_size_group_mappings                                  61616       2120        61529 standalone
+product_goods_historical_orders_2024                         15941        308        15941 partition of product_goods_historical_orders
+product_goods_historical_orders_2025                         15028        287        15028 partition of product_goods_historical_orders
+fine_table_snapshot_payloads                    (skipped:27043096)    4683337     27043096 standalone
+jst_purchase_backup_20260926_164350                        1608143      88293      1608213 standalone
+jst_purchase_restore_20260926_164350                       2706701     142862      2706116 standalone
+jst_monthly_orders_2024                          (skipped:5971371)    1125421      5971371 partition of jst_monthly_orders
+jst_aftersale_returns_2024                                  601462      34415       601410 partition of jst_aftersale_returns
+dewu_orders_2026                                            105053      10215       105053 partition of dewu_orders
+vip_daily_sales_2026                            (skipped:15305680)    2565341     15305680 partition of vip_daily_sales
+product_goods_detail_snapshots_2026              (skipped:7416605)    1413692      7416605 partition of product_goods_detail_snapshots
+
+## PARTITIONED PARENTS: PK / UNIQUE / PARTITION COVERAGE
+  dewu_orders                              pk=0 unique=0 parts=4
+  jst_aftersale_returns                    pk=0 unique=0 parts=5
+  jst_daily_sales                          pk=0 unique=0 parts=1
+  jst_monthly_orders                       pk=0 unique=1 parts=6
+  product_goods_detail_snapshots           pk=0 unique=0 parts=3
+  product_goods_historical_orders          pk=0 unique=0 parts=5
+  product_goods_historical_sales           pk=0 unique=0 parts=2
+  vip_daily_sales                          pk=0 unique=0 parts=1
+
+## PARTITION CHILD INDEXES: is indisprimary propagated?
+  jst_aftersale_returns     jst_aftersale_returns_2026_application_date_value_idx        primary=False unique=False
+  jst_aftersale_returns     jst_aftersale_returns_2026_coalesce_idx                      primary=False unique=False
+  jst_aftersale_returns     jst_aftersale_returns_2026_coalesce_original_goods_code_idx  primary=False unique=False
+  jst_aftersale_returns     jst_aftersale_returns_2026_id_idx                            primary=False unique=False
+  jst_aftersale_returns     jst_aftersale_returns_2026_order_date_value_idx              primary=False unique=False
+  jst_aftersale_returns     jst_aftersale_returns_2026_order_time_value_idx              primary=False unique=False
+  jst_aftersale_returns     jst_aftersale_returns_2026_original_goods_code_idx           primary=False unique=False
+  jst_monthly_orders        jst_monthly_orders_2026_order_time_at_idx                    primary=False unique=False
+  jst_monthly_orders        jst_monthly_orders_2026_order_time_at_product_code_idx       primary=False unique=False
+  jst_monthly_orders        jst_monthly_orders_2026_order_time_at_record_key_key         primary=False unique=True
+  jst_monthly_orders        jst_monthly_orders_2026_product_code_idx                     primary=False unique=False
+  jst_monthly_orders        jst_monthly_orders_2026_ship_date_value_idx                  primary=False unique=False
+  jst_monthly_orders        jst_monthly_orders_2026_style_code_idx                       primary=False unique=False
+  jst_monthly_orders        jst_monthly_orders_2026_style_code_order_time_at_idx         primary=False unique=False
+
+## PARTITIONED TABLES MISSING A FUTURE/RELEVANT PARTITION
+  jst_monthly_orders: [('jst_monthly_orders_2023', "FOR VALUES FROM ('2023-01-01 00:00:00') "), ('jst_monthly_orders_2024', "FOR VALUES FROM ('2024-01-01 00:00:00') "), ('jst_monthly_orders_2025', "FOR VALUES FROM ('2025-01-01 00:00:00') "), ('jst_monthly_orders_2026', "FOR VALUES FROM ('2026-01-01 00:00:00') "), ('jst_monthly_orders_2027', "FOR VALUES FROM ('2027-01-01 00:00:00') "), ('jst_monthly_orders_default', 'DEFAULT')]
+  jst_aftersale_returns: [('jst_aftersale_returns_2024', "FOR VALUES FROM ('2024-01-01') TO ('2025"), ('jst_aftersale_returns_2025', "FOR VALUES FROM ('2025-01-01') TO ('2026"), ('jst_aftersale_returns_2026', "FOR VALUES FROM ('2026-01-01') TO ('2027"), ('jst_aftersale_returns_2027', "FOR VALUES FROM ('2027-01-01') TO ('2028"), ('jst_aftersale_returns_default', 'DEFAULT')]
+  dewu_orders: [('dewu_orders_2025', "FOR VALUES FROM ('2025-01-01') TO ('2026"), ('dewu_orders_2026', "FOR VALUES FROM ('2026-01-01') TO ('2027"), ('dewu_orders_2027', "FOR VALUES FROM ('2027-01-01') TO ('2028"), ('dewu_orders_default', 'DEFAULT')]
+  product_goods_detail_snapshots: [('product_goods_detail_snapshots_2024', "FOR VALUES FROM ('2024-01-01') TO ('2025"), ('product_goods_detail_snapshots_2025', "FOR VALUES FROM ('2025-01-01') TO ('2026"), ('product_goods_detail_snapshots_2026', "FOR VALUES FROM ('2026-01-01') TO ('2027")]
+  product_goods_historical_sales: [('product_goods_historical_sales_2024', "FOR VALUES FROM ('2024-01-01') TO ('2025"), ('product_goods_historical_sales_2025', "FOR VALUES FROM ('2025-01-01') TO ('2026")]
+  product_goods_historical_orders: [('product_goods_historical_orders_2022', "FOR VALUES FROM ('2022-01-01') TO ('2023"), ('product_goods_historical_orders_2023', "FOR VALUES FROM ('2023-01-01') TO ('2024"), ('product_goods_historical_orders_2024', "FOR VALUES FROM ('2024-01-01') TO ('2025"), ('product_goods_historical_orders_2025', "FOR VALUES FROM ('2025-01-01') TO ('2026"), ('product_goods_historical_orders_2026', "FOR VALUES FROM ('2026-01-01') TO ('2027")]
+  vip_daily_sales: [('vip_daily_sales_2026', "FOR VALUES FROM ('2026-01-01') TO ('2027")]
+  jst_daily_sales: [('jst_daily_sales_2026', "FOR VALUES FROM ('2026-01-01') TO ('2027")]
+
+## AUTOVACUUM / VACUUM HISTORY OF LARGE TABLES (>1GB)
+  fine_table_snapshot_payloads                      40 GB live=  27225048 dead=       0 mod=  1545616 vac=0 avac=7 aana=0 last_autoanalyze=None opts=None
+  vip_daily_sales_2026                              22 GB live=  15354632 dead=  100732 mod=    48952 vac=0 avac=8 aana=6 last_autoanalyze=2026-09-25 15:08:25.097761+08:00 opts=['autovacuum_vacuum_scale_factor=0.02', 'autovacuum_vacuum_threshold=1000', 'autovacuum_analyze_scale_factor=0.02', 'autovacuum_analyze_threshold=1000']
+  fine_table_snapshot_metrics                       13 GB live=   9762598 dead=       0 mod=   852638 vac=0 avac=6 aana=1 last_autoanalyze=2026-09-17 21:02:26.025529+08:00 opts=None
+  product_goods_detail_snapshots_2026               12 GB live=   7430717 dead=  122002 mod=    14112 vac=0 avac=5 aana=1 last_autoanalyze=2026-08-28 20:14:23.071569+08:00 opts=['autovacuum_vacuum_scale_factor=0.05', 'autovacuum_vacuum_threshold=5000', 'autovacuum_analyze_scale_factor=0.02', 'autovacuum_analyze_threshold=1000']
+  vip_product_ops_snapshots                         11 GB live=   7920115 dead=       0 mod=    70049 vac=0 avac=2 aana=0 last_autoanalyze=None opts=['autovacuum_vacuum_scale_factor=0.05', 'autovacuum_vacuum_threshold=5000', 'autovacuum_analyze_scale_factor=0.02', 'autovacuum_analyze_threshold=1000']
+  jst_monthly_orders_2024                           10 GB live=   5971371 dead=       0 mod=        0 vac=0 avac=2 aana=2 last_autoanalyze=2026-09-10 14:02:30.794670+08:00 opts=None
+  gj_merged_product_info                          9425 MB live=   7373511 dead=       0 mod=    63410 vac=0 avac=2 aana=0 last_autoanalyze=None opts=None
+  jst_monthly_orders_2025                         9343 MB live=   5166132 dead=       0 mod=        0 vac=0 avac=1 aana=1 last_autoanalyze=2026-09-10 14:02:10.641108+08:00 opts=None
+  jst_product_price                               6904 MB live=   9097398 dead=       0 mod=    80120 vac=0 avac=2 aana=0 last_autoanalyze=None opts=None
+  jst_monthly_orders_2026                         6339 MB live=   2924114 dead=       0 mod=        0 vac=0 avac=31 aana=29 last_autoanalyze=2026-10-07 09:39:18.584416+08:00 opts=None
+  product_goods_detail_snapshots_2025             5578 MB live=   3805890 dead=   39035 mod=        0 vac=0 avac=0 aana=0 last_autoanalyze=None opts=['autovacuum_vacuum_scale_factor=0.05', 'autovacuum_vacuum_threshold=5000', 'autovacuum_analyze_scale_factor=0.02', 'autovacuum_analyze_threshold=1000']
+  fine_table_snapshot_refs_2026                   5201 MB live=  12859674 dead=  125858 mod=   684294 vac=0 avac=7 aana=6 last_autoanalyze=2026-10-03 21:01:39.825475+08:00 opts=None
+  jst_daily_stock                                 4028 MB live=  15135803 dead=       0 mod=   163106 vac=0 avac=2 aana=0 last_autoanalyze=None opts=None
+  fine_table_snapshot_refs_2025                   3941 MB live=         0 dead=       0 mod=        0 vac=0 avac=0 aana=0 last_autoanalyze=None opts=None
+  jst_daily_sales_2026                            2616 MB live=   1243896 dead=  172699 mod=     3524 vac=0 avac=0 aana=0 last_autoanalyze=None opts=None
+  jst_purchase_inbound_daily                      2374 MB live=   3667404 dead=  193954 mod=    21567 vac=0 avac=29 aana=53 last_autoanalyze=2026-10-06 15:12:33.493854+08:00 opts=None
+  jst_size_stock_snapshots                        2189 MB live=  11950854 dead=       0 mod=   477392 vac=0 avac=3 aana=8 last_autoanalyze=2026-10-04 10:10:33.486707+08:00 opts=None
+  fine_table_snapshot_refs_2024                   2140 MB live=         0 dead=       0 mod=        0 vac=0 avac=0 aana=0 last_autoanalyze=None opts=None
+  product_goods_detail_snapshots_2024             2008 MB live=   1352191 dead=    4910 mod=        0 vac=0 avac=0 aana=0 last_autoanalyze=None opts=['autovacuum_vacuum_scale_factor=0.05', 'autovacuum_vacuum_threshold=5000', 'autovacuum_analyze_scale_factor=0.02', 'autovacuum_analyze_threshold=1000']
+  vip_product_daily_snapshots                     1733 MB live=   1168876 dead=       0 mod=    10298 vac=0 avac=1 aana=0 last_autoanalyze=None opts=None
+  jst_aftersale_returns_2024                      1427 MB live=    601410 dead=       0 mod=        0 vac=0 avac=1 aana=0 last_autoanalyze=None opts=None
+  jst_aftersale_returns_2025                      1249 MB live=    557060 dead=       0 mod=        0 vac=0 avac=1 aana=0 last_autoanalyze=None opts=None
+  jst_aftersale_returns_2026                      1177 MB live=    360982 dead=       0 mod=        0 vac=0 avac=26 aana=24 last_autoanalyze=2026-10-07 09:23:27.439185+08:00 opts=None
+  jst_purchase_restore_20260926_164350            1116 MB live=   2706116 dead=       0 mod=        0 vac=0 avac=2 aana=2 last_autoanalyze=2026-09-26 16:50:14.062943+08:00 opts=None
+
+## TRUE DUPLICATE INDEXES (same method, keys, expressions and predicate)
+  fine_table_snapshot_refs_2024: ON public.fine_table_snapshot_refs_2024 USING btree (batch_id, row_index)
+      uq_fine_table_snapshot_refs_2024_batch_row_index                  179.1MB primary=False
+      idx_fine_table_snapshot_refs_2024_batch_row_index                 179.1MB primary=False
+  fine_table_snapshot_refs_2025: ON public.fine_table_snapshot_refs_2025 USING btree (batch_id, row_index)
+      uq_fine_table_snapshot_refs_2025_batch_row_index                  332.4MB primary=False
+      idx_fine_table_snapshot_refs_2025_batch_row_index                 332.4MB primary=False
+  fine_table_snapshot_refs_2026: ON public.fine_table_snapshot_refs_2026 USING btree (batch_id, row_index)
+      uq_fine_table_snapshot_refs_2026_batch_row_index                  503.9MB primary=False
+      idx_fine_table_snapshot_refs_2026_batch_row_index                 503.9MB primary=False
+  inventory_account_subjects: ON public.inventory_account_subjects USING btree (name)
+      uq_inventory_account_subjects_name                                0.0MB primary=False
+      idx_inventory_account_subjects_name                               0.0MB primary=False
+  jst_stock_summary_snapshots: ON public.jst_stock_summary_snapshots USING btree (snapshot_date, product_code)
+      uq_jst_stock_summary_snapshot                                     78.5MB primary=False
+      idx_jst_stock_summary_snapshots_date_code                         78.6MB primary=False
+  product_goods_detail_snapshot_batches: ON public.product_goods_detail_snapshot_batches USING btree (brand, snapshot_date)
+      uq_product_goods_detail_snapshot_batch                            0.1MB primary=False
+      idx_product_goods_detail_snapshot_batches_brand_date              0.1MB primary=False
+  purchase_order_requirement_templates: ON public.purchase_order_requirement_templates USING btree (brand)
+      uq_purchase_order_requirement_brand                               0.0MB primary=False
+      idx_purchase_order_requirement_brand                              0.0MB primary=False
+  -> reclaimable (excl. primaries): 2,188.1MB
+
+## UNIQUE INDEX SHADOWED BY A NON-UNIQUE INDEX WITH IDENTICAL KEYS
+  fine_table_snapshot_refs_2024                 idx_fine_table_snapshot_refs_2024_batch_row_index            179.1MB (duplicate of a unique index)
+  fine_table_snapshot_refs_2025                 idx_fine_table_snapshot_refs_2025_batch_row_index            332.4MB (duplicate of a unique index)
+  fine_table_snapshot_refs_2026                 idx_fine_table_snapshot_refs_2026_batch_row_index            503.9MB (duplicate of a unique index)
+  inventory_account_subjects                    idx_inventory_account_subjects_name                          0.0MB (duplicate of a unique index)
+  inventory_records                             idx_inventory_records_document_number                        0.5MB (duplicate of a unique index)
+  jst_stock_summary_snapshots                   idx_jst_stock_summary_snapshots_date_code                    78.6MB (duplicate of a unique index)
+  product_goods_detail_snapshot_batches         idx_product_goods_detail_snapshot_batches_brand_date         0.1MB (duplicate of a unique index)
+  purchase_order_requirement_templates          idx_purchase_order_requirement_brand                         0.0MB (duplicate of a unique index)
+  purchase_print_templates                      idx_purchase_print_templates_user                            0.0MB (duplicate of a unique index)
+  -> reclaimable: 1,094.5MB
+
+## TABLES HOLDING SPACE WITH NO LIVE ROWS (exact count vs relpages)
+  fine_table_snapshot_refs_2025                 exact=  11048994 relpages=   138668 heap=1,083.3MB idx=2,857.5MB deletions=0 last_autoanalyze_vac=None
+  fine_table_snapshot_refs_2024                 exact=   5950423 relpages=    74833 heap=584.6MB idx=1,554.7MB deletions=0 last_autoanalyze_vac=None
+  jst_product_profiles                          exact=    421427 relpages=    79815 heap=623.6MB idx=63.5MB deletions=0 last_autoanalyze_vac=None
+  product_goods_historical_sales_2025           exact=   1220417 relpages=    29960 heap=234.1MB idx=217.0MB deletions=0 last_autoanalyze_vac=None
+  product_goods_historical_sales_2024           exact=    620414 relpages=    15156 heap=118.4MB idx=113.7MB deletions=0 last_autoanalyze_vac=None
+  product_size_group_mappings                   exact=     61616 relpages=     2120 heap=16.6MB idx=7.0MB deletions=0 last_autoanalyze_vac=None
+
+## INDEXES ON THE BIGGEST TABLES AND THEIR SCAN COUNTS
+  fine_table_snapshot_metrics              uq_fine_table_snapshot_metrics_brand_hash                    scans=   8260236 1245 MB
+  fine_table_snapshot_metrics              fine_table_snapshot_metrics_pkey                             scans=   7678915 210 MB
+  fine_table_snapshot_payloads             uq_fine_table_snapshot_payloads_brand_hash                   scans=  10193285 3530 MB
+  fine_table_snapshot_payloads             fine_table_snapshot_payloads_pkey                            scans=   7678925 604 MB
+  fine_table_snapshot_refs_2026            idx_fine_table_snapshot_refs_2026_batch_sku                  scans=       181 801 MB
+  fine_table_snapshot_refs_2026            idx_fine_table_snapshot_refs_2026_batch_original_sku         scans=         0 548 MB
+  fine_table_snapshot_refs_2026            uq_fine_table_snapshot_refs_2026_batch_row_index             scans=         6 504 MB
+  fine_table_snapshot_refs_2026            idx_fine_table_snapshot_refs_2026_batch_row_index            scans=       686 504 MB
+  fine_table_snapshot_refs_2026            idx_fine_table_snapshot_refs_2026_sku_trgm                   scans=         0 362 MB
+  fine_table_snapshot_refs_2026            idx_fine_table_snapshot_refs_2026_original_sku_trgm          scans=         0 321 MB
+  fine_table_snapshot_refs_2026            idx_fine_table_snapshot_refs_2026_payload_id                 scans=       183 308 MB
+  fine_table_snapshot_refs_2026            fine_table_snapshot_refs_2026_pkey                           scans=         0 296 MB
+  fine_table_snapshot_refs_2026            idx_fine_table_snapshot_refs_2026_metrics_id                 scans=       244 243 MB
+  gj_merged_product_info                   idx_gj_merged_product_info_source_brand_id_desc              scans=      5179 570 MB
+  gj_merged_product_info                   idx_gj_merged_product_info_source_date_goods_updated         scans= 180250354 452 MB
+  gj_merged_product_info                   idx_gj_merged_product_info_source_date_id_desc               scans=     14510 396 MB
+  gj_merged_product_info                   uq_gj_merged_product_info_date_code                          scans=     22071 349 MB
+  gj_merged_product_info                   idx_gj_merged_product_info_goods_code_trgm                   scans=       144 232 MB
+  gj_merged_product_info                   idx_gj_merged_product_info_original_goods_code_trgm          scans=       139 195 MB
+  gj_merged_product_info                   gj_merged_product_info_pkey                                  scans=         0 169 MB
+  gj_merged_product_info                   idx_gj_merged_product_info_original_code                     scans=     59766 67 MB
+  gj_merged_product_info                   idx_gj_merged_product_info_goods_code                        scans=     68356 60 MB
+  gj_merged_product_info                   idx_gj_merged_product_info_source_date                       scans=     41026 49 MB
+  jst_daily_stock                          idx_jst_stock_date_qty                                       scans=         0 752 MB
+  jst_daily_stock                          uq_jst_stock_date_code                                       scans=   6089094 614 MB
+  jst_daily_stock                          idx_jst_stock_date_value_code                                scans=       406 587 MB
+  jst_daily_stock                          idx_jst_stock_product_code_trgm                              scans=       748 388 MB
+  jst_daily_stock                          jst_daily_stock_pkey                                         scans=         3 340 MB
+  jst_daily_stock                          idx_jst_stock_product_code                                   scans=         2 128 MB
+  jst_product_price                        uq_jst_price_date_code_name                                  scans=   1521033 803 MB
+  jst_product_price                        idx_jst_price_code_date_updated                              scans=     73728 615 MB
+  jst_product_price                        jst_product_price_pkey                                       scans=         0 201 MB
+  jst_product_price                        idx_jst_price_source_date_value                              scans=       135 59 MB
+  jst_size_stock_snapshots                 uq_jst_size_stock_snapshot                                   scans=   7191090 484 MB
+  jst_size_stock_snapshots                 jst_size_stock_snapshots_pkey                                scans=         0 270 MB
+  jst_size_stock_snapshots                 idx_jst_size_stock_snapshots_date_code                       scans=       330 168 MB
+  product_goods_detail_snapshots_2026      uq_product_goods_detail_snapshots_2026_brand_date_goods      scans=      2712 573 MB
+  product_goods_detail_snapshots_2026      product_goods_detail_snapshots_2026_pkey                     scans=        10 165 MB
+  product_goods_detail_snapshots_2026      idx_product_goods_detail_snapshots_2026_brand_style          scans=       220 70 MB
+  vip_daily_sales_2026                     uq_vip_daily_sales_2026_business_key                         scans=   4642207 1315 MB
+  vip_daily_sales_2026                     vip_daily_sales_2026_pkey                                    scans=         9 352 MB
+  vip_daily_sales_2026                     idx_vip_daily_sales_2026_goods_code_pattern                  scans=   2632276 146 MB
+  vip_daily_sales_2026                     idx_vip_daily_sales_2026_style_code                          scans=    318945 132 MB
+  vip_daily_sales_2026                     idx_vip_daily_sales_2026_sales_date                          scans=     79357 106 MB
+
+## TABLES WITH SEQUENTIAL SCANS RETURNING HUGE ROW COUNTS
+  jst_product_price                             seq=    4587 seq_rows=   25371116983 avg=   5531091 live=   9097398 idx=   1594896 6904 MB
+  jst_size_stock_snapshots                      seq=    2725 seq_rows=    7704666487 avg=   2827400 live=  11950854 idx=   7191420 2189 MB
+  gj_merged_product_info                        seq=    1674 seq_rows=    3973524168 avg=   2373670 live=   7373511 idx= 180461545 9425 MB
+  inventory_details                             seq=   25734 seq_rows=    2172345373 avg=     84415 live=    122773 idx=  29013249 121 MB
+  vip_daily_sales_2026                          seq=     218 seq_rows=    1670131657 avg=   7661154 live=  15354632 idx=   7672794 22 GB
+  product_goods_detail_snapshots_2026           seq=     631 seq_rows=    1424652836 avg=   2257769 live=   7430717 idx=      2942 12 GB
+  jst_monthly_orders_2024                       seq=     495 seq_rows=    1223688797 avg=   2472098 live=   5971371 idx=   5995217 10 GB
+  jst_purchase_inbound_daily                    seq=     874 seq_rows=    1171043178 avg=   1339866 live=   3667404 idx=      1272 2374 MB
+  jst_monthly_orders_2025                       seq=     328 seq_rows=     661812116 avg=   2017719 live=   5166132 idx=   5192484 9343 MB
+  vip_product_ops_snapshots                     seq=     246 seq_rows=     541511088 avg=   2201264 live=   7920115 idx=   2549488 11 GB
+  jst_daily_sales_2026                          seq=     894 seq_rows=     446903342 avg=    499891 live=   1243896 idx=   3177851 2616 MB
+  jst_monthly_orders_2026                       seq=     331 seq_rows=     383472676 avg=   1158527 live=   2924114 idx=   3523771 6339 MB
+  product_goods_detail_snapshots_2025           seq=     265 seq_rows=     339768091 avg=   1282143 live=   3805890 idx=      1025 5578 MB
+  jst_daily_stock                               seq=     105 seq_rows=     335134693 avg=   3191758 live=  15135803 idx=   6090253 4028 MB
+  eblan_products                                seq=   23287 seq_rows=     227735479 avg=      9779 live=     10259 idx=    507310 38 MB
+  cbanner_mens_products                         seq=   13575 seq_rows=     222648747 avg=     16401 live=     19644 idx=  66044778 68 MB
+  yandou_products                               seq=   14866 seq_rows=     213950951 avg=     14391 live=     17261 idx=    834410 58 MB
+  jst_purchase_restore_20260926_164350          seq=     280 seq_rows=     199043689 avg=    710870 live=   2706116 idx=         0 1116 MB
+  jst_aftersale_returns_2024                    seq=     888 seq_rows=     187657157 avg=    211325 live=    601410 idx=       221 1427 MB
+  jst_full_stock                                seq=    1694 seq_rows=     174999450 avg=    103305 live=    247897 idx=   2637678 259 MB
+  jst_aftersale_returns_2025                    seq=     882 seq_rows=     173802725 avg=    197055 live=    557060 idx=       207 1249 MB
+  jst_aftersale_returns_2026                    seq=     914 seq_rows=     122411127 avg=    133929 live=    360982 idx=       342 1177 MB
+  product_goods_detail_snapshots_2024           seq=     254 seq_rows=     113237192 avg=    445815 live=   1352191 idx=        73 2008 MB
+  cbanner_womens_products                       seq=    7911 seq_rows=     104814613 avg=     13249 live=     15931 idx=  25598052 51 MB
+  fine_table_snapshot_refs_2026                 seq=      22 seq_rows=      99170394 avg=   4507745 live=  12859674 idx=      1300 5201 MB
+
+## INDEXES THAT EXIST ON COLUMNS WITH pg_trgm BUT ARE UNUSED OR MISSING
+  jst_daily_stock                          idx_jst_stock_product_code_trgm                              scans=      748 387.7MB
+  fine_table_snapshot_refs_2026            idx_fine_table_snapshot_refs_2026_sku_trgm                   scans=        0 362.2MB
+  fine_table_snapshot_refs_2025            idx_fine_table_snapshot_refs_2025_sku_trgm                   scans=        0 345.0MB
+  fine_table_snapshot_refs_2026            idx_fine_table_snapshot_refs_2026_original_sku_trgm          scans=        0 320.5MB
+  fine_table_snapshot_refs_2025            idx_fine_table_snapshot_refs_2025_original_sku_trgm          scans=        0 299.8MB
+  gj_merged_product_info                   idx_gj_merged_product_info_goods_code_trgm                   scans=      144 232.5MB
+  fine_table_snapshot_refs_2024            idx_fine_table_snapshot_refs_2024_sku_trgm                   scans=        0 200.9MB
+  gj_merged_product_info                   idx_gj_merged_product_info_original_goods_code_trgm          scans=      139 195.5MB
+  fine_table_snapshot_refs_2024            idx_fine_table_snapshot_refs_2024_original_sku_trgm          scans=        0 173.4MB
+  inventory_details                        idx_inventory_details_product_code_trgm                      scans=       31 11.9MB
+  yandou_products                          idx_yandou_products_sku_trgm                                 scans=    10879 6.1MB
+  cbanner_mens_products                    idx_cbanner_mens_products_sku_trgm                           scans=    12331 5.6MB
+  yandou_products                          idx_yandou_products_original_sku_trgm                        scans=    10879 5.6MB
+  cbanner_mens_products                    idx_cbanner_mens_products_original_sku_trgm                  scans=    12327 5.3MB
+  cbanner_womens_products                  idx_cbanner_womens_products_sku_trgm                         scans=   202168 5.2MB
+  cbanner_womens_products                  idx_cbanner_womens_products_original_sku_trgm                scans=   202147 5.2MB
+  eblan_products                           idx_eblan_products_original_sku_trgm                         scans=    11439 5.2MB
+  eblan_products                           idx_eblan_products_sku_trgm                                  scans=    11472 5.1MB
+  cbanner_mens_products                    idx_cbanner_mens_products_factory_sku_trgm                   scans=       25 3.8MB
+  yandou_products                          idx_yandou_products_factory_sku_trgm                         scans=       23 3.5MB
+  cbanner_womens_products                  idx_cbanner_womens_products_factory_sku_trgm                 scans=       31 2.8MB
+  eblan_products                           idx_eblan_products_factory_sku_trgm                          scans=       28 1.8MB
+
+## CACHE HIT RATIO / TEMP SPILL DETAIL
+  cache_hit=49.02% blks_read=5,226,498,555 blks_hit=5,024,728,769
+  temp=893 GB files=88,158 returned/fetched=8.11
+  rollback=49.49%
+
+## MEMORY / OS

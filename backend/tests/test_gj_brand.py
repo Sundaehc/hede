@@ -1,4 +1,10 @@
-from domain.gj_brand import infer_supplier_brand_from_name
+from domain.gj_brand import infer_gj_fine_table_brand, infer_supplier_brand_from_name
+
+
+def test_eblan_supplier_gender_does_not_change_product_brand():
+    assert infer_supplier_brand_from_name("168（伊伴女鞋）") == "eblan_womens"
+    assert infer_supplier_brand_from_name("EBLAN男鞋") == "eblan"
+    assert infer_gj_fine_table_brand({"primary_supplier": "168（伊伴女鞋）"}) == "eblan"
 
 
 def test_ni_supplier_names_are_classified_as_ni():

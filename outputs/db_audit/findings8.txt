@@ -1,0 +1,138 @@
+## PARTITIONED PARENT INDEXES: usage and size (children counted once)
+  dewu_orders                      idx_dewu_orders_order_number                         kids= 4       5.6MB scans=           9 uq=False   <-- ZERO/BARELY USED
+        CREATE INDEX idx_dewu_orders_order_number ON ONLY public.dewu_orders USING btree (order_number)
+  dewu_orders                      idx_dewu_orders_id                                   kids= 4       3.9MB scans=           4 uq=False   <-- ZERO/BARELY USED
+        CREATE INDEX idx_dewu_orders_id ON ONLY public.dewu_orders USING btree (id)
+  dewu_orders                      idx_dewu_orders_sku_id                               kids= 4       2.1MB scans=           4 uq=False   <-- ZERO/BARELY USED
+        CREATE INDEX idx_dewu_orders_sku_id ON ONLY public.dewu_orders USING btree (sku_id)
+  dewu_orders                      idx_dewu_orders_goods_code                           kids= 4       1.6MB scans=           4 uq=False   <-- ZERO/BARELY USED
+        CREATE INDEX idx_dewu_orders_goods_code ON ONLY public.dewu_orders USING btree (goods_code text_pattern_ops)
+  dewu_orders                      idx_dewu_orders_brand_order_date                     kids= 4       1.2MB scans=          82 uq=False   <-- ZERO/BARELY USED
+        CREATE INDEX idx_dewu_orders_brand_order_date ON ONLY public.dewu_orders USING btree (brand_group, order_date)
+  dewu_orders                      idx_dewu_orders_order_status                         kids= 4       1.2MB scans=          12 uq=False   <-- ZERO/BARELY USED
+        CREATE INDEX idx_dewu_orders_order_status ON ONLY public.dewu_orders USING btree (order_status)
+  jst_aftersale_returns            idx_jst_aftersale_returns_id                         kids= 5      38.5MB scans=           6 uq=False   <-- ZERO/BARELY USED
+        CREATE INDEX idx_jst_aftersale_returns_id ON ONLY public.jst_aftersale_returns USING btree (id)
+  jst_aftersale_returns            idx_jst_aftersale_returns_business_code              kids= 5      26.8MB scans=         183 uq=False   <-- ZERO/BARELY USED
+        CREATE INDEX idx_jst_aftersale_returns_business_code ON ONLY public.jst_aftersale_returns USING btree (COALESCE(application_date_value, order_date_value, order_time_value), original_goods_code)
+  jst_aftersale_returns            idx_jst_aftersale_returns_original_code              kids= 5      14.0MB scans=         240 uq=False   <-- ZERO/BARELY USED
+        CREATE INDEX idx_jst_aftersale_returns_original_code ON ONLY public.jst_aftersale_returns USING btree (original_goods_code)
+  jst_aftersale_returns            idx_jst_aftersale_returns_order_time                 kids= 5      13.7MB scans=          34 uq=False   <-- ZERO/BARELY USED
+        CREATE INDEX idx_jst_aftersale_returns_order_time ON ONLY public.jst_aftersale_returns USING btree (order_time_value)
+  jst_aftersale_returns            idx_jst_aftersale_returns_business_date              kids= 5      13.4MB scans=         207 uq=False   <-- ZERO/BARELY USED
+        CREATE INDEX idx_jst_aftersale_returns_business_date ON ONLY public.jst_aftersale_returns USING btree (COALESCE(application_date_value, order_date_value, order_time_value))
+  jst_aftersale_returns            idx_jst_aftersale_returns_application_date           kids= 5      13.4MB scans=          24 uq=False   <-- ZERO/BARELY USED
+        CREATE INDEX idx_jst_aftersale_returns_application_date ON ONLY public.jst_aftersale_returns USING btree (application_date_value)
+  jst_aftersale_returns            idx_jst_aftersale_returns_order_date                 kids= 5      13.3MB scans=         179 uq=False   <-- ZERO/BARELY USED
+        CREATE INDEX idx_jst_aftersale_returns_order_date ON ONLY public.jst_aftersale_returns USING btree (order_date_value)
+  jst_monthly_orders               uq_jst_monthly_orders_order_time_record_key          kids= 6   1,871.2MB scans=  14,383,214 uq=True
+        CREATE UNIQUE INDEX uq_jst_monthly_orders_order_time_record_key ON ONLY public.jst_monthly_orders USING btree (order_time_at, record_key)
+  jst_monthly_orders               idx_jst_monthly_orders_time_product                  kids= 6     817.1MB scans=      68,219 uq=False
+        CREATE INDEX idx_jst_monthly_orders_time_product ON ONLY public.jst_monthly_orders USING btree (order_time_at, product_code)
+  jst_monthly_orders               idx_jst_monthly_orders_style_time                    kids= 6     814.4MB scans=     257,675 uq=False
+        CREATE INDEX idx_jst_monthly_orders_style_time ON ONLY public.jst_monthly_orders USING btree (style_code, order_time_at)
+  jst_monthly_orders               idx_jst_monthly_orders_order_time_at                 kids= 6     278.3MB scans=      52,415 uq=False
+        CREATE INDEX idx_jst_monthly_orders_order_time_at ON ONLY public.jst_monthly_orders USING btree (order_time_at)
+  jst_monthly_orders               idx_jst_monthly_orders_product_code                  kids= 6     147.8MB scans=           3 uq=False   <-- ZERO/BARELY USED
+        CREATE INDEX idx_jst_monthly_orders_product_code ON ONLY public.jst_monthly_orders USING btree (product_code)
+  jst_monthly_orders               idx_jst_monthly_orders_style_code                    kids= 6     136.7MB scans=          29 uq=False   <-- ZERO/BARELY USED
+        CREATE INDEX idx_jst_monthly_orders_style_code ON ONLY public.jst_monthly_orders USING btree (style_code)
+  jst_monthly_orders               idx_jst_monthly_orders_ship_date_value               kids= 6     121.8MB scans=         192 uq=False   <-- ZERO/BARELY USED
+        CREATE INDEX idx_jst_monthly_orders_ship_date_value ON ONLY public.jst_monthly_orders USING btree (ship_date_value)
+  -> partitioned index bytes on children: 4,335.9MB
+
+## PARENT-LEVEL INDEX DEFINITIONS: properties that matter for dropping
+  dewu_orders                      idx_dewu_orders_brand_order_date                     valid=True ready=True children=4 pred=None
+  dewu_orders                      idx_dewu_orders_goods_code                           valid=True ready=True children=4 pred=None
+  dewu_orders                      idx_dewu_orders_id                                   valid=True ready=True children=4 pred=None
+  dewu_orders                      idx_dewu_orders_order_number                         valid=True ready=True children=4 pred=None
+  dewu_orders                      idx_dewu_orders_order_status                         valid=True ready=True children=4 pred=None
+  dewu_orders                      idx_dewu_orders_sku_id                               valid=True ready=True children=4 pred=None
+  jst_aftersale_returns            idx_jst_aftersale_returns_application_date           valid=True ready=True children=5 pred=None
+  jst_aftersale_returns            idx_jst_aftersale_returns_business_code              valid=True ready=True children=5 pred=None
+  jst_aftersale_returns            idx_jst_aftersale_returns_business_date              valid=True ready=True children=5 pred=None
+  jst_aftersale_returns            idx_jst_aftersale_returns_id                         valid=True ready=True children=5 pred=None
+  jst_aftersale_returns            idx_jst_aftersale_returns_order_date                 valid=True ready=True children=5 pred=None
+  jst_aftersale_returns            idx_jst_aftersale_returns_order_time                 valid=True ready=True children=5 pred=None
+  jst_aftersale_returns            idx_jst_aftersale_returns_original_code              valid=True ready=True children=5 pred=None
+  jst_monthly_orders               idx_jst_monthly_orders_order_time_at                 valid=True ready=True children=6 pred=None
+  jst_monthly_orders               idx_jst_monthly_orders_product_code                  valid=True ready=True children=6 pred=None
+  jst_monthly_orders               idx_jst_monthly_orders_ship_date_value               valid=True ready=True children=6 pred=None
+  jst_monthly_orders               idx_jst_monthly_orders_style_code                    valid=True ready=True children=6 pred=None
+  jst_monthly_orders               idx_jst_monthly_orders_style_time                    valid=True ready=True children=6 pred=None
+  jst_monthly_orders               idx_jst_monthly_orders_time_product                  valid=True ready=True children=6 pred=None
+  jst_monthly_orders               uq_jst_monthly_orders_order_time_record_key          valid=True ready=True children=6 pred=None
+
+## CONSOLIDATED SAFE-DROP LIST (real, verified names)
+  public.jst_daily_stock                   idx_jst_stock_date_qty                                       751.8MB scans=0 (standalone)
+  public.fine_table_snapshot_refs_2026     idx_fine_table_snapshot_refs_2026_batch_original_sku         548.5MB scans=0 (standalone)
+  public.fine_table_snapshot_refs_2025     idx_fine_table_snapshot_refs_2025_batch_original_sku         396.2MB scans=0 (standalone)
+  public.fine_table_snapshot_refs_2026     idx_fine_table_snapshot_refs_2026_sku_trgm                   362.2MB scans=0 (standalone)
+  public.fine_table_snapshot_refs_2025     idx_fine_table_snapshot_refs_2025_sku_trgm                   345.0MB scans=0 (standalone)
+  public.vip_product_ops_snapshots         idx_ops_snapshots_goods_code_date                            338.1MB scans=0 (standalone)
+  public.fine_table_snapshot_refs_2025     idx_fine_table_snapshot_refs_2025_batch_row_index            332.4MB scans=0 (standalone)
+  public.fine_table_snapshot_refs_2026     idx_fine_table_snapshot_refs_2026_original_sku_trgm          320.5MB scans=0 (standalone)
+  public.fine_table_snapshot_refs_2025     idx_fine_table_snapshot_refs_2025_original_sku_trgm          299.8MB scans=0 (standalone)
+  public.fine_table_snapshot_refs_2024     idx_fine_table_snapshot_refs_2024_sku_trgm                   200.9MB scans=0 (standalone)
+  public.fine_table_snapshot_refs_2024     idx_fine_table_snapshot_refs_2024_batch_original_sku         196.8MB scans=0 (standalone)
+  public.fine_table_snapshot_refs_2024     idx_fine_table_snapshot_refs_2024_batch_row_index            179.1MB scans=0 (standalone)
+  public.fine_table_snapshot_refs_2024     idx_fine_table_snapshot_refs_2024_original_sku_trgm          173.4MB scans=0 (standalone)
+  public.vip_product_ops_snapshots         idx_ops_snapshots_snapshot_date                               52.5MB scans=0 (standalone)
+  public.vip_product_detail_daily          idx_vip_product_detail_daily_goods_code_date                  11.2MB scans=0 (standalone)
+  public.product_archive_identities        idx_product_archive_identities_brand_sku                       5.0MB scans=0 (standalone)
+  public.jst_stock_summary                 idx_jst_stock_summary_date_value_code                          4.3MB scans=0 (standalone)
+  public.zhiyi_hot_item_range              zhiyi_hot_item_range_item_id_idx                               2.6MB scans=0 (standalone)
+  public.vip_product_detail_daily          idx_vip_product_detail_daily_brand_date                        2.0MB scans=0 (standalone)
+  public.jst_purchase_inbound_items        ix_jst_purchase_inbound_style_color                            0.5MB scans=0 (standalone)
+  public.yandou_products                   idx_yandou_products_last_imported_at                           0.3MB scans=0 (standalone)
+  public.jst_purchase_inbound_items        ix_jst_purchase_inbound_style_color_normalized                 0.3MB scans=0 (standalone)
+  public.jst_purchase_inbound_items        ix_jst_purchase_inbound_womens_date                            0.3MB scans=0 (standalone)
+  public.operation_logs                    idx_operation_logs_user                                        0.1MB scans=0 (standalone)
+  public.product_auxiliary_attributes      idx_product_auxiliary_attributes_name                          0.1MB scans=0 (standalone)
+  public.suppliers                         idx_suppliers_factory_grade                                    0.1MB scans=0 (standalone)
+  public.auth_sessions                     idx_auth_sessions_expires_at                                   0.0MB scans=0 (standalone)
+  public.color_barcodes                    idx_color_barcodes_color_barcode                               0.0MB scans=0 (standalone)
+  public.general_customer_shops            idx_general_customer_shops_customer_name                       0.0MB scans=0 (standalone)
+  public.auth_users                        idx_auth_users_role                                            0.0MB scans=0 (standalone)
+  public.purchase_order_requirement_templates idx_purchase_order_requirement_brand                           0.0MB scans=0 (standalone)
+  public.general_customer_shops            idx_general_customer_shops_shop_name                           0.0MB scans=0 (standalone)
+  public.auth_users                        idx_auth_users_department                                      0.0MB scans=0 (standalone)
+  public.warehouses                        idx_warehouses_brand_sort                                      0.0MB scans=0 (standalone)
+  public.product_goods_shop_channel_mappings idx_product_goods_shop_channel_brand                           0.0MB scans=0 (standalone)
+  public.size_group_items                  idx_size_group_items_group_sort                                0.0MB scans=0 (standalone)
+  public.warehouse_brands                  idx_warehouse_brands_sort                                      0.0MB scans=0 (standalone)
+  public.supplier_brands                   idx_supplier_brands_sort                                       0.0MB scans=0 (standalone)
+  public.general_customer_brands           idx_general_customer_brands_sort                               0.0MB scans=0 (standalone)
+  public.general_customer_units            idx_general_customer_units_unit_name                           0.0MB scans=0 (standalone)
+  public.general_customer_units            idx_general_customer_units_shop_id                             0.0MB scans=0 (standalone)
+  public.smiley_products                   idx_smiley_products_last_imported_at                           0.0MB scans=0 (standalone)
+  public.purchase_print_templates          idx_purchase_print_templates_user                              0.0MB scans=0 (standalone)
+  public.smiley_product_copy_operation_log idx_smiley_product_copy_log_lookup                             0.0MB scans=0 (standalone)
+  public.smiley_product_copy_base          idx_smiley_product_copy_base_status                            0.0MB scans=0 (standalone)
+  public.ni_products                       idx_ni_products_last_imported_at                               0.0MB scans=0 (standalone)
+  public.manual_product_archive_31         idx_manual_product_archive_31_original_sku                     0.0MB scans=0 (standalone)
+  public.manual_product_archive_31         idx_manual_product_archive_31_last_imported_at                 0.0MB scans=0 (standalone)
+  public.data_quality_issues               idx_data_quality_issues_open                                   0.0MB scans=0 (standalone)
+  public.vip_product_detail_daily          idx_vip_product_detail_daily_shop_date                         0.0MB scans=0 (standalone)
+  public.jst_monthly_orders                idx_jst_monthly_orders_style_code                              0.0MB scans=None (partitioned-parent)
+  public.jst_monthly_orders                idx_jst_monthly_orders_product_code                            0.0MB scans=None (partitioned-parent)
+  public.jst_monthly_orders                idx_jst_monthly_orders_order_time_at                           0.0MB scans=None (partitioned-parent)
+  public.dewu_orders                       idx_dewu_orders_goods_code                                     0.0MB scans=None (partitioned-parent)
+  public.dewu_orders                       idx_dewu_orders_sku_id                                         0.0MB scans=None (partitioned-parent)
+  public.dewu_orders                       idx_dewu_orders_order_status                                   0.0MB scans=None (partitioned-parent)
+  public.jst_aftersale_returns             idx_jst_aftersale_returns_id                                   0.0MB scans=None (partitioned-parent)
+  public.jst_aftersale_returns             idx_jst_aftersale_returns_business_date                        0.0MB scans=None (partitioned-parent)
+  public.jst_aftersale_returns             idx_jst_aftersale_returns_original_code                        0.0MB scans=None (partitioned-parent)
+  public.jst_aftersale_returns             idx_jst_aftersale_returns_order_date                           0.0MB scans=None (partitioned-parent)
+  public.jst_aftersale_returns             idx_jst_aftersale_returns_order_time                           0.0MB scans=None (partitioned-parent)
+  public.jst_aftersale_returns             idx_jst_aftersale_returns_application_date                     0.0MB scans=None (partitioned-parent)
+  public.jst_aftersale_returns             idx_jst_aftersale_returns_business_code                        0.0MB scans=None (partitioned-parent)
+  public.dewu_orders                       idx_dewu_orders_id                                             0.0MB scans=None (partitioned-parent)
+  public.jst_monthly_orders                idx_jst_monthly_orders_style_time                              0.0MB scans=None (partitioned-parent)
+  public.dewu_orders                       idx_dewu_orders_brand_order_date                               0.0MB scans=None (partitioned-parent)
+  public.dewu_orders                       idx_dewu_orders_order_number                                   0.0MB scans=None (partitioned-parent)
+  public.jst_monthly_orders                idx_jst_monthly_orders_time_product                            0.0MB scans=None (partitioned-parent)
+  public.jst_monthly_orders                idx_jst_monthly_orders_ship_date_value                         0.0MB scans=None (partitioned-parent)
+  -> total zero-scan, non-unique index bytes at top level: 4,524.4MB
+  -> count: 69
+

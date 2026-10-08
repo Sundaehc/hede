@@ -1,0 +1,1116 @@
+# DB AUDIT DERIVED FINDINGS
+server=18.3 db=commodity_department size=181 GB
+tables=118 indexes=487
+
+## EXTENSIONS
+[{"extname": "pg_trgm", "extversion": "1.6"}, {"extname": "plpgsql", "extversion": "1.0"}]
+[{"name": "btree_gin", "default_version": "1.3", "installed_version": null}, {"name": "btree_gist", "default_version": "1.8", "installed_version": null}, {"name": "pg_stat_statements", "default_version": "1.12", "installed_version": null}, {"name": "pg_trgm", "default_version": "1.6", "installed_version": "1.6"}, {"name": "pgcrypto", "default_version": "1.4", "installed_version": null}, {"name": "pgstattuple", "default_version": "1.5", "installed_version": null}, {"name": "postgres_fdw", "default_version": "1.2", "installed_version": null}]
+
+## SETTINGS
+  archive_mode                             off              unit=None     boot=off        src=default
+  autovacuum                               on               unit=None     boot=on         src=default
+  autovacuum_analyze_scale_factor          0.1              unit=None     boot=0.1        src=default
+  autovacuum_max_workers                   3                unit=None     boot=3          src=default
+  autovacuum_naptime                       60               unit=s        boot=60         src=default
+  autovacuum_vacuum_cost_delay             2                unit=ms       boot=2          src=default
+  autovacuum_vacuum_cost_limit             -1               unit=None     boot=-1         src=default
+  autovacuum_vacuum_scale_factor           0.2              unit=None     boot=0.2        src=default
+  autovacuum_vacuum_threshold              50               unit=None     boot=50         src=default
+  checkpoint_completion_target             0.9              unit=None     boot=0.9        src=default
+  constraint_exclusion                     partition        unit=None     boot=partition  src=default
+  default_statistics_target                100              unit=None     boot=100        src=default
+  default_toast_compression                pglz             unit=None     boot=pglz       src=default
+  effective_cache_size                     524288           unit=8kB      boot=524288     src=default
+  effective_io_concurrency                 16               unit=None     boot=16         src=default
+  enable_partition_pruning                 on               unit=None     boot=on         src=default
+  hash_mem_multiplier                      2                unit=None     boot=2          src=default
+  huge_pages                               try              unit=None     boot=try        src=default
+  idle_in_transaction_session_timeout      0                unit=ms       boot=0          src=default
+  jit                                      on               unit=None     boot=on         src=default
+  log_min_duration_statement               -1               unit=ms       boot=-1         src=default
+  maintenance_work_mem                     65536            unit=kB       boot=65536      src=default
+  max_connections                          100              unit=None     boot=100        src=configuration file
+  max_parallel_workers                     8                unit=None     boot=8          src=default
+  max_parallel_workers_per_gather          2                unit=None     boot=2          src=default
+  max_wal_size                             1024             unit=MB       boot=1024       src=configuration file
+  max_worker_processes                     8                unit=None     boot=8          src=default
+  min_wal_size                             80               unit=MB       boot=80         src=configuration file
+  random_page_cost                         4                unit=None     boot=4          src=default
+  shared_buffers                           16384            unit=8kB      boot=16384      src=configuration file
+  shared_preload_libraries                                  unit=None     boot=           src=default
+  statement_timeout                        0                unit=ms       boot=0          src=default
+  synchronous_commit                       on               unit=None     boot=on         src=default
+  temp_buffers                             1024             unit=8kB      boot=1024       src=default
+  track_activities                         on               unit=None     boot=on         src=default
+  track_counts                             on               unit=None     boot=on         src=default
+  track_io_timing                          off              unit=None     boot=off        src=default
+  wal_compression                          off              unit=None     boot=off        src=default
+  wal_level                                replica          unit=None     boot=replica    src=default
+  work_mem                                 4096             unit=kB       boot=4096       src=default
+
+## DB STATS
+[
+ {
+  "datname": "commodity_department",
+  "numbackends": 29,
+  "xact_commit": 521211,
+  "xact_rollback": 509325,
+  "blks_read": 5206391160,
+  "blks_hit": 4966587567,
+  "tup_returned": 65825107573,
+  "tup_fetched": 8090380927,
+  "tup_inserted": 142927904,
+  "tup_updated": 12509216,
+  "tup_deleted": 67609480,
+  "conflicts": 0,
+  "temp_files": 88151,
+  "temp_bytes": 958768824125,
+  "deadlocks": 0,
+  "checksum_failures": 0,
+  "stats_reset": null
+ }
+]
+
+## WAL
+[{"wal_records": 1109367123, "wal_fpi": 74796339, "wal_bytes": "662773035968", "stats_reset": "2026-08-27 15:35:47.265124+08:00"}]
+
+## IO
+[
+ {
+  "backend_type": "background writer",
+  "object": "wal",
+  "context": "normal",
+  "reads": null,
+  "writes": 4916,
+  "writebacks": null,
+  "extends": null,
+  "hits": null,
+  "evictions": null,
+  "reuses": null,
+  "fsyncs": 0
+ },
+ {
+  "backend_type": "walwriter",
+  "object": "wal",
+  "context": "normal",
+  "reads": null,
+  "writes": 374171,
+  "writebacks": null,
+  "extends": null,
+  "hits": null,
+  "evictions": null,
+  "reuses": null,
+  "fsyncs": 0
+ },
+ {
+  "backend_type": "background worker",
+  "object": "wal",
+  "context": "init",
+  "reads": null,
+  "writes": 78,
+  "writebacks": null,
+  "extends": null,
+  "hits": null,
+  "evictions": null,
+  "reuses": null,
+  "fsyncs": 78
+ },
+ {
+  "backend_type": "autovacuum launcher",
+  "object": "wal",
+  "context": "normal",
+  "reads": null,
+  "writes": 0,
+  "writebacks": null,
+  "extends": null,
+  "hits": null,
+  "evictions": null,
+  "reuses": null,
+  "fsyncs": 0
+ },
+ {
+  "backend_type": "walsummarizer",
+  "object": "wal",
+  "context": "init",
+  "reads": null,
+  "writes": 0,
+  "writebacks": null,
+  "extends": null,
+  "hits": null,
+  "evictions": null,
+  "reuses": null,
+  "fsyncs": 0
+ },
+ {
+  "backend_type": "walreceiver",
+  "object": "wal",
+  "context": "normal",
+  "reads": null,
+  "writes": 0,
+  "writebacks": null,
+  "extends": null,
+  "hits": null,
+  "evictions": null,
+  "reuses": null,
+  "fsyncs": 0
+ },
+ {
+  "backend_type": "startup",
+  "object": "wal",
+  "context": "init",
+  "reads": null,
+  "writes": 0,
+  "writebacks": null,
+  "extends": null,
+  "hits": null,
+  "evictions": null,
+  "reuses": null,
+  "fsyncs": 0
+ },
+ {
+  "backend_type": "walwriter",
+  "object": "wal",
+  "context": "init",
+  "reads": null,
+  "writes": 362,
+  "writebacks": null,
+  "extends": null,
+  "hits": null,
+  "evictions": null,
+  "reuses": null,
+  "fsyncs": 362
+ },
+ {
+  "backend_type": "checkpointer",
+  "object": "wal",
+  "context": "init",
+  "reads": null,
+  "writes": 86,
+  "writebacks": null,
+  "extends": null,
+  "hits": null,
+  "evictions": null,
+  "reuses": null,
+  "fsyncs": 86
+ },
+ {
+  "backend_type": "client backend",
+  "object": "wal",
+  "context": "init",
+  "reads": null,
+  "writes": 2399,
+  "writebacks": null,
+  "extends": null,
+  "hits": null,
+  "evictions": null,
+  "reuses": null,
+  "fsyncs": 2399
+ },
+ {
+  "backend_type": "checkpointer",
+  "object": "relation",
+  "context": "normal",
+  "reads": null,
+  "writes": 6920888,
+  "writebacks": 0,
+  "extends": null,
+  "hits": null,
+  "evictions": null,
+  "reuses": null,
+  "fsyncs": 124075
+ },
+ {
+  "backend_type": "checkpointer",
+  "object": "relation",
+  "context": "init",
+  "reads": null,
+  "writes": 0,
+  "writebacks": 0,
+  "extends": null,
+  "hits": null,
+  "evictions": null,
+  "reuses": null,
+  "fsyncs": 0
+ },
+ {
+  "backend_type": "io worker",
+  "object": "wal",
+  "context": "init",
+  "reads": null,
+  "writes": 0,
+  "writebacks": null,
+  "extends": null,
+  "hits": null,
+  "evictions": null,
+  "reuses": null,
+  "fsyncs": 0
+ },
+ {
+  "backend_type": "walreceiver",
+  "object": "wal",
+  "context": "init",
+  "reads": null,
+  "writes": 0,
+  "writebacks": null,
+  "extends": null,
+  "hits": null,
+  "evictions": null,
+  "reuses": null,
+  "fsyncs": 0
+ },
+ {
+  "backend_type": "background writer",
+  "object": "wal",
+  "context": "init",
+  "reads": null,
+  "writes": 44,
+  "writebacks": null,
+  "extends": null,
+  "hits": null,
+  "evictions": null,
+  "reuses": null,
+  "fsyncs": 44
+ },
+ {
+  "backend_type": "walsender",
+  "object": "wal",
+  "context": "init",
+  "reads": null,
+  "writes": 0,
+  "writebacks": null,
+  "extends": null,
+  "hits": null,
+  "evictions": null,
+  "reuses": null,
+  "fsyncs": 0
+ },
+ {
+  "backend_type": "autovacuum worker",
+  "object": "wal",
+  "context": "init",
+  "reads": null,
+  "writes": 509,
+  "writebacks": null,
+  "extends": null,
+  "hits": null,
+  "evictions": null,
+  "reuses": null,
+  "fsyncs": 509
+ },
+ {
+  "backend_type": "autovacuum worker",
+  "object": "wal",
+  "context": "normal",
+  "reads": null,
+  "writes": 543318,
+  "writebacks": null,
+  "extends": null,
+  "hits": null,
+  "evictions": null,
+  "reuses": null,
+  "fsyncs": 0
+ },
+ {
+  "backend_type": "background writer",
+  "object": "relation",
+  "context": "normal",
+  "reads": null,
+  "writes": 13012802,
+  "writebacks": 0,
+  "extends": null,
+  "hits": null,
+  "evictions": null,
+  "reuses": null,
+  "fsyncs": 0
+ },
+ {
+  "backend_type": "slotsync worker",
+  "object": "wal",
+  "context": "init",
+  "reads": null,
+  "writes": 0,
+  "writebacks": null,
+  "extends": null,
+  "hits": null,
+  "evictions": null,
+  "reuses": null,
+  "fsyncs": 0
+ },
+ {
+  "backend_type": "standalone backend",
+  "object": "wal",
+  "context": "init",
+  "reads": null,
+  "writes": 0,
+  "writebacks": null,
+  "extends": null,
+  "hits": null,
+  "evictions": null,
+  "reuses": null,
+  "fsyncs": 0
+ },
+ {
+  "backend_type": "background writer",
+  "object": "relation",
+  "context": "init",
+  "reads": null,
+  "writes": 0,
+  "writebacks": 0,
+  "extends": null,
+  "hits": null,
+  "evictions": null,
+  "reuses": null,
+  "fsyncs": 0
+ },
+ {
+  "backend_type": "autovacuum launcher",
+  "object": "wal",
+  "context": "init",
+  "reads": null,
+  "writes": 0,
+  "writebacks": null,
+  "extends": null,
+  "hits": null,
+  "evictions": null,
+  "reuses": null,
+  "fsyncs": 0
+ },
+ {
+  "backend_type": "client backend",
+  "object": "relation",
+  "context": "normal",
+  "reads": 602084252,
+  "writes": 42618802,
+  "writebacks": 0,
+  "extends": 10830926,
+  "hits": 4660022930,
+  "evictions": 658532183,
+  "reuses": null,
+  "fsyncs": 0
+ },
+ {
+  "backend_type": "background worker",
+  "object": "relation",
+  "context": "normal",
+  "reads": 406007495,
+  "writes": 1456755,
+  "writebacks": 0,
+  "extends": 0,
+  "hits": 123533598,
+  "evictions": 435141583,
+  "reuses": null,
+  "fsyncs": 0
+ },
+ {
+  "backend_type": "client backend",
+  "object": "relation",
+  "context": "bulkread",
+  "reads": 188491168,
+  "writes": 3636460,
+  "writebacks": 0,
+  "extends": null,
+  "hits": 136525191,
+  "evictions": 11690692,
+  "reuses": 2871366569,
+  "fsyncs": null
+ },
+ {
+  "backend_type": "background worker",
+  "object": "relation",
+  "context": "bulkread",
+  "reads": 73460378,
+  "writes": 1042747,
+  "writebacks": 0,
+  "extends": null,
+  "hits": 6111124,
+  "evictions": 3938277,
+  "reuses": 1161304341,
+  "fsyncs": null
+ },
+ {
+  "backend_type": "client backend",
+  "object": "relation",
+  "context": "vacuum",
+  "reads": 14879591,
+  "writes": 181512,
+  "writebacks": 0,
+  "extends": 0,
+  "hits": 29630,
+  "evictions": 137984,
+  "reuses": 17505031,
+  "fsyncs": null
+ },
+ {
+  "backend_type": "autovacuum worker",
+  "object": "relation",
+  "context": "vacuum",
+  "reads": 9146705,
+  "writes": 32682663,
+  "writebacks": 0,
+  "extends": 0,
+  "hits": 6537139,
+  "evictions": 475480,
+  "reuses": 56768217,
+  "fsyncs": null
+ },
+ {
+  "backend_type": "client backend",
+  "object": "temp relation",
+  "context": "normal",
+  "reads": 1634984,
+  "writes": 3323600,
+  "writebacks": null,
+  "extends": 379319,
+  "hits": 13344622,
+  "evictions": 7707612,
+  "reuses": null,
+  "fsyncs": null
+ }
+]
+
+## DUPLICATE INDEXES (identical key columns)
+  cbanner_mens_products: columns=('sku',)
+      uq_cbanner_mens_products_sku  1.4MB unique=True
+      idx_cbanner_mens_products_sku_trgm  5.6MB unique=False
+  cbanner_mens_products: columns=('original_sku',)
+      idx_cbanner_mens_products_original_sku_trgm  5.3MB unique=False
+      idx_cbanner_mens_products_original_sku  0.6MB unique=False
+  cbanner_womens_products: columns=('sku',)
+      uq_cbanner_womens_products_sku  0.9MB unique=True
+      idx_cbanner_womens_products_sku_trgm  5.2MB unique=False
+  cbanner_womens_products: columns=('original_sku',)
+      idx_cbanner_womens_products_original_sku_trgm  5.2MB unique=False
+      idx_cbanner_womens_products_original_sku  0.9MB unique=False
+  eblan_products: columns=('sku',)
+      uq_eblan_products_sku  0.6MB unique=True
+      idx_eblan_products_sku_trgm  5.1MB unique=False
+  eblan_products: columns=('original_sku',)
+      idx_eblan_products_original_sku_trgm  5.2MB unique=False
+      idx_eblan_products_original_sku  0.5MB unique=False
+  fine_table_snapshot_refs_2024: columns=('batch_id', 'row_index')
+      uq_fine_table_snapshot_refs_2024_batch_row_index  179.1MB unique=True
+      idx_fine_table_snapshot_refs_2024_batch_row_index  179.1MB unique=False
+  fine_table_snapshot_refs_2025: columns=('batch_id', 'row_index')
+      uq_fine_table_snapshot_refs_2025_batch_row_index  332.4MB unique=True
+      idx_fine_table_snapshot_refs_2025_batch_row_index  332.4MB unique=False
+  fine_table_snapshot_refs_2026: columns=('batch_id', 'row_index')
+      uq_fine_table_snapshot_refs_2026_batch_row_index  503.9MB unique=True
+      idx_fine_table_snapshot_refs_2026_batch_row_index  503.9MB unique=False
+  gj_merged_product_info: columns=('goods_code',)
+      idx_gj_merged_product_info_goods_code_trgm  232.5MB unique=False
+      idx_gj_merged_product_info_goods_code  59.7MB unique=False
+  gj_merged_product_info: columns=('original_goods_code',)
+      idx_gj_merged_product_info_original_goods_code_trgm  195.5MB unique=False
+      idx_gj_merged_product_info_original_code  66.5MB unique=False
+  inventory_account_subjects: columns=('name',)
+      uq_inventory_account_subjects_name  0.0MB unique=True
+      idx_inventory_account_subjects_name  0.0MB unique=False
+  inventory_details: columns=('product_code',)
+      idx_inventory_details_product_code  2.3MB unique=False
+      idx_inventory_details_product_code_trgm  11.9MB unique=False
+  inventory_records: columns=('document_number',)
+      idx_inventory_records_document_number  0.4MB unique=False
+      uq_inventory_records_active_document_number  0.4MB unique=True
+  jst_daily_stock: columns=('product_code',)
+      idx_jst_stock_product_code  127.6MB unique=False
+      idx_jst_stock_product_code_trgm  387.7MB unique=False
+  jst_stock_summary_snapshots: columns=('snapshot_date', 'product_code')
+      uq_jst_stock_summary_snapshot  78.5MB unique=True
+      idx_jst_stock_summary_snapshots_date_code  78.6MB unique=False
+  product_goods_detail_snapshot_batches: columns=('brand', 'snapshot_date')
+      uq_product_goods_detail_snapshot_batch  0.1MB unique=True
+      idx_product_goods_detail_snapshot_batches_brand_date  0.1MB unique=False
+  purchase_order_requirement_templates: columns=('brand',)
+      uq_purchase_order_requirement_brand  0.0MB unique=True
+      idx_purchase_order_requirement_brand  0.0MB unique=False
+  purchase_print_templates: columns=('user_id',)
+      idx_purchase_print_templates_user  0.0MB unique=False
+      uq_purchase_print_templates_user_default  0.0MB unique=True
+  yandou_products: columns=('sku',)
+      uq_yandou_products_sku  1.8MB unique=True
+      idx_yandou_products_sku_trgm  6.1MB unique=False
+  yandou_products: columns=('original_sku',)
+      idx_yandou_products_original_sku_trgm  5.6MB unique=False
+      idx_yandou_products_original_sku  0.5MB unique=False
+  -> reclaimable from duplicates (excluding PKs): 3,323.2MB
+
+## REDUNDANT PREFIX INDEXES (left-prefix of a wider index)
+  color_barcodes: idx_color_barcodes_brand 0.0MB is prefix of uq_color_barcodes_brand_code 0.1MB (cols=['brand'])
+  factory_channel_sales_daily_summaries: idx_factory_channel_sales_daily_summary_brand_date 11.8MB is prefix of uq_factory_channel_sales_daily_summary_key 89.8MB (cols=['brand', 'sales_date'])
+  general_customer_shops: idx_general_customer_shops_customer_name 0.0MB is prefix of uq_general_customer_shops_customer_shop 0.0MB (cols=['customer_name'])
+  general_customer_units: idx_general_customer_units_shop_id 0.0MB is prefix of uq_general_customer_units_shop_unit 0.0MB (cols=['shop_id'])
+  gj_merged_product_info: idx_gj_merged_product_info_source_date 49.0MB is prefix of idx_gj_merged_product_info_source_date_id_desc 396.5MB (cols=['source_date_value'])
+  inventory_records: idx_inventory_records_supplier 0.1MB is prefix of idx_inventory_records_supplier_date 0.3MB (cols=['supplier'])
+  inventory_records: idx_inventory_records_warehouse 0.1MB is prefix of idx_inventory_records_warehouse_date 0.2MB (cols=['warehouse'])
+  jst_aftersale_returns: idx_jst_aftersale_returns_business_date 0.0MB is prefix of idx_jst_aftersale_returns_business_code 0.0MB (cols=['COALESCE(application_date_value, order_date_value, order_time_value)'])
+  jst_aftersale_returns_2024: jst_aftersale_returns_2024_coalesce_idx 4.1MB is prefix of jst_aftersale_returns_2024_coalesce_original_goods_code_idx 7.1MB (cols=['COALESCE(application_date_value, order_date_value, order_time_value)'])
+  jst_aftersale_returns_2025: jst_aftersale_returns_2025_coalesce_idx 3.9MB is prefix of jst_aftersale_returns_2025_coalesce_original_goods_code_idx 9.0MB (cols=['COALESCE(application_date_value, order_date_value, order_time_value)'])
+  jst_aftersale_returns_2026: jst_aftersale_returns_2026_coalesce_idx 5.4MB is prefix of jst_aftersale_returns_2026_coalesce_original_goods_code_idx 10.7MB (cols=['COALESCE(application_date_value, order_date_value, order_time_value)'])
+  jst_aftersale_returns_2027: jst_aftersale_returns_2027_coalesce_idx 0.0MB is prefix of jst_aftersale_returns_2027_coalesce_original_goods_code_idx 0.0MB (cols=['COALESCE(application_date_value, order_date_value, order_time_value)'])
+  jst_aftersale_returns_default: jst_aftersale_returns_default_coalesce_idx 0.0MB is prefix of jst_aftersale_returns_default_coalesce_original_goods_code_idx 0.0MB (cols=['COALESCE(application_date_value, order_date_value, order_time_value)'])
+  jst_daily_sales_2026: idx_jst_daily_sales_2026_sales_date 10.9MB is prefix of uq_jst_daily_sales_2026_business_key 202.9MB (cols=['sales_date'])
+  jst_daily_stock: uq_jst_stock_date_code 613.9MB is prefix of idx_jst_stock_date_qty 751.8MB (cols=['stock_date', 'product_code'])
+  jst_full_stock: idx_jst_full_stock_product_code 14.6MB is prefix of idx_jst_full_stock_product_size 14.9MB (cols=['product_code'])
+  jst_monthly_orders: idx_jst_monthly_orders_order_time_at 0.0MB is prefix of uq_jst_monthly_orders_order_time_record_key 0.0MB (cols=['order_time_at'])
+  jst_monthly_orders: idx_jst_monthly_orders_style_code 0.0MB is prefix of idx_jst_monthly_orders_style_time 0.0MB (cols=['style_code'])
+  jst_monthly_orders_2023: jst_monthly_orders_2023_order_time_at_idx 0.0MB is prefix of jst_monthly_orders_2023_order_time_at_record_key_key 0.0MB (cols=['order_time_at'])
+  jst_monthly_orders_2023: jst_monthly_orders_2023_style_code_idx 0.0MB is prefix of jst_monthly_orders_2023_style_code_order_time_at_idx 0.0MB (cols=['style_code'])
+  jst_monthly_orders_2024: jst_monthly_orders_2024_order_time_at_idx 100.1MB is prefix of jst_monthly_orders_2024_order_time_at_record_key_key 660.8MB (cols=['order_time_at'])
+  jst_monthly_orders_2024: jst_monthly_orders_2024_style_code_idx 49.1MB is prefix of jst_monthly_orders_2024_style_code_order_time_at_idx 332.0MB (cols=['style_code'])
+  jst_monthly_orders_2025: jst_monthly_orders_2025_order_time_at_idx 115.8MB is prefix of jst_monthly_orders_2025_order_time_at_record_key_key 811.3MB (cols=['order_time_at'])
+  jst_monthly_orders_2025: jst_monthly_orders_2025_style_code_idx 44.7MB is prefix of jst_monthly_orders_2025_style_code_order_time_at_idx 288.1MB (cols=['style_code'])
+  jst_monthly_orders_2026: jst_monthly_orders_2026_order_time_at_idx 62.4MB is prefix of jst_monthly_orders_2026_order_time_at_record_key_key 399.1MB (cols=['order_time_at'])
+  jst_monthly_orders_2026: jst_monthly_orders_2026_style_code_idx 42.9MB is prefix of jst_monthly_orders_2026_style_code_order_time_at_idx 194.3MB (cols=['style_code'])
+  jst_monthly_orders_2027: jst_monthly_orders_2027_order_time_at_idx 0.0MB is prefix of jst_monthly_orders_2027_order_time_at_record_key_key 0.0MB (cols=['order_time_at'])
+  jst_monthly_orders_2027: jst_monthly_orders_2027_style_code_idx 0.0MB is prefix of jst_monthly_orders_2027_style_code_order_time_at_idx 0.0MB (cols=['style_code'])
+  jst_monthly_orders_default: jst_monthly_orders_default_order_time_at_idx 0.0MB is prefix of jst_monthly_orders_default_order_time_at_record_key_key 0.0MB (cols=['order_time_at'])
+  jst_monthly_orders_default: jst_monthly_orders_default_style_code_idx 0.0MB is prefix of jst_monthly_orders_default_style_code_order_time_at_idx 0.0MB (cols=['style_code'])
+  jst_size_stock_snapshots: idx_jst_size_stock_snapshots_date_code 167.7MB is prefix of uq_jst_size_stock_snapshot 483.5MB (cols=['snapshot_date', 'product_code'])
+  product_auxiliary_attributes: idx_product_auxiliary_attributes_scope_type 0.0MB is prefix of uq_product_auxiliary_attributes_scope_type_name 0.3MB (cols=['brand_scope', 'attribute_type'])
+  product_goods_shop_channel_mappings: idx_product_goods_shop_channel_brand 0.0MB is prefix of uq_product_goods_shop_channel_brand_shop 0.0MB (cols=['brand'])
+  purchase_print_templates: idx_purchase_print_templates_user 0.0MB is prefix of uq_purchase_print_templates_user_key 0.0MB (cols=['user_id'])
+  purchase_print_templates: uq_purchase_print_templates_user_default 0.0MB is prefix of uq_purchase_print_templates_user_key 0.0MB (cols=['user_id'])
+  smiley_fine_table: idx_smiley_fine_table_snapshot_date 0.3MB is prefix of uq_smiley_fine_table_date_sku 2.2MB (cols=['snapshot_date'])
+  suppliers: idx_suppliers_brand 0.0MB is prefix of uq_supplier_brand_name 0.2MB (cols=['brand'])
+  vip_daily_sales_2026: idx_vip_daily_sales_2026_sales_date 105.7MB is prefix of uq_vip_daily_sales_2026_business_key 1,314.8MB (cols=['sales_date'])
+  vip_product_daily_snapshots: idx_daily_snapshots_snapshot_date 8.0MB is prefix of uq_daily_snapshot_date_goods 59.4MB (cols=['snapshot_date'])
+  vip_product_detail_daily: idx_vip_product_detail_daily_report_date 2.0MB is prefix of uq_vip_product_detail_daily_identity 16.0MB (cols=['report_date'])
+  vip_product_ops_snapshots: idx_ops_snapshots_snapshot_date 52.5MB is prefix of uq_ops_snapshot_date_goods 474.6MB (cols=['snapshot_date'])
+  zhiyi_hot_item_range: zhiyi_hot_item_range_period_idx 1.3MB is prefix of zhiyi_hot_item_range_period_item_key 10.0MB (cols=['period_start_date', 'period_end_date'])
+  -> reclaimable from prefix redundancy: 1,466.5MB
+
+## UNUSED NON-UNIQUE INDEXES (idx_scan = 0)
+  jst_daily_stock                               idx_jst_stock_date_qty                                  751.8MB
+  fine_table_snapshot_refs_2026                 idx_fine_table_snapshot_refs_2026_batch_original_sku    548.5MB
+  fine_table_snapshot_refs_2025                 idx_fine_table_snapshot_refs_2025_batch_original_sku    396.2MB
+  fine_table_snapshot_refs_2026                 idx_fine_table_snapshot_refs_2026_sku_trgm              362.2MB
+  fine_table_snapshot_refs_2025                 idx_fine_table_snapshot_refs_2025_sku_trgm              345.0MB
+  vip_product_ops_snapshots                     idx_ops_snapshots_goods_code_date                       338.1MB
+  fine_table_snapshot_refs_2025                 idx_fine_table_snapshot_refs_2025_batch_row_index       332.4MB
+  jst_monthly_orders_2024                       jst_monthly_orders_2024_style_code_order_time_at_idx    332.0MB
+  fine_table_snapshot_refs_2026                 idx_fine_table_snapshot_refs_2026_original_sku_trgm     320.5MB
+  fine_table_snapshot_refs_2025                 idx_fine_table_snapshot_refs_2025_original_sku_trgm     299.8MB
+  jst_monthly_orders_2025                       jst_monthly_orders_2025_style_code_order_time_at_idx    288.1MB
+  fine_table_snapshot_refs_2024                 idx_fine_table_snapshot_refs_2024_sku_trgm              200.9MB
+  fine_table_snapshot_refs_2024                 idx_fine_table_snapshot_refs_2024_batch_original_sku    196.8MB
+  fine_table_snapshot_refs_2024                 idx_fine_table_snapshot_refs_2024_batch_row_index       179.1MB
+  fine_table_snapshot_refs_2024                 idx_fine_table_snapshot_refs_2024_original_sku_trgm     173.4MB
+  jst_monthly_orders_2024                       jst_monthly_orders_2024_product_code_idx                54.4MB
+  vip_product_ops_snapshots                     idx_ops_snapshots_snapshot_date                         52.5MB
+  jst_monthly_orders_2025                       jst_monthly_orders_2025_product_code_idx                49.6MB
+  jst_monthly_orders_2026                       jst_monthly_orders_2026_product_code_idx                43.8MB
+  vip_product_detail_daily                      idx_vip_product_detail_daily_goods_code_date            11.2MB
+  jst_aftersale_returns_2025                    jst_aftersale_returns_2025_coalesce_original_goods_code_idx 9.0MB
+  product_archive_identities                    idx_product_archive_identities_brand_sku                5.0MB
+  jst_stock_summary                             idx_jst_stock_summary_date_value_code                   4.3MB
+  zhiyi_hot_item_range                          zhiyi_hot_item_range_item_id_idx                        2.6MB
+  vip_product_detail_daily                      idx_vip_product_detail_daily_brand_date                 2.0MB
+  jst_purchase_inbound_items                    ix_jst_purchase_inbound_style_color                     0.5MB
+  yandou_products                               idx_yandou_products_last_imported_at                    0.3MB
+  jst_purchase_inbound_items                    ix_jst_purchase_inbound_style_color_normalized          0.3MB
+  jst_purchase_inbound_items                    ix_jst_purchase_inbound_womens_date                     0.3MB
+  operation_logs                                idx_operation_logs_user                                 0.1MB
+  product_auxiliary_attributes                  idx_product_auxiliary_attributes_name                   0.1MB
+  suppliers                                     idx_suppliers_factory_grade                             0.1MB
+  color_barcodes                                idx_color_barcodes_color_barcode                        0.0MB
+  auth_sessions                                 idx_auth_sessions_expires_at                            0.0MB
+  jst_monthly_orders_2027                       jst_monthly_orders_2027_ship_date_value_idx             0.0MB
+  audit                                         mcp_audit_request                                       0.0MB
+  audit                                         mcp_audit_created                                       0.0MB
+  purchase_print_templates                      idx_purchase_print_templates_user                       0.0MB
+  purchase_order_requirement_templates          idx_purchase_order_requirement_brand                    0.0MB
+  smiley_product_copy_base                      idx_smiley_product_copy_base_status                     0.0MB
+  general_customer_shops                        idx_general_customer_shops_shop_name                    0.0MB
+  general_customer_shops                        idx_general_customer_shops_customer_name                0.0MB
+  auth_users                                    idx_auth_users_department                               0.0MB
+  auth_users                                    idx_auth_users_role                                     0.0MB
+  supplier_brands                               idx_supplier_brands_sort                                0.0MB
+  product_goods_shop_channel_mappings           idx_product_goods_shop_channel_brand                    0.0MB
+  size_group_items                              idx_size_group_items_group_sort                         0.0MB
+  general_customer_units                        idx_general_customer_units_unit_name                    0.0MB
+  general_customer_units                        idx_general_customer_units_shop_id                      0.0MB
+  manual_product_archive_31                     idx_manual_product_archive_31_original_sku              0.0MB
+  manual_product_archive_31                     idx_manual_product_archive_31_last_imported_at          0.0MB
+  smiley_products                               idx_smiley_products_last_imported_at                    0.0MB
+  warehouses                                    idx_warehouses_brand_sort                               0.0MB
+  warehouse_brands                              idx_warehouse_brands_sort                               0.0MB
+  general_customer_brands                       idx_general_customer_brands_sort                        0.0MB
+  smiley_product_copy_operation_log             idx_smiley_product_copy_log_lookup                      0.0MB
+  ni_products                                   idx_ni_products_last_imported_at                        0.0MB
+  jst_monthly_orders_2027                       jst_monthly_orders_2027_order_time_at_idx               0.0MB
+  jst_monthly_orders_2027                       jst_monthly_orders_2027_product_code_idx                0.0MB
+  jst_monthly_orders_2027                       jst_monthly_orders_2027_style_code_idx                  0.0MB
+  jst_monthly_orders_2027                       jst_monthly_orders_2027_style_code_order_time_at_idx    0.0MB
+  jst_aftersale_returns_2027                    jst_aftersale_returns_2027_coalesce_idx                 0.0MB
+  jst_aftersale_returns_2027                    jst_aftersale_returns_2027_original_goods_code_idx      0.0MB
+  jst_aftersale_returns_2027                    jst_aftersale_returns_2027_order_date_value_idx         0.0MB
+  jst_aftersale_returns_2027                    jst_aftersale_returns_2027_order_time_value_idx         0.0MB
+  jst_aftersale_returns_2027                    jst_aftersale_returns_2027_application_date_value_idx   0.0MB
+  dewu_orders_2027                              dewu_orders_2027_brand_group_order_date_idx             0.0MB
+  dewu_orders_2027                              dewu_orders_2027_order_number_idx                       0.0MB
+  dewu_orders_2027                              dewu_orders_2027_goods_code_idx                         0.0MB
+  dewu_orders_2027                              dewu_orders_2027_sku_id_idx                             0.0MB
+  dewu_orders_2027                              dewu_orders_2027_order_status_idx                       0.0MB
+  data_quality_issues                           idx_data_quality_issues_open                            0.0MB
+  dewu_orders_default                           dewu_orders_default_order_status_idx                    0.0MB
+  jst_aftersale_returns_default                 jst_aftersale_returns_default_coalesce_idx              0.0MB
+  dewu_orders_default                           dewu_orders_default_sku_id_idx                          0.0MB
+  jst_aftersale_returns_default                 jst_aftersale_returns_default_original_goods_code_idx   0.0MB
+  dewu_orders_default                           dewu_orders_default_brand_group_order_date_idx          0.0MB
+  jst_aftersale_returns_default                 jst_aftersale_returns_default_order_date_value_idx      0.0MB
+  dewu_orders_default                           dewu_orders_default_goods_code_idx                      0.0MB
+  jst_monthly_orders_2023                       jst_monthly_orders_2023_product_code_idx                0.0MB
+  jst_monthly_orders_default                    jst_monthly_orders_default_product_code_idx             0.0MB
+  jst_monthly_orders_2023                       jst_monthly_orders_2023_style_code_idx                  0.0MB
+  jst_monthly_orders_default                    jst_monthly_orders_default_style_code_idx               0.0MB
+  jst_monthly_orders_2023                       jst_monthly_orders_2023_ship_date_value_idx             0.0MB
+  jst_monthly_orders_default                    jst_monthly_orders_default_ship_date_value_idx          0.0MB
+  jst_monthly_orders_2023                       jst_monthly_orders_2023_style_code_order_time_at_idx    0.0MB
+  jst_monthly_orders_default                    jst_monthly_orders_default_order_time_at_idx            0.0MB
+  jst_monthly_orders_2023                       jst_monthly_orders_2023_order_time_at_idx               0.0MB
+  jst_monthly_orders_default                    jst_monthly_orders_default_style_code_order_time_at_idx 0.0MB
+  jst_aftersale_returns_default                 jst_aftersale_returns_default_order_time_value_idx      0.0MB
+  dewu_orders_default                           dewu_orders_default_order_number_idx                    0.0MB
+  jst_aftersale_returns_default                 jst_aftersale_returns_default_application_date_value_idx 0.0MB
+  vip_product_detail_daily                      idx_vip_product_detail_daily_shop_date                  0.0MB
+  -> total unused (non-unique, non-PK) index space: 5,301.6MB  count=93
+
+## FOREIGN KEYS WITHOUT A LEADING INDEX
+  auth_roles                                    fk_auth_roles_department_code       cols=['department_code'] size=0.0MB
+  mcp_private.tokens                            tokens_user_id_fkey                 cols=['user_id'] size=0.0MB
+  product_tag_assignments                       product_tag_assignments_style_id_fkey cols=['style_id'] size=0.0MB
+  smiley_product_copy_base                      smiley_product_copy_base_representative_product_id_fkey cols=['representative_product_id'] size=0.0MB
+  -> FKs indexed: 17, missing leading index: 4
+
+## TABLES WITHOUT PRIMARY KEY
+  public.jst_monthly_orders_2024                          live=  5971371 total=10,324.5MB indexes=7
+  public.jst_monthly_orders_2025                          live=  5166132 total=9,342.9MB indexes=7
+  public.jst_monthly_orders_2026                          live=  2924114 total=6,339.4MB indexes=7
+  public.jst_purchase_restore_20260926_164350             live=  2706116 total=1,116.4MB indexes=0
+  public.jst_purchase_backup_20260926_164350              live=  1608213 total=690.0MB indexes=0
+  public.jst_aftersale_returns_2024                       live=   601410 total=1,426.8MB indexes=7
+  public.jst_aftersale_returns_2025                       live=   557060 total=1,249.5MB indexes=7
+  public.jst_aftersale_returns_2026                       live=   360982 total=1,176.8MB indexes=7
+  public.dewu_orders_2026                                 live=   105053 total=94.2MB indexes=6
+  public.dewu_orders_2025                                 live=    11470 total=8.0MB indexes=6
+  public.jst_aftersale_returns_2027                       live=        0 total=0.1MB indexes=7
+  public.jst_monthly_orders_default                       live=        0 total=0.1MB indexes=7
+  public.jst_aftersale_returns_default                    live=        0 total=0.1MB indexes=7
+  public.jst_monthly_orders_2027                          live=        0 total=0.1MB indexes=7
+  public.dewu_orders_default                              live=        0 total=0.1MB indexes=6
+  public.dewu_orders_2027                                 live=        0 total=0.1MB indexes=6
+  public.jst_monthly_orders_2023                          live=        0 total=0.1MB indexes=7
+
+## SEQUENCE HEADROOM (< 25% used)
+
+## DEAD TUPLES / AUTOVACUUM PRESSURE
+  public.jst_purchase_inbound_daily                    live=   3667404 dead=   193954   5.0% last_autovac=2026-09-26 16:57:30.445036+08:00 opts=None
+  public.jst_daily_sales_2026                          live=   1243896 dead=   172699  12.2% last_autovac=None opts=None
+  public.fine_table_snapshot_refs_2026                 live=  12859674 dead=   125858   1.0% last_autovac=2026-10-04 22:03:20.581461+08:00 opts=None
+  public.product_goods_detail_snapshots_2026           live=   7430717 dead=   122002   1.6% last_autovac=2026-09-28 20:23:03.553329+08:00 opts=['autovacuum_vacuum_scale_factor=0.05', 'autovacuum_vacuum_threshold=5000', 'autovacuum_analyze_scale_factor=0.02', 'autovacuum_analyze_threshold=1000']
+  public.vip_daily_sales_2026                          live=  15354632 dead=   100732   0.7% last_autovac=2026-09-25 15:41:17.693576+08:00 opts=['autovacuum_vacuum_scale_factor=0.02', 'autovacuum_vacuum_threshold=1000', 'autovacuum_analyze_scale_factor=0.02', 'autovacuum_analyze_threshold=1000']
+  public.product_goods_detail_snapshots_2025           live=   3805890 dead=    39035   1.0% last_autovac=None opts=['autovacuum_vacuum_scale_factor=0.05', 'autovacuum_vacuum_threshold=5000', 'autovacuum_analyze_scale_factor=0.02', 'autovacuum_analyze_threshold=1000']
+  public.vip_product_detail_daily                      live=    252923 dead=    10827   4.1% last_autovac=2026-09-15 11:22:22.588117+08:00 opts=None
+  public.factory_channel_sales_daily_summaries         live=    644262 dead=     7255   1.1% last_autovac=2026-10-03 09:31:31.500698+08:00 opts=None
+  public.product_tag_assignments                       live=    560303 dead=     5949   1.1% last_autovac=2026-09-27 11:23:37.000568+08:00 opts=None
+  public.product_goods_detail_snapshots_2024           live=   1352191 dead=     4910   0.4% last_autovac=None opts=['autovacuum_vacuum_scale_factor=0.05', 'autovacuum_vacuum_threshold=5000', 'autovacuum_analyze_scale_factor=0.02', 'autovacuum_analyze_threshold=1000']
+  public.vip_product_realtime                          live=     26974 dead=     3702  12.1% last_autovac=2026-10-06 10:32:22.102379+08:00 opts=None
+  public.cbanner_mens_products                         live=     19644 dead=     2830  12.6% last_autovac=2026-10-04 04:37:42.298010+08:00 opts=None
+  public.jst_purchase_inbound_items                    live=     16164 dead=     2374  12.8% last_autovac=2026-09-07 17:38:27.758906+08:00 opts=None
+  public.product_goods_historical_orders_2026          live=      9185 dead=     1753  16.0% last_autovac=None opts=None
+  public.yandou_products                               live=     17261 dead=     1417   7.6% last_autovac=2026-09-17 10:52:59.518442+08:00 opts=None
+  public.eblan_products                                live=     10250 dead=     1115   9.8% last_autovac=2026-10-04 04:36:41.135765+08:00 opts=None
+  public.inventory_records                             live=      6356 dead=      510   7.4% last_autovac=2026-10-06 14:15:28.178696+08:00 opts=None
+  public.product_goods_detail_snapshot_batches         live=      1992 dead=      384  16.2% last_autovac=None opts=None
+  public.scheduled_task_runs                           live=      2090 dead=      204   8.9% last_autovac=2026-10-02 18:20:18.675893+08:00 opts=None
+  public.scheduled_task_statuses                       live=       965 dead=      159  14.1% last_autovac=2026-10-04 06:00:40.563130+08:00 opts=None
+  public.product_goods_overrides                       live=       512 dead=      110  17.7% last_autovac=None opts=None
+  public.product_copywriting                           live=       378 dead=      107  22.1% last_autovac=2026-09-30 12:33:45.277314+08:00 opts=None
+  public.auth_sessions                                 live=       916 dead=       83   8.3% last_autovac=2026-10-07 15:21:12.144469+08:00 opts=None
+  public.manual_product_archive_31                     live=        37 dead=       41  52.6% last_autovac=2026-09-04 15:22:20.647984+08:00 opts=None
+  public.cbanner_womens_products                       live=     15931 dead=       38   0.2% last_autovac=2026-10-07 04:37:50.664096+08:00 opts=None
+
+## NEVER ANALYZED TABLES WITH ROWS
+  public.fine_table_snapshot_payloads                       live=27225048 total=41,043.6MB
+  public.product_order_detail_statistics                    live=1506 total=37.2MB
+  public.product_goods_overrides                            live=512 total=5.4MB
+  public.fine_table_snapshot_batches                        live=164 total=0.6MB
+  public.product_auxiliary_attributes                       live=18 total=1.1MB
+  public.smiley_product_copy_operation_log                  live=16 total=0.2MB
+  public.smiley_product_copy_base                           live=15 total=0.2MB
+  public.general_customer_shops                             live=14 total=0.1MB
+  public.color_barcodes                                     live=13 total=0.5MB
+  mcp_private.tokens                                             live=8 total=0.0MB
+  public.warehouses                                         live=7 total=0.1MB
+  public.inventory_account_subjects                         live=3 total=0.1MB
+  public.general_customer_units                             live=3 total=0.1MB
+  public.general_customer_brands                            live=1 total=0.1MB
+  public.warehouse_brands                                   live=1 total=0.1MB
+  public.size_groups                                        live=0 total=0.0MB
+  public.product_size_group_mappings                        live=0 total=23.6MB
+  public.fine_table_snapshot_refs_2024                      live=0 total=2,139.5MB
+  public.supplier_brands                                    live=0 total=0.1MB
+  public.product_goods_historical_orders_2022               live=0 total=3.0MB
+  public.ni_products                                        live=0 total=0.3MB
+  public.product_goods_historical_orders_2025               live=0 total=4.6MB
+  public.product_style_entities                             live=0 total=0.0MB
+  public.fine_table_snapshot_refs_2025                      live=0 total=3,941.2MB
+  public.product_goods_historical_orders_2024               live=0 total=5.3MB
+  public.size_group_items                                   live=0 total=0.1MB
+  public.general_customer_sort_preferences                  live=0 total=0.1MB
+  public.jst_product_profiles                               live=0 total=687.2MB
+  public.data_quality_issues                                live=0 total=0.0MB
+  public.product_goods_historical_sales_2024                live=0 total=232.1MB
+  public.alembic_version                                    live=0 total=0.0MB
+  public.purchase_order_requirement_templates               live=0 total=0.1MB
+  public.product_goods_historical_sales_2025                live=0 total=451.2MB
+  public.product_goods_historical_orders_2023               live=0 total=6.6MB
+  public.product_goods_shop_channel_mappings                live=0 total=0.1MB
+
+## INDEX-HEAVY TABLES (index bytes > heap bytes, size > 200MB)
+  public.fine_table_snapshot_refs_2026               heap=1,313.1MB idx=3,887.2MB indexes=9 live=12859674
+  public.fine_table_snapshot_refs_2025               heap=1,083.3MB idx=2,857.5MB indexes=9 live=0
+  public.jst_daily_stock                             heap=1,219.7MB idx=2,808.0MB indexes=6 live=15135803
+  public.fine_table_snapshot_refs_2024               heap=584.6MB idx=1,554.7MB indexes=9 live=0
+  public.product_goods_sales_periods                 heap=120.4MB idx=161.2MB indexes=5 live=565759
+  public.product_tag_assignments                     heap=97.0MB idx=113.3MB indexes=7 live=560303
+
+## TABLES WITH MANY INDEXES
+  public.inventory_records                           indexes=11 cols=20 idx_bytes=2.3MB live=6356
+  public.gj_merged_product_info                      indexes=10 cols=29 idx_bytes=2,539.3MB live=7373511
+  public.fine_table_snapshot_refs_2026               indexes=9 cols=9 idx_bytes=3,887.2MB live=12859674
+  public.fine_table_snapshot_refs_2025               indexes=9 cols=9 idx_bytes=2,857.5MB live=0
+  public.fine_table_snapshot_refs_2024               indexes=9 cols=9 idx_bytes=1,554.7MB live=0
+  public.cbanner_mens_products                       indexes=9 cols=54 idx_bytes=19.4MB live=19644
+  public.yandou_products                             indexes=9 cols=54 idx_bytes=20.7MB live=17261
+  public.cbanner_womens_products                     indexes=9 cols=54 idx_bytes=17.5MB live=15931
+  public.eblan_products                              indexes=9 cols=54 idx_bytes=15.0MB live=10250
+
+## TOAST-HEAVY TABLES
+  public.jst_aftersale_returns_2024                    toast=1117 MB
+  public.jst_aftersale_returns_2025                    toast=814 MB
+  public.jst_aftersale_returns_2026                    toast=680 MB
+  public.vip_product_detail_daily                      toast=416 MB
+  public.alimama_creative_daily_quarantine             toast=17 MB
+  public.fine_table_snapshot_payloads                  toast=10 MB
+  public.vip_daily_sales_2026                          toast=5704 kB
+  public.fine_table_snapshot_metrics                   toast=3448 kB
+  public.product_goods_detail_snapshots_2026           toast=3136 kB
+  public.vip_product_ops_snapshots                     toast=2936 kB
+  public.jst_monthly_orders_2024                       toast=2416 kB
+  public.product_copywriting                           toast=2320 kB
+  public.fine_table_filter_option_cache                toast=2248 kB
+  public.product_copywriting_history                   toast=2032 kB
+  public.jst_monthly_orders_2025                       toast=2000 kB
+  public.gj_merged_product_info                        toast=1976 kB
+  public.operation_logs                                toast=1704 kB
+  public.jst_monthly_orders_2026                       toast=1552 kB
+  public.jst_product_price                             toast=1512 kB
+  public.product_goods_detail_snapshots_2025           toast=1480 kB
+  public.jst_daily_sales_2026                          toast=664 kB
+  public.jst_purchase_inbound_daily                    toast=560 kB
+  public.product_goods_detail_snapshots_2024           toast=552 kB
+  public.vip_product_daily_snapshots                   toast=448 kB
+  public.fine_table_snapshot_refs_2026                 toast=408 kB
+
+## EMPTY / ZERO-LIVE TABLES (stats estimate = 0)
+  public.fine_table_snapshot_refs_2025               est_rows=11048994 live=0 total=3,941.2MB heap=1,083.3MB idx=2,857.5MB last_analyze=None last_autoanalyze=None
+  public.fine_table_snapshot_refs_2024               est_rows=5950423 live=0 total=2,139.5MB heap=584.6MB idx=1,554.7MB last_analyze=None last_autoanalyze=None
+  public.jst_product_profiles                        est_rows=418201 live=0 total=687.2MB heap=623.6MB idx=63.5MB last_analyze=None last_autoanalyze=None
+  public.product_goods_historical_sales_2025         est_rows=1220417 live=0 total=451.2MB heap=234.1MB idx=217.0MB last_analyze=None last_autoanalyze=None
+  public.product_goods_historical_sales_2024         est_rows=620414 live=0 total=232.1MB heap=118.4MB idx=113.7MB last_analyze=None last_autoanalyze=None
+  public.product_size_group_mappings                 est_rows=61529 live=0 total=23.6MB heap=16.6MB idx=7.0MB last_analyze=None last_autoanalyze=None
+
+## BACKUP / TEMP-LOOKING TABLES
+  public.jst_purchase_restore_20260926_164350             live=   2706116 total=1,116.4MB
+  public.jst_purchase_backup_20260926_164350              live=   1608213 total=690.0MB
+  public.product_copywriting                              live=       378 total=3.0MB
+  public.product_copywriting_history                      live=       318 total=2.2MB
+  public.smiley_product_copy_base                         live=        15 total=0.2MB
+  public.smiley_product_copy_operation_log                live=        16 total=0.2MB
+
+## PARTITIONING
+[
+ {
+  "parent_table": "jst_monthly_orders",
+  "relkind": "p",
+  "partition_count": 6,
+  "total_size": "25 GB",
+  "first_bound": "DEFAULT",
+  "last_bound": "FOR VALUES FROM ('2027-01-01 00:00:00') TO ('2028-01-01 00:00:00')"
+ },
+ {
+  "parent_table": "vip_daily_sales",
+  "relkind": "p",
+  "partition_count": 1,
+  "total_size": "22 GB",
+  "first_bound": "FOR VALUES FROM ('2026-01-01') TO ('2027-01-01')",
+  "last_bound": "FOR VALUES FROM ('2026-01-01') TO ('2027-01-01')"
+ },
+ {
+  "parent_table": "product_goods_detail_snapshots",
+  "relkind": "p",
+  "partition_count": 3,
+  "total_size": "19 GB",
+  "first_bound": "FOR VALUES FROM ('2024-01-01') TO ('2025-01-01')",
+  "last_bound": "FOR VALUES FROM ('2026-01-01') TO ('2027-01-01')"
+ },
+ {
+  "parent_table": "jst_aftersale_returns",
+  "relkind": "p",
+  "partition_count": 5,
+  "total_size": "3853 MB",
+  "first_bound": "DEFAULT",
+  "last_bound": "FOR VALUES FROM ('2027-01-01') TO ('2028-01-01')"
+ },
+ {
+  "parent_table": "jst_daily_sales",
+  "relkind": "p",
+  "partition_count": 1,
+  "total_size": "2616 MB",
+  "first_bound": "FOR VALUES FROM ('2026-01-01') TO ('2027-01-01')",
+  "last_bound": "FOR VALUES FROM ('2026-01-01') TO ('2027-01-01')"
+ },
+ {
+  "parent_table": "uq_jst_monthly_orders_order_time_record_key",
+  "relkind": "I",
+  "partition_count": 6,
+  "total_size": "1871 MB",
+  "first_bound": null,
+  "last_bound": null
+ },
+ {
+  "parent_table": "idx_jst_monthly_orders_time_product",
+  "relkind": "I",
+  "partition_count": 6,
+  "total_size": "817 MB",
+  "first_bound": null,
+  "last_bound": null
+ },
+ {
+  "parent_table": "idx_jst_monthly_orders_style_time",
+  "relkind": "I",
+  "partition_count": 6,
+  "total_size": "814 MB",
+  "first_bound": null,
+  "last_bound": null
+ },
+ {
+  "parent_table": "product_goods_historical_sales",
+  "relkind": "p",
+  "partition_count": 2,
+  "total_size": "683 MB",
+  "first_bound": "FOR VALUES FROM ('2024-01-01') TO ('2025-01-01')",
+  "last_bound": "FOR VALUES FROM ('2025-01-01') TO ('2026-01-01')"
+ },
+ {
+  "parent_table": "idx_jst_monthly_orders_order_time_at",
+  "relkind": "I",
+  "partition_count": 6,
+  "total_size": "278 MB",
+  "first_bound": null,
+  "last_bound": null
+ },
+ {
+  "parent_table": "idx_jst_monthly_orders_product_code",
+  "relkind": "I",
+  "partition_count": 6,
+  "total_size": "148 MB",
+  "first_bound": null,
+  "last_bound": null
+ },
+ {
+  "parent_table": "idx_jst_monthly_orders_style_code",
+  "relkind": "I",
+  "partition_count": 6,
+  "total_size": "137 MB",
+  "first_bound": null,
+  "last_bound": null
+ },
+ {
+  "parent_table": "idx_jst_monthly_orders_ship_date_value",
+  "relkind": "I",
+  "partition_count": 6,
+  "total_size": "122 MB",
+  "first_bound": null,
+  "last_bound": null
+ },
+ {
+  "parent_table": "dewu_orders",
+  "relkind": "p",
+  "partition_count": 4,
+  "total_size": "102 MB",
+  "first_bound": "DEFAULT",
+  "last_bound": "FOR VALUES FROM ('2027-01-01') TO ('2028-01-01')"
+ },
+ {
+  "parent_table": "idx_jst_aftersale_returns_id",
+  "relkind": "I",
+  "partition_count": 5,
+  "total_size": "38 MB",
+  "first_bound": null,
+  "last_bound": null
+ },
+ {
+  "parent_table": "idx_jst_aftersale_returns_business_code",
+  "relkind": "I",
+  "partition_count": 5,
+  "total_size": "27 MB",
+  "first_bound": null,
+  "last_bound": null
+ },
+ {
+  "parent_table": "product_goods_historical_orders",
+  "relkind": "p",
+  "partition_count": 5,
+  "total_size": "23 MB",
+  "first_bound": "FOR VALUES FROM ('2022-01-01') TO ('2023-01-01')",
+  "last_bound": "FOR VALUES FROM ('2026-01-01') TO ('2027-01-01')"
+ },
+ {
+  "parent_table": "idx_jst_aftersale_returns_original_code",
+  "relkind": "I",
+  "partition_count": 5,
+  "total_size": "14 MB",
+  "first_bound": null,
+  "last_bound": null
+ },
+ {
+  "parent_table": "idx_jst_aftersale_returns_order_time",
+  "relkind": "I",
+  "partition_count": 5,
+  "total_size": "14 MB",
+  "first_bound": null,
+  "last_bound": null
+ },
+ {
+  "parent_table": "idx_jst_aftersale_returns_application_date",
+  "relkind": "I",
+  "partition_count": 5,
+  "total_size": "13 MB",
+  "first_bound": null,
+  "last_bound": null
+ },
+ {
+  "parent_table": "idx_jst_aftersale_returns_business_date",
+  "relkind": "I",
+  "partition_count": 5,
+  "total_size": "13 MB",
+  "first_bound": null,
+  "last_bound": null
+ },
+ {
+  "parent_table": "idx_jst_aftersale_returns_order_date",
+  "relkind": "I",
+  "partition_count": 5,
+  "total_size": "13 MB",
+  "first_bound": null,
+  "last_bound": null
+ },
+ {
+  "parent_table": "idx_dewu_orders_order_number",
+  "relkind": "I",
+  "partition_count": 4,
+  "total_size": "5696 kB",
+  "first_bound": null,
+  "last_bound": null
+ },
+ {
+  "parent_table": "idx_dewu_orders_id",
+  "relkind": "I",
+  "partition_count": 4,
+  "total_size": "4016 kB",
+  "first_bound": null,
+  "last_bound": null
+ },
+ {
+  "parent_table": "idx_dewu_orders_sku_id",
+  "relkind": "I",
+  "partition_count": 4,
+  "total_size": "2112 kB",
+  "first_bound": null,
+  "last_bound": null
+ },
+ {
+  "parent_table": "idx_dewu_orders_goods_code",
+  "relkind": "I",
+  "partition_count": 4,
+  "total_size": "1696 kB",
+  "first_bound": null,
+  "last_bound": null
+ },
+ {
+  "parent_table": "idx_dewu_orders_brand_order_date",
+  "relkind": "I",
+  "partition_count": 4,
+  "total_size": "1272 kB",
+  "first_bound": null,
+  "last_bound": null
+ },
+ {
+  "parent_table": "idx_dewu_orders_order_status",
+  "relkind": "I",
+  "partition_count": 4,
+  "total_size": "1264 kB",
+  "first_bound": null,
+  "last_bound": null
+ }
+]
+[]
+
+## TABLESPACES
+[
+ {
+  "spcname": "pg_default",
+  "owner": "postgres",
+  "location": "",
+  "size": "169 GB"
+ },
+ {
+  "spcname": "hede_cold_archive",
+  "owner": "postgres",
+  "location": "E:\\Postgresql\\cold_archive",
+  "size": "11 GB"
+ },
+ {
+  "spcname": "pg_global",
+  "owner": "postgres",
+  "location": "",
+  "size": "623 kB"
+ }
+]
+
+## YEAR-SUFFIXED TABLE FAMILIES (candidates for partitioning)
+  jst_monthly_orders: 4 tables, 26,006.9MB
+      jst_monthly_orders_2024                            live=   5971371 total=10,324.5MB idx=1,529.8MB est_rows=5971371
+      jst_monthly_orders_2025                            live=   5166132 total=9,342.9MB idx=1,686.3MB est_rows=5166132
+      jst_monthly_orders_2026                            live=   2924114 total=6,339.4MB idx=971.3MB est_rows=2924114
+      jst_monthly_orders_2027                            live=         0 total=0.1MB idx=0.1MB est_rows=0
+  vip_daily_sales: 1 tables, 22,161.4MB
+      vip_daily_sales_2026                               live=  15354632 total=22,161.4MB idx=2,050.6MB est_rows=15305680
+  product_goods_detail_snapshots: 3 tables, 19,453.4MB
+      product_goods_detail_snapshots_2026                live=   7430717 total=11,866.8MB idx=808.7MB est_rows=7416605
+      product_goods_detail_snapshots_2025                live=   3805890 total=5,578.3MB idx=460.0MB est_rows=3805890
+      product_goods_detail_snapshots_2024                live=   1352191 total=2,008.4MB idx=172.6MB est_rows=1352191
+  fine_table_snapshot_refs: 3 tables, 11,281.4MB
+      fine_table_snapshot_refs_2026                      live=  12859674 total=5,200.7MB idx=3,887.2MB est_rows=12690483
+      fine_table_snapshot_refs_2025                      live=         0 total=3,941.2MB idx=2,857.5MB est_rows=11048994
+      fine_table_snapshot_refs_2024                      live=         0 total=2,139.5MB idx=1,554.7MB est_rows=5950423
+  jst_aftersale_returns: 4 tables, 3,853.3MB
+      jst_aftersale_returns_2024                         live=    601410 total=1,426.8MB idx=40.8MB est_rows=601410
+      jst_aftersale_returns_2025                         live=    557060 total=1,249.5MB idx=40.3MB est_rows=557060
+      jst_aftersale_returns_2026                         live=    360982 total=1,176.8MB idx=52.0MB est_rows=360982
+      jst_aftersale_returns_2027                         live=         0 total=0.1MB idx=0.1MB est_rows=0
+  jst_daily_sales: 1 tables, 2,616.1MB
+      jst_daily_sales_2026                               live=   1243896 total=2,616.1MB idx=272.0MB est_rows=1240372
+  product_goods_historical_sales: 2 tables, 683.3MB
+      product_goods_historical_sales_2025                live=         0 total=451.2MB idx=217.0MB est_rows=1220417
+      product_goods_historical_sales_2024                live=         0 total=232.1MB idx=113.7MB est_rows=620414
+  dewu_orders: 3 tables, 102.4MB
+      dewu_orders_2026                                   live=    105053 total=94.2MB idx=14.4MB est_rows=105053
+      dewu_orders_2025                                   live=     11470 total=8.0MB idx=1.2MB est_rows=11470
+      dewu_orders_2027                                   live=         0 total=0.1MB idx=0.1MB est_rows=0
+  product_goods_historical_orders: 3 tables, 13.4MB
+      product_goods_historical_orders_2024               live=         0 total=5.3MB idx=2.9MB est_rows=15941
+      product_goods_historical_orders_2025               live=         0 total=4.6MB idx=2.3MB est_rows=15028
+      product_goods_historical_orders_2026               live=      9185 total=3.4MB idx=1.8MB est_rows=9163

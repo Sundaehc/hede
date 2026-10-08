@@ -1,0 +1,78 @@
+## STORAGE LAYOUT
+  data_directory  = D:/Postgresql/data
+  config_file     = D:/Postgresql/data/postgresql.conf
+  hba_file        = D:/Postgresql/data/pg_hba.conf
+  block_size      = 8192
+  WAL directory   = 592 MB
+
+## CHECKPOINTER PRESSURE (pg_stat_checkpointer)
+  timed=11,604 requested=807 (requested share=6.5%)
+  write_time=287,421,357.0ms sync_time=185,731.0ms buffers_written=6,925,182
+  stats_reset=2026-08-27 15:35:47.265124+08:00
+  bgwriter: buffers_clean=13,020,754 maxwritten_clean=91,081 buffers_alloc=1,119,821,924
+
+## REPLICATION / ARCHIVE
+  replicas: 0
+  archiver: {"archived_count": 0, "failed_count": 0, "last_archived_wal": null, "last_failed_wal": null}
+
+## TABLE BLOAT HEURISTIC (relpages vs width-derived expectation, tables > 300MB heap)
+  fine_table_snapshot_payloads                  pages=  4683337 expected~  4128642 ratio= 1.13
+  vip_daily_sales_2026                          pages=  2565341 expected~  2297352 ratio= 1.12
+  fine_table_snapshot_metrics                   pages=  1540624 expected~  1434271 ratio= 1.07
+  product_goods_detail_snapshots_2026           pages=  1413692 expected~  1318427 ratio= 1.07
+  vip_product_ops_snapshots                     pages=  1306305 expected~  1191734 ratio= 1.10
+  jst_monthly_orders_2024                       pages=  1125421 expected~  1058588 ratio= 1.06
+  jst_monthly_orders_2025                       pages=   979795 expected~   903188 ratio= 1.08
+  gj_merged_product_info                        pages=   873331 expected~   816212 ratio= 1.07
+  jst_monthly_orders_2026                       pages=   686917 expected~   506207 ratio= 1.36
+  jst_product_price                             pages=   668747 expected~   637086 ratio= 1.05
+  product_goods_detail_snapshots_2025           pages=   654957 expected~   546561 ratio= 1.20
+  jst_daily_sales_2026                          pages=   299219 expected~   246921 ratio= 1.21
+  jst_purchase_inbound_daily                    pages=   236636 expected~   189395 ratio= 1.25
+  product_goods_detail_snapshots_2024           pages=   234913 expected~   186903 ratio= 1.26
+  vip_product_daily_snapshots                   pages=   192089 expected~   170922 ratio= 1.12
+  fine_table_snapshot_refs_2026                 pages=   168081 expected~   156922 ratio= 1.07
+  jst_size_stock_snapshots                      pages=   155759 expected~   153111 ratio= 1.02
+  jst_daily_stock                               pages=   154438 expected~   139316 ratio= 1.11
+  jst_purchase_restore_20260926_164350          pages=   142862 expected~   137162 ratio= 1.04
+  fine_table_snapshot_refs_2025                 pages=   138668 expected~   136625 ratio= 1.01
+  jst_purchase_backup_20260926_164350           pages=    88293 expected~    83876 ratio= 1.05
+  jst_product_profiles                          pages=    79815 expected~    37428 ratio= 2.13  <-- possible bloat
+  fine_table_snapshot_refs_2024                 pages=    74833 expected~    73579 ratio= 1.02
+  jst_aftersale_returns_2026                    pages=    56968 expected~    37964 ratio= 1.50  <-- possible bloat
+  jst_aftersale_returns_2025                    pages=    50650 expected~    47877 ratio= 1.06
+
+## TABLES WHERE n_mod_since_analyze IS HIGH (stale planner statistics)
+  fine_table_snapshot_payloads                  live=  27225048 modified=   1545616 (5.7%) last_autoanalyze=None
+  fine_table_snapshot_metrics                   live=   9762598 modified=    852638 (8.7%) last_autoanalyze=2026-09-17 21:02:26.025529+08:00
+  fine_table_snapshot_refs_2026                 live=  12859674 modified=    684294 (5.3%) last_autoanalyze=2026-10-03 21:01:39.825475+08:00
+  jst_size_stock_snapshots                      live=  11950854 modified=    477392 (4.0%) last_autoanalyze=2026-10-04 10:10:33.486707+08:00
+  jst_daily_stock                               live=  15135803 modified=    163106 (1.1%) last_autoanalyze=None
+  jst_product_price                             live=   9097398 modified=     80120 (0.9%) last_autoanalyze=None
+  vip_product_ops_snapshots                     live=   7920115 modified=     70049 (0.9%) last_autoanalyze=None
+  gj_merged_product_info                        live=   7373511 modified=     63410 (0.9%) last_autoanalyze=None
+
+## SESSIONS / LOCKS SNAPSHOT
+  long running queries: []
+  locks: [{"locktype": "virtualxid", "mode": "ExclusiveLock", "granted": true, "relname": null, "n": 1}]
+
+## EXTENSION CAPABILITY STATUS
+  btree_gin            installed=None available=1.3
+  pg_stat_statements   installed=None available=1.12
+  pg_trgm              installed=1.6 available=1.6
+  pgstattuple          installed=None available=1.5
+
+## QUERY-LEVEL VISIBILITY
+  log_autovacuum_min_duration         = 600000
+  log_checkpoints                     = on
+  log_lock_waits                      = off
+  log_min_duration_statement          = -1
+  log_statement                       = none
+  log_temp_files                      = -1
+  shared_preload_libraries            = 
+  pg_stat_statements installed        = 0
+
+## SMALL-TABLE FK COVERAGE DETAIL
+  product_tag_assignments                  product_tag_assignments_style_id_fkey         cols=style_id 210 MB live=560303
+  smiley_product_copy_base                 smiley_product_copy_base_representative_product_id_fkey cols=representative_product_id 216 kB live=15
+  auth_roles                               fk_auth_roles_department_code                 cols=department_code 48 kB live=7

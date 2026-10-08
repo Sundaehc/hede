@@ -159,22 +159,49 @@ def _add_keyword_tags(
     product_tags: dict[tuple[str, int], dict[str, dict[str, object]]],
 ) -> None:
     keyword_rules = (
-        ("upper_material", "材质", "鞋面材质：真皮", ("牛皮", "羊皮", "猪皮", "马皮", "头层", "剖层")),
-        ("upper_material", "材质", "鞋面材质：织物", ("织物", "网布", "网面")),
-        ("upper_material", "材质", "鞋面材质：合成革", ("合成革", "超纤")),
+        ("upper_material", "材质", "鞋面材质：牛皮", ("牛皮",)),
+        ("upper_material", "材质", "鞋面材质：羊皮", ("羊皮",)),
+        ("upper_material", "材质", "鞋面材质：猪皮", ("猪皮",)),
+        ("upper_material", "材质", "鞋面材质：马皮", ("马皮",)),
+        ("upper_material", "材质", "鞋面材质：头层", ("头层",)),
+        ("upper_material", "材质", "鞋面材质：剖层", ("剖层",)),
+        ("upper_material", "材质", "鞋面材质：织物", ("织物",)),
+        ("upper_material", "材质", "鞋面材质：网布", ("网布",)),
+        ("upper_material", "材质", "鞋面材质：网面", ("网面",)),
+        ("upper_material", "材质", "鞋面材质：合成革", ("合成革",)),
+        ("upper_material", "材质", "鞋面材质：超纤", ("超纤",)),
         ("upper_material", "材质", "鞋面材质：复合材料", ("复合材料",)),
-        ("lining_material", "材质", "内里材质：保暖", ("绒", "毛", "羊毛")),
-        ("lining_material", "材质", "内里材质：织物", ("织物", "网布", "布里")),
-        ("lining_material", "材质", "内里材质：皮质", ("皮",)),
+        ("lining_material", "材质", "内里材质：绒", ("绒",)),
+        ("lining_material", "材质", "内里材质：毛", ("毛",)),
+        ("lining_material", "材质", "内里材质：羊毛", ("羊毛",)),
+        ("lining_material", "材质", "内里材质：织物", ("织物",)),
+        ("lining_material", "材质", "内里材质：网布", ("网布",)),
+        ("lining_material", "材质", "内里材质：布里", ("布里",)),
+        ("lining_material", "材质", "内里材质：皮", ("皮",)),
         ("outsole_material", "材质", "鞋底材质：橡胶", ("橡胶",)),
-        ("outsole_material", "材质", "鞋底材质：发泡", ("发泡", "EVA")),
-        ("outsole_material", "材质", "鞋底材质：聚氨酯/PU", ("聚氨酯", "PU")),
-        ("outsole_material", "材质", "鞋底材质：TPU/TPR", ("TPU", "TPR")),
+        ("outsole_material", "材质", "鞋底材质：发泡", ("发泡",)),
+        ("outsole_material", "材质", "鞋底材质：EVA", ("EVA",)),
+        ("outsole_material", "材质", "鞋底材质：聚氨酯", ("聚氨酯",)),
+        ("outsole_material", "材质", "鞋底材质：PU", ("PU",)),
+        ("outsole_material", "材质", "鞋底材质：TPU", ("TPU",)),
+        ("outsole_material", "材质", "鞋底材质：TPR", ("TPR",)),
         ("outsole_material", "材质", "鞋底材质：PVC", ("PVC",)),
     )
+    keywords_by_field: dict[str, list[str]] = defaultdict(list)
+    for field, _group, _name, keywords in keyword_rules:
+        keywords_by_field[field].extend(keywords)
+
     for field, group, name, keywords in keyword_rules:
         value = _text(row.get(field))
-        if value and any(keyword in value for keyword in keywords):
+        matched = value and any(
+            keyword in value
+            and not any(
+                other != keyword and keyword in other and other in value
+                for other in keywords_by_field[field]
+            )
+            for keyword in keywords
+        )
+        if matched:
             _add_tag(
                 definitions,
                 product_tags,

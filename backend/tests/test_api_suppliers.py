@@ -90,7 +90,8 @@ def test_suppliers_infer_cbanner_womens_from_supplier_name(test_app_client: Test
 
 def test_suppliers_infer_brand_suffixes_from_unit_supplier_name(test_app_client: TestClient):
     cases = [
-        ("168（伊伴女鞋）", "eblan"),
+        ("168（伊伴女鞋）", "eblan_womens"),
+        ("伊伴男鞋华东工厂", "eblan"),
         ("百吉鸿女鞋（烟斗）", "yandou"),
         ("笑脸华东工厂", "smiley"),
         ("SMILEY供应商", "smiley"),
@@ -103,10 +104,24 @@ def test_suppliers_infer_brand_suffixes_from_unit_supplier_name(test_app_client:
     for name, expected_brand in cases:
         response = test_app_client.post(
             "/suppliers",
-            json={"brand": "cbanner_mens", "name": name},
+            json={"name": name},
         )
         assert response.status_code == 200
         assert response.json()["item"]["brand"] == expected_brand
+
+
+def test_eblan_supplier_brands_are_split_without_extra_product_archive(test_app_client: TestClient):
+    brands = {item["code"]: item for item in test_app_client.get("/supplier-brands").json()["items"]}
+    assert brands["eblan"]["name"] == "伊伴男鞋"
+    assert brands["eblan_womens"]["name"] == "伊伴女鞋"
+    assert brands["eblan_womens"]["product_archive_enabled"] is False
+
+    response = test_app_client.post("/suppliers", json={"brand": "eblan", "name": "168（伊伴女鞋）"})
+    assert response.status_code == 200
+    supplier = response.json()["item"]
+    assert supplier["brand"] == "eblan_womens"
+    womens = test_app_client.get("/suppliers", params={"brand": "eblan_womens", "page": 1, "page_size": 30})
+    assert any(item["id"] == supplier["id"] for item in womens.json()["items"])
 
 
 def test_supplier_brand_can_be_deleted_when_unreferenced(test_app_client: TestClient):
