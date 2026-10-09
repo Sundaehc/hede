@@ -7,6 +7,7 @@ import { SidebarNav } from "@/components/sidebar-nav"
 import { useAuth } from "@/components/auth/auth-provider"
 import { SessionQueryProvider } from "@/lib/session-query-state"
 import { SessionScrollRestoration } from "@/lib/session-scroll-restoration"
+import { SessionPageStateBoundary } from "@/lib/session-page-state"
 
 
 const AUTH_PATHS = new Set(["/login"])
@@ -53,9 +54,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     <div className="flex min-h-svh">
       <SidebarNav />
       <main className="min-w-0 flex-1 pl-14 md:pl-56">
-        <SessionQueryProvider key={user.id} userId={user.id}>
-          <SessionScrollRestoration pathname={pathname} userId={user.id}>{children}</SessionScrollRestoration>
-        </SessionQueryProvider>
+        <SessionPageStateBoundary>
+          <SessionQueryProvider key={user.id} userId={user.id}>
+            <SessionScrollRestoration pathname={pathname} userId={user.id}>{children}</SessionScrollRestoration>
+          </SessionQueryProvider>
+        </SessionPageStateBoundary>
       </main>
     </div>
   )
