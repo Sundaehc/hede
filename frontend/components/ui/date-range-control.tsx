@@ -13,6 +13,7 @@ type DateRangeControlProps = {
   onStartChange: (value: string) => void
   onEndChange: (value: string) => void
   label?: string
+  hideLabel?: boolean
   className?: string
   disabled?: boolean
   maxDate?: string
@@ -47,7 +48,7 @@ function periodFor(start: string, end: string, maxDate?: string): Period {
   return "custom"
 }
 
-export function DateRangeControl({ start, end, onStartChange, onEndChange, label = "日期范围", className, disabled, maxDate }: DateRangeControlProps) {
+export function DateRangeControl({ start, end, onStartChange, onEndChange, label = "日期范围", hideLabel = false, className, disabled, maxDate }: DateRangeControlProps) {
   const [customOpen, setCustomOpen] = useState(false)
   const today = new Date()
   today.setHours(0, 0, 0, 0)
@@ -120,7 +121,7 @@ export function DateRangeControl({ start, end, onStartChange, onEndChange, label
 
   return (
     <div className={cn("min-w-0 space-y-1.5", className)}>
-      <span className="block text-xs font-medium text-muted-foreground">{label}</span>
+      {!hideLabel ? <span className="block text-xs font-medium text-muted-foreground">{label}</span> : null}
       <div className="flex flex-wrap items-center gap-1.5">
         <div className="inline-flex h-9 shrink-0 items-center rounded-lg border border-input bg-card p-0.5 shadow-xs" role="group" aria-label="日期周期">
           {([ ["day", "日"], ["week", "周"], ["month", "月"], ["custom", "自定义"] ] as const).map(([value, text]) => (

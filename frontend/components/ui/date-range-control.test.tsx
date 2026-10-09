@@ -32,6 +32,15 @@ describe("DateRangeControl", () => {
     expect(screen.getByRole("button", { name: /2027-01-04至2027-01-10/ })).toBeInTheDocument()
   })
 
+  it("hides the visual label while preserving accessible date controls", () => {
+    render(<DateRangeControl label="导出时间段" hideLabel start="2026-10-08" end="2026-10-08" onStartChange={vi.fn()} onEndChange={vi.fn()} />)
+
+    expect(screen.queryByText("导出时间段")).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole("button", { name: /导出时间段：2026-10-08至2026-10-08/ }))
+    expect(screen.getByLabelText("导出时间段开始日期")).toHaveValue("2026-10-08")
+    expect(screen.getByLabelText("导出时间段结束日期")).toHaveValue("2026-10-08")
+  })
+
   it("shifts whole calendar months without losing their last day", () => {
     render(<RangeFixture initialStart="2024-02-01" initialEnd="2024-02-29" />)
 

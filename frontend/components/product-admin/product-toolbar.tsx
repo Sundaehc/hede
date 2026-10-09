@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useRef, useState } from "react"
-import { FileDown, History, ImagePlus, Trash2 } from "lucide-react"
+import { BadgeDollarSign, FileDown, FileSpreadsheet, History, ImagePlus, Plus, Ruler, Trash2, Upload } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { DateRangeControl } from "@/components/ui/date-range-control"
@@ -243,8 +243,8 @@ export function ProductToolbar({
     : hasSelection ? `导出选中 (${selectedIds!.size})` : query || skuPrefix ? "导出搜索结果" : "导出 Excel"
   const sizeExportLabel = exportingMode === "with_sizes" && exportStatusText ? exportStatusText : "带尺码导出"
   const priceExportLabel = exportingMode === "price" && exportStatusText ? exportStatusText : "物价导出"
-  const activityExportLabel = exportingMode === "range" && exportStatusText ? exportStatusText : "导出时间段内导入/新增"
-  const activitySizeExportLabel = exportingMode === "range_with_sizes" && exportStatusText ? exportStatusText : "导出时间段内导入/新增带尺码"
+  const activityExportLabel = exportingMode === "range" && exportStatusText ? exportStatusText : "导出记录"
+  const activitySizeExportLabel = exportingMode === "range_with_sizes" && exportStatusText ? exportStatusText : "导出记录（含尺码）"
   const lastImageRun = imageRefreshStatus?.last_run
   const imageStatusText = imageRefreshStatus?.in_progress
     ? "图片刷新任务正在后台运行"
@@ -337,62 +337,86 @@ export function ProductToolbar({
       </div>
 
       {showActions ? (
-        <div className="flex flex-wrap items-center gap-2 border-t border-border pt-3">
-          {canExport ? (
-            <Button type="button" variant="outline" size="sm" onClick={() => void handleExport()} disabled={isLoading || exporting} className="cursor-pointer">
-              {defaultExportLabel}
-            </Button>
-          ) : null}
-          {canExportPrices ? (
-            <Button type="button" variant="outline" size="sm" onClick={() => void handleExport("price")} disabled={isLoading || exporting} className="cursor-pointer" title="导出货号、商品全名、主供应商、预设售价（成本）、工厂货号；优先导出勾选商品，否则导出当前筛选结果">
-              {priceExportLabel}
-            </Button>
-          ) : null}
-          {canExport ? (
-            <>
-              {onCreate ? (
-                <Button type="button" variant="outline" size="sm" onClick={() => void handleExport("with_sizes")} disabled={isLoading || exporting} className="cursor-pointer">
-                  {sizeExportLabel}
-                </Button>
-              ) : null}
-              <div className="flex flex-wrap items-center gap-1.5">
-                <DateRangeControl label="导出时间段" start={activityDateStart} end={activityDateEnd} onStartChange={setActivityDateStart} onEndChange={setActivityDateEnd} maxDate={currentDate} disabled={isLoading || exporting} />
-                <Button type="button" variant="outline" size="sm" onClick={() => void handleExport(undefined, activityDateStart, activityDateEnd)} disabled={isLoading || exporting || !activityDateStart || !activityDateEnd} className="cursor-pointer">
-                  {activityExportLabel}
-                </Button>
-                {onCreate ? (
-                  <Button type="button" variant="outline" size="sm" onClick={() => void handleExport("with_sizes", activityDateStart, activityDateEnd)} disabled={isLoading || exporting || !activityDateStart || !activityDateEnd} className="cursor-pointer">
-                    {activitySizeExportLabel}
-                  </Button>
-                ) : null}
+        <div className="space-y-3 border-t border-border pt-4">
+          <div className="flex flex-wrap items-start justify-between gap-x-6 gap-y-4">
+            {canExport || canExportPrices ? (
+              <div role="group" aria-label="数据导出" className="min-w-0 space-y-2">
+                <p className="text-xs font-medium text-muted-foreground">数据导出</p>
+                <div className="flex flex-wrap items-center gap-2">
+                  {canExport ? (
+                    <Button type="button" variant="outline" size="sm" onClick={() => void handleExport()} disabled={isLoading || exporting} className="h-9 cursor-pointer gap-1.5 rounded-lg px-3 shadow-none">
+                      <FileSpreadsheet aria-hidden="true" />
+                      {defaultExportLabel}
+                    </Button>
+                  ) : null}
+                  {canExportPrices ? (
+                    <Button type="button" variant="outline" size="sm" onClick={() => void handleExport("price")} disabled={isLoading || exporting} className="h-9 cursor-pointer gap-1.5 rounded-lg px-3 shadow-none" title="导出货号、商品全名、主供应商、预设售价（成本）、工厂货号；优先导出勾选商品，否则导出当前筛选结果">
+                      <BadgeDollarSign aria-hidden="true" />
+                      {priceExportLabel}
+                    </Button>
+                  ) : null}
+                  {canExport && onCreate ? (
+                    <Button type="button" variant="outline" size="sm" onClick={() => void handleExport("with_sizes")} disabled={isLoading || exporting} className="h-9 cursor-pointer gap-1.5 rounded-lg px-3 shadow-none">
+                      <Ruler aria-hidden="true" />
+                      {sizeExportLabel}
+                    </Button>
+                  ) : null}
+                </div>
               </div>
-            </>
-          ) : null}
-          {onCreate ? (
-            <>
-              <div className="flex-1" />
-              {canImport ? (
-                <>
-                  <Button type="button" variant="outline" size="sm" onClick={() => void handleDownloadTemplate()} disabled={downloadingTemplate || importing} className="cursor-pointer">
-                    <FileDown className="h-3.5 w-3.5" />
-                    {downloadingTemplate ? "下载中..." : "下载导入模板"}
+            ) : null}
+            {onCreate ? (
+              <div role="group" aria-label="商品维护" className="min-w-0 space-y-2">
+                <p className="text-xs font-medium text-muted-foreground">商品维护</p>
+                <div className="flex flex-wrap items-center gap-2">
+                  {canImport ? (
+                    <>
+                      <Button type="button" variant="outline" size="sm" onClick={() => void handleDownloadTemplate()} disabled={downloadingTemplate || importing} className="h-9 cursor-pointer gap-1.5 rounded-lg px-3 shadow-none">
+                        <FileDown aria-hidden="true" />
+                        {downloadingTemplate ? "下载中..." : "下载导入模板"}
+                      </Button>
+                      <Button type="button" variant="outline" size="sm" onClick={() => fileInputRef.current?.click()} disabled={importing} className="h-9 cursor-pointer gap-1.5 rounded-lg px-3 shadow-none">
+                        <Upload aria-hidden="true" />
+                        {importing ? "导入中..." : "导入 Excel"}
+                      </Button>
+                      <input
+                        ref={fileInputRef}
+                        type="file"
+                        accept=".xlsx,.xls"
+                        className="hidden"
+                        onChange={(event) => void handleImport(event)}
+                      />
+                    </>
+                  ) : null}
+                  <Button type="button" size="sm" onClick={onCreate} className="h-9 cursor-pointer gap-1.5 rounded-lg px-3">
+                    <Plus aria-hidden="true" />
+                    新增商品
                   </Button>
-                  <Button type="button" variant="outline" size="sm" onClick={() => fileInputRef.current?.click()} disabled={importing} className="cursor-pointer">
-                    {importing ? "导入中..." : "导入 Excel"}
+                </div>
+              </div>
+            ) : null}
+          </div>
+          {canExport ? (
+            <div role="group" aria-label="按时间导出" className="min-w-0 space-y-3 rounded-xl border border-border/70 bg-muted/35 p-3">
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                <p className="text-xs font-medium text-foreground">按时间导出</p>
+                <p className="text-xs text-muted-foreground">仅包含所选时间内导入或新增的商品</p>
+              </div>
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <DateRangeControl label="导出时间段" hideLabel start={activityDateStart} end={activityDateEnd} onStartChange={setActivityDateStart} onEndChange={setActivityDateEnd} maxDate={currentDate} disabled={isLoading || exporting} />
+                <div className="flex flex-wrap items-center gap-2">
+                  <Button type="button" variant="outline" size="sm" onClick={() => void handleExport(undefined, activityDateStart, activityDateEnd)} disabled={isLoading || exporting || !activityDateStart || !activityDateEnd} className="h-9 cursor-pointer gap-1.5 rounded-lg px-3 shadow-none">
+                    <FileDown aria-hidden="true" />
+                    {activityExportLabel}
                   </Button>
-                  <input
-                    ref={fileInputRef}
-                    type="file"
-                    accept=".xlsx,.xls"
-                    className="hidden"
-                    onChange={(e) => void handleImport(e)}
-                  />
-                </>
-              ) : null}
-              <Button type="button" size="sm" onClick={onCreate} className="cursor-pointer">
-                <span>新增商品</span>
-              </Button>
-            </>
+                  {onCreate ? (
+                    <Button type="button" variant="outline" size="sm" onClick={() => void handleExport("with_sizes", activityDateStart, activityDateEnd)} disabled={isLoading || exporting || !activityDateStart || !activityDateEnd} className="h-9 cursor-pointer gap-1.5 rounded-lg px-3 shadow-none">
+                      <Ruler aria-hidden="true" />
+                      {activitySizeExportLabel}
+                    </Button>
+                  ) : null}
+                </div>
+              </div>
+            </div>
           ) : null}
         </div>
       ) : null}

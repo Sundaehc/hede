@@ -1,4 +1,4 @@
-import { cleanup, render, screen, waitFor } from "@testing-library/react"
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { afterEach, beforeEach, expect, test, vi } from "vitest"
 
@@ -120,4 +120,44 @@ test("price export supports overview and disables duplicate downloads", async ()
 test("price export URL serializes price mode and filters", () => {
   const url = new URL(buildProductExportUrl("eblan", undefined, "price", undefined, undefined, "2026", " ER ", " ER7 "), "http://localhost")
   expect(Object.fromEntries(url.searchParams)).toEqual({ brand: "eblan", mode: "price", year: "2026", query: "ER", sku_prefix: "ER7" })
+})
+
+test("groups exports, product maintenance, and activity dates without changing actions", async () => {
+  const user = userEvent.setup()
+  const onCreate = vi.fn()
+  render(<ProductToolbar {...toolbarProps()} canImport onCreate={onCreate} />)
+
+  const exports = within(screen.getByRole("group", { name: "数据导出" }))
+  expect(exports.getByRole("button", { name: "导出搜索结果" })).toBeInTheDocument()
+  expect(exports.getByRole("button", { name: "物价导出" })).toBeInTheDocument()
+  expect(exports.getByRole("button", { name: "带尺码导出" })).toBeInTheDocument()
+
+  const maintenance = within(screen.getByRole("group", { name: "商品维护" }))
+  expect(maintenance.getByRole("button", { name: "下载导入模板" })).toBeInTheDocument()
+  expect(maintenance.getByRole("button", { name: "导入 Excel" })).toBeInTheDocument()
+  await user.click(maintenance.getByRole("button", { name: "新增商品" }))
+  expect(onCreate).toHaveBeenCalledOnce()
+
+  const activity = within(screen.getByRole("group", { name: "按时间导出" }))
+  expect(activity.getByText("仅包含所选时间内导入或新增的商品")).toBeInTheDocument()
+  expect(activity.getByRole("button", { name: /^导出时间段：/ })).toBeInTheDocument()
+  expect(activity.getByRole("button", { name: "导出记录" })).toBeInTheDocument()
+  expect(activity.getByRole("button", { name: "导出记录（含尺码）" })).toBeInTheDocument()
+})
+
+test.each([
+  ["导出记录", undefined],
+  ["导出记录（含尺码）", "with_sizes"],
+])("%s exports the selected activity range independently of search filters", async (label, mode) => {
+  const user = userEvent.setup()
+  render(<ProductToolbar {...toolbarProps()} onCreate={vi.fn()} />)
+  const activity = within(screen.getByRole("group", { name: "按时间导出" }))
+  await user.click(activity.getByRole("button", { name: /^导出时间段：/ }))
+  fireEvent.change(activity.getByLabelText("开始日期"), { target: { value: "2026-01-05" } })
+  fireEvent.change(activity.getByLabelText("结束日期"), { target: { value: "2026-01-08" } })
+  await user.click(activity.getByRole("button", { name: label }))
+
+  await waitFor(() => expect(mockDownload).toHaveBeenCalledWith(
+    "eblan", undefined, mode, expect.any(Function), "2026-01-05", "2026-01-08", undefined, undefined, undefined,
+  ))
 })
