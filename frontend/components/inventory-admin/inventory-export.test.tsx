@@ -4,7 +4,11 @@ import { afterEach, beforeEach, expect, test, vi } from "vitest"
 
 import { InventoryPage } from "@/components/inventory-admin/inventory-page"
 
-const { mockListInventory } = vi.hoisted(() => ({ mockListInventory: vi.fn() }))
+const { mockListInventory, mockCustomerShops, mockCustomerUnits, mockCustomerBrands, mockInventoryBrands } = vi.hoisted(() => ({
+  mockListInventory: vi.fn(), mockCustomerShops: vi.fn(),
+  mockCustomerUnits: vi.fn(), mockCustomerBrands: vi.fn(),
+  mockInventoryBrands: vi.fn(),
+}))
 
 vi.mock("@/components/auth/auth-provider", () => ({
   useAuth: () => ({ user: { id: 1, username: "test" } }),
@@ -21,19 +25,24 @@ vi.mock("@/components/operation-log-dialog", () => ({
 vi.mock("@/lib/api", async () => ({
   ...(await vi.importActual<typeof import("@/lib/api")>("@/lib/api")),
   listInventory: mockListInventory,
-  listSuppliers: vi.fn().mockResolvedValue({ items: [] }),
-  listWarehouseBrands: vi.fn().mockResolvedValue({ items: [] }),
-  listWarehouses: vi.fn().mockResolvedValue({ items: [] }),
-  listGeneralCustomerBrands: vi.fn().mockResolvedValue({ items: [] }),
-  listGeneralCustomerShops: vi.fn().mockResolvedValue({ items: [] }),
-  listGeneralCustomerUnits: vi.fn().mockResolvedValue({ items: [] }),
-  listInventoryAccountSubjects: vi.fn().mockResolvedValue({ items: [] }),
+  listInventoryBrands: mockInventoryBrands,
+  listSuppliers: async () => ({ items: [] }),
+  listWarehouseBrands: async () => ({ items: [] }),
+  listWarehouses: async () => ({ items: [] }),
+  listGeneralCustomerBrands: mockCustomerBrands,
+  listGeneralCustomerShops: mockCustomerShops,
+  listGeneralCustomerUnits: mockCustomerUnits,
+  listInventoryAccountSubjects: async () => ({ items: [] }),
 }))
 
 let downloadUrls: string[] = []
 
 beforeEach(() => {
   vi.clearAllMocks()
+  mockCustomerBrands.mockResolvedValue({ items: [] })
+  mockCustomerShops.mockResolvedValue({ items: [] })
+  mockCustomerUnits.mockResolvedValue({ items: [] })
+  mockInventoryBrands.mockResolvedValue({ items: [] })
   window.localStorage.clear()
   downloadUrls = []
   vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(function (this: HTMLAnchorElement) {
@@ -79,6 +88,50 @@ test("exports all filtered fine records rather than only the visible page", asyn
   expect(params.has("document_type")).toBe(false)
   expect(params.has("ids")).toBe(false)
   expect(params.has("page")).toBe(false)
+})
+
+test("excludes disabled shops and their units from new customer business options", async () => {
+  mockCustomerBrands.mockResolvedValue({ items: [{ id: 1, name: "客户品牌" }] })
+  mockCustomerShops.mockResolvedValue({ items: [
+    { id: 1, customer_name: "客户品牌", shop_name: "启用店铺", is_active: true },
+    { id: 2, customer_name: "客户品牌", shop_name: "停用店铺", is_active: false },
+  ] })
+  mockCustomerUnits.mockResolvedValue({ items: [
+    { id: 1, shop_id: 1, unit_name: "启用单位" },
+    { id: 2, shop_id: 2, unit_name: "停用单位" },
+  ] })
+  const user = userEvent.setup()
+  render(<InventoryPage />)
+  await screen.findByText("EXPORT-0001")
+  await user.click(screen.getByRole("button", { name: "新增经营历程" }))
+  const dialog = screen.getByRole("dialog")
+  await user.selectOptions(within(dialog).getByRole("combobox"), "批发销售单")
+  const customerInput = within(dialog).getByPlaceholderText("选择品牌后选收货客户")
+  await user.type(customerInput, "停用")
+  expect(within(dialog).getByText("没有可选项")).toBeInTheDocument()
+  await user.clear(customerInput)
+  await user.type(customerInput, "启用")
+  expect(within(dialog).getByRole("button", { name: "客户品牌 / 启用店铺" })).toBeInTheDocument()
+  expect(within(dialog).getByRole("button", { name: "客户品牌 / 启用店铺 / 启用单位" })).toBeInTheDocument()
+})
+
+test("searches and exports using unified supplier and customer brand options without warehouses", async () => {
+  mockInventoryBrands.mockResolvedValue({ items: [
+    { value: "yandou", label: "烟斗" },
+    { value: "custom", label: "自定义品牌" },
+  ] })
+  const user = userEvent.setup()
+  render(<InventoryPage />)
+  await screen.findByText("EXPORT-0001")
+  await user.click(screen.getByPlaceholderText("选择品牌"))
+  await user.click(await screen.findByRole("button", { name: "烟斗" }))
+  await user.click(await screen.findByRole("button", { name: "自定义品牌" }))
+  await user.click(screen.getByRole("button", { name: "搜索" }))
+  await waitFor(() => expect(mockListInventory).toHaveBeenLastCalledWith(expect.objectContaining({
+    brands: ["yandou", "custom"], completion_status: "completed",
+  })))
+  await user.click(screen.getByRole("button", { name: "导出Excel" }))
+  expect(new URL(downloadUrls[0]).searchParams.getAll("brands")).toEqual(["yandou", "custom"])
 })
 
 test("searches and exports by document number, then clears the filter", async () => {

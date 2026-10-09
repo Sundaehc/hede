@@ -1,0 +1,1478 @@
+{
+  "checks": [
+    {
+      "date": "2026-08-16",
+      "brand": "cbanner_mens",
+      "path": "\\\\192.168.10.229\\运营组资料\\影刀\\千百度精细表\\千百度男鞋精细数新8.16.xlsm",
+      "has_fine_sheet": true,
+      "declared_rows": 9899,
+      "mapped_columns": 63,
+      "core_column_indexes": {
+        "sku": 1,
+        "original_sku": 2,
+        "product_name": 20,
+        "cost": 19,
+        "stock_qty": 75
+      },
+      "samples": [
+        {
+          "sku": "C0131009DA01",
+          "original_sku": "C0131009D01",
+          "product_name": "男休闲皮鞋",
+          "cost": "95",
+          "stock_qty": 79
+        },
+        {
+          "sku": "C0143010D01",
+          "original_sku": "C0143010D01",
+          "product_name": "男商务豆豆鞋",
+          "cost": "105",
+          "stock_qty": 53
+        },
+        {
+          "sku": "C5251186DD45",
+          "original_sku": "C5251186D45",
+          "product_name": "男鞋",
+          "cost": "92",
+          "stock_qty": 190
+        },
+        {
+          "sku": "C1513157D01",
+          "original_sku": "C1513157D01",
+          "product_name": "男商务皮鞋",
+          "cost": "110",
+          "stock_qty": 919
+        }
+      ],
+      "valid_for_import_sample": true
+    },
+    {
+      "date": "2026-08-16",
+      "brand": "cbanner_womens",
+      "path": "\\\\192.168.10.229\\运营组资料\\影刀\\千百度精细表\\千百度女鞋精细数新8.16.xlsm",
+      "has_fine_sheet": true,
+      "declared_rows": 13430,
+      "mapped_columns": 63,
+      "core_column_indexes": {
+        "sku": 1,
+        "original_sku": 2,
+        "product_name": 20,
+        "cost": 19,
+        "stock_qty": 75
+      },
+      "samples": [
+        {
+          "sku": "QW151161D24",
+          "original_sku": "QW151161D24",
+          "product_name": "女休闲鞋",
+          "cost": "101",
+          "stock_qty": 237
+        },
+        {
+          "sku": "QB752746DQ4",
+          "original_sku": "QB752746DQ4",
+          "product_name": "女休闲鞋",
+          "cost": "88.7",
+          "stock_qty": 201
+        },
+        {
+          "sku": "QB752803D24",
+          "original_sku": "QB752803D24",
+          "product_name": "女休闲鞋",
+          "cost": "105.5",
+          "stock_qty": 187
+        },
+        {
+          "sku": "RB961658D24",
+          "original_sku": "RB961658D24",
+          "product_name": "女休闲鞋",
+          "cost": "118",
+          "stock_qty": 64
+        }
+      ],
+      "valid_for_import_sample": true
+    },
+    {
+      "date": "2026-08-16",
+      "brand": "eblan",
+      "path": "\\\\192.168.10.229\\运营组资料\\影刀\\伊伴精细表\\伊伴精细数8.16.xlsm",
+      "has_fine_sheet": true,
+      "declared_rows": 10032,
+      "mapped_columns": 60,
+      "core_column_indexes": {
+        "sku": 1,
+        "original_sku": 2,
+        "product_name": 20,
+        "cost": 19,
+        "stock_qty": 74
+      },
+      "samples": [
+        {
+          "sku": "EBQ62277SK3",
+          "original_sku": "EBQ62277SK3",
+          "product_name": "女凉鞋",
+          "cost": "57.5",
+          "stock_qty": 105
+        },
+        {
+          "sku": "EH261040D01",
+          "original_sku": "EH261040D01",
+          "product_name": "女单鞋",
+          "cost": "71",
+          "stock_qty": 79
+        },
+        {
+          "sku": "E0161026D73",
+          "original_sku": "E0161026D73",
+          "product_name": "女单鞋",
+          "cost": "87.1",
+          "stock_qty": 92
+        },
+        {
+          "sku": "EAR52497S06",
+          "original_sku": "EAR52497S06",
+          "product_name": "女休闲鞋",
+          "cost": "83",
+          "stock_qty": 19
+        }
+      ],
+      "valid_for_import_sample": true
+    },
+    {
+      "date": "2026-08-16",
+      "brand": "yandou",
+      "path": "\\\\192.168.10.229\\运营组资料\\影刀\\烟斗精细表\\精细数据新8.16.xlsx",
+      "has_fine_sheet": true,
+      "declared_rows": 9900,
+      "mapped_columns": 49,
+      "core_column_indexes": {
+        "sku": 1,
+        "original_sku": 2,
+        "product_name": 18,
+        "cost": 19,
+        "stock_qty": null
+      },
+      "samples": [
+        {
+          "sku": "7721211D45",
+          "original_sku": "7721211D45",
+          "product_name": "男休闲板鞋",
+          "cost": "115",
+          "stock_qty": 0
+        },
+        {
+          "sku": "8923988D80",
+          "original_sku": "8923988D80",
+          "product_name": "男士休闲鞋",
+          "cost": "169",
+          "stock_qty": 0
+        },
+        {
+          "sku": "0101135D01K",
+          "original_sku": "0101137D01",
+          "product_name": "男士休闲鞋",
+          "cost": "85",
+          "stock_qty": 0
+        },
+        {
+          "sku": "2221252DA24",
+          "original_sku": "2221252D24",
+          "product_name": "男休闲板鞋",
+          "cost": "118",
+          "stock_qty": 0
+        }
+      ],
+      "valid_for_import_sample": true
+    },
+    {
+      "date": "2026-08-17",
+      "brand": "cbanner_mens",
+      "path": "\\\\192.168.10.229\\运营组资料\\影刀\\千百度精细表\\千百度男鞋精细数新8.17.xlsm",
+      "has_fine_sheet": true,
+      "declared_rows": 9899,
+      "mapped_columns": 63,
+      "core_column_indexes": {
+        "sku": 1,
+        "original_sku": 2,
+        "product_name": 20,
+        "cost": 19,
+        "stock_qty": 75
+      },
+      "samples": [
+        {
+          "sku": "C0131009DA01",
+          "original_sku": "C0131009D01",
+          "product_name": "男休闲皮鞋",
+          "cost": "95",
+          "stock_qty": 75
+        },
+        {
+          "sku": "C0143010D01",
+          "original_sku": "C0143010D01",
+          "product_name": "男商务豆豆鞋",
+          "cost": "105",
+          "stock_qty": 38
+        },
+        {
+          "sku": "C5251186DD45",
+          "original_sku": "C5251186D45",
+          "product_name": "男鞋",
+          "cost": "92",
+          "stock_qty": 182
+        },
+        {
+          "sku": "C1513157D01",
+          "original_sku": "C1513157D01",
+          "product_name": "男商务皮鞋",
+          "cost": "110",
+          "stock_qty": 918
+        }
+      ],
+      "valid_for_import_sample": true
+    },
+    {
+      "date": "2026-08-17",
+      "brand": "cbanner_womens",
+      "path": "\\\\192.168.10.229\\运营组资料\\影刀\\千百度精细表\\千百度女鞋精细数新8.17.xlsm",
+      "has_fine_sheet": true,
+      "declared_rows": 13440,
+      "mapped_columns": 63,
+      "core_column_indexes": {
+        "sku": 1,
+        "original_sku": 2,
+        "product_name": 20,
+        "cost": 19,
+        "stock_qty": 75
+      },
+      "samples": [
+        {
+          "sku": "QW151161D24",
+          "original_sku": "QW151161D24",
+          "product_name": "女休闲鞋",
+          "cost": "101",
+          "stock_qty": 227
+        },
+        {
+          "sku": "QB752746DQ4",
+          "original_sku": "QB752746DQ4",
+          "product_name": "女休闲鞋",
+          "cost": "88.7",
+          "stock_qty": 195
+        },
+        {
+          "sku": "QB752803D24",
+          "original_sku": "QB752803D24",
+          "product_name": "女休闲鞋",
+          "cost": "105.5",
+          "stock_qty": 183
+        },
+        {
+          "sku": "Q7023316X01",
+          "original_sku": "Q7023316X01",
+          "product_name": "女靴",
+          "cost": "118",
+          "stock_qty": 405
+        }
+      ],
+      "valid_for_import_sample": true
+    },
+    {
+      "date": "2026-08-17",
+      "brand": "eblan",
+      "path": "\\\\192.168.10.229\\运营组资料\\影刀\\伊伴精细表\\伊伴精细数8.17.xlsm",
+      "has_fine_sheet": true,
+      "declared_rows": 10032,
+      "mapped_columns": 60,
+      "core_column_indexes": {
+        "sku": 1,
+        "original_sku": 2,
+        "product_name": 20,
+        "cost": 19,
+        "stock_qty": 74
+      },
+      "samples": [
+        {
+          "sku": "EBQ62277SK3",
+          "original_sku": "EBQ62277SK3",
+          "product_name": "女凉鞋",
+          "cost": "57.5",
+          "stock_qty": 96
+        },
+        {
+          "sku": "EAR52497S06",
+          "original_sku": "EAR52497S06",
+          "product_name": "女休闲鞋",
+          "cost": "83",
+          "stock_qty": 16
+        },
+        {
+          "sku": "E0161026D73",
+          "original_sku": "E0161026D73",
+          "product_name": "女单鞋",
+          "cost": "87.1",
+          "stock_qty": 91
+        },
+        {
+          "sku": "EH261039D01",
+          "original_sku": "EH261039D01",
+          "product_name": "女单鞋",
+          "cost": "63",
+          "stock_qty": 120
+        }
+      ],
+      "valid_for_import_sample": true
+    },
+    {
+      "date": "2026-08-17",
+      "brand": "yandou",
+      "path": "\\\\192.168.10.229\\运营组资料\\影刀\\烟斗精细表\\精细数据新8.17.xlsx",
+      "has_fine_sheet": true,
+      "declared_rows": 9900,
+      "mapped_columns": 49,
+      "core_column_indexes": {
+        "sku": 1,
+        "original_sku": 2,
+        "product_name": 18,
+        "cost": 19,
+        "stock_qty": null
+      },
+      "samples": [
+        {
+          "sku": "8923988D80",
+          "original_sku": "8923988D80",
+          "product_name": "男士休闲鞋",
+          "cost": "169",
+          "stock_qty": 0
+        },
+        {
+          "sku": "0101135D01K",
+          "original_sku": "0101137D01",
+          "product_name": "男士休闲鞋",
+          "cost": "85",
+          "stock_qty": 0
+        },
+        {
+          "sku": "7721211D45",
+          "original_sku": "7721211D45",
+          "product_name": "男休闲板鞋",
+          "cost": "115",
+          "stock_qty": 0
+        },
+        {
+          "sku": "2221252DA24",
+          "original_sku": "2221252D24",
+          "product_name": "男休闲板鞋",
+          "cost": "118",
+          "stock_qty": 0
+        }
+      ],
+      "valid_for_import_sample": true
+    },
+    {
+      "date": "2026-08-18",
+      "brand": "cbanner_mens",
+      "path": "\\\\192.168.10.229\\运营组资料\\影刀\\千百度精细表\\千百度男鞋精细数新8.18.xlsm",
+      "has_fine_sheet": true,
+      "declared_rows": 9900,
+      "mapped_columns": 63,
+      "core_column_indexes": {
+        "sku": 1,
+        "original_sku": 2,
+        "product_name": 20,
+        "cost": 19,
+        "stock_qty": 75
+      },
+      "samples": [
+        {
+          "sku": "C1513157D01",
+          "original_sku": "C1513157D01",
+          "product_name": "男商务皮鞋",
+          "cost": "110",
+          "stock_qty": 899
+        },
+        {
+          "sku": "C0143010D01",
+          "original_sku": "C0143010D01",
+          "product_name": "男商务豆豆鞋",
+          "cost": "105",
+          "stock_qty": 34
+        },
+        {
+          "sku": "C0113008D01",
+          "original_sku": "C0113008D01",
+          "product_name": "男式休闲鞋",
+          "cost": "105",
+          "stock_qty": 96
+        },
+        {
+          "sku": "C0131009DA01",
+          "original_sku": "C0131009D01",
+          "product_name": "男休闲皮鞋",
+          "cost": "95",
+          "stock_qty": 66
+        }
+      ],
+      "valid_for_import_sample": true
+    },
+    {
+      "date": "2026-08-18",
+      "brand": "cbanner_womens",
+      "path": "\\\\192.168.10.229\\运营组资料\\影刀\\千百度精细表\\千百度女鞋精细数新8.18.xlsm",
+      "has_fine_sheet": true,
+      "declared_rows": 13444,
+      "mapped_columns": 63,
+      "core_column_indexes": {
+        "sku": 1,
+        "original_sku": 2,
+        "product_name": 20,
+        "cost": 19,
+        "stock_qty": 75
+      },
+      "samples": [
+        {
+          "sku": "QW151161D24",
+          "original_sku": "QW151161D24",
+          "product_name": "女休闲鞋",
+          "cost": "101",
+          "stock_qty": 215
+        },
+        {
+          "sku": "QB752746DQ4",
+          "original_sku": "QB752746DQ4",
+          "product_name": "女休闲鞋",
+          "cost": "88.7",
+          "stock_qty": 182
+        },
+        {
+          "sku": "Q7023316X01",
+          "original_sku": "Q7023316X01",
+          "product_name": "女靴",
+          "cost": "118",
+          "stock_qty": 399
+        },
+        {
+          "sku": "QE452490D73",
+          "original_sku": "QE452490D73",
+          "product_name": "女休闲鞋",
+          "cost": "93",
+          "stock_qty": 712
+        }
+      ],
+      "valid_for_import_sample": true
+    },
+    {
+      "date": "2026-08-18",
+      "brand": "eblan",
+      "path": "\\\\192.168.10.229\\运营组资料\\影刀\\伊伴精细表\\伊伴精细数8.18.xlsm",
+      "has_fine_sheet": true,
+      "declared_rows": 10036,
+      "mapped_columns": 60,
+      "core_column_indexes": {
+        "sku": 1,
+        "original_sku": 2,
+        "product_name": 20,
+        "cost": 19,
+        "stock_qty": 74
+      },
+      "samples": [
+        {
+          "sku": "EBQ62277SK3",
+          "original_sku": "EBQ62277SK3",
+          "product_name": "女凉鞋",
+          "cost": "57.5",
+          "stock_qty": 101
+        },
+        {
+          "sku": "EAR52497S06",
+          "original_sku": "EAR52497S06",
+          "product_name": "女休闲鞋",
+          "cost": "83",
+          "stock_qty": 12
+        },
+        {
+          "sku": "E0161026D73",
+          "original_sku": "E0161026D73",
+          "product_name": "女单鞋",
+          "cost": "87.1",
+          "stock_qty": 94
+        },
+        {
+          "sku": "EAE61004D24",
+          "original_sku": "EAE61004D24",
+          "product_name": "女休闲鞋",
+          "cost": "92",
+          "stock_qty": 69
+        }
+      ],
+      "valid_for_import_sample": true
+    },
+    {
+      "date": "2026-08-18",
+      "brand": "yandou",
+      "path": "\\\\192.168.10.229\\运营组资料\\影刀\\烟斗精细表\\精细数据新8.18.xlsx",
+      "has_fine_sheet": true,
+      "declared_rows": 9900,
+      "mapped_columns": 49,
+      "core_column_indexes": {
+        "sku": 1,
+        "original_sku": 2,
+        "product_name": 18,
+        "cost": 19,
+        "stock_qty": null
+      },
+      "samples": [
+        {
+          "sku": "8923988D80",
+          "original_sku": "8923988D80",
+          "product_name": "男士休闲鞋",
+          "cost": "169",
+          "stock_qty": 0
+        },
+        {
+          "sku": "0101135D01K",
+          "original_sku": "0101137D01",
+          "product_name": "男士休闲鞋",
+          "cost": "85",
+          "stock_qty": 0
+        },
+        {
+          "sku": "2221252DA24",
+          "original_sku": "2221252D24",
+          "product_name": "男休闲板鞋",
+          "cost": "118",
+          "stock_qty": 0
+        },
+        {
+          "sku": "7721211D45",
+          "original_sku": "7721211D45",
+          "product_name": "男休闲板鞋",
+          "cost": "115",
+          "stock_qty": 0
+        }
+      ],
+      "valid_for_import_sample": true
+    },
+    {
+      "date": "2026-08-19",
+      "brand": "cbanner_mens",
+      "path": "\\\\192.168.10.229\\运营组资料\\影刀\\千百度精细表\\千百度男鞋精细数新8.19.xlsm",
+      "has_fine_sheet": true,
+      "declared_rows": 9900,
+      "mapped_columns": 63,
+      "core_column_indexes": {
+        "sku": 1,
+        "original_sku": 2,
+        "product_name": 20,
+        "cost": 19,
+        "stock_qty": 75
+      },
+      "samples": [
+        {
+          "sku": "C1513157D01",
+          "original_sku": "C1513157D01",
+          "product_name": "男商务皮鞋",
+          "cost": "110",
+          "stock_qty": 0
+        },
+        {
+          "sku": "C0113008D01",
+          "original_sku": "C0113008D01",
+          "product_name": "男式休闲鞋",
+          "cost": "105",
+          "stock_qty": 0
+        },
+        {
+          "sku": "C0131009DA01",
+          "original_sku": "C0131009D01",
+          "product_name": "男休闲皮鞋",
+          "cost": "95",
+          "stock_qty": 0
+        },
+        {
+          "sku": "C5251186DD17",
+          "original_sku": "C5251186D17",
+          "product_name": "男式休闲鞋",
+          "cost": "92",
+          "stock_qty": 0
+        }
+      ],
+      "valid_for_import_sample": true
+    },
+    {
+      "date": "2026-08-19",
+      "brand": "cbanner_womens",
+      "path": "\\\\192.168.10.229\\运营组资料\\影刀\\千百度精细表\\千百度女鞋精细数新8.19.xlsm",
+      "has_fine_sheet": true,
+      "declared_rows": 13449,
+      "mapped_columns": 63,
+      "core_column_indexes": {
+        "sku": 1,
+        "original_sku": 2,
+        "product_name": 20,
+        "cost": 19,
+        "stock_qty": 75
+      },
+      "samples": [
+        {
+          "sku": "QB752746DQ4",
+          "original_sku": "QB752746DQ4",
+          "product_name": "女休闲鞋",
+          "cost": "88.7",
+          "stock_qty": 0
+        },
+        {
+          "sku": "QW151161D24",
+          "original_sku": "QW151161D24",
+          "product_name": "女休闲鞋",
+          "cost": "101",
+          "stock_qty": 0
+        },
+        {
+          "sku": "Q7052449W45",
+          "original_sku": "Q7052449W45",
+          "product_name": "女休闲鞋",
+          "cost": "94",
+          "stock_qty": 0
+        },
+        {
+          "sku": "Q7841771W52",
+          "original_sku": "Q7841771W52",
+          "product_name": "女休闲鞋",
+          "cost": "98",
+          "stock_qty": 0
+        }
+      ],
+      "valid_for_import_sample": true
+    },
+    {
+      "date": "2026-08-19",
+      "brand": "eblan",
+      "path": "\\\\192.168.10.229\\运营组资料\\影刀\\伊伴精细表\\伊伴精细数8.19.xlsm",
+      "has_fine_sheet": true,
+      "declared_rows": 10036,
+      "mapped_columns": 60,
+      "core_column_indexes": {
+        "sku": 1,
+        "original_sku": 2,
+        "product_name": 20,
+        "cost": 19,
+        "stock_qty": 74
+      },
+      "samples": [
+        {
+          "sku": "EAR52497S06",
+          "original_sku": "EAR52497S06",
+          "product_name": "女休闲鞋",
+          "cost": "83",
+          "stock_qty": 0
+        },
+        {
+          "sku": "EBQ62277SK3",
+          "original_sku": "EBQ62277SK3",
+          "product_name": "女凉鞋",
+          "cost": "57.5",
+          "stock_qty": 0
+        },
+        {
+          "sku": "E0161026D73",
+          "original_sku": "E0161026D73",
+          "product_name": "女单鞋",
+          "cost": "87.1",
+          "stock_qty": 0
+        },
+        {
+          "sku": "EAA62255S73",
+          "original_sku": "EAA62255S73",
+          "product_name": "女凉鞋",
+          "cost": "70.2",
+          "stock_qty": 0
+        }
+      ],
+      "valid_for_import_sample": true
+    },
+    {
+      "date": "2026-08-19",
+      "brand": "yandou",
+      "path": "\\\\192.168.10.229\\运营组资料\\影刀\\烟斗精细表\\精细数据新8.19.xlsx",
+      "has_fine_sheet": true,
+      "declared_rows": 9900,
+      "mapped_columns": 49,
+      "core_column_indexes": {
+        "sku": 1,
+        "original_sku": 2,
+        "product_name": 18,
+        "cost": 19,
+        "stock_qty": null
+      },
+      "samples": [
+        {
+          "sku": "2221252DA24",
+          "original_sku": "2221252D24",
+          "product_name": "男休闲板鞋",
+          "cost": "118",
+          "stock_qty": 0
+        },
+        {
+          "sku": "8923988D80",
+          "original_sku": "8923988D80",
+          "product_name": "男士休闲鞋",
+          "cost": "169",
+          "stock_qty": 0
+        },
+        {
+          "sku": "0103632DF01",
+          "original_sku": "0103632D01",
+          "product_name": "男商务皮鞋",
+          "cost": "98",
+          "stock_qty": 0
+        },
+        {
+          "sku": "0101135D01K",
+          "original_sku": "0101137D01",
+          "product_name": "男士休闲鞋",
+          "cost": "85",
+          "stock_qty": 0
+        }
+      ],
+      "valid_for_import_sample": true
+    },
+    {
+      "date": "2026-08-20",
+      "brand": "cbanner_mens",
+      "path": "\\\\192.168.10.229\\运营组资料\\影刀\\千百度精细表\\千百度男鞋精细数新8.20.xlsm",
+      "has_fine_sheet": true,
+      "declared_rows": 9901,
+      "mapped_columns": 63,
+      "core_column_indexes": {
+        "sku": 1,
+        "original_sku": 2,
+        "product_name": 20,
+        "cost": 19,
+        "stock_qty": 75
+      },
+      "samples": [
+        {
+          "sku": "C1513157D01",
+          "original_sku": "C1513157D01",
+          "product_name": "男商务皮鞋",
+          "cost": "110",
+          "stock_qty": 887
+        },
+        {
+          "sku": "C0131009DA01",
+          "original_sku": "C0131009D01",
+          "product_name": "男休闲皮鞋",
+          "cost": "95",
+          "stock_qty": 50
+        },
+        {
+          "sku": "C0113008D01",
+          "original_sku": "C0113008D01",
+          "product_name": "男式休闲鞋",
+          "cost": "105",
+          "stock_qty": 81
+        },
+        {
+          "sku": "C5251186DD17",
+          "original_sku": "C5251186D17",
+          "product_name": "男式休闲鞋",
+          "cost": "92",
+          "stock_qty": 172
+        }
+      ],
+      "valid_for_import_sample": true
+    },
+    {
+      "date": "2026-08-20",
+      "brand": "cbanner_womens",
+      "path": "\\\\192.168.10.229\\运营组资料\\影刀\\千百度精细表\\千百度女鞋精细数新8.20.xlsm",
+      "has_fine_sheet": true,
+      "declared_rows": 13452,
+      "mapped_columns": 63,
+      "core_column_indexes": {
+        "sku": 1,
+        "original_sku": 2,
+        "product_name": 20,
+        "cost": 19,
+        "stock_qty": 75
+      },
+      "samples": [
+        {
+          "sku": "Q7052449W45",
+          "original_sku": "Q7052449W45",
+          "product_name": "女休闲鞋",
+          "cost": "94",
+          "stock_qty": 140
+        },
+        {
+          "sku": "QB752746DQ4",
+          "original_sku": "QB752746DQ4",
+          "product_name": "女休闲鞋",
+          "cost": "88.7",
+          "stock_qty": 172
+        },
+        {
+          "sku": "QE452490D73",
+          "original_sku": "QE452490D73",
+          "product_name": "女休闲鞋",
+          "cost": "93",
+          "stock_qty": 739
+        },
+        {
+          "sku": "QW151161D24",
+          "original_sku": "QW151161D24",
+          "product_name": "女休闲鞋",
+          "cost": "101",
+          "stock_qty": 202
+        }
+      ],
+      "valid_for_import_sample": true
+    },
+    {
+      "date": "2026-08-20",
+      "brand": "eblan",
+      "path": "\\\\192.168.10.229\\运营组资料\\影刀\\伊伴精细表\\伊伴精细数8.20.xlsm",
+      "has_fine_sheet": true,
+      "declared_rows": 10036,
+      "mapped_columns": 60,
+      "core_column_indexes": {
+        "sku": 1,
+        "original_sku": 2,
+        "product_name": 20,
+        "cost": 19,
+        "stock_qty": 74
+      },
+      "samples": [
+        {
+          "sku": "E0161026D73",
+          "original_sku": "E0161026D73",
+          "product_name": "女单鞋",
+          "cost": "87.1",
+          "stock_qty": 85
+        },
+        {
+          "sku": "EA1351453DA02",
+          "original_sku": "EA1351453D02",
+          "product_name": "女休闲鞋",
+          "cost": "79",
+          "stock_qty": 8
+        },
+        {
+          "sku": "EAR52497S06",
+          "original_sku": "EAR52497S06",
+          "product_name": "女休闲鞋",
+          "cost": "83",
+          "stock_qty": 12
+        },
+        {
+          "sku": "EBQ62277SK3",
+          "original_sku": "EBQ62277SK3",
+          "product_name": "女凉鞋",
+          "cost": "57.5",
+          "stock_qty": 97
+        }
+      ],
+      "valid_for_import_sample": true
+    },
+    {
+      "date": "2026-08-20",
+      "brand": "yandou",
+      "path": "\\\\192.168.10.229\\运营组资料\\影刀\\烟斗精细表\\精细数据新8.20.xlsx",
+      "has_fine_sheet": true,
+      "declared_rows": 9900,
+      "mapped_columns": 49,
+      "core_column_indexes": {
+        "sku": 1,
+        "original_sku": 2,
+        "product_name": 18,
+        "cost": 19,
+        "stock_qty": null
+      },
+      "samples": [
+        {
+          "sku": "2221252DA24",
+          "original_sku": "2221252D24",
+          "product_name": "男休闲板鞋",
+          "cost": "118",
+          "stock_qty": 0
+        },
+        {
+          "sku": "0101135DY01",
+          "original_sku": "0101135D01",
+          "product_name": "男士休闲鞋",
+          "cost": "85",
+          "stock_qty": 0
+        },
+        {
+          "sku": "0103632DF01",
+          "original_sku": "0103632D01",
+          "product_name": "男商务皮鞋",
+          "cost": "98",
+          "stock_qty": 0
+        },
+        {
+          "sku": "2913215D24",
+          "original_sku": "2913215D24",
+          "product_name": "男休闲板鞋",
+          "cost": "118",
+          "stock_qty": 0
+        }
+      ],
+      "valid_for_import_sample": true
+    },
+    {
+      "date": "2026-08-21",
+      "brand": "cbanner_mens",
+      "path": "\\\\192.168.10.229\\运营组资料\\影刀\\千百度精细表\\千百度男鞋精细数新8.21.xlsm",
+      "has_fine_sheet": true,
+      "declared_rows": 9904,
+      "mapped_columns": 63,
+      "core_column_indexes": {
+        "sku": 1,
+        "original_sku": 2,
+        "product_name": 20,
+        "cost": 19,
+        "stock_qty": 75
+      },
+      "samples": [
+        {
+          "sku": "C1513157D01",
+          "original_sku": "C1513157D01",
+          "product_name": "男商务皮鞋",
+          "cost": "110",
+          "stock_qty": 884
+        },
+        {
+          "sku": "C0131009DA01",
+          "original_sku": "C0131009D01",
+          "product_name": "男休闲皮鞋",
+          "cost": "95",
+          "stock_qty": 46
+        },
+        {
+          "sku": "C0743021D01",
+          "original_sku": "C0743021D01",
+          "product_name": "男商务皮鞋",
+          "cost": "132",
+          "stock_qty": 79
+        },
+        {
+          "sku": "C0143010D01",
+          "original_sku": "C0143010D01",
+          "product_name": "男商务豆豆鞋",
+          "cost": "105",
+          "stock_qty": 23
+        }
+      ],
+      "valid_for_import_sample": true
+    },
+    {
+      "date": "2026-08-21",
+      "brand": "cbanner_womens",
+      "path": "\\\\192.168.10.229\\运营组资料\\影刀\\千百度精细表\\千百度女鞋精细数新8.21.xlsm",
+      "has_fine_sheet": true,
+      "declared_rows": 13469,
+      "mapped_columns": 63,
+      "core_column_indexes": {
+        "sku": 1,
+        "original_sku": 2,
+        "product_name": 20,
+        "cost": 19,
+        "stock_qty": 75
+      },
+      "samples": [
+        {
+          "sku": "Q7052449W45",
+          "original_sku": "Q7052449W45",
+          "product_name": "女休闲鞋",
+          "cost": "94",
+          "stock_qty": 126
+        },
+        {
+          "sku": "QW151161D24",
+          "original_sku": "QW151161D24",
+          "product_name": "女休闲鞋",
+          "cost": "101",
+          "stock_qty": 184
+        },
+        {
+          "sku": "QB752746DQ4",
+          "original_sku": "QB752746DQ4",
+          "product_name": "女休闲鞋",
+          "cost": "88.7",
+          "stock_qty": 159
+        },
+        {
+          "sku": "QE452490D73",
+          "original_sku": "QE452490D73",
+          "product_name": "女休闲鞋",
+          "cost": "93",
+          "stock_qty": 736
+        }
+      ],
+      "valid_for_import_sample": true
+    },
+    {
+      "date": "2026-08-21",
+      "brand": "eblan",
+      "path": "\\\\192.168.10.229\\运营组资料\\影刀\\伊伴精细表\\伊伴精细数8.21.xlsm",
+      "has_fine_sheet": true,
+      "declared_rows": 10036,
+      "mapped_columns": 60,
+      "core_column_indexes": {
+        "sku": 1,
+        "original_sku": 2,
+        "product_name": 20,
+        "cost": 19,
+        "stock_qty": 74
+      },
+      "samples": [
+        {
+          "sku": "E0161026D73",
+          "original_sku": "E0161026D73",
+          "product_name": "女单鞋",
+          "cost": "87.1",
+          "stock_qty": 78
+        },
+        {
+          "sku": "EAH53491D24",
+          "original_sku": "EAH53491D24",
+          "product_name": "男女休闲鞋",
+          "cost": "101",
+          "stock_qty": 45
+        },
+        {
+          "sku": "EH261040D01",
+          "original_sku": "EH261040D01",
+          "product_name": "女单鞋",
+          "cost": "71",
+          "stock_qty": 86
+        },
+        {
+          "sku": "EA1351453DA02",
+          "original_sku": "EA1351453D02",
+          "product_name": "女休闲鞋",
+          "cost": "79",
+          "stock_qty": 7
+        }
+      ],
+      "valid_for_import_sample": true
+    },
+    {
+      "date": "2026-08-21",
+      "brand": "yandou",
+      "path": "\\\\192.168.10.229\\运营组资料\\影刀\\烟斗精细表\\精细数据新8.21.xlsx",
+      "has_fine_sheet": true,
+      "declared_rows": 9900,
+      "mapped_columns": 49,
+      "core_column_indexes": {
+        "sku": 1,
+        "original_sku": 2,
+        "product_name": 18,
+        "cost": 19,
+        "stock_qty": null
+      },
+      "samples": [
+        {
+          "sku": "2221252DA24",
+          "original_sku": "2221252D24",
+          "product_name": "男休闲板鞋",
+          "cost": "118",
+          "stock_qty": 0
+        },
+        {
+          "sku": "0181220DE201",
+          "original_sku": "0181220D201",
+          "product_name": "男士休闲鞋",
+          "cost": "86",
+          "stock_qty": 0
+        },
+        {
+          "sku": "0101135DY01",
+          "original_sku": "0101135D01",
+          "product_name": "男士休闲鞋",
+          "cost": "85",
+          "stock_qty": 0
+        },
+        {
+          "sku": "7721211D45",
+          "original_sku": "7721211D45",
+          "product_name": "男休闲板鞋",
+          "cost": "115",
+          "stock_qty": 0
+        }
+      ],
+      "valid_for_import_sample": true
+    },
+    {
+      "date": "2026-08-22",
+      "brand": "cbanner_mens",
+      "path": "\\\\192.168.10.229\\运营组资料\\影刀\\千百度精细表\\千百度男鞋精细数新8.22.xlsm",
+      "has_fine_sheet": true,
+      "declared_rows": 9904,
+      "mapped_columns": 63,
+      "core_column_indexes": {
+        "sku": 1,
+        "original_sku": 2,
+        "product_name": 20,
+        "cost": 19,
+        "stock_qty": 75
+      },
+      "samples": [
+        {
+          "sku": "C1513157D01",
+          "original_sku": "C1513157D01",
+          "product_name": "男商务皮鞋",
+          "cost": "110",
+          "stock_qty": 873
+        },
+        {
+          "sku": "C0131009DA01",
+          "original_sku": "C0131009D01",
+          "product_name": "男休闲皮鞋",
+          "cost": "95",
+          "stock_qty": 38
+        },
+        {
+          "sku": "C0743021D01",
+          "original_sku": "C0743021D01",
+          "product_name": "男商务皮鞋",
+          "cost": "132",
+          "stock_qty": 65
+        },
+        {
+          "sku": "C0143010D01",
+          "original_sku": "C0143010D01",
+          "product_name": "男商务豆豆鞋",
+          "cost": "105",
+          "stock_qty": 16
+        }
+      ],
+      "valid_for_import_sample": true
+    },
+    {
+      "date": "2026-08-22",
+      "brand": "cbanner_womens",
+      "path": "\\\\192.168.10.229\\运营组资料\\影刀\\千百度精细表\\千百度女鞋精细数新8.22.xlsm",
+      "has_fine_sheet": true,
+      "declared_rows": 13493,
+      "mapped_columns": 63,
+      "core_column_indexes": {
+        "sku": 1,
+        "original_sku": 2,
+        "product_name": 20,
+        "cost": 19,
+        "stock_qty": 75
+      },
+      "samples": [
+        {
+          "sku": "Q7052449W45",
+          "original_sku": "Q7052449W45",
+          "product_name": "女休闲鞋",
+          "cost": "94",
+          "stock_qty": 127
+        },
+        {
+          "sku": "QB752746DQ4",
+          "original_sku": "QB752746DQ4",
+          "product_name": "女休闲鞋",
+          "cost": "88.7",
+          "stock_qty": 157
+        },
+        {
+          "sku": "QW151161D24",
+          "original_sku": "QW151161D24",
+          "product_name": "女休闲鞋",
+          "cost": "101",
+          "stock_qty": 176
+        },
+        {
+          "sku": "QE951179D57",
+          "original_sku": "QE951179D57",
+          "product_name": "女休闲鞋",
+          "cost": "102",
+          "stock_qty": 906
+        }
+      ],
+      "valid_for_import_sample": true
+    },
+    {
+      "date": "2026-08-22",
+      "brand": "eblan",
+      "path": "\\\\192.168.10.229\\运营组资料\\影刀\\伊伴精细表\\伊伴精细数8.22.xlsm",
+      "has_fine_sheet": true,
+      "declared_rows": 10045,
+      "mapped_columns": 60,
+      "core_column_indexes": {
+        "sku": 1,
+        "original_sku": 2,
+        "product_name": 20,
+        "cost": 19,
+        "stock_qty": 74
+      },
+      "samples": [
+        {
+          "sku": "E0161026D73",
+          "original_sku": "E0161026D73",
+          "product_name": "女单鞋",
+          "cost": "87.1",
+          "stock_qty": 80
+        },
+        {
+          "sku": "EAH53491D24",
+          "original_sku": "EAH53491D24",
+          "product_name": "男女休闲鞋",
+          "cost": "101",
+          "stock_qty": 42
+        },
+        {
+          "sku": "EH261040D01",
+          "original_sku": "EH261040D01",
+          "product_name": "女单鞋",
+          "cost": "71",
+          "stock_qty": 83
+        },
+        {
+          "sku": "EAD53650DA08",
+          "original_sku": "EAD53650D08",
+          "product_name": "女休闲鞋",
+          "cost": "83",
+          "stock_qty": 2
+        }
+      ],
+      "valid_for_import_sample": true
+    },
+    {
+      "date": "2026-08-22",
+      "brand": "yandou",
+      "path": "\\\\192.168.10.229\\运营组资料\\影刀\\烟斗精细表\\精细数据新8.22.xlsx",
+      "has_fine_sheet": true,
+      "declared_rows": 9906,
+      "mapped_columns": 49,
+      "core_column_indexes": {
+        "sku": 1,
+        "original_sku": 2,
+        "product_name": 18,
+        "cost": 19,
+        "stock_qty": null
+      },
+      "samples": [
+        {
+          "sku": "0181220DE201",
+          "original_sku": "0181220D201",
+          "product_name": "男士休闲鞋",
+          "cost": "86",
+          "stock_qty": 0
+        },
+        {
+          "sku": "2221252DA24",
+          "original_sku": "2221252D24",
+          "product_name": "男休闲板鞋",
+          "cost": "118",
+          "stock_qty": 0
+        },
+        {
+          "sku": "0101135DY01",
+          "original_sku": "0101135D01",
+          "product_name": "男士休闲鞋",
+          "cost": "85",
+          "stock_qty": 0
+        },
+        {
+          "sku": "7721211D45",
+          "original_sku": "7721211D45",
+          "product_name": "男休闲板鞋",
+          "cost": "115",
+          "stock_qty": 0
+        }
+      ],
+      "valid_for_import_sample": true
+    },
+    {
+      "date": "2026-08-23",
+      "brand": "cbanner_mens",
+      "path": "\\\\192.168.10.229\\运营组资料\\影刀\\千百度精细表\\千百度男鞋精细数新8.23.xlsm",
+      "has_fine_sheet": true,
+      "declared_rows": 9904,
+      "mapped_columns": 63,
+      "core_column_indexes": {
+        "sku": 1,
+        "original_sku": 2,
+        "product_name": 20,
+        "cost": 19,
+        "stock_qty": 75
+      },
+      "samples": [
+        {
+          "sku": "C0143010D01",
+          "original_sku": "C0143010D01",
+          "product_name": "男商务豆豆鞋",
+          "cost": "105",
+          "stock_qty": 70
+        },
+        {
+          "sku": "C1513157D01",
+          "original_sku": "C1513157D01",
+          "product_name": "男商务皮鞋",
+          "cost": "110",
+          "stock_qty": 870
+        },
+        {
+          "sku": "C0743021D01",
+          "original_sku": "C0743021D01",
+          "product_name": "男商务皮鞋",
+          "cost": "132",
+          "stock_qty": 65
+        },
+        {
+          "sku": "C5251186DD17",
+          "original_sku": "C5251186D17",
+          "product_name": "男式休闲鞋",
+          "cost": "92",
+          "stock_qty": 168
+        }
+      ],
+      "valid_for_import_sample": true
+    },
+    {
+      "date": "2026-08-23",
+      "brand": "cbanner_womens",
+      "path": "\\\\192.168.10.229\\运营组资料\\影刀\\千百度精细表\\千百度女鞋精细数新8.23.xlsm",
+      "has_fine_sheet": true,
+      "declared_rows": 13498,
+      "mapped_columns": 63,
+      "core_column_indexes": {
+        "sku": 1,
+        "original_sku": 2,
+        "product_name": 20,
+        "cost": 19,
+        "stock_qty": 75
+      },
+      "samples": [
+        {
+          "sku": "QE951179D57",
+          "original_sku": "QE951179D57",
+          "product_name": "女休闲鞋",
+          "cost": "102",
+          "stock_qty": 901
+        },
+        {
+          "sku": "QW151161D24",
+          "original_sku": "QW151161D24",
+          "product_name": "女休闲鞋",
+          "cost": "101",
+          "stock_qty": 170
+        },
+        {
+          "sku": "QB752746DQ4",
+          "original_sku": "QB752746DQ4",
+          "product_name": "女休闲鞋",
+          "cost": "88.7",
+          "stock_qty": 155
+        },
+        {
+          "sku": "Q7842850D35",
+          "original_sku": "Q7842850D35",
+          "product_name": "女休闲鞋",
+          "cost": "93",
+          "stock_qty": 193
+        }
+      ],
+      "valid_for_import_sample": true
+    },
+    {
+      "date": "2026-08-23",
+      "brand": "eblan",
+      "path": "\\\\192.168.10.229\\运营组资料\\影刀\\伊伴精细表\\伊伴精细数8.23.xlsm",
+      "has_fine_sheet": true,
+      "declared_rows": 10045,
+      "mapped_columns": 60,
+      "core_column_indexes": {
+        "sku": 1,
+        "original_sku": 2,
+        "product_name": 20,
+        "cost": 19,
+        "stock_qty": 74
+      },
+      "samples": [
+        {
+          "sku": "EAH53491D24",
+          "original_sku": "EAH53491D24",
+          "product_name": "男女休闲鞋",
+          "cost": "101",
+          "stock_qty": 41
+        },
+        {
+          "sku": "EH261040D01",
+          "original_sku": "EH261040D01",
+          "product_name": "女单鞋",
+          "cost": "71",
+          "stock_qty": 87
+        },
+        {
+          "sku": "E0161026D73",
+          "original_sku": "E0161026D73",
+          "product_name": "女单鞋",
+          "cost": "87.1",
+          "stock_qty": 80
+        },
+        {
+          "sku": "EAD53650DA08",
+          "original_sku": "EAD53650D08",
+          "product_name": "女休闲鞋",
+          "cost": "83",
+          "stock_qty": 3
+        }
+      ],
+      "valid_for_import_sample": true
+    },
+    {
+      "date": "2026-08-23",
+      "brand": "yandou",
+      "path": "\\\\192.168.10.229\\运营组资料\\影刀\\烟斗精细表\\精细数据新8.23.xlsx",
+      "has_fine_sheet": true,
+      "declared_rows": 9906,
+      "mapped_columns": 49,
+      "core_column_indexes": {
+        "sku": 1,
+        "original_sku": 2,
+        "product_name": 18,
+        "cost": 19,
+        "stock_qty": null
+      },
+      "samples": [
+        {
+          "sku": "0181220DE201",
+          "original_sku": "0181220D201",
+          "product_name": "男士休闲鞋",
+          "cost": "86",
+          "stock_qty": 0
+        },
+        {
+          "sku": "2221252DA24",
+          "original_sku": "2221252D24",
+          "product_name": "男休闲板鞋",
+          "cost": "118",
+          "stock_qty": 0
+        },
+        {
+          "sku": "0101135DY01",
+          "original_sku": "0101135D01",
+          "product_name": "男士休闲鞋",
+          "cost": "85",
+          "stock_qty": 0
+        },
+        {
+          "sku": "7711171DD24",
+          "original_sku": "7711171D24",
+          "product_name": "男士休闲鞋",
+          "cost": "98",
+          "stock_qty": 0
+        }
+      ],
+      "valid_for_import_sample": true
+    }
+  ],
+  "existing_batches": [],
+  "validation_scope": "Workbook open, sheet and headers, first four product rows only; no database writes"
+}

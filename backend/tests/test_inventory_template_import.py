@@ -43,14 +43,17 @@ def _seed_template_purchase_master_data(engine):
 
 
 def test_all_downloadable_templates_omit_document_number_and_system_code():
-    assert len(TEMPLATE_HEADERS) == 7
+    assert len(TEMPLATE_HEADERS) == 8
     assert all("单据编号" not in headers and "系统码" not in headers for headers in TEMPLATE_HEADERS.values())
     assert "商品编码" in TEMPLATE_HEADERS["sale"]
     assert "商品编码" in TEMPLATE_HEADERS["sale_return"]
     assert {headers[0] for headers in TEMPLATE_HEADERS.values()} == {"日期"}
-    assert {headers[2] for headers in TEMPLATE_HEADERS.values()} == {"单位全名", "经手人", "仓库全名"}
+    assert {headers[2] for headers in TEMPLATE_HEADERS.values()} == {"单位全名", "经手人", "仓库全名", "出货仓库"}
     assert TEMPLATE_HEADERS["stock_loss"] == TEMPLATE_HEADERS["stock_gain"] == (
         "日期", "单据类型", "仓库全名", "经手人", "摘要", "商品编码", "数量",
+    )
+    assert TEMPLATE_HEADERS["transfer"] == (
+        "日期", "单据类型", "出货仓库", "入货仓库", "经手人", "摘要", "商品编码", "数量",
     )
     assert all("数量" in headers for headers in TEMPLATE_HEADERS.values() if headers[-1] == "单价")
 
@@ -85,6 +88,34 @@ def test_stock_adjustment_template_download_and_read(kind, document_type):
     assert documents[0].rows == [
         {"product_code": "NI24Q1A02020139", "quantity": "2", "unit_price": ""},
         {"product_code": "NI24Q1A02020436", "quantity": "1", "unit_price": ""},
+    ]
+
+
+def test_transfer_template_download_and_read():
+    response = inventory_routes.download_inventory_template("transfer")
+
+    async def read_content():
+        return b"".join([chunk async for chunk in response.body_iterator])
+
+    workbook = load_workbook(BytesIO(asyncio.run(read_content())), read_only=True)
+    try:
+        assert tuple(cell.value for cell in workbook.active[1]) == TEMPLATE_HEADERS["transfer"]
+    finally:
+        workbook.close()
+
+    content = _workbook(TEMPLATE_HEADERS["transfer"], [
+        [date(2025, 4, 30), "同价调拨单", "出货仓库A", "入货仓库B", "陈章瑜", "月末调拨", "A001", 2],
+        [date(2025, 4, 30), "同价调拨单", "出货仓库A", "入货仓库B", "陈章瑜", "月末调拨", "A002", 1],
+    ])
+    parsed_kind, _, documents = read_template_documents(content)
+
+    assert parsed_kind == "transfer"
+    assert len(documents) == 1
+    assert documents[0].supplier == "出货仓库A"
+    assert documents[0].warehouse == "入货仓库B"
+    assert documents[0].rows == [
+        {"product_code": "A001", "quantity": "2", "unit_price": ""},
+        {"product_code": "A002", "quantity": "1", "unit_price": ""},
     ]
 
 
@@ -178,6 +209,51 @@ def test_stock_adjustment_template_import_creates_document_without_supplier(kind
         assert build_details.call_args.args[1] == [
             {"product_code": "NI24Q1A02020139", "quantity": "2", "unit_price": ""},
         ]
+        assert build_details.call_args.kwargs["brand"] == "ni"
+    finally:
+        engine.dispose()
+
+
+def test_transfer_template_import_uses_outbound_and_inbound_warehouses(monkeypatch):
+    content = _workbook(TEMPLATE_HEADERS["transfer"], [
+        ["2025-04-30", "同价调拨单", "NI出货仓库", "NI入货仓库", "陈章瑜", "月末调拨", "NI001", 2],
+    ])
+    engine = create_engine("sqlite://")
+    event.listen(engine, "connect", lambda connection, _record: connection.create_function(
+        "date_trunc", 2, lambda _unit, value: value,
+    ))
+    INVENTORY_TABLE.create(engine)
+    INVENTORY_DETAIL_TABLE.create(engine)
+    WAREHOUSE_BRAND_TABLE.create(engine)
+    WAREHOUSE_TABLE.create(engine)
+    with engine.begin() as connection:
+        connection.execute(WAREHOUSE_TABLE.insert(), [
+            {"id": 1, "name": "NI出货仓库", "brand": "ni"},
+            {"id": 2, "name": "NI入货仓库", "brand": "ni"},
+        ])
+    repository = object.__new__(InventoryRepository)
+    repository.engine = engine
+    repository._prepare_record = lambda record: {**InventoryRepository._prepare_record(record), "id": 1}
+    build_details = Mock(return_value=[
+        {"id": 1, "product_code": "NI001", "quantity": 2, "unit_price": 10, "amount": 20},
+    ])
+    monkeypatch.setattr(inventory_routes, "_build_purchase_details_from_rows", build_details)
+    monkeypatch.setattr(inventory_routes, "write_operation_log", lambda *_args, **_kwargs: None)
+    request = SimpleNamespace(
+        app=SimpleNamespace(state=SimpleNamespace(inventory_repository=repository)),
+        form=AsyncMock(return_value={"decisions": "{}"}),
+    )
+    try:
+        result = asyncio.run(inventory_routes.import_inventory_template(
+            request, UploadFile(filename="同价调拨单.xlsx", file=BytesIO(content)),
+        ))
+        with engine.connect() as connection:
+            record = connection.execute(select(INVENTORY_TABLE)).mappings().one()
+        assert (result["created"], result["details"]) == (1, 1)
+        assert record["document_type"] == "同价调拨单"
+        assert record["supplier"] == "NI出货仓库"
+        assert record["warehouse"] == "NI入货仓库"
+        assert record["raw_payload"]["brand"] == "ni"
         assert build_details.call_args.kwargs["brand"] == "ni"
     finally:
         engine.dispose()

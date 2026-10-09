@@ -1,0 +1,1595 @@
+{
+  "checked_at": {
+    "name": "commodity_department",
+    "time": "2026-10-09 09:55:10.812345+08:00",
+    "date": "2026-10-09",
+    "read_only": "on"
+  },
+  "baseline_at": "2026-10-08T14:11:12",
+  "duration_seconds": 102.583808,
+  "rows": [
+    {
+      "area": "数据丢失监测",
+      "name": "inventory_records",
+      "status": "ok",
+      "detail": "6,676 行 / 5.8 MB",
+      "note": "较上周 +87",
+      "key": "rows.inventory_records"
+    },
+    {
+      "area": "数据丢失监测",
+      "name": "inventory_details",
+      "status": "ok",
+      "detail": "120,959 行 / 121.5 MB",
+      "note": "较上周 +736",
+      "key": "rows.inventory_details"
+    },
+    {
+      "area": "数据丢失监测",
+      "name": "suppliers",
+      "status": "ok",
+      "detail": "1,051 行 / 2.0 MB",
+      "note": "较上周 +2",
+      "key": "rows.suppliers"
+    },
+    {
+      "area": "数据丢失监测",
+      "name": "warehouses",
+      "status": "ok",
+      "detail": "37 行 / 0.1 MB",
+      "note": "较上周 +4",
+      "key": "rows.warehouses"
+    },
+    {
+      "area": "数据丢失监测",
+      "name": "cbanner_mens_products",
+      "status": "ok",
+      "detail": "19,675 行 / 67.6 MB",
+      "note": "较上周 +0",
+      "key": "rows.cbanner_mens_products"
+    },
+    {
+      "area": "数据丢失监测",
+      "name": "cbanner_womens_products",
+      "status": "ok",
+      "detail": "15,958 行 / 51.0 MB",
+      "note": "较上周 +20",
+      "key": "rows.cbanner_womens_products"
+    },
+    {
+      "area": "数据丢失监测",
+      "name": "yandou_products",
+      "status": "ok",
+      "detail": "17,261 行 / 57.7 MB",
+      "note": "较上周 +0",
+      "key": "rows.yandou_products"
+    },
+    {
+      "area": "数据丢失监测",
+      "name": "eblan_products",
+      "status": "ok",
+      "detail": "10,259 行 / 37.6 MB",
+      "note": "较上周 +0",
+      "key": "rows.eblan_products"
+    },
+    {
+      "area": "数据丢失监测",
+      "name": "smiley_products",
+      "status": "ok",
+      "detail": "442 行 / 1.6 MB",
+      "note": "较上周 +3",
+      "key": "rows.smiley_products"
+    },
+    {
+      "area": "数据丢失监测",
+      "name": "ni_products",
+      "status": "ok",
+      "detail": "87 行 / 0.3 MB",
+      "note": "较上周 +0",
+      "key": "rows.ni_products"
+    },
+    {
+      "area": "数据丢失监测",
+      "name": "manual_product_archive_31",
+      "status": "ok",
+      "detail": "37 行 / 0.2 MB",
+      "note": "较上周 +0",
+      "key": "rows.manual_product_archive_31"
+    },
+    {
+      "area": "数据丢失监测",
+      "name": "product_archive_identities",
+      "status": "ok",
+      "detail": "63,742 行 / 33.7 MB",
+      "note": "较上周 +23",
+      "key": "rows.product_archive_identities"
+    },
+    {
+      "area": "数据丢失监测",
+      "name": "product_size_group_mappings",
+      "status": "ok",
+      "detail": "61,616 行 / 23.6 MB",
+      "note": "较上周 +0",
+      "key": "rows.product_size_group_mappings"
+    },
+    {
+      "area": "数据丢失监测",
+      "name": "product_goods_overrides",
+      "status": "ok",
+      "detail": "21,793 行 / 5.4 MB",
+      "note": "较上周 +42",
+      "key": "rows.product_goods_overrides"
+    },
+    {
+      "area": "数据丢失监测",
+      "name": "jst_monthly_orders（估算）",
+      "status": "ok",
+      "detail": "14,488,242 行 / 26.00 GB",
+      "note": "估算值较上周 +937；行数为目录估算值",
+      "key": "rows.jst_monthly_orders"
+    },
+    {
+      "area": "数据丢失监测",
+      "name": "jst_product_price（估算）",
+      "status": "ok",
+      "detail": "9,303,194 行 / 6.85 GB",
+      "note": "估算值较上周 +62,626；行数为目录估算值",
+      "key": "rows.jst_product_price"
+    },
+    {
+      "area": "数据丢失监测",
+      "name": "jst_daily_stock（估算）",
+      "status": "ok",
+      "detail": "22,264,560 行 / 6.53 GB",
+      "note": "估算值较上周 +315,510；行数为目录估算值",
+      "key": "rows.jst_daily_stock"
+    },
+    {
+      "area": "数据丢失监测",
+      "name": "jst_size_stock_snapshots（估算）",
+      "status": "ok",
+      "detail": "11,473,462 行 / 2.17 GB",
+      "note": "估算值较上周 +0；行数为目录估算值",
+      "key": "rows.jst_size_stock_snapshots"
+    },
+    {
+      "area": "数据丢失监测",
+      "name": "jst_daily_sales（估算）",
+      "status": "ok",
+      "detail": "1,252,136 行 / 2.57 GB",
+      "note": "估算值较上周 +1,305；行数为目录估算值",
+      "key": "rows.jst_daily_sales"
+    },
+    {
+      "area": "数据丢失监测",
+      "name": "jst_purchase_inbound_daily（估算）",
+      "status": "ok",
+      "detail": "3,665,807 行 / 2.32 GB",
+      "note": "估算值较上周 +0；行数为目录估算值",
+      "key": "rows.jst_purchase_inbound_daily"
+    },
+    {
+      "area": "数据丢失监测",
+      "name": "jst_full_stock",
+      "status": "ok",
+      "detail": "248,528 行 / 259.7 MB",
+      "note": "较上周 +196",
+      "key": "rows.jst_full_stock"
+    },
+    {
+      "area": "数据丢失监测",
+      "name": "jst_stock_summary",
+      "status": "ok",
+      "detail": "31,277 行 / 23.2 MB",
+      "note": "较上周 +0",
+      "key": "rows.jst_stock_summary"
+    },
+    {
+      "area": "数据丢失监测",
+      "name": "jst_stock_summary_snapshots（估算）",
+      "status": "ok",
+      "detail": "2,362,613 行 / 477.8 MB",
+      "note": "估算值较上周 +0；行数为目录估算值",
+      "key": "rows.jst_stock_summary_snapshots"
+    },
+    {
+      "area": "数据丢失监测",
+      "name": "jst_size_stock",
+      "status": "ok",
+      "detail": "159,574 行 / 61.4 MB",
+      "note": "较上周 +0",
+      "key": "rows.jst_size_stock"
+    },
+    {
+      "area": "数据丢失监测",
+      "name": "jst_product_profiles（估算）",
+      "status": "ok",
+      "detail": "418,201 行 / 687.2 MB",
+      "note": "估算值较上周 +0；行数为目录估算值",
+      "key": "rows.jst_product_profiles"
+    },
+    {
+      "area": "数据丢失监测",
+      "name": "jst_aftersale_returns（估算）",
+      "status": "ok",
+      "detail": "1,518,213 行 / 3.76 GB",
+      "note": "估算值较上周 +484；行数为目录估算值",
+      "key": "rows.jst_aftersale_returns"
+    },
+    {
+      "area": "数据丢失监测",
+      "name": "vip_daily_sales（估算）",
+      "status": "ok",
+      "detail": "15,397,656 行 / 21.78 GB",
+      "note": "估算值较上周 +47,612；行数为目录估算值",
+      "key": "rows.vip_daily_sales"
+    },
+    {
+      "area": "数据丢失监测",
+      "name": "vip_product_ops_snapshots（估算）",
+      "status": "ok",
+      "detail": "7,992,301 行 / 11.17 GB",
+      "note": "估算值较上周 +72,190；行数为目录估算值",
+      "key": "rows.vip_product_ops_snapshots"
+    },
+    {
+      "area": "数据丢失监测",
+      "name": "vip_product_daily_snapshots（估算）",
+      "status": "ok",
+      "detail": "1,178,991 行 / 1.71 GB",
+      "note": "估算值较上周 +10,136；行数为目录估算值",
+      "key": "rows.vip_product_daily_snapshots"
+    },
+    {
+      "area": "数据丢失监测",
+      "name": "vip_product_detail_daily（估算）",
+      "status": "ok",
+      "detail": "252,923 行 / 660.0 MB",
+      "note": "估算值较上周 +0；行数为目录估算值",
+      "key": "rows.vip_product_detail_daily"
+    },
+    {
+      "area": "数据丢失监测",
+      "name": "vip_product_ops",
+      "status": "ok",
+      "detail": "70,049 行 / 208.4 MB",
+      "note": "较上周 +0",
+      "key": "rows.vip_product_ops"
+    },
+    {
+      "area": "数据丢失监测",
+      "name": "gj_merged_product_info（估算）",
+      "status": "ok",
+      "detail": "7,439,053 行 / 9.36 GB",
+      "note": "估算值较上周 +66,538；行数为目录估算值",
+      "key": "rows.gj_merged_product_info"
+    },
+    {
+      "area": "数据丢失监测",
+      "name": "dewu_orders",
+      "status": "ok",
+      "detail": "116,733 行 / 102.5 MB",
+      "note": "较上周 +0",
+      "key": "rows.dewu_orders"
+    },
+    {
+      "area": "数据丢失监测",
+      "name": "fine_table_snapshot_refs_2026（估算）",
+      "status": "ok",
+      "detail": "12,690,483 行 / 5.14 GB",
+      "note": "估算值较上周 +0；行数为目录估算值",
+      "key": "rows.fine_table_snapshot_refs_2026"
+    },
+    {
+      "area": "数据丢失监测",
+      "name": "fine_table_snapshot_batches",
+      "status": "ok",
+      "detail": "3,505 行 / 0.6 MB",
+      "note": "较上周 +4",
+      "key": "rows.fine_table_snapshot_batches"
+    },
+    {
+      "area": "数据丢失监测",
+      "name": "product_goods_detail_snapshots（估算）",
+      "status": "ok",
+      "detail": "12,688,951 行 / 19.17 GB",
+      "note": "估算值较上周 +44,084；行数为目录估算值",
+      "key": "rows.product_goods_detail_snapshots"
+    },
+    {
+      "area": "数据丢失监测",
+      "name": "product_goods_historical_orders",
+      "status": "ok",
+      "detail": "67,732 行 / 23.0 MB",
+      "note": "较上周 +0",
+      "key": "rows.product_goods_historical_orders"
+    },
+    {
+      "area": "数据丢失监测",
+      "name": "product_goods_historical_sales（估算）",
+      "status": "ok",
+      "detail": "1,840,831 行 / 683.3 MB",
+      "note": "估算值较上周 +0；行数为目录估算值",
+      "key": "rows.product_goods_historical_sales"
+    },
+    {
+      "area": "数据丢失监测",
+      "name": "product_tag_assignments",
+      "status": "ok",
+      "detail": "563,681 行 / 230.6 MB",
+      "note": "较上周 +323",
+      "key": "rows.product_tag_assignments"
+    },
+    {
+      "area": "数据丢失监测",
+      "name": "operation_logs",
+      "status": "ok",
+      "detail": "10,524 行 / 16.6 MB",
+      "note": "较上周 +40",
+      "key": "rows.operation_logs"
+    },
+    {
+      "area": "进销存",
+      "name": "inventory_records.date_value",
+      "status": "ok",
+      "detail": "空值 0.00%（0/6,676）",
+      "note": "正常",
+      "key": "null.inventory_records.date_value"
+    },
+    {
+      "area": "进销存",
+      "name": "inventory_records.total_count",
+      "status": "gray",
+      "detail": "空值 5.41%（361/6,676）",
+      "note": "上周 5.48% → ↓0.07pp",
+      "key": "null.inventory_records.total_count"
+    },
+    {
+      "area": "进销存",
+      "name": "inventory_records.supplier",
+      "status": "gray",
+      "detail": "空值 3.34%（223/6,676）",
+      "note": "上周 2.81% → ↑0.53pp",
+      "key": "null.inventory_records.supplier"
+    },
+    {
+      "area": "进销存",
+      "name": "inventory_details.unit_price",
+      "status": "ok",
+      "detail": "空值 0.56%（678/120,959）",
+      "note": "正常",
+      "key": "null.inventory_details.unit_price"
+    },
+    {
+      "area": "进销存",
+      "name": "inventory_details.amount",
+      "status": "ok",
+      "detail": "空值 0.26%（318/120,959）",
+      "note": "正常",
+      "key": "null.inventory_details.amount"
+    },
+    {
+      "area": "进销存",
+      "name": "inventory_details.product_identity_id",
+      "status": "yellow",
+      "detail": "空值 1.15%（1,392/120,959）",
+      "note": "超过阈值 1.0%",
+      "key": "null.inventory_details.product_identity_id"
+    },
+    {
+      "area": "进销存",
+      "name": "inventory_details.product_code",
+      "status": "gray",
+      "detail": "空值 0.30%（361/120,959）",
+      "note": "与上周持平",
+      "key": "null.inventory_details.product_code"
+    },
+    {
+      "area": "进销存",
+      "name": "inventory_details.color_spec",
+      "status": "gray",
+      "detail": "空值 0.30%（363/120,959）",
+      "note": "与上周持平",
+      "key": "null.inventory_details.color_spec"
+    },
+    {
+      "area": "商品档案",
+      "name": "cbanner_mens_products.sku",
+      "status": "ok",
+      "detail": "空值 0.00%（0/19,675）",
+      "note": "正常",
+      "key": "null.cbanner_mens_products.sku"
+    },
+    {
+      "area": "商品档案",
+      "name": "cbanner_mens_products.product_name",
+      "status": "ok",
+      "detail": "空值 0.03%（5/19,675）",
+      "note": "正常",
+      "key": "null.cbanner_mens_products.product_name"
+    },
+    {
+      "area": "商品档案",
+      "name": "cbanner_mens_products.cost",
+      "status": "ok",
+      "detail": "空值 0.77%（151/19,675）",
+      "note": "正常",
+      "key": "null.cbanner_mens_products.cost"
+    },
+    {
+      "area": "商品档案",
+      "name": "cbanner_mens_products.image_path",
+      "status": "gray",
+      "detail": "空值 1.32%（260/19,675）",
+      "note": "与上周持平",
+      "key": "null.cbanner_mens_products.image_path"
+    },
+    {
+      "area": "商品档案",
+      "name": "cbanner_mens_products.product_level",
+      "status": "gray",
+      "detail": "空值 21.05%（4,142/19,675）",
+      "note": "上周 21.12% → ↓0.07pp",
+      "key": "null.cbanner_mens_products.product_level"
+    },
+    {
+      "area": "商品档案",
+      "name": "cbanner_mens_products.group_name",
+      "status": "gray",
+      "detail": "空值 14.77%（2,906/19,675）",
+      "note": "与上周持平",
+      "key": "null.cbanner_mens_products.group_name"
+    },
+    {
+      "area": "商品档案",
+      "name": "cbanner_mens_products.category",
+      "status": "gray",
+      "detail": "空值 6.95%（1,367/19,675）",
+      "note": "与上周持平",
+      "key": "null.cbanner_mens_products.category"
+    },
+    {
+      "area": "商品档案",
+      "name": "cbanner_mens_products.last_imported_at",
+      "status": "gray",
+      "detail": "空值 97.80%（19,243/19,675）",
+      "note": "与上周持平",
+      "key": "null.cbanner_mens_products.last_imported_at"
+    },
+    {
+      "area": "商品档案",
+      "name": "cbanner_womens_products.sku",
+      "status": "ok",
+      "detail": "空值 0.00%（0/15,958）",
+      "note": "正常",
+      "key": "null.cbanner_womens_products.sku"
+    },
+    {
+      "area": "商品档案",
+      "name": "cbanner_womens_products.product_name",
+      "status": "ok",
+      "detail": "空值 0.16%（26/15,958）",
+      "note": "正常",
+      "key": "null.cbanner_womens_products.product_name"
+    },
+    {
+      "area": "商品档案",
+      "name": "cbanner_womens_products.cost",
+      "status": "ok",
+      "detail": "空值 0.16%（25/15,958）",
+      "note": "正常",
+      "key": "null.cbanner_womens_products.cost"
+    },
+    {
+      "area": "商品档案",
+      "name": "cbanner_womens_products.image_path",
+      "status": "gray",
+      "detail": "空值 18.75%（2,992/15,958）",
+      "note": "与上周持平",
+      "key": "null.cbanner_womens_products.image_path"
+    },
+    {
+      "area": "商品档案",
+      "name": "cbanner_womens_products.product_level",
+      "status": "gray",
+      "detail": "空值 73.45%（11,721/15,958）",
+      "note": "与上周持平",
+      "key": "null.cbanner_womens_products.product_level"
+    },
+    {
+      "area": "商品档案",
+      "name": "cbanner_womens_products.group_name",
+      "status": "gray",
+      "detail": "空值 0.00%（0/15,958）",
+      "note": "与上周持平",
+      "key": "null.cbanner_womens_products.group_name"
+    },
+    {
+      "area": "商品档案",
+      "name": "cbanner_womens_products.category",
+      "status": "gray",
+      "detail": "空值 6.35%（1,014/15,958）",
+      "note": "上周 6.24% → ↑0.12pp",
+      "key": "null.cbanner_womens_products.category"
+    },
+    {
+      "area": "商品档案",
+      "name": "cbanner_womens_products.last_imported_at",
+      "status": "gray",
+      "detail": "空值 99.89%（15,940/15,958）",
+      "note": "上周 99.82% → ↑0.06pp",
+      "key": "null.cbanner_womens_products.last_imported_at"
+    },
+    {
+      "area": "商品档案",
+      "name": "yandou_products.sku",
+      "status": "ok",
+      "detail": "空值 0.00%（0/17,261）",
+      "note": "正常",
+      "key": "null.yandou_products.sku"
+    },
+    {
+      "area": "商品档案",
+      "name": "yandou_products.product_name",
+      "status": "ok",
+      "detail": "空值 0.01%（2/17,261）",
+      "note": "正常",
+      "key": "null.yandou_products.product_name"
+    },
+    {
+      "area": "商品档案",
+      "name": "yandou_products.cost",
+      "status": "ok",
+      "detail": "空值 0.11%（19/17,261）",
+      "note": "正常",
+      "key": "null.yandou_products.cost"
+    },
+    {
+      "area": "商品档案",
+      "name": "yandou_products.image_path",
+      "status": "gray",
+      "detail": "空值 81.17%（14,011/17,261）",
+      "note": "与上周持平",
+      "key": "null.yandou_products.image_path"
+    },
+    {
+      "area": "商品档案",
+      "name": "yandou_products.product_level",
+      "status": "gray",
+      "detail": "空值 100.00%（17,261/17,261）",
+      "note": "与上周持平",
+      "key": "null.yandou_products.product_level"
+    },
+    {
+      "area": "商品档案",
+      "name": "yandou_products.group_name",
+      "status": "gray",
+      "detail": "空值 100.00%（17,261/17,261）",
+      "note": "与上周持平",
+      "key": "null.yandou_products.group_name"
+    },
+    {
+      "area": "商品档案",
+      "name": "yandou_products.category",
+      "status": "gray",
+      "detail": "空值 9.12%（1,574/17,261）",
+      "note": "与上周持平",
+      "key": "null.yandou_products.category"
+    },
+    {
+      "area": "商品档案",
+      "name": "yandou_products.last_imported_at",
+      "status": "gray",
+      "detail": "空值 100.00%（17,261/17,261）",
+      "note": "与上周持平",
+      "key": "null.yandou_products.last_imported_at"
+    },
+    {
+      "area": "商品档案",
+      "name": "eblan_products.sku",
+      "status": "ok",
+      "detail": "空值 0.00%（0/10,259）",
+      "note": "正常",
+      "key": "null.eblan_products.sku"
+    },
+    {
+      "area": "商品档案",
+      "name": "eblan_products.product_name",
+      "status": "ok",
+      "detail": "空值 0.07%（7/10,259）",
+      "note": "正常",
+      "key": "null.eblan_products.product_name"
+    },
+    {
+      "area": "商品档案",
+      "name": "eblan_products.cost",
+      "status": "ok",
+      "detail": "空值 0.03%（3/10,259）",
+      "note": "正常",
+      "key": "null.eblan_products.cost"
+    },
+    {
+      "area": "商品档案",
+      "name": "eblan_products.image_path",
+      "status": "gray",
+      "detail": "空值 1.77%（182/10,259）",
+      "note": "与上周持平",
+      "key": "null.eblan_products.image_path"
+    },
+    {
+      "area": "商品档案",
+      "name": "eblan_products.product_level",
+      "status": "gray",
+      "detail": "空值 30.30%（3,108/10,259）",
+      "note": "与上周持平",
+      "key": "null.eblan_products.product_level"
+    },
+    {
+      "area": "商品档案",
+      "name": "eblan_products.group_name",
+      "status": "gray",
+      "detail": "空值 99.91%（10,250/10,259）",
+      "note": "与上周持平",
+      "key": "null.eblan_products.group_name"
+    },
+    {
+      "area": "商品档案",
+      "name": "eblan_products.category",
+      "status": "gray",
+      "detail": "空值 2.65%（272/10,259）",
+      "note": "与上周持平",
+      "key": "null.eblan_products.category"
+    },
+    {
+      "area": "商品档案",
+      "name": "eblan_products.last_imported_at",
+      "status": "gray",
+      "detail": "空值 99.96%（10,255/10,259）",
+      "note": "与上周持平",
+      "key": "null.eblan_products.last_imported_at"
+    },
+    {
+      "area": "商品档案",
+      "name": "smiley_products.sku",
+      "status": "ok",
+      "detail": "空值 0.00%（0/442）",
+      "note": "正常",
+      "key": "null.smiley_products.sku"
+    },
+    {
+      "area": "商品档案",
+      "name": "smiley_products.product_name",
+      "status": "ok",
+      "detail": "空值 0.00%（0/442）",
+      "note": "正常",
+      "key": "null.smiley_products.product_name"
+    },
+    {
+      "area": "商品档案",
+      "name": "smiley_products.cost",
+      "status": "yellow",
+      "detail": "空值 12.67%（56/442）",
+      "note": "超过阈值 5.0%",
+      "key": "null.smiley_products.cost"
+    },
+    {
+      "area": "商品档案",
+      "name": "smiley_products.image_path",
+      "status": "gray",
+      "detail": "空值 0.00%（0/442）",
+      "note": "与上周持平",
+      "key": "null.smiley_products.image_path"
+    },
+    {
+      "area": "商品档案",
+      "name": "smiley_products.product_level",
+      "status": "gray",
+      "detail": "空值 100.00%（442/442）",
+      "note": "与上周持平",
+      "key": "null.smiley_products.product_level"
+    },
+    {
+      "area": "商品档案",
+      "name": "smiley_products.group_name",
+      "status": "gray",
+      "detail": "空值 100.00%（442/442）",
+      "note": "与上周持平",
+      "key": "null.smiley_products.group_name"
+    },
+    {
+      "area": "商品档案",
+      "name": "smiley_products.category",
+      "status": "gray",
+      "detail": "空值 13.57%（60/442）",
+      "note": "上周 12.98% → ↑0.59pp",
+      "key": "null.smiley_products.category"
+    },
+    {
+      "area": "商品档案",
+      "name": "smiley_products.last_imported_at",
+      "status": "gray",
+      "detail": "空值 41.86%（185/442）",
+      "note": "上周 41.46% → ↑0.40pp",
+      "key": "null.smiley_products.last_imported_at"
+    },
+    {
+      "area": "商品档案",
+      "name": "ni_products.sku",
+      "status": "ok",
+      "detail": "空值 0.00%（0/87）",
+      "note": "正常",
+      "key": "null.ni_products.sku"
+    },
+    {
+      "area": "商品档案",
+      "name": "ni_products.product_name",
+      "status": "ok",
+      "detail": "空值 0.00%（0/87）",
+      "note": "正常",
+      "key": "null.ni_products.product_name"
+    },
+    {
+      "area": "商品档案",
+      "name": "ni_products.cost",
+      "status": "ok",
+      "detail": "空值 1.15%（1/87）",
+      "note": "正常",
+      "key": "null.ni_products.cost"
+    },
+    {
+      "area": "商品档案",
+      "name": "ni_products.image_path",
+      "status": "gray",
+      "detail": "空值 0.00%（0/87）",
+      "note": "与上周持平",
+      "key": "null.ni_products.image_path"
+    },
+    {
+      "area": "商品档案",
+      "name": "ni_products.product_level",
+      "status": "gray",
+      "detail": "空值 100.00%（87/87）",
+      "note": "与上周持平",
+      "key": "null.ni_products.product_level"
+    },
+    {
+      "area": "商品档案",
+      "name": "ni_products.group_name",
+      "status": "gray",
+      "detail": "空值 0.00%（0/87）",
+      "note": "与上周持平",
+      "key": "null.ni_products.group_name"
+    },
+    {
+      "area": "商品档案",
+      "name": "ni_products.category",
+      "status": "gray",
+      "detail": "空值 100.00%（87/87）",
+      "note": "与上周持平",
+      "key": "null.ni_products.category"
+    },
+    {
+      "area": "商品档案",
+      "name": "ni_products.last_imported_at",
+      "status": "gray",
+      "detail": "空值 100.00%（87/87）",
+      "note": "与上周持平",
+      "key": "null.ni_products.last_imported_at"
+    },
+    {
+      "area": "商品档案",
+      "name": "manual_product_archive_31.sku",
+      "status": "ok",
+      "detail": "空值 0.00%（0/37）",
+      "note": "正常",
+      "key": "null.manual_product_archive_31.sku"
+    },
+    {
+      "area": "商品档案",
+      "name": "manual_product_archive_31.product_name",
+      "status": "ok",
+      "detail": "空值 0.00%（0/37）",
+      "note": "正常",
+      "key": "null.manual_product_archive_31.product_name"
+    },
+    {
+      "area": "商品档案",
+      "name": "manual_product_archive_31.cost",
+      "status": "ok",
+      "detail": "空值 0.00%（0/37）",
+      "note": "正常",
+      "key": "null.manual_product_archive_31.cost"
+    },
+    {
+      "area": "商品档案",
+      "name": "manual_product_archive_31.image_path",
+      "status": "gray",
+      "detail": "空值 100.00%（37/37）",
+      "note": "与上周持平",
+      "key": "null.manual_product_archive_31.image_path"
+    },
+    {
+      "area": "商品档案",
+      "name": "manual_product_archive_31.product_level",
+      "status": "gray",
+      "detail": "空值 100.00%（37/37）",
+      "note": "与上周持平",
+      "key": "null.manual_product_archive_31.product_level"
+    },
+    {
+      "area": "商品档案",
+      "name": "manual_product_archive_31.group_name",
+      "status": "gray",
+      "detail": "空值 0.00%（0/37）",
+      "note": "与上周持平",
+      "key": "null.manual_product_archive_31.group_name"
+    },
+    {
+      "area": "商品档案",
+      "name": "manual_product_archive_31.category",
+      "status": "gray",
+      "detail": "空值 24.32%（9/37）",
+      "note": "与上周持平",
+      "key": "null.manual_product_archive_31.category"
+    },
+    {
+      "area": "商品档案",
+      "name": "manual_product_archive_31.last_imported_at",
+      "status": "gray",
+      "detail": "空值 0.00%（0/37）",
+      "note": "与上周持平",
+      "key": "null.manual_product_archive_31.last_imported_at"
+    },
+    {
+      "area": "聚水潭订单",
+      "name": "jst_monthly_orders_2026.order_time_at",
+      "status": "ok",
+      "detail": "空值 0.00%（0/3,348,465）",
+      "note": "正常",
+      "key": "null.jst_monthly_orders_2026.order_time_at"
+    },
+    {
+      "area": "聚水潭订单",
+      "name": "jst_monthly_orders_2026.product_code",
+      "status": "ok",
+      "detail": "空值 0.00%（0/3,348,465）",
+      "note": "正常",
+      "key": "null.jst_monthly_orders_2026.product_code"
+    },
+    {
+      "area": "聚水潭订单",
+      "name": "jst_monthly_orders_2026.cost_price",
+      "status": "gray",
+      "detail": "空值 100.00%（3,348,465/3,348,465）",
+      "note": "与上周持平",
+      "key": "null.jst_monthly_orders_2026.cost_price"
+    },
+    {
+      "area": "聚水潭订单",
+      "name": "jst_monthly_orders_2026.category",
+      "status": "gray",
+      "detail": "空值 100.00%（3,348,465/3,348,465）",
+      "note": "与上周持平",
+      "key": "null.jst_monthly_orders_2026.category"
+    },
+    {
+      "area": "聚水潭订单",
+      "name": "jst_monthly_orders_2026.registered_qty",
+      "status": "gray",
+      "detail": "空值 100.00%（3,348,465/3,348,465）",
+      "note": "与上周持平",
+      "key": "null.jst_monthly_orders_2026.registered_qty"
+    },
+    {
+      "area": "聚水潭订单",
+      "name": "jst_monthly_orders_2026.actual_return_qty",
+      "status": "gray",
+      "detail": "空值 100.00%（3,348,465/3,348,465）",
+      "note": "与上周持平",
+      "key": "null.jst_monthly_orders_2026.actual_return_qty"
+    },
+    {
+      "area": "聚水潭订单",
+      "name": "jst_monthly_orders_2026.address",
+      "status": "gray",
+      "detail": "空值 100.00%（3,348,465/3,348,465）",
+      "note": "与上周持平",
+      "key": "null.jst_monthly_orders_2026.address"
+    },
+    {
+      "area": "聚水潭订单",
+      "name": "jst_monthly_orders_2026.shop_style_code",
+      "status": "gray",
+      "detail": "空值 100.00%（3,348,465/3,348,465）",
+      "note": "与上周持平",
+      "key": "null.jst_monthly_orders_2026.shop_style_code"
+    },
+    {
+      "area": "聚水潭价格",
+      "name": "jst_product_price.latest_purchase_price",
+      "status": "gray",
+      "detail": "空值 25.53%（2,338,169/9,159,147）（近 120 天）",
+      "note": "与上周持平",
+      "key": "null.jst_product_price.latest_purchase_price~window"
+    },
+    {
+      "area": "聚水潭价格",
+      "name": "jst_product_price.cost_unit_price",
+      "status": "gray",
+      "detail": "空值 72.79%（6,667,350/9,159,147）（近 120 天）",
+      "note": "与上周持平",
+      "key": "null.jst_product_price.cost_unit_price~window"
+    },
+    {
+      "area": "聚水潭价格",
+      "name": "jst_product_price.retail_price",
+      "status": "gray",
+      "detail": "空值 89.50%（8,197,768/9,159,147）（近 120 天）",
+      "note": "与上周持平",
+      "key": "null.jst_product_price.retail_price~window"
+    },
+    {
+      "area": "聚水潭价格",
+      "name": "jst_product_price.member_price",
+      "status": "gray",
+      "detail": "空值 100.00%（9,159,147/9,159,147）（近 120 天）",
+      "note": "与上周持平",
+      "key": "null.jst_product_price.member_price~window"
+    },
+    {
+      "area": "唯品会",
+      "name": "vip_product_ops_snapshots.goods_code",
+      "status": "ok",
+      "detail": "空值 0.00%（0/3,307,933）（近 120 天）",
+      "note": "正常",
+      "key": "null.vip_product_ops_snapshots.goods_code~window"
+    },
+    {
+      "area": "唯品会",
+      "name": "vip_product_ops_snapshots.goods_tag",
+      "status": "gray",
+      "detail": "空值 61.93%（2,048,550/3,307,933）（近 120 天）",
+      "note": "上周 61.84% → ↑0.09pp",
+      "key": "null.vip_product_ops_snapshots.goods_tag~window"
+    },
+    {
+      "area": "唯品会",
+      "name": "vip_product_detail_daily.shop_code",
+      "status": "gray",
+      "detail": "空值 100.00%（252,923/252,923）",
+      "note": "与上周持平",
+      "key": "null.vip_product_detail_daily.shop_code"
+    },
+    {
+      "area": "其它分析表",
+      "name": "gj_merged_product_info.goods_code",
+      "status": "ok",
+      "detail": "空值 0.00%（0/3,809,923）（近 120 天）",
+      "note": "正常",
+      "key": "null.gj_merged_product_info.goods_code~window"
+    },
+    {
+      "area": "其它分析表",
+      "name": "gj_merged_product_info.disabled_flag",
+      "status": "gray",
+      "detail": "空值 94.31%（3,593,173/3,809,923）（近 120 天）",
+      "note": "与上周持平",
+      "key": "null.gj_merged_product_info.disabled_flag~window"
+    },
+    {
+      "area": "其它分析表",
+      "name": "jst_full_stock.safety_stock_min_qty",
+      "status": "gray",
+      "detail": "空值 100.00%（248,528/248,528）",
+      "note": "与上周持平",
+      "key": "null.jst_full_stock.safety_stock_min_qty"
+    },
+    {
+      "area": "其它分析表",
+      "name": "jst_product_profiles.product_code",
+      "status": "ok",
+      "detail": "空值 0.00%（0/421,427）",
+      "note": "正常",
+      "key": "null.jst_product_profiles.product_code"
+    },
+    {
+      "area": "其它分析表",
+      "name": "suppliers.name",
+      "status": "ok",
+      "detail": "空值 0.00%（0/1,051）",
+      "note": "正常",
+      "key": "null.suppliers.name"
+    },
+    {
+      "area": "其它分析表",
+      "name": "suppliers.contact",
+      "status": "gray",
+      "detail": "空值 95.53%（1,004/1,051）",
+      "note": "与上周持平",
+      "key": "null.suppliers.contact"
+    },
+    {
+      "area": "日期断档",
+      "name": "聚水潭库存快照",
+      "status": "ok",
+      "detail": "完整（90 天）",
+      "note": "无断档｜jst_daily_stock.stock_date_value",
+      "key": "gap.jst_daily_stock"
+    },
+    {
+      "area": "日期断档",
+      "name": "聚水潭销售日报",
+      "status": "ok",
+      "detail": "完整（90 天）",
+      "note": "无断档｜jst_daily_sales.sales_date",
+      "key": "gap.jst_daily_sales"
+    },
+    {
+      "area": "日期断档",
+      "name": "唯品会销售日报",
+      "status": "ok",
+      "detail": "完整（90 天）",
+      "note": "无断档｜vip_daily_sales.sales_date",
+      "key": "gap.vip_daily_sales"
+    },
+    {
+      "area": "日期断档",
+      "name": "商品明细快照",
+      "status": "ok",
+      "detail": "完整（90 天）",
+      "note": "无断档｜product_goods_detail_snapshots.snapshot_date",
+      "key": "gap.product_goods_detail_snapshots"
+    },
+    {
+      "area": "日期断档",
+      "name": "得物订单",
+      "status": "ok",
+      "detail": "完整（90 天）",
+      "note": "无断档｜dewu_orders.order_date",
+      "key": "gap.dewu_orders"
+    },
+    {
+      "area": "日期断档",
+      "name": "精细表快照明细",
+      "status": "red",
+      "detail": "缺 8/90 天",
+      "note": "缺失：2026-08-16, 2026-08-17, 2026-08-18, 2026-08-19, 2026-08-20, 2026-08-21, 2026-08-22, 2026-08-23",
+      "key": "gap.fine_table_snapshot_refs_2026"
+    },
+    {
+      "area": "日期断档",
+      "name": "聚水潭采购入库日报",
+      "status": "ok",
+      "detail": "完整（90 天）",
+      "note": "无断档｜jst_purchase_inbound_daily.inbound_date",
+      "key": "gap.jst_purchase_inbound_daily"
+    },
+    {
+      "area": "日期断档",
+      "name": "唯品会商品日快照",
+      "status": "gray",
+      "detail": "缺 12/89 天",
+      "note": "缺失：2026-07-13, 2026-08-02, 2026-08-04, 2026-08-07, 2026-08-23, 2026-08-25, 2026-08-28, 2026-08-31, 2026-09-01, 2026-09-11, 2026-09-29, 2026-09-30｜该表为不定期采集，仅作记录",
+      "key": "gap.vip_product_daily_snapshots"
+    },
+    {
+      "area": "去重键覆盖",
+      "name": "jst_monthly_orders 2026-05 的 record_key",
+      "status": "ok",
+      "detail": "缺失 7/526,578（0.0%）",
+      "note": "正常",
+      "key": "record_key.2026-05"
+    },
+    {
+      "area": "去重键覆盖",
+      "name": "jst_monthly_orders 2026-06 的 record_key",
+      "status": "ok",
+      "detail": "缺失 6/412,075（0.0%）",
+      "note": "正常",
+      "key": "record_key.2026-06"
+    },
+    {
+      "area": "去重键覆盖",
+      "name": "jst_monthly_orders 2026-07 的 record_key",
+      "status": "red",
+      "detail": "缺失 210,432/210,432（100.0%）",
+      "note": "去重键未写入 → 唯一约束失效",
+      "key": "record_key.2026-07"
+    },
+    {
+      "area": "去重键覆盖",
+      "name": "jst_monthly_orders 2026-08 的 record_key",
+      "status": "red",
+      "detail": "缺失 248,996/248,996（100.0%）",
+      "note": "去重键未写入 → 唯一约束失效",
+      "key": "record_key.2026-08"
+    },
+    {
+      "area": "去重键覆盖",
+      "name": "jst_monthly_orders 2026-09 的 record_key",
+      "status": "red",
+      "detail": "缺失 277,636/277,636（100.0%）",
+      "note": "去重键未写入 → 唯一约束失效",
+      "key": "record_key.2026-09"
+    },
+    {
+      "area": "去重键覆盖",
+      "name": "jst_monthly_orders 2026-10 的 record_key",
+      "status": "red",
+      "detail": "缺失 74,846/74,846（100.0%）",
+      "note": "去重键未写入 → 唯一约束失效",
+      "key": "record_key.2026-10"
+    },
+    {
+      "area": "去重键覆盖",
+      "name": "疑似重复订单行（近 3 个月，按订单号+货号+下单时间）",
+      "status": "red",
+      "detail": "83 行",
+      "note": "需要去重",
+      "key": "record_key.dups"
+    },
+    {
+      "area": "引用完整性",
+      "name": "外键孤儿行（已检查 20/20 个外键）",
+      "status": "ok",
+      "detail": "0 行",
+      "note": "全部外键均无孤儿行",
+      "key": "fk.orphans"
+    },
+    {
+      "area": "进销存勾稽",
+      "name": "单据总数",
+      "status": "gray",
+      "detail": "6,676",
+      "note": "",
+      "key": "inv.docs"
+    },
+    {
+      "area": "进销存勾稽",
+      "name": "已软删除单据",
+      "status": "gray",
+      "detail": "478",
+      "note": "",
+      "key": "inv.deleted_docs"
+    },
+    {
+      "area": "进销存勾稽",
+      "name": "无明细行的空单据",
+      "status": "ok",
+      "detail": "0",
+      "note": "正常",
+      "key": "inv.empty_docs"
+    },
+    {
+      "area": "进销存勾稽",
+      "name": "total_count 与明细合计不符（明细数量完整）",
+      "status": "yellow",
+      "detail": "903",
+      "note": "需要处理",
+      "key": "inv.qty_mismatch"
+    },
+    {
+      "area": "进销存勾稽",
+      "name": "amount 与明细合计不符",
+      "status": "yellow",
+      "detail": "903",
+      "note": "需要处理",
+      "key": "inv.amount_mismatch"
+    },
+    {
+      "area": "进销存勾稽",
+      "name": "明细 amount ≠ 数量 × 单价",
+      "status": "yellow",
+      "detail": "1,359",
+      "note": "需要处理",
+      "key": "inv.line_math"
+    },
+    {
+      "area": "进销存勾稽",
+      "name": "挂在已软删除单据下的明细行",
+      "status": "yellow",
+      "detail": "3,958",
+      "note": "",
+      "key": "inv.details_under_deleted"
+    },
+    {
+      "area": "进销存勾稽",
+      "name": "未关联商品身份的明细",
+      "status": "red",
+      "detail": "1,392",
+      "note": "需要处理",
+      "key": "inv.no_identity"
+    },
+    {
+      "area": "进销存勾稽",
+      "name": "↳ 其中货号在档案中（本应能匹配）",
+      "status": "red",
+      "detail": "917",
+      "note": "触发器未解析出身份",
+      "key": "inv.matchable_no_identity"
+    },
+    {
+      "area": "进销存勾稽",
+      "name": "↳ 上述明细的金额合计",
+      "status": "gray",
+      "detail": "20,115,457.13",
+      "note": "统计若未过滤 deleted_at 会虚增此金额",
+      "key": "inv.details_under_deleted_amount"
+    },
+    {
+      "area": "商品档案",
+      "name": "跨品牌重复货号",
+      "status": "yellow",
+      "detail": "1",
+      "note": "同一货号出现在多个品牌档案",
+      "key": "arch.dup_sku"
+    },
+    {
+      "area": "商品档案",
+      "name": "档案货号未登记到身份表",
+      "status": "ok",
+      "detail": "0",
+      "note": "正常",
+      "key": "arch.no_identity"
+    },
+    {
+      "area": "商品档案",
+      "name": "cbanner_mens_products 图片路径缺失",
+      "status": "gray",
+      "detail": "260/19,675（1.3%）",
+      "note": "与上周持平｜19,243 行无导入时间戳｜最近导入：2026-09-15 18:09:40.781897+08:00",
+      "key": "arch.cbanner_mens_products.no_image_pct"
+    },
+    {
+      "area": "商品档案",
+      "name": "cbanner_womens_products 图片路径缺失",
+      "status": "gray",
+      "detail": "2,992/15,958（18.7%）",
+      "note": "与上周持平｜15,940 行无导入时间戳｜最近导入：2026-10-06 14:01:18.048977+08:00",
+      "key": "arch.cbanner_womens_products.no_image_pct"
+    },
+    {
+      "area": "商品档案",
+      "name": "yandou_products 图片路径缺失",
+      "status": "gray",
+      "detail": "14,011/17,261（81.2%）",
+      "note": "与上周持平｜17,261 行无导入时间戳｜最近导入：从未",
+      "key": "arch.yandou_products.no_image_pct"
+    },
+    {
+      "area": "商品档案",
+      "name": "eblan_products 图片路径缺失",
+      "status": "gray",
+      "detail": "182/10,259（1.8%）",
+      "note": "与上周持平｜10,255 行无导入时间戳｜最近导入：2026-09-11 17:11:05.309138+08:00",
+      "key": "arch.eblan_products.no_image_pct"
+    },
+    {
+      "area": "商品档案",
+      "name": "smiley_products 图片路径缺失",
+      "status": "gray",
+      "detail": "0/442（0.0%）",
+      "note": "与上周持平｜最近导入：2026-08-10 10:56:18.464891+08:00",
+      "key": "arch.smiley_products.no_image_pct"
+    },
+    {
+      "area": "商品档案",
+      "name": "ni_products 图片路径缺失",
+      "status": "gray",
+      "detail": "0/87（0.0%）",
+      "note": "与上周持平｜87 行无导入时间戳｜最近导入：从未",
+      "key": "arch.ni_products.no_image_pct"
+    },
+    {
+      "area": "商品档案",
+      "name": "manual_product_archive_31 图片路径缺失",
+      "status": "gray",
+      "detail": "37/37（100.0%）",
+      "note": "与上周持平｜最近导入：2026-09-15 16:02:02.497052+08:00",
+      "key": "arch.manual_product_archive_31.no_image_pct"
+    },
+    {
+      "area": "运维信号",
+      "name": "数据库大小",
+      "status": "gray",
+      "detail": "185 GB",
+      "note": "",
+      "key": null
+    },
+    {
+      "area": "运维信号",
+      "name": "超过 7 天未 ANALYZE 的大表",
+      "status": "yellow",
+      "detail": "24 张",
+      "note": "统计信息陈旧会拖慢查询计划",
+      "key": "ops.stale_stats"
+    },
+    {
+      "area": "运维信号",
+      "name": "精确为空的表",
+      "status": "gray",
+      "detail": "9 张",
+      "note": "data_quality_issues、dewu_orders_2027、dewu_orders_default、jst_aftersale_returns_2027、jst_aftersale_returns_default、jst_monthly_orders_2023、jst_monthly_orders_2027、jst_monthly_orders_default、product_style_entities",
+      "key": "ops.empty_tables"
+    }
+  ],
+  "values": {
+    "rows.inventory_records": 6676,
+    "bytes.inventory_records": 6103040,
+    "rows.inventory_details": 120959,
+    "bytes.inventory_details": 127434752,
+    "rows.suppliers": 1051,
+    "bytes.suppliers": 2048000,
+    "rows.warehouses": 37,
+    "bytes.warehouses": 98304,
+    "rows.cbanner_mens_products": 19675,
+    "bytes.cbanner_mens_products": 70868992,
+    "rows.cbanner_womens_products": 15958,
+    "bytes.cbanner_womens_products": 53469184,
+    "rows.yandou_products": 17261,
+    "bytes.yandou_products": 60538880,
+    "rows.eblan_products": 10259,
+    "bytes.eblan_products": 39403520,
+    "rows.smiley_products": 442,
+    "bytes.smiley_products": 1703936,
+    "rows.ni_products": 87,
+    "bytes.ni_products": 319488,
+    "rows.manual_product_archive_31": 37,
+    "bytes.manual_product_archive_31": 245760,
+    "rows.product_archive_identities": 63742,
+    "bytes.product_archive_identities": 35315712,
+    "rows.product_size_group_mappings": 61616,
+    "bytes.product_size_group_mappings": 24723456,
+    "rows.product_goods_overrides": 21793,
+    "bytes.product_goods_overrides": 5677056,
+    "rows.jst_monthly_orders": 14488242,
+    "bytes.jst_monthly_orders": 27914797056,
+    "rows.jst_product_price": 9303194,
+    "bytes.jst_product_price": 7352672256,
+    "rows.jst_daily_stock": 22264560,
+    "bytes.jst_daily_stock": 7011024896,
+    "rows.jst_size_stock_snapshots": 11473462,
+    "bytes.jst_size_stock_snapshots": 2325831680,
+    "rows.jst_daily_sales": 1252136,
+    "bytes.jst_daily_sales": 2759368704,
+    "rows.jst_purchase_inbound_daily": 3665807,
+    "bytes.jst_purchase_inbound_daily": 2489286656,
+    "rows.jst_full_stock": 248528,
+    "bytes.jst_full_stock": 272277504,
+    "rows.jst_stock_summary": 31277,
+    "bytes.jst_stock_summary": 24346624,
+    "rows.jst_stock_summary_snapshots": 2362613,
+    "bytes.jst_stock_summary_snapshots": 501047296,
+    "rows.jst_size_stock": 159574,
+    "bytes.jst_size_stock": 64372736,
+    "rows.jst_product_profiles": 418201,
+    "bytes.jst_product_profiles": 720625664,
+    "rows.jst_aftersale_returns": 1518213,
+    "bytes.jst_aftersale_returns": 4040597504,
+    "rows.vip_daily_sales": 15397656,
+    "bytes.vip_daily_sales": 23385243648,
+    "rows.vip_product_ops_snapshots": 7992301,
+    "bytes.vip_product_ops_snapshots": 11997888512,
+    "rows.vip_product_daily_snapshots": 1178991,
+    "bytes.vip_product_daily_snapshots": 1833000960,
+    "rows.vip_product_detail_daily": 252923,
+    "bytes.vip_product_detail_daily": 692011008,
+    "rows.vip_product_ops": 70049,
+    "bytes.vip_product_ops": 218505216,
+    "rows.gj_merged_product_info": 7439053,
+    "bytes.gj_merged_product_info": 10053402624,
+    "rows.dewu_orders": 116733,
+    "bytes.dewu_orders": 107487232,
+    "rows.fine_table_snapshot_refs_2026": 12690483,
+    "bytes.fine_table_snapshot_refs_2026": 5521694720,
+    "rows.fine_table_snapshot_batches": 3505,
+    "bytes.fine_table_snapshot_batches": 630784,
+    "rows.product_goods_detail_snapshots": 12688951,
+    "bytes.product_goods_detail_snapshots": 20584955904,
+    "rows.product_goods_historical_orders": 67732,
+    "bytes.product_goods_historical_orders": 24166400,
+    "rows.product_goods_historical_sales": 1840831,
+    "bytes.product_goods_historical_sales": 716513280,
+    "rows.product_tag_assignments": 563681,
+    "bytes.product_tag_assignments": 241827840,
+    "rows.operation_logs": 10524,
+    "bytes.operation_logs": 17383424,
+    "null.inventory_records.date_value": 0.0,
+    "null.inventory_records.total_count": 5.4074,
+    "null.inventory_records.supplier": 3.3403,
+    "null.inventory_details.unit_price": 0.5605,
+    "null.inventory_details.amount": 0.2629,
+    "null.inventory_details.product_identity_id": 1.1508,
+    "null.inventory_details.product_code": 0.2984,
+    "null.inventory_details.color_spec": 0.3001,
+    "null.cbanner_mens_products.sku": 0.0,
+    "null.cbanner_mens_products.product_name": 0.0254,
+    "null.cbanner_mens_products.cost": 0.7675,
+    "null.cbanner_mens_products.image_path": 1.3215,
+    "null.cbanner_mens_products.product_level": 21.0521,
+    "null.cbanner_mens_products.group_name": 14.77,
+    "null.cbanner_mens_products.category": 6.9479,
+    "null.cbanner_mens_products.last_imported_at": 97.8043,
+    "null.cbanner_womens_products.sku": 0.0,
+    "null.cbanner_womens_products.product_name": 0.1629,
+    "null.cbanner_womens_products.cost": 0.1567,
+    "null.cbanner_womens_products.image_path": 18.7492,
+    "null.cbanner_womens_products.product_level": 73.4491,
+    "null.cbanner_womens_products.group_name": 0.0,
+    "null.cbanner_womens_products.category": 6.3542,
+    "null.cbanner_womens_products.last_imported_at": 99.8872,
+    "null.yandou_products.sku": 0.0,
+    "null.yandou_products.product_name": 0.0116,
+    "null.yandou_products.cost": 0.1101,
+    "null.yandou_products.image_path": 81.1714,
+    "null.yandou_products.product_level": 100.0,
+    "null.yandou_products.group_name": 100.0,
+    "null.yandou_products.category": 9.1188,
+    "null.yandou_products.last_imported_at": 100.0,
+    "null.eblan_products.sku": 0.0,
+    "null.eblan_products.product_name": 0.0682,
+    "null.eblan_products.cost": 0.0292,
+    "null.eblan_products.image_path": 1.7741,
+    "null.eblan_products.product_level": 30.2954,
+    "null.eblan_products.group_name": 99.9123,
+    "null.eblan_products.category": 2.6513,
+    "null.eblan_products.last_imported_at": 99.961,
+    "null.smiley_products.sku": 0.0,
+    "null.smiley_products.product_name": 0.0,
+    "null.smiley_products.cost": 12.6697,
+    "null.smiley_products.image_path": 0.0,
+    "null.smiley_products.product_level": 100.0,
+    "null.smiley_products.group_name": 100.0,
+    "null.smiley_products.category": 13.5747,
+    "null.smiley_products.last_imported_at": 41.8552,
+    "null.ni_products.sku": 0.0,
+    "null.ni_products.product_name": 0.0,
+    "null.ni_products.cost": 1.1494,
+    "null.ni_products.image_path": 0.0,
+    "null.ni_products.product_level": 100.0,
+    "null.ni_products.group_name": 0.0,
+    "null.ni_products.category": 100.0,
+    "null.ni_products.last_imported_at": 100.0,
+    "null.manual_product_archive_31.sku": 0.0,
+    "null.manual_product_archive_31.product_name": 0.0,
+    "null.manual_product_archive_31.cost": 0.0,
+    "null.manual_product_archive_31.image_path": 100.0,
+    "null.manual_product_archive_31.product_level": 100.0,
+    "null.manual_product_archive_31.group_name": 0.0,
+    "null.manual_product_archive_31.category": 24.3243,
+    "null.manual_product_archive_31.last_imported_at": 0.0,
+    "null.jst_monthly_orders_2026.order_time_at": 0.0,
+    "null.jst_monthly_orders_2026.product_code": 0.0,
+    "null.jst_monthly_orders_2026.cost_price": 100.0,
+    "null.jst_monthly_orders_2026.category": 100.0,
+    "null.jst_monthly_orders_2026.registered_qty": 100.0,
+    "null.jst_monthly_orders_2026.actual_return_qty": 100.0,
+    "null.jst_monthly_orders_2026.address": 100.0,
+    "null.jst_monthly_orders_2026.shop_style_code": 100.0,
+    "null.jst_product_price.latest_purchase_price~window": 25.5282,
+    "null.jst_product_price.cost_unit_price~window": 72.7944,
+    "null.jst_product_price.retail_price~window": 89.5036,
+    "null.jst_product_price.member_price~window": 100.0,
+    "null.vip_product_ops_snapshots.goods_code~window": 0.0,
+    "null.vip_product_ops_snapshots.goods_tag~window": 61.9284,
+    "null.vip_product_detail_daily.shop_code": 100.0,
+    "null.gj_merged_product_info.goods_code~window": 0.0,
+    "null.gj_merged_product_info.disabled_flag~window": 94.3109,
+    "null.jst_full_stock.safety_stock_min_qty": 100.0,
+    "null.jst_product_profiles.product_code": 0.0,
+    "null.suppliers.name": 0.0,
+    "null.suppliers.contact": 95.5281,
+    "gap.jst_daily_stock": 0,
+    "gap.jst_daily_sales": 0,
+    "gap.vip_daily_sales": 0,
+    "gap.product_goods_detail_snapshots": 0,
+    "gap.dewu_orders": 0,
+    "gap.fine_table_snapshot_refs_2026": 8,
+    "gap.jst_purchase_inbound_daily": 0,
+    "gap.vip_product_daily_snapshots": 12,
+    "record_key.2026-05": 0.001,
+    "record_key.2026-06": 0.001,
+    "record_key.2026-07": 100.0,
+    "record_key.2026-08": 100.0,
+    "record_key.2026-09": 100.0,
+    "record_key.2026-10": 100.0,
+    "record_key.dups": 83,
+    "fk.orphans": 0,
+    "inv.docs": 6676,
+    "inv.deleted_docs": 478,
+    "inv.empty_docs": 0,
+    "inv.qty_mismatch": 903,
+    "inv.amount_mismatch": 903,
+    "inv.line_math": 1359,
+    "inv.details_under_deleted": 3958,
+    "inv.no_identity": 1392,
+    "inv.matchable_no_identity": 917,
+    "inv.details_under_deleted_amount": 20115457.13,
+    "arch.dup_sku": 1,
+    "arch.no_identity": 0,
+    "arch.cbanner_mens_products.no_image_pct": 1.321,
+    "arch.cbanner_womens_products.no_image_pct": 18.749,
+    "arch.yandou_products.no_image_pct": 81.171,
+    "arch.eblan_products.no_image_pct": 1.774,
+    "arch.smiley_products.no_image_pct": 0.0,
+    "arch.ni_products.no_image_pct": 0.0,
+    "arch.manual_product_archive_31.no_image_pct": 100.0,
+    "ops.stale_stats": 24,
+    "ops.empty_tables": 9
+  },
+  "failures": [],
+  "latest": [
+    {
+      "earliest_recent": "2026-07-11",
+      "latest_date": "2026-10-09",
+      "covered_dates": 91,
+      "label": "聚水潭库存快照",
+      "table": "jst_daily_stock",
+      "must_be_daily": true,
+      "days_behind_yesterday": 0
+    },
+    {
+      "earliest_recent": "2026-07-11",
+      "latest_date": "2026-10-08",
+      "covered_dates": 90,
+      "label": "聚水潭销售日报",
+      "table": "jst_daily_sales",
+      "must_be_daily": true,
+      "days_behind_yesterday": 0
+    },
+    {
+      "earliest_recent": "2026-07-11",
+      "latest_date": "2026-10-08",
+      "covered_dates": 90,
+      "label": "唯品会销售日报",
+      "table": "vip_daily_sales",
+      "must_be_daily": true,
+      "days_behind_yesterday": 0
+    },
+    {
+      "earliest_recent": "2026-07-11",
+      "latest_date": "2026-10-08",
+      "covered_dates": 90,
+      "label": "商品明细快照",
+      "table": "product_goods_detail_snapshots",
+      "must_be_daily": true,
+      "days_behind_yesterday": 0
+    },
+    {
+      "earliest_recent": "2026-07-11",
+      "latest_date": "2026-10-08",
+      "covered_dates": 90,
+      "label": "得物订单",
+      "table": "dewu_orders",
+      "must_be_daily": true,
+      "days_behind_yesterday": 0
+    },
+    {
+      "earliest_recent": "2026-07-11",
+      "latest_date": "2026-10-08",
+      "covered_dates": 82,
+      "label": "精细表快照明细",
+      "table": "fine_table_snapshot_refs_2026",
+      "must_be_daily": true,
+      "days_behind_yesterday": 0
+    },
+    {
+      "earliest_recent": "2026-07-11",
+      "latest_date": "2026-10-08",
+      "covered_dates": 90,
+      "label": "聚水潭采购入库日报",
+      "table": "jst_purchase_inbound_daily",
+      "must_be_daily": false,
+      "days_behind_yesterday": 0
+    },
+    {
+      "earliest_recent": "2026-07-11",
+      "latest_date": "2026-10-07",
+      "covered_dates": 77,
+      "label": "唯品会商品日快照",
+      "table": "vip_product_daily_snapshots",
+      "must_be_daily": false,
+      "days_behind_yesterday": 1
+    }
+  ]
+}

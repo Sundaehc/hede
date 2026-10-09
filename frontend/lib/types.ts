@@ -716,6 +716,8 @@ export type GeneralCustomerShopItem = {
   id: number
   customer_name: string
   shop_name: string
+  is_active: boolean
+  has_history: boolean
   sort_order: number
   unit_count: number
   created_at: string | null
@@ -746,6 +748,7 @@ export type GeneralCustomerUnitItem = {
   sort_order: number
   customer_name: string
   shop_name: string
+  shop_is_active: boolean
   created_at: string | null
   updated_at: string | null
 }

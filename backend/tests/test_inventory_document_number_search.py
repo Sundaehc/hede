@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from sqlalchemy import create_engine, event
 
-from domain.inventory_schema import INVENTORY_TABLE, WAREHOUSE_TABLE
+from domain.inventory_schema import GENERAL_CUSTOMER_SHOP_TABLE, GENERAL_CUSTOMER_UNIT_TABLE, INVENTORY_TABLE, SUPPLIER_BRAND_TABLE, SUPPLIER_TABLE, WAREHOUSE_TABLE
 from storage.inventory_repository import InventoryRepository
 
 
@@ -61,6 +61,10 @@ def test_list_records_supports_brand_and_multiple_filter_values():
     ))
     INVENTORY_TABLE.create(engine)
     WAREHOUSE_TABLE.create(engine)
+    SUPPLIER_BRAND_TABLE.create(engine)
+    SUPPLIER_TABLE.create(engine)
+    GENERAL_CUSTOMER_SHOP_TABLE.create(engine)
+    GENERAL_CUSTOMER_UNIT_TABLE.create(engine)
     with engine.begin() as connection:
         connection.execute(WAREHOUSE_TABLE.insert(), [
             {"id": 1, "brand": "Brand-A", "name": "Warehouse-A1"},

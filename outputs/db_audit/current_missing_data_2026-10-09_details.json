@@ -1,0 +1,140 @@
+{
+  "fine_batch_brand_coverage": [
+    {
+      "brand": "cbanner_mens",
+      "first_date": "2026-07-11",
+      "last_date": "2026-10-08",
+      "batch_count": 82,
+      "zero_row_batches": 0
+    },
+    {
+      "brand": "cbanner_womens",
+      "first_date": "2026-07-11",
+      "last_date": "2026-10-08",
+      "batch_count": 82,
+      "zero_row_batches": 0
+    },
+    {
+      "brand": "eblan",
+      "first_date": "2026-07-11",
+      "last_date": "2026-10-08",
+      "batch_count": 82,
+      "zero_row_batches": 0
+    },
+    {
+      "brand": "yandou",
+      "first_date": "2026-07-11",
+      "last_date": "2026-10-08",
+      "batch_count": 82,
+      "zero_row_batches": 0
+    }
+  ],
+  "fine_gap_batches": [],
+  "smiley_missing_costs": [
+    {
+      "total": 442,
+      "null_cost": 56,
+      "zero_cost": 0
+    }
+  ],
+  "inventory_identity_active_split": [
+    {
+      "active_document": false,
+      "missing_identity": 61,
+      "missing_product_code": 61
+    },
+    {
+      "active_document": true,
+      "missing_identity": 1331,
+      "missing_product_code": 300
+    }
+  ],
+  "fine_latest_brand_totals": [
+    {
+      "brand": "cbanner_mens",
+      "snapshot_date": "2026-10-08",
+      "total_rows": 19663,
+      "actual_refs": 19663
+    },
+    {
+      "brand": "cbanner_womens",
+      "snapshot_date": "2026-10-08",
+      "total_rows": 15873,
+      "actual_refs": 15873
+    },
+    {
+      "brand": "eblan",
+      "snapshot_date": "2026-10-08",
+      "total_rows": 10259,
+      "actual_refs": 10259
+    },
+    {
+      "brand": "yandou",
+      "snapshot_date": "2026-10-08",
+      "total_rows": 17261,
+      "actual_refs": 17261
+    }
+  ],
+  "recent_task_failures": [
+    {
+      "task_name": "HedeImportDewuOrders",
+      "started_at": "2026-10-09 09:50:02.825112+08:00",
+      "finished_at": "2026-10-09 09:50:03.981221+08:00",
+      "status": "failed",
+      "exit_code": 1,
+      "error_summary": "D:\\python\\Lib\\site-packages\\openpyxl\\styles\\stylesheet.py:237: UserWarning: Workbook contains no default style, apply openpyxl's default\n  warn(\"Workbook contains no default style, apply openpyxl's default\")\n[FAILED] ValueError: 得物订单文件缺少字段 ['订单类型', 'spuID', 'skuID', 'SKU货号', '品牌', '规格', '数量', '出价金额（元）', '卖家承担优惠金额（元）', '消费者邮费补贴金额（元）', '预计收入金额（元）', '剩余发货时效', '关闭原因', '配送方', '物流公司（卖家>平台or买家）', '物流单号（卖家>平台or买家）', '预约单号', '订单状态', '订单来源', '得物收货地址', '收件人姓名', '收件人手机号', '收件人省', '收件人市', '收件人区', '收件人街道', '收件人详细地址', '服务保障', '直发预约上门取件时间', '直发发货仓', '用户标识', '订单备注', '订单标记', '买家下单时间', '买家支付时间', '承诺送达时间', '卖家发货时间', '平台收货时间（现货）', '平台发货时间（现货）', '订单关闭时间', '意向金（元）', '全款金额（元）', '子运单号', '第三方订单号', '现场取票地址', '是否有刻字备注', '买家备注', '定制商品明细', '预订单号', '预约门店', '核销门店', '核销时间', '订单标识', '预约上门取件承运商', '预约上门取件运单号', '预约上门取件取件码', 'SN码', 'IMEI1', 'IMEI2', '开放预约时间']: \\\\Hede\\运营组资料\\影刀\\商品库存\\千百度得物订单.xlsx"
+    },
+    {
+      "task_name": "HedeImportDewuOrders",
+      "started_at": "2026-10-09 09:20:02.060272+08:00",
+      "finished_at": "2026-10-09 09:20:04.344095+08:00",
+      "status": "failed",
+      "exit_code": 1,
+      "error_summary": "D:\\python\\Lib\\site-packages\\openpyxl\\styles\\stylesheet.py:237: UserWarning: Workbook contains no default style, apply openpyxl's default\n  warn(\"Workbook contains no default style, apply openpyxl's default\")\n[FAILED] ValueError: 得物订单文件缺少字段 ['订单类型', 'spuID', 'skuID', 'SKU货号', '品牌', '规格', '数量', '出价金额（元）', '卖家承担优惠金额（元）', '消费者邮费补贴金额（元）', '预计收入金额（元）', '剩余发货时效', '关闭原因', '配送方', '物流公司（卖家>平台or买家）', '物流单号（卖家>平台or买家）', '预约单号', '订单状态', '订单来源', '得物收货地址', '收件人姓名', '收件人手机号', '收件人省', '收件人市', '收件人区', '收件人街道', '收件人详细地址', '服务保障', '直发预约上门取件时间', '直发发货仓', '用户标识', '订单备注', '订单标记', '买家下单时间', '买家支付时间', '承诺送达时间', '卖家发货时间', '平台收货时间（现货）', '平台发货时间（现货）', '订单关闭时间', '意向金（元）', '全款金额（元）', '子运单号', '第三方订单号', '现场取票地址', '是否有刻字备注', '买家备注', '定制商品明细', '预订单号', '预约门店', '核销门店', '核销时间', '订单标识', '预约上门取件承运商', '预约上门取件运单号', '预约上门取件取件码', 'SN码', 'IMEI1', 'IMEI2', '开放预约时间']: \\\\Hede\\运营组资料\\影刀\\商品库存\\千百度得物订单.xlsx"
+    }
+  ],
+  "monthly_order_range": [
+    {
+      "month": "2026-05-01",
+      "earliest_order": "2026-05-01 00:00:00",
+      "latest_order": "2026-05-30 08:16:52",
+      "records": 526578,
+      "null_record_key": 7
+    },
+    {
+      "month": "2026-06-01",
+      "earliest_order": "2026-06-01 00:00:00",
+      "latest_order": "2026-06-30 14:17:59",
+      "records": 412075,
+      "null_record_key": 6
+    },
+    {
+      "month": "2026-07-01",
+      "earliest_order": "2026-07-01 00:08:42",
+      "latest_order": "2026-07-31 23:59:58",
+      "records": 210432,
+      "null_record_key": 210432
+    },
+    {
+      "month": "2026-08-01",
+      "earliest_order": "2026-08-01 00:00:00",
+      "latest_order": "2026-08-31 23:59:58",
+      "records": 248996,
+      "null_record_key": 248996
+    },
+    {
+      "month": "2026-09-01",
+      "earliest_order": "2026-09-01 00:00:00",
+      "latest_order": "2026-09-30 23:58:53",
+      "records": 277636,
+      "null_record_key": 277636
+    },
+    {
+      "month": "2026-10-01",
+      "earliest_order": "2026-10-01 00:00:00",
+      "latest_order": "2026-10-08 23:59:44",
+      "records": 74846,
+      "null_record_key": 74846
+    }
+  ]
+}

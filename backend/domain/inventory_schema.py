@@ -269,6 +269,7 @@ def build_general_customer_shop_table() -> Table:
             Column(field.name, _column_type(field), nullable=field.name != "customer_name")
             for field in GENERAL_CUSTOMER_SHOP_FIELDS
         ],
+        Column("is_active", Boolean, nullable=False, server_default="true"),
         Column("sort_order", Integer, nullable=False, server_default="0"),
         Column("created_at", DateTime(timezone=True), server_default=func.date_trunc('minute', func.now())),
         Column("updated_at", DateTime(timezone=True), server_default=func.date_trunc('minute', func.now()), onupdate=func.date_trunc('minute', func.now())),

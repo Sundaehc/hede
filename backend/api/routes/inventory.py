@@ -4682,6 +4682,7 @@ def download_inventory_template(kind: str):
         "purchase": "进货单", "purchase_return": "进货退货单",
         "sale": "销售单", "sale_return": "销售退货单", "accounting": "应收应付",
         "stock_loss": "报损单", "stock_gain": "报溢单",
+        "transfer": "同价调拨单",
     }
     return _stream_excel_workbook(workbook, f"{names[kind]}通用导入模板.xlsx")
 
@@ -4693,7 +4694,15 @@ def _validate_inventory_template_master_data(repository, documents) -> None:
     customer_names = {document.supplier for document in documents if document.document_type in {
         "批发销售单", "批发销售退货单", "应收款增加", "应收款减少",
     }}
-    warehouse_names = {document.warehouse for document in documents if document.warehouse}
+    warehouse_names = {
+        warehouse
+        for document in documents
+        for warehouse in (
+            document.supplier if document.document_type == "同价调拨单" else "",
+            document.warehouse,
+        )
+        if warehouse
+    }
     subject_names = {
         str(detail.get("product_name") or "").strip()
         for document in documents
@@ -4710,8 +4719,8 @@ def _validate_inventory_template_master_data(repository, documents) -> None:
         if unknown := warehouse_names - known:
             missing.append(f"仓库（仓库管理）：{'、'.join(sorted(unknown))}")
     if customer_names:
-        known = {str(row.get("shop_name") or "").strip() for row in repository.list_general_customer_shops()}
-        known.update(str(row.get("unit_name") or "").strip() for row in repository.list_general_customer_units())
+        known = {str(row.get("shop_name") or "").strip() for row in repository.list_general_customer_shops() if row.get("is_active", True)}
+        known.update(str(row.get("unit_name") or "").strip() for row in repository.list_general_customer_units() if row.get("shop_is_active", True))
         if unknown := customer_names - known:
             missing.append(f"一般客户（一般客户管理）：{'、'.join(sorted(unknown))}")
     if subject_names:
@@ -4739,7 +4748,11 @@ async def preview_inventory_template(request: Request, file: UploadFile = None):
     if kind != "accounting":
         repository = request.app.state.inventory_repository
         for document in documents:
-            inferred_brand, source = _infer_inventory_template_brand(repository, document.supplier, document.warehouse)
+            inferred_brand, source = _infer_inventory_template_brand(
+                repository,
+                "" if document.document_type == "同价调拨单" else document.supplier,
+                document.warehouse,
+            )
             if inferred_brand:
                 brand_by_key[document.key] = inferred_brand
                 brand_sources[document.key] = source
@@ -4798,7 +4811,11 @@ async def import_inventory_template(request: Request, file: UploadFile = None):
         if kind == "accounting":
             details = document.rows
         else:
-            inferred_brand, _ = _infer_inventory_template_brand(repository, document.supplier, document.warehouse)
+            inferred_brand, _ = _infer_inventory_template_brand(
+                repository,
+                "" if document.document_type == "同价调拨单" else document.supplier,
+                document.warehouse,
+            )
             document_brand = inferred_brand or brand
             if not document_brand:
                 raise HTTPException(status_code=400, detail=f"{label}：无法根据往来单位或仓库判断品牌，请选择备用品牌")
@@ -5036,6 +5053,10 @@ async def import_purchase_inventory(request: Request, file: UploadFile = None):
     created_records: list[dict[str, object]] = []
     replaced_records: list[dict[str, object]] = []
     for plan in plans:
+        try:
+            repository.validate_customer_record({"document_type": document_type, "supplier": plan["supplier"]})
+        except ValueError as error:
+            raise HTTPException(status_code=400, detail=str(error)) from error
         current_target = repository.get_record_for_append(
             date_value=plan["date"], document_type=document_type, supplier=plan["supplier"],
             warehouse=plan["warehouse"], summary=plan["summary"], allow_empty_warehouse=is_purchase_order_import,
@@ -5092,7 +5113,10 @@ async def import_purchase_inventory(request: Request, file: UploadFile = None):
             replaced_details += len(detail_payloads)
             replaced_records.append(doc)
         else:
-            doc = repository.create_record(doc_payload)
+            try:
+                doc = repository.create_record(doc_payload)
+            except ValueError as error:
+                raise HTTPException(status_code=400, detail=str(error)) from error
             created_records.append(doc)
             created_docs += 1
             for detail in details:
@@ -5213,6 +5237,11 @@ def update_purchase_order_requirement(request: Request, brand: str, payload: dic
         },
         "message": "保存成功",
     }
+
+
+@router.get("/inventory/brands")
+def list_inventory_brands(request: Request):
+    return {"items": request.app.state.inventory_repository.list_inventory_brand_options()}
 
 
 @router.get("/inventory/general-customer-shops")
@@ -5420,7 +5449,10 @@ def delete_general_customer_brand(request: Request, brand_id: int):
     before = repository.get_general_customer_brand(brand_id)
     if before is None:
         raise HTTPException(status_code=404, detail="Brand not found")
-    result = repository.delete_general_customer_brand(brand_id)
+    try:
+        result = repository.delete_general_customer_brand(brand_id)
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
     if result == "not_found":
         raise HTTPException(status_code=404, detail="Brand not found")
     label = str(before.get("name") or brand_id).strip()
@@ -5504,7 +5536,10 @@ def update_general_customer_shop(request: Request, shop_id: int, payload: dict):
     before = repository.get_general_customer_shop(shop_id)
     if before is None:
         raise HTTPException(status_code=404, detail="Shop not found")
-    record = repository.update_general_customer_shop(shop_id, payload)
+    try:
+        record = repository.update_general_customer_shop(shop_id, payload)
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
     if record is None:
         raise HTTPException(status_code=404, detail="Shop not found")
     label = f"{record.get('customer_name') or ''} / {record.get('shop_name') or ''}".strip()
@@ -5524,6 +5559,28 @@ def update_general_customer_shop(request: Request, shop_id: int, payload: dict):
     return {"item": record, "message": "更新成功"}
 
 
+@router.put("/inventory/general-customer-shops/{shop_id}/status")
+def set_general_customer_shop_status(request: Request, shop_id: int, payload: dict):
+    repository = request.app.state.inventory_repository
+    is_active = payload.get("is_active")
+    if not isinstance(is_active, bool):
+        raise HTTPException(status_code=400, detail="is_active 必须为布尔值")
+    before = repository.get_general_customer_shop(shop_id)
+    if before is None:
+        raise HTTPException(status_code=404, detail="Shop not found")
+    item = repository.set_general_customer_shop_status(shop_id, is_active=is_active)
+    if item is None:
+        raise HTTPException(status_code=404, detail="Shop not found")
+    action_label = "启用" if is_active else "停用"
+    label = f"{item.get('customer_name') or ''} / {item.get('shop_name') or ''}".strip()
+    write_operation_log(
+        request, module="general_customer", action="update",
+        entity_type="general_customer_shop", entity_id=shop_id, entity_label=label,
+        summary=f"{action_label}一般客户店铺 {label}", before_data=before, after_data=item,
+    )
+    return {"item": item, "message": f"店铺已{action_label}"}
+
+
 @router.delete("/inventory/general-customer-shops/{shop_id}")
 def delete_general_customer_shop(request: Request, shop_id: int):
     repository = request.app.state.inventory_repository
@@ -5532,19 +5589,21 @@ def delete_general_customer_shop(request: Request, shop_id: int):
         raise HTTPException(status_code=404, detail="Shop not found")
     if not repository.delete_general_customer_shop(shop_id):
         raise HTTPException(status_code=404, detail="Shop not found")
+    after = repository.get_general_customer_shop(shop_id)
+    disabled = after is not None
     label = f"{before.get('customer_name') or ''} / {before.get('shop_name') or ''}".strip()
     write_operation_log(
         request,
         module="general_customer",
-        action="delete",
+        action="update" if disabled else "delete",
         entity_type="general_customer_shop",
         entity_id=shop_id,
         entity_label=label,
-        summary=f"删除一般客户店铺 {label}".strip(),
+        summary=f"{'停用' if disabled else '删除'}一般客户店铺 {label}".strip(),
         before_data=before,
-        after_data=None,
+        after_data=after,
     )
-    return {"message": "删除成功"}
+    return {"item": after, "message": "店铺已有历史业务，已停用，历史单据和查账入口保留" if disabled else "删除成功"}
 
 
 @router.get("/inventory/general-customer-units")
@@ -5561,11 +5620,16 @@ def create_general_customer_unit(request: Request, payload: dict):
     shop = repository.get_general_customer_shop(shop_id)
     if shop is None:
         raise HTTPException(status_code=400, detail="所属店铺不存在")
+    if shop.get("is_active") is False:
+        raise HTTPException(status_code=400, detail="所属店铺已停用，请先启用店铺后再新增单位")
     if not unit_name:
         raise HTTPException(status_code=400, detail="单位名称不能为空")
     if repository.get_general_customer_unit_by_name(shop_id, unit_name):
         raise HTTPException(status_code=400, detail=f"单位 '{unit_name}' 已存在")
-    item = repository.create_general_customer_unit({"shop_id": shop_id, "unit_name": unit_name})
+    try:
+        item = repository.create_general_customer_unit({"shop_id": shop_id, "unit_name": unit_name})
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
     label = f"{shop.get('customer_name') or ''} / {shop.get('shop_name') or ''} / {unit_name}".strip()
     write_operation_log(
         request,
@@ -5625,7 +5689,10 @@ def update_general_customer_unit(request: Request, unit_id: int, payload: dict):
     duplicate = repository.get_general_customer_unit_by_name(shop_id, unit_name)
     if duplicate and int(duplicate.get("id") or 0) != unit_id:
         raise HTTPException(status_code=400, detail=f"单位 '{unit_name}' 已存在")
-    item = repository.update_general_customer_unit(unit_id, {"shop_id": shop_id, "unit_name": unit_name})
+    try:
+        item = repository.update_general_customer_unit(unit_id, {"shop_id": shop_id, "unit_name": unit_name})
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
     if item is None:
         raise HTTPException(status_code=404, detail="Unit not found")
     label = f"{item.get('customer_name') or ''} / {item.get('shop_name') or ''} / {unit_name}".strip()
@@ -5651,7 +5718,11 @@ def delete_general_customer_unit(request: Request, unit_id: int):
     before = repository.get_general_customer_unit(unit_id)
     if before is None:
         raise HTTPException(status_code=404, detail="Unit not found")
-    if not repository.delete_general_customer_unit(unit_id):
+    try:
+        deleted = repository.delete_general_customer_unit(unit_id)
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    if not deleted:
         raise HTTPException(status_code=404, detail="Unit not found")
     label = f"{before.get('customer_name') or ''} / {before.get('shop_name') or ''} / {before.get('unit_name') or ''}".strip()
     write_operation_log(
@@ -5890,6 +5961,10 @@ def create_inventory_record(request: Request, payload: dict):
         payload["date"] = _today_text()
     if "document_type" in payload:
         payload["document_type"] = normalize_document_type(payload.get("document_type"))
+    try:
+        repository.validate_customer_record(payload)
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
     existing = repository.get_record_for_append(
         date_value=payload.get("date"),
         warehouse=payload.get("warehouse"),
@@ -5902,7 +5977,10 @@ def create_inventory_record(request: Request, payload: dict):
             "appended": True,
             "message": "已命中同日期、仓库、单据类型和摘要的单据，可继续在该单据中追加明细",
         }
-    record = repository.create_record(payload)
+    try:
+        record = repository.create_record(payload)
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
     _log_record_operation(request, action="create", prefix="新增单据", after=record)
     return {"item": record, "message": "创建成功"}
 
@@ -5919,7 +5997,10 @@ def update_inventory_record(request: Request, record_id: int, payload: dict):
         payload["document_type"] = normalize_document_type(payload.get("document_type"))
     if handler := _current_account_handler(request):
         payload["handler"] = handler
-    record = repository.update_record(record_id, payload)
+    try:
+        record = repository.update_record(record_id, payload)
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
     if record is None:
         raise HTTPException(status_code=404, detail="Record not found")
     _log_record_operation(request, action="update", prefix="编辑单据", before=before, after=record)

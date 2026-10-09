@@ -1867,6 +1867,10 @@ export type PurchaseImportPayload = {
   decisions?: Record<string, { action: "overwrite" | "new" | "skip"; new_summary?: string }>
 }
 
+export function listInventoryBrands() {
+  return request<{ items: Array<{ value: string; label: string }> }>("/inventory/brands")
+}
+
 export type PurchaseImportPreview = {
   total: number
   conflicts: InventoryTemplateConflict[]
@@ -2033,7 +2037,7 @@ export function updateGeneralCustomerShop(
 }
 
 export function deleteGeneralCustomerShop(id: number) {
-  return request<{ message: string }>(
+  return request<{ item: GeneralCustomerShopItem | null; message: string }>(
     `/inventory/general-customer-shops/${id}`,
     {
       method: "DELETE",
@@ -2130,6 +2134,13 @@ export function listDetails(
   }>(`/inventory/${documentId}/details${suffix}`)
 }
 
+export function setGeneralCustomerShopStatus(id: number, is_active: boolean) {
+  return request<{ item: GeneralCustomerShopItem; message: string }>(
+    `/inventory/general-customer-shops/${id}/status`,
+    { method: "PUT", body: JSON.stringify({ is_active }) }
+  )
+}
+
 export function importPurchaseInventory(payload: PurchaseImportPayload): Promise<InventoryImportResult> {
   return submitPurchaseInventory(payload) as Promise<InventoryImportResult>
 }
@@ -2138,7 +2149,7 @@ export function previewPurchaseInventory(payload: PurchaseImportPayload): Promis
   return submitPurchaseInventory({ ...payload, preview: true }) as Promise<PurchaseImportPreview>
 }
 
-export type InventoryTemplateKind = "purchase" | "purchase_return" | "sale" | "sale_return" | "stock_loss" | "stock_gain" | "accounting"
+export type InventoryTemplateKind = "purchase" | "purchase_return" | "sale" | "sale_return" | "stock_loss" | "stock_gain" | "transfer" | "accounting"
 
 export type InventoryTemplateConflict = {
   key: string

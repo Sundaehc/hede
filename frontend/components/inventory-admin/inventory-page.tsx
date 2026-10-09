@@ -59,6 +59,7 @@ import {
   listGeneralCustomerBrands,
   listGeneralCustomerShops,
   listGeneralCustomerUnits,
+  listInventoryBrands,
   listSuppliers,
   listWarehouseBrands,
   listWarehouses,
@@ -87,6 +88,7 @@ const UNIVERSAL_TEMPLATE_OPTIONS: Array<{ kind: InventoryTemplateKind; label: st
   { kind: "sale_return", label: "销售退货单" },
   { kind: "stock_loss", label: "报损单" },
   { kind: "stock_gain", label: "报溢单" },
+  { kind: "transfer", label: "同价调拨单" },
   { kind: "accounting", label: "应收应付" },
 ]
 const WHOLESALE_DOCUMENT_TYPES = new Set(["批发销售单", "批发销售退货单"])
@@ -755,6 +757,7 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
 
   const [supplierOptions, setSupplierOptions] = useState<SupplierItem[]>([])
   const [warehouseBrandOptions, setWarehouseBrandOptions] = useState<WarehouseBrandItem[]>([])
+  const [inventoryBrandOptions, setInventoryBrandOptions] = useState<SearchableFilterOption[]>([])
   const [warehouseOptions, setWarehouseOptions] = useState<WarehouseItem[]>([])
   const [customerBrandOptions, setCustomerBrandOptions] = useState<GeneralCustomerBrandItem[]>([])
   const [customerShopOptions, setCustomerShopOptions] = useState<GeneralCustomerShopItem[]>([])
@@ -986,7 +989,7 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
   useEffect(() => {
     async function loadOptions() {
       try {
-        const [suppliersRes, warehouseBrandsRes, warehousesRes, customerBrandsRes, customerShopsRes, customerUnitsRes, accountSubjectsRes] = await Promise.all([
+        const [suppliersRes, warehouseBrandsRes, warehousesRes, customerBrandsRes, customerShopsRes, customerUnitsRes, accountSubjectsRes, inventoryBrandsRes] = await Promise.all([
           listSuppliers(),
           listWarehouseBrands(),
           listWarehouses(),
@@ -994,6 +997,7 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
           listGeneralCustomerShops(),
           listGeneralCustomerUnits(),
           listInventoryAccountSubjects(),
+          listInventoryBrands(),
         ])
         setSupplierOptions(suppliersRes.items)
         setWarehouseBrandOptions(warehouseBrandsRes.items)
@@ -1002,6 +1006,7 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
         setCustomerShopOptions(customerShopsRes.items)
         setCustomerUnitOptions(customerUnitsRes.items)
         setAccountSubjectOptions(accountSubjectsRes.items)
+        setInventoryBrandOptions(inventoryBrandsRes.items)
       } catch { /* ignore */ }
     }
     void loadOptions()
@@ -1822,10 +1827,6 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
     value: warehouse.name,
     label: warehouse.name,
   }))
-  const warehouseBrandSelectOptions = warehouseBrandOptions.map((brand) => ({
-    value: brand.name,
-    label: inventoryBrandLabel(brand.name).replace(/仓库$/, ""),
-  }))
   const customerShopSelectOptions = customerShopOptions.map((shop) => ({
     value: shop.shop_name,
     label: `${shop.customer_name} / ${shop.shop_name}`,
@@ -1882,6 +1883,7 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
   const customerHierarchicalOptions = useMemo<HierarchicalOption[]>(() => {
     const shopsByCustomer = new Map<string, GeneralCustomerShopItem[]>()
     for (const shop of customerShopOptions) {
+      if (shop.is_active === false) continue
       const group = shopsByCustomer.get(shop.customer_name) ?? []
       group.push(shop)
       shopsByCustomer.set(shop.customer_name, group)
@@ -2046,7 +2048,7 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
                       <Label className="text-xs text-muted-foreground">品牌</Label>
                       <SearchableMultiFilterInput
                         values={searchBrands}
-                        options={warehouseBrandSelectOptions}
+                        options={inventoryBrandOptions}
                         onChange={setSearchBrands}
                         onSubmit={search}
                         placeholder="选择品牌"

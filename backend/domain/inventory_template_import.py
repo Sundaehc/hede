@@ -20,6 +20,7 @@ TEMPLATE_HEADERS = {
     "sale_return": ("日期", "单据类型", "单位全名", "仓库全名", "经手人", "摘要", "商品编码", "数量", "单价"),
     "stock_loss": ("日期", "单据类型", "仓库全名", "经手人", "摘要", "商品编码", "数量"),
     "stock_gain": ("日期", "单据类型", "仓库全名", "经手人", "摘要", "商品编码", "数量"),
+    "transfer": ("日期", "单据类型", "出货仓库", "入货仓库", "经手人", "摘要", "商品编码", "数量"),
     "accounting": ("日期", "单据类型", "经手人", "单位全名", "摘要", "费用项目名", "总金额"),
 }
 LEGACY_TEMPLATE_HEADERS = {
@@ -36,6 +37,7 @@ TEMPLATE_TYPES = {
     "sale_return": {"批发销售退货单"},
     "stock_loss": {"报损单"},
     "stock_gain": {"报溢单"},
+    "transfer": {"同价调拨单"},
     "accounting": set(ACCOUNTING_DOCUMENT_TYPES),
 }
 
@@ -127,14 +129,20 @@ def read_template_documents(content: bytes) -> tuple[str, str, list[TemplateDocu
                 raise HTTPException(status_code=400, detail=f"Excel 第 {row_number} 行：单据类型与模板不匹配：{document_type}")
             kind = row_kind
             document_date = _date(data.get("单据日期", data.get("日期")), datemode)
-            supplier = _text(data.get("单位全名", data.get("往来单位全名")))
-            warehouse = _text(data.get("仓库全名"))
+            if row_kind == "transfer":
+                supplier = _text(data.get("出货仓库"))
+                warehouse = _text(data.get("入货仓库"))
+            else:
+                supplier = _text(data.get("单位全名", data.get("往来单位全名")))
+                warehouse = _text(data.get("仓库全名"))
             handler = _text(data.get("制单人", data.get("经手人")))
             summary = _text(data.get("摘要"))
             required_fields = {"摘要": summary, "经手人/制单人": handler}
-            if kind not in {"stock_loss", "stock_gain"}:
+            if kind == "transfer":
+                required_fields.update({"出货仓库": supplier, "入货仓库": warehouse})
+            elif kind not in {"stock_loss", "stock_gain"}:
                 required_fields["往来单位"] = supplier
-            if kind != "accounting":
+            if kind not in {"accounting", "transfer"}:
                 required_fields["仓库全名"] = warehouse
             for field, value in required_fields.items():
                 if not value:

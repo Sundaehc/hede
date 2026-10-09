@@ -1,0 +1,37 @@
+{
+  "monthly_order_date_gaps_2026": [
+    {
+      "missing_date": "2026-05-31"
+    }
+  ],
+  "stock_full_history_coverage": [
+    {
+      "first_date": "2026-05-14",
+      "last_date": "2026-10-08",
+      "covered_dates": 148,
+      "gap_count": 0,
+      "missing_dates": null
+    }
+  ],
+  "monthly_order_import_today": [
+    {
+      "task_name": "import_monthly_order_daily",
+      "business_date": "2026-10-09",
+      "status": "success",
+      "finished_at": "2026-10-09 08:25:44.425860+08:00",
+      "imported": "811913",
+      "deleted": "820761",
+      "window_start": "2026-06-30",
+      "window_end": "2026-10-08"
+    }
+  ],
+  "dewu_failure_summary": [
+    {
+      "task_name": "import_dewu_orders_daily",
+      "business_date": "2026-10-09",
+      "status": "failed",
+      "attempts": 2,
+      "finished_at": "2026-10-09 09:50:03.888976+08:00"
+    }
+  ]
+}

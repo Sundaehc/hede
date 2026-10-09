@@ -1,0 +1,196 @@
+{
+  "yandou_columns": [
+    {
+      "index": 36,
+      "header": "唯品价",
+      "sample_value": 278
+    },
+    {
+      "index": 49,
+      "header": "唯品首卖日期",
+      "sample_value": "2022-01-01"
+    },
+    {
+      "index": 56,
+      "header": "现有五天后预计库存（不加未到）",
+      "sample_value": 54.5
+    },
+    {
+      "index": 57,
+      "header": "唯品日常日均",
+      "sample_value": 3.66666666666667
+    },
+    {
+      "index": 58,
+      "header": "唯品预计15天销量",
+      "sample_value": 55
+    },
+    {
+      "index": 59,
+      "header": "其他平台日均销量",
+      "sample_value": 1.63333333333333
+    },
+    {
+      "index": 60,
+      "header": "其他平台15天预计销量",
+      "sample_value": 24.5
+    },
+    {
+      "index": 67,
+      "header": "其他平台21年原始货号总销量",
+      "sample_value": 0
+    },
+    {
+      "index": 68,
+      "header": "唯品平台21年原始货号总销量",
+      "sample_value": 0
+    },
+    {
+      "index": 69,
+      "header": "其他平台22年原始货号总销量",
+      "sample_value": 2138
+    },
+    {
+      "index": 70,
+      "header": "唯品平台22年原始货号总销量",
+      "sample_value": 1349
+    },
+    {
+      "index": 71,
+      "header": "其他平台23年原始货号总销量",
+      "sample_value": 1220
+    },
+    {
+      "index": 72,
+      "header": "唯品平台23年原始货号总销量",
+      "sample_value": 1115
+    },
+    {
+      "index": 73,
+      "header": "原始货号聚水潭库存汇总",
+      "sample_value": 81
+    },
+    {
+      "index": 74,
+      "header": "9:9聚水潭库存",
+      "sample_value": 81
+    },
+    {
+      "index": 89,
+      "header": "原始货号次品仓库存汇总",
+      "sample_value": 0
+    },
+    {
+      "index": 90,
+      "header": "原始货号采购在途数量汇总",
+      "sample_value": 6
+    },
+    {
+      "index": 91,
+      "header": "原始货号已下订单未到数汇总",
+      "sample_value": 0
+    },
+    {
+      "index": 92,
+      "header": "原始货号被打次未到数汇总",
+      "sample_value": 6
+    },
+    {
+      "index": 93,
+      "header": "次品仓库存",
+      "sample_value": 0
+    },
+    {
+      "index": 94,
+      "header": "采购在途数量",
+      "sample_value": 6
+    },
+    {
+      "index": 95,
+      "header": "已下订单未到数",
+      "sample_value": 0
+    },
+    {
+      "index": 96,
+      "header": "被打次未到数",
+      "sample_value": 6
+    },
+    {
+      "index": 97,
+      "header": "下架仓库存",
+      "sample_value": 0
+    },
+    {
+      "index": 107,
+      "header": "唯品（3天）",
+      "sample_value": 11
+    },
+    {
+      "index": 116,
+      "header": "所有平台7天销量原始货号汇总",
+      "sample_value": 31
+    },
+    {
+      "index": 117,
+      "header": "唯品（7天）",
+      "sample_value": 18
+    },
+    {
+      "index": 126,
+      "header": "唯品会",
+      "sample_value": 46
+    },
+    {
+      "index": 127,
+      "header": "唯品(30天）",
+      "sample_value": 3
+    },
+    {
+      "index": 134,
+      "header": "得物挚爱店日销量",
+      "sample_value": ""
+    }
+  ],
+  "neighboring_batches": [
+    {
+      "brand": "cbanner_mens",
+      "snapshot_date": "2026-08-15",
+      "total_rows": 19124
+    },
+    {
+      "brand": "cbanner_womens",
+      "snapshot_date": "2026-08-15",
+      "total_rows": 14928
+    },
+    {
+      "brand": "eblan",
+      "snapshot_date": "2026-08-15",
+      "total_rows": 9990
+    },
+    {
+      "brand": "yandou",
+      "snapshot_date": "2026-08-15",
+      "total_rows": 17253
+    },
+    {
+      "brand": "cbanner_mens",
+      "snapshot_date": "2026-08-24",
+      "total_rows": 19128
+    },
+    {
+      "brand": "cbanner_womens",
+      "snapshot_date": "2026-08-24",
+      "total_rows": 15047
+    },
+    {
+      "brand": "eblan",
+      "snapshot_date": "2026-08-24",
+      "total_rows": 10012
+    },
+    {
+      "brand": "yandou",
+      "snapshot_date": "2026-08-24",
+      "total_rows": 17259
+    }
+  ]
+}
