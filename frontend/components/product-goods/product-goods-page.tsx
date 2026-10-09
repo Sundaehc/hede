@@ -1,5 +1,7 @@
 "use client"
 
+import { useSessionQueryState } from "@/lib/session-query-state"
+
 import {
   useCallback,
   useDeferredValue,
@@ -1167,7 +1169,7 @@ const ProductGoodsGrid = memo(function ProductGoodsGrid({
   visibleColumns: TableColumn[]
 }) {
   return (
-    <div className="relative max-h-[72svh] min-h-[360px] overflow-auto">
+    <div data-scroll-restoration-key="product-goods-table" className="relative max-h-[72svh] min-h-[360px] overflow-auto">
       <table
         style={{ minWidth: tableWidth }}
         className="w-full table-fixed border-separate border-spacing-0 text-[13px]"
@@ -1638,7 +1640,7 @@ const ProductGoodsRiskGrid = memo(function ProductGoodsRiskGrid({
     sizes.length * RISK_SIZE_GROUPS.length * 68
 
   return (
-    <div className="relative max-h-[72svh] min-h-[360px] overflow-auto">
+    <div data-scroll-restoration-key="product-goods-risk-table" className="relative max-h-[72svh] min-h-[360px] overflow-auto">
       <table
         style={{ minWidth: tableWidth }}
         className="w-full table-fixed border-separate border-spacing-0 text-[13px]"
@@ -1794,7 +1796,9 @@ const ProductGoodsRiskGrid = memo(function ProductGoodsRiskGrid({
 
 export function ProductGoodsPage() {
   const { hasPermission } = useAuth()
-  const [brand, setBrand] = useState<Exclude<BrandKey, "all">>(DEFAULT_BRAND)
+  const [brand, setBrand] = useSessionQueryState<Exclude<BrandKey, "all">>("product-goods:brand", DEFAULT_BRAND)
+  const [appliedRouteContext, setAppliedRouteContext] = useSessionQueryState("product-goods:routeContext", "")
+  const routeContextInitializedRef = useRef(false)
   const [routeContextReady, setRouteContextReady] = useState(false)
   const [data, setData] = useState<ProductGoodsResponse>({
     items: [],
@@ -1809,12 +1813,12 @@ export function ProductGoodsPage() {
     snapshot_date: null,
     snapshot_dates: [],
   })
-  const [page, setPage] = useState(1)
-  const [pageSize, setPageSize] = useState(PAGE_SIZE)
+  const [page, setPage] = useSessionQueryState("product-goods:page", 1)
+  const [pageSize, setPageSize] = useSessionQueryState("product-goods:pageSize", PAGE_SIZE)
   const [pageInput, setPageInput] = useState("1")
-  const [queryInput, setQueryInput] = useState("")
-  const [query, setQuery] = useState("")
-  const [filters, setFilters] = useState<ProductGoodsFilter[]>([])
+  const [queryInput, setQueryInput] = useSessionQueryState("product-goods:queryInput", "")
+  const [query, setQuery] = useSessionQueryState("product-goods:query", "")
+  const [filters, setFilters] = useSessionQueryState<ProductGoodsFilter[]>("product-goods:filters", [])
   const [draftFilters, setDraftFilters] = useState<ProductGoodsFilter[]>([])
   const [filterOpen, setFilterOpen] = useState(false)
   const [filterError, setFilterError] = useState("")
@@ -1828,7 +1832,7 @@ export function ProductGoodsPage() {
   )
   const [columnFilterLoading, setColumnFilterLoading] = useState(false)
   const [columnFilterError, setColumnFilterError] = useState("")
-  const [snapshotDate, setSnapshotDate] = useState("")
+  const [snapshotDate, setSnapshotDate] = useSessionQueryState("product-goods:snapshotDate", "")
   const historyDateInputRef = useRef<HTMLInputElement>(null)
   const loadRequestIdRef = useRef(0)
   const columnFilterRequestIdRef = useRef(0)
@@ -1851,10 +1855,10 @@ export function ProductGoodsPage() {
     total: number
   } | null>(null)
   const [, startTransition] = useTransition()
-  const [dataView, setDataView] = useState<ProductGoodsView>("goods")
+  const [dataView, setDataView] = useSessionQueryState<ProductGoodsView>("product-goods:dataView", "goods")
   const [renderedDataView, setRenderedDataView] =
-    useState<ProductGoodsView>("goods")
-  const [sort, setSort] = useState<ProductGoodsSort>([])
+    useState<ProductGoodsView>(dataView)
+  const [sort, setSort] = useSessionQueryState<ProductGoodsSort>("product-goods:sort", [])
   const [columnMode, setColumnMode] = useState<"full" | "custom">("full")
   const [pickerOpen, setPickerOpen] = useState(false)
   const [customKeys, setCustomKeys] = useState<string[]>(DEFAULT_COLUMN_KEYS)
@@ -1862,7 +1866,14 @@ export function ProductGoodsPage() {
   const [columnSearch, setColumnSearch] = useState("")
 
   useEffect(() => {
+    if (routeContextInitializedRef.current) return
+    routeContextInitializedRef.current = true
     const params = new URLSearchParams(window.location.search)
+    if (window.location.search && appliedRouteContext === window.location.search) {
+      setRouteContextReady(true)
+      return
+    }
+    setAppliedRouteContext(window.location.search)
     const nextBrand = params.get("brand")
     const nextQuery = params.get("query") || ""
     const nextView = params.get("view") as ProductGoodsView | null
@@ -1877,8 +1888,9 @@ export function ProductGoodsPage() {
       setDataView(nextView)
       setRenderedDataView(nextView)
     }
+    if (nextBrand || nextQuery || nextView) setPage(1)
     setRouteContextReady(true)
-  }, [])
+  }, [appliedRouteContext, setAppliedRouteContext, setBrand, setDataView, setPage, setQuery, setQueryInput])
 
   const prefetchDataView = useCallback(
     (nextView: ProductGoodsView) => {
@@ -1983,6 +1995,10 @@ export function ProductGoodsPage() {
         1,
         Math.ceil(cachedEntry.data.total / pageSize)
       )
+      if (page > cachedTotalPages) {
+        setPage(cachedTotalPages)
+        return () => { cancelled = true }
+      }
       prefetchPage(page - 1, cachedTotalPages)
       prefetchPage(page + 1, cachedTotalPages)
       return () => {
@@ -1996,6 +2012,11 @@ export function ProductGoodsPage() {
       try {
         const response = await loadProductGoodsPage(context, page, cacheBust)
         if (!isCurrentRequest()) return
+        const loadedTotalPages = Math.max(1, Math.ceil(response.total / pageSize))
+        if (page > loadedTotalPages) {
+          setPage(loadedTotalPages)
+          return
+        }
         rememberProductGoodsPage(pageCacheRef.current, cacheKey, response)
         startTransition(() => {
           setData(response)
@@ -2006,10 +2027,6 @@ export function ProductGoodsPage() {
           )
           setRenderedDataView(context.view)
         })
-        const loadedTotalPages = Math.max(
-          1,
-          Math.ceil(response.total / pageSize)
-        )
         prefetchPage(page - 1, loadedTotalPages)
         prefetchPage(page + 1, loadedTotalPages)
       } catch {
@@ -2034,6 +2051,7 @@ export function ProductGoodsPage() {
     reloadVersion,
     snapshotDate,
     routeContextReady,
+    setPage,
   ])
   useEffect(() => {
     if (!activeColumnFilter) return
@@ -2191,9 +2209,6 @@ export function ProductGoodsPage() {
   useEffect(() => {
     setPageInput(String(page))
   }, [page])
-  useEffect(() => {
-    if (page > totalPages) setPage(totalPages)
-  }, [page, totalPages])
   function openPicker() {
     setDraftKeys(customKeys)
     setColumnSearch("")
@@ -2358,7 +2373,7 @@ export function ProductGoodsPage() {
         )
       return current.filter((_, itemIndex) => itemIndex !== index)
     })
-  }, [])
+  }, [setSort])
   const saveManualFields = useCallback(async (
     item: ProductGoodsItem,
     fields: Partial<ProductGoodsManualFields>

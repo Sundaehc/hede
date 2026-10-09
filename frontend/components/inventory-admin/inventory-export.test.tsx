@@ -134,6 +134,30 @@ test("searches and exports using unified supplier and customer brand options wit
   expect(new URL(downloadUrls[0]).searchParams.getAll("brands")).toEqual(["yandou", "custom"])
 })
 
+test("restores inventory filters after another page and keeps purchase queries isolated", async () => {
+  const user = userEvent.setup()
+  const first = render(<InventoryPage />)
+  await screen.findByText("EXPORT-0001")
+  await user.type(screen.getByPlaceholderText("输入单据编号"), "KEEP-123")
+  await user.click(screen.getByRole("button", { name: "搜索" }))
+  await waitFor(() => expect(mockListInventory).toHaveBeenLastCalledWith(expect.objectContaining({ document_number: "KEEP-123" })))
+  first.unmount()
+
+  const purchase = render(<InventoryPage mode="purchase-orders" />)
+  await waitFor(() => expect(mockListInventory).toHaveBeenLastCalledWith(expect.objectContaining({ document_type: "进货订单", document_number: undefined })))
+  purchase.unmount()
+
+  const restored = render(<InventoryPage />)
+  expect(screen.getByPlaceholderText("输入单据编号")).toHaveValue("KEEP-123")
+  await waitFor(() => expect(mockListInventory).toHaveBeenLastCalledWith(expect.objectContaining({ document_number: "KEEP-123" })))
+  await user.click(screen.getByRole("button", { name: "清空" }))
+  await waitFor(() => expect(mockListInventory).toHaveBeenLastCalledWith(expect.objectContaining({ document_number: undefined })))
+  restored.unmount()
+  render(<InventoryPage />)
+  expect(screen.getByPlaceholderText("输入单据编号")).toHaveValue("")
+  await screen.findByText("EXPORT-0001")
+})
+
 test("searches and exports by document number, then clears the filter", async () => {
   const user = userEvent.setup()
   render(<InventoryPage />)

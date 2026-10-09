@@ -1,5 +1,7 @@
 "use client"
 
+import { useSessionQueryState } from "@/lib/session-query-state"
+
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import {
   ChevronLeft,
@@ -82,13 +84,13 @@ export function AuxiliaryAttributeManagementPage() {
   const [attributeTypes, setAttributeTypes] = useState<
     ProductAuxiliaryAttributeType[]
   >([])
-  const [selectedScope, setSelectedScope] = useState("")
-  const [selectedType, setSelectedType] = useState("all")
+  const [selectedScope, setSelectedScope] = useSessionQueryState("auxiliary-attributes:selectedScope", "")
+  const [selectedType, setSelectedType] = useSessionQueryState("auxiliary-attributes:selectedType", "all")
   const [items, setItems] = useState<ManagedProductAuxiliaryAttributeItem[]>([])
   const [total, setTotal] = useState(0)
-  const [page, setPage] = useState(1)
-  const [queryInput, setQueryInput] = useState("")
-  const [query, setQuery] = useState("")
+  const [page, setPage] = useSessionQueryState("auxiliary-attributes:page", 1)
+  const [queryInput, setQueryInput] = useSessionQueryState("auxiliary-attributes:queryInput", "")
+  const [query, setQuery] = useSessionQueryState("auxiliary-attributes:query", "")
   const [isLoading, setIsLoading] = useState(true)
   const [editorOpen, setEditorOpen] = useState(false)
   const [editingItem, setEditingItem] =
@@ -128,7 +130,7 @@ export function AuxiliaryAttributeManagementPage() {
       setAttributeTypes([])
       setMessage({ title: "加载失败", description: getErrorMessage(error) })
     }
-  }, [])
+  }, [setSelectedScope])
 
   const loadItems = useCallback(async () => {
     await Promise.resolve()
@@ -164,7 +166,7 @@ export function AuxiliaryAttributeManagementPage() {
     } finally {
       if (requestId === loadRequestIdRef.current) setIsLoading(false)
     }
-  }, [page, query, selectedScope, selectedType])
+  }, [page, query, selectedScope, selectedType, setPage])
 
   useEffect(() => {
     if (canManage) void Promise.resolve().then(loadMetadata)

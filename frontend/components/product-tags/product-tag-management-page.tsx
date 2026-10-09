@@ -1,5 +1,7 @@
 "use client"
 
+import { useSessionQueryState } from "@/lib/session-query-state"
+
 import { useEffect, useState } from "react"
 import { Pencil, RefreshCw, Search, Tag } from "lucide-react"
 
@@ -26,8 +28,8 @@ export function ProductTagManagementPage() {
   const [items, setItems] = useState<ProductTagDefinition[]>([])
   const [groups, setGroups] = useState<string[]>([])
   const [group, setGroup] = useState("all")
-  const [queryInput, setQueryInput] = useState("")
-  const [query, setQuery] = useState("")
+  const [queryInput, setQueryInput] = useSessionQueryState("product-tags:queryInput", "")
+  const [query, setQuery] = useSessionQueryState("product-tags:query", "")
   const [message, setMessage] = useState<string | null>(null)
   const [logsOpen, setLogsOpen] = useState(false)
   const [rebuilding, setRebuilding] = useState(false)

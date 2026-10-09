@@ -185,6 +185,7 @@ ADMIN_EDITABLE_COLUMNS = (
     "category",
     "product_level",
     "cost",
+    "cost_price",
     "factory_sku",
     "color",
     "season_category",
@@ -237,6 +238,7 @@ def normalize_admin_launch_date(value: object) -> str | None:
 
 ADMIN_FIELD_NORMALIZERS = {
     "cost": coerce_cost,
+    "cost_price": coerce_cost,
     "first_order_time": normalize_admin_first_order_time,
     "launch_date": normalize_admin_launch_date,
 }
@@ -342,6 +344,7 @@ def build_canonical_row(
         canonical["year"] = derive_year_from_sheet(sheet_name)
 
     canonical["cost"] = coerce_cost(canonical["cost"])
+    canonical["cost_price"] = coerce_cost(canonical["cost_price"])
     canonical["first_order_time"] = normalize_first_order_time(canonical["first_order_time"])
     canonical["image_path"] = image_path
 

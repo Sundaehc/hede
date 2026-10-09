@@ -1,6 +1,8 @@
 "use client"
 
-import { useCallback, useEffect, useState } from "react"
+import { useSessionQueryState } from "@/lib/session-query-state"
+
+import { useCallback, useEffect, useRef, useState } from "react"
 import { RotateCcw, Trash2, X } from "lucide-react"
 
 import { useAuth } from "@/components/auth/auth-provider"
@@ -20,7 +22,7 @@ import { PRODUCT_ARCHIVE_BRANDS, resolveProductArchiveBrands, type ProductArchiv
 import { ApiError, batchDeleteProducts, deleteProduct, getProductYears, listProductArchiveBrands, listProductRecycleBin, listProducts, permanentlyDeleteProduct, restoreProductFromRecycleBin, type ProductDeleteTarget, type SupplierBrandItem } from "@/lib/api"
 import type { ProductListItem, ProductRecycleItem } from "@/lib/types"
 
-const DEFAULT_BRAND = PRODUCT_ARCHIVE_BRANDS.find((item) => item.key !== "all")?.key ?? PRODUCT_ARCHIVE_BRANDS[0].key
+const DEFAULT_BRAND = "all"
 const PAGE_SIZES = [10, 50, 100]
 
 const isAllBrand = (b: ProductArchiveBrandKey) => b === "all"
@@ -39,16 +41,18 @@ function getErrorMessage(error: unknown) {
 
 export function ProductAdminPage() {
   const { hasPermission, user } = useAuth()
-  const [brand, setBrand] = useState<ProductArchiveBrandKey>(DEFAULT_BRAND)
+  const [brand, setBrand] = useSessionQueryState<ProductArchiveBrandKey>("products:brand", DEFAULT_BRAND)
+  const [appliedRouteContext, setAppliedRouteContext] = useSessionQueryState("products:routeContext", "")
+  const routeContextInitializedRef = useRef(false)
   const [routeContextReady, setRouteContextReady] = useState(false)
-  const [year, setYear] = useState("")
+  const [year, setYear] = useSessionQueryState("products:year", "")
   const [availableYears, setAvailableYears] = useState<string[]>([])
-  const [searchInput, setSearchInput] = useState("")
-  const [submittedQuery, setSubmittedQuery] = useState("")
-  const [skuPrefixInput, setSkuPrefixInput] = useState("")
-  const [submittedSkuPrefix, setSubmittedSkuPrefix] = useState("")
-  const [page, setPage] = useState(1)
-  const [pageSize, setPageSize] = useState(PAGE_SIZES[0])
+  const [searchInput, setSearchInput] = useSessionQueryState("products:searchInput", "")
+  const [submittedQuery, setSubmittedQuery] = useSessionQueryState("products:submittedQuery", "")
+  const [skuPrefixInput, setSkuPrefixInput] = useSessionQueryState("products:skuPrefixInput", "")
+  const [submittedSkuPrefix, setSubmittedSkuPrefix] = useSessionQueryState("products:submittedSkuPrefix", "")
+  const [page, setPage] = useSessionQueryState("products:page", 1)
+  const [pageSize, setPageSize] = useSessionQueryState("products:pageSize", PAGE_SIZES[0])
   const [reloadToken, setReloadToken] = useState(0)
   const [items, setItems] = useState<ProductListItem[]>([])
   const [total, setTotal] = useState(0)
@@ -89,7 +93,14 @@ export function ProductAdminPage() {
   const [messageContent, setMessageContent] = useState({ title: "", description: "" })
 
   useEffect(() => {
+    if (routeContextInitializedRef.current) return
+    routeContextInitializedRef.current = true
     const params = new URLSearchParams(window.location.search)
+    if (window.location.search && appliedRouteContext === window.location.search) {
+      setRouteContextReady(true)
+      return
+    }
+    setAppliedRouteContext(window.location.search)
     const nextBrand = params.get("brand")
     const nextQuery = params.get("query") || ""
     if (nextBrand && PRODUCT_ARCHIVE_BRANDS.some((item) => item.key === nextBrand)) {
@@ -99,8 +110,9 @@ export function ProductAdminPage() {
       setSearchInput(nextQuery)
       setSubmittedQuery(nextQuery)
     }
+    if (nextBrand || nextQuery) setPage(1)
     setRouteContextReady(true)
-  }, [])
+  }, [appliedRouteContext, setAppliedRouteContext, setBrand, setPage, setSearchInput, setSubmittedQuery])
 
   useEffect(() => {
     if (!routeContextReady) return
@@ -139,6 +151,7 @@ export function ProductAdminPage() {
     let cancelled = false
 
     async function loadProducts() {
+      if (!routeContextReady) return
       setIsLoading(true)
       setError(null)
 

@@ -30,6 +30,7 @@ from domain.vip_sources import (
 )
 from storage.date_normalization import parse_date, parse_date_range, parse_datetime
 from domain.history_partitioning import ensure_annual_partitions
+from domain.jst_monthly_order_identity import deduplicate_monthly_order_rows
 
 
 def _period_from_filename(filename: str) -> str | None:
@@ -571,6 +572,8 @@ class VipRepository:
 
         rows: list[dict] = []
         for row_num, row in enumerate(iterator, start=2):
+            if not any(value is not None and str(value).strip() for value in row):
+                continue
             record: dict[str, object] = {
                 "source_workbook": file_path.stem,
                 "source_sheet": sheet_title,
@@ -592,6 +595,9 @@ class VipRepository:
 
         if not rows:
             return {"imported": 0, "message": "无数据行"}
+
+        source_rows = len(rows)
+        rows, duplicates = deduplicate_monthly_order_rows(rows)
 
         valid_order_times = [
             value
@@ -632,6 +638,8 @@ class VipRepository:
 
         return {
             "imported": len(rows),
+            "source_rows": source_rows,
+            "duplicates_removed": duplicates,
             "deleted": deleted,
             "window_start": first_order_date.isoformat(),
             "window_end": last_order_date.isoformat(),

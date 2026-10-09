@@ -1,5 +1,7 @@
 "use client"
 
+import { useSessionQueryState } from "@/lib/session-query-state"
+
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { ChevronLeft, ChevronRight, Download, History, Loader2, Palette, Pencil, Plus, Search, Trash2 } from "lucide-react"
 
@@ -65,12 +67,12 @@ export function ColorBarcodeManagementPage() {
   const { user } = useAuth()
   const canManage = user?.role_code === "super_admin" || ["商品部", "开发部"].includes(user?.department_code ?? "")
   const [brands, setBrands] = useState<ColorBarcodeBrandSummary[]>([])
-  const [selectedBrand, setSelectedBrand] = useState("")
+  const [selectedBrand, setSelectedBrand] = useSessionQueryState("color-barcodes:selectedBrand", "")
   const [items, setItems] = useState<ManagedColorBarcodeItem[]>([])
   const [total, setTotal] = useState(0)
-  const [page, setPage] = useState(1)
-  const [queryInput, setQueryInput] = useState("")
-  const [query, setQuery] = useState("")
+  const [page, setPage] = useSessionQueryState("color-barcodes:page", 1)
+  const [queryInput, setQueryInput] = useSessionQueryState("color-barcodes:queryInput", "")
+  const [query, setQuery] = useSessionQueryState("color-barcodes:query", "")
   const [isLoading, setIsLoading] = useState(true)
   const [editorOpen, setEditorOpen] = useState(false)
   const [editingItem, setEditingItem] = useState<ManagedColorBarcodeItem | null>(null)
@@ -102,7 +104,7 @@ export function ColorBarcodeManagementPage() {
       setBrands([])
       setMessage({ title: "加载失败", description: getErrorMessage(error) })
     }
-  }, [])
+  }, [setSelectedBrand])
 
   const loadItems = useCallback(async () => {
     await Promise.resolve()
@@ -137,7 +139,7 @@ export function ColorBarcodeManagementPage() {
     } finally {
       if (requestId === loadRequestIdRef.current) setIsLoading(false)
     }
-  }, [page, query, selectedBrand])
+  }, [page, query, selectedBrand, setPage])
 
   useEffect(() => {
     if (canManage) void Promise.resolve().then(loadBrands)

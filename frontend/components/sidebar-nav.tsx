@@ -258,6 +258,7 @@ export function SidebarNav() {
                   <li key={item.href}>
                     <Link
                       href={item.href}
+                      scroll={false}
                       onMouseEnter={() => {
                         if (item.href === "/product-goods")
                           prefetchDefaultProductGoodsPage()

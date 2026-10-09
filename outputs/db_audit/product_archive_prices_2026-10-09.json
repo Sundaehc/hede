@@ -1,0 +1,105 @@
+{
+  "applied_at": "2026-10-09T16:45:11.118332",
+  "migration": "20261009_0076",
+  "tables": [
+    {
+      "table": "cbanner_mens_products",
+      "before": {
+        "rows": 19675,
+        "shipping_prices": 19524,
+        "shipping_total": "2364619.94"
+      },
+      "after": {
+        "rows": 19675,
+        "shipping_prices": 19524,
+        "shipping_total": "2364619.94"
+      },
+      "nonempty_cost_prices": 0
+    },
+    {
+      "table": "cbanner_womens_products",
+      "before": {
+        "rows": 15965,
+        "shipping_prices": 15940,
+        "shipping_total": "1621695.25"
+      },
+      "after": {
+        "rows": 15965,
+        "shipping_prices": 15940,
+        "shipping_total": "1621695.25"
+      },
+      "nonempty_cost_prices": 0
+    },
+    {
+      "table": "eblan_products",
+      "before": {
+        "rows": 10259,
+        "shipping_prices": 10256,
+        "shipping_total": "937077.41"
+      },
+      "after": {
+        "rows": 10259,
+        "shipping_prices": 10256,
+        "shipping_total": "937077.41"
+      },
+      "nonempty_cost_prices": 0
+    },
+    {
+      "table": "manual_product_archive_31",
+      "before": {
+        "rows": 37,
+        "shipping_prices": 37,
+        "shipping_total": "6066.40"
+      },
+      "after": {
+        "rows": 37,
+        "shipping_prices": 37,
+        "shipping_total": "6066.40"
+      },
+      "nonempty_cost_prices": 0
+    },
+    {
+      "table": "ni_products",
+      "before": {
+        "rows": 87,
+        "shipping_prices": 86,
+        "shipping_total": "25823.25"
+      },
+      "after": {
+        "rows": 87,
+        "shipping_prices": 86,
+        "shipping_total": "25823.25"
+      },
+      "nonempty_cost_prices": 0
+    },
+    {
+      "table": "smiley_products",
+      "before": {
+        "rows": 442,
+        "shipping_prices": 386,
+        "shipping_total": "46374.55"
+      },
+      "after": {
+        "rows": 442,
+        "shipping_prices": 386,
+        "shipping_total": "46374.55"
+      },
+      "nonempty_cost_prices": 0
+    },
+    {
+      "table": "yandou_products",
+      "before": {
+        "rows": 17261,
+        "shipping_prices": 17242,
+        "shipping_total": "1942151.90"
+      },
+      "after": {
+        "rows": 17261,
+        "shipping_prices": 17242,
+        "shipping_total": "1942151.90"
+      },
+      "nonempty_cost_prices": 0
+    }
+  ],
+  "idempotent_upgrade_verified": true
+}

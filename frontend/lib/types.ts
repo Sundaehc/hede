@@ -94,6 +94,7 @@ export type ProductListItem = {
   category: string | null
   product_level: string | null
   cost: string | null
+  cost_price?: string | null
   factory_sku: string | null
   color: string | null
   season_category: string | null

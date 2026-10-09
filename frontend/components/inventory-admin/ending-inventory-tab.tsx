@@ -1,5 +1,7 @@
 "use client"
 
+import { useSessionQueryState } from "@/lib/session-query-state"
+
 import { useEffect, useState } from "react"
 import { Search, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
@@ -59,18 +61,18 @@ function getTodayMMDD(): string {
 }
 
 export function EndingInventoryTab() {
-  const [dateStart, setDateStart] = useState("")
-  const [dateEnd, setDateEnd] = useState("")
-  const [productCode, setProductCode] = useState("")
-  const [submittedFilters, setSubmittedFilters] = useState<{
+  const [dateStart, setDateStart] = useSessionQueryState("ending-inventory:dateStart", "")
+  const [dateEnd, setDateEnd] = useSessionQueryState("ending-inventory:dateEnd", "")
+  const [productCode, setProductCode] = useSessionQueryState("ending-inventory:productCode", "")
+  const [submittedFilters, setSubmittedFilters] = useSessionQueryState<{
     stock_date: string
     date_start?: string
     date_end?: string
     product_code?: string
-  } | null>(null)
+  } | null>("ending-inventory:submittedFilters", null)
 
-  const [page, setPage] = useState(1)
-  const [pageSize, setPageSize] = useState(PAGE_SIZES[0])
+  const [page, setPage] = useSessionQueryState("ending-inventory:page", 1)
+  const [pageSize, setPageSize] = useSessionQueryState("ending-inventory:pageSize", PAGE_SIZES[0])
   const [items, setItems] = useState<EndingInventoryItem[]>([])
   const [total, setTotal] = useState(0)
   const [isLoading, setIsLoading] = useState(false)

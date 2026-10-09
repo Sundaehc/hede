@@ -1,5 +1,7 @@
 "use client"
 
+import { useSessionQueryState } from "@/lib/session-query-state"
+
 import { useEffect, useMemo, useState } from "react"
 import { Download, History, Search, X } from "lucide-react"
 
@@ -80,21 +82,21 @@ function numericTone(value: string | null | undefined) {
 }
 
 export function PurchaseInboundDetailPage() {
-  const [dateStart, setDateStart] = useState("")
-  const [dateEnd, setDateEnd] = useState("")
-  const [documentType, setDocumentType] = useState("")
-  const [supplier, setSupplier] = useState("")
+  const [dateStart, setDateStart] = useSessionQueryState("purchase-inbound-details:dateStart", "")
+  const [dateEnd, setDateEnd] = useSessionQueryState("purchase-inbound-details:dateEnd", "")
+  const [documentType, setDocumentType] = useSessionQueryState("purchase-inbound-details:documentType", "")
+  const [supplier, setSupplier] = useSessionQueryState("purchase-inbound-details:supplier", "")
   const [supplierOptions, setSupplierOptions] = useState<SupplierItem[]>([])
-  const [warehouse, setWarehouse] = useState<string[]>([])
+  const [warehouse, setWarehouse] = useSessionQueryState<string[]>("purchase-inbound-details:warehouse", [])
   const [warehouseOptions, setWarehouseOptions] = useState<WarehouseItem[]>([])
-  const [productCode, setProductCode] = useState("")
+  const [productCode, setProductCode] = useSessionQueryState("purchase-inbound-details:productCode", "")
   const [productCodeOptions, setProductCodeOptions] = useState<InventoryDetailCandidate[]>([])
-  const [productName, setProductName] = useState("")
-  const [colorName, setColorName] = useState("")
-  const [sizeName, setSizeName] = useState("")
-  const [submittedFilters, setSubmittedFilters] = useState<SubmittedFilters>({})
-  const [page, setPage] = useState(1)
-  const [pageSize, setPageSize] = useState(PAGE_SIZES[0])
+  const [productName, setProductName] = useSessionQueryState("purchase-inbound-details:productName", "")
+  const [colorName, setColorName] = useSessionQueryState("purchase-inbound-details:colorName", "")
+  const [sizeName, setSizeName] = useSessionQueryState("purchase-inbound-details:sizeName", "")
+  const [submittedFilters, setSubmittedFilters] = useSessionQueryState<SubmittedFilters>("purchase-inbound-details:submittedFilters", {})
+  const [page, setPage] = useSessionQueryState("purchase-inbound-details:page", 1)
+  const [pageSize, setPageSize] = useSessionQueryState("purchase-inbound-details:pageSize", PAGE_SIZES[0])
   const [items, setItems] = useState<PurchaseInboundDetailItem[]>([])
   const [total, setTotal] = useState(0)
   const [totals, setTotals] = useState({
@@ -350,7 +352,7 @@ export function PurchaseInboundDetailPage() {
         ) : null}
 
         <div className="overflow-hidden rounded-lg border border-border bg-card">
-          <div className="max-h-[calc(100vh-22rem)] min-h-[26rem] overflow-auto">
+          <div data-scroll-restoration-key="purchase-inbound-details-table" className="max-h-[calc(100vh-22rem)] min-h-[26rem] overflow-auto">
             <Table className="min-w-[1080px] text-xs">
               <TableHeader className="sticky top-0 z-10 bg-muted">
                 <TableRow className="hover:bg-muted">

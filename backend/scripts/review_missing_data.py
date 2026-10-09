@@ -34,6 +34,7 @@ from pathlib import Path
 from typing import Any
 
 from sqlalchemy import create_engine
+from domain.jst_monthly_order_identity import monthly_order_record_key_sql
 
 BACKEND_ROOT = Path(__file__).resolve().parent.parent
 if str(BACKEND_ROOT) not in sys.path:
@@ -420,7 +421,7 @@ class Review:
             rows = self.rows_of(f"""
                 SELECT to_char(date_trunc('month', order_time_at), 'YYYY-MM') AS mon,
                        count(*) AS total,
-                       count(*) FILTER (WHERE record_key IS NULL) AS null_key
+                       count(*) FILTER (WHERE record_key IS NULL OR btrim(record_key) = '') AS null_key
                 FROM public.{table}
                 WHERE order_time_at >= date_trunc('month', current_date) - interval '5 months'
                 GROUP BY 1 ORDER BY 1
@@ -447,13 +448,22 @@ class Review:
                 SELECT COALESCE(SUM(c - 1), 0) FROM (
                   SELECT internal_order_id, product_code, order_time_at, count(*) AS c
                   FROM public.{table}
-                  WHERE record_key IS NULL
-                    AND order_time_at >= date_trunc('month', current_date) - interval '2 months'
+                  WHERE order_time_at >= date_trunc('month', current_date) - interval '2 months'
                   GROUP BY 1, 2, 3 HAVING count(*) > 1) x
             """) or 0)
             self.add(area, "疑似重复订单行（近 3 个月，按订单号+货号+下单时间）",
-                     RED if dup else OK, f"{dup:,} 行", key="record_key.dups", value=dup,
-                     note="需要去重" if dup else "正常")
+                     YELLOW if dup else OK, f"{dup:,} 行", key="record_key.dups", value=dup,
+                     note="粗粒度匹配不代表重复，需结合内部子订单编号核对，禁止直接删除" if dup else "正常")
+            exact = int(self.scalar(f"""
+                SELECT COALESCE(SUM(c - 1), 0) FROM (
+                  SELECT order_time_at, {monthly_order_record_key_sql()} AS expected_key, count(*) AS c
+                  FROM public.{table} orders
+                  WHERE order_time_at >= date_trunc('month', current_date) - interval '2 months'
+                  GROUP BY 1, 2 HAVING count(*) > 1) duplicate_keys
+            """) or 0)
+            self.add(area, "订单去重键冲突（近 3 个月，含内部子订单编号）",
+                     RED if exact else OK, f"{exact:,} 行", key="record_key.exact_dups", value=exact,
+                     note="需核对业务数据后处理，不自动删除" if exact else "正常")
         except Exception as exc:  # noqa: BLE001
             self.failures.append(f"record_key dups: {type(exc).__name__}: {exc}")
 

@@ -112,6 +112,7 @@ def test_product_responses_apply_department_cost_visibility(
         "brand": "cbanner_mens",
         "sku": "TEST-SKU",
         "cost": "199.90",
+        "cost_price": "220.00",
         "cost_manual_override": True,
         "image_path": None,
         "raw_payload": {"成本单价": "199.90", "颜色": "黑色"},
@@ -140,10 +141,12 @@ def test_product_responses_apply_department_cost_visibility(
     assert result["raw_payload"]["颜色"] == "黑色"
     if can_view_cost:
         assert result["cost"] == "199.90"
+        assert result["cost_price"] == "220.00"
         assert result["gender_costs"] == {"female": "180", "male": "200"}
         assert result["raw_payload"]["成本单价"] == "199.90"
     else:
         assert "cost" not in result
+        assert "cost_price" not in result
         assert "cost_manual_override" not in result
         assert "gender_costs" not in result
         assert result["raw_payload"] == {"颜色": "黑色"}

@@ -21,6 +21,7 @@ class ProductPayload(BaseModel):
     category: str | None = None
     product_level: str | None = None
     cost: str | None = None
+    cost_price: str | None = None
     factory_sku: str | None = None
     color: str | None = None
     season_category: str | None = None

@@ -5,6 +5,8 @@ import { usePathname, useRouter } from "next/navigation"
 
 import { SidebarNav } from "@/components/sidebar-nav"
 import { useAuth } from "@/components/auth/auth-provider"
+import { SessionQueryProvider } from "@/lib/session-query-state"
+import { SessionScrollRestoration } from "@/lib/session-scroll-restoration"
 
 
 const AUTH_PATHS = new Set(["/login"])
@@ -45,10 +47,16 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     return <main className="min-h-svh">{children}</main>
   }
 
+  if (!user) return null
+
   return (
     <div className="flex min-h-svh">
       <SidebarNav />
-      <main className="min-w-0 flex-1 pl-14 md:pl-56">{children}</main>
+      <main className="min-w-0 flex-1 pl-14 md:pl-56">
+        <SessionQueryProvider key={user.id} userId={user.id}>
+          <SessionScrollRestoration pathname={pathname} userId={user.id}>{children}</SessionScrollRestoration>
+        </SessionQueryProvider>
+      </main>
     </div>
   )
 }

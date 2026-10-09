@@ -1,5 +1,7 @@
 "use client"
 
+import { useSessionQueryState } from "@/lib/session-query-state"
+
 import { type DragEvent, useCallback, useEffect, useMemo, useState } from "react"
 import { ChevronRight, Edit, Eye, GripVertical, History, Plus, Search, Trash2, X } from "lucide-react"
 
@@ -68,9 +70,9 @@ export default function WarehousesPage() {
   const [brands, setBrands] = useState<WarehouseBrandItem[]>([])
   const [warehouses, setWarehouses] = useState<WarehouseItem[]>([])
   const [isLoading, setIsLoading] = useState(true)
-  const [queryInput, setQueryInput] = useState("")
-  const [query, setQuery] = useState("")
-  const [selectedBrandId, setSelectedBrandId] = useState<number | null>(null)
+  const [queryInput, setQueryInput] = useSessionQueryState("warehouses:queryInput", "")
+  const [query, setQuery] = useSessionQueryState("warehouses:query", "")
+  const [selectedBrandId, setSelectedBrandId] = useSessionQueryState<number | null>("warehouses:selectedBrandId", null)
 
   const [brandFormOpen, setBrandFormOpen] = useState(false)
   const [brandFormMode, setBrandFormMode] = useState<"create" | "edit">("create")
@@ -131,6 +133,7 @@ export default function WarehousesPage() {
   }, [filteredBrands, selectedBrandId])
 
   useEffect(() => {
+    if (isLoading) return
     if (filteredBrands.length === 0) {
       if (selectedBrandId !== null) setSelectedBrandId(null)
       return
@@ -138,7 +141,7 @@ export default function WarehousesPage() {
     if (!selectedBrandId || !filteredBrands.some((brand) => brand.id === selectedBrandId)) {
       setSelectedBrandId(filteredBrands[0].id)
     }
-  }, [filteredBrands, selectedBrandId])
+  }, [filteredBrands, isLoading, selectedBrandId, setSelectedBrandId])
 
   const visibleWarehouses = useMemo(() => (
     activeBrand ? warehouses.filter((warehouse) => warehouse.brand === activeBrand.name) : []

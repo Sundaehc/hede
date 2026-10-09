@@ -4,6 +4,16 @@ import { getProductFieldGroups, getProductFieldLabel } from "@/lib/fields"
 
 
 describe("product archive field groups", () => {
+  it.each(["cbanner_mens", "cbanner_womens", "smiley", "ni", "custom"])("separates prices from basic information for %s", (brand) => {
+    const groups = getProductFieldGroups(brand)
+    expect(groups.slice(0, 3).map((group) => group.label)).toEqual(["基础信息", "物价信息", "材质信息"])
+    expect(groups[1].fields).toEqual(["cost", "cost_price"])
+    expect(groups[0].fields).not.toContain("cost")
+    expect(groups[0].fields).not.toContain("cost_price")
+    expect(getProductFieldLabel("cost", brand)).toBe("工厂出货价")
+    expect(getProductFieldLabel("cost_price", brand)).toBe("成本价")
+  })
+
   it("shows the complete style group for C.banner women's products", () => {
     const groups = getProductFieldGroups("cbanner_womens")
     const styleGroup = groups.find((group) => group.label === "女鞋款式信息")

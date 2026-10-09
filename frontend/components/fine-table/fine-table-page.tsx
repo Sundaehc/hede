@@ -1,5 +1,7 @@
 "use client"
 
+import { useSessionQueryState } from "@/lib/session-query-state"
+
 import { memo, useDeferredValue, useEffect, useMemo, useRef, useState, useTransition, type ReactNode } from "react"
 import {
   AlertTriangle,
@@ -84,18 +86,6 @@ type FineTablePageContext = {
   historyDate: string
   query: string
   skuPrefix: string
-  filters: FineTableFilter[]
-  reloadToken: number
-}
-type FineTableLastState = {
-  brand: FineTableBrandKey
-  page: number
-  query: string
-  queryInput: string
-  skuPrefix: string
-  skuPrefixInput: string
-  view: ViewKey
-  historyDate: string
   filters: FineTableFilter[]
   reloadToken: number
 }
@@ -184,18 +174,6 @@ const DEFAULT_FINE_TABLE_BRAND: FineTableBrandKey = "cbanner_mens"
 const fineTablePageCache = new Map<string, FineTablePageCacheEntry>()
 const fineTablePagePrefetching = new Set<string>()
 const fineTableColumnFilterCache = new Map<string, FineTableColumnFilterCacheEntry>()
-let fineTableLastState: FineTableLastState = {
-  brand: DEFAULT_FINE_TABLE_BRAND,
-  page: 1,
-  query: "",
-  queryInput: "",
-  skuPrefix: "",
-  skuPrefixInput: "",
-  view: "all",
-  historyDate: "",
-  filters: [],
-  reloadToken: 0,
-}
 
 const SIZE_STOCK_LABELS = [
   "34/220",
@@ -1333,7 +1311,7 @@ const FineTableGrid = memo(function FineTableGrid({
 
   return (
     <div className="table-panel">
-      <div className="max-h-[72svh] min-h-[360px] overflow-auto">
+      <div data-scroll-restoration-key="fine-table" className="max-h-[72svh] min-h-[360px] overflow-auto">
         <table
           className="w-full border-separate border-spacing-0 text-[13px]"
           style={{ minWidth: tableMinWidth }}
@@ -1539,25 +1517,28 @@ function getCachedFineTablePage(cache: Map<string, FineTablePageCacheEntry>, key
 
 export function FineTablePage() {
   const { hasPermission } = useAuth()
-  const initialStateRef = useRef(fineTableLastState)
-  const initialState = initialStateRef.current
+  const [brand, setBrand] = useSessionQueryState<FineTableBrandKey>("fine-table:brand", DEFAULT_FINE_TABLE_BRAND)
+  const [appliedRouteContext, setAppliedRouteContext] = useSessionQueryState("fine-table:routeContext", "")
+  const routeContextInitializedRef = useRef(false)
+  const [page, setPage] = useSessionQueryState("fine-table:page", 1)
+  const [queryInput, setQueryInput] = useSessionQueryState("fine-table:queryInput", "")
+  const [query, setQuery] = useSessionQueryState("fine-table:query", "")
+  const [skuPrefixInput, setSkuPrefixInput] = useSessionQueryState("fine-table:skuPrefixInput", "")
+  const [skuPrefix, setSkuPrefix] = useSessionQueryState("fine-table:skuPrefix", "")
+  const [filters, setFilters] = useSessionQueryState<FineTableFilter[]>("fine-table:filters", [])
+  const [view, setView] = useSessionQueryState<ViewKey>("fine-table:view", "all")
+  const [historyDate, setHistoryDate] = useSessionQueryState("fine-table:historyDate", "")
+  const [reloadToken, setReloadToken] = useState(0)
   const initialCacheEntry = getCachedFineTablePage(fineTablePageCache, fineTablePageCacheKey({
-    brand: initialState.brand,
-    historyDate: initialState.historyDate,
-    query: initialState.query,
-    skuPrefix: initialState.skuPrefix,
-    filters: initialState.filters,
-    reloadToken: initialState.reloadToken,
-  }, initialState.page))
-  const [brand, setBrand] = useState<FineTableBrandKey>(initialState.brand)
+    brand,
+    historyDate,
+    query,
+    skuPrefix,
+    filters,
+    reloadToken,
+  }, page))
   const [items, setItems] = useState<FineTableItem[]>(() => initialCacheEntry?.items ?? [])
-  const [page, setPage] = useState(initialState.page)
   const [total, setTotal] = useState(() => initialCacheEntry?.total ?? 0)
-  const [queryInput, setQueryInput] = useState(initialState.queryInput)
-  const [query, setQuery] = useState(initialState.query)
-  const [skuPrefixInput, setSkuPrefixInput] = useState(initialState.skuPrefixInput)
-  const [skuPrefix, setSkuPrefix] = useState(initialState.skuPrefix)
-  const [filters, setFilters] = useState<FineTableFilter[]>(initialState.filters)
   const [activeColumnFilter, setActiveColumnFilter] = useState<ActiveFineTableColumnFilter | null>(null)
   const [columnFilterData, setColumnFilterData] = useState<FineTableFilterOptionsResponse | null>(null)
   const [columnFilterSearch, setColumnFilterSearch] = useState("")
@@ -1567,11 +1548,9 @@ export function FineTablePage() {
   const [expandedDateFilterMonths, setExpandedDateFilterMonths] = useState<string[]>([])
   const [columnFilterLoading, setColumnFilterLoading] = useState(false)
   const [columnFilterError, setColumnFilterError] = useState("")
-  const [view, setView] = useState<ViewKey>(initialState.view)
   const [selectedRow, setSelectedRow] = useState<FineTableItem | null>(null)
   const [isLoading, setIsLoading] = useState(() => !initialCacheEntry)
   const [error, setError] = useState<string | null>(null)
-  const [reloadToken, setReloadToken] = useState(initialState.reloadToken)
   const [latestOrderDate, setLatestOrderDate] = useState<string | null>(() => initialCacheEntry?.latestOrderDate ?? null)
   const [columnMode, setColumnMode] = useState<ColumnMode>("full")
   const [customColumnPickerOpen, setCustomColumnPickerOpen] = useState(false)
@@ -1584,8 +1563,7 @@ export function FineTablePage() {
   const [exportProgress, setExportProgress] = useState<{ loaded: number; total: number } | null>(null)
   const [operationLogOpen, setOperationLogOpen] = useState(false)
   const [previewImage, setPreviewImage] = useState<{ src: string; alt: string } | null>(null)
-  const [historyDate, setHistoryDate] = useState(initialState.historyDate)
-  const [snapshotLabel, setSnapshotLabel] = useState<string | null>(() => (initialCacheEntry?.snapshotLabel ?? initialState.historyDate) || null)
+  const [snapshotLabel, setSnapshotLabel] = useState<string | null>(() => (initialCacheEntry?.snapshotLabel ?? historyDate) || null)
   const [, startPageTransition] = useTransition()
   const loadRequestIdRef = useRef(0)
   const columnFilterRequestIdRef = useRef(0)
@@ -1596,7 +1574,13 @@ export function FineTablePage() {
   const canExportFineTable = hasPermission("fine_table.export")
 
   useEffect(() => {
+    if (routeContextInitializedRef.current) return
+    routeContextInitializedRef.current = true
     const params = new URLSearchParams(window.location.search)
+    if (window.location.search && appliedRouteContext === window.location.search) {
+      return
+    }
+    setAppliedRouteContext(window.location.search)
     const nextBrand = params.get("brand")
     const nextQuery = params.get("query") || ""
     const matchedBrand = FINE_TABLE_BRANDS.find(
@@ -1609,7 +1593,7 @@ export function FineTablePage() {
       setQuery(nextQuery)
     }
     setPage(1)
-  }, [])
+  }, [appliedRouteContext, setAppliedRouteContext, setBrand, setPage, setQuery, setQueryInput])
 
   function applyPageEntry(entry: FineTablePageCacheEntry) {
     setItems(entry.items)
@@ -1744,21 +1728,6 @@ export function FineTablePage() {
       if (requestId === columnFilterRequestIdRef.current) setColumnFilterLoading(false)
     })
   }, [activeColumnFilter, brand, filters, historyDate, query, reloadToken, skuPrefix])
-
-  useEffect(() => {
-    fineTableLastState = {
-      brand,
-      page,
-      query,
-      queryInput,
-      skuPrefix,
-      skuPrefixInput,
-      view,
-      historyDate,
-      filters,
-      reloadToken,
-    }
-  }, [brand, filters, historyDate, page, query, queryInput, reloadToken, skuPrefix, skuPrefixInput, view])
 
   const deferredView = useDeferredValue(view)
   const filteredRows = useMemo(() => {

@@ -22,11 +22,14 @@ def test_product_cost_redaction_removes_nested_cost_values() -> None:
     item = redact_product_cost_item({
         "sku": "SKU001",
         "cost": "199.90",
+        "cost_price": "220.00",
+        "factory_shipping_price": "199.90",
         "cost_manual_override": True,
         "gender_costs": {"female": "180", "male": "200"},
         "raw_payload": {
             "颜色": "黑色",
             "成本价": "199.90",
+            "工厂出货价": "199.90",
             "预设售价3": "209.90",
         },
         "extra_fields": {
@@ -103,6 +106,8 @@ def test_product_operation_log_redacts_cost_changes() -> None:
 
 def test_restricted_product_exports_remove_cost_columns() -> None:
     assert "cost" not in _export_columns_for_brand("cbanner_womens", include_cost=False)
+    assert "cost_price" not in _export_columns_for_brand("cbanner_womens", include_cost=False)
     assert "成本价" not in _size_export_headers_for_brand("cbanner_womens", include_cost=False)
     assert "cost" in _export_columns_for_brand("cbanner_womens")
+    assert "cost_price" in _export_columns_for_brand("cbanner_womens")
     assert "成本价" in _size_export_headers_for_brand("cbanner_womens")

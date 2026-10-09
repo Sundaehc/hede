@@ -1,5 +1,7 @@
 "use client"
 
+import { useSessionQueryState } from "@/lib/session-query-state"
+
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { ChevronRight, Edit, History, Plus, Search, Trash2, X } from "lucide-react"
 
@@ -36,9 +38,9 @@ function getErrorMessage(error: unknown) {
 export default function AccountSubjectsPage() {
   const [items, setItems] = useState<InventoryAccountSubject[]>([])
   const [isLoading, setIsLoading] = useState(true)
-  const [selectedCategory, setSelectedCategory] = useState<AccountSubjectCategory>("收入类")
-  const [queryInput, setQueryInput] = useState("")
-  const [query, setQuery] = useState("")
+  const [selectedCategory, setSelectedCategory] = useSessionQueryState<AccountSubjectCategory>("account-subjects:selectedCategory", "收入类")
+  const [queryInput, setQueryInput] = useSessionQueryState("account-subjects:queryInput", "")
+  const [query, setQuery] = useSessionQueryState("account-subjects:query", "")
 
   const [createOpen, setCreateOpen] = useState(false)
   const [name, setName] = useState("")

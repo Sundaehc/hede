@@ -1,6 +1,8 @@
 "use client"
 
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { useSessionQueryState } from "@/lib/session-query-state"
+
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import {
   BarChart3,
   CalendarDays,
@@ -231,19 +233,28 @@ function SeasonTable({
 }
 
 export function FactoryChannelDashboardPage() {
-  const [brand, setBrand] = useState<DashboardBrand>(DEFAULT_BRAND)
+  const [brand, setBrand] = useSessionQueryState<DashboardBrand>("factory-channel-dashboard:brand", DEFAULT_BRAND)
+  const [appliedRouteContext, setAppliedRouteContext] = useSessionQueryState("factory-channel-dashboard:routeContext", "")
+  const routeContextInitializedRef = useRef(false)
   const [routeContextReady, setRouteContextReady] = useState(false)
-  const [salesYear, setSalesYear] = useState("")
-  const [factoryQuery, setFactoryQuery] = useState("")
-  const [dateStart, setDateStart] = useState("")
-  const [dateEnd, setDateEnd] = useState("")
+  const [salesYear, setSalesYear] = useSessionQueryState("factory-channel-dashboard:salesYear", "")
+  const [factoryQuery, setFactoryQuery] = useSessionQueryState("factory-channel-dashboard:factoryQuery", "")
+  const [dateStart, setDateStart] = useSessionQueryState("factory-channel-dashboard:dateStart", "")
+  const [dateEnd, setDateEnd] = useSessionQueryState("factory-channel-dashboard:dateEnd", "")
   const [data, setData] = useState<FactoryChannelDashboardResponse | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState("")
   const [refreshToken, setRefreshToken] = useState(0)
 
   useEffect(() => {
+    if (routeContextInitializedRef.current) return
+    routeContextInitializedRef.current = true
     const params = new URLSearchParams(window.location.search)
+    if (window.location.search && appliedRouteContext === window.location.search) {
+      setRouteContextReady(true)
+      return
+    }
+    setAppliedRouteContext(window.location.search)
     const nextBrand = params.get("brand")
     const nextSalesYear = params.get("sales_year")
     if (nextBrand && DASHBOARD_BRANDS.some((item) => item.key === nextBrand)) {
@@ -251,7 +262,7 @@ export function FactoryChannelDashboardPage() {
     }
     if (nextSalesYear && /^\d{4}$/.test(nextSalesYear)) setSalesYear(nextSalesYear)
     setRouteContextReady(true)
-  }, [])
+  }, [appliedRouteContext, setAppliedRouteContext, setBrand, setSalesYear])
 
   const loadDashboard = useCallback(async () => {
     if (!routeContextReady) return
@@ -272,7 +283,7 @@ export function FactoryChannelDashboardPage() {
     } finally {
       setLoading(false)
     }
-  }, [brand, dateEnd, dateStart, routeContextReady, salesYear])
+  }, [brand, dateEnd, dateStart, routeContextReady, salesYear, setSalesYear])
 
   useEffect(() => {
     void loadDashboard()

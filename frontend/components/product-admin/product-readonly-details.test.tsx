@@ -65,6 +65,7 @@ const sampleItem = {
   original_sku: "ORIGINAL-007",
   product_name: "只读测试商品",
   cost: "123.45",
+  cost_price: "155.55",
   gender_costs: { female: "111.11", male: "222.22" },
   color: "黑色",
   selling_points: "完整卖点第一行\n完整卖点第二行，不应截断",
@@ -96,6 +97,26 @@ beforeEach(() => {
 })
 
 afterEach(cleanup)
+
+it("restores the product query after navigation without reapplying an old link", async () => {
+  const user = userEvent.setup()
+  window.history.replaceState(null, "", "/products?brand=cbanner_womens&query=OLD-LINK")
+  const first = render(<ProductAdminPage />)
+  await screen.findByTestId("card-title-7")
+  const input = screen.getByLabelText("包含搜索")
+  await user.clear(input)
+  await user.type(input, "NEW-QUERY")
+  await user.click(screen.getByRole("button", { name: "搜索" }))
+  await waitFor(() => expect(mockListProducts).toHaveBeenLastCalledWith(expect.objectContaining({ brand: "cbanner_womens", query: "NEW-QUERY" })))
+  first.unmount()
+  mockListProducts.mockClear()
+
+  render(<ProductAdminPage />)
+  expect(screen.getByLabelText("包含搜索")).toHaveValue("NEW-QUERY")
+  await screen.findByTestId("card-title-7")
+  expect(mockListProducts.mock.calls.every(([parameters]) => parameters.query === "NEW-QUERY")).toBe(true)
+  expect(mockListProducts).toHaveBeenLastCalledWith(expect.objectContaining({ brand: "cbanner_womens", query: "NEW-QUERY" }))
+})
 
 it("design users see the copywriting button immediately after details and open the correct product", async () => {
   const user = userEvent.setup()
@@ -151,6 +172,7 @@ it("finance can select and export prices without product editing or general expo
   mockAuth.user = { department_code: "财务部", role_code: "finance_user" }
   mockAuth.hasPermission.mockImplementation((permission) => ["product.view", "product.price_export"].includes(permission))
   render(<ProductAdminPage />)
+  await user.click(screen.getByRole("tab", { name: "千百度男鞋" }))
 
   const checkbox = await screen.findByRole("checkbox", { name: "选择商品 READONLY-007" })
   await user.click(checkbox)
@@ -195,8 +217,30 @@ describe("ProductDetailDialog", () => {
 
   it("shows gender costs only when explicitly permitted", () => {
     render(<ProductDetailDialog item={sampleItem} showCost onClose={vi.fn()} />)
-    expect(screen.getByText("成本")).toBeInTheDocument()
+    expect(screen.getByText("工厂出货价")).toBeInTheDocument()
+    expect(screen.getByText("成本价")).toBeInTheDocument()
+    expect(screen.getByText("155.55")).toBeInTheDocument()
     expect(screen.getByText("女码 111.11 / 男码 222.22")).toBeInTheDocument()
+  })
+
+  it("shows factory shipping and empty cost prices together between basic and material information", () => {
+    render(<ProductDetailDialog item={{ ...sampleItem, cost: "118", cost_price: null, gender_costs: null }} showCost onClose={vi.fn()} />)
+    const priceSection = screen.getByRole("heading", { name: "物价信息" }).closest("section")!
+    expect(within(priceSection).getByText("工厂出货价")).toBeInTheDocument()
+    expect(within(priceSection).getByText("118")).toBeInTheDocument()
+    expect(within(priceSection).getByText("成本价")).toBeInTheDocument()
+    expect(within(priceSection).getByText("—")).toBeInTheDocument()
+    expect(screen.getAllByRole("heading", { level: 3 }).slice(0, 3).map((heading) => heading.textContent)).toEqual(["基础信息", "物价信息", "材质信息"])
+    expect(within(screen.getByRole("heading", { name: "基础信息" }).closest("section")!).queryByText("工厂出货价")).not.toBeInTheDocument()
+  })
+
+  it("hides the whole price section without permission and preserves zero-valued prices", () => {
+    const { rerender } = render(<ProductDetailDialog item={sampleItem} onClose={vi.fn()} />)
+    expect(screen.queryByRole("heading", { name: "物价信息" })).not.toBeInTheDocument()
+    expect(screen.getByRole("dialog")).not.toHaveTextContent(/工厂出货价|成本价|155\.55/)
+    rerender(<ProductDetailDialog item={{ ...sampleItem, cost: "0", cost_price: "0", gender_costs: null }} showCost onClose={vi.fn()} />)
+    const priceSection = screen.getByRole("heading", { name: "物价信息" }).closest("section")!
+    expect(within(priceSection).getAllByText("0")).toHaveLength(2)
   })
 
   it("keeps long values complete and groups fields in compact sections", () => {
@@ -326,7 +370,8 @@ describe("ProductAdminPage read-only access", () => {
         within(dialog).getByText("只读测试商品", { selector: "dd" })
       ).toBeInTheDocument()
       if (canViewCost) {
-        expect(within(dialog).getByText("成本")).toBeInTheDocument()
+        expect(within(dialog).getByText("工厂出货价")).toBeInTheDocument()
+        expect(within(dialog).getByText("成本价")).toBeInTheDocument()
         expect(
           within(dialog).getByText("女码 111.11 / 男码 222.22")
         ).toBeInTheDocument()
@@ -435,6 +480,7 @@ describe("ProductAdminPage read-only access", () => {
       )
       render(<ProductAdminPage />)
 
+      await user.click(screen.getByRole("tab", { name: "千百度男鞋" }))
       const card = await screen.findByRole("button", {
         name: "编辑商品 READONLY-007",
       })
@@ -447,7 +493,8 @@ describe("ProductAdminPage read-only access", () => {
       await user.click(card)
       const dialog = screen.getByRole("dialog", { name: "编辑商品" })
       expect(within(dialog).getByLabelText("品牌")).toBeDisabled()
-      expect(within(dialog).getByLabelText("成本")).toHaveValue("123.45")
+      expect(within(dialog).getByLabelText("工厂出货价")).toHaveValue("123.45")
+      expect(within(dialog).getByLabelText("成本价")).toHaveValue("155.55")
       await user.clear(within(dialog).getByLabelText("颜色"))
       await user.type(within(dialog).getByLabelText("颜色"), "白色")
       await user.click(within(dialog).getByRole("button", { name: "保存" }))

@@ -578,7 +578,7 @@ export function ProductFormDialog({ brands = PRODUCT_ARCHIVE_BRANDS, item, mode,
       return
     }
 
-    if (values.brand === "ni") {
+    if (values.brand === "ni" || values.brand === "ns") {
       setColorBarcodeOptions([])
       setIsLoadingColorBarcodes(false)
       return
@@ -652,7 +652,7 @@ export function ProductFormDialog({ brands = PRODUCT_ARCHIVE_BRANDS, item, mode,
   }, [open, values.brand])
 
   useEffect(() => {
-    if (!open || values.brand === "smiley" || values.color_code.trim()) return
+    if (!open || values.brand === "smiley" || values.brand === "ns" || values.color_code.trim()) return
     const colorCode = findUniqueColorCode(values.color, colorBarcodeOptions)
     if (!colorCode) return
     autoMatchedColorCodeRef.current = colorCode
@@ -661,7 +661,7 @@ export function ProductFormDialog({ brands = PRODUCT_ARCHIVE_BRANDS, item, mode,
         ? current
         : { ...current, color_code: colorCode }
     ))
-  }, [colorBarcodeOptions, open, values.color, values.color_code])
+  }, [colorBarcodeOptions, open, values.brand, values.color, values.color_code])
 
   useEffect(() => {
     if (!open || values.brand !== "smiley" || !values.color_code.trim()) return
@@ -702,7 +702,7 @@ export function ProductFormDialog({ brands = PRODUCT_ARCHIVE_BRANDS, item, mode,
 
   const handleFieldChange = (field: keyof ProductFormValues, nextValue: string) => {
     if (field === "color") {
-      if (values.brand === "smiley") {
+      if (values.brand === "smiley" || values.brand === "ns") {
         setValues((current) => ({ ...current, color: nextValue }))
         return
       }
@@ -937,7 +937,7 @@ export function ProductFormDialog({ brands = PRODUCT_ARCHIVE_BRANDS, item, mode,
                   return (
                     <div key={group.label}>
                       <p className="mb-2 text-xs font-medium text-muted-foreground">{group.label}</p>
-                      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+                      <div className={cn("grid gap-4 md:grid-cols-2", group.label !== "物价信息" && "lg:grid-cols-3")}>
                         {fields.map((field) => (
                           <div key={field} className="space-y-1.5">
                             <Label htmlFor={`product-form-${field}`} className="text-xs">{getProductFieldLabel(field, values.brand)}</Label>
@@ -1006,7 +1006,7 @@ export function ProductFormDialog({ brands = PRODUCT_ARCHIVE_BRANDS, item, mode,
                                 onChange={(event) => handleFieldChange(field as keyof ProductFormValues, event.target.value)}
                                 autoComplete="off"
                               />
-                            ) : field === "color_code" ? (
+                            ) : field === "color_code" && values.brand !== "ns" ? (
                               <ColorCodeSearchSelect
                                 id={`product-form-${field}`}
                                 value={values.color_code}

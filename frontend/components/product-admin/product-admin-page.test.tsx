@@ -39,6 +39,7 @@ const NULL_FIELDS = {
   category: null,
   product_level: null,
   cost: null,
+  cost_price: null,
   factory_sku: null,
   color: null,
   season_category: null,
@@ -149,12 +150,12 @@ describe("ProductAdminPage", () => {
     mockBatchDeleteProducts.mockResolvedValue({ deleted: 2, message: "已移入回收站 2 条商品" })
   })
 
-  it("fetches cbanner_mens on first render", async () => {
+  it("fetches the total overview on first render", async () => {
     render(<ProductAdminPage />)
 
     await waitFor(() => {
       expect(mockListProducts).toHaveBeenCalledWith({
-        brand: "cbanner_mens",
+        brand: "all",
         page: 1,
         pageSize: 10,
         query: undefined,
@@ -163,7 +164,7 @@ describe("ProductAdminPage", () => {
     })
 
     expect(screen.getByRole("heading", { name: "商品信息档案" })).toBeInTheDocument()
-    expect(screen.getByRole("tab", { name: "千百度男鞋", selected: true })).toBeInTheDocument()
+    expect(screen.getByRole("tab", { name: "总览", selected: true })).toBeInTheDocument()
     expect(await screen.findByTestId("card-title-1")).toBeInTheDocument()
   })
 
@@ -227,7 +228,7 @@ describe("ProductAdminPage", () => {
 
     render(<ProductAdminPage />)
 
-    await screen.findByTestId("card-title-1")
+    await screen.findAllByTestId("card-title-1")
     await user.click(screen.getByRole("tab", { name: "总览" }))
     await waitFor(() => expect(screen.getAllByTestId("card-title-1")).toHaveLength(2))
 
@@ -275,7 +276,7 @@ describe("ProductAdminPage", () => {
 
     await waitFor(() => {
       expect(mockListProducts).toHaveBeenCalledWith({
-        brand: "cbanner_mens",
+        brand: "all",
         page: 1,
         pageSize: 10,
         query: undefined,
@@ -353,6 +354,7 @@ describe("ProductAdminPage", () => {
 
     render(<ProductAdminPage />)
 
+    await user.click(screen.getByRole("tab", { name: "千百度男鞋" }))
     await screen.findByTestId("card-title-1")
     await user.click(screen.getByText("2"))
 
@@ -379,7 +381,7 @@ describe("ProductAdminPage", () => {
 
     await waitFor(() => {
       expect(mockListProducts).toHaveBeenCalledWith({
-        brand: "cbanner_mens",
+        brand: "all",
         page: 1,
         pageSize: 10,
         query: undefined,
@@ -418,6 +420,7 @@ describe("ProductAdminPage", () => {
 
     render(<ProductAdminPage />)
 
+    await user.click(screen.getByRole("tab", { name: "千百度男鞋" }))
     await screen.findByTestId("card-title-1")
     await user.click(screen.getByRole("button", { name: "新增商品" }))
 

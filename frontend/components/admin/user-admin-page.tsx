@@ -1,5 +1,7 @@
 "use client"
 
+import { useSessionQueryState } from "@/lib/session-query-state"
+
 import Link from "next/link"
 import { useEffect, useMemo, useState, type ReactNode } from "react"
 import { AlertCircle, Ban, Building2, CheckCircle2, History, Loader2, Plus, RefreshCw, Save, ShieldCheck, UserCog, Users, type LucideIcon } from "lucide-react"
@@ -170,8 +172,8 @@ export function UserAdminPage() {
   const [departments, setDepartments] = useState<AuthDepartment[]>([])
   const [roles, setRoles] = useState<AuthRole[]>([])
   const [drafts, setDrafts] = useState<Record<number, UserDraft>>({})
-  const [page, setPage] = useState(1)
-  const [pageSize, setPageSize] = useState(PAGE_SIZES[0])
+  const [page, setPage] = useSessionQueryState("users:page", 1)
+  const [pageSize, setPageSize] = useSessionQueryState("users:pageSize", PAGE_SIZES[0])
   const [total, setTotal] = useState(0)
   const [userStats, setUserStats] = useState({ active: 0, disabled: 0, departmentCount: 0 })
   const [loading, setLoading] = useState(true)
@@ -554,7 +556,7 @@ export function UserAdminPage() {
           <div className="flex flex-wrap items-center gap-2">
             {currentUser?.role_code === "super_admin" ? (
               <Button asChild variant="outline">
-                <Link href="/admin/mcp-tokens">
+                <Link href="/admin/mcp-tokens" scroll={false}>
                   <ShieldCheck className="h-3.5 w-3.5" />
                   MCP Token 管理
                 </Link>

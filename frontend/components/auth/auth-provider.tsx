@@ -4,6 +4,8 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 
 import { getCurrentUser, logout as logoutRequest } from "@/lib/api"
 import type { AuthUser } from "@/lib/types"
+import { clearSessionQueryStates } from "@/lib/session-query-state"
+import { clearSessionScrollPositions } from "@/lib/session-scroll-restoration"
 
 
 type AuthContextValue = {
@@ -57,6 +59,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     try {
       await logoutRequest()
     } finally {
+      clearSessionQueryStates()
+      clearSessionScrollPositions()
       setAuthenticatedUser(null)
     }
   }, [setAuthenticatedUser])

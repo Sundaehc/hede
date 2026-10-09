@@ -1,5 +1,7 @@
 "use client"
 
+import { useSessionQueryState } from "@/lib/session-query-state"
+
 import { useEffect, useRef, useState } from "react"
 import { BadgeDollarSign, FileDown, FileSpreadsheet, History, ImagePlus, Plus, Ruler, Trash2, Upload } from "lucide-react"
 
@@ -78,8 +80,8 @@ export function ProductToolbar({
   const [refreshingImages, setRefreshingImages] = useState(false)
   const [exporting, setExporting] = useState(false)
   const [exportingMode, setExportingMode] = useState<"default" | ProductExportMode | "range" | "range_with_sizes" | null>(null)
-  const [activityDateStart, setActivityDateStart] = useState(currentShanghaiDateValue)
-  const [activityDateEnd, setActivityDateEnd] = useState(currentShanghaiDateValue)
+  const [activityDateStart, setActivityDateStart] = useSessionQueryState("products-toolbar:activityDateStart", currentShanghaiDateValue)
+  const [activityDateEnd, setActivityDateEnd] = useSessionQueryState("products-toolbar:activityDateEnd", currentShanghaiDateValue)
   const [exportProgress, setExportProgress] = useState<ProductExportProgress | null>(null)
   const [awaitingImageRefresh, setAwaitingImageRefresh] = useState(false)
   const [imageRefreshStatus, setImageRefreshStatus] = useState<ProductImageRefreshStatus | null>(null)

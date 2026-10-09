@@ -157,7 +157,7 @@ def _export_columns_for_brand(brand: str, *, include_cost: bool = True) -> list[
         if brand == "cbanner_womens"
         else [column for column in EXPORT_COLUMNS if column not in CBANNER_WOMENS_ONLY_EXPORT_COLUMNS]
     )
-    return columns if include_cost else [column for column in columns if column != "cost"]
+    return columns if include_cost else [column for column in columns if column not in {"cost", "cost_price"}]
 
 
 def _export_label(column: str, brand: str | None = None) -> str:
@@ -277,7 +277,7 @@ def _iter_all_export_rows(
     sku_prefix: str | None = None,
     include_cost: bool = True,
 ) -> Iterator[tuple[str, list[object]]]:
-    export_columns = [column for column in EXPORT_COLUMNS if include_cost or column != "cost"]
+    export_columns = [column for column in EXPORT_COLUMNS if include_cost or column not in {"cost", "cost_price"}]
     for brand in repository.product_archive_brands():
         table = repository._table_for_brand(brand)
         conditions = [not_excluded_sku_condition(table.c.sku, table.c.original_sku)]
@@ -422,7 +422,7 @@ def _export_all_products(
     sku_prefix: str | None = None,
 ) -> StreamingResponse:
     include_cost = request_can_view_product_cost(request)
-    export_columns = [column for column in EXPORT_COLUMNS if include_cost or column != "cost"]
+    export_columns = [column for column in EXPORT_COLUMNS if include_cost or column not in {"cost", "cost_price"}]
     headers = ["品牌"] + [EXPORT_LABELS.get(c, c) for c in export_columns]
     wb = Workbook(write_only=True)
     export_label = _activity_export_label(activity_date_start, activity_date_end)

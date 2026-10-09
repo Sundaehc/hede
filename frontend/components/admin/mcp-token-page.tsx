@@ -1,5 +1,7 @@
 "use client"
 
+import { useSessionQueryState } from "@/lib/session-query-state"
+
 import Link from "next/link"
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react"
 import {
@@ -126,8 +128,8 @@ export function McpTokenPage() {
 
 function TokenManager() {
   const [result, setResult] = useState<McpPage<McpTokenItem> | null>(null)
-  const [status, setStatus] = useState<McpTokenStatus>("active")
-  const [page, setPage] = useState(1)
+  const [status, setStatus] = useSessionQueryState<McpTokenStatus>("mcp-tokens:status", "active")
+  const [page, setPage] = useSessionQueryState("mcp-tokens:page", 1)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState("")
   const [notice, setNotice] = useState("")
@@ -329,6 +331,7 @@ function TokenManager() {
           <div>
             <Link
               href="/admin"
+              scroll={false}
               className="mb-3 inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
             >
               <ArrowLeft className="size-3.5" />

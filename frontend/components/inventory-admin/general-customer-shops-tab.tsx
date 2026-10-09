@@ -1,5 +1,7 @@
 "use client"
 
+import { useSessionQueryState } from "@/lib/session-query-state"
+
 import { type DragEvent, useCallback, useEffect, useMemo, useState } from "react"
 import { ChevronDown, ChevronRight, Edit, GripVertical, History, PauseCircle, Plus, RotateCcw, Search, Trash2, X } from "lucide-react"
 
@@ -66,9 +68,9 @@ export function GeneralCustomerShopsTab({ standalone = false }: GeneralCustomerS
   const [shops, setShops] = useState<GeneralCustomerShopItem[]>([])
   const [units, setUnits] = useState<GeneralCustomerUnitItem[]>([])
   const [isLoading, setIsLoading] = useState(true)
-  const [queryInput, setQueryInput] = useState("")
-  const [query, setQuery] = useState("")
-  const [selectedBrandId, setSelectedBrandId] = useState<number | null>(null)
+  const [queryInput, setQueryInput] = useSessionQueryState("general-customer-shops:queryInput", "")
+  const [query, setQuery] = useSessionQueryState("general-customer-shops:query", "")
+  const [selectedBrandId, setSelectedBrandId] = useSessionQueryState<number | null>("general-customer-shops:selectedBrandId", null)
 
   const [brandFormOpen, setBrandFormOpen] = useState(false)
   const [brandFormMode, setBrandFormMode] = useState<"create" | "edit">("create")
@@ -151,9 +153,10 @@ export function GeneralCustomerShopsTab({ standalone = false }: GeneralCustomerS
   ), [activeBrand, shops])
 
   useEffect(() => {
+    if (isLoading) return
     if (activeBrand && activeBrand.id !== selectedBrandId) setSelectedBrandId(activeBrand.id)
     if (!activeBrand && selectedBrandId !== null) setSelectedBrandId(null)
-  }, [activeBrand, selectedBrandId])
+  }, [activeBrand, isLoading, selectedBrandId, setSelectedBrandId])
 
   const showMessage = (title: string, description: string) => {
     setMessageContent({ title, description })

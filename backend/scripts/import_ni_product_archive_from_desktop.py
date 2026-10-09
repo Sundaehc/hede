@@ -292,7 +292,7 @@ def import_ni_product_archive(*, product_file: Path, price_file: Path, apply: bo
         update_columns = [
             column.name
             for column in table.columns
-            if column.name not in {"id", "sku", "created_at", "cost", "image_path"}
+            if column.name not in {"id", "sku", "created_at", "cost", "cost_price", "image_path"}
         ]
         with database._require_engine().begin() as connection:
             statement = pg_insert(table).values(product_rows)

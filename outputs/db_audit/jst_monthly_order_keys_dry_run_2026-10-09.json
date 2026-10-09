@@ -1,0 +1,49 @@
+{
+  "mode": "dry-run",
+  "date_start": "2026-05-01",
+  "date_end": "2026-10-09",
+  "result": {
+    "coverage": [
+      {
+        "month": "2026-05",
+        "total": 526578,
+        "missing": 7
+      },
+      {
+        "month": "2026-06",
+        "total": 412075,
+        "missing": 6
+      },
+      {
+        "month": "2026-07",
+        "total": 210432,
+        "missing": 210432
+      },
+      {
+        "month": "2026-08",
+        "total": 248996,
+        "missing": 248996
+      },
+      {
+        "month": "2026-09",
+        "total": 277636,
+        "missing": 277636
+      },
+      {
+        "month": "2026-10",
+        "total": 74846,
+        "missing": 74846
+      }
+    ],
+    "total": 1750563,
+    "missing": 811923,
+    "prospective_key_duplicates": {
+      "groups": 0,
+      "extra_rows": 0
+    },
+    "coarse_duplicates_not_safe_to_delete": {
+      "groups": 211,
+      "extra_rows": 216
+    }
+  }
+}

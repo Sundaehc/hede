@@ -1,5 +1,7 @@
 "use client"
 
+import { useSessionQueryState } from "@/lib/session-query-state"
+
 import { useCallback, useEffect, useState } from "react"
 import {
   Activity,
@@ -233,13 +235,13 @@ export function ScheduledTaskPage() {
   const canAccess =
     user?.role_code === "super_admin" || user?.department_code === "开发部"
   const [today] = useState(shanghaiDateInputValue)
-  const [mode, setMode] = useState<"runs" | "business">("runs")
-  const [selectedDate, setSelectedDate] = useState(today)
-  const [status, setStatus] = useState("all")
-  const [queryInput, setQueryInput] = useState("")
-  const [query, setQuery] = useState("")
-  const [latestOnly, setLatestOnly] = useState(true)
-  const [page, setPage] = useState(1)
+  const [mode, setMode] = useSessionQueryState<"runs" | "business">("scheduled-tasks:mode", "runs")
+  const [selectedDate, setSelectedDate] = useSessionQueryState("scheduled-tasks:selectedDate", today)
+  const [status, setStatus] = useSessionQueryState("scheduled-tasks:status", "all")
+  const [queryInput, setQueryInput] = useSessionQueryState("scheduled-tasks:queryInput", "")
+  const [query, setQuery] = useSessionQueryState("scheduled-tasks:query", "")
+  const [latestOnly, setLatestOnly] = useSessionQueryState("scheduled-tasks:latestOnly", true)
+  const [page, setPage] = useSessionQueryState("scheduled-tasks:page", 1)
   const [runItems, setRunItems] = useState<ScheduledTaskRunItem[]>([])
   const [businessItems, setBusinessItems] = useState<
     ScheduledTaskBusinessStatusItem[]

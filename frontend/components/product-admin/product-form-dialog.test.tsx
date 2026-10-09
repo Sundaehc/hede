@@ -41,6 +41,7 @@ const NULL_FIELDS = {
   category: null,
   product_level: null,
   cost: null,
+  cost_price: null,
   factory_sku: null,
   color: null,
   season_category: null,
@@ -151,6 +152,17 @@ describe("ProductFormDialog", () => {
     expect(await screen.findByText((content, element) => element?.tagName.toLowerCase() === "p" && content === "请选择品牌")).toBeInTheDocument()
     expect(mockCreateProduct).not.toHaveBeenCalled()
     expect(onSaved).not.toHaveBeenCalled()
+  })
+
+  it("keeps the original amount as factory shipping price and saves cost price independently", async () => {
+    const user = userEvent.setup()
+    render(<ProductFormDialog open mode="edit" item={{ ...sampleItem, cost: "118", cost_price: null }} onOpenChange={vi.fn()} onSaved={vi.fn()} />)
+    expect(screen.getByText("物价信息")).toBeInTheDocument()
+    expect(screen.getByLabelText("工厂出货价")).toHaveValue("118")
+    expect(screen.getByLabelText("成本价")).toHaveValue("")
+    await user.type(screen.getByLabelText("成本价"), "136.50")
+    await user.click(screen.getByRole("button", { name: "保存" }))
+    await waitFor(() => expect(mockUpdateProduct).toHaveBeenCalledWith("cbanner_mens", 7, expect.objectContaining({ cost: "118", cost_price: "136.50" })))
   })
 
   it("fills image_path on successful lookup", async () => {
@@ -291,6 +303,50 @@ describe("ProductFormDialog", () => {
     await waitFor(() => {
       expect(screen.getByLabelText("颜色代码")).toHaveValue("01 - 黑色")
     })
+  })
+
+  it.each([null, "NS-MANUAL"])("does not match NS color codes when editing with saved code %s", async (colorCode) => {
+    const user = userEvent.setup()
+    mockListProductColorBarcodes.mockResolvedValue({ items: [{ brand: "ns", color_code: "01", color_name: "黑色" }] })
+    render(<ProductFormDialog open mode="edit" brands={[{ key: "ns", label: "NS" }]} item={{ ...sampleItem, brand: "ns", color: "黑色", color_code: colorCode }} onOpenChange={vi.fn()} onSaved={vi.fn()} />)
+    const input = screen.getByLabelText("颜色代码")
+    expect(input).toHaveAttribute("type", "text")
+    expect(input).not.toHaveAttribute("role", "combobox")
+    expect(input).toHaveValue(colorCode ?? "")
+    await user.clear(screen.getByLabelText("颜色"))
+    await user.type(screen.getByLabelText("颜色"), "白色")
+    expect(input).toHaveValue(colorCode ?? "")
+    expect(mockListProductColorBarcodes).not.toHaveBeenCalled()
+    await user.click(screen.getByRole("button", { name: "保存" }))
+    await waitFor(() => expect(mockUpdateProduct).toHaveBeenCalledWith("ns", 7, expect.objectContaining({ color: "白色", color_code: colorCode })))
+  })
+
+  it("accepts an arbitrary manually entered NS color code without matching options", async () => {
+    const user = userEvent.setup()
+    render(<ProductFormDialog open mode="create" brands={[{ key: "ns", label: "NS" }]} onOpenChange={vi.fn()} onSaved={vi.fn()} />)
+    await user.selectOptions(screen.getByLabelText("品牌"), "ns")
+    await user.type(screen.getByLabelText("商品货号"), "NS-001")
+    await user.type(screen.getByLabelText("颜色"), "黑色")
+    expect(screen.getByLabelText("颜色代码")).toHaveValue("")
+    await user.type(screen.getByLabelText("颜色代码"), "001-CUSTOM")
+    expect(screen.getByLabelText("颜色")).toHaveValue("黑色")
+    expect(mockListProductColorBarcodes).not.toHaveBeenCalled()
+    await user.click(screen.getByRole("button", { name: "保存" }))
+    await waitFor(() => expect(mockCreateProduct).toHaveBeenCalledWith("ns", expect.objectContaining({ color: "黑色", color_code: "001-CUSTOM" })))
+  })
+
+  it("clears an automatically matched code when switching to NS without matching again", async () => {
+    const user = userEvent.setup()
+    mockListProductColorBarcodes.mockResolvedValue({ items: [{ brand: "cbanner_mens", color_code: "01", color_name: "黑色" }] })
+    render(<ProductFormDialog open mode="create" brands={[{ key: "cbanner_mens", label: "千百度男鞋" }, { key: "ns", label: "NS" }]} onOpenChange={vi.fn()} onSaved={vi.fn()} />)
+    await user.selectOptions(screen.getByLabelText("品牌"), "cbanner_mens")
+    await user.type(screen.getByLabelText("颜色"), "黑色")
+    await waitFor(() => expect(screen.getByLabelText("颜色代码")).toHaveValue("01 - 黑色"))
+    await user.selectOptions(screen.getByLabelText("品牌"), "ns")
+    expect(screen.getByLabelText("颜色代码")).toHaveValue("")
+    await user.type(screen.getByLabelText("颜色"), "色")
+    expect(screen.getByLabelText("颜色代码")).toHaveValue("")
+    expect(mockListProductColorBarcodes).not.toHaveBeenCalledWith("ns")
   })
 
   it("uses the last four characters of the smiley SKU instead of the color mapping", async () => {

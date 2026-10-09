@@ -2,6 +2,7 @@ import { Check, Copy, Edit, Eye, RefreshCw, Sparkles, Trash2 } from "lucide-reac
 import { useState } from "react"
 import type { ProductListItem } from "@/lib/types"
 import { getProductFieldGroups, getProductFieldLabel } from "@/lib/fields"
+import { cn } from "@/lib/utils"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
 import {
@@ -284,7 +285,6 @@ function ProductCard({ item, selectable, showCost = true, selectedKeys, onToggle
           {item.season_category ? <span><span className="text-muted-foreground">季节:</span> {item.season_category}</span> : null}
           {item.year ? <span><span className="text-muted-foreground">年份:</span> {item.year}</span> : null}
           {item.color ? <span><span className="text-muted-foreground">颜色:</span> {item.color}</span> : null}
-          {costText ? <span><span className="text-muted-foreground">成本:</span> {costText}</span> : null}
           {item.size_range ? <span><span className="text-muted-foreground">尺码段:</span> {item.size_range}</span> : null}
         </div>
 
@@ -301,23 +301,24 @@ function ProductCard({ item, selectable, showCost = true, selectedKeys, onToggle
         {/* Grouped fields */}
         <div className="space-y-2 border-t border-border pt-2">
           {getProductFieldGroups(item.brand).map((group) => {
+            if (group.label === "物价信息" && !showCost) return null
             const visibleFields = group.fields.filter((field) => {
               if (field === "sku" || field === "original_sku") return false
-              if (field === "season_category" || field === "year" || field === "color" || field === "cost" || field === "size_range") return false
+              if (field === "season_category" || field === "year" || field === "color" || field === "size_range") return false
               const value = item[field as keyof ProductListItem]
-              return value !== null && value !== undefined && value !== ""
+              return group.label === "物价信息" || (value !== null && value !== undefined && value !== "")
             })
             if (visibleFields.length === 0) return null
             return (
               <div key={group.label}>
                 <p className="mb-1 text-[11px] font-medium text-muted-foreground/70">{group.label}</p>
-                <div className="grid gap-x-6 gap-y-0.5 text-xs sm:grid-cols-2 lg:grid-cols-3">
+                <div className={cn("grid gap-x-6 gap-y-0.5 text-xs sm:grid-cols-2", group.label !== "物价信息" && "lg:grid-cols-3")}>
                   {visibleFields.map((field) => {
-                    const value = item[field as keyof ProductListItem]
+                    const value = field === "cost" ? costText : item[field as keyof ProductListItem]
                     return (
                       <div key={field} className="flex gap-1">
                         <span className="shrink-0 text-muted-foreground">{getProductFieldLabel(field, item.brand)}:</span>
-                        <span className="truncate">{String(value)}</span>
+                        <span className="truncate">{value === null || value === undefined || value === "" ? "—" : String(value)}</span>
                       </div>
                     )
                   })}

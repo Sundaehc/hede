@@ -1,5 +1,7 @@
 "use client"
 
+import { useSessionQueryState } from "@/lib/session-query-state"
+
 import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent } from "react"
 import { ArrowDown, ArrowUp, ArrowUpDown, Check, Copy, Plus, Download, Upload, Trash2, Edit, Search, X, RefreshCw, List, BadgeDollarSign, FileText, History, ChevronLeft, ChevronRight, GripVertical, RotateCcw } from "lucide-react"
 import { Button } from "@/components/ui/button"
@@ -741,19 +743,19 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
   const { user } = useAuth()
   const isPurchasePage = mode === "purchase-orders"
   const accountHandler = user?.display_name || user?.username || ""
-  const [searchDateStart, setSearchDateStart] = useState("")
-  const [searchDateEnd, setSearchDateEnd] = useState("")
-  const [searchBrands, setSearchBrands] = useState<string[]>([])
-  const [searchSuppliers, setSearchSuppliers] = useState<string[]>([])
-  const [searchWarehouses, setSearchWarehouses] = useState<string[]>([])
-  const [searchDocumentTypes, setSearchDocumentTypes] = useState<string[]>([])
-  const [searchDocumentNumber, setSearchDocumentNumber] = useState("")
-  const [searchSummary, setSearchSummary] = useState("")
-  const [searchOriginalSku, setSearchOriginalSku] = useState("")
-  const [searchProductCode, setSearchProductCode] = useState("")
-  const [searchHandler, setSearchHandler] = useState("")
-  const [submittedFilters, setSubmittedFilters] = useState<InventorySubmittedFilters>({})
-  const [purchaseDetailView, setPurchaseDetailView] = useState<PurchaseDetailView>("summary")
+  const [searchDateStart, setSearchDateStart] = useSessionQueryState("inventory:" + mode + ":searchDateStart", "")
+  const [searchDateEnd, setSearchDateEnd] = useSessionQueryState("inventory:" + mode + ":searchDateEnd", "")
+  const [searchBrands, setSearchBrands] = useSessionQueryState<string[]>("inventory:" + mode + ":searchBrands", [])
+  const [searchSuppliers, setSearchSuppliers] = useSessionQueryState<string[]>("inventory:" + mode + ":searchSuppliers", [])
+  const [searchWarehouses, setSearchWarehouses] = useSessionQueryState<string[]>("inventory:" + mode + ":searchWarehouses", [])
+  const [searchDocumentTypes, setSearchDocumentTypes] = useSessionQueryState<string[]>("inventory:" + mode + ":searchDocumentTypes", [])
+  const [searchDocumentNumber, setSearchDocumentNumber] = useSessionQueryState("inventory:" + mode + ":searchDocumentNumber", "")
+  const [searchSummary, setSearchSummary] = useSessionQueryState("inventory:" + mode + ":searchSummary", "")
+  const [searchOriginalSku, setSearchOriginalSku] = useSessionQueryState("inventory:" + mode + ":searchOriginalSku", "")
+  const [searchProductCode, setSearchProductCode] = useSessionQueryState("inventory:" + mode + ":searchProductCode", "")
+  const [searchHandler, setSearchHandler] = useSessionQueryState("inventory:" + mode + ":searchHandler", "")
+  const [submittedFilters, setSubmittedFilters] = useSessionQueryState<InventorySubmittedFilters>("inventory:" + mode + ":submittedFilters", {})
+  const [purchaseDetailView, setPurchaseDetailView] = useSessionQueryState<PurchaseDetailView>("inventory:" + mode + ":purchaseDetailView", "summary")
 
   const [supplierOptions, setSupplierOptions] = useState<SupplierItem[]>([])
   const [warehouseBrandOptions, setWarehouseBrandOptions] = useState<WarehouseBrandItem[]>([])
@@ -763,9 +765,9 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
   const [customerShopOptions, setCustomerShopOptions] = useState<GeneralCustomerShopItem[]>([])
   const [customerUnitOptions, setCustomerUnitOptions] = useState<GeneralCustomerUnitItem[]>([])
   const [accountSubjectOptions, setAccountSubjectOptions] = useState<InventoryAccountSubject[]>([])
-  const [page, setPage] = useState(1)
-  const [pageSize, setPageSize] = useState(PAGE_SIZES[0])
-  const [sortRules, setSortRules] = useState<InventorySortRule[]>([])
+  const [page, setPage] = useSessionQueryState("inventory:" + mode + ":page", 1)
+  const [pageSize, setPageSize] = useSessionQueryState("inventory:" + mode + ":pageSize", PAGE_SIZES[0])
+  const [sortRules, setSortRules] = useSessionQueryState<InventorySortRule[]>("inventory:" + mode + ":sortRules", [])
   const [inventoryColumnWidths, setInventoryColumnWidths] = useState<Record<InventorySortKey, number>>(INVENTORY_TABLE_COLUMN_DEFAULT_WIDTHS)
   const [reloadToken, setReloadToken] = useState(0)
   const [items, setItems] = useState<InventoryRecord[]>([])
@@ -816,7 +818,7 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
   const [draggedInventoryColumn, setDraggedInventoryColumn] = useState<InventoryTableColumnKey | null>(null)
   const [dragOverInventoryColumn, setDragOverInventoryColumn] = useState<InventoryTableColumnKey | null>(null)
   const draggedInventoryColumnRef = useRef<InventoryTableColumnKey | null>(null)
-  const [recordCompletionStatus, setRecordCompletionStatus] = useState<CompletionStatus>("completed")
+  const [recordCompletionStatus, setRecordCompletionStatus] = useSessionQueryState<CompletionStatus>("inventory:" + mode + ":recordCompletionStatus", "completed")
   const isPurchaseOrderTab = isPurchasePage
   const inventoryColumnOrderStorageKey = user ? getInventoryColumnOrderStorageKey(user.id) : null
   const inventoryColumnWidthsStorageKey = user ? getInventoryColumnWidthsStorageKey(user.id, isPurchasePage) : null
@@ -2209,7 +2211,7 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
             )}
 
             {/* Table */}
-            <div className="table-panel relative overflow-x-auto">
+            <div data-scroll-restoration-key="inventory-table" className="table-panel relative overflow-x-auto">
               {isLoading && items.length > 0 && (
                 <div className="pointer-events-none absolute right-3 top-3 z-30 inline-flex items-center gap-1.5 rounded-full border border-border bg-card/95 px-2.5 py-1 text-xs text-muted-foreground shadow-sm">
                   <RefreshCw className="size-3 animate-spin" aria-hidden="true" />

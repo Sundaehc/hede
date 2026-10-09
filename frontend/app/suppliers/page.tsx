@@ -1,5 +1,7 @@
 "use client"
 
+import { useSessionQueryState } from "@/lib/session-query-state"
+
 import { useCallback, useEffect, useState } from "react"
 import { ChevronLeft, ChevronRight, Download, Edit, History, Plus, Search, Trash2, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
@@ -34,6 +36,7 @@ const PAGE_SIZE = 30
 type PageToken = number | "start-ellipsis" | "end-ellipsis"
 type SupplierBrand = string
 const DEFAULT_SUPPLIER_BRAND = "cbanner_mens"
+const DEFAULT_SUPPLIER_TAB = "all"
 
 function getErrorMessage(error: unknown) {
   if (error instanceof ApiError) return error.message || `请求失败（${error.status}）`
@@ -84,14 +87,14 @@ export default function SuppliersPage() {
   const [brands, setBrands] = useState<SupplierBrandItem[]>([])
   const [items, setItems] = useState<SupplierItem[]>([])
   const [total, setTotal] = useState(0)
-  const [page, setPage] = useState(1)
-  const [brand, setBrand] = useState<SupplierBrand | "all">(DEFAULT_SUPPLIER_BRAND)
-  const [queryInput, setQueryInput] = useState("")
-  const [query, setQuery] = useState("")
-  const [dateStartInput, setDateStartInput] = useState("")
-  const [dateEndInput, setDateEndInput] = useState("")
-  const [dateStart, setDateStart] = useState("")
-  const [dateEnd, setDateEnd] = useState("")
+  const [page, setPage] = useSessionQueryState("suppliers:page", 1)
+  const [brand, setBrand] = useSessionQueryState<SupplierBrand | "all">("suppliers:brand", DEFAULT_SUPPLIER_TAB)
+  const [queryInput, setQueryInput] = useSessionQueryState("suppliers:queryInput", "")
+  const [query, setQuery] = useSessionQueryState("suppliers:query", "")
+  const [dateStartInput, setDateStartInput] = useSessionQueryState("suppliers:dateStartInput", "")
+  const [dateEndInput, setDateEndInput] = useSessionQueryState("suppliers:dateEndInput", "")
+  const [dateStart, setDateStart] = useSessionQueryState("suppliers:dateStart", "")
+  const [dateEnd, setDateEnd] = useSessionQueryState("suppliers:dateEnd", "")
   const [isLoading, setIsLoading] = useState(true)
   const [loadError, setLoadError] = useState("")
   const [isExporting, setIsExporting] = useState(false)
@@ -138,7 +141,7 @@ export default function SuppliersPage() {
     } finally {
       setIsLoading(false)
     }
-  }, [brand, page, query, dateStart, dateEnd])
+  }, [brand, page, query, dateStart, dateEnd, setPage])
 
   const loadBrands = useCallback(async () => {
     try {
@@ -146,13 +149,13 @@ export default function SuppliersPage() {
       setBrands(response.items)
       setBrand((current) => {
         if (current === "all" || response.items.some((item) => item.code === current)) return current
-        return response.items[0]?.code ?? "all"
+        return DEFAULT_SUPPLIER_TAB
       })
     } catch (error) {
       setBrands([])
       showMessage("加载失败", getErrorMessage(error))
     }
-  }, [])
+  }, [setBrand])
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -302,7 +305,7 @@ export default function SuppliersPage() {
         </div>
 
         <div className="surface-panel mb-3 p-1.5">
-          <Tabs defaultValue={DEFAULT_SUPPLIER_BRAND} value={brand} onValueChange={(value) => { setBrand(value); setPage(1) }}>
+          <Tabs defaultValue={DEFAULT_SUPPLIER_TAB} value={brand} onValueChange={(value) => { setBrand(value); setPage(1) }}>
             <TabsList className="flex flex-wrap justify-start gap-1 bg-transparent p-0">
               {supplierBrandOptions.map((item) => (
                 <TabsTrigger key={item.code} value={item.code} className="cursor-pointer">

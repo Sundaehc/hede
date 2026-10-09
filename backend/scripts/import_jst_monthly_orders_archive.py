@@ -10,7 +10,6 @@ from __future__ import annotations
 import argparse
 from datetime import date, datetime, time
 from decimal import Decimal, InvalidOperation
-import hashlib
 import json
 from pathlib import Path
 from typing import Iterable
@@ -19,6 +18,7 @@ from sqlalchemy import create_engine, text
 
 from config import load_settings
 from domain.vip_sources import JST_MONTHLY_ORDERS_COLUMN_ALIASES
+from domain.jst_monthly_order_identity import monthly_order_record_key
 from storage.date_normalization import parse_date, parse_datetime
 from storage.vip_repository import _xlsx_sheet_rows
 
@@ -51,17 +51,6 @@ TEXT_FIELDS = {
 INTEGER_FIELDS = {"quantity", "registered_qty", "actual_return_qty"}
 NUMERIC_FIELDS = {"payable_amount", "paid_amount", "cost_price", "buyer_paid", "seller_received"}
 MAPPED_FIELDS = (*TEXT_FIELDS, *INTEGER_FIELDS, *NUMERIC_FIELDS)
-KEY_FIELDS = (
-    "internal_order_id",
-    "online_order_id",
-    "online_sub_order_id",
-    "order_time",
-    "shop_name",
-    "style_code",
-    "product_code",
-    "quantity",
-    "status",
-)
 
 DATA_COLUMNS = (
     "source_workbook",
@@ -110,11 +99,6 @@ def _json_value(value: object) -> object:
     return value
 
 
-def _fingerprint(record: dict[str, object]) -> str:
-    material = "\x1f".join(str(record.get(field) or "") for field in KEY_FIELDS)
-    return hashlib.sha256(material.encode("utf-8")).hexdigest()
-
-
 def _map_row(
     *,
     headers: dict[int, str],
@@ -153,7 +137,7 @@ def _map_row(
         "order_time_at": order_time_at,
         "ship_date_value": parse_date(mapped.get("ship_date")),
     }
-    record["record_key"] = _fingerprint(record)
+    record["record_key"] = monthly_order_record_key(record)
     return record
 
 

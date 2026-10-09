@@ -16,7 +16,7 @@ from transform.rows import (
 
 
 def test_admin_normalization_helpers_cover_only_special_admin_fields():
-    assert set(ADMIN_FIELD_NORMALIZERS) == {"cost", "first_order_time", "launch_date"}
+    assert set(ADMIN_FIELD_NORMALIZERS) == {"cost", "cost_price", "first_order_time", "launch_date"}
     assert set(ADMIN_FIELD_NORMALIZERS).issubset(ADMIN_EDITABLE_COLUMNS)
     assert {"image_path", "first_order_time", "launch_date"}.issubset(ADMIN_EDITABLE_COLUMNS)
 

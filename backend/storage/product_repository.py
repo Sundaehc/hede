@@ -45,6 +45,7 @@ PRODUCT_COLOR_BARCODE_SOURCE_BRANDS = {
     "ni": "ni",
 }
 COMBINED_FOOTWEAR_PRICE_SOURCE_MARKER = "男女鞋合并物价"
+PRODUCT_COLOR_CODE_AUTOMATCH_DISABLED_BRANDS = {"ns"}
 
 
 def _normalize_code(value: object) -> str:
@@ -288,6 +289,7 @@ class ProductRepository:
         table = self._table_for_brand(code)
         with self.engine.begin() as connection:
             table.create(connection, checkfirst=True)
+            connection.execute(text(f"ALTER TABLE {table.name} ADD COLUMN IF NOT EXISTS cost_price NUMERIC(10, 2)"))
             connection.execute(text(f"ALTER TABLE {table.name} ADD COLUMN IF NOT EXISTS category TEXT"))
             connection.execute(text(
                 f"ALTER TABLE {table.name} ADD COLUMN IF NOT EXISTS "
@@ -329,6 +331,7 @@ class ProductRepository:
             ensure_product_tag_schema(connection)
             for table in PRODUCT_ARCHIVE_TABLES.values():
                 table.create(connection, checkfirst=True)
+                connection.execute(text(f"ALTER TABLE {table.name} ADD COLUMN IF NOT EXISTS cost_price NUMERIC(10, 2)"))
                 connection.execute(text(
                     f"ALTER TABLE {table.name} ADD COLUMN IF NOT EXISTS category TEXT"
                 ))
@@ -448,6 +451,8 @@ class ProductRepository:
         }
 
     def _color_codes_for_brand(self, brand: str) -> dict[str, str]:
+        if brand in PRODUCT_COLOR_CODE_AUTOMATCH_DISABLED_BRANDS:
+            return {}
         source_brand = PRODUCT_COLOR_BARCODE_SOURCE_BRANDS.get(brand)
         if source_brand is None:
             return {}
@@ -488,9 +493,13 @@ class ProductRepository:
         target_brands = [
             brand
             for brand, mapped_source_brand in PRODUCT_COLOR_BARCODE_SOURCE_BRANDS.items()
-            if mapped_source_brand == source_brand
+            if mapped_source_brand == source_brand and brand not in PRODUCT_COLOR_CODE_AUTOMATCH_DISABLED_BRANDS
         ]
-        if source_brand not in PRODUCT_COLOR_BARCODE_SOURCE_BRANDS and self.is_product_archive_brand(source_brand):
+        if (
+            source_brand not in PRODUCT_COLOR_BARCODE_SOURCE_BRANDS
+            and source_brand not in PRODUCT_COLOR_CODE_AUTOMATCH_DISABLED_BRANDS
+            and self.is_product_archive_brand(source_brand)
+        ):
             target_brands.append(source_brand)
 
         def apply(active_connection) -> dict[str, object]:
@@ -634,10 +643,11 @@ class ProductRepository:
                 target_brands = [
                     brand
                     for brand, mapped_source_brand in PRODUCT_COLOR_BARCODE_SOURCE_BRANDS.items()
-                    if mapped_source_brand == source_brand
+                    if mapped_source_brand == source_brand and brand not in PRODUCT_COLOR_CODE_AUTOMATCH_DISABLED_BRANDS
                 ]
                 if (
                     source_brand not in PRODUCT_COLOR_BARCODE_SOURCE_BRANDS
+                    and source_brand not in PRODUCT_COLOR_CODE_AUTOMATCH_DISABLED_BRANDS
                     and self.is_product_archive_brand(source_brand)
                 ):
                     target_brands.append(source_brand)
@@ -712,6 +722,8 @@ class ProductRepository:
             self._color_code_cache.update(color_codes_by_source)
 
             for brand, table in PRODUCT_TABLES.items():
+                if brand in PRODUCT_COLOR_CODE_AUTOMATCH_DISABLED_BRANDS:
+                    continue
                 color_codes = color_codes_by_source[PRODUCT_COLOR_BARCODE_SOURCE_BRANDS[brand]]
                 rows = connection.execute(
                     select(table.c.id, table.c.color)
@@ -1212,7 +1224,7 @@ class ProductRepository:
                         mapped_color = lookup_connection.execute(statement).scalar_one_or_none()
                 if mapped_color:
                     payload["color"] = mapped_color
-            elif color_name and not color_code:
+            elif color_name and not color_code and brand not in PRODUCT_COLOR_CODE_AUTOMATCH_DISABLED_BRANDS:
                 resolved_color_code = self._color_codes_for_brand(brand).get(color_name)
                 if resolved_color_code:
                     payload["color_code"] = resolved_color_code

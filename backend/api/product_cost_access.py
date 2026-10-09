@@ -11,6 +11,8 @@ PRODUCT_COST_FIELD_NAMES = {
     "costprice",
     "costunitprice",
     "costmanualoverride",
+    "factoryshippingprice",
+    "工厂出货价",
     "gendercosts",
     "presetprice",
     "成本",

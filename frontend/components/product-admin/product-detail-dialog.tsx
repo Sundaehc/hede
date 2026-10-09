@@ -1,4 +1,5 @@
 import {
+  Banknote,
   ImageOff,
   Layers3,
   Package,
@@ -23,6 +24,7 @@ import { cn } from "@/lib/utils"
 
 const SECTION_ICONS = {
   基础信息: Package,
+  物价信息: Banknote,
   材质信息: Layers3,
   女鞋款式信息: Shapes,
   尺寸信息: Ruler,
@@ -78,12 +80,12 @@ export function ProductDetailDialog({
   }[] = getProductFieldGroups(item.brand).map((group) => ({
     label: group.label,
     fields: group.fields
-      .filter((field) => showCost || field !== "cost")
+      .filter((field) => showCost || (field !== "cost" && field !== "cost_price"))
       .map((field) => ({
         field,
         label: getProductFieldLabel(field, item.brand),
       })),
-  }))
+  })).filter((group) => group.fields.length > 0)
   if (item.brand === "smiley") {
     fieldGroups.push({
       label: "笑脸商品信息",
