@@ -1438,6 +1438,58 @@ def test_surplus_import_uses_warehouse_brand_when_supplier_is_empty() -> None:
     ) == "ni"
 
 
+@pytest.mark.parametrize("brand", ["ns", "custom_brand", "NS"])
+def test_registered_supplier_brand_overrides_warehouse_and_default_brand(brand) -> None:
+    repository = Mock()
+    repository.get_supplier_by_name.return_value = {"brand": brand}
+    repository.get_supplier_brand_by_code.return_value = {"code": brand.lower()}
+    repository.get_warehouse_by_name.return_value = {"brand": "cbanner_womens"}
+
+    assert _purchase_import_brand_for_supplier(
+        repository, "supplier", "进货订单", "cbanner_mens", "千百度女鞋天图仓库",
+    ) == brand.lower()
+    repository.get_supplier_brand_by_code.assert_called_once_with(brand.lower())
+    repository.get_warehouse_by_name.assert_not_called()
+
+
+def test_registered_warehouse_brand_overrides_default_brand() -> None:
+    repository = Mock()
+    repository.get_warehouse_by_name.return_value = {"brand": "custom_brand"}
+    repository.get_supplier_brand_by_code.return_value = {"code": "custom_brand"}
+
+    assert _purchase_import_brand_for_supplier(
+        repository, "", "报溢单", "cbanner_mens", "warehouse",
+    ) == "custom_brand"
+
+
+def test_unregistered_supplier_brand_falls_back_to_warehouse() -> None:
+    repository = Mock()
+    repository.get_supplier_by_name.return_value = {"brand": "unknown_brand"}
+    repository.get_supplier_brand_by_code.return_value = None
+    repository.get_warehouse_by_name.return_value = {"brand": "ni"}
+
+    assert _purchase_import_brand_for_supplier(
+        repository, "supplier", "进货订单", "cbanner_mens", "warehouse",
+    ) == "ni"
+
+
+def test_saved_ns_record_uses_supplier_brand_before_warehouse() -> None:
+    repository = Mock()
+    repository.get_supplier_by_name.return_value = {"brand": "ns"}
+    repository.get_supplier_brand_by_code.return_value = {"code": "ns"}
+    repository.get_warehouse_by_name.return_value = {"brand": "cbanner_womens"}
+
+    assert _purchase_import_brand_for_record(
+        repository,
+        {
+            "supplier": "supplier",
+            "warehouse": "千百度女鞋天图仓库",
+            "document_type": "进货订单",
+            "raw_payload": {"brand": "cbanner_mens"},
+        },
+    ) == "ns"
+
+
 def test_eblan_womens_supplier_import_uses_eblan_product_archive() -> None:
     repository = Mock()
     repository.get_supplier_by_name.return_value = {"brand": "eblan_womens"}

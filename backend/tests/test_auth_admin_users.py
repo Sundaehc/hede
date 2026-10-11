@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from unittest.mock import Mock
 
 import pytest
 from fastapi import FastAPI
@@ -155,3 +156,33 @@ def test_admin_create_user_rejects_duplicate_username(admin_user_client):
 
     assert duplicate.status_code == 409
     assert duplicate.json()["detail"] == "该账号已存在"
+
+
+def test_admin_user_list_passes_name_filter_and_pagination(admin_user_client):
+    client, repository, _log_repository = admin_user_client
+    client.cookies.set("hede_session", "admin-session")
+    repository.list_users_page = Mock(return_value={
+        "items": [{**repository.sessions["member-session"], "password_hash": "secret"}],
+        "total": 1,
+        "page": 2,
+        "page_size": 20,
+        "stats": {"active": 1, "disabled": 0, "department_count": 1},
+    })
+
+    response = client.get("/auth/admin/users", params={"page": 2, "name_query": "用户"})
+
+    assert response.status_code == 200
+    repository.list_users_page.assert_called_once_with(page=2, page_size=20, name_query="用户")
+    assert response.json()["items"][0]["display_name"] == "普通用户"
+    assert "password_hash" not in response.json()["items"][0]
+
+
+def test_non_admin_cannot_filter_user_list(admin_user_client):
+    client, repository, _log_repository = admin_user_client
+    client.cookies.set("hede_session", "member-session")
+    repository.list_users_page = Mock()
+
+    response = client.get("/auth/admin/users", params={"name_query": "用户"})
+
+    assert response.status_code == 403
+    repository.list_users_page.assert_not_called()

@@ -4020,6 +4020,16 @@ def _purchase_import_brand_for_supplier(
     return inferred_brand or fallback_brand or _purchase_import_brand(document_type)
 
 
+def _is_known_inventory_brand(repository, brand: str) -> bool:
+    if brand in SUPPLIER_BRANDS:
+        return True
+    get_brand = getattr(repository, "get_supplier_brand_by_code", None)
+    if not brand or not callable(get_brand):
+        return False
+    brand_record = get_brand(brand)
+    return isinstance(brand_record, dict) and _cell_text(brand_record.get("code")).lower() == brand
+
+
 def _infer_inventory_template_brand(repository, supplier: object, warehouse: object) -> tuple[str, str]:
     supplier_name = _cell_text(supplier)
     if supplier_name:
@@ -4027,7 +4037,7 @@ def _infer_inventory_template_brand(repository, supplier: object, warehouse: obj
         supplier_brand = _cell_text(supplier_record.get("brand") if supplier_record else "").lower()
         if supplier_brand == EBLAN_WOMENS_SUPPLIER_BRAND:
             return EBLAN_BRAND, "往来单位档案"
-        if supplier_brand in SUPPLIER_BRANDS:
+        if _is_known_inventory_brand(repository, supplier_brand):
             return supplier_brand, "往来单位档案"
         inferred_brand = infer_supplier_brand_from_name(supplier_brand) or infer_supplier_brand_from_name(supplier_name)
         if inferred_brand:
@@ -4038,7 +4048,7 @@ def _infer_inventory_template_brand(repository, supplier: object, warehouse: obj
     warehouse_name = _cell_text(warehouse)
     warehouse_record = repository.get_warehouse_by_name(warehouse_name) if warehouse_name else None
     warehouse_brand = _cell_text(warehouse_record.get("brand") if warehouse_record else "").lower()
-    if warehouse_brand in SUPPLIER_BRANDS:
+    if _is_known_inventory_brand(repository, warehouse_brand):
         return warehouse_brand, "仓库档案"
     warehouse_context = f"{warehouse_brand} {warehouse_name}".upper()
     if "NI" in warehouse_context:

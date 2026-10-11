@@ -186,10 +186,11 @@ def admin_list_users(
     request: Request,
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
+    name_query: str | None = None,
 ):
     require_permission(request, "system.admin")
     repository = request.app.state.auth_repository
-    payload = repository.list_users_page(page=page, page_size=page_size)
+    payload = repository.list_users_page(page=page, page_size=page_size, name_query=name_query)
     return {
         **payload,
         "items": [sanitize_user(user) for user in payload["items"]],

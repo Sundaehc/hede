@@ -1,0 +1,80 @@
+Failed to proxy http://127.0.0.1:8137/inventory/import-template Error: socket hang up
+    at ignore-listed frames {
+  code: 'ECONNRESET'
+}
+Error: socket hang up
+    at ignore-listed frames {
+  code: 'ECONNRESET'
+}
+Failed to proxy http://127.0.0.1:8137/auth/me Error: socket hang up
+    at ignore-listed frames {
+  code: 'ECONNRESET'
+}
+Error: socket hang up
+    at ignore-listed frames {
+  code: 'ECONNRESET'
+}
+Failed to proxy http://127.0.0.1:8137/inventory/import-template Error: socket hang up
+    at ignore-listed frames {
+  code: 'ECONNRESET'
+}
+Error: socket hang up
+    at ignore-listed frames {
+  code: 'ECONNRESET'
+}
+Failed to proxy http://127.0.0.1:8137/inventory/import-template Error: socket hang up
+    at ignore-listed frames {
+  code: 'ECONNRESET'
+}
+Error: socket hang up
+    at ignore-listed frames {
+  code: 'ECONNRESET'
+}
+Failed to proxy http://127.0.0.1:8137/auth/me Error: socket hang up
+    at ignore-listed frames {
+  code: 'ECONNRESET'
+}
+Error: socket hang up
+    at ignore-listed frames {
+  code: 'ECONNRESET'
+}
+Failed to proxy http://127.0.0.1:8137/auth/login Error: socket hang up
+    at ignore-listed frames {
+  code: 'ECONNRESET'
+}
+Error: socket hang up
+    at ignore-listed frames {
+  code: 'ECONNRESET'
+}
+Failed to proxy http://127.0.0.1:8137/auth/me Error: socket hang up
+    at ignore-listed frames {
+  code: 'ECONNRESET'
+}
+Error: socket hang up
+    at ignore-listed frames {
+  code: 'ECONNRESET'
+}
+Failed to proxy http://127.0.0.1:8137/auth/me Error: socket hang up
+    at ignore-listed frames {
+  code: 'ECONNRESET'
+}
+Error: socket hang up
+    at ignore-listed frames {
+  code: 'ECONNRESET'
+}
+Failed to proxy http://127.0.0.1:8137/inventory/import-template Error: socket hang up
+    at ignore-listed frames {
+  code: 'ECONNRESET'
+}
+Error: socket hang up
+    at ignore-listed frames {
+  code: 'ECONNRESET'
+}
+Failed to proxy http://127.0.0.1:8137/inventory/import-template Error: socket hang up
+    at ignore-listed frames {
+  code: 'ECONNRESET'
+}
+Error: socket hang up
+    at ignore-listed frames {
+  code: 'ECONNRESET'
+}

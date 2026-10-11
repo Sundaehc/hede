@@ -4,7 +4,7 @@ import { useSessionQueryState } from "@/lib/session-query-state"
 
 import Link from "next/link"
 import { useEffect, useMemo, useState, type ReactNode } from "react"
-import { AlertCircle, Ban, Building2, CheckCircle2, History, Loader2, Plus, RefreshCw, Save, ShieldCheck, UserCog, Users, type LucideIcon } from "lucide-react"
+import { AlertCircle, Ban, Building2, CheckCircle2, History, Loader2, Plus, RefreshCw, Save, Search, ShieldCheck, UserCog, Users, type LucideIcon } from "lucide-react"
 
 import { useAuth } from "@/components/auth/auth-provider"
 import { OperationLogDialog } from "@/components/operation-log-dialog"
@@ -174,6 +174,8 @@ export function UserAdminPage() {
   const [drafts, setDrafts] = useState<Record<number, UserDraft>>({})
   const [page, setPage] = useSessionQueryState("users:page", 1)
   const [pageSize, setPageSize] = useSessionQueryState("users:pageSize", PAGE_SIZES[0])
+  const [nameInput, setNameInput] = useSessionQueryState("users:nameInput", "")
+  const [nameQuery, setNameQuery] = useSessionQueryState("users:nameQuery", "")
   const [total, setTotal] = useState(0)
   const [userStats, setUserStats] = useState({ active: 0, disabled: 0, departmentCount: 0 })
   const [loading, setLoading] = useState(true)
@@ -214,7 +216,7 @@ export function UserAdminPage() {
     setLoading(true)
     if (!preserveMessage) setMessage("")
     try {
-      const [options, userResponse] = await Promise.all([getAuthOptions(), listAdminUsers({ page, pageSize })])
+      const [options, userResponse] = await Promise.all([getAuthOptions(), listAdminUsers({ page, pageSize, nameQuery: nameQuery || undefined })])
       const totalPages = Math.max(1, Math.ceil(userResponse.total / pageSize))
       if (page > totalPages) {
         setPage(totalPages)
@@ -243,7 +245,7 @@ export function UserAdminPage() {
     } else {
       setLoading(false)
     }
-  }, [hasPermission, page, pageSize])
+  }, [hasPermission, page, pageSize, nameQuery])
 
   const updateDraft = (userId: number, patch: Partial<UserDraft>) => {
     setDrafts((current) => ({
@@ -606,9 +608,42 @@ export function UserAdminPage() {
             </div>
             <div className="inline-flex items-center gap-1.5 rounded-full border border-border bg-muted/40 px-3 py-1 text-xs text-muted-foreground">
               <UserCog className="h-3.5 w-3.5" />
-              {loading ? "正在加载" : `${total} 个账号`}
+              {loading ? "正在加载" : `${nameQuery ? "匹配 " : ""}${total} 个账号`}
             </div>
           </div>
+
+          <form
+            className="flex flex-wrap items-end gap-3 border-b border-border px-4 py-3"
+            onSubmit={(event) => {
+              event.preventDefault()
+              setPage(1)
+              setNameQuery(nameInput.trim())
+            }}
+          >
+            <div className="w-full sm:w-64">
+              <div className="relative">
+                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  id="user-name-filter"
+                  value={nameInput}
+                  onChange={(event) => setNameInput(event.target.value)}
+                  placeholder="输入姓名关键词"
+                  className="pl-9"
+                />
+              </div>
+            </div>
+            <Button type="submit" disabled={loading}>查询</Button>
+            <Button
+              type="button"
+              variant="outline"
+              disabled={loading || (!nameInput && !nameQuery)}
+              onClick={() => {
+                setNameInput("")
+                setNameQuery("")
+                setPage(1)
+              }}
+            >清空</Button>
+          </form>
 
           <div className="hidden overflow-x-auto xl:block">
             <table className="w-full min-w-[990px] text-sm">
@@ -643,7 +678,7 @@ export function UserAdminPage() {
                 })}
                 {!loading && users.length === 0 ? (
                   <tr>
-                    <td className="px-4 py-12 text-center text-muted-foreground" colSpan={7}>暂无用户</td>
+                    <td className="px-4 py-12 text-center text-muted-foreground" colSpan={7}>{nameQuery ? "未找到匹配姓名的用户" : "暂无用户"}</td>
                   </tr>
                 ) : null}
               </tbody>
@@ -671,7 +706,7 @@ export function UserAdminPage() {
               )
             })}
             {!loading && users.length === 0 ? (
-              <div className="px-4 py-12 text-center text-muted-foreground">暂无用户</div>
+              <div className="px-4 py-12 text-center text-muted-foreground">{nameQuery ? "未找到匹配姓名的用户" : "暂无用户"}</div>
             ) : null}
           </div>
 

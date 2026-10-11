@@ -126,11 +126,12 @@ export function getAuthOptions() {
   }>("/auth/options")
 }
 
-export function listAdminUsers(params: { page: number; pageSize: number }) {
+export function listAdminUsers(params: { page: number; pageSize: number; nameQuery?: string }) {
   const search = new URLSearchParams({
     page: String(params.page),
     page_size: String(params.pageSize),
   })
+  if (params.nameQuery?.trim()) search.set("name_query", params.nameQuery.trim())
   return request<{
     items: AuthUser[]
     total: number
