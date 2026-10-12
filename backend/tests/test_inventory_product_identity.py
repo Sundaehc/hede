@@ -414,6 +414,97 @@ def test_original_sku_resolves_unique_color_variant(identity_connection, histori
     assert connection.execute(text("SELECT product_identity_id, product_code FROM inventory_details")).one() == (identity_id, "STYLE24")
 
 
+@pytest.mark.parametrize("historical", [False, True])
+@pytest.mark.parametrize("document_type", ["进货订单", "进货退货单", "批发销售退货单"])
+def test_original_sku_prefers_unique_full_code_in_name_over_shared_color(identity_connection, historical, document_type):
+    connection = identity_connection
+    identity_id = _product(connection, sku="STYLEA24", original_sku="STYLE24")
+    _product(connection, product_id=2, sku="STYLEB24", original_sku="STYLE24")
+    _document(connection, document_type=document_type)
+    if historical:
+        connection.execute(text("ALTER TABLE inventory_details DISABLE TRIGGER trg_hede_purchase_detail_product_link"))
+    _detail(connection, code="STYLE24", name="STYLEA24白色", color="24")
+    if historical:
+        connection.execute(text("ALTER TABLE inventory_details ENABLE TRIGGER trg_hede_purchase_detail_product_link"))
+        _backfill_inventory_product_details(connection)
+    row = connection.execute(text("SELECT product_identity_id, product_code, quantity, unit_price, amount FROM inventory_details")).one()
+    assert row == (identity_id, "STYLEA24", Decimal("2"), Decimal("123.45"), Decimal("246.90"))
+    _backfill_inventory_product_details(connection)
+    assert connection.scalar(text("SELECT product_identity_id FROM inventory_details")) == identity_id
+
+
+@pytest.mark.parametrize("historical", [False, True])
+def test_shared_original_code_and_color_without_full_name_stays_unlinked(identity_connection, historical):
+    connection = identity_connection
+    _product(connection, sku="STYLEA24", original_sku="STYLE24")
+    _product(connection, product_id=2, sku="STYLEB24", original_sku="STYLE24")
+    _document(connection)
+    if historical:
+        connection.execute(text("ALTER TABLE inventory_details DISABLE TRIGGER trg_hede_purchase_detail_product_link"))
+    _detail(connection, code="STYLE24", name="STYLE24白色", color="24")
+    if historical:
+        connection.execute(text("ALTER TABLE inventory_details ENABLE TRIGGER trg_hede_purchase_detail_product_link"))
+        _backfill_inventory_product_details(connection)
+    assert connection.execute(text("SELECT product_identity_id, product_code FROM inventory_details")).one() == (None, "STYLE24")
+
+
+@pytest.mark.parametrize("historical", [False, True])
+def test_ambiguous_name_does_not_fall_back_to_unique_color(identity_connection, historical):
+    connection = identity_connection
+    _product(connection, sku="STYLE", original_sku="ORIGINAL")
+    _product(connection, product_id=2, sku="STYLEA24", original_sku="ORIGINAL")
+    _document(connection)
+    if historical:
+        connection.execute(text("ALTER TABLE inventory_details DISABLE TRIGGER trg_hede_purchase_detail_product_link"))
+    _detail(connection, code="ORIGINAL", name="STYLEA24白色", color="24")
+    if historical:
+        connection.execute(text("ALTER TABLE inventory_details ENABLE TRIGGER trg_hede_purchase_detail_product_link"))
+        _backfill_inventory_product_details(connection)
+    assert connection.scalar(text("SELECT product_identity_id FROM inventory_details")) is None
+
+
+@pytest.mark.parametrize("field", ["product_name", "color_barcode"])
+def test_editing_product_hint_retries_unlinked_identity(identity_connection, field):
+    connection = identity_connection
+    identity_id = _product(connection, sku="STYLEA24", original_sku="STYLE")
+    _product(connection, product_id=2, sku="STYLEB35", original_sku="STYLE")
+    _document(connection)
+    _detail(connection, code="STYLE", name="普通鞋", color="")
+    assert connection.scalar(text("SELECT product_identity_id FROM inventory_details")) is None
+    value = "STYLEA24白色" if field == "product_name" else "24"
+    connection.execute(text(f"UPDATE inventory_details SET {field} = :value"), {"value": value})
+    assert connection.scalar(text("SELECT product_identity_id FROM inventory_details")) == identity_id
+
+
+@pytest.mark.parametrize("historical", [False, True])
+def test_name_hint_does_not_cross_explicit_brand(identity_connection, historical):
+    connection = identity_connection
+    _product(connection, sku="STYLEA24", original_sku="STYLE")
+    _document(connection, brand="cbanner_womens")
+    if historical:
+        connection.execute(text("ALTER TABLE inventory_details DISABLE TRIGGER trg_hede_purchase_detail_product_link"))
+    _detail(connection, code="STYLE", name="STYLEA24白色", color="24")
+    if historical:
+        connection.execute(text("ALTER TABLE inventory_details ENABLE TRIGGER trg_hede_purchase_detail_product_link"))
+        _backfill_inventory_product_details(connection)
+    assert connection.scalar(text("SELECT product_identity_id FROM inventory_details")) is None
+
+
+@pytest.mark.parametrize("historical", [False, True])
+def test_name_code_matching_treats_sql_wildcards_literally(identity_connection, historical):
+    connection = identity_connection
+    _product(connection, sku="STYLE_24", original_sku="STYLE")
+    _product(connection, product_id=2, sku="OTHER35", original_sku="STYLE")
+    _document(connection)
+    if historical:
+        connection.execute(text("ALTER TABLE inventory_details DISABLE TRIGGER trg_hede_purchase_detail_product_link"))
+    _detail(connection, code="STYLE", name="STYLEX24白色", color="")
+    if historical:
+        connection.execute(text("ALTER TABLE inventory_details ENABLE TRIGGER trg_hede_purchase_detail_product_link"))
+        _backfill_inventory_product_details(connection)
+    assert connection.scalar(text("SELECT product_identity_id FROM inventory_details")) is None
+
+
 def test_editing_detail_code_relinks_to_new_product(identity_connection):
     connection = identity_connection
     _product(connection)

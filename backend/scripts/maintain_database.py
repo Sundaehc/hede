@@ -9,6 +9,7 @@ from datetime import date
 from sqlalchemy import create_engine, inspect, text
 
 from config import load_settings
+from domain.database_statistics import STALE_LARGE_TABLES_SQL
 from storage.task_status_repository import ScheduledTaskStatusRepository
 from storage.product_repository import ProductRepository
 
@@ -31,7 +32,23 @@ ANALYZE_TABLES = (
 
 def _existing_analyze_tables(engine) -> tuple[str, ...]:
     inspector = inspect(engine)
-    return tuple(table_name for table_name in ANALYZE_TABLES if inspector.has_table(table_name))
+    fixed_tables = tuple(table_name for table_name in ANALYZE_TABLES if inspector.has_table(table_name, schema="public"))
+    with engine.connect() as connection:
+        stale_tables = tuple(
+            row["table_name"] for row in connection.execute(
+                text(STALE_LARGE_TABLES_SQL + " ORDER BY relation.relname")
+            ).mappings()
+        )
+    return tuple(dict.fromkeys((*fixed_tables, *stale_tables)))
+
+
+def _analyze_tables(engine, table_names: tuple[str, ...]) -> None:
+    quote = engine.dialect.identifier_preparer.quote_identifier
+    with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as connection:
+        connection.execute(text("SET lock_timeout = '10s'"))
+        connection.execute(text("SET statement_timeout = '5min'"))
+        for table_name in table_names:
+            connection.execute(text(f"ANALYZE {quote('public')}.{quote(table_name)}"))
 
 
 def main() -> int:
@@ -52,9 +69,7 @@ def main() -> int:
     try:
         engine = create_engine(settings.database_url)
         table_names = _existing_analyze_tables(engine)
-        with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as connection:
-            for table_name in table_names:
-                connection.execute(text(f"ANALYZE public.{table_name}"))
+        _analyze_tables(engine, table_names)
         purged_products = ProductRepository(settings.database_url).purge_expired_deleted_products()
         purged_product_count = sum(purged_products.values())
         elapsed_seconds = round(time.perf_counter() - started_at, 2)

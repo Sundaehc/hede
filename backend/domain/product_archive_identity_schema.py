@@ -374,10 +374,17 @@ def _install_functions(connection: Connection) -> None:
                       AND is_active = true
                       AND original_sku = NULLIF(btrim(NEW.product_code), '')
                       AND (
-                          btrim(COALESCE(NEW.product_name, '')) LIKE sku || '%'
+                          starts_with(btrim(COALESCE(NEW.product_name, '')), sku)
                           OR (
                               NULLIF(btrim(COALESCE(NEW.color_barcode, '')), '') IS NOT NULL
-                              AND sku LIKE '%' || btrim(NEW.color_barcode)
+                              AND right(sku, length(btrim(NEW.color_barcode))) = btrim(NEW.color_barcode)
+                              AND NOT EXISTS (
+                                  SELECT 1 FROM product_archive_identities AS named_identity
+                                  WHERE named_identity.brand = record_brand
+                                    AND named_identity.is_active = true
+                                    AND named_identity.original_sku = NULLIF(btrim(NEW.product_code), '')
+                                    AND starts_with(btrim(COALESCE(NEW.product_name, '')), named_identity.sku)
+                              )
                           )
                       );
                 END IF;
@@ -615,10 +622,17 @@ def _backfill_inventory_product_details(connection: Connection) -> None:
              AND identity.brand = purchase_details.brand
              AND identity.original_sku = purchase_details.product_code
              AND (
-                 purchase_details.product_name LIKE identity.sku || '%'
+                 starts_with(purchase_details.product_name, identity.sku)
                  OR (
                      purchase_details.color_barcode <> ''
-                     AND identity.sku LIKE '%' || purchase_details.color_barcode
+                     AND right(identity.sku, length(purchase_details.color_barcode)) = purchase_details.color_barcode
+                     AND NOT EXISTS (
+                         SELECT 1 FROM product_archive_identities AS named_identity
+                         WHERE named_identity.brand = purchase_details.brand
+                           AND named_identity.is_active = true
+                           AND named_identity.original_sku = purchase_details.product_code
+                           AND starts_with(purchase_details.product_name, named_identity.sku)
+                     )
                  )
              )
             WHERE purchase_details.brand IS NOT NULL
@@ -720,10 +734,10 @@ def _install_inventory_product_link_triggers(connection: Connection) -> None:
         trigger_name="trg_hede_purchase_detail_product_link",
         function_name="hede_link_purchase_order_detail_product",
         trigger_type=23,
-        columns=("product_code", "product_identity_id", "document_id"),
+        columns=("product_code", "product_identity_id", "document_id", "product_name", "color_barcode"),
         definition="""
         CREATE TRIGGER trg_hede_purchase_detail_product_link
-        BEFORE INSERT OR UPDATE OF product_code, product_identity_id, document_id
+        BEFORE INSERT OR UPDATE OF product_code, product_identity_id, document_id, product_name, color_barcode
         ON inventory_details
         FOR EACH ROW
         EXECUTE FUNCTION hede_link_purchase_order_detail_product()

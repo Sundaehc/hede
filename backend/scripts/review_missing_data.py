@@ -34,6 +34,7 @@ from pathlib import Path
 from typing import Any
 
 from sqlalchemy import create_engine
+from domain.database_statistics import STALE_LARGE_TABLES_SQL
 from domain.jst_monthly_order_identity import monthly_order_record_key_sql
 
 BACKEND_ROOT = Path(__file__).resolve().parent.parent
@@ -96,7 +97,7 @@ NULL_CHECKS: tuple[dict[str, Any], ...] = (
     dict(area="进销存", table="inventory_details", column="amount",
          mode="required", threshold=1),
     dict(area="进销存", table="inventory_details", column="product_identity_id",
-         mode="required", threshold=1),
+         mode="required", threshold=1, where="NULLIF(btrim(product_code), '') IS NOT NULL", scope="（有商品编码）"),
     dict(area="进销存", table="inventory_details", column="product_code", mode="known", delta=1),
     dict(area="进销存", table="inventory_details", column="color_spec", mode="known", delta=1),
     *(
@@ -333,7 +334,7 @@ class Review:
                 continue
             label = f"{table}.{column}"
             where = spec.get("where")
-            scope = "（近 120 天）" if where else ""
+            scope = spec.get("scope", "（近 120 天）" if where else "")
             try:
                 total = int(self.scalar(
                     f"SELECT count(*) FROM public.{table}"
@@ -544,9 +545,14 @@ class Review:
              "SELECT count(*) FROM public.inventory_details d "
              "JOIN public.inventory_records r ON r.id = d.document_id WHERE r.deleted_at IS NOT NULL",
              YELLOW, "inv.details_under_deleted", None),
-            ("未关联商品身份的明细",
-             "SELECT count(*) FROM public.inventory_details WHERE product_identity_id IS NULL",
+            ("未关联商品身份的商品明细",
+             "SELECT count(*) FROM public.inventory_details WHERE product_identity_id IS NULL "
+             "AND NULLIF(btrim(product_code), '') IS NOT NULL",
              RED, "inv.no_identity", 0),
+            ("无商品编码的费用/科目明细（不需关联商品身份）",
+             "SELECT count(*) FROM public.inventory_details WHERE product_identity_id IS NULL "
+             "AND NULLIF(btrim(product_code), '') IS NULL",
+             GRAY, "inv.no_identity_no_code", None),
         )
         for label, sql, bad_status, key, limit in checks:
             try:
@@ -571,10 +577,10 @@ class Review:
                 f"SELECT count(*) FROM public.inventory_details d "
                 f"WHERE d.product_identity_id IS NULL AND d.product_code IS NOT NULL "
                 f"AND EXISTS (SELECT 1 FROM ({union}) a WHERE a.s = d.product_code)") or 0)
-            self.add(area, "↳ 其中货号在档案中（本应能匹配）",
-                     RED if matchable else OK, f"{matchable:,}",
+            self.add(area, "↳ 其中货号在档案中（需核对品牌及版本歧义）",
+                     YELLOW if matchable else OK, f"{matchable:,}",
                      key="inv.matchable_no_identity", value=matchable,
-                     note="触发器未解析出身份" if matchable else "正常")
+                     note="货号存在不代表身份唯一；品牌冲突或同货号多版本不能强制关联" if matchable else "正常")
         except Exception as exc:  # noqa: BLE001
             self.failures.append(f"identity matchable: {type(exc).__name__}: {exc}")
 
@@ -651,17 +657,12 @@ class Review:
             self.failures.append(f"db size: {type(exc).__name__}: {exc}")
 
         try:
-            stale = int(self.scalar("""
-                SELECT count(*) FROM pg_class c
-                JOIN pg_namespace n ON n.oid = c.relnamespace
-                LEFT JOIN pg_stat_user_tables s ON s.relid = c.oid
-                WHERE n.nspname = 'public' AND c.relkind = 'r'
-                  AND pg_relation_size(c.oid) > 100 * 1024 * 1024
-                  AND (s.last_analyze IS NULL OR s.last_analyze < now() - interval '7 days')
-            """) or 0)
+            stale = int(self.scalar(
+                f"SELECT count(*) FROM ({STALE_LARGE_TABLES_SQL}) AS stale_tables"
+            ) or 0)
             self.add(area, "超过 7 天未 ANALYZE 的大表", YELLOW if stale else OK,
                      f"{stale} 张", key="ops.stale_stats", value=stale,
-                     note="统计信息陈旧会拖慢查询计划" if stale else "正常")
+                     note="按手动/自动 ANALYZE 中较新的时间判断；统计信息陈旧需更新" if stale else "正常（含自动 ANALYZE）")
         except Exception as exc:  # noqa: BLE001
             self.failures.append(f"stale stats: {type(exc).__name__}: {exc}")
 
