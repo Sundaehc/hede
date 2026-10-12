@@ -84,3 +84,12 @@ Index("idx_auth_sessions_user_id", AUTH_SESSION_TABLE.c.user_id)
 Index("idx_auth_sessions_expires_at", AUTH_SESSION_TABLE.c.expires_at)
 Index("idx_auth_users_department", AUTH_USER_TABLE.c.department_code)
 Index("idx_auth_users_role", AUTH_USER_TABLE.c.role_code)
+
+
+AUTH_PINNED_PAGE_TAB_TABLE = Table(
+    "auth_pinned_page_tabs",
+    METADATA,
+    Column("user_id", Integer, ForeignKey("auth_users.id", ondelete="CASCADE"), primary_key=True),
+    Column("page_path", Text, primary_key=True),
+    Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+)

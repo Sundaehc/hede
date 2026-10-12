@@ -5,6 +5,7 @@ import { usePathname, useRouter } from "next/navigation"
 
 import { SidebarNav } from "@/components/sidebar-nav"
 import { useAuth } from "@/components/auth/auth-provider"
+import { PageTabs } from "@/components/auth/page-tabs"
 import { SessionQueryProvider } from "@/lib/session-query-state"
 import { SessionScrollRestoration } from "@/lib/session-scroll-restoration"
 import { SessionPageStateBoundary } from "@/lib/session-page-state"
@@ -53,9 +54,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   return (
     <div className="flex min-h-svh">
       <SidebarNav />
-      <main className="min-w-0 flex-1 pl-14 md:pl-56">
+      <main className="min-w-0 flex-1 pl-14 [--page-tabs-height:2.75rem] md:pl-56">
         <SessionPageStateBoundary>
           <SessionQueryProvider key={user.id} userId={user.id}>
+            <PageTabs key={user.id} />
             <SessionScrollRestoration pathname={pathname} userId={user.id}>{children}</SessionScrollRestoration>
           </SessionQueryProvider>
         </SessionPageStateBoundary>

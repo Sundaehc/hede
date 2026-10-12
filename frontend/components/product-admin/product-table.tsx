@@ -419,7 +419,7 @@ export function ProductTable({
       </div>
 
       {selectedKeys.size > 0 ? (
-        <div className="sticky top-2 z-20 flex flex-col gap-3 rounded-lg border border-border bg-background/95 p-3 shadow-sm backdrop-blur sm:flex-row sm:items-center sm:justify-between">
+        <div className="sticky top-[calc(var(--page-tabs-height,0px)+0.5rem)] z-20 flex flex-col gap-3 rounded-lg border border-border bg-background/95 p-3 shadow-sm backdrop-blur sm:flex-row sm:items-center sm:justify-between">
           <div>
             <p className="text-sm font-medium text-foreground">已选 {selectedKeys.size} 个商品</p>
             <p className="text-xs text-muted-foreground">可导出选中商品，或执行批量删除。</p>

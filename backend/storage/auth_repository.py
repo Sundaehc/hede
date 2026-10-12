@@ -8,6 +8,7 @@ from datetime import datetime, timedelta, timezone
 from sqlalchemy import and_, create_engine, delete, func, insert, select, text, update
 from domain.auth_schema import (
     AUTH_DEPARTMENT_TABLE,
+    AUTH_PINNED_PAGE_TAB_TABLE,
     AUTH_ROLE_TABLE,
     AUTH_SESSION_TABLE,
     AUTH_USER_TABLE,
@@ -486,6 +487,34 @@ class AuthRepository:
         with self.engine.connect() as connection:
             row = connection.execute(select(AUTH_USER_TABLE).where(AUTH_USER_TABLE.c.id == user_id)).mappings().first()
         return None if row is None else self._user_with_permissions(dict(row))
+
+    def list_pinned_page_tabs(self, user_id: int) -> list[str]:
+        table = AUTH_PINNED_PAGE_TAB_TABLE
+        with self.engine.connect() as connection:
+            return list(connection.execute(
+                select(table.c.page_path)
+                .where(table.c.user_id == user_id)
+                .order_by(table.c.created_at, table.c.page_path)
+            ).scalars())
+
+    def pin_page_tab(self, user_id: int, page_path: str) -> list[str]:
+        table = AUTH_PINNED_PAGE_TAB_TABLE
+        if self.engine.dialect.name == "postgresql":
+            from sqlalchemy.dialects.postgresql import insert as dialect_insert
+        else:
+            from sqlalchemy.dialects.sqlite import insert as dialect_insert
+        with self.engine.begin() as connection:
+            connection.execute(
+                dialect_insert(table).values(user_id=user_id, page_path=page_path)
+                .on_conflict_do_nothing(index_elements=[table.c.user_id, table.c.page_path])
+            )
+        return self.list_pinned_page_tabs(user_id)
+
+    def unpin_page_tab(self, user_id: int, page_path: str) -> list[str]:
+        table = AUTH_PINNED_PAGE_TAB_TABLE
+        with self.engine.begin() as connection:
+            connection.execute(delete(table).where(table.c.user_id == user_id, table.c.page_path == page_path))
+        return self.list_pinned_page_tabs(user_id)
 
     def _user_with_permissions(self, user: dict[str, object]) -> dict[str, object]:
         role_code = str(user.get("role_code") or "")

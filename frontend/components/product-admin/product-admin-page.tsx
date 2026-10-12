@@ -377,7 +377,7 @@ export function ProductAdminPage() {
             setPage(1)
           }}
         >
-          <div className="sticky top-0 z-30 -mx-5 bg-background/95 px-5 py-3 shadow-[0_8px_18px_-18px_rgb(0_0_0_/_0.65)] backdrop-blur">
+          <div className="sticky top-[var(--page-tabs-height,0px)] z-30 -mx-5 bg-background/95 px-5 py-3 shadow-[0_8px_18px_-18px_rgb(0_0_0_/_0.65)] backdrop-blur">
             <div className="surface-panel p-1.5">
               <ProductTabs brands={productArchiveBrands} />
             </div>

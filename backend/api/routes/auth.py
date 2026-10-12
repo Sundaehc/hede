@@ -22,6 +22,19 @@ router = APIRouter(prefix="/auth")
 
 DepartmentCode = str
 StatusCode = Literal["active", "disabled"]
+PageTabPath = Literal[
+    "/products", "/fine-table", "/product-goods", "/factory-channel-dashboard",
+    "/purchase-orders", "/inventory", "/inventory-purchase-details", "/suppliers",
+    "/supplier-brands", "/warehouses", "/general-customer-shops", "/account-subjects",
+    "/size-groups", "/color-barcodes", "/auxiliary-attributes", "/product-tags",
+    "/admin", "/scheduled-tasks", "/admin/mcp-tokens",
+]
+
+
+class PageTabRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    page_path: PageTabPath
 
 
 class LoginRequest(BaseModel):
@@ -179,6 +192,30 @@ def options(request: Request):
         "roles": repository.list_roles(),
         "has_users": repository.has_users(),
     }
+
+
+@router.get("/me/page-tabs")
+def list_my_page_tabs(request: Request):
+    user = get_current_user_from_request(request)
+    if user is None:
+        raise HTTPException(status_code=401, detail="未登录")
+    return {"pinned_paths": request.app.state.auth_repository.list_pinned_page_tabs(int(user["id"]))}
+
+
+@router.put("/me/page-tabs")
+def pin_my_page_tab(request: Request, body: PageTabRequest):
+    user = get_current_user_from_request(request)
+    if user is None:
+        raise HTTPException(status_code=401, detail="未登录")
+    return {"pinned_paths": request.app.state.auth_repository.pin_page_tab(int(user["id"]), body.page_path)}
+
+
+@router.delete("/me/page-tabs")
+def unpin_my_page_tab(request: Request, body: PageTabRequest):
+    user = get_current_user_from_request(request)
+    if user is None:
+        raise HTTPException(status_code=401, detail="未登录")
+    return {"pinned_paths": request.app.state.auth_repository.unpin_page_tab(int(user["id"]), body.page_path)}
 
 
 @router.get("/admin/users")

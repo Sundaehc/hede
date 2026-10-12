@@ -4,166 +4,11 @@ import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { cn } from "@/lib/utils"
 import { listProductGoods } from "@/lib/api"
-import { hasProductGoodsDepartmentAccess } from "@/lib/product-goods-access"
+import { getVisibleNavigation } from "@/lib/navigation"
 import { useAuth } from "@/components/auth/auth-provider"
 import { Button } from "@/components/ui/button"
 import { ThemeToggle } from "@/components/theme-toggle"
-import {
-  Package,
-  ClipboardList,
-  Truck,
-  Warehouse,
-  Store,
-  Box,
-  BadgeDollarSign,
-  TableProperties,
-  ShoppingCart,
-  UserCog,
-  LogOut,
-  Rows3,
-  ChartNoAxesCombined,
-  Ruler,
-  Palette,
-  ListFilter,
-  Tags,
-  Activity,
-} from "lucide-react"
-
-const NAV_ITEMS = [
-  {
-    section: "商品档案",
-    items: [
-      {
-        href: "/products",
-        label: "商品信息档案",
-        icon: Package,
-        permission: "product.view",
-      },
-      {
-        href: "/fine-table",
-        label: "商品精细表",
-        icon: TableProperties,
-        permission: "fine_table.view",
-      },
-      {
-        href: "/product-goods",
-        label: "商品货品表",
-        icon: Rows3,
-        permission: "product.view",
-      },
-      {
-        href: "/factory-channel-dashboard",
-        label: "工厂渠道看板",
-        icon: ChartNoAxesCombined,
-        permission: "product.view",
-      },
-    ],
-  },
-  {
-    section: "采购单管理",
-    items: [
-      {
-        href: "/purchase-orders",
-        label: "采购单管理",
-        icon: ShoppingCart,
-        permission: "purchase.view",
-      },
-    ],
-  },
-  {
-    section: "进销存管理",
-    items: [
-      {
-        href: "/inventory",
-        label: "经营历程",
-        icon: ClipboardList,
-        permission: "inventory.view",
-      },
-      {
-        href: "/inventory-purchase-details",
-        label: "商品进货明细",
-        icon: Package,
-        permission: "inventory.view",
-      },
-      {
-        href: "/suppliers",
-        label: "供应商管理",
-        icon: Truck,
-        permission: "inventory.view",
-      },
-      {
-        href: "/supplier-brands",
-        label: "品牌管理",
-        icon: BadgeDollarSign,
-        permission: "inventory.view",
-      },
-      {
-        href: "/warehouses",
-        label: "仓库管理",
-        icon: Warehouse,
-        permission: "inventory.view",
-      },
-      {
-        href: "/general-customer-shops",
-        label: "一般客户",
-        icon: Store,
-        permission: "inventory.view",
-      },
-      {
-        href: "/account-subjects",
-        label: "科目管理",
-        icon: BadgeDollarSign,
-        permission: "inventory.view",
-      },
-    ],
-  },
-  {
-    section: "其他管理",
-    items: [
-      {
-        href: "/size-groups",
-        label: "尺码组管理",
-        icon: Ruler,
-        permission: "product.view",
-      },
-      {
-        href: "/color-barcodes",
-        label: "颜色管理",
-        icon: Palette,
-        permission: "product.view",
-      },
-      {
-        href: "/auxiliary-attributes",
-        label: "辅助属性管理",
-        icon: ListFilter,
-        permission: "product.view",
-      },
-      {
-        href: "/product-tags",
-        label: "商品标签",
-        icon: Tags,
-        permission: "product.view",
-      },
-    ],
-  },
-  {
-    section: "系统管理",
-    items: [
-      {
-        href: "/admin",
-        label: "用户管理",
-        icon: UserCog,
-        permission: "system.admin",
-      },
-      {
-        href: "/scheduled-tasks",
-        label: "定时任务",
-        icon: Activity,
-        permission: "system.admin",
-      },
-    ],
-  },
-]
+import { Box, LogOut } from "lucide-react"
 
 let productGoodsPrefetchStarted = false
 
@@ -183,48 +28,9 @@ function prefetchDefaultProductGoodsPage() {
 export function SidebarNav() {
   const pathname = usePathname()
   const { hasPermission, logout, user } = useAuth()
-  const canAccessProductGoods = hasProductGoodsDepartmentAccess(user)
-  const canAccessSizeGroups =
-    user?.role_code === "super_admin" ||
-    ["商品部", "开发部"].includes(user?.department_code ?? "")
-  const canAccessColorManagement =
-    user?.role_code === "super_admin" ||
-    ["商品部", "开发部"].includes(user?.department_code ?? "")
-  const canAccessAuxiliaryAttributes = canAccessColorManagement
-  const canAccessProductTags = user?.role_code === "super_admin" || user?.department_code === "开发部"
-  const canAccessScheduledTasks =
-    user?.role_code === "super_admin" || user?.department_code === "开发部"
-  const isProductDepartment =
-    user?.role_code !== "super_admin" && user?.department_code === "商品部"
   const userName = user?.display_name || user?.username || "未登录用户"
   const userInitial = userName.trim().slice(0, 1).toUpperCase() || "U"
-  const visibleGroups = NAV_ITEMS.map((group) => ({
-    ...group,
-    items: group.items.filter(
-      (item) =>
-        (item.href === "/scheduled-tasks"
-          ? canAccessScheduledTasks
-          : hasPermission(item.permission)) &&
-        (!["/product-goods", "/factory-channel-dashboard"].includes(
-          item.href
-        ) ||
-          canAccessProductGoods) &&
-        (item.href !== "/size-groups" || canAccessSizeGroups) &&
-        (item.href !== "/color-barcodes" || canAccessColorManagement) &&
-        (item.href !== "/auxiliary-attributes" ||
-          canAccessAuxiliaryAttributes) &&
-        (item.href !== "/product-tags" || canAccessProductTags) &&
-        (item.href !== "/scheduled-tasks" || canAccessScheduledTasks) &&
-        (!isProductDepartment ||
-          ![
-            "/inventory",
-            "/inventory-purchase-details",
-            "/warehouses",
-            "/general-customer-shops",
-            "/account-subjects",
-          ].includes(item.href))
-    ),
-  })).filter((group) => group.items.length > 0)
+  const visibleGroups = getVisibleNavigation(user, hasPermission)
 
   return (
     <aside className="fixed top-0 left-0 z-40 flex h-svh w-14 flex-col overflow-hidden rounded-r-2xl border-r border-sidebar-border bg-sidebar shadow-2xl shadow-black/10 transition-[width] md:w-56 md:rounded-r-4xl">

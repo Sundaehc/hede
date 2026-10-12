@@ -118,6 +118,17 @@ export function getCurrentUser() {
   return request<{ user: AuthUser }>("/auth/me")
 }
 
+export function getPinnedPageTabs() {
+  return request<{ pinned_paths: string[] }>("/auth/me/page-tabs")
+}
+
+export function setPageTabPinned(pagePath: string, pinned: boolean) {
+  return request<{ pinned_paths: string[] }>("/auth/me/page-tabs", {
+    method: pinned ? "PUT" : "DELETE",
+    body: JSON.stringify({ page_path: pagePath }),
+  })
+}
+
 export function getAuthOptions() {
   return request<{
     departments: AuthDepartment[]

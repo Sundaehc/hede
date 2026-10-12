@@ -11,6 +11,7 @@ const { navigation, auth } = vi.hoisted(() => ({
 vi.mock("next/navigation", () => ({ usePathname: () => navigation.pathname, useRouter: () => ({ replace: navigation.replace }) }))
 vi.mock("@/components/auth/auth-provider", () => ({ useAuth: () => auth }))
 vi.mock("@/components/sidebar-nav", () => ({ SidebarNav: () => <nav>侧边栏</nav> }))
+vi.mock("@/components/auth/page-tabs", () => ({ PageTabs: () => <nav aria-label="页面标签">顶部标签</nav> }))
 vi.mock("@/lib/session-query-state", () => ({ SessionQueryProvider: ({ children }: { children: React.ReactNode }) => children }))
 vi.mock("@/lib/session-scroll-restoration", () => ({
   SessionScrollRestoration: ({ pathname, userId, children }: { pathname: string; userId: number; children: React.ReactNode }) => <div data-testid="scroll-scope" data-pathname={pathname} data-user-id={userId}>{children}</div>,
@@ -29,6 +30,7 @@ test("applies scroll restoration to every authenticated page using its route and
   const view = render(<AppShell><p>单据列表</p></AppShell>)
   expect(screen.getByTestId("scroll-scope")).toHaveAttribute("data-pathname", "/inventory")
   expect(screen.getByTestId("scroll-scope")).toHaveAttribute("data-user-id", "1")
+  expect(screen.getByRole("navigation", { name: "页面标签" })).toBeInTheDocument()
   navigation.pathname = "/products"
   view.rerender(<AppShell><p>商品列表</p></AppShell>)
   expect(screen.getByTestId("scroll-scope")).toHaveAttribute("data-pathname", "/products")
@@ -43,5 +45,6 @@ test("does not apply cached page positions to the login screen", () => {
   auth.user = null
   render(<AppShell><p>登录</p></AppShell>)
   expect(screen.queryByTestId("scroll-scope")).not.toBeInTheDocument()
+  expect(screen.queryByRole("navigation", { name: "页面标签" })).not.toBeInTheDocument()
   expect(screen.getByText("登录")).toBeInTheDocument()
 })
