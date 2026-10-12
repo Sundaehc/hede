@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react"
 import Link from "next/link"
 import { usePathname, useRouter } from "next/navigation"
-import { LoaderCircle, Pin, PinOff, X } from "lucide-react"
+import { LayoutGrid, LoaderCircle, Pin, X } from "lucide-react"
 
 import { useAuth } from "@/components/auth/auth-provider"
 import { getPinnedPageTabs, setPageTabPinned } from "@/lib/api"
@@ -92,13 +92,13 @@ export function PageTabs() {
   }
 
   return (
-    <header className="sticky top-0 z-[70] h-[var(--page-tabs-height,2.75rem)] border-b border-border bg-muted/95 backdrop-blur-sm">
-      <div className="flex h-full items-end gap-1 px-2 md:px-4">
-        <div className="flex h-9 shrink-0 items-center px-3 text-xs text-muted-foreground">
+    <header className="sticky top-0 z-[70] h-[var(--page-tabs-height,2.75rem)] border-b border-border/70 bg-card/95 shadow-[0_1px_0_0_rgb(0_0_0_/0.02)] backdrop-blur-sm">
+      <div className="flex h-full items-center gap-2 px-2 md:gap-3 md:px-4">
+        <div className="flex shrink-0 items-center gap-2 border-r border-border/70 pr-2 text-[11px] font-medium text-muted-foreground md:pr-3">
+          <LayoutGrid aria-hidden="true" className="size-3.5 text-muted-foreground/65" strokeWidth={1.7} />
           <span className="hidden sm:inline">赫德欢迎您</span>
-          <span className="sm:hidden">赫德</span>
         </div>
-        <nav ref={navigationRef} aria-label="页面标签" className="flex min-w-0 flex-1 items-end gap-1 overflow-x-auto pt-1">
+        <nav ref={navigationRef} aria-label="页面标签" className="flex h-full min-w-0 flex-1 items-center gap-1.5 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
           {paths.map((path) => {
             const entry = entries.find((item) => item.href === path)!
             const active = path === pathname
@@ -108,35 +108,60 @@ export function PageTabs() {
                 key={path}
                 ref={active ? activeRef : undefined}
                 className={cn(
-                  "group flex h-9 shrink-0 items-center rounded-t-md border border-b-0 transition-colors",
-                  active ? "border-border bg-background text-sky-600 dark:text-sky-400" : "border-transparent text-muted-foreground hover:bg-background/60 hover:text-foreground"
+                  "group relative flex h-8 shrink-0 items-center rounded-lg border transition-[background-color,border-color,box-shadow] duration-150 motion-reduce:transition-none",
+                  active
+                    ? "border-sky-200/80 bg-sky-50 text-sky-700 shadow-xs dark:border-sky-400/25 dark:bg-sky-400/10 dark:text-sky-300"
+                    : "border-transparent text-muted-foreground hover:border-border/60 hover:bg-muted/70 hover:text-foreground"
                 )}
               >
-                <Link href={path} scroll={false} prefetch={false} aria-current={active ? "page" : undefined} className="rounded-tl-md px-3 py-2 text-xs font-medium outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring">
-                  {entry.label}
-                </Link>
-                <button
-                  type="button"
-                  aria-label={`${pinned ? "取消固定" : "固定"}${entry.label}`}
-                  aria-pressed={pinned}
-                  title={pinned ? "取消固定标签" : "固定标签到当前账户"}
-                  disabled={!loaded || loading || savingPath !== null}
-                  onClick={() => void togglePin(path)}
-                  className={cn("mr-1 flex size-6 items-center justify-center rounded-sm outline-none hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-40", pinned ? "text-sky-600 dark:text-sky-400" : "text-muted-foreground/50 hover:text-foreground")}
+                <Link
+                  href={path}
+                  scroll={false}
+                  prefetch={false}
+                  aria-current={active ? "page" : undefined}
+                  title={entry.label}
+                  className={cn("flex h-full min-w-0 items-center gap-1.5 rounded-l-lg pl-2.5 pr-2 text-xs outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring", active ? "font-semibold" : "font-medium")}
                 >
-                  {savingPath === path ? <LoaderCircle className="size-3 animate-spin" /> : pinned ? <PinOff className="size-3" /> : <Pin className="size-3" />}
-                </button>
-                {!pinned && (
-                  <button type="button" aria-label={`关闭${entry.label}`} title="关闭标签" disabled={savingPath === path} onClick={() => closeTab(path)} className="mr-1 flex size-6 items-center justify-center rounded-sm text-muted-foreground/60 outline-none hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-30">
-                    <X className="size-3" />
+                  <entry.icon aria-hidden="true" className={cn("size-3.5 shrink-0", active ? "text-sky-600 dark:text-sky-300" : "text-muted-foreground/65")} strokeWidth={1.7} />
+                  <span className="max-w-36 truncate">{entry.label}</span>
+                </Link>
+                <div className="flex shrink-0 items-center gap-0.5 pr-1">
+                  <button
+                    type="button"
+                    aria-label={`${pinned ? "取消固定" : "固定"}${entry.label}`}
+                    aria-pressed={pinned}
+                    title={pinned ? "已固定到当前账户，点击取消固定" : "固定标签到当前账户"}
+                    disabled={!loaded || loading || savingPath !== null}
+                    onClick={() => void togglePin(path)}
+                    className={cn(
+                      "flex size-6 items-center justify-center rounded-md outline-none transition-[color,background-color,opacity] duration-150 focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-30 motion-reduce:transition-none",
+                      pinned
+                        ? "bg-sky-100/70 text-sky-600 hover:bg-sky-200/70 dark:bg-sky-400/15 dark:text-sky-300 dark:hover:bg-sky-400/25"
+                        : "text-muted-foreground/65 hover:bg-sky-100/80 hover:text-sky-600 dark:hover:bg-sky-400/15 dark:hover:text-sky-300",
+                      !active && !pinned && savingPath !== path && "opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 [@media(hover:none)]:opacity-100"
+                    )}
+                  >
+                    {savingPath === path ? <LoaderCircle aria-hidden="true" className="size-3 animate-spin motion-reduce:animate-none" /> : <Pin aria-hidden="true" className={cn("size-3 transition-transform motion-reduce:transition-none", !pinned && "-rotate-45")} strokeWidth={pinned ? 2 : 1.7} />}
                   </button>
-                )}
+                  {!pinned && (
+                    <button
+                      type="button"
+                      aria-label={`关闭${entry.label}`}
+                      title="关闭标签"
+                      disabled={savingPath === path}
+                      onClick={() => closeTab(path)}
+                      className="flex size-6 items-center justify-center rounded-md text-muted-foreground/60 outline-none transition-colors hover:bg-destructive/10 hover:text-destructive focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-30 motion-reduce:transition-none"
+                    >
+                      <X aria-hidden="true" className="size-3" strokeWidth={1.7} />
+                    </button>
+                  )}
+                </div>
               </div>
             )
           })}
         </nav>
       </div>
-      {error && <p role="alert" className="absolute inset-x-0 top-full border-b border-border bg-background px-4 py-1 text-xs text-destructive">{error}</p>}
+      {error && <p role="alert" className="absolute inset-x-0 top-full border-b border-destructive/20 bg-background px-4 py-2 text-xs text-destructive shadow-sm">{error}</p>}
     </header>
   )
 }

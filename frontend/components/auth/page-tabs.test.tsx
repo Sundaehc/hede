@@ -1,5 +1,6 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react"
 import { StrictMode } from "react"
+import userEvent from "@testing-library/user-event"
 import { afterEach, beforeEach, expect, test, vi } from "vitest"
 
 import { PageTabs } from "@/components/auth/page-tabs"
@@ -40,6 +41,37 @@ beforeEach(() => {
 })
 
 afterEach(cleanup)
+
+test("uses compact icon tabs with a distinct active state and keeps the existing overlay layer", async () => {
+  const view = render(fixture())
+  await waitForPinsLoaded()
+  visitPage(view, "/inventory")
+  visitPage(view, "/products")
+  const current = screen.getByRole("link", { name: "商品信息档案" })
+  const inactive = screen.getByRole("link", { name: "经营历程" })
+  expect(current.parentElement).toHaveClass("h-8", "rounded-lg", "bg-sky-50", "dark:bg-sky-400/10")
+  expect(inactive.parentElement).toHaveClass("border-transparent")
+  expect(current).toHaveAttribute("title", "商品信息档案")
+  expect(current.querySelector("svg")).toHaveAttribute("aria-hidden", "true")
+  expect(current.querySelector("span")).toHaveClass("truncate")
+  expect(screen.getByRole("navigation", { name: "页面标签" }).closest("header")).toHaveClass("z-[70]", "h-[var(--page-tabs-height,2.75rem)]")
+})
+
+test("keeps subdued tab actions available by keyboard", async () => {
+  const user = userEvent.setup()
+  const view = render(fixture())
+  await waitForPinsLoaded()
+  visitPage(view, "/inventory")
+  visitPage(view, "/products")
+  await user.tab()
+  expect(screen.getByRole("link", { name: "经营历程" })).toHaveFocus()
+  await user.tab()
+  const pin = screen.getByRole("button", { name: "固定经营历程" })
+  expect(pin).toHaveFocus()
+  expect(pin).toHaveClass("group-focus-within:opacity-100")
+  await user.tab()
+  expect(screen.getByRole("button", { name: "关闭经营历程" })).toHaveFocus()
+})
 
 test("starts with no tabs and automatically adds the destination when switching pages", async () => {
   const view = render(fixture())
