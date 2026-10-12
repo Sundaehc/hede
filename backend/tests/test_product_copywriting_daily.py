@@ -46,12 +46,12 @@ def saved():
 
 
 @pytest.mark.parametrize("business_date,expected", [
-    (BUSINESS_DATE, (date(2026, 9, 20), date(2026, 9, 21), date(2026, 9, 22))),
-    (date(2026, 1, 1), (date(2025, 12, 30), date(2025, 12, 31), date(2026, 1, 1))),
-    (date(2026, 3, 1), (date(2026, 2, 27), date(2026, 2, 28), date(2026, 3, 1))),
-    (date(2028, 3, 1), (date(2028, 2, 28), date(2028, 2, 29), date(2028, 3, 1))),
+    (BUSINESS_DATE, (date(2026, 9, 18), date(2026, 9, 19), date(2026, 9, 20), date(2026, 9, 21), date(2026, 9, 22))),
+    (date(2026, 1, 1), (date(2025, 12, 28), date(2025, 12, 29), date(2025, 12, 30), date(2025, 12, 31), date(2026, 1, 1))),
+    (date(2026, 3, 1), (date(2026, 2, 25), date(2026, 2, 26), date(2026, 2, 27), date(2026, 2, 28), date(2026, 3, 1))),
+    (date(2028, 3, 1), (date(2028, 2, 26), date(2028, 2, 27), date(2028, 2, 28), date(2028, 2, 29), date(2028, 3, 1))),
 ])
-def test_recent_three_days_includes_today_and_two_previous_days(business_date, expected):
+def test_recent_five_days_includes_today_and_four_previous_days(business_date, expected):
     assert daily.recent_launch_dates(business_date) == expected
 
 
@@ -80,7 +80,7 @@ def test_selector_filters_dates_images_deleted_excluded_and_existing_per_brand(s
         for number, day in enumerate([
             "2026-09-20", "2026-09-22", "2026-09-19", "2026-09-23", "2026/09/20",
             "2026-09-220", " 2026-09-21 ", None, "2026-09-20", "2026-09-21", "2026-09-22", "2026-09-20",
-            "2026-09-16", "2026-09-17", "2026-09-18", "2026/09/19",
+            "2026-09-16", "2026-09-17", "2026-09-18", "2026/09/19", "2026/09/18", "2026/09/17",
         ], start=1)
     ]
     rows[8]["image_path"] = None
@@ -93,7 +93,7 @@ def test_selector_filters_dates_images_deleted_excluded_and_existing_per_brand(s
     monkeypatch.setattr(daily, "not_excluded_sku_condition", lambda *columns: columns[0] != "excluded")
     products = SimpleNamespace(engine=saved.engine, product_archive_brands=lambda: ["cbanner_womens", "another_brand"], _table_for_brand=lambda _: table)
     found = {(brand, item["id"]) for brand, item in daily.target_products(products, BUSINESS_DATE)}
-    assert found == {("cbanner_womens", number) for number in (1, 5, 7)} | {("another_brand", number) for number in (1, 2, 5, 7)}
+    assert found == {("cbanner_womens", number) for number in (1, 3, 5, 7, 15, 16, 17)} | {("another_brand", number) for number in (1, 2, 3, 5, 7, 15, 16, 17)}
 
 
 def test_preview_does_not_create_copywriting_table(monkeypatch):
@@ -148,7 +148,9 @@ def test_insert_only_rejects_regeneration_flags(saved, settings, product, flag):
     assert saved.get("cbanner_womens", 7) is None
 
 
-def test_daily_generation_sends_image_once_and_preserves_success(saved, settings, product, monkeypatch):
+@pytest.mark.parametrize("launch_date", ["2026-09-18", "2026-09-19", "2026/09/18", "2026/09/19", "2026-09-22"])
+def test_daily_generation_sends_image_once_and_preserves_success(saved, settings, product, monkeypatch, launch_date):
+    product["launch_date"] = launch_date
     model = Mock(return_value="真实模型输出")
     monkeypatch.setattr(jobs, "request_doubao_copywriting", model)
     products = Mock(get_product=Mock(return_value=product))
@@ -163,7 +165,8 @@ def test_daily_generation_sends_image_once_and_preserves_success(saved, settings
 @pytest.mark.parametrize("change,reason", [
     ({"image_path": None}, "missing_image"), ({"image_path": " \t "}, "missing_image"),
     ({"launch_date": "2026-09-15"}, "outside_scope"), ({"launch_date": "2026-09-23"}, "outside_scope"),
-    ({"launch_date": "2026-09-16"}, "outside_scope"), ({"launch_date": "2026-09-19"}, "outside_scope"),
+    ({"launch_date": "2026-09-16"}, "outside_scope"), ({"launch_date": "2026-09-17"}, "outside_scope"),
+    ({"launch_date": "2026/09/17"}, "outside_scope"), ({"launch_date": "2026/09/23"}, "outside_scope"),
     ({"launch_date": None}, "outside_scope"),
 ])
 def test_worker_rechecks_scope_and_never_inserts_for_skips(saved, settings, product, monkeypatch, change, reason):
@@ -471,7 +474,7 @@ def test_daily_batch_no_candidates_does_not_require_model_key(settings, monkeypa
     worker = Mock()
     monkeypatch.setattr(daily, "generate_one", worker)
     result = daily.run_daily_generation(settings, BUSINESS_DATE)
-    assert result == {"start_date": "2026-09-20", "end_date": "2026-09-22", "target_count": 0}
+    assert result == {"start_date": "2026-09-18", "end_date": "2026-09-22", "target_count": 0}
     worker.assert_not_called()
     products.engine.dispose.assert_called_once()
 
@@ -503,7 +506,7 @@ def test_preview_cli_does_not_create_tables_or_execute_generation(settings, monk
     generator.assert_not_called()
     output = capsys.readouterr().out
     assert '"execute": false' in output
-    assert '"start_date": "2026-09-20"' in output
+    assert '"start_date": "2026-09-18"' in output
     assert '"end_date": "2026-09-22"' in output
     products.engine.dispose.assert_called_once()
 
