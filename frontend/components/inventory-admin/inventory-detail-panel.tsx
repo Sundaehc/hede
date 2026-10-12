@@ -1050,10 +1050,10 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
   return (
     <>
       {/* Backdrop */}
-      <div className="fixed inset-0 z-40 bg-black/30 transition-opacity" onClick={onClose} />
+      <div className="fixed inset-0 z-[80] bg-black/30 transition-opacity" onClick={onClose} />
 
       {/* Panel */}
-      <div className="fixed inset-y-0 right-0 z-50 flex w-full max-w-[1500px] flex-col overflow-hidden rounded-l-lg border-l border-border bg-background shadow-2xl">
+      <div className="fixed inset-y-0 right-0 z-[90] flex w-full max-w-[1500px] flex-col overflow-hidden rounded-l-lg border-l border-border bg-background shadow-2xl">
         {/* Header */}
         <div className="flex items-center justify-between gap-4 border-b border-border px-6 py-4 shrink-0">
           <div className="min-w-0 flex-1">
@@ -1163,7 +1163,7 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
               <Plus className="h-4 w-4" />
               <span className="ml-1.5">新增明细</span>
             </Button>
-            <Button variant="ghost" size="icon" onClick={onClose} className="cursor-pointer">
+            <Button variant="ghost" size="icon" onClick={onClose} aria-label="关闭单据明细" title="关闭单据明细" className="cursor-pointer">
               <X className="h-5 w-5" />
             </Button>
           </div>

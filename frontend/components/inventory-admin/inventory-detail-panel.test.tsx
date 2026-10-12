@@ -3,7 +3,9 @@ import userEvent from "@testing-library/user-event"
 import { afterEach, beforeEach, expect, test, vi } from "vitest"
 
 import { InventoryDetailPanel } from "@/components/inventory-admin/inventory-detail-panel"
+import { PageTabs } from "@/components/auth/page-tabs"
 import { ApiError, type InventoryDetail, type InventoryRecord } from "@/lib/api"
+import { SessionQueryProvider } from "@/lib/session-query-state"
 
 const { mockListDetails, mockUpdateDetail } = vi.hoisted(() => ({
   mockListDetails: vi.fn(),
@@ -14,8 +16,21 @@ vi.mock("@/lib/api", async () => ({
   ...(await vi.importActual<typeof import("@/lib/api")>("@/lib/api")),
   listDetails: mockListDetails,
   updateDetail: mockUpdateDetail,
+  getPinnedPageTabs: vi.fn().mockResolvedValue({ pinned_paths: [] }),
   listInventoryAccountSubjects: vi.fn().mockResolvedValue({
     items: [{ id: 16, name: "大底收入", category: "收入类" }],
+  }),
+}))
+
+vi.mock("next/navigation", () => ({
+  usePathname: () => "/inventory",
+  useRouter: () => ({ push: vi.fn() }),
+}))
+
+vi.mock("@/components/auth/auth-provider", () => ({
+  useAuth: () => ({
+    user: { id: 1, role_code: "super_admin", department_code: "开发部" },
+    hasPermission: () => true,
   }),
 }))
 
@@ -51,6 +66,33 @@ beforeEach(() => {
 })
 
 afterEach(cleanup)
+
+test("keeps the detail header and controls above page tabs while edit dialogs remain above the drawer", async () => {
+  const user = userEvent.setup()
+  const onClose = vi.fn()
+  const view = render(
+    <SessionQueryProvider userId={1}>
+      <PageTabs />
+      <InventoryDetailPanel record={record} suppliers={[]} onClose={onClose} onTotalChanged={vi.fn()} />
+    </SessionQueryProvider>
+  )
+  await screen.findByText("大底费用")
+  const tabHeader = screen.getByRole("navigation", { name: "页面标签" }).closest("header")!
+  const overlay = view.container.querySelector(".fixed.inset-0")!
+  const panel = screen.getByRole("heading", { name: /单据明细/ }).closest(".fixed")!
+  expect(tabHeader).toHaveClass("z-[70]")
+  expect(overlay).toHaveClass("z-[80]")
+  expect(panel).toHaveClass("z-[90]", "inset-y-0")
+  expect(within(panel as HTMLElement).getByRole("button", { name: "新增明细" })).toBeVisible()
+  expect(within(panel as HTMLElement).getByRole("button", { name: "关闭单据明细" })).toBeVisible()
+
+  await user.click(screen.getByRole("button", { name: "编辑明细" }))
+  const dialog = screen.getByRole("dialog", { name: "编辑明细" })
+  expect(dialog.closest('[data-slot="dialog-portal"]')).toHaveClass("z-[120]")
+  await user.click(within(dialog).getByRole("button", { name: "取消" }))
+  await user.click(screen.getByRole("button", { name: "关闭单据明细" }))
+  expect(onClose).toHaveBeenCalledOnce()
+})
 
 async function editAccountingSubject(documentType = "应付款减少") {
   const user = userEvent.setup()
