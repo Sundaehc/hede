@@ -4,10 +4,11 @@ import { afterEach, beforeEach, expect, test, vi } from "vitest"
 
 import { InventoryPage } from "@/components/inventory-admin/inventory-page"
 
-const { mockListInventory, mockCustomerShops, mockCustomerUnits, mockCustomerBrands, mockInventoryBrands } = vi.hoisted(() => ({
+const { mockListInventory, mockCustomerShops, mockCustomerUnits, mockCustomerBrands, mockInventoryBrands, mockProductCandidates } = vi.hoisted(() => ({
   mockListInventory: vi.fn(), mockCustomerShops: vi.fn(),
   mockCustomerUnits: vi.fn(), mockCustomerBrands: vi.fn(),
   mockInventoryBrands: vi.fn(),
+  mockProductCandidates: vi.fn(),
 }))
 
 vi.mock("@/components/auth/auth-provider", () => ({
@@ -26,6 +27,7 @@ vi.mock("@/lib/api", async () => ({
   ...(await vi.importActual<typeof import("@/lib/api")>("@/lib/api")),
   listInventory: mockListInventory,
   listInventoryBrands: mockInventoryBrands,
+  listInventoryDetailCandidates: mockProductCandidates,
   listSuppliers: async () => ({ items: [] }),
   listWarehouseBrands: async () => ({ items: [] }),
   listWarehouses: async () => ({ items: [] }),
@@ -43,6 +45,7 @@ beforeEach(() => {
   mockCustomerShops.mockResolvedValue({ items: [] })
   mockCustomerUnits.mockResolvedValue({ items: [] })
   mockInventoryBrands.mockResolvedValue({ items: [] })
+  mockProductCandidates.mockResolvedValue({ items: [] })
   window.localStorage.clear()
   downloadUrls = []
   vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(function (this: HTMLAnchorElement) {
@@ -88,6 +91,34 @@ test("exports all filtered fine records rather than only the visible page", asyn
   expect(params.has("document_type")).toBe(false)
   expect(params.has("ids")).toBe(false)
   expect(params.has("page")).toBe(false)
+})
+
+test.each([true, false])("searches and exports product codes with candidate selection=%s", async (selectCandidate) => {
+  mockProductCandidates.mockResolvedValue({ items: [{
+    product_code: "QT653891S73", sku: "QT653891S73", original_sku: "QT653891",
+    product_name: "休闲鞋", color_name: "黑色", factory_code: "", brand: "cbanner_mens",
+  }] })
+  const user = userEvent.setup()
+  render(<InventoryPage />)
+  await screen.findByText("EXPORT-0001")
+  const input = screen.getByRole("combobox", { name: "商品编码" })
+  await user.type(input, "QT65")
+  const option = await screen.findByRole("button", { name: "QT653891S73" })
+  expect(mockProductCandidates).toHaveBeenLastCalledWith({ query: "QT65", limit: 20 })
+  const productCode = selectCandidate ? "QT653891S73" : "QT65"
+  if (selectCandidate) {
+    await user.click(option)
+    await user.click(screen.getByRole("button", { name: "搜索" }))
+  } else {
+    await user.keyboard("{Enter}")
+  }
+  await waitFor(() => expect(mockListInventory).toHaveBeenLastCalledWith(expect.objectContaining({ product_code: productCode })))
+  expect(input).toHaveValue(productCode)
+  const exportButton = screen.getByRole("button", { name: "导出Excel" })
+  await waitFor(() => expect(exportButton).toBeEnabled())
+  await user.click(exportButton)
+  expect(downloadUrls).toHaveLength(1)
+  expect(new URL(downloadUrls[0]).searchParams.get("product_code")).toBe(productCode)
 })
 
 test("excludes disabled shops and their units from new customer business options", async () => {

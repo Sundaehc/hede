@@ -28,6 +28,7 @@ import {
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { ConfirmDialog, MessageDialog } from "@/components/confirm-dialog"
 import { InventoryDetailPanel } from "@/components/inventory-admin/inventory-detail-panel"
+import { InventoryProductCodeFilter } from "@/components/inventory-admin/product-code-filter"
 import { OperationLogDialog } from "@/components/operation-log-dialog"
 import { useAuth } from "@/components/auth/auth-provider"
 import { SearchableFilterInput, SearchableMultiFilterInput, type SearchableFilterOption } from "@/components/inventory-admin/searchable-filter-input"
@@ -2107,8 +2108,13 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
                   </div>
                   {!isPurchaseOrderTab && (
                     <div className="space-y-1.5 lg:col-span-3 xl:col-span-2">
-                      <Label className="text-xs text-muted-foreground">商品编码</Label>
-                      <Input value={searchProductCode} onChange={(e) => setSearchProductCode(e.target.value)} placeholder="商品编码" className="h-9" />
+                      <Label htmlFor="inventory-product-code-filter" className="text-xs text-muted-foreground">商品编码</Label>
+                      <InventoryProductCodeFilter
+                        id="inventory-product-code-filter"
+                        value={searchProductCode}
+                        onChange={setSearchProductCode}
+                        onSubmit={search}
+                      />
                     </div>
                   )}
                   <div className="space-y-1.5 lg:col-span-6 xl:col-span-4">

@@ -2,8 +2,8 @@
 
 import { useSessionQueryState } from "@/lib/session-query-state"
 
-import { useEffect, useRef, useState } from "react"
-import { BadgeDollarSign, FileDown, FileSpreadsheet, History, ImagePlus, Plus, Ruler, Trash2, Upload } from "lucide-react"
+import { useEffect, useId, useRef, useState } from "react"
+import { BadgeDollarSign, ChevronDown, ChevronUp, FileDown, FileSpreadsheet, History, ImagePlus, Plus, Ruler, Trash2, Upload } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { DateRangeControl } from "@/components/ui/date-range-control"
@@ -73,6 +73,7 @@ export function ProductToolbar({
   onMessage,
 }: ProductToolbarProps) {
   const currentDate = currentShanghaiDateValue()
+  const toolbarContentId = useId()
   const fileInputRef = useRef<HTMLInputElement>(null)
   const submittedImageRefreshAtRef = useRef<number | null>(null)
   const [importing, setImporting] = useState(false)
@@ -80,6 +81,7 @@ export function ProductToolbar({
   const [refreshingImages, setRefreshingImages] = useState(false)
   const [exporting, setExporting] = useState(false)
   const [exportingMode, setExportingMode] = useState<"default" | ProductExportMode | "range" | "range_with_sizes" | null>(null)
+  const [isExpanded, setIsExpanded] = useSessionQueryState("products-toolbar:expanded", true)
   const [activityDateStart, setActivityDateStart] = useSessionQueryState("products-toolbar:activityDateStart", currentShanghaiDateValue)
   const [activityDateEnd, setActivityDateEnd] = useSessionQueryState("products-toolbar:activityDateEnd", currentShanghaiDateValue)
   const [exportProgress, setExportProgress] = useState<ProductExportProgress | null>(null)
@@ -253,175 +255,201 @@ export function ProductToolbar({
     : lastImageRun
       ? `最近刷新：更新 ${lastImageRun.updated ?? 0} 条`
       : "图片刷新将由后台任务执行"
+  const collapsedSearchSummary = [
+    query.trim() ? `包含：${query.trim().replace(/\s+/g, " ")}` : "",
+    skuPrefix.trim() ? `前缀：${skuPrefix.trim()}` : "",
+  ].filter(Boolean).join("；")
 
   return (
-    <div className="surface-panel flex flex-col gap-3 p-4">
-      <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_auto] xl:items-center">
-        <div className="min-w-0">
-          <div className="grid gap-3 md:grid-cols-[minmax(20rem,1.65fr)_minmax(14rem,0.8fr)]">
-          <div className="flex min-w-0 flex-col gap-1.5">
-            <Label htmlFor="product-search-input" className="text-xs text-muted-foreground">
-              {hasMultipleLines ? "包含搜索（逗号或换行分隔）" : "包含搜索"}
-            </Label>
-            <textarea
-              id="product-search-input"
-              value={value}
-              placeholder="货号或原始货号，多个可用逗号分隔，Shift+Enter 换行"
-              rows={hasMultipleLines ? 3 : 1}
-              onChange={(event: React.ChangeEvent<HTMLTextAreaElement>) => onValueChange(event.target.value)}
-              onKeyDown={(event: React.KeyboardEvent<HTMLTextAreaElement>) => {
-                if (event.key === "Enter" && !event.shiftKey) {
-                  event.preventDefault()
-                  onSearch()
-                }
-              }}
-              className="resize-none rounded-lg border border-input bg-card px-3 py-2 text-sm shadow-xs outline-none transition-colors placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/35 disabled:cursor-not-allowed disabled:opacity-50"
-            />
-          </div>
-          <div className="flex min-w-0 flex-col gap-1.5">
-            <Label htmlFor="product-sku-prefix-input" className="text-xs text-muted-foreground">
-              货号前缀
-            </Label>
-            <input
-              id="product-sku-prefix-input"
-              value={prefixValue}
-              placeholder="货号/原始货号开头"
-              onChange={(event) => onPrefixValueChange(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === "Enter") {
-                  event.preventDefault()
-                  onSearch()
-                }
-              }}
-              className="h-9 rounded-lg border border-input bg-card px-3 text-sm shadow-xs outline-none transition-colors placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/35 disabled:cursor-not-allowed disabled:opacity-50"
-            />
-          </div>
-          </div>
-          <p className="mt-2 text-xs text-muted-foreground">{imageStatusText}</p>
-        </div>
-        <div className="flex flex-wrap items-center gap-2 xl:justify-end xl:self-center">
-          <Button type="button" size="sm" onClick={onSearch} disabled={isLoading} className="cursor-pointer">
-            搜索
-          </Button>
-          <Button type="button" variant="outline" size="sm" onClick={onClear} disabled={isLoading && value.length === 0 && prefixValue.length === 0} className="cursor-pointer">
-            清空
-          </Button>
-          <Button type="button" variant="outline" size="sm" onClick={onRefresh} disabled={isLoading} className="cursor-pointer">
-            刷新
-          </Button>
-          {onOpenLogs ? (
-            <Button type="button" variant="outline" size="sm" onClick={onOpenLogs} className="cursor-pointer">
-              <History className="h-3.5 w-3.5" />
-              操作日志
-            </Button>
-          ) : null}
-          {onOpenRecycleBin ? (
-            <Button type="button" variant="outline" size="sm" onClick={onOpenRecycleBin} className="cursor-pointer">
-              <Trash2 className="h-3.5 w-3.5" />
-              回收站
-            </Button>
-          ) : null}
-          {canRefreshImages ? (
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() => void handleRefreshImages()}
-              disabled={refreshingImages || imageRefreshStatus?.in_progress}
-              className="cursor-pointer"
-              title={brand === "all" ? "提交全部品牌图片刷新任务" : "提交当前品牌图片刷新任务"}
-            >
-              <ImagePlus className="h-3.5 w-3.5" />
-              {imageRefreshStatus?.in_progress ? "后台刷新中..." : refreshingImages ? "提交中..." : "刷新图片"}
-            </Button>
+    <div className={`surface-panel flex flex-col ${isExpanded ? "gap-3 p-4" : "px-4 py-2"}`}>
+      <div className="flex min-w-0 items-center justify-between gap-3">
+        <div className="flex min-w-0 items-center gap-3">
+          <span className="shrink-0 text-xs font-medium text-muted-foreground">搜索与导出</span>
+          {!isExpanded && collapsedSearchSummary ? (
+            <span className="truncate text-xs text-muted-foreground" title={collapsedSearchSummary}>{collapsedSearchSummary}</span>
           ) : null}
         </div>
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          aria-expanded={isExpanded}
+          aria-controls={toolbarContentId}
+          onClick={() => setIsExpanded((expanded) => !expanded)}
+          className="h-7 shrink-0 cursor-pointer gap-1 px-2 text-xs text-muted-foreground"
+        >
+          {isExpanded ? <ChevronUp aria-hidden="true" /> : <ChevronDown aria-hidden="true" />}
+          {isExpanded ? "收起搜索区" : "展开搜索区"}
+        </Button>
       </div>
-
-      {showActions ? (
-        <div className="space-y-3 border-t border-border pt-4">
-          <div className="flex flex-wrap items-start justify-between gap-x-6 gap-y-4">
-            {canExport || canExportPrices ? (
-              <div role="group" aria-label="数据导出" className="min-w-0 space-y-2">
-                <p className="text-xs font-medium text-muted-foreground">数据导出</p>
-                <div className="flex flex-wrap items-center gap-2">
-                  {canExport ? (
-                    <Button type="button" variant="outline" size="sm" onClick={() => void handleExport()} disabled={isLoading || exporting} className="h-9 cursor-pointer gap-1.5 rounded-lg px-3 shadow-none">
-                      <FileSpreadsheet aria-hidden="true" />
-                      {defaultExportLabel}
-                    </Button>
-                  ) : null}
-                  {canExportPrices ? (
-                    <Button type="button" variant="outline" size="sm" onClick={() => void handleExport("price")} disabled={isLoading || exporting} className="h-9 cursor-pointer gap-1.5 rounded-lg px-3 shadow-none" title="导出货号、商品全名、主供应商、预设售价（成本）、工厂货号；优先导出勾选商品，否则导出当前筛选结果">
-                      <BadgeDollarSign aria-hidden="true" />
-                      {priceExportLabel}
-                    </Button>
-                  ) : null}
-                  {canExport && onCreate ? (
-                    <Button type="button" variant="outline" size="sm" onClick={() => void handleExport("with_sizes")} disabled={isLoading || exporting} className="h-9 cursor-pointer gap-1.5 rounded-lg px-3 shadow-none">
-                      <Ruler aria-hidden="true" />
-                      {sizeExportLabel}
-                    </Button>
-                  ) : null}
-                </div>
-              </div>
+      <div id={toolbarContentId} hidden={!isExpanded} className={isExpanded ? "flex flex-col gap-3" : "hidden"}>
+        <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_auto] xl:items-center">
+          <div className="min-w-0">
+            <div className="grid gap-3 md:grid-cols-[minmax(20rem,1.65fr)_minmax(14rem,0.8fr)]">
+            <div className="flex min-w-0 flex-col gap-1.5">
+              <Label htmlFor="product-search-input" className="text-xs text-muted-foreground">
+                {hasMultipleLines ? "包含搜索（逗号或换行分隔）" : "包含搜索"}
+              </Label>
+              <textarea
+                id="product-search-input"
+                value={value}
+                placeholder="货号或原始货号，多个可用逗号分隔，Shift+Enter 换行"
+                rows={hasMultipleLines ? 3 : 1}
+                onChange={(event: React.ChangeEvent<HTMLTextAreaElement>) => onValueChange(event.target.value)}
+                onKeyDown={(event: React.KeyboardEvent<HTMLTextAreaElement>) => {
+                  if (event.key === "Enter" && !event.shiftKey) {
+                    event.preventDefault()
+                    onSearch()
+                  }
+                }}
+                className="resize-none rounded-lg border border-input bg-card px-3 py-2 text-sm shadow-xs outline-none transition-colors placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/35 disabled:cursor-not-allowed disabled:opacity-50"
+              />
+            </div>
+            <div className="flex min-w-0 flex-col gap-1.5">
+              <Label htmlFor="product-sku-prefix-input" className="text-xs text-muted-foreground">
+                货号前缀
+              </Label>
+              <input
+                id="product-sku-prefix-input"
+                value={prefixValue}
+                placeholder="货号/原始货号开头"
+                onChange={(event) => onPrefixValueChange(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") {
+                    event.preventDefault()
+                    onSearch()
+                  }
+                }}
+                className="h-9 rounded-lg border border-input bg-card px-3 text-sm shadow-xs outline-none transition-colors placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/35 disabled:cursor-not-allowed disabled:opacity-50"
+              />
+            </div>
+            </div>
+            <p className="mt-2 text-xs text-muted-foreground">{imageStatusText}</p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2 xl:justify-end xl:self-center">
+            <Button type="button" size="sm" onClick={onSearch} disabled={isLoading} className="cursor-pointer">
+              搜索
+            </Button>
+            <Button type="button" variant="outline" size="sm" onClick={onClear} disabled={isLoading && value.length === 0 && prefixValue.length === 0} className="cursor-pointer">
+              清空
+            </Button>
+            <Button type="button" variant="outline" size="sm" onClick={onRefresh} disabled={isLoading} className="cursor-pointer">
+              刷新
+            </Button>
+            {onOpenLogs ? (
+              <Button type="button" variant="outline" size="sm" onClick={onOpenLogs} className="cursor-pointer">
+                <History className="h-3.5 w-3.5" />
+                操作日志
+              </Button>
             ) : null}
-            {onCreate ? (
-              <div role="group" aria-label="商品维护" className="min-w-0 space-y-2">
-                <p className="text-xs font-medium text-muted-foreground">商品维护</p>
-                <div className="flex flex-wrap items-center gap-2">
-                  {canImport ? (
-                    <>
-                      <Button type="button" variant="outline" size="sm" onClick={() => void handleDownloadTemplate()} disabled={downloadingTemplate || importing} className="h-9 cursor-pointer gap-1.5 rounded-lg px-3 shadow-none">
-                        <FileDown aria-hidden="true" />
-                        {downloadingTemplate ? "下载中..." : "下载导入模板"}
+            {onOpenRecycleBin ? (
+              <Button type="button" variant="outline" size="sm" onClick={onOpenRecycleBin} className="cursor-pointer">
+                <Trash2 className="h-3.5 w-3.5" />
+                回收站
+              </Button>
+            ) : null}
+            {canRefreshImages ? (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => void handleRefreshImages()}
+                disabled={refreshingImages || imageRefreshStatus?.in_progress}
+                className="cursor-pointer"
+                title={brand === "all" ? "提交全部品牌图片刷新任务" : "提交当前品牌图片刷新任务"}
+              >
+                <ImagePlus className="h-3.5 w-3.5" />
+                {imageRefreshStatus?.in_progress ? "后台刷新中..." : refreshingImages ? "提交中..." : "刷新图片"}
+              </Button>
+            ) : null}
+          </div>
+        </div>
+
+        {showActions ? (
+          <div className="space-y-3 border-t border-border pt-4">
+            <div className="flex flex-wrap items-start justify-between gap-x-6 gap-y-4">
+              {canExport || canExportPrices ? (
+                <div role="group" aria-label="数据导出" className="min-w-0 space-y-2">
+                  <p className="text-xs font-medium text-muted-foreground">数据导出</p>
+                  <div className="flex flex-wrap items-center gap-2">
+                    {canExport ? (
+                      <Button type="button" variant="outline" size="sm" onClick={() => void handleExport()} disabled={isLoading || exporting} className="h-9 cursor-pointer gap-1.5 rounded-lg px-3 shadow-none">
+                        <FileSpreadsheet aria-hidden="true" />
+                        {defaultExportLabel}
                       </Button>
-                      <Button type="button" variant="outline" size="sm" onClick={() => fileInputRef.current?.click()} disabled={importing} className="h-9 cursor-pointer gap-1.5 rounded-lg px-3 shadow-none">
-                        <Upload aria-hidden="true" />
-                        {importing ? "导入中..." : "导入 Excel"}
+                    ) : null}
+                    {canExportPrices ? (
+                      <Button type="button" variant="outline" size="sm" onClick={() => void handleExport("price")} disabled={isLoading || exporting} className="h-9 cursor-pointer gap-1.5 rounded-lg px-3 shadow-none" title="导出货号、商品全名、主供应商、预设售价（成本）、工厂货号；优先导出勾选商品，否则导出当前筛选结果">
+                        <BadgeDollarSign aria-hidden="true" />
+                        {priceExportLabel}
                       </Button>
-                      <input
-                        ref={fileInputRef}
-                        type="file"
-                        accept=".xlsx,.xls"
-                        className="hidden"
-                        onChange={(event) => void handleImport(event)}
-                      />
-                    </>
-                  ) : null}
-                  <Button type="button" size="sm" onClick={onCreate} className="h-9 cursor-pointer gap-1.5 rounded-lg px-3">
-                    <Plus aria-hidden="true" />
-                    新增商品
-                  </Button>
+                    ) : null}
+                    {canExport && onCreate ? (
+                      <Button type="button" variant="outline" size="sm" onClick={() => void handleExport("with_sizes")} disabled={isLoading || exporting} className="h-9 cursor-pointer gap-1.5 rounded-lg px-3 shadow-none">
+                        <Ruler aria-hidden="true" />
+                        {sizeExportLabel}
+                      </Button>
+                    ) : null}
+                  </div>
+                </div>
+              ) : null}
+              {onCreate ? (
+                <div role="group" aria-label="商品维护" className="min-w-0 space-y-2">
+                  <p className="text-xs font-medium text-muted-foreground">商品维护</p>
+                  <div className="flex flex-wrap items-center gap-2">
+                    {canImport ? (
+                      <>
+                        <Button type="button" variant="outline" size="sm" onClick={() => void handleDownloadTemplate()} disabled={downloadingTemplate || importing} className="h-9 cursor-pointer gap-1.5 rounded-lg px-3 shadow-none">
+                          <FileDown aria-hidden="true" />
+                          {downloadingTemplate ? "下载中..." : "下载导入模板"}
+                        </Button>
+                        <Button type="button" variant="outline" size="sm" onClick={() => fileInputRef.current?.click()} disabled={importing} className="h-9 cursor-pointer gap-1.5 rounded-lg px-3 shadow-none">
+                          <Upload aria-hidden="true" />
+                          {importing ? "导入中..." : "导入 Excel"}
+                        </Button>
+                        <input
+                          ref={fileInputRef}
+                          type="file"
+                          accept=".xlsx,.xls"
+                          className="hidden"
+                          onChange={(event) => void handleImport(event)}
+                        />
+                      </>
+                    ) : null}
+                    <Button type="button" size="sm" onClick={onCreate} className="h-9 cursor-pointer gap-1.5 rounded-lg px-3">
+                      <Plus aria-hidden="true" />
+                      新增商品
+                    </Button>
+                  </div>
+                </div>
+              ) : null}
+            </div>
+            {canExport ? (
+              <div role="group" aria-label="按时间导出" className="min-w-0 space-y-3 rounded-xl border border-border/70 bg-muted/35 p-3">
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                  <p className="text-xs font-medium text-foreground">按时间导出</p>
+                  <p className="text-xs text-muted-foreground">仅包含所选时间内导入或新增的商品</p>
+                </div>
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <DateRangeControl label="导出时间段" hideLabel start={activityDateStart} end={activityDateEnd} onStartChange={setActivityDateStart} onEndChange={setActivityDateEnd} maxDate={currentDate} disabled={isLoading || exporting} />
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Button type="button" variant="outline" size="sm" onClick={() => void handleExport(undefined, activityDateStart, activityDateEnd)} disabled={isLoading || exporting || !activityDateStart || !activityDateEnd} className="h-9 cursor-pointer gap-1.5 rounded-lg px-3 shadow-none">
+                      <FileDown aria-hidden="true" />
+                      {activityExportLabel}
+                    </Button>
+                    {onCreate ? (
+                      <Button type="button" variant="outline" size="sm" onClick={() => void handleExport("with_sizes", activityDateStart, activityDateEnd)} disabled={isLoading || exporting || !activityDateStart || !activityDateEnd} className="h-9 cursor-pointer gap-1.5 rounded-lg px-3 shadow-none">
+                        <Ruler aria-hidden="true" />
+                        {activitySizeExportLabel}
+                      </Button>
+                    ) : null}
+                  </div>
                 </div>
               </div>
             ) : null}
           </div>
-          {canExport ? (
-            <div role="group" aria-label="按时间导出" className="min-w-0 space-y-3 rounded-xl border border-border/70 bg-muted/35 p-3">
-              <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-                <p className="text-xs font-medium text-foreground">按时间导出</p>
-                <p className="text-xs text-muted-foreground">仅包含所选时间内导入或新增的商品</p>
-              </div>
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <DateRangeControl label="导出时间段" hideLabel start={activityDateStart} end={activityDateEnd} onStartChange={setActivityDateStart} onEndChange={setActivityDateEnd} maxDate={currentDate} disabled={isLoading || exporting} />
-                <div className="flex flex-wrap items-center gap-2">
-                  <Button type="button" variant="outline" size="sm" onClick={() => void handleExport(undefined, activityDateStart, activityDateEnd)} disabled={isLoading || exporting || !activityDateStart || !activityDateEnd} className="h-9 cursor-pointer gap-1.5 rounded-lg px-3 shadow-none">
-                    <FileDown aria-hidden="true" />
-                    {activityExportLabel}
-                  </Button>
-                  {onCreate ? (
-                    <Button type="button" variant="outline" size="sm" onClick={() => void handleExport("with_sizes", activityDateStart, activityDateEnd)} disabled={isLoading || exporting || !activityDateStart || !activityDateEnd} className="h-9 cursor-pointer gap-1.5 rounded-lg px-3 shadow-none">
-                      <Ruler aria-hidden="true" />
-                      {activitySizeExportLabel}
-                    </Button>
-                  ) : null}
-                </div>
-              </div>
-            </div>
-          ) : null}
-        </div>
-      ) : null}
+        ) : null}
+      </div>
     </div>
   )
 }

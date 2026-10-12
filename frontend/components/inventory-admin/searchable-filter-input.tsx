@@ -11,6 +11,7 @@ export type SearchableFilterOption = {
 }
 
 type SearchableFilterInputProps = {
+  id?: string
   value: string
   options: SearchableFilterOption[]
   onChange: (value: string) => void
@@ -85,6 +86,7 @@ function DropdownPortal({
 }
 
 export function SearchableFilterInput({
+  id,
   value,
   options,
   onChange,
@@ -123,6 +125,7 @@ export function SearchableFilterInput({
     <div ref={rootRef} className="relative">
       <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
       <input
+        id={id}
         value={value}
         role="combobox"
         aria-expanded={open}

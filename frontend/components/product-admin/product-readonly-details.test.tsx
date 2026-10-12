@@ -98,6 +98,22 @@ beforeEach(() => {
 
 afterEach(cleanup)
 
+it("keeps the product list and submitted search unchanged when the toolbar collapses", async () => {
+  const user = userEvent.setup()
+  render(<ProductAdminPage />)
+  const product = await screen.findByTestId("card-title-7")
+  await waitFor(() => expect(mockListProducts).toHaveBeenCalled())
+  const requestCount = mockListProducts.mock.calls.length
+  await user.click(screen.getByRole("button", { name: "收起搜索区" }))
+  expect(product).toBeVisible()
+  expect(screen.getByLabelText("包含搜索")).not.toBeVisible()
+  expect(mockListProducts).toHaveBeenCalledTimes(requestCount)
+  await user.click(screen.getByRole("button", { name: "展开搜索区" }))
+  expect(product).toBeVisible()
+  expect(screen.getByLabelText("包含搜索")).toBeVisible()
+  expect(mockListProducts).toHaveBeenCalledTimes(requestCount)
+})
+
 it("restores the product query after navigation without reapplying an old link", async () => {
   const user = userEvent.setup()
   window.history.replaceState(null, "", "/products?brand=cbanner_womens&query=OLD-LINK")
