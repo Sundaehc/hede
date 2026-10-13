@@ -111,8 +111,8 @@ class InventoryRepository:
         table = INVENTORY_TABLE
         detail = INVENTORY_DETAIL_TABLE
         stock = JST_STOCK_TABLE
-        count_statement = select(func.count()).select_from(table)
         totals_statement = select(
+            func.count().label("record_count"),
             func.coalesce(
                 func.sum(case(
                     (table.c.document_type == "进货退货单", func.abs(func.coalesce(table.c.total_count, 0))),
@@ -189,24 +189,14 @@ class InventoryRepository:
             conditions.append(table.c.summary.ilike(f"%{summary.strip()}%"))
         if handler:
             conditions.append(table.c.handler.ilike(f"%{handler.strip()}%"))
-        is_internal_sales_customer = (
-            select(GENERAL_CUSTOMER_SHOP_TABLE.c.id)
-            .select_from(
-                GENERAL_CUSTOMER_SHOP_TABLE.outerjoin(
-                    GENERAL_CUSTOMER_UNIT_TABLE,
-                    GENERAL_CUSTOMER_UNIT_TABLE.c.shop_id == GENERAL_CUSTOMER_SHOP_TABLE.c.id,
-                )
-            )
-            .where(
-                GENERAL_CUSTOMER_SHOP_TABLE.c.shop_name.ilike("%内销客户%"),
-                or_(
-                    GENERAL_CUSTOMER_SHOP_TABLE.c.shop_name == table.c.supplier,
-                    GENERAL_CUSTOMER_UNIT_TABLE.c.unit_name == table.c.supplier,
-                ),
-            )
-            .correlate(table)
-            .exists()
+        internal_customer_names = union_all(
+            select(GENERAL_CUSTOMER_SHOP_TABLE.c.shop_name)
+            .where(GENERAL_CUSTOMER_SHOP_TABLE.c.shop_name.ilike("%内销客户%")),
+            select(GENERAL_CUSTOMER_UNIT_TABLE.c.unit_name)
+            .join(GENERAL_CUSTOMER_SHOP_TABLE, GENERAL_CUSTOMER_UNIT_TABLE.c.shop_id == GENERAL_CUSTOMER_SHOP_TABLE.c.id)
+            .where(GENERAL_CUSTOMER_SHOP_TABLE.c.shop_name.ilike("%内销客户%")),
         )
+        is_internal_sales_customer = func.coalesce(table.c.supplier.in_(internal_customer_names), False)
         is_headquarters_procurement_wholesale = and_(
             table.c.document_type.is_not(None),
             table.c.document_type.in_(WHOLESALE_DOCUMENT_TYPES),
@@ -334,7 +324,6 @@ class InventoryRepository:
         if conditions:
             criterion = conditions[0] if len(conditions) == 1 else and_(*conditions)
             items_statement = items_statement.where(criterion)
-            count_statement = count_statement.where(criterion)
             totals_statement = totals_statement.where(criterion)
 
         sort_columns = {
@@ -373,9 +362,9 @@ class InventoryRepository:
         items_statement = items_statement.order_by(*order_by).offset((page - 1) * page_size).limit(page_size)
 
         with self.engine.connect() as connection:
-            total = connection.execute(count_statement).scalar_one()
-            items = [dict(row) for row in connection.execute(items_statement).mappings()]
             all_totals = connection.execute(totals_statement).mappings().one()
+            total = int(all_totals["record_count"])
+            items = [dict(row) for row in connection.execute(items_statement).mappings()]
         for item in items:
             self._clear_accounting_record_summary(item)
             if item.get("document_type") == "进货退货单":

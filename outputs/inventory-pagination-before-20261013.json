@@ -1,0 +1,421 @@
+[
+  {
+    "completion_status": "completed",
+    "page": 1,
+    "elapsed_ms": 903.628,
+    "total": 14640,
+    "ids": [
+      18066,
+      18065,
+      18064,
+      18063,
+      18062,
+      18061,
+      18060,
+      18059,
+      18058,
+      18057,
+      18056,
+      18055,
+      18054,
+      18053,
+      18052,
+      18051,
+      18050,
+      18049,
+      18048,
+      18047
+    ],
+    "totals": {
+      "current_page": {
+        "total_count": "0",
+        "amount": "75286.97"
+      },
+      "all": {
+        "total_count": "1748387",
+        "amount": "751608560.32"
+      }
+    },
+    "queries": [
+      {
+        "sql": "SELECT count(*) AS count_1 \nFROM inventory_records \nWHERE inventory_records.deleted_at IS NULL AND (inventory_records.document_type IS NULL OR inventory_records.document_type != %(document_type_1)s::VARCHAR) AND ((EXISTS (SELECT general_customer_shops.id \nFROM general_customer_shops LEFT OUTER JOIN general_customer_units ON general_customer_units.shop_id = general_customer_shops.id \nWHERE general_customer_shops.shop_name ILIKE %(shop_name_1)s::VARCHAR AND (general_customer_shops.shop_name = inventory_records.supplier OR general_customer_units.unit_name = inventory_records.supplier))) OR inventory_records.document_type IS NOT NULL AND inventory_records.document_type IN (%(document_type_2_1)s::VARCHAR, %(document_type_2_2)s::VARCHAR) AND replace(coalesce(inventory_records.supplier, %(coalesce_1)s::VARCHAR), %(replace_1)s::VARCHAR, %(replace_2)s::VARCHAR) LIKE %(replace_3)s::VARCHAR OR (EXISTS (SELECT inventory_details.id \nFROM inventory_details \nWHERE inventory_details.document_id = inventory_records.id)) AND (inventory_records.document_type IN (%(document_type_3_1)s::VARCHAR, %(document_type_3_2)s::VARCHAR, %(document_type_3_3)s::VARCHAR, %(document_type_3_4)s::VARCHAR) AND NOT (EXISTS (SELECT inventory_details.id \nFROM inventory_details \nWHERE inventory_details.document_id = inventory_records.id AND (inventory_details.amount IS NULL OR inventory_details.amount = %(amount_1)s::INTEGER))) OR (inventory_records.document_type IS NULL OR (inventory_records.document_type NOT IN (%(document_type_4_1)s::VARCHAR, %(document_type_4_2)s::VARCHAR, %(document_type_4_3)s::VARCHAR, %(document_type_4_4)s::VARCHAR))) AND NOT (EXISTS (SELECT inventory_details.id \nFROM inventory_details \nWHERE inventory_details.document_id = inventory_records.id AND (inventory_details.unit_price IS NULL OR inventory_details.unit_price = %(unit_price_1)s::INTEGER)))))",
+        "params": {
+          "document_type_1": "进货订单",
+          "shop_name_1": "%内销客户%",
+          "coalesce_1": "",
+          "replace_1": " ",
+          "replace_2": "",
+          "replace_3": "%总部采购%",
+          "amount_1": 0,
+          "unit_price_1": 0,
+          "document_type_2_1": "批发销售单",
+          "document_type_2_2": "批发销售退货单",
+          "document_type_3_1": "应付款减少",
+          "document_type_3_2": "应付款增加",
+          "document_type_3_3": "应收款减少",
+          "document_type_3_4": "应收款增加",
+          "document_type_4_1": "应付款减少",
+          "document_type_4_2": "应付款增加",
+          "document_type_4_3": "应收款减少",
+          "document_type_4_4": "应收款增加"
+        },
+        "elapsed_ms": 421.794
+      },
+      {
+        "sql": "SELECT inventory_records.id, inventory_records.source_workbook, inventory_records.source_sheet, inventory_records.source_row_number, inventory_records.raw_payload, inventory_records.document_number, inventory_records.date, inventory_records.supplier, inventory_records.total_count, inventory_records.amount, inventory_records.warehouse, inventory_records.document_type, inventory_records.handler, inventory_records.summary, inventory_records.additional_note, inventory_records.date_value, inventory_records.extra_fields, inventory_records.deleted_at, inventory_records.created_at, inventory_records.updated_at \nFROM inventory_records \nWHERE inventory_records.deleted_at IS NULL AND (inventory_records.document_type IS NULL OR inventory_records.document_type != %(document_type_1)s::VARCHAR) AND ((EXISTS (SELECT general_customer_shops.id \nFROM general_customer_shops LEFT OUTER JOIN general_customer_units ON general_customer_units.shop_id = general_customer_shops.id \nWHERE general_customer_shops.shop_name ILIKE %(shop_name_1)s::VARCHAR AND (general_customer_shops.shop_name = inventory_records.supplier OR general_customer_units.unit_name = inventory_records.supplier))) OR inventory_records.document_type IS NOT NULL AND inventory_records.document_type IN (%(document_type_2_1)s::VARCHAR, %(document_type_2_2)s::VARCHAR) AND replace(coalesce(inventory_records.supplier, %(coalesce_1)s::VARCHAR), %(replace_1)s::VARCHAR, %(replace_2)s::VARCHAR) LIKE %(replace_3)s::VARCHAR OR (EXISTS (SELECT inventory_details.id \nFROM inventory_details \nWHERE inventory_details.document_id = inventory_records.id)) AND (inventory_records.document_type IN (%(document_type_3_1)s::VARCHAR, %(document_type_3_2)s::VARCHAR, %(document_type_3_3)s::VARCHAR, %(document_type_3_4)s::VARCHAR) AND NOT (EXISTS (SELECT inventory_details.id \nFROM inventory_details \nWHERE inventory_details.document_id = inventory_records.id AND (inventory_details.amount IS NULL OR inventory_details.amount = %(amount_1)s::INTEGER))) OR (inventory_records.document_type IS NULL OR (inventory_records.document_type NOT IN (%(document_type_4_1)s::VARCHAR, %(document_type_4_2)s::VARCHAR, %(document_type_4_3)s::VARCHAR, %(document_type_4_4)s::VARCHAR))) AND NOT (EXISTS (SELECT inventory_details.id \nFROM inventory_details \nWHERE inventory_details.document_id = inventory_records.id AND (inventory_details.unit_price IS NULL OR inventory_details.unit_price = %(unit_price_1)s::INTEGER))))) ORDER BY inventory_records.id DESC \n LIMIT %(param_1)s::INTEGER OFFSET %(param_2)s::INTEGER",
+        "params": {
+          "document_type_1": "进货订单",
+          "shop_name_1": "%内销客户%",
+          "coalesce_1": "",
+          "replace_1": " ",
+          "replace_2": "",
+          "replace_3": "%总部采购%",
+          "amount_1": 0,
+          "unit_price_1": 0,
+          "param_1": 20,
+          "param_2": 0,
+          "document_type_2_1": "批发销售单",
+          "document_type_2_2": "批发销售退货单",
+          "document_type_3_1": "应付款减少",
+          "document_type_3_2": "应付款增加",
+          "document_type_3_3": "应收款减少",
+          "document_type_3_4": "应收款增加",
+          "document_type_4_1": "应付款减少",
+          "document_type_4_2": "应付款增加",
+          "document_type_4_3": "应收款减少",
+          "document_type_4_4": "应收款增加"
+        },
+        "elapsed_ms": 91.492
+      },
+      {
+        "sql": "SELECT coalesce(sum(CASE WHEN (inventory_records.document_type = %(document_type_1)s::VARCHAR) THEN abs(coalesce(inventory_records.total_count, %(coalesce_1)s::INTEGER)) ELSE coalesce(inventory_records.total_count, %(coalesce_2)s::INTEGER) END), %(coalesce_3)s::INTEGER) AS total_count, coalesce(sum(CASE WHEN (inventory_records.document_type = %(document_type_2)s::VARCHAR) THEN abs(coalesce(inventory_records.amount, %(coalesce_4)s::INTEGER)) ELSE coalesce(inventory_records.amount, %(coalesce_5)s::INTEGER) END), %(coalesce_6)s::INTEGER) AS amount \nFROM inventory_records \nWHERE inventory_records.deleted_at IS NULL AND (inventory_records.document_type IS NULL OR inventory_records.document_type != %(document_type_3)s::VARCHAR) AND ((EXISTS (SELECT general_customer_shops.id \nFROM general_customer_shops LEFT OUTER JOIN general_customer_units ON general_customer_units.shop_id = general_customer_shops.id \nWHERE general_customer_shops.shop_name ILIKE %(shop_name_1)s::VARCHAR AND (general_customer_shops.shop_name = inventory_records.supplier OR general_customer_units.unit_name = inventory_records.supplier))) OR inventory_records.document_type IS NOT NULL AND inventory_records.document_type IN (%(document_type_4_1)s::VARCHAR, %(document_type_4_2)s::VARCHAR) AND replace(coalesce(inventory_records.supplier, %(coalesce_7)s::VARCHAR), %(replace_1)s::VARCHAR, %(replace_2)s::VARCHAR) LIKE %(replace_3)s::VARCHAR OR (EXISTS (SELECT inventory_details.id \nFROM inventory_details \nWHERE inventory_details.document_id = inventory_records.id)) AND (inventory_records.document_type IN (%(document_type_5_1)s::VARCHAR, %(document_type_5_2)s::VARCHAR, %(document_type_5_3)s::VARCHAR, %(document_type_5_4)s::VARCHAR) AND NOT (EXISTS (SELECT inventory_details.id \nFROM inventory_details \nWHERE inventory_details.document_id = inventory_records.id AND (inventory_details.amount IS NULL OR inventory_details.amount = %(amount_1)s::INTEGER))) OR (inventory_records.document_type IS NULL OR (inventory_records.document_type NOT IN (%(document_type_6_1)s::VARCHAR, %(document_type_6_2)s::VARCHAR, %(document_type_6_3)s::VARCHAR, %(document_type_6_4)s::VARCHAR))) AND NOT (EXISTS (SELECT inventory_details.id \nFROM inventory_details \nWHERE inventory_details.document_id = inventory_records.id AND (inventory_details.unit_price IS NULL OR inventory_details.unit_price = %(unit_price_1)s::INTEGER)))))",
+        "params": {
+          "document_type_1": "进货退货单",
+          "coalesce_1": 0,
+          "coalesce_2": 0,
+          "coalesce_3": 0,
+          "document_type_2": "进货退货单",
+          "coalesce_4": 0,
+          "coalesce_5": 0,
+          "coalesce_6": 0,
+          "document_type_3": "进货订单",
+          "shop_name_1": "%内销客户%",
+          "coalesce_7": "",
+          "replace_1": " ",
+          "replace_2": "",
+          "replace_3": "%总部采购%",
+          "amount_1": 0,
+          "unit_price_1": 0,
+          "document_type_4_1": "批发销售单",
+          "document_type_4_2": "批发销售退货单",
+          "document_type_5_1": "应付款减少",
+          "document_type_5_2": "应付款增加",
+          "document_type_5_3": "应收款减少",
+          "document_type_5_4": "应收款增加",
+          "document_type_6_1": "应付款减少",
+          "document_type_6_2": "应付款增加",
+          "document_type_6_3": "应收款减少",
+          "document_type_6_4": "应收款增加"
+        },
+        "elapsed_ms": 316.954
+      }
+    ]
+  },
+  {
+    "completion_status": "completed",
+    "page": 2,
+    "elapsed_ms": 909.898,
+    "total": 14640,
+    "ids": [
+      18046,
+      18045,
+      18044,
+      18043,
+      18042,
+      18041,
+      18040,
+      18039,
+      18038,
+      18037,
+      18036,
+      18035,
+      18034,
+      18033,
+      18032,
+      18031,
+      18030,
+      18029,
+      18028,
+      18027
+    ],
+    "totals": {
+      "current_page": {
+        "total_count": "0",
+        "amount": "263732.06"
+      },
+      "all": {
+        "total_count": "1748387",
+        "amount": "751608560.32"
+      }
+    },
+    "queries": [
+      {
+        "sql": "SELECT count(*) AS count_1 \nFROM inventory_records \nWHERE inventory_records.deleted_at IS NULL AND (inventory_records.document_type IS NULL OR inventory_records.document_type != %(document_type_1)s::VARCHAR) AND ((EXISTS (SELECT general_customer_shops.id \nFROM general_customer_shops LEFT OUTER JOIN general_customer_units ON general_customer_units.shop_id = general_customer_shops.id \nWHERE general_customer_shops.shop_name ILIKE %(shop_name_1)s::VARCHAR AND (general_customer_shops.shop_name = inventory_records.supplier OR general_customer_units.unit_name = inventory_records.supplier))) OR inventory_records.document_type IS NOT NULL AND inventory_records.document_type IN (%(document_type_2_1)s::VARCHAR, %(document_type_2_2)s::VARCHAR) AND replace(coalesce(inventory_records.supplier, %(coalesce_1)s::VARCHAR), %(replace_1)s::VARCHAR, %(replace_2)s::VARCHAR) LIKE %(replace_3)s::VARCHAR OR (EXISTS (SELECT inventory_details.id \nFROM inventory_details \nWHERE inventory_details.document_id = inventory_records.id)) AND (inventory_records.document_type IN (%(document_type_3_1)s::VARCHAR, %(document_type_3_2)s::VARCHAR, %(document_type_3_3)s::VARCHAR, %(document_type_3_4)s::VARCHAR) AND NOT (EXISTS (SELECT inventory_details.id \nFROM inventory_details \nWHERE inventory_details.document_id = inventory_records.id AND (inventory_details.amount IS NULL OR inventory_details.amount = %(amount_1)s::INTEGER))) OR (inventory_records.document_type IS NULL OR (inventory_records.document_type NOT IN (%(document_type_4_1)s::VARCHAR, %(document_type_4_2)s::VARCHAR, %(document_type_4_3)s::VARCHAR, %(document_type_4_4)s::VARCHAR))) AND NOT (EXISTS (SELECT inventory_details.id \nFROM inventory_details \nWHERE inventory_details.document_id = inventory_records.id AND (inventory_details.unit_price IS NULL OR inventory_details.unit_price = %(unit_price_1)s::INTEGER)))))",
+        "params": {
+          "document_type_1": "进货订单",
+          "shop_name_1": "%内销客户%",
+          "coalesce_1": "",
+          "replace_1": " ",
+          "replace_2": "",
+          "replace_3": "%总部采购%",
+          "amount_1": 0,
+          "unit_price_1": 0,
+          "document_type_2_1": "批发销售单",
+          "document_type_2_2": "批发销售退货单",
+          "document_type_3_1": "应付款减少",
+          "document_type_3_2": "应付款增加",
+          "document_type_3_3": "应收款减少",
+          "document_type_3_4": "应收款增加",
+          "document_type_4_1": "应付款减少",
+          "document_type_4_2": "应付款增加",
+          "document_type_4_3": "应收款减少",
+          "document_type_4_4": "应收款增加"
+        },
+        "elapsed_ms": 408.567
+      },
+      {
+        "sql": "SELECT inventory_records.id, inventory_records.source_workbook, inventory_records.source_sheet, inventory_records.source_row_number, inventory_records.raw_payload, inventory_records.document_number, inventory_records.date, inventory_records.supplier, inventory_records.total_count, inventory_records.amount, inventory_records.warehouse, inventory_records.document_type, inventory_records.handler, inventory_records.summary, inventory_records.additional_note, inventory_records.date_value, inventory_records.extra_fields, inventory_records.deleted_at, inventory_records.created_at, inventory_records.updated_at \nFROM inventory_records \nWHERE inventory_records.deleted_at IS NULL AND (inventory_records.document_type IS NULL OR inventory_records.document_type != %(document_type_1)s::VARCHAR) AND ((EXISTS (SELECT general_customer_shops.id \nFROM general_customer_shops LEFT OUTER JOIN general_customer_units ON general_customer_units.shop_id = general_customer_shops.id \nWHERE general_customer_shops.shop_name ILIKE %(shop_name_1)s::VARCHAR AND (general_customer_shops.shop_name = inventory_records.supplier OR general_customer_units.unit_name = inventory_records.supplier))) OR inventory_records.document_type IS NOT NULL AND inventory_records.document_type IN (%(document_type_2_1)s::VARCHAR, %(document_type_2_2)s::VARCHAR) AND replace(coalesce(inventory_records.supplier, %(coalesce_1)s::VARCHAR), %(replace_1)s::VARCHAR, %(replace_2)s::VARCHAR) LIKE %(replace_3)s::VARCHAR OR (EXISTS (SELECT inventory_details.id \nFROM inventory_details \nWHERE inventory_details.document_id = inventory_records.id)) AND (inventory_records.document_type IN (%(document_type_3_1)s::VARCHAR, %(document_type_3_2)s::VARCHAR, %(document_type_3_3)s::VARCHAR, %(document_type_3_4)s::VARCHAR) AND NOT (EXISTS (SELECT inventory_details.id \nFROM inventory_details \nWHERE inventory_details.document_id = inventory_records.id AND (inventory_details.amount IS NULL OR inventory_details.amount = %(amount_1)s::INTEGER))) OR (inventory_records.document_type IS NULL OR (inventory_records.document_type NOT IN (%(document_type_4_1)s::VARCHAR, %(document_type_4_2)s::VARCHAR, %(document_type_4_3)s::VARCHAR, %(document_type_4_4)s::VARCHAR))) AND NOT (EXISTS (SELECT inventory_details.id \nFROM inventory_details \nWHERE inventory_details.document_id = inventory_records.id AND (inventory_details.unit_price IS NULL OR inventory_details.unit_price = %(unit_price_1)s::INTEGER))))) ORDER BY inventory_records.id DESC \n LIMIT %(param_1)s::INTEGER OFFSET %(param_2)s::INTEGER",
+        "params": {
+          "document_type_1": "进货订单",
+          "shop_name_1": "%内销客户%",
+          "coalesce_1": "",
+          "replace_1": " ",
+          "replace_2": "",
+          "replace_3": "%总部采购%",
+          "amount_1": 0,
+          "unit_price_1": 0,
+          "param_1": 20,
+          "param_2": 20,
+          "document_type_2_1": "批发销售单",
+          "document_type_2_2": "批发销售退货单",
+          "document_type_3_1": "应付款减少",
+          "document_type_3_2": "应付款增加",
+          "document_type_3_3": "应收款减少",
+          "document_type_3_4": "应收款增加",
+          "document_type_4_1": "应付款减少",
+          "document_type_4_2": "应付款增加",
+          "document_type_4_3": "应收款减少",
+          "document_type_4_4": "应收款增加"
+        },
+        "elapsed_ms": 86.924
+      },
+      {
+        "sql": "SELECT coalesce(sum(CASE WHEN (inventory_records.document_type = %(document_type_1)s::VARCHAR) THEN abs(coalesce(inventory_records.total_count, %(coalesce_1)s::INTEGER)) ELSE coalesce(inventory_records.total_count, %(coalesce_2)s::INTEGER) END), %(coalesce_3)s::INTEGER) AS total_count, coalesce(sum(CASE WHEN (inventory_records.document_type = %(document_type_2)s::VARCHAR) THEN abs(coalesce(inventory_records.amount, %(coalesce_4)s::INTEGER)) ELSE coalesce(inventory_records.amount, %(coalesce_5)s::INTEGER) END), %(coalesce_6)s::INTEGER) AS amount \nFROM inventory_records \nWHERE inventory_records.deleted_at IS NULL AND (inventory_records.document_type IS NULL OR inventory_records.document_type != %(document_type_3)s::VARCHAR) AND ((EXISTS (SELECT general_customer_shops.id \nFROM general_customer_shops LEFT OUTER JOIN general_customer_units ON general_customer_units.shop_id = general_customer_shops.id \nWHERE general_customer_shops.shop_name ILIKE %(shop_name_1)s::VARCHAR AND (general_customer_shops.shop_name = inventory_records.supplier OR general_customer_units.unit_name = inventory_records.supplier))) OR inventory_records.document_type IS NOT NULL AND inventory_records.document_type IN (%(document_type_4_1)s::VARCHAR, %(document_type_4_2)s::VARCHAR) AND replace(coalesce(inventory_records.supplier, %(coalesce_7)s::VARCHAR), %(replace_1)s::VARCHAR, %(replace_2)s::VARCHAR) LIKE %(replace_3)s::VARCHAR OR (EXISTS (SELECT inventory_details.id \nFROM inventory_details \nWHERE inventory_details.document_id = inventory_records.id)) AND (inventory_records.document_type IN (%(document_type_5_1)s::VARCHAR, %(document_type_5_2)s::VARCHAR, %(document_type_5_3)s::VARCHAR, %(document_type_5_4)s::VARCHAR) AND NOT (EXISTS (SELECT inventory_details.id \nFROM inventory_details \nWHERE inventory_details.document_id = inventory_records.id AND (inventory_details.amount IS NULL OR inventory_details.amount = %(amount_1)s::INTEGER))) OR (inventory_records.document_type IS NULL OR (inventory_records.document_type NOT IN (%(document_type_6_1)s::VARCHAR, %(document_type_6_2)s::VARCHAR, %(document_type_6_3)s::VARCHAR, %(document_type_6_4)s::VARCHAR))) AND NOT (EXISTS (SELECT inventory_details.id \nFROM inventory_details \nWHERE inventory_details.document_id = inventory_records.id AND (inventory_details.unit_price IS NULL OR inventory_details.unit_price = %(unit_price_1)s::INTEGER)))))",
+        "params": {
+          "document_type_1": "进货退货单",
+          "coalesce_1": 0,
+          "coalesce_2": 0,
+          "coalesce_3": 0,
+          "document_type_2": "进货退货单",
+          "coalesce_4": 0,
+          "coalesce_5": 0,
+          "coalesce_6": 0,
+          "document_type_3": "进货订单",
+          "shop_name_1": "%内销客户%",
+          "coalesce_7": "",
+          "replace_1": " ",
+          "replace_2": "",
+          "replace_3": "%总部采购%",
+          "amount_1": 0,
+          "unit_price_1": 0,
+          "document_type_4_1": "批发销售单",
+          "document_type_4_2": "批发销售退货单",
+          "document_type_5_1": "应付款减少",
+          "document_type_5_2": "应付款增加",
+          "document_type_5_3": "应收款减少",
+          "document_type_5_4": "应收款增加",
+          "document_type_6_1": "应付款减少",
+          "document_type_6_2": "应付款增加",
+          "document_type_6_3": "应收款减少",
+          "document_type_6_4": "应收款增加"
+        },
+        "elapsed_ms": 411.701
+      }
+    ]
+  },
+  {
+    "completion_status": "incomplete",
+    "page": 1,
+    "elapsed_ms": 994.159,
+    "total": 2,
+    "ids": [
+      5403,
+      5377
+    ],
+    "totals": {
+      "current_page": {
+        "total_count": "365",
+        "amount": "2578.98"
+      },
+      "all": {
+        "total_count": "365",
+        "amount": "2578.98"
+      }
+    },
+    "queries": [
+      {
+        "sql": "SELECT count(*) AS count_1 \nFROM inventory_records \nWHERE inventory_records.deleted_at IS NULL AND (inventory_records.document_type IS NULL OR inventory_records.document_type != %(document_type_1)s::VARCHAR) AND NOT ((EXISTS (SELECT general_customer_shops.id \nFROM general_customer_shops LEFT OUTER JOIN general_customer_units ON general_customer_units.shop_id = general_customer_shops.id \nWHERE general_customer_shops.shop_name ILIKE %(shop_name_1)s::VARCHAR AND (general_customer_shops.shop_name = inventory_records.supplier OR general_customer_units.unit_name = inventory_records.supplier))) OR inventory_records.document_type IS NOT NULL AND inventory_records.document_type IN (%(document_type_2_1)s::VARCHAR, %(document_type_2_2)s::VARCHAR) AND replace(coalesce(inventory_records.supplier, %(coalesce_1)s::VARCHAR), %(replace_1)s::VARCHAR, %(replace_2)s::VARCHAR) LIKE %(replace_3)s::VARCHAR) AND (NOT (EXISTS (SELECT inventory_details.id \nFROM inventory_details \nWHERE inventory_details.document_id = inventory_records.id)) OR inventory_records.document_type IN (%(document_type_3_1)s::VARCHAR, %(document_type_3_2)s::VARCHAR, %(document_type_3_3)s::VARCHAR, %(document_type_3_4)s::VARCHAR) AND (EXISTS (SELECT inventory_details.id \nFROM inventory_details \nWHERE inventory_details.document_id = inventory_records.id AND (inventory_details.amount IS NULL OR inventory_details.amount = %(amount_1)s::INTEGER))) OR (inventory_records.document_type IS NULL OR (inventory_records.document_type NOT IN (%(document_type_4_1)s::VARCHAR, %(document_type_4_2)s::VARCHAR, %(document_type_4_3)s::VARCHAR, %(document_type_4_4)s::VARCHAR))) AND (EXISTS (SELECT inventory_details.id \nFROM inventory_details \nWHERE inventory_details.document_id = inventory_records.id AND (inventory_details.unit_price IS NULL OR inventory_details.unit_price = %(unit_price_1)s::INTEGER))))",
+        "params": {
+          "document_type_1": "进货订单",
+          "shop_name_1": "%内销客户%",
+          "coalesce_1": "",
+          "replace_1": " ",
+          "replace_2": "",
+          "replace_3": "%总部采购%",
+          "amount_1": 0,
+          "unit_price_1": 0,
+          "document_type_2_1": "批发销售单",
+          "document_type_2_2": "批发销售退货单",
+          "document_type_3_1": "应付款减少",
+          "document_type_3_2": "应付款增加",
+          "document_type_3_3": "应收款减少",
+          "document_type_3_4": "应收款增加",
+          "document_type_4_1": "应付款减少",
+          "document_type_4_2": "应付款增加",
+          "document_type_4_3": "应收款减少",
+          "document_type_4_4": "应收款增加"
+        },
+        "elapsed_ms": 378.864
+      },
+      {
+        "sql": "SELECT inventory_records.id, inventory_records.source_workbook, inventory_records.source_sheet, inventory_records.source_row_number, inventory_records.raw_payload, inventory_records.document_number, inventory_records.date, inventory_records.supplier, inventory_records.total_count, inventory_records.amount, inventory_records.warehouse, inventory_records.document_type, inventory_records.handler, inventory_records.summary, inventory_records.additional_note, inventory_records.date_value, inventory_records.extra_fields, inventory_records.deleted_at, inventory_records.created_at, inventory_records.updated_at \nFROM inventory_records \nWHERE inventory_records.deleted_at IS NULL AND (inventory_records.document_type IS NULL OR inventory_records.document_type != %(document_type_1)s::VARCHAR) AND NOT ((EXISTS (SELECT general_customer_shops.id \nFROM general_customer_shops LEFT OUTER JOIN general_customer_units ON general_customer_units.shop_id = general_customer_shops.id \nWHERE general_customer_shops.shop_name ILIKE %(shop_name_1)s::VARCHAR AND (general_customer_shops.shop_name = inventory_records.supplier OR general_customer_units.unit_name = inventory_records.supplier))) OR inventory_records.document_type IS NOT NULL AND inventory_records.document_type IN (%(document_type_2_1)s::VARCHAR, %(document_type_2_2)s::VARCHAR) AND replace(coalesce(inventory_records.supplier, %(coalesce_1)s::VARCHAR), %(replace_1)s::VARCHAR, %(replace_2)s::VARCHAR) LIKE %(replace_3)s::VARCHAR) AND (NOT (EXISTS (SELECT inventory_details.id \nFROM inventory_details \nWHERE inventory_details.document_id = inventory_records.id)) OR inventory_records.document_type IN (%(document_type_3_1)s::VARCHAR, %(document_type_3_2)s::VARCHAR, %(document_type_3_3)s::VARCHAR, %(document_type_3_4)s::VARCHAR) AND (EXISTS (SELECT inventory_details.id \nFROM inventory_details \nWHERE inventory_details.document_id = inventory_records.id AND (inventory_details.amount IS NULL OR inventory_details.amount = %(amount_1)s::INTEGER))) OR (inventory_records.document_type IS NULL OR (inventory_records.document_type NOT IN (%(document_type_4_1)s::VARCHAR, %(document_type_4_2)s::VARCHAR, %(document_type_4_3)s::VARCHAR, %(document_type_4_4)s::VARCHAR))) AND (EXISTS (SELECT inventory_details.id \nFROM inventory_details \nWHERE inventory_details.document_id = inventory_records.id AND (inventory_details.unit_price IS NULL OR inventory_details.unit_price = %(unit_price_1)s::INTEGER)))) ORDER BY inventory_records.id DESC \n LIMIT %(param_1)s::INTEGER OFFSET %(param_2)s::INTEGER",
+        "params": {
+          "document_type_1": "进货订单",
+          "shop_name_1": "%内销客户%",
+          "coalesce_1": "",
+          "replace_1": " ",
+          "replace_2": "",
+          "replace_3": "%总部采购%",
+          "amount_1": 0,
+          "unit_price_1": 0,
+          "param_1": 20,
+          "param_2": 0,
+          "document_type_2_1": "批发销售单",
+          "document_type_2_2": "批发销售退货单",
+          "document_type_3_1": "应付款减少",
+          "document_type_3_2": "应付款增加",
+          "document_type_3_3": "应收款减少",
+          "document_type_3_4": "应收款增加",
+          "document_type_4_1": "应付款减少",
+          "document_type_4_2": "应付款增加",
+          "document_type_4_3": "应收款减少",
+          "document_type_4_4": "应收款增加"
+        },
+        "elapsed_ms": 307.387
+      },
+      {
+        "sql": "SELECT coalesce(sum(CASE WHEN (inventory_records.document_type = %(document_type_1)s::VARCHAR) THEN abs(coalesce(inventory_records.total_count, %(coalesce_1)s::INTEGER)) ELSE coalesce(inventory_records.total_count, %(coalesce_2)s::INTEGER) END), %(coalesce_3)s::INTEGER) AS total_count, coalesce(sum(CASE WHEN (inventory_records.document_type = %(document_type_2)s::VARCHAR) THEN abs(coalesce(inventory_records.amount, %(coalesce_4)s::INTEGER)) ELSE coalesce(inventory_records.amount, %(coalesce_5)s::INTEGER) END), %(coalesce_6)s::INTEGER) AS amount \nFROM inventory_records \nWHERE inventory_records.deleted_at IS NULL AND (inventory_records.document_type IS NULL OR inventory_records.document_type != %(document_type_3)s::VARCHAR) AND NOT ((EXISTS (SELECT general_customer_shops.id \nFROM general_customer_shops LEFT OUTER JOIN general_customer_units ON general_customer_units.shop_id = general_customer_shops.id \nWHERE general_customer_shops.shop_name ILIKE %(shop_name_1)s::VARCHAR AND (general_customer_shops.shop_name = inventory_records.supplier OR general_customer_units.unit_name = inventory_records.supplier))) OR inventory_records.document_type IS NOT NULL AND inventory_records.document_type IN (%(document_type_4_1)s::VARCHAR, %(document_type_4_2)s::VARCHAR) AND replace(coalesce(inventory_records.supplier, %(coalesce_7)s::VARCHAR), %(replace_1)s::VARCHAR, %(replace_2)s::VARCHAR) LIKE %(replace_3)s::VARCHAR) AND (NOT (EXISTS (SELECT inventory_details.id \nFROM inventory_details \nWHERE inventory_details.document_id = inventory_records.id)) OR inventory_records.document_type IN (%(document_type_5_1)s::VARCHAR, %(document_type_5_2)s::VARCHAR, %(document_type_5_3)s::VARCHAR, %(document_type_5_4)s::VARCHAR) AND (EXISTS (SELECT inventory_details.id \nFROM inventory_details \nWHERE inventory_details.document_id = inventory_records.id AND (inventory_details.amount IS NULL OR inventory_details.amount = %(amount_1)s::INTEGER))) OR (inventory_records.document_type IS NULL OR (inventory_records.document_type NOT IN (%(document_type_6_1)s::VARCHAR, %(document_type_6_2)s::VARCHAR, %(document_type_6_3)s::VARCHAR, %(document_type_6_4)s::VARCHAR))) AND (EXISTS (SELECT inventory_details.id \nFROM inventory_details \nWHERE inventory_details.document_id = inventory_records.id AND (inventory_details.unit_price IS NULL OR inventory_details.unit_price = %(unit_price_1)s::INTEGER))))",
+        "params": {
+          "document_type_1": "进货退货单",
+          "coalesce_1": 0,
+          "coalesce_2": 0,
+          "coalesce_3": 0,
+          "document_type_2": "进货退货单",
+          "coalesce_4": 0,
+          "coalesce_5": 0,
+          "coalesce_6": 0,
+          "document_type_3": "进货订单",
+          "shop_name_1": "%内销客户%",
+          "coalesce_7": "",
+          "replace_1": " ",
+          "replace_2": "",
+          "replace_3": "%总部采购%",
+          "amount_1": 0,
+          "unit_price_1": 0,
+          "document_type_4_1": "批发销售单",
+          "document_type_4_2": "批发销售退货单",
+          "document_type_5_1": "应付款减少",
+          "document_type_5_2": "应付款增加",
+          "document_type_5_3": "应收款减少",
+          "document_type_5_4": "应收款增加",
+          "document_type_6_1": "应付款减少",
+          "document_type_6_2": "应付款增加",
+          "document_type_6_3": "应收款减少",
+          "document_type_6_4": "应收款增加"
+        },
+        "elapsed_ms": 303.424
+      }
+    ]
+  },
+  {
+    "completion_status": null,
+    "page": 1,
+    "elapsed_ms": 9.442,
+    "total": 14642,
+    "ids": [
+      18066,
+      18065,
+      18064,
+      18063,
+      18062,
+      18061,
+      18060,
+      18059,
+      18058,
+      18057,
+      18056,
+      18055,
+      18054,
+      18053,
+      18052,
+      18051,
+      18050,
+      18049,
+      18048,
+      18047
+    ],
+    "totals": {
+      "current_page": {
+        "total_count": "0",
+        "amount": "75286.97"
+      },
+      "all": {
+        "total_count": "1748752",
+        "amount": "751611139.3"
+      }
+    },
+    "queries": [
+      {
+        "sql": "SELECT count(*) AS count_1 \nFROM inventory_records \nWHERE inventory_records.deleted_at IS NULL AND (inventory_records.document_type IS NULL OR inventory_records.document_type != %(document_type_1)s::VARCHAR)",
+        "params": {
+          "document_type_1": "进货订单"
+        },
+        "elapsed_ms": 2.61
+      },
+      {
+        "sql": "SELECT inventory_records.id, inventory_records.source_workbook, inventory_records.source_sheet, inventory_records.source_row_number, inventory_records.raw_payload, inventory_records.document_number, inventory_records.date, inventory_records.supplier, inventory_records.total_count, inventory_records.amount, inventory_records.warehouse, inventory_records.document_type, inventory_records.handler, inventory_records.summary, inventory_records.additional_note, inventory_records.date_value, inventory_records.extra_fields, inventory_records.deleted_at, inventory_records.created_at, inventory_records.updated_at \nFROM inventory_records \nWHERE inventory_records.deleted_at IS NULL AND (inventory_records.document_type IS NULL OR inventory_records.document_type != %(document_type_1)s::VARCHAR) ORDER BY inventory_records.id DESC \n LIMIT %(param_1)s::INTEGER OFFSET %(param_2)s::INTEGER",
+        "params": {
+          "document_type_1": "进货订单",
+          "param_1": 20,
+          "param_2": 0
+        },
+        "elapsed_ms": 0.463
+      },
+      {
+        "sql": "SELECT coalesce(sum(CASE WHEN (inventory_records.document_type = %(document_type_1)s::VARCHAR) THEN abs(coalesce(inventory_records.total_count, %(coalesce_1)s::INTEGER)) ELSE coalesce(inventory_records.total_count, %(coalesce_2)s::INTEGER) END), %(coalesce_3)s::INTEGER) AS total_count, coalesce(sum(CASE WHEN (inventory_records.document_type = %(document_type_2)s::VARCHAR) THEN abs(coalesce(inventory_records.amount, %(coalesce_4)s::INTEGER)) ELSE coalesce(inventory_records.amount, %(coalesce_5)s::INTEGER) END), %(coalesce_6)s::INTEGER) AS amount \nFROM inventory_records \nWHERE inventory_records.deleted_at IS NULL AND (inventory_records.document_type IS NULL OR inventory_records.document_type != %(document_type_3)s::VARCHAR)",
+        "params": {
+          "document_type_1": "进货退货单",
+          "coalesce_1": 0,
+          "coalesce_2": 0,
+          "coalesce_3": 0,
+          "document_type_2": "进货退货单",
+          "coalesce_4": 0,
+          "coalesce_5": 0,
+          "coalesce_6": 0,
+          "document_type_3": "进货订单"
+        },
+        "elapsed_ms": 3.732
+      }
+    ]
+  }
+]

@@ -1,0 +1,51 @@
+Aggregate  (cost=273552.63..273552.64 rows=1 width=72) (actual rows=1.00 loops=1)
+  Buffers: shared hit=46250
+  ->  Bitmap Heap Scan on inventory_records  (cost=215.29..273392.45 rows=9153 width=27) (actual rows=14640.00 loops=1)
+        Recheck Cond: (deleted_at IS NULL)
+        Filter: (((document_type IS NULL) OR (document_type <> '进货订单'::text)) AND (COALESCE((ANY (supplier = (hashed SubPlan 1).col1)), false) OR ((document_type IS NOT NULL) AND (document_type = ANY ('{批发销售单,批发销售退货单}'::text[])) AND (replace(COALESCE(supplier, ''::text), ' '::text, ''::text) ~~ '%总部采购%'::text)) OR (EXISTS(SubPlan 2) AND (((document_type = ANY ('{应付款减少,应付款增加,应收款减少,应收款增加}'::text[])) AND (NOT (ANY (id = (hashed SubPlan 4).col1)))) OR (((document_type IS NULL) OR (document_type <> ALL ('{应付款减少,应付款增加,应收款减少,应收款增加}'::text[]))) AND (NOT (ANY (id = (hashed SubPlan 6).col1))))))))
+        Rows Removed by Filter: 1162
+        Heap Blocks: exact=1031
+        Buffers: shared hit=46250
+        ->  Bitmap Index Scan on idx_inventory_records_deleted_at  (cost=0.00..202.80 rows=15802 width=0) (actual rows=16033.00 loops=1)
+              Index Cond: (deleted_at IS NULL)
+              Index Searches: 1
+              Buffers: shared hit=20
+        SubPlan 1
+          ->  Append  (cost=0.00..10.18 rows=7 width=31) (actual rows=6.00 loops=1)
+                Buffers: shared hit=6
+                ->  Seq Scan on general_customer_shops  (cost=0.00..3.42 rows=4 width=26) (actual rows=6.00 loops=1)
+                      Filter: (shop_name ~~* '%内销客户%'::text)
+                      Rows Removed by Filter: 85
+                      Buffers: shared hit=2
+                ->  Hash Join  (cost=3.47..6.72 rows=3 width=38) (actual rows=0.00 loops=1)
+                      Hash Cond: (general_customer_units.shop_id = general_customer_shops_1.id)
+                      Buffers: shared hit=4
+                      ->  Seq Scan on general_customer_units  (cost=0.00..2.98 rows=98 width=46) (actual rows=79.00 loops=1)
+                            Buffers: shared hit=2
+                      ->  Hash  (cost=3.42..3.42 rows=4 width=8) (actual rows=6.00 loops=1)
+                            Buckets: 1024  Batches: 1  Memory Usage: 9kB
+                            Buffers: shared hit=2
+                            ->  Seq Scan on general_customer_shops general_customer_shops_1  (cost=0.00..3.42 rows=4 width=8) (actual rows=6.00 loops=1)
+                                  Filter: (shop_name ~~* '%内销客户%'::text)
+                                  Rows Removed by Filter: 85
+                                  Buffers: shared hit=2
+        SubPlan 2
+          ->  Index Only Scan using idx_inventory_details_document_id on inventory_details  (cost=0.42..10.54 rows=58 width=0) (actual rows=1.00 loops=14452)
+                Index Cond: (document_id = inventory_records.id)
+                Heap Fetches: 1469
+                Index Searches: 14452
+                Buffers: shared hit=44826
+        SubPlan 4
+          ->  Index Only Scan using idx_inventory_details_missing_amount_document on inventory_details inventory_details_1  (cost=0.28..63.93 rows=1250 width=8) (actual rows=1165.00 loops=1)
+                Heap Fetches: 119
+                Index Searches: 1
+                Buffers: shared hit=36
+        SubPlan 6
+          ->  Index Only Scan using idx_inventory_details_missing_price_document on inventory_details inventory_details_2  (cost=0.28..97.84 rows=1976 width=8) (actual rows=2563.00 loops=1)
+                Heap Fetches: 1207
+                Index Searches: 1
+                Buffers: shared hit=331
+Planning:
+  Buffers: shared hit=8
+Planning Time: 0.534 ms
+Execution Time: 19.176 ms
