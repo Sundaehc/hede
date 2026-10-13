@@ -1,0 +1,4093 @@
+{
+  "generated_at": "2026-10-13T17:21:13.200019+08:00",
+  "database": "commodity_department",
+  "server_version": "18.3",
+  "pg_dump_version": "pg_dump (PostgreSQL) 18.3",
+  "schema_only": true,
+  "includes_data": false,
+  "includes_owner_or_grants": false,
+  "includes_tablespace_assignment": false,
+  "dump_flags": [
+    "--schema-only",
+    "--format=plain",
+    "--no-owner",
+    "--no-privileges",
+    "--no-tablespaces",
+    "--encoding=UTF8",
+    "--lock-wait-timeout=5s",
+    "--no-password"
+  ],
+  "file": "schema.sql",
+  "bytes": 5363456,
+  "sha256": "7012a2140d8a9631506ea1a1eafe05bed94f75bb2e3eb2be8878b2b8edcd5f4f",
+  "schemas": [
+    "mcp_private",
+    "mcp_readonly",
+    "public"
+  ],
+  "extensions": [
+    {
+      "name": "pg_trgm",
+      "version": "1.6",
+      "schema": "public"
+    },
+    {
+      "name": "plpgsql",
+      "version": "1.0",
+      "schema": "pg_catalog"
+    }
+  ],
+  "source_alembic_revisions": [
+    "20260611_0023"
+  ],
+  "object_counts": {
+    "partitioned_indexes": 20,
+    "sequences": 94,
+    "indexes": 505,
+    "partitioned_tables": 8,
+    "tables": 112,
+    "views": 67
+  },
+  "objects": [
+    {
+      "schema": "mcp_private",
+      "name": "audit_id_seq",
+      "kind": "S"
+    },
+    {
+      "schema": "mcp_private",
+      "name": "tokens_id_seq",
+      "kind": "S"
+    },
+    {
+      "schema": "mcp_private",
+      "name": "audit_pkey",
+      "kind": "i"
+    },
+    {
+      "schema": "mcp_private",
+      "name": "mcp_audit_created",
+      "kind": "i"
+    },
+    {
+      "schema": "mcp_private",
+      "name": "mcp_audit_request",
+      "kind": "i"
+    },
+    {
+      "schema": "mcp_private",
+      "name": "tokens_pkey",
+      "kind": "i"
+    },
+    {
+      "schema": "mcp_private",
+      "name": "tokens_token_hash_key",
+      "kind": "i"
+    },
+    {
+      "schema": "mcp_private",
+      "name": "audit",
+      "kind": "r"
+    },
+    {
+      "schema": "mcp_private",
+      "name": "tokens",
+      "kind": "r"
+    },
+    {
+      "schema": "mcp_private",
+      "name": "identities",
+      "kind": "v"
+    },
+    {
+      "schema": "mcp_readonly",
+      "name": "color_barcodes",
+      "kind": "v"
+    },
+    {
+      "schema": "mcp_readonly",
+      "name": "copywriting",
+      "kind": "v"
+    },
+    {
+      "schema": "mcp_readonly",
+      "name": "copywriting_history",
+      "kind": "v"
+    },
+    {
+      "schema": "mcp_readonly",
+      "name": "dewu_orders",
+      "kind": "v"
+    },
+    {
+      "schema": "mcp_readonly",
+      "name": "factory_channel_sales_daily_summaries",
+      "kind": "v"
+    },
+    {
+      "schema": "mcp_readonly",
+      "name": "fine_table_snapshot_batches",
+      "kind": "v"
+    },
+    {
+      "schema": "mcp_readonly",
+      "name": "general_customer_brands",
+      "kind": "v"
+    },
+    {
+      "schema": "mcp_readonly",
+      "name": "general_customer_shops",
+      "kind": "v"
+    },
+    {
+      "schema": "mcp_readonly",
+      "name": "general_customer_units",
+      "kind": "v"
+    },
+    {
+      "schema": "mcp_readonly",
+      "name": "gj_merged_product_info",
+      "kind": "v"
+    },
+    {
+      "schema": "mcp_readonly",
+      "name": "inventory_account_subjects",
+      "kind": "v"
+    },
+    {
+      "schema": "mcp_readonly",
+      "name": "inventory_details",
+      "kind": "v"
+    },
+    {
+      "schema": "mcp_readonly",
+      "name": "inventory_records",
+      "kind": "v"
+    },
+    {
+      "schema": "mcp_readonly",
+      "name": "jst_aftersale_returns",
+      "kind": "v"
+    },
+    {
+      "schema": "mcp_readonly",
+      "name": "jst_daily_sales",
+      "kind": "v"
+    },
+    {
+      "schema": "mcp_readonly",
+      "name": "jst_daily_stock",
+      "kind": "v"
+    },
+    {
+      "schema": "mcp_readonly",
+      "name": "jst_full_stock",
+      "kind": "v"
+    },
+    {
+      "schema": "mcp_readonly",
+      "name": "jst_monthly_orders",
+      "kind": "v"
+    },
+    {
+      "schema": "mcp_readonly",
+      "name": "jst_product_price",
+      "kind": "v"
+    },
+    {
+      "schema": "mcp_readonly",
+      "name": "jst_product_profiles",
+      "kind": "v"
+    },
+    {
+      "schema": "mcp_readonly",
+      "name": "jst_purchase_defects",
+      "kind": "v"
+    },
+    {
+      "schema": "mcp_readonly",
+      "name": "jst_size_stock",
+      "kind": "v"
+    },
+    {
+      "schema": "mcp_readonly",
+      "name": "jst_size_stock_snapshots",
+      "kind": "v"
+    },
+    {
+      "schema": "mcp_readonly",
+      "name": "jst_stock_summary",
+      "kind": "v"
+    },
+    {
+      "schema": "mcp_readonly",
+      "name": "jst_stock_summary_snapshots",
+      "kind": "v"
+    },
+    {
+      "schema": "mcp_readonly",
+      "name": "product_archive_identities",
+      "kind": "v"
+    },
+    {
+      "schema": "mcp_readonly",
+      "name": "product_auxiliary_attributes",
+      "kind": "v"
+    },
+    {
+      "schema": "mcp_readonly",
+      "name": "product_goods_detail_snapshot_batches",
+      "kind": "v"
+    },
+    {
+      "schema": "mcp_readonly",
+      "name": "product_goods_detail_snapshots",
+      "kind": "v"
+    },
+    {
+      "schema": "mcp_readonly",
+      "name": "product_goods_historical_orders",
+      "kind": "v"
+    },
+    {
+      "schema": "mcp_readonly",
+      "name": "product_goods_historical_sales",
+      "kind": "v"
+    },
+    {
+      "schema": "mcp_readonly",
+      "name": "product_goods_overrides",
+      "kind": "v"
+    },
+    {
+      "schema": "mcp_readonly",
+      "name": "product_goods_sales_periods",
+      "kind": "v"
+    },
+    {
+      "schema": "mcp_readonly",
+      "name": "product_goods_shop_channel_mappings",
+      "kind": "v"
+    },
+    {
+      "schema": "mcp_readonly",
+      "name": "product_prices",
+      "kind": "v"
+    },
+    {
+      "schema": "mcp_readonly",
+      "name": "product_size_group_mappings",
+      "kind": "v"
+    },
+    {
+      "schema": "mcp_readonly",
+      "name": "products",
+      "kind": "v"
+    },
+    {
+      "schema": "mcp_readonly",
+      "name": "purchase_order_requirement_templates",
+      "kind": "v"
+    },
+    {
+      "schema": "mcp_readonly",
+      "name": "purchase_orders",
+      "kind": "v"
+    },
+    {
+      "schema": "mcp_readonly",
+      "name": "size_group_items",
+      "kind": "v"
+    },
+    {
+      "schema": "mcp_readonly",
+      "name": "size_groups",
+      "kind": "v"
+    },
+    {
+      "schema": "mcp_readonly",
+      "name": "smiley_fine_table",
+      "kind": "v"
+    },
+    {
+      "schema": "mcp_readonly",
+      "name": "supplier_brands",
+      "kind": "v"
+    },
+    {
+      "schema": "mcp_readonly",
+      "name": "suppliers",
+      "kind": "v"
+    },
+    {
+      "schema": "mcp_readonly",
+      "name": "vip_daily_sales",
+      "kind": "v"
+    },
+    {
+      "schema": "mcp_readonly",
+      "name": "vip_product_daily",
+      "kind": "v"
+    },
+    {
+      "schema": "mcp_readonly",
+      "name": "vip_product_daily_snapshots",
+      "kind": "v"
+    },
+    {
+      "schema": "mcp_readonly",
+      "name": "vip_product_ops",
+      "kind": "v"
+    },
+    {
+      "schema": "mcp_readonly",
+      "name": "vip_product_ops_snapshots",
+      "kind": "v"
+    },
+    {
+      "schema": "mcp_readonly",
+      "name": "vip_product_realtime",
+      "kind": "v"
+    },
+    {
+      "schema": "mcp_readonly",
+      "name": "warehouse_brands",
+      "kind": "v"
+    },
+    {
+      "schema": "mcp_readonly",
+      "name": "warehouses",
+      "kind": "v"
+    },
+    {
+      "schema": "public",
+      "name": "idx_dewu_orders_brand_order_date",
+      "kind": "I"
+    },
+    {
+      "schema": "public",
+      "name": "idx_dewu_orders_goods_code",
+      "kind": "I"
+    },
+    {
+      "schema": "public",
+      "name": "idx_dewu_orders_id",
+      "kind": "I"
+    },
+    {
+      "schema": "public",
+      "name": "idx_dewu_orders_order_number",
+      "kind": "I"
+    },
+    {
+      "schema": "public",
+      "name": "idx_dewu_orders_order_status",
+      "kind": "I"
+    },
+    {
+      "schema": "public",
+      "name": "idx_dewu_orders_sku_id",
+      "kind": "I"
+    },
+    {
+      "schema": "public",
+      "name": "idx_jst_aftersale_returns_application_date",
+      "kind": "I"
+    },
+    {
+      "schema": "public",
+      "name": "idx_jst_aftersale_returns_business_code",
+      "kind": "I"
+    },
+    {
+      "schema": "public",
+      "name": "idx_jst_aftersale_returns_business_date",
+      "kind": "I"
+    },
+    {
+      "schema": "public",
+      "name": "idx_jst_aftersale_returns_id",
+      "kind": "I"
+    },
+    {
+      "schema": "public",
+      "name": "idx_jst_aftersale_returns_order_date",
+      "kind": "I"
+    },
+    {
+      "schema": "public",
+      "name": "idx_jst_aftersale_returns_order_time",
+      "kind": "I"
+    },
+    {
+      "schema": "public",
+      "name": "idx_jst_aftersale_returns_original_code",
+      "kind": "I"
+    },
+    {
+      "schema": "public",
+      "name": "idx_jst_monthly_orders_order_time_at",
+      "kind": "I"
+    },
+    {
+      "schema": "public",
+      "name": "idx_jst_monthly_orders_product_code",
+      "kind": "I"
+    },
+    {
+      "schema": "public",
+      "name": "idx_jst_monthly_orders_ship_date_value",
+      "kind": "I"
+    },
+    {
+      "schema": "public",
+      "name": "idx_jst_monthly_orders_style_code",
+      "kind": "I"
+    },
+    {
+      "schema": "public",
+      "name": "idx_jst_monthly_orders_style_time",
+      "kind": "I"
+    },
+    {
+      "schema": "public",
+      "name": "idx_jst_monthly_orders_time_product",
+      "kind": "I"
+    },
+    {
+      "schema": "public",
+      "name": "uq_jst_monthly_orders_order_time_record_key",
+      "kind": "I"
+    },
+    {
+      "schema": "public",
+      "name": "alimama_creative_daily_id_seq",
+      "kind": "S"
+    },
+    {
+      "schema": "public",
+      "name": "alimama_creative_daily_quarantine_quarantine_id_seq",
+      "kind": "S"
+    },
+    {
+      "schema": "public",
+      "name": "auth_departments_id_seq",
+      "kind": "S"
+    },
+    {
+      "schema": "public",
+      "name": "auth_roles_id_seq",
+      "kind": "S"
+    },
+    {
+      "schema": "public",
+      "name": "auth_sessions_id_seq",
+      "kind": "S"
+    },
+    {
+      "schema": "public",
+      "name": "auth_users_id_seq",
+      "kind": "S"
+    },
+    {
+      "schema": "public",
+      "name": "color_barcodes_id_seq",
+      "kind": "S"
+    },
+    {
+      "schema": "public",
+      "name": "data_governance_runs_id_seq",
+      "kind": "S"
+    },
+    {
+      "schema": "public",
+      "name": "data_quality_issues_id_seq",
+      "kind": "S"
+    },
+    {
+      "schema": "public",
+      "name": "dewu_orders_partition_id_seq",
+      "kind": "S"
+    },
+    {
+      "schema": "public",
+      "name": "factory_channel_sales_daily_summaries_id_seq",
+      "kind": "S"
+    },
+    {
+      "schema": "public",
+      "name": "fine_table_filter_option_cache_id_seq",
+      "kind": "S"
+    },
+    {
+      "schema": "public",
+      "name": "fine_table_snapshot_batches_id_seq",
+      "kind": "S"
+    },
+    {
+      "schema": "public",
+      "name": "fine_table_snapshot_metrics_id_seq",
+      "kind": "S"
+    },
+    {
+      "schema": "public",
+      "name": "fine_table_snapshot_payloads_id_seq",
+      "kind": "S"
+    },
+    {
+      "schema": "public",
+      "name": "fine_table_snapshot_refs_2024_id_seq",
+      "kind": "S"
+    },
+    {
+      "schema": "public",
+      "name": "fine_table_snapshot_refs_2025_id_seq",
+      "kind": "S"
+    },
+    {
+      "schema": "public",
+      "name": "fine_table_snapshot_refs_2026_id_seq",
+      "kind": "S"
+    },
+    {
+      "schema": "public",
+      "name": "general_customer_brands_id_seq",
+      "kind": "S"
+    },
+    {
+      "schema": "public",
+      "name": "general_customer_shops_id_seq",
+      "kind": "S"
+    },
+    {
+      "schema": "public",
+      "name": "general_customer_sort_preferences_id_seq",
+      "kind": "S"
+    },
+    {
+      "schema": "public",
+      "name": "general_customer_units_id_seq",
+      "kind": "S"
+    },
+    {
+      "schema": "public",
+      "name": "gj_merged_product_info_id_seq",
+      "kind": "S"
+    },
+    {
+      "schema": "public",
+      "name": "inventory_account_subjects_id_seq",
+      "kind": "S"
+    },
+    {
+      "schema": "public",
+      "name": "inventory_details_id_seq",
+      "kind": "S"
+    },
+    {
+      "schema": "public",
+      "name": "inventory_records_id_seq",
+      "kind": "S"
+    },
+    {
+      "schema": "public",
+      "name": "jst_aftersale_returns_partition_id_seq",
+      "kind": "S"
+    },
+    {
+      "schema": "public",
+      "name": "jst_daily_stock_id_seq",
+      "kind": "S"
+    },
+    {
+      "schema": "public",
+      "name": "jst_full_stock_id_seq",
+      "kind": "S"
+    },
+    {
+      "schema": "public",
+      "name": "jst_monthly_orders_archive_id_seq",
+      "kind": "S"
+    },
+    {
+      "schema": "public",
+      "name": "jst_product_price_id_seq",
+      "kind": "S"
+    },
+    {
+      "schema": "public",
+      "name": "jst_product_profiles_id_seq",
+      "kind": "S"
+    },
+    {
+      "schema": "public",
+      "name": "jst_purchase_diff_id_seq",
+      "kind": "S"
+    },
+    {
+      "schema": "public",
+      "name": "jst_purchase_inbound_daily_id_seq",
+      "kind": "S"
+    },
+    {
+      "schema": "public",
+      "name": "jst_purchase_inbound_items_id_seq",
+      "kind": "S"
+    },
+    {
+      "schema": "public",
+      "name": "jst_size_stock_id_seq",
+      "kind": "S"
+    },
+    {
+      "schema": "public",
+      "name": "jst_size_stock_snapshots_id_seq",
+      "kind": "S"
+    },
+    {
+      "schema": "public",
+      "name": "jst_stock_summary_id_seq",
+      "kind": "S"
+    },
+    {
+      "schema": "public",
+      "name": "jst_stock_summary_snapshots_id_seq",
+      "kind": "S"
+    },
+    {
+      "schema": "public",
+      "name": "manual_product_archive_31_id_seq",
+      "kind": "S"
+    },
+    {
+      "schema": "public",
+      "name": "ni_products_id_seq",
+      "kind": "S"
+    },
+    {
+      "schema": "public",
+      "name": "operation_logs_id_seq",
+      "kind": "S"
+    },
+    {
+      "schema": "public",
+      "name": "product_archive_identities_id_seq",
+      "kind": "S"
+    },
+    {
+      "schema": "public",
+      "name": "product_auxiliary_attributes_id_seq",
+      "kind": "S"
+    },
+    {
+      "schema": "public",
+      "name": "product_copywriting_history_id_seq",
+      "kind": "S"
+    },
+    {
+      "schema": "public",
+      "name": "product_copywriting_id_seq",
+      "kind": "S"
+    },
+    {
+      "schema": "public",
+      "name": "product_goods_detail_snapshot_batches_id_seq",
+      "kind": "S"
+    },
+    {
+      "schema": "public",
+      "name": "product_goods_overrides_id_seq",
+      "kind": "S"
+    },
+    {
+      "schema": "public",
+      "name": "product_goods_sales_periods_id_seq",
+      "kind": "S"
+    },
+    {
+      "schema": "public",
+      "name": "product_goods_shop_channel_mappings_id_seq",
+      "kind": "S"
+    },
+    {
+      "schema": "public",
+      "name": "product_order_detail_statistics_id_seq",
+      "kind": "S"
+    },
+    {
+      "schema": "public",
+      "name": "product_size_group_mappings_id_seq",
+      "kind": "S"
+    },
+    {
+      "schema": "public",
+      "name": "product_style_entities_id_seq",
+      "kind": "S"
+    },
+    {
+      "schema": "public",
+      "name": "product_tag_assignments_id_seq",
+      "kind": "S"
+    },
+    {
+      "schema": "public",
+      "name": "product_tag_definitions_id_seq",
+      "kind": "S"
+    },
+    {
+      "schema": "public",
+      "name": "purchase_order_requirement_templates_id_seq",
+      "kind": "S"
+    },
+    {
+      "schema": "public",
+      "name": "purchase_print_templates_id_seq",
+      "kind": "S"
+    },
+    {
+      "schema": "public",
+      "name": "qbd_mens_products_id_seq",
+      "kind": "S"
+    },
+    {
+      "schema": "public",
+      "name": "qbd_womens_products_id_seq",
+      "kind": "S"
+    },
+    {
+      "schema": "public",
+      "name": "scheduled_task_runs_id_seq",
+      "kind": "S"
+    },
+    {
+      "schema": "public",
+      "name": "scheduled_task_statuses_id_seq",
+      "kind": "S"
+    },
+    {
+      "schema": "public",
+      "name": "seq_0873afe94efe38ab",
+      "kind": "S"
+    },
+    {
+      "schema": "public",
+      "name": "seq_0a57fa2916b503bf",
+      "kind": "S"
+    },
+    {
+      "schema": "public",
+      "name": "seq_0d48b2d6532273f7",
+      "kind": "S"
+    },
+    {
+      "schema": "public",
+      "name": "seq_3760e707f42536d6",
+      "kind": "S"
+    },
+    {
+      "schema": "public",
+      "name": "seq_50e2d48706175d56",
+      "kind": "S"
+    },
+    {
+      "schema": "public",
+      "name": "seq_6d7aadcecd5f82fb",
+      "kind": "S"
+    },
+    {
+      "schema": "public",
+      "name": "seq_78cead346c133c55",
+      "kind": "S"
+    },
+    {
+      "schema": "public",
+      "name": "seq_8b1b37cd3bee8a78",
+      "kind": "S"
+    },
+    {
+      "schema": "public",
+      "name": "seq_8b7b8ca89ca811a2",
+      "kind": "S"
+    },
+    {
+      "schema": "public",
+      "name": "seq_93e4ccc739532e41",
+      "kind": "S"
+    },
+    {
+      "schema": "public",
+      "name": "seq_b7216b150dc535ea",
+      "kind": "S"
+    },
+    {
+      "schema": "public",
+      "name": "seq_e03012da1c84eea8",
+      "kind": "S"
+    },
+    {
+      "schema": "public",
+      "name": "size_group_items_id_seq",
+      "kind": "S"
+    },
+    {
+      "schema": "public",
+      "name": "size_groups_id_seq",
+      "kind": "S"
+    },
+    {
+      "schema": "public",
+      "name": "smiley_product_copy_base_id_seq",
+      "kind": "S"
+    },
+    {
+      "schema": "public",
+      "name": "smiley_product_copy_operation_log_id_seq",
+      "kind": "S"
+    },
+    {
+      "schema": "public",
+      "name": "smiley_products_id_seq",
+      "kind": "S"
+    },
+    {
+      "schema": "public",
+      "name": "supplier_brands_id_seq",
+      "kind": "S"
+    },
+    {
+      "schema": "public",
+      "name": "suppliers_id_seq",
+      "kind": "S"
+    },
+    {
+      "schema": "public",
+      "name": "vip_product_daily_id_seq",
+      "kind": "S"
+    },
+    {
+      "schema": "public",
+      "name": "vip_product_daily_snapshots_id_seq",
+      "kind": "S"
+    },
+    {
+      "schema": "public",
+      "name": "vip_product_detail_daily_id_seq",
+      "kind": "S"
+    },
+    {
+      "schema": "public",
+      "name": "vip_product_ops_id_seq",
+      "kind": "S"
+    },
+    {
+      "schema": "public",
+      "name": "vip_product_ops_snapshots_id_seq",
+      "kind": "S"
+    },
+    {
+      "schema": "public",
+      "name": "vip_product_realtime_id_seq",
+      "kind": "S"
+    },
+    {
+      "schema": "public",
+      "name": "warehouse_brands_id_seq",
+      "kind": "S"
+    },
+    {
+      "schema": "public",
+      "name": "warehouses_id_seq",
+      "kind": "S"
+    },
+    {
+      "schema": "public",
+      "name": "xiaolian_fine_table_id_seq",
+      "kind": "S"
+    },
+    {
+      "schema": "public",
+      "name": "yandou_products_id_seq",
+      "kind": "S"
+    },
+    {
+      "schema": "public",
+      "name": "yiban_products_id_seq",
+      "kind": "S"
+    },
+    {
+      "schema": "public",
+      "name": "zhiyi_hot_item_range_id_seq",
+      "kind": "S"
+    },
+    {
+      "schema": "public",
+      "name": "alembic_version_pkc",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "alimama_creative_daily_item_id_idx",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "alimama_creative_daily_owner_idx",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "alimama_creative_daily_pkey",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "alimama_creative_daily_quarantine_pkey",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "alimama_creative_daily_report_date_idx",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "alimama_creative_daily_shop_date_creative_key",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "auth_departments_pkey",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "auth_pinned_page_tabs_pkey",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "auth_roles_pkey",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "auth_sessions_pkey",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "auth_users_pkey",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "color_barcodes_pkey",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "data_governance_runs_pkey",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "data_quality_issues_pkey",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "dewu_orders_2025_brand_group_order_date_idx",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "dewu_orders_2025_goods_code_idx",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "dewu_orders_2025_id_idx",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "dewu_orders_2025_order_number_idx",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "dewu_orders_2025_order_status_idx",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "dewu_orders_2025_sku_id_idx",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "dewu_orders_2026_brand_group_order_date_idx",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "dewu_orders_2026_goods_code_idx",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "dewu_orders_2026_id_idx",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "dewu_orders_2026_order_number_idx",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "dewu_orders_2026_order_status_idx",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "dewu_orders_2026_sku_id_idx",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "dewu_orders_2027_brand_group_order_date_idx",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "dewu_orders_2027_goods_code_idx",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "dewu_orders_2027_id_idx",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "dewu_orders_2027_order_number_idx",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "dewu_orders_2027_order_status_idx",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "dewu_orders_2027_sku_id_idx",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "dewu_orders_default_brand_group_order_date_idx",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "dewu_orders_default_goods_code_idx",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "dewu_orders_default_id_idx",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "dewu_orders_default_order_number_idx",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "dewu_orders_default_order_status_idx",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "dewu_orders_default_sku_id_idx",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "excluded_product_skus_pkey",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "factory_channel_sales_daily_summaries_pkey",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "fine_table_filter_option_cache_pkey",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "fine_table_snapshot_batches_pkey",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "fine_table_snapshot_metrics_pkey",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "fine_table_snapshot_payloads_pkey",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "fine_table_snapshot_refs_2024_pkey",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "fine_table_snapshot_refs_2025_pkey",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "fine_table_snapshot_refs_2026_pkey",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "general_customer_brands_pkey",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "general_customer_shops_pkey",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "general_customer_sort_preferences_pkey",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "general_customer_units_pkey",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "gj_merged_product_info_pkey",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "idx_auth_sessions_expires_at",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "idx_auth_sessions_user_id",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "idx_auth_users_department",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "idx_auth_users_role",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "idx_cbanner_mens_products_active_id",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "idx_cbanner_mens_products_deleted_at",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "idx_cbanner_mens_products_factory_sku_trgm",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "idx_cbanner_mens_products_last_imported_at",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "idx_cbanner_mens_products_original_sku",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "idx_cbanner_mens_products_original_sku_trgm",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "idx_cbanner_mens_products_recycle_bin",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "idx_cbanner_mens_products_sku_trgm",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "idx_cbanner_mens_products_year",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "idx_cbanner_mens_products_year_pattern",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "idx_cbanner_womens_products_active_id",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "idx_cbanner_womens_products_deleted_at",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "idx_cbanner_womens_products_factory_sku_trgm",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "idx_cbanner_womens_products_last_imported_at",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "idx_cbanner_womens_products_original_sku",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "idx_cbanner_womens_products_original_sku_trgm",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "idx_cbanner_womens_products_recycle_bin",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "idx_cbanner_womens_products_sku_trgm",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "idx_cbanner_womens_products_year",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "idx_cbanner_womens_products_year_pattern",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "idx_color_barcodes_brand",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "idx_color_barcodes_color_barcode",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "idx_color_barcodes_color_name",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "idx_daily_snapshots_code_type_period_date",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "idx_daily_snapshots_goods_code_date",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "idx_daily_snapshots_snapshot_date",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "idx_data_quality_issues_open",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "idx_eblan_products_active_id",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "idx_eblan_products_deleted_at",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "idx_eblan_products_factory_sku_trgm",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "idx_eblan_products_last_imported_at",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "idx_eblan_products_original_sku",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "idx_eblan_products_original_sku_trgm",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "idx_eblan_products_recycle_bin",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "idx_eblan_products_sku_trgm",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "idx_eblan_products_year",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "idx_eblan_products_year_pattern",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "idx_factory_channel_sales_daily_summary_brand_date",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "idx_fine_table_snapshot_refs_2024_batch_original_sku",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "idx_fine_table_snapshot_refs_2024_batch_sku",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "idx_fine_table_snapshot_refs_2024_metrics_id",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "idx_fine_table_snapshot_refs_2024_original_sku_trgm",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "idx_fine_table_snapshot_refs_2024_payload_id",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "idx_fine_table_snapshot_refs_2024_sku_trgm",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "idx_fine_table_snapshot_refs_2025_batch_original_sku",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "idx_fine_table_snapshot_refs_2025_batch_sku",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "idx_fine_table_snapshot_refs_2025_metrics_id",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "idx_fine_table_snapshot_refs_2025_original_sku_trgm",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "idx_fine_table_snapshot_refs_2025_payload_id",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "idx_fine_table_snapshot_refs_2025_sku_trgm",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "idx_fine_table_snapshot_refs_2026_batch_original_sku",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "idx_fine_table_snapshot_refs_2026_batch_sku",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "idx_fine_table_snapshot_refs_2026_metrics_id",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "idx_fine_table_snapshot_refs_2026_original_sku_trgm",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "idx_fine_table_snapshot_refs_2026_payload_id",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "idx_fine_table_snapshot_refs_2026_sku_trgm",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "idx_general_customer_brands_sort",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "idx_general_customer_shops_customer_name",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "idx_general_customer_shops_customer_sort",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "idx_general_customer_shops_shop_name",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "idx_general_customer_sort_preferences_user_scope_parent_order",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "idx_general_customer_units_shop_id",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "idx_general_customer_units_shop_sort",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "idx_general_customer_units_unit_name",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "idx_gj_merged_product_info_goods_code",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "idx_gj_merged_product_info_goods_code_trgm",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "idx_gj_merged_product_info_original_code",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "idx_gj_merged_product_info_original_goods_code_trgm",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "idx_gj_merged_product_info_source_brand_id_desc",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "idx_gj_merged_product_info_source_date",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "idx_gj_merged_product_info_source_date_goods_updated",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "idx_gj_merged_product_info_source_date_id_desc",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "idx_inventory_details_document_id",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "idx_inventory_details_missing_amount_document",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "idx_inventory_details_missing_price_document",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "idx_inventory_details_product_code",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "idx_inventory_details_product_code_trgm",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "idx_inventory_details_product_identity",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "idx_inventory_records_date",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "idx_inventory_records_date_value",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "idx_inventory_records_deleted_at",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "idx_inventory_records_document_number",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "idx_inventory_records_document_type",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "idx_inventory_records_supplier",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "idx_inventory_records_supplier_date",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "idx_inventory_records_warehouse",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "idx_inventory_records_warehouse_date",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "idx_jst_daily_sales_2026_product_code_pattern",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "idx_jst_daily_sales_2026_sales_date",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "idx_jst_daily_sales_2026_style_code",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "idx_jst_daily_sales_2026_style_date",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "idx_jst_full_stock_brand",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "idx_jst_full_stock_product_code",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "idx_jst_full_stock_product_size",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "idx_jst_full_stock_style_code",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "idx_jst_price_code_date_nulls_last_updated",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "idx_jst_price_source_date_value",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "idx_jst_product_profiles_color_name",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "idx_jst_product_profiles_style_code",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "idx_jst_purchase_defects_product_code",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "idx_jst_size_stock_product_size",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "idx_jst_size_stock_snapshots_date_code",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "idx_jst_stock_date_qty",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "idx_jst_stock_date_value_code",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "idx_jst_stock_product_code",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "idx_jst_stock_product_code_trgm",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "idx_jst_stock_summary_date_value_code",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "idx_jst_stock_summary_product_code",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "idx_manual_product_archive_31_deleted_at",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "idx_manual_product_archive_31_last_imported_at",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "idx_manual_product_archive_31_original_sku",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "idx_manual_product_archive_31_year",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "idx_ni_products_active_id",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "idx_ni_products_deleted_at",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "idx_ni_products_last_imported_at",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "idx_ni_products_original_sku",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "idx_ni_products_recycle_bin",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "idx_ni_products_year",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "idx_ni_products_year_pattern",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "idx_operation_logs_entity",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "idx_operation_logs_module_created_at",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "idx_operation_logs_user",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "idx_ops_snapshots_goods_code_date",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "idx_ops_snapshots_snapshot_date",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "idx_product_archive_identities_brand_original_sku",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "idx_product_archive_identities_brand_sku",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "idx_product_archive_identities_sku",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "idx_product_auxiliary_attributes_name",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "idx_product_auxiliary_attributes_scope_type",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "idx_product_copywriting_history_product",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "idx_product_copywriting_launch_status",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "idx_product_goods_detail_snapshots_2024_brand_style",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "idx_product_goods_detail_snapshots_2025_brand_style",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "idx_product_goods_detail_snapshots_2026_brand_style",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "idx_product_goods_historical_orders_2022_brand_original",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "idx_product_goods_historical_orders_2022_order_date",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "idx_product_goods_historical_orders_2023_brand_original",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "idx_product_goods_historical_orders_2023_order_date",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "idx_product_goods_historical_orders_2024_brand_original",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "idx_product_goods_historical_orders_2024_order_date",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "idx_product_goods_historical_orders_2025_brand_original",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "idx_product_goods_historical_orders_2025_order_date",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "idx_product_goods_historical_orders_2026_brand_original",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "idx_product_goods_historical_orders_2026_order_date",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "idx_product_goods_historical_sales_2024_brand_product",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "idx_product_goods_historical_sales_2024_date",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "idx_product_goods_historical_sales_2024_original",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "idx_product_goods_historical_sales_2024_product",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "idx_product_goods_historical_sales_2025_brand_product",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "idx_product_goods_historical_sales_2025_date",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "idx_product_goods_historical_sales_2025_original",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "idx_product_goods_historical_sales_2025_product",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "idx_product_goods_sales_period_brand_product",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "idx_product_goods_sales_period_brand_style",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "idx_product_goods_sales_period_period",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "idx_product_goods_shop_channel_brand",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "idx_product_size_group_mappings_group",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "idx_product_tag_assignments_product",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "idx_product_tag_assignments_style",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "idx_product_tag_assignments_tag",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "idx_product_tag_definitions_group_active",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "idx_purchase_print_templates_user",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "idx_scheduled_task_runs_status_started",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "idx_scheduled_task_runs_task_started",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "idx_scheduled_task_statuses_task_status_date",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "idx_size_group_items_group_sort",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "idx_smiley_fine_table_original_sku",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "idx_smiley_fine_table_sku",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "idx_smiley_fine_table_snapshot_date",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "idx_smiley_product_copy_base_status",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "idx_smiley_product_copy_log_lookup",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "idx_smiley_products_active_id",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "idx_smiley_products_deleted_at",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "idx_smiley_products_last_imported_at",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "idx_smiley_products_original_sku",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "idx_smiley_products_recycle_bin",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "idx_smiley_products_year",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "idx_smiley_products_year_pattern",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "idx_supplier_brands_sort",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "idx_suppliers_brand",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "idx_suppliers_factory_code",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "idx_suppliers_factory_grade",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "idx_vip_daily_goods_code_report_updated",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "idx_vip_daily_report_dates",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "idx_vip_daily_sales_2026_goods_code_pattern",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "idx_vip_daily_sales_2026_sales_date",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "idx_vip_daily_sales_2026_style_code",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "idx_vip_daily_sales_2026_style_date",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "idx_vip_ops_goods_code_updated",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "idx_vip_product_detail_daily_brand_date",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "idx_vip_product_detail_daily_goods_code_date",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "idx_vip_product_detail_daily_report_date",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "idx_vip_product_detail_daily_shop_date",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "idx_warehouse_brands_sort",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "idx_warehouses_brand_sort",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "idx_yandou_products_active_id",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "idx_yandou_products_deleted_at",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "idx_yandou_products_factory_sku_trgm",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "idx_yandou_products_last_imported_at",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "idx_yandou_products_original_sku",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "idx_yandou_products_original_sku_trgm",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "idx_yandou_products_recycle_bin",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "idx_yandou_products_sku_trgm",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "idx_yandou_products_year",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "idx_yandou_products_year_pattern",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "inventory_account_subjects_pkey",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "inventory_details_pkey",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "inventory_records_pkey",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "ix_jst_purchase_inbound_date",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "ix_jst_purchase_inbound_source",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "ix_jst_purchase_inbound_style_color",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "ix_jst_purchase_inbound_style_color_normalized",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "ix_jst_purchase_inbound_womens_date",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "jst_aftersale_returns_2024_application_date_value_idx",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "jst_aftersale_returns_2024_coalesce_idx",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "jst_aftersale_returns_2024_coalesce_original_goods_code_idx",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "jst_aftersale_returns_2024_id_idx",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "jst_aftersale_returns_2024_order_date_value_idx",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "jst_aftersale_returns_2024_order_time_value_idx",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "jst_aftersale_returns_2024_original_goods_code_idx",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "jst_aftersale_returns_2025_application_date_value_idx",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "jst_aftersale_returns_2025_coalesce_idx",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "jst_aftersale_returns_2025_coalesce_original_goods_code_idx",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "jst_aftersale_returns_2025_id_idx",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "jst_aftersale_returns_2025_order_date_value_idx",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "jst_aftersale_returns_2025_order_time_value_idx",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "jst_aftersale_returns_2025_original_goods_code_idx",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "jst_aftersale_returns_2026_application_date_value_idx",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "jst_aftersale_returns_2026_coalesce_idx",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "jst_aftersale_returns_2026_coalesce_original_goods_code_idx",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "jst_aftersale_returns_2026_id_idx",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "jst_aftersale_returns_2026_order_date_value_idx",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "jst_aftersale_returns_2026_order_time_value_idx",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "jst_aftersale_returns_2026_original_goods_code_idx",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "jst_aftersale_returns_2027_application_date_value_idx",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "jst_aftersale_returns_2027_coalesce_idx",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "jst_aftersale_returns_2027_coalesce_original_goods_code_idx",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "jst_aftersale_returns_2027_id_idx",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "jst_aftersale_returns_2027_order_date_value_idx",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "jst_aftersale_returns_2027_order_time_value_idx",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "jst_aftersale_returns_2027_original_goods_code_idx",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "jst_aftersale_returns_default_application_date_value_idx",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "jst_aftersale_returns_default_coalesce_idx",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "jst_aftersale_returns_default_coalesce_original_goods_code_idx",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "jst_aftersale_returns_default_id_idx",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "jst_aftersale_returns_default_order_date_value_idx",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "jst_aftersale_returns_default_order_time_value_idx",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "jst_aftersale_returns_default_original_goods_code_idx",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "jst_daily_sales_2026_pkey",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "jst_daily_stock_pkey",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "jst_full_stock_pkey",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "jst_monthly_orders_2023_order_time_at_idx",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "jst_monthly_orders_2023_order_time_at_product_code_idx",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "jst_monthly_orders_2023_order_time_at_record_key_key",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "jst_monthly_orders_2023_product_code_idx",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "jst_monthly_orders_2023_ship_date_value_idx",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "jst_monthly_orders_2023_style_code_idx",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "jst_monthly_orders_2023_style_code_order_time_at_idx",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "jst_monthly_orders_2024_order_time_at_idx",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "jst_monthly_orders_2024_order_time_at_product_code_idx",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "jst_monthly_orders_2024_order_time_at_record_key_key",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "jst_monthly_orders_2024_product_code_idx",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "jst_monthly_orders_2024_ship_date_value_idx",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "jst_monthly_orders_2024_style_code_idx",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "jst_monthly_orders_2024_style_code_order_time_at_idx",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "jst_monthly_orders_2025_order_time_at_idx",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "jst_monthly_orders_2025_order_time_at_product_code_idx",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "jst_monthly_orders_2025_order_time_at_record_key_key",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "jst_monthly_orders_2025_product_code_idx",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "jst_monthly_orders_2025_ship_date_value_idx",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "jst_monthly_orders_2025_style_code_idx",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "jst_monthly_orders_2025_style_code_order_time_at_idx",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "jst_monthly_orders_2026_order_time_at_idx",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "jst_monthly_orders_2026_order_time_at_product_code_idx",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "jst_monthly_orders_2026_order_time_at_record_key_key",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "jst_monthly_orders_2026_product_code_idx",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "jst_monthly_orders_2026_ship_date_value_idx",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "jst_monthly_orders_2026_style_code_idx",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "jst_monthly_orders_2026_style_code_order_time_at_idx",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "jst_monthly_orders_2027_order_time_at_idx",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "jst_monthly_orders_2027_order_time_at_product_code_idx",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "jst_monthly_orders_2027_order_time_at_record_key_key",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "jst_monthly_orders_2027_product_code_idx",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "jst_monthly_orders_2027_ship_date_value_idx",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "jst_monthly_orders_2027_style_code_idx",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "jst_monthly_orders_2027_style_code_order_time_at_idx",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "jst_monthly_orders_default_order_time_at_idx",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "jst_monthly_orders_default_order_time_at_product_code_idx",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "jst_monthly_orders_default_order_time_at_record_key_key",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "jst_monthly_orders_default_product_code_idx",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "jst_monthly_orders_default_ship_date_value_idx",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "jst_monthly_orders_default_style_code_idx",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "jst_monthly_orders_default_style_code_order_time_at_idx",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "jst_product_price_pkey",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "jst_product_profiles_pkey",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "jst_purchase_defects_pkey",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "jst_purchase_inbound_daily_pkey",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "jst_purchase_inbound_items_pkey",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "jst_purchase_inbound_items_source_file_source_row_number_key",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "jst_size_stock_pkey",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "jst_size_stock_snapshots_pkey",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "jst_stock_summary_pkey",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "jst_stock_summary_snapshots_pkey",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "manual_product_archive_31_pkey",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "ni_products_pkey",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "operation_logs_pkey",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "product_archive_identities_pkey",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "product_auxiliary_attributes_pkey",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "product_copywriting_history_pkey",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "product_copywriting_pkey",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "product_goods_detail_snapshot_batches_pkey",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "product_goods_detail_snapshots_2024_pkey",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "product_goods_detail_snapshots_2025_pkey",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "product_goods_detail_snapshots_2026_pkey",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "product_goods_historical_orders_2022_pkey",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "product_goods_historical_orders_2023_pkey",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "product_goods_historical_orders_2024_pkey",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "product_goods_historical_orders_2025_pkey",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "product_goods_historical_orders_2026_pkey",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "product_goods_historical_sales_2024_pkey",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "product_goods_historical_sales_2025_pkey",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "product_goods_overrides_pkey",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "product_goods_sales_periods_pkey",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "product_goods_shop_channel_mappings_pkey",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "product_order_detail_statistics_pkey",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "product_size_group_mappings_pkey",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "product_style_entities_pkey",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "product_tag_assignments_pkey",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "product_tag_definitions_pkey",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "purchase_order_requirement_templates_pkey",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "purchase_print_templates_pkey",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "qbd_mens_products_pkey",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "qbd_womens_products_pkey",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "scheduled_task_runs_pkey",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "scheduled_task_statuses_pkey",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "size_group_items_pkey",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "size_groups_pkey",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "smiley_product_copy_base_pkey",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "smiley_product_copy_operation_log_pkey",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "smiley_products_pkey",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "supplier_brands_pkey",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "suppliers_pkey",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "sycm_item_rank_7d_pkey",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "uq_auth_departments_code",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "uq_auth_roles_code",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "uq_auth_sessions_token_hash",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "uq_auth_users_username",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "uq_cbanner_mens_products_sku",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "uq_cbanner_womens_products_sku",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "uq_color_barcodes_brand_code",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "uq_daily_report_goods_date",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "uq_daily_snapshot_date_goods",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "uq_data_quality_issues_record",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "uq_eblan_products_sku",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "uq_factory_channel_sales_daily_summary_key",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "uq_fine_table_filter_option_cache_brand_field",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "uq_fine_table_snapshot_batches_brand_date",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "uq_fine_table_snapshot_metrics_brand_hash",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "uq_fine_table_snapshot_payloads_brand_hash",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "uq_fine_table_snapshot_refs_2024_batch_row_index",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "uq_fine_table_snapshot_refs_2025_batch_row_index",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "uq_fine_table_snapshot_refs_2026_batch_row_index",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "uq_general_customer_brands_name",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "uq_general_customer_shops_customer_shop",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "uq_general_customer_sort_preferences_user_scope_parent_item",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "uq_general_customer_units_shop_unit",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "uq_gj_merged_product_info_date_code",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "uq_inventory_account_subjects_name",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "uq_inventory_records_active_document_number",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "uq_jst_daily_sales_2026_business_key",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "uq_jst_price_date_code_name",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "uq_jst_product_profiles_product_code",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "uq_jst_size_stock_snapshot",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "uq_jst_stock_date_code",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "uq_jst_stock_summary_date_code",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "uq_jst_stock_summary_snapshot",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "uq_manual_product_archive_31_sku",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "uq_ni_products_sku",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "uq_ops_goods",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "uq_ops_snapshot_date_goods",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "uq_product_archive_identity_source",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "uq_product_auxiliary_attributes_scope_type_name",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "uq_product_copywriting_history_snapshot",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "uq_product_copywriting_product",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "uq_product_goods_detail_snapshot_batch",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "uq_product_goods_detail_snapshots_2024_brand_date_goods",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "uq_product_goods_detail_snapshots_2025_brand_date_goods",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "uq_product_goods_detail_snapshots_2026_brand_date_goods",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "uq_product_goods_historical_orders_2022_source_row",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "uq_product_goods_historical_orders_2023_source_row",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "uq_product_goods_historical_orders_2024_source_row",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "uq_product_goods_historical_orders_2025_source_row",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "uq_product_goods_historical_orders_2026_source_row",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "uq_product_goods_historical_sales_2024_source_row",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "uq_product_goods_historical_sales_2025_source_row",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "uq_product_goods_overrides_brand_product",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "uq_product_goods_sales_period_source",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "uq_product_goods_shop_channel_brand_shop",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "uq_product_size_group_mappings_code",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "uq_product_style_entities_brand_key",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "uq_product_tag_assignment_product",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "uq_product_tag_assignment_style",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "uq_product_tag_assignment_target",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "uq_product_tag_definitions_code",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "uq_purchase_order_requirement_brand",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "uq_purchase_print_templates_shared_default",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "uq_purchase_print_templates_shared_key",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "uq_purchase_print_templates_user_default",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "uq_purchase_print_templates_user_key",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "uq_realtime_goods",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "uq_scheduled_task_statuses_task_date",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "uq_size_group_items_group_barcode",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "uq_size_group_items_group_size",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "uq_size_groups_name",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "uq_smiley_fine_table_date_sku",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "uq_smiley_product_copy_base_sku",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "uq_smiley_product_copy_log_source_log_id",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "uq_smiley_products_sku",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "uq_supplier_brand_name",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "uq_supplier_brands_code",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "uq_supplier_brands_name",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "uq_vip_daily_sales_2026_business_key",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "uq_vip_product_detail_daily_identity",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "uq_warehouse_brands_name",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "uq_warehouse_name",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "uq_yandou_products_sku",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "ux_jst_purchase_inbound_daily_scope_return",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "vip_daily_sales_2026_pkey",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "vip_product_daily_pkey",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "vip_product_daily_snapshots_pkey",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "vip_product_detail_daily_pkey",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "vip_product_ops_pkey",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "vip_product_ops_snapshots_pkey",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "vip_product_realtime_pkey",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "warehouse_brands_pkey",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "warehouses_pkey",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "xiaolian_fine_table_pkey",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "yandou_products_pkey",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "yiban_products_pkey",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "zhiyi_hot_item_range_item_id_idx",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "zhiyi_hot_item_range_period_idx",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "zhiyi_hot_item_range_period_item_key",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "zhiyi_hot_item_range_pkey",
+      "kind": "i"
+    },
+    {
+      "schema": "public",
+      "name": "dewu_orders",
+      "kind": "p"
+    },
+    {
+      "schema": "public",
+      "name": "jst_aftersale_returns",
+      "kind": "p"
+    },
+    {
+      "schema": "public",
+      "name": "jst_daily_sales",
+      "kind": "p"
+    },
+    {
+      "schema": "public",
+      "name": "jst_monthly_orders",
+      "kind": "p"
+    },
+    {
+      "schema": "public",
+      "name": "product_goods_detail_snapshots",
+      "kind": "p"
+    },
+    {
+      "schema": "public",
+      "name": "product_goods_historical_orders",
+      "kind": "p"
+    },
+    {
+      "schema": "public",
+      "name": "product_goods_historical_sales",
+      "kind": "p"
+    },
+    {
+      "schema": "public",
+      "name": "vip_daily_sales",
+      "kind": "p"
+    },
+    {
+      "schema": "public",
+      "name": "alembic_version",
+      "kind": "r"
+    },
+    {
+      "schema": "public",
+      "name": "alimama_creative_daily",
+      "kind": "r"
+    },
+    {
+      "schema": "public",
+      "name": "alimama_creative_daily_quarantine",
+      "kind": "r"
+    },
+    {
+      "schema": "public",
+      "name": "auth_departments",
+      "kind": "r"
+    },
+    {
+      "schema": "public",
+      "name": "auth_pinned_page_tabs",
+      "kind": "r"
+    },
+    {
+      "schema": "public",
+      "name": "auth_roles",
+      "kind": "r"
+    },
+    {
+      "schema": "public",
+      "name": "auth_sessions",
+      "kind": "r"
+    },
+    {
+      "schema": "public",
+      "name": "auth_users",
+      "kind": "r"
+    },
+    {
+      "schema": "public",
+      "name": "cbanner_mens_products",
+      "kind": "r"
+    },
+    {
+      "schema": "public",
+      "name": "cbanner_womens_products",
+      "kind": "r"
+    },
+    {
+      "schema": "public",
+      "name": "color_barcodes",
+      "kind": "r"
+    },
+    {
+      "schema": "public",
+      "name": "data_governance_runs",
+      "kind": "r"
+    },
+    {
+      "schema": "public",
+      "name": "data_quality_issues",
+      "kind": "r"
+    },
+    {
+      "schema": "public",
+      "name": "dewu_orders_2025",
+      "kind": "r"
+    },
+    {
+      "schema": "public",
+      "name": "dewu_orders_2026",
+      "kind": "r"
+    },
+    {
+      "schema": "public",
+      "name": "dewu_orders_2027",
+      "kind": "r"
+    },
+    {
+      "schema": "public",
+      "name": "dewu_orders_default",
+      "kind": "r"
+    },
+    {
+      "schema": "public",
+      "name": "eblan_products",
+      "kind": "r"
+    },
+    {
+      "schema": "public",
+      "name": "excluded_product_skus",
+      "kind": "r"
+    },
+    {
+      "schema": "public",
+      "name": "factory_channel_sales_daily_summaries",
+      "kind": "r"
+    },
+    {
+      "schema": "public",
+      "name": "fine_table_filter_option_cache",
+      "kind": "r"
+    },
+    {
+      "schema": "public",
+      "name": "fine_table_snapshot_batches",
+      "kind": "r"
+    },
+    {
+      "schema": "public",
+      "name": "fine_table_snapshot_metrics",
+      "kind": "r"
+    },
+    {
+      "schema": "public",
+      "name": "fine_table_snapshot_payloads",
+      "kind": "r"
+    },
+    {
+      "schema": "public",
+      "name": "fine_table_snapshot_refs_2024",
+      "kind": "r"
+    },
+    {
+      "schema": "public",
+      "name": "fine_table_snapshot_refs_2025",
+      "kind": "r"
+    },
+    {
+      "schema": "public",
+      "name": "fine_table_snapshot_refs_2026",
+      "kind": "r"
+    },
+    {
+      "schema": "public",
+      "name": "general_customer_brands",
+      "kind": "r"
+    },
+    {
+      "schema": "public",
+      "name": "general_customer_shops",
+      "kind": "r"
+    },
+    {
+      "schema": "public",
+      "name": "general_customer_sort_preferences",
+      "kind": "r"
+    },
+    {
+      "schema": "public",
+      "name": "general_customer_units",
+      "kind": "r"
+    },
+    {
+      "schema": "public",
+      "name": "gj_merged_product_info",
+      "kind": "r"
+    },
+    {
+      "schema": "public",
+      "name": "inventory_account_subjects",
+      "kind": "r"
+    },
+    {
+      "schema": "public",
+      "name": "inventory_details",
+      "kind": "r"
+    },
+    {
+      "schema": "public",
+      "name": "inventory_records",
+      "kind": "r"
+    },
+    {
+      "schema": "public",
+      "name": "jst_aftersale_returns_2024",
+      "kind": "r"
+    },
+    {
+      "schema": "public",
+      "name": "jst_aftersale_returns_2025",
+      "kind": "r"
+    },
+    {
+      "schema": "public",
+      "name": "jst_aftersale_returns_2026",
+      "kind": "r"
+    },
+    {
+      "schema": "public",
+      "name": "jst_aftersale_returns_2027",
+      "kind": "r"
+    },
+    {
+      "schema": "public",
+      "name": "jst_aftersale_returns_default",
+      "kind": "r"
+    },
+    {
+      "schema": "public",
+      "name": "jst_daily_sales_2026",
+      "kind": "r"
+    },
+    {
+      "schema": "public",
+      "name": "jst_daily_stock",
+      "kind": "r"
+    },
+    {
+      "schema": "public",
+      "name": "jst_full_stock",
+      "kind": "r"
+    },
+    {
+      "schema": "public",
+      "name": "jst_monthly_orders_2023",
+      "kind": "r"
+    },
+    {
+      "schema": "public",
+      "name": "jst_monthly_orders_2024",
+      "kind": "r"
+    },
+    {
+      "schema": "public",
+      "name": "jst_monthly_orders_2025",
+      "kind": "r"
+    },
+    {
+      "schema": "public",
+      "name": "jst_monthly_orders_2026",
+      "kind": "r"
+    },
+    {
+      "schema": "public",
+      "name": "jst_monthly_orders_2027",
+      "kind": "r"
+    },
+    {
+      "schema": "public",
+      "name": "jst_monthly_orders_default",
+      "kind": "r"
+    },
+    {
+      "schema": "public",
+      "name": "jst_product_price",
+      "kind": "r"
+    },
+    {
+      "schema": "public",
+      "name": "jst_product_profiles",
+      "kind": "r"
+    },
+    {
+      "schema": "public",
+      "name": "jst_purchase_backup_20260926_164350",
+      "kind": "r"
+    },
+    {
+      "schema": "public",
+      "name": "jst_purchase_defects",
+      "kind": "r"
+    },
+    {
+      "schema": "public",
+      "name": "jst_purchase_inbound_daily",
+      "kind": "r"
+    },
+    {
+      "schema": "public",
+      "name": "jst_purchase_inbound_items",
+      "kind": "r"
+    },
+    {
+      "schema": "public",
+      "name": "jst_purchase_restore_20260926_164350",
+      "kind": "r"
+    },
+    {
+      "schema": "public",
+      "name": "jst_size_stock",
+      "kind": "r"
+    },
+    {
+      "schema": "public",
+      "name": "jst_size_stock_snapshots",
+      "kind": "r"
+    },
+    {
+      "schema": "public",
+      "name": "jst_stock_summary",
+      "kind": "r"
+    },
+    {
+      "schema": "public",
+      "name": "jst_stock_summary_snapshots",
+      "kind": "r"
+    },
+    {
+      "schema": "public",
+      "name": "manual_product_archive_31",
+      "kind": "r"
+    },
+    {
+      "schema": "public",
+      "name": "ni_products",
+      "kind": "r"
+    },
+    {
+      "schema": "public",
+      "name": "operation_logs",
+      "kind": "r"
+    },
+    {
+      "schema": "public",
+      "name": "product_archive_identities",
+      "kind": "r"
+    },
+    {
+      "schema": "public",
+      "name": "product_auxiliary_attributes",
+      "kind": "r"
+    },
+    {
+      "schema": "public",
+      "name": "product_copywriting",
+      "kind": "r"
+    },
+    {
+      "schema": "public",
+      "name": "product_copywriting_history",
+      "kind": "r"
+    },
+    {
+      "schema": "public",
+      "name": "product_goods_detail_snapshot_batches",
+      "kind": "r"
+    },
+    {
+      "schema": "public",
+      "name": "product_goods_detail_snapshots_2024",
+      "kind": "r"
+    },
+    {
+      "schema": "public",
+      "name": "product_goods_detail_snapshots_2025",
+      "kind": "r"
+    },
+    {
+      "schema": "public",
+      "name": "product_goods_detail_snapshots_2026",
+      "kind": "r"
+    },
+    {
+      "schema": "public",
+      "name": "product_goods_historical_orders_2022",
+      "kind": "r"
+    },
+    {
+      "schema": "public",
+      "name": "product_goods_historical_orders_2023",
+      "kind": "r"
+    },
+    {
+      "schema": "public",
+      "name": "product_goods_historical_orders_2024",
+      "kind": "r"
+    },
+    {
+      "schema": "public",
+      "name": "product_goods_historical_orders_2025",
+      "kind": "r"
+    },
+    {
+      "schema": "public",
+      "name": "product_goods_historical_orders_2026",
+      "kind": "r"
+    },
+    {
+      "schema": "public",
+      "name": "product_goods_historical_sales_2024",
+      "kind": "r"
+    },
+    {
+      "schema": "public",
+      "name": "product_goods_historical_sales_2025",
+      "kind": "r"
+    },
+    {
+      "schema": "public",
+      "name": "product_goods_overrides",
+      "kind": "r"
+    },
+    {
+      "schema": "public",
+      "name": "product_goods_sales_periods",
+      "kind": "r"
+    },
+    {
+      "schema": "public",
+      "name": "product_goods_shop_channel_mappings",
+      "kind": "r"
+    },
+    {
+      "schema": "public",
+      "name": "product_order_detail_statistics",
+      "kind": "r"
+    },
+    {
+      "schema": "public",
+      "name": "product_size_group_mappings",
+      "kind": "r"
+    },
+    {
+      "schema": "public",
+      "name": "product_style_entities",
+      "kind": "r"
+    },
+    {
+      "schema": "public",
+      "name": "product_tag_assignments",
+      "kind": "r"
+    },
+    {
+      "schema": "public",
+      "name": "product_tag_definitions",
+      "kind": "r"
+    },
+    {
+      "schema": "public",
+      "name": "purchase_order_requirement_templates",
+      "kind": "r"
+    },
+    {
+      "schema": "public",
+      "name": "purchase_print_templates",
+      "kind": "r"
+    },
+    {
+      "schema": "public",
+      "name": "scheduled_task_runs",
+      "kind": "r"
+    },
+    {
+      "schema": "public",
+      "name": "scheduled_task_statuses",
+      "kind": "r"
+    },
+    {
+      "schema": "public",
+      "name": "size_group_items",
+      "kind": "r"
+    },
+    {
+      "schema": "public",
+      "name": "size_groups",
+      "kind": "r"
+    },
+    {
+      "schema": "public",
+      "name": "smiley_fine_table",
+      "kind": "r"
+    },
+    {
+      "schema": "public",
+      "name": "smiley_product_copy_base",
+      "kind": "r"
+    },
+    {
+      "schema": "public",
+      "name": "smiley_product_copy_operation_log",
+      "kind": "r"
+    },
+    {
+      "schema": "public",
+      "name": "smiley_products",
+      "kind": "r"
+    },
+    {
+      "schema": "public",
+      "name": "supplier_brands",
+      "kind": "r"
+    },
+    {
+      "schema": "public",
+      "name": "suppliers",
+      "kind": "r"
+    },
+    {
+      "schema": "public",
+      "name": "sycm_item_rank_7d",
+      "kind": "r"
+    },
+    {
+      "schema": "public",
+      "name": "vip_daily_sales_2026",
+      "kind": "r"
+    },
+    {
+      "schema": "public",
+      "name": "vip_product_daily",
+      "kind": "r"
+    },
+    {
+      "schema": "public",
+      "name": "vip_product_daily_snapshots",
+      "kind": "r"
+    },
+    {
+      "schema": "public",
+      "name": "vip_product_detail_daily",
+      "kind": "r"
+    },
+    {
+      "schema": "public",
+      "name": "vip_product_ops",
+      "kind": "r"
+    },
+    {
+      "schema": "public",
+      "name": "vip_product_ops_snapshots",
+      "kind": "r"
+    },
+    {
+      "schema": "public",
+      "name": "vip_product_realtime",
+      "kind": "r"
+    },
+    {
+      "schema": "public",
+      "name": "warehouse_brands",
+      "kind": "r"
+    },
+    {
+      "schema": "public",
+      "name": "warehouses",
+      "kind": "r"
+    },
+    {
+      "schema": "public",
+      "name": "yandou_products",
+      "kind": "r"
+    },
+    {
+      "schema": "public",
+      "name": "zhiyi_hot_item_range",
+      "kind": "r"
+    },
+    {
+      "schema": "public",
+      "name": "v_fine_table_snapshot_rows",
+      "kind": "v"
+    },
+    {
+      "schema": "public",
+      "name": "v_inventory_records_normalized",
+      "kind": "v"
+    },
+    {
+      "schema": "public",
+      "name": "v_jst_aftersale_returns_normalized",
+      "kind": "v"
+    },
+    {
+      "schema": "public",
+      "name": "v_jst_daily_sales",
+      "kind": "v"
+    },
+    {
+      "schema": "public",
+      "name": "v_jst_daily_stock_normalized",
+      "kind": "v"
+    },
+    {
+      "schema": "public",
+      "name": "v_jst_monthly_orders_normalized",
+      "kind": "v"
+    },
+    {
+      "schema": "public",
+      "name": "v_jst_product_price_normalized",
+      "kind": "v"
+    },
+    {
+      "schema": "public",
+      "name": "v_jst_purchase_inbound_quantity_by_goods",
+      "kind": "v"
+    },
+    {
+      "schema": "public",
+      "name": "v_jst_purchase_inbound_quantity_daily",
+      "kind": "v"
+    },
+    {
+      "schema": "public",
+      "name": "v_product_goods_detail_snapshots",
+      "kind": "v"
+    },
+    {
+      "schema": "public",
+      "name": "v_product_goods_historical_orders",
+      "kind": "v"
+    },
+    {
+      "schema": "public",
+      "name": "v_product_goods_historical_sales",
+      "kind": "v"
+    },
+    {
+      "schema": "public",
+      "name": "v_vip_daily_sales",
+      "kind": "v"
+    },
+    {
+      "schema": "public",
+      "name": "v_vip_product_daily_normalized",
+      "kind": "v"
+    }
+  ],
+  "validation": {
+    "restore_test": "passed",
+    "postgresql_version": "18.3",
+    "isolated_cluster": true,
+    "relation_names_match": true,
+    "restored_relations": 806,
+    "verified_empty_tables": 120,
+    "user_functions": 6,
+    "temporary_server_stopped": true
+  }
+}

@@ -1,0 +1,24 @@
+{
+  "status": "passed",
+  "postgresql_version": "18.3",
+  "isolated_cluster": true,
+  "validation_port": 55467,
+  "relation_names_match": true,
+  "source_relations": 806,
+  "restored_relations": 806,
+  "missing_objects": [],
+  "unexpected_objects": [],
+  "verified_empty_tables": 120,
+  "total_business_rows": 0,
+  "user_functions": 6,
+  "temporary_server_stopped": true,
+  "sha256": "7012a2140d8a9631506ea1a1eafe05bed94f75bb2e3eb2be8878b2b8edcd5f4f",
+  "sql_statement_counts": {
+    "tables": 120,
+    "views": 67,
+    "functions": 6,
+    "insertStatements": 0,
+    "copyStatements": 0,
+    "dropStatements": 0
+  }
+}
