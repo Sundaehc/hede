@@ -222,9 +222,9 @@ def build_vip_ops_snapshot_table() -> Table:
 VIP_OPS_SNAPSHOT_TABLE = build_vip_ops_snapshot_table()
 JST_PRICE_TABLE = build_vip_price_table()
 Index(
-    "idx_jst_price_code_date_updated",
+    "idx_jst_price_code_date_nulls_last_updated",
     JST_PRICE_TABLE.c.goods_code,
-    JST_PRICE_TABLE.c.source_date_value.desc(),
+    JST_PRICE_TABLE.c.source_date_value.desc().nulls_last(),
     JST_PRICE_TABLE.c.updated_at.desc(),
     JST_PRICE_TABLE.c.id.desc(),
 )

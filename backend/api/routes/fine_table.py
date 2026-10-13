@@ -48,6 +48,7 @@ from domain.vip_schema import (
     JST_MONTHLY_ORDERS_TABLE,
 )
 from storage.fine_table_snapshot_dedup import (
+    DYNAMIC_KEYS,
     load_optimized_snapshot_rows,
     optimized_snapshot_available,
     write_optimized_snapshot_rows,
@@ -221,6 +222,13 @@ FINE_TABLE_VIP_OPS_FILTER_COLUMNS = {
     "goods_tag": VIP_OPS_TABLE.c.goods_tag,
 }
 FINE_TABLE_DYNAMIC_FILTER_PATTERN = re.compile(r"^(?:daily_sales_(\d+)_(?:quantity|uv)|size_.+)$")
+FINE_TABLE_SNAPSHOT_TEXT_FILTER_FIELDS = {
+    "sku", "original_sku", "group_name", "product_level", "year", "season_category",
+    "factory_code", "factory_name", "product_name", "main_style", "style_code",
+    "goods_id", "p_spu", "factory_sku", "execution_standard", "upper_material",
+    "lining_material", "outsole_material", "insole_material", "first_order_time",
+    "sales_tag", "goods_tag",
+}
 # These are the fields whose option lists otherwise require the full live
 # sales/inventory assembly. They are refreshed with the latest daily snapshot.
 FINE_TABLE_SNAPSHOT_FILTER_CACHE_FIELDS = tuple(sorted(
@@ -421,6 +429,19 @@ def _fine_table_row_matches_filter(row: dict[str, Any], condition: FineTableFilt
     value = _fine_table_filter_value(row, condition.field)
     matched = any(_fine_table_scalar_equal(value, candidate) for candidate in condition.values)
     return matched if condition.operator == "in" else not matched
+
+
+def _snapshot_payload_filter_conditions(filters: tuple[FineTableFilter, ...]) -> list | None:
+    conditions = []
+    for condition in filters:
+        if condition.field not in FINE_TABLE_SNAPSHOT_TEXT_FILTER_FIELDS:
+            return None
+        if any(_fine_table_metric_number(value) is not None for value in condition.values):
+            return None
+        table = FINE_TABLE_SNAPSHOT_METRICS_TABLE if condition.field in DYNAMIC_KEYS else FINE_TABLE_SNAPSHOT_PAYLOADS_TABLE
+        column = table.c.payload[condition.field].astext
+        conditions.append(_fine_table_filter_condition(column, condition.operator, condition.values))
+    return conditions
 
 
 def _fine_table_rows_match_filters(rows: list[dict[str, Any]], filters: tuple[FineTableFilter, ...]) -> list[dict[str, Any]]:
@@ -1132,19 +1153,33 @@ def get_fine_table_snapshot(
         if not fine_table_snapshot_year_table_exists(repository.engine, snapshot_date) and not fine_table_snapshot_ref_table_exists(repository.engine, snapshot_date):
             raise HTTPException(status_code=500, detail="Snapshot row table not found")
         if optimized_snapshot_available(repository.engine, snapshot_date, int(batch["id"])):
-            if not parsed_filters:
-                ref_table = fine_table_snapshot_ref_table_for_date(snapshot_date)
-                conditions = [not_excluded_sku_condition(ref_table.c.sku, ref_table.c.original_sku)]
-                query_terms = _normalized_terms(query)
-                prefix_terms = _normalized_terms(sku_prefix)
-                if query_terms:
-                    search_conditions = []
-                    for term in query_terms:
-                        like = f"%{term}%"
-                        search_conditions.extend([ref_table.c.sku.ilike(like), ref_table.c.original_sku.ilike(like)])
-                    conditions.append(or_(*search_conditions))
-                if prefix_terms:
-                    conditions.append(_prefix_search_condition(ref_table, prefix_terms))
+            ref_table = fine_table_snapshot_ref_table_for_date(snapshot_date)
+            conditions = [not_excluded_sku_condition(ref_table.c.sku, ref_table.c.original_sku)]
+            query_terms = _normalized_terms(query)
+            prefix_terms = _normalized_terms(sku_prefix)
+            if query_terms:
+                search_conditions = []
+                for term in query_terms:
+                    escaped = term.replace("!", "!!").replace("%", "!%").replace("_", "!_")
+                    like = f"%{escaped}%"
+                    search_conditions.extend([ref_table.c.sku.ilike(like, escape="!"), ref_table.c.original_sku.ilike(like, escape="!")])
+                conditions.append(or_(*search_conditions))
+            if prefix_terms:
+                prefix_conditions = []
+                for term in prefix_terms:
+                    escaped = term.replace("!", "!!").replace("%", "!%").replace("_", "!_")
+                    prefix_conditions.extend([
+                        ref_table.c.sku.ilike(f"{escaped}%", escape="!"),
+                        ref_table.c.original_sku.ilike(f"{escaped}%", escape="!"),
+                    ])
+                conditions.append(or_(*prefix_conditions))
+            payload_conditions = (
+                _snapshot_payload_filter_conditions(parsed_filters)
+                if parsed_filters and repository.engine.dialect.name == "postgresql"
+                else None
+            )
+            if not parsed_filters or payload_conditions is not None:
+                filter_arguments = {"payload_conditions": payload_conditions} if payload_conditions is not None else {}
                 items, total = load_optimized_snapshot_rows(
                     repository.engine,
                     snapshot_date,
@@ -1152,6 +1187,7 @@ def get_fine_table_snapshot(
                     conditions=conditions,
                     page=page,
                     page_size=page_size,
+                    **filter_arguments,
                 )
                 with repository.engine.connect() as connection:
                     _hydrate_snapshot_archive_costs(
@@ -1181,7 +1217,7 @@ def get_fine_table_snapshot(
                 repository.engine,
                 snapshot_date,
                 int(batch_id),
-                conditions=[],
+                conditions=[not_excluded_sku_condition(ref_table.c.sku, ref_table.c.original_sku)],
                 page=1,
                 page_size=1_000_000,
             )

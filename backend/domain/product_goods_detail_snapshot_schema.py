@@ -21,11 +21,6 @@ PRODUCT_GOODS_DETAIL_SNAPSHOT_BATCHES_TABLE = Table(
     Column("updated_at", DateTime(timezone=True), server_default=func.date_trunc("minute", func.now()), onupdate=func.date_trunc("minute", func.now())),
     UniqueConstraint("brand", "snapshot_date", name="uq_product_goods_detail_snapshot_batch"),
 )
-Index(
-    "idx_product_goods_detail_snapshot_batches_brand_date",
-    PRODUCT_GOODS_DETAIL_SNAPSHOT_BATCHES_TABLE.c.brand,
-    PRODUCT_GOODS_DETAIL_SNAPSHOT_BATCHES_TABLE.c.snapshot_date,
-)
 
 
 def product_goods_detail_snapshots_table_for_year(year: int) -> Table:

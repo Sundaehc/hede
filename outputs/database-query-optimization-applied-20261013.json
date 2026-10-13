@@ -1,0 +1,246 @@
+{
+  "generated_at": "2026-10-13T09:39:57.651325+08:00",
+  "execute": true,
+  "completed": [
+    {
+      "kind": "create_index",
+      "table_name": "jst_product_price",
+      "statement": "CREATE INDEX CONCURRENTLY \"idx_jst_price_code_date_nulls_last_updated\" ON \"public\".\"jst_product_price\" (goods_code, source_date_value DESC NULLS LAST, updated_at DESC, id DESC)",
+      "rollback": "DROP INDEX CONCURRENTLY IF EXISTS \"public\".\"idx_jst_price_code_date_nulls_last_updated\"",
+      "reclaimed_bytes": 0
+    },
+    {
+      "kind": "create_index",
+      "table_name": "jst_daily_sales_2026",
+      "statement": "CREATE INDEX CONCURRENTLY \"idx_jst_daily_sales_2026_style_date\" ON \"public\".\"jst_daily_sales_2026\" (style_code, sales_date)",
+      "rollback": "DROP INDEX CONCURRENTLY IF EXISTS \"public\".\"idx_jst_daily_sales_2026_style_date\"",
+      "reclaimed_bytes": 0
+    },
+    {
+      "kind": "create_index",
+      "table_name": "vip_daily_sales_2026",
+      "statement": "CREATE INDEX CONCURRENTLY \"idx_vip_daily_sales_2026_style_date\" ON \"public\".\"vip_daily_sales_2026\" (style_code, sales_date)",
+      "rollback": "DROP INDEX CONCURRENTLY IF EXISTS \"public\".\"idx_vip_daily_sales_2026_style_date\"",
+      "reclaimed_bytes": 0
+    },
+    {
+      "kind": "maintenance_options",
+      "table_name": "fine_table_snapshot_metrics",
+      "statement": "ALTER TABLE \"public\".\"fine_table_snapshot_metrics\" SET (autovacuum_vacuum_scale_factor=0.02, autovacuum_vacuum_threshold=1000, autovacuum_analyze_scale_factor=0.01, autovacuum_analyze_threshold=1000)",
+      "rollback": "ALTER TABLE \"public\".\"fine_table_snapshot_metrics\" RESET (autovacuum_vacuum_scale_factor, autovacuum_vacuum_threshold, autovacuum_analyze_scale_factor, autovacuum_analyze_threshold);",
+      "reclaimed_bytes": 0
+    },
+    {
+      "kind": "maintenance_options",
+      "table_name": "fine_table_snapshot_payloads",
+      "statement": "ALTER TABLE \"public\".\"fine_table_snapshot_payloads\" SET (autovacuum_vacuum_scale_factor=0.02, autovacuum_vacuum_threshold=1000, autovacuum_analyze_scale_factor=0.01, autovacuum_analyze_threshold=1000)",
+      "rollback": "ALTER TABLE \"public\".\"fine_table_snapshot_payloads\" RESET (autovacuum_vacuum_scale_factor, autovacuum_vacuum_threshold, autovacuum_analyze_scale_factor, autovacuum_analyze_threshold);",
+      "reclaimed_bytes": 0
+    },
+    {
+      "kind": "maintenance_options",
+      "table_name": "fine_table_snapshot_refs_2026",
+      "statement": "ALTER TABLE \"public\".\"fine_table_snapshot_refs_2026\" SET (autovacuum_vacuum_scale_factor=0.02, autovacuum_vacuum_threshold=1000, autovacuum_analyze_scale_factor=0.01, autovacuum_analyze_threshold=1000)",
+      "rollback": "ALTER TABLE \"public\".\"fine_table_snapshot_refs_2026\" RESET (autovacuum_vacuum_scale_factor, autovacuum_vacuum_threshold, autovacuum_analyze_scale_factor, autovacuum_analyze_threshold);",
+      "reclaimed_bytes": 0
+    },
+    {
+      "kind": "maintenance_options",
+      "table_name": "jst_daily_sales_2026",
+      "statement": "ALTER TABLE \"public\".\"jst_daily_sales_2026\" SET (autovacuum_vacuum_scale_factor=0.02, autovacuum_vacuum_threshold=1000, autovacuum_analyze_scale_factor=0.01, autovacuum_analyze_threshold=1000)",
+      "rollback": "ALTER TABLE \"public\".\"jst_daily_sales_2026\" RESET (autovacuum_vacuum_scale_factor, autovacuum_vacuum_threshold, autovacuum_analyze_scale_factor, autovacuum_analyze_threshold);",
+      "reclaimed_bytes": 0
+    },
+    {
+      "kind": "maintenance_options",
+      "table_name": "jst_product_price",
+      "statement": "ALTER TABLE \"public\".\"jst_product_price\" SET (autovacuum_vacuum_scale_factor=0.02, autovacuum_vacuum_threshold=1000, autovacuum_analyze_scale_factor=0.01, autovacuum_analyze_threshold=1000)",
+      "rollback": "ALTER TABLE \"public\".\"jst_product_price\" RESET (autovacuum_vacuum_scale_factor, autovacuum_vacuum_threshold, autovacuum_analyze_scale_factor, autovacuum_analyze_threshold);",
+      "reclaimed_bytes": 0
+    },
+    {
+      "kind": "drop_duplicate_index",
+      "table_name": "fine_table_snapshot_refs_2026",
+      "statement": "DROP INDEX CONCURRENTLY IF EXISTS \"public\".\"idx_fine_table_snapshot_refs_2026_batch_row_index\"",
+      "rollback": "CREATE INDEX CONCURRENTLY idx_fine_table_snapshot_refs_2026_batch_row_index ON public.fine_table_snapshot_refs_2026 USING btree (batch_id, row_index)",
+      "reclaimed_bytes": 552222720
+    },
+    {
+      "kind": "drop_duplicate_index",
+      "table_name": "fine_table_snapshot_refs_2025",
+      "statement": "DROP INDEX CONCURRENTLY IF EXISTS \"public\".\"idx_fine_table_snapshot_refs_2025_batch_row_index\"",
+      "rollback": "CREATE INDEX CONCURRENTLY idx_fine_table_snapshot_refs_2025_batch_row_index ON public.fine_table_snapshot_refs_2025 USING btree (batch_id, row_index)",
+      "reclaimed_bytes": 348520448
+    },
+    {
+      "kind": "drop_duplicate_index",
+      "table_name": "fine_table_snapshot_refs_2024",
+      "statement": "DROP INDEX CONCURRENTLY IF EXISTS \"public\".\"idx_fine_table_snapshot_refs_2024_batch_row_index\"",
+      "rollback": "CREATE INDEX CONCURRENTLY idx_fine_table_snapshot_refs_2024_batch_row_index ON public.fine_table_snapshot_refs_2024 USING btree (batch_id, row_index)",
+      "reclaimed_bytes": 187777024
+    },
+    {
+      "kind": "drop_duplicate_index",
+      "table_name": "jst_stock_summary_snapshots",
+      "statement": "DROP INDEX CONCURRENTLY IF EXISTS \"public\".\"idx_jst_stock_summary_snapshots_date_code\"",
+      "rollback": "CREATE INDEX CONCURRENTLY idx_jst_stock_summary_snapshots_date_code ON public.jst_stock_summary_snapshots USING btree (snapshot_date, product_code)",
+      "reclaimed_bytes": 87777280
+    },
+    {
+      "kind": "drop_duplicate_index",
+      "table_name": "product_goods_detail_snapshot_batches",
+      "statement": "DROP INDEX CONCURRENTLY IF EXISTS \"public\".\"idx_product_goods_detail_snapshot_batches_brand_date\"",
+      "rollback": "CREATE INDEX CONCURRENTLY idx_product_goods_detail_snapshot_batches_brand_date ON public.product_goods_detail_snapshot_batches USING btree (brand, snapshot_date)",
+      "reclaimed_bytes": 139264
+    },
+    {
+      "kind": "drop_duplicate_index",
+      "table_name": "inventory_account_subjects",
+      "statement": "DROP INDEX CONCURRENTLY IF EXISTS \"public\".\"idx_inventory_account_subjects_name\"",
+      "rollback": "CREATE INDEX CONCURRENTLY idx_inventory_account_subjects_name ON public.inventory_account_subjects USING btree (name)",
+      "reclaimed_bytes": 16384
+    },
+    {
+      "kind": "drop_duplicate_index",
+      "table_name": "purchase_order_requirement_templates",
+      "statement": "DROP INDEX CONCURRENTLY IF EXISTS \"public\".\"idx_purchase_order_requirement_brand\"",
+      "rollback": "CREATE INDEX CONCURRENTLY idx_purchase_order_requirement_brand ON public.purchase_order_requirement_templates USING btree (brand)",
+      "reclaimed_bytes": 16384
+    },
+    {
+      "kind": "drop_replaced_index",
+      "table_name": "jst_product_price",
+      "statement": "DROP INDEX CONCURRENTLY IF EXISTS \"public\".\"idx_jst_price_code_date_updated\"",
+      "rollback": "CREATE INDEX CONCURRENTLY idx_jst_price_code_date_updated ON public.jst_product_price USING btree (goods_code, source_date_value DESC, updated_at DESC, id DESC)",
+      "reclaimed_bytes": 0
+    },
+    {
+      "kind": "vacuum",
+      "table_name": "jst_daily_sales_2026",
+      "statement": "VACUUM (ANALYZE) \"public\".\"jst_daily_sales_2026\"",
+      "rollback": null,
+      "reclaimed_bytes": 0
+    }
+  ],
+  "actions": [
+    {
+      "kind": "create_index",
+      "table_name": "jst_product_price",
+      "statement": "CREATE INDEX CONCURRENTLY \"idx_jst_price_code_date_nulls_last_updated\" ON \"public\".\"jst_product_price\" (goods_code, source_date_value DESC NULLS LAST, updated_at DESC, id DESC)",
+      "rollback": "DROP INDEX CONCURRENTLY IF EXISTS \"public\".\"idx_jst_price_code_date_nulls_last_updated\"",
+      "reclaimed_bytes": 0
+    },
+    {
+      "kind": "create_index",
+      "table_name": "jst_daily_sales_2026",
+      "statement": "CREATE INDEX CONCURRENTLY \"idx_jst_daily_sales_2026_style_date\" ON \"public\".\"jst_daily_sales_2026\" (style_code, sales_date)",
+      "rollback": "DROP INDEX CONCURRENTLY IF EXISTS \"public\".\"idx_jst_daily_sales_2026_style_date\"",
+      "reclaimed_bytes": 0
+    },
+    {
+      "kind": "create_index",
+      "table_name": "vip_daily_sales_2026",
+      "statement": "CREATE INDEX CONCURRENTLY \"idx_vip_daily_sales_2026_style_date\" ON \"public\".\"vip_daily_sales_2026\" (style_code, sales_date)",
+      "rollback": "DROP INDEX CONCURRENTLY IF EXISTS \"public\".\"idx_vip_daily_sales_2026_style_date\"",
+      "reclaimed_bytes": 0
+    },
+    {
+      "kind": "maintenance_options",
+      "table_name": "fine_table_snapshot_metrics",
+      "statement": "ALTER TABLE \"public\".\"fine_table_snapshot_metrics\" SET (autovacuum_vacuum_scale_factor=0.02, autovacuum_vacuum_threshold=1000, autovacuum_analyze_scale_factor=0.01, autovacuum_analyze_threshold=1000)",
+      "rollback": "ALTER TABLE \"public\".\"fine_table_snapshot_metrics\" RESET (autovacuum_vacuum_scale_factor, autovacuum_vacuum_threshold, autovacuum_analyze_scale_factor, autovacuum_analyze_threshold);",
+      "reclaimed_bytes": 0
+    },
+    {
+      "kind": "maintenance_options",
+      "table_name": "fine_table_snapshot_payloads",
+      "statement": "ALTER TABLE \"public\".\"fine_table_snapshot_payloads\" SET (autovacuum_vacuum_scale_factor=0.02, autovacuum_vacuum_threshold=1000, autovacuum_analyze_scale_factor=0.01, autovacuum_analyze_threshold=1000)",
+      "rollback": "ALTER TABLE \"public\".\"fine_table_snapshot_payloads\" RESET (autovacuum_vacuum_scale_factor, autovacuum_vacuum_threshold, autovacuum_analyze_scale_factor, autovacuum_analyze_threshold);",
+      "reclaimed_bytes": 0
+    },
+    {
+      "kind": "maintenance_options",
+      "table_name": "fine_table_snapshot_refs_2026",
+      "statement": "ALTER TABLE \"public\".\"fine_table_snapshot_refs_2026\" SET (autovacuum_vacuum_scale_factor=0.02, autovacuum_vacuum_threshold=1000, autovacuum_analyze_scale_factor=0.01, autovacuum_analyze_threshold=1000)",
+      "rollback": "ALTER TABLE \"public\".\"fine_table_snapshot_refs_2026\" RESET (autovacuum_vacuum_scale_factor, autovacuum_vacuum_threshold, autovacuum_analyze_scale_factor, autovacuum_analyze_threshold);",
+      "reclaimed_bytes": 0
+    },
+    {
+      "kind": "maintenance_options",
+      "table_name": "jst_daily_sales_2026",
+      "statement": "ALTER TABLE \"public\".\"jst_daily_sales_2026\" SET (autovacuum_vacuum_scale_factor=0.02, autovacuum_vacuum_threshold=1000, autovacuum_analyze_scale_factor=0.01, autovacuum_analyze_threshold=1000)",
+      "rollback": "ALTER TABLE \"public\".\"jst_daily_sales_2026\" RESET (autovacuum_vacuum_scale_factor, autovacuum_vacuum_threshold, autovacuum_analyze_scale_factor, autovacuum_analyze_threshold);",
+      "reclaimed_bytes": 0
+    },
+    {
+      "kind": "maintenance_options",
+      "table_name": "jst_product_price",
+      "statement": "ALTER TABLE \"public\".\"jst_product_price\" SET (autovacuum_vacuum_scale_factor=0.02, autovacuum_vacuum_threshold=1000, autovacuum_analyze_scale_factor=0.01, autovacuum_analyze_threshold=1000)",
+      "rollback": "ALTER TABLE \"public\".\"jst_product_price\" RESET (autovacuum_vacuum_scale_factor, autovacuum_vacuum_threshold, autovacuum_analyze_scale_factor, autovacuum_analyze_threshold);",
+      "reclaimed_bytes": 0
+    },
+    {
+      "kind": "drop_duplicate_index",
+      "table_name": "fine_table_snapshot_refs_2026",
+      "statement": "DROP INDEX CONCURRENTLY IF EXISTS \"public\".\"idx_fine_table_snapshot_refs_2026_batch_row_index\"",
+      "rollback": "CREATE INDEX CONCURRENTLY idx_fine_table_snapshot_refs_2026_batch_row_index ON public.fine_table_snapshot_refs_2026 USING btree (batch_id, row_index)",
+      "reclaimed_bytes": 552222720
+    },
+    {
+      "kind": "drop_duplicate_index",
+      "table_name": "fine_table_snapshot_refs_2025",
+      "statement": "DROP INDEX CONCURRENTLY IF EXISTS \"public\".\"idx_fine_table_snapshot_refs_2025_batch_row_index\"",
+      "rollback": "CREATE INDEX CONCURRENTLY idx_fine_table_snapshot_refs_2025_batch_row_index ON public.fine_table_snapshot_refs_2025 USING btree (batch_id, row_index)",
+      "reclaimed_bytes": 348520448
+    },
+    {
+      "kind": "drop_duplicate_index",
+      "table_name": "fine_table_snapshot_refs_2024",
+      "statement": "DROP INDEX CONCURRENTLY IF EXISTS \"public\".\"idx_fine_table_snapshot_refs_2024_batch_row_index\"",
+      "rollback": "CREATE INDEX CONCURRENTLY idx_fine_table_snapshot_refs_2024_batch_row_index ON public.fine_table_snapshot_refs_2024 USING btree (batch_id, row_index)",
+      "reclaimed_bytes": 187777024
+    },
+    {
+      "kind": "drop_duplicate_index",
+      "table_name": "jst_stock_summary_snapshots",
+      "statement": "DROP INDEX CONCURRENTLY IF EXISTS \"public\".\"idx_jst_stock_summary_snapshots_date_code\"",
+      "rollback": "CREATE INDEX CONCURRENTLY idx_jst_stock_summary_snapshots_date_code ON public.jst_stock_summary_snapshots USING btree (snapshot_date, product_code)",
+      "reclaimed_bytes": 87777280
+    },
+    {
+      "kind": "drop_duplicate_index",
+      "table_name": "product_goods_detail_snapshot_batches",
+      "statement": "DROP INDEX CONCURRENTLY IF EXISTS \"public\".\"idx_product_goods_detail_snapshot_batches_brand_date\"",
+      "rollback": "CREATE INDEX CONCURRENTLY idx_product_goods_detail_snapshot_batches_brand_date ON public.product_goods_detail_snapshot_batches USING btree (brand, snapshot_date)",
+      "reclaimed_bytes": 139264
+    },
+    {
+      "kind": "drop_duplicate_index",
+      "table_name": "inventory_account_subjects",
+      "statement": "DROP INDEX CONCURRENTLY IF EXISTS \"public\".\"idx_inventory_account_subjects_name\"",
+      "rollback": "CREATE INDEX CONCURRENTLY idx_inventory_account_subjects_name ON public.inventory_account_subjects USING btree (name)",
+      "reclaimed_bytes": 16384
+    },
+    {
+      "kind": "drop_duplicate_index",
+      "table_name": "purchase_order_requirement_templates",
+      "statement": "DROP INDEX CONCURRENTLY IF EXISTS \"public\".\"idx_purchase_order_requirement_brand\"",
+      "rollback": "CREATE INDEX CONCURRENTLY idx_purchase_order_requirement_brand ON public.purchase_order_requirement_templates USING btree (brand)",
+      "reclaimed_bytes": 16384
+    },
+    {
+      "kind": "drop_replaced_index",
+      "table_name": "jst_product_price",
+      "statement": "DROP INDEX CONCURRENTLY IF EXISTS \"public\".\"idx_jst_price_code_date_updated\"",
+      "rollback": "CREATE INDEX CONCURRENTLY idx_jst_price_code_date_updated ON public.jst_product_price USING btree (goods_code, source_date_value DESC, updated_at DESC, id DESC)",
+      "reclaimed_bytes": 0
+    },
+    {
+      "kind": "vacuum",
+      "table_name": "jst_daily_sales_2026",
+      "statement": "VACUUM (ANALYZE) \"public\".\"jst_daily_sales_2026\"",
+      "rollback": null,
+      "reclaimed_bytes": 0
+    }
+  ]
+}

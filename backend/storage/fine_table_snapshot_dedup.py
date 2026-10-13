@@ -210,8 +210,17 @@ def _write_optimized_snapshot_rows(
     return len(refs)
 
 
-def load_optimized_snapshot_rows(engine, snapshot_date, batch_id: int, *, conditions: list[Any], page: int, page_size: int):
+def load_optimized_snapshot_rows(
+    engine, snapshot_date, batch_id: int, *, conditions: list[Any], page: int, page_size: int,
+    payload_conditions: list[Any] | None = None,
+):
     ref_table = fine_table_snapshot_ref_table_for_date(snapshot_date)
+    joined_tables = (
+        ref_table
+        .join(FINE_TABLE_SNAPSHOT_PAYLOADS_TABLE, FINE_TABLE_SNAPSHOT_PAYLOADS_TABLE.c.id == ref_table.c.payload_id)
+        .join(FINE_TABLE_SNAPSHOT_METRICS_TABLE, FINE_TABLE_SNAPSHOT_METRICS_TABLE.c.id == ref_table.c.metrics_id)
+    )
+    payload_conditions = payload_conditions or []
     statement = (
         select(
             ref_table.c.payload_id,
@@ -219,24 +228,27 @@ def load_optimized_snapshot_rows(engine, snapshot_date, batch_id: int, *, condit
             FINE_TABLE_SNAPSHOT_PAYLOADS_TABLE.c.payload.label("stable_payload"),
             FINE_TABLE_SNAPSHOT_METRICS_TABLE.c.payload.label("metrics_payload"),
         )
-        .select_from(
-            ref_table
-            .join(FINE_TABLE_SNAPSHOT_PAYLOADS_TABLE, FINE_TABLE_SNAPSHOT_PAYLOADS_TABLE.c.id == ref_table.c.payload_id)
-            .join(FINE_TABLE_SNAPSHOT_METRICS_TABLE, FINE_TABLE_SNAPSHOT_METRICS_TABLE.c.id == ref_table.c.metrics_id)
-        )
+        .select_from(joined_tables)
         .where(ref_table.c.batch_id == batch_id)
         .where(*conditions)
+        .where(*payload_conditions)
         .order_by(ref_table.c.row_index)
         .offset((page - 1) * page_size)
         .limit(page_size)
     )
-    count_statement = select(ref_table.c.id).select_from(ref_table).where(ref_table.c.batch_id == batch_id).where(*conditions)
+    count_statement = (
+        select(func.count())
+        .select_from(joined_tables if payload_conditions else ref_table)
+        .where(ref_table.c.batch_id == batch_id)
+        .where(*conditions)
+        .where(*payload_conditions)
+    )
     with engine.connect() as connection:
         rows = [
             {**(row["stable_payload"] or {}), **(row["metrics_payload"] or {})}
             for row in connection.execute(statement).mappings()
         ]
-        total = connection.execute(select(func.count()).select_from(count_statement.subquery())).scalar_one()
+        total = connection.execute(count_statement).scalar_one()
     return rows, int(total)
 
 

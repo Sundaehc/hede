@@ -34,6 +34,7 @@ def _table_for_year(prefix: str, year: int, columns: list[Column], unique_column
             postgresql_ops={"product_code": "text_pattern_ops"},
         )
         Index(f"idx_{table_name}_style_code", table.c.style_code)
+        Index(f"idx_{table_name}_style_date", table.c.style_code, table.c.sales_date)
     elif prefix == "vip_daily_sales":
         Index(
             f"idx_{table_name}_goods_code_pattern",
@@ -41,6 +42,7 @@ def _table_for_year(prefix: str, year: int, columns: list[Column], unique_column
             postgresql_ops={"goods_code": "text_pattern_ops"},
         )
         Index(f"idx_{table_name}_style_code", table.c.style_code)
+        Index(f"idx_{table_name}_style_date", table.c.style_code, table.c.sales_date)
     return table
 
 

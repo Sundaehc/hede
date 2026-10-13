@@ -117,7 +117,6 @@ def build_inventory_account_subject_table() -> Table:
         UniqueConstraint("name", name="uq_inventory_account_subjects_name"),
     ]
     table = Table(INVENTORY_ACCOUNT_SUBJECT_TABLE_NAME, METADATA, *columns)
-    Index("idx_inventory_account_subjects_name", table.c.name)
     return table
 
 
@@ -131,7 +130,6 @@ def build_purchase_order_requirement_table() -> Table:
         UniqueConstraint("brand", name="uq_purchase_order_requirement_brand"),
     ]
     table = Table(PURCHASE_ORDER_REQUIREMENT_TABLE_NAME, METADATA, *columns)
-    Index("idx_purchase_order_requirement_brand", table.c.brand)
     return table
 
 

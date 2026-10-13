@@ -54,6 +54,7 @@ from domain.factory_channel_sales_summary_schema import FACTORY_CHANNEL_SALES_DA
 from domain.inventory_schema import SUPPLIER_TABLE
 from domain.jst_full_stock_schema import JST_FULL_STOCK_TABLE
 from domain.jst_stock_snapshot_schema import JST_SIZE_STOCK_SNAPSHOT_TABLE, JST_STOCK_SUMMARY_SNAPSHOT_TABLE
+from storage.stock_snapshot_queries import load_stock_snapshot_dates
 
 
 router = APIRouter()
@@ -812,15 +813,7 @@ def _product_goods_snapshot_dates(connection, *, brand: str) -> list[date]:
     if cached is not None:
         return [date.fromisoformat(item) for item in cached]
 
-    stock_snapshot_dates = [
-        item
-        for item in connection.execute(
-            select(JST_SIZE_STOCK_SNAPSHOT_TABLE.c.snapshot_date)
-            .distinct()
-            .order_by(desc(JST_SIZE_STOCK_SNAPSHOT_TABLE.c.snapshot_date))
-        ).scalars()
-        if isinstance(item, date)
-    ]
+    stock_snapshot_dates = load_stock_snapshot_dates(connection)
     snapshot_dates = sorted({*stock_snapshot_dates, *_detail_snapshot_dates(connection, brand=brand)}, reverse=True)
     set_product_goods_snapshot_dates_cache(brand, [item.isoformat() for item in snapshot_dates])
     return snapshot_dates

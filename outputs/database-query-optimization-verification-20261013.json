@@ -1,0 +1,153 @@
+{
+  "verified_at": "2026-10-13",
+  "stock_dates_optimized_ms": 8.476,
+  "stock_dates_original_ms": 1232.443,
+  "stock_dates_count": 85,
+  "stock_dates_equal": true,
+  "remaining_schema_actions": [],
+  "snapshot_full_load_ms": 1419.139,
+  "snapshot_batch_id": 3519,
+  "snapshot_row_count": 19665,
+  "snapshot_filter_checks": [
+    {
+      "field": "factory_name",
+      "operator": "in",
+      "page": 1,
+      "total": 1656,
+      "elapsed_ms": 198.186
+    },
+    {
+      "field": "factory_name",
+      "operator": "in",
+      "page": 2,
+      "total": 1656,
+      "elapsed_ms": 190.314
+    },
+    {
+      "field": "factory_name",
+      "operator": "not_in",
+      "page": 1,
+      "total": 18009,
+      "elapsed_ms": 85.676
+    },
+    {
+      "field": "factory_name",
+      "operator": "not_in",
+      "page": 2,
+      "total": 18009,
+      "elapsed_ms": 143.126
+    },
+    {
+      "field": "season_category",
+      "operator": "in",
+      "page": 1,
+      "total": 2660,
+      "elapsed_ms": 135.91
+    },
+    {
+      "field": "season_category",
+      "operator": "in",
+      "page": 2,
+      "total": 2660,
+      "elapsed_ms": 135.298
+    },
+    {
+      "field": "season_category",
+      "operator": "not_in",
+      "page": 1,
+      "total": 17005,
+      "elapsed_ms": 81.574
+    },
+    {
+      "field": "season_category",
+      "operator": "not_in",
+      "page": 2,
+      "total": 17005,
+      "elapsed_ms": 137.973
+    },
+    {
+      "field": "group_name",
+      "operator": "in",
+      "page": 1,
+      "total": 13444,
+      "elapsed_ms": 138.758
+    },
+    {
+      "field": "group_name",
+      "operator": "in",
+      "page": 2,
+      "total": 13444,
+      "elapsed_ms": 141.572
+    },
+    {
+      "field": "group_name",
+      "operator": "not_in",
+      "page": 1,
+      "total": 6221,
+      "elapsed_ms": 73.047
+    },
+    {
+      "field": "group_name",
+      "operator": "not_in",
+      "page": 2,
+      "total": 6221,
+      "elapsed_ms": 132.259
+    },
+    {
+      "field": "sales_tag",
+      "operator": "in",
+      "page": 1,
+      "total": 882,
+      "elapsed_ms": 234.88
+    },
+    {
+      "field": "sales_tag",
+      "operator": "in",
+      "page": 2,
+      "total": 882,
+      "elapsed_ms": 242.866
+    },
+    {
+      "field": "sales_tag",
+      "operator": "not_in",
+      "page": 1,
+      "total": 18783,
+      "elapsed_ms": 76.462
+    },
+    {
+      "field": "sales_tag",
+      "operator": "not_in",
+      "page": 2,
+      "total": 18783,
+      "elapsed_ms": 134.734
+    },
+    {
+      "field": "goods_tag",
+      "operator": "in",
+      "page": 1,
+      "total": 12,
+      "elapsed_ms": 188.875
+    },
+    {
+      "field": "goods_tag",
+      "operator": "in",
+      "page": 2,
+      "total": 12,
+      "elapsed_ms": 173.781
+    },
+    {
+      "field": "goods_tag",
+      "operator": "not_in",
+      "page": 1,
+      "total": 19653,
+      "elapsed_ms": 73.848
+    },
+    {
+      "field": "goods_tag",
+      "operator": "not_in",
+      "page": 2,
+      "total": 19653,
+      "elapsed_ms": 245.401
+    }
+  ]
+}

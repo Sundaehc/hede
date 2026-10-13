@@ -1,0 +1,11 @@
+{
+  "completed": [
+    {
+      "kind": "create_index",
+      "table_name": "prices",
+      "statement": "CREATE INDEX CONCURRENTLY new_price_index ON prices (code)",
+      "rollback": "DROP INDEX CONCURRENTLY new_price_index",
+      "reclaimed_bytes": 0
+    }
+  ]
+}

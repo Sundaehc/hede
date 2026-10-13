@@ -42,4 +42,3 @@ JST_STOCK_SUMMARY_SNAPSHOT_TABLE = Table(
     Column("updated_at", DateTime(timezone=True), server_default=func.date_trunc("minute", func.now()), onupdate=func.date_trunc("minute", func.now())),
     UniqueConstraint("snapshot_date", "product_code", name="uq_jst_stock_summary_snapshot"),
 )
-Index("idx_jst_stock_summary_snapshots_date_code", JST_STOCK_SUMMARY_SNAPSHOT_TABLE.c.snapshot_date, JST_STOCK_SUMMARY_SNAPSHOT_TABLE.c.product_code)
