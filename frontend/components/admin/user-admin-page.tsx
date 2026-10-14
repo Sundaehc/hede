@@ -4,7 +4,7 @@ import { useSessionQueryState } from "@/lib/session-query-state"
 
 import Link from "next/link"
 import { useEffect, useMemo, useState, type ReactNode } from "react"
-import { AlertCircle, Ban, Building2, CheckCircle2, History, Loader2, Plus, RefreshCw, Save, Search, ShieldCheck, UserCog, Users, type LucideIcon } from "lucide-react"
+import { AlertCircle, Ban, Building2, CheckCircle2, Eye, EyeOff, History, Loader2, Plus, RefreshCw, Save, Search, ShieldCheck, UserCog, Users, type LucideIcon } from "lucide-react"
 
 import { useAuth } from "@/components/auth/auth-provider"
 import { OperationLogDialog } from "@/components/operation-log-dialog"
@@ -183,6 +183,8 @@ export function UserAdminPage() {
   const [message, setMessage] = useState("")
   const [operationLogOpen, setOperationLogOpen] = useState(false)
   const [createOpen, setCreateOpen] = useState(false)
+  const [showCreatePassword, setShowCreatePassword] = useState(false)
+  const [showCreateConfirmPassword, setShowCreateConfirmPassword] = useState(false)
   const [creating, setCreating] = useState(false)
   const [createError, setCreateError] = useState("")
   const [createDraft, setCreateDraft] = useState<CreateUserDraft>({
@@ -295,6 +297,8 @@ export function UserAdminPage() {
       confirm_password: "",
     })
     setCreateError("")
+    setShowCreatePassword(false)
+    setShowCreateConfirmPassword(false)
     setCreateOpen(true)
   }
 
@@ -828,25 +832,51 @@ export function UserAdminPage() {
                 </div>
                 <div>
                   <label className="mb-1.5 block text-xs font-medium text-muted-foreground" htmlFor="create-password">初始密码</label>
-                  <Input
-                    id="create-password"
-                    type="password"
-                    value={createDraft.password}
-                    onChange={(event) => updateCreateDraft({ password: event.target.value })}
-                    placeholder="至少 8 个字符"
-                    autoComplete="new-password"
-                  />
+                  <div className="relative">
+                    <Input
+                      id="create-password"
+                      className="pr-10"
+                      type={showCreatePassword ? "text" : "password"}
+                      value={createDraft.password}
+                      onChange={(event) => updateCreateDraft({ password: event.target.value })}
+                      placeholder="至少 8 个字符"
+                      autoComplete="new-password"
+                    />
+                    <button
+                      type="button"
+                      className="absolute inset-y-0 right-0 flex w-10 cursor-pointer items-center justify-center rounded-r-lg text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+                      aria-label={showCreatePassword ? "隐藏初始密码" : "显示初始密码"}
+                      aria-pressed={showCreatePassword}
+                      aria-controls="create-password"
+                      onClick={() => setShowCreatePassword((visible) => !visible)}
+                    >
+                      {showCreatePassword ? <EyeOff className="size-4" aria-hidden="true" /> : <Eye className="size-4" aria-hidden="true" />}
+                    </button>
+                  </div>
                 </div>
                 <div>
                   <label className="mb-1.5 block text-xs font-medium text-muted-foreground" htmlFor="create-confirm-password">确认密码</label>
-                  <Input
-                    id="create-confirm-password"
-                    type="password"
-                    value={createDraft.confirm_password}
-                    onChange={(event) => updateCreateDraft({ confirm_password: event.target.value })}
-                    placeholder="再次输入密码"
-                    autoComplete="new-password"
-                  />
+                  <div className="relative">
+                    <Input
+                      id="create-confirm-password"
+                      className="pr-10"
+                      type={showCreateConfirmPassword ? "text" : "password"}
+                      value={createDraft.confirm_password}
+                      onChange={(event) => updateCreateDraft({ confirm_password: event.target.value })}
+                      placeholder="再次输入密码"
+                      autoComplete="new-password"
+                    />
+                    <button
+                      type="button"
+                      className="absolute inset-y-0 right-0 flex w-10 cursor-pointer items-center justify-center rounded-r-lg text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+                      aria-label={showCreateConfirmPassword ? "隐藏确认密码" : "显示确认密码"}
+                      aria-pressed={showCreateConfirmPassword}
+                      aria-controls="create-confirm-password"
+                      onClick={() => setShowCreateConfirmPassword((visible) => !visible)}
+                    >
+                      {showCreateConfirmPassword ? <EyeOff className="size-4" aria-hidden="true" /> : <Eye className="size-4" aria-hidden="true" />}
+                    </button>
+                  </div>
                 </div>
                 <div>
                   <label className="mb-1.5 block text-xs font-medium text-muted-foreground" htmlFor="create-status">账号状态</label>
