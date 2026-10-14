@@ -1684,6 +1684,18 @@ def list_fine_table_filter_options(
     }
 
 
+def _latest_daily_snapshot_day(connection, skus: list[str]) -> date | None:
+    latest_by_goods = (
+        select(func.max(VIP_DAILY_SNAPSHOT_TABLE.c.snapshot_date).label("latest_date"))
+        .where(VIP_DAILY_SNAPSHOT_TABLE.c.goods_code.in_(skus))
+        .where(VIP_DAILY_SNAPSHOT_TABLE.c.report_type == "罗盘")
+        .where(VIP_DAILY_SNAPSHOT_TABLE.c.period == "1d")
+        .group_by(VIP_DAILY_SNAPSHOT_TABLE.c.goods_code)
+        .subquery()
+    )
+    return connection.execute(select(func.max(latest_by_goods.c.latest_date))).scalar()
+
+
 @router.get("/fine-table")
 def list_fine_table(
     request: Request,
@@ -2071,12 +2083,7 @@ def list_fine_table(
             original_stock_qty_by_code[original_sku] = stock_total
             original_defect_in_transit_by_code[original_sku] = defect_in_transit_total
 
-        latest_daily_snapshot_day = conn.execute(
-            select(func.max(VIP_DAILY_SNAPSHOT_TABLE.c.snapshot_date))
-            .where(VIP_DAILY_SNAPSHOT_TABLE.c.goods_code.in_(skus))
-            .where(VIP_DAILY_SNAPSHOT_TABLE.c.report_type == "罗盘")
-            .where(VIP_DAILY_SNAPSHOT_TABLE.c.period == "1d")
-        ).scalar()
+        latest_daily_snapshot_day = _latest_daily_snapshot_day(conn, skus)
         daily_snapshot_totals: dict[str, dict[date, dict[str, int]]] = {sku: {} for sku in skus}
         if isinstance(latest_daily_snapshot_day, date):
             daily_snapshot_start = latest_daily_snapshot_day - timedelta(days=DAILY_SALES_DAYS - 1)

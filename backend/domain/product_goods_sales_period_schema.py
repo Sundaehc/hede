@@ -31,6 +31,11 @@ PRODUCT_GOODS_SALES_PERIODS_TABLE = Table(
 )
 
 Index("idx_product_goods_sales_period_brand_product", PRODUCT_GOODS_SALES_PERIODS_TABLE.c.brand, PRODUCT_GOODS_SALES_PERIODS_TABLE.c.product_code)
+Index(
+    "idx_product_goods_sales_period_brand_product_pattern",
+    PRODUCT_GOODS_SALES_PERIODS_TABLE.c.brand, PRODUCT_GOODS_SALES_PERIODS_TABLE.c.product_code,
+    postgresql_ops={"product_code": "text_pattern_ops"},
+)
 Index("idx_product_goods_sales_period_brand_style", PRODUCT_GOODS_SALES_PERIODS_TABLE.c.brand, PRODUCT_GOODS_SALES_PERIODS_TABLE.c.style_code)
 Index("idx_product_goods_sales_period_period", PRODUCT_GOODS_SALES_PERIODS_TABLE.c.period_type, PRODUCT_GOODS_SALES_PERIODS_TABLE.c.period_start)
 

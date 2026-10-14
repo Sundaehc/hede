@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
-from sqlalchemy import ColumnElement, Text, all_, bindparam, or_, true
+from sqlalchemy import ColumnElement, Text, bindparam, cast, func, or_, select, true
 from sqlalchemy.dialects.postgresql import ARRAY
 
 
@@ -38,13 +39,18 @@ def is_excluded_sku(*values: Any) -> bool:
     return bool(sku and sku in EXCLUDED_SKUS)
 
 
+@lru_cache(maxsize=1)
+def _excluded_sku_array(values: frozenset[str]) -> str:
+    return "{" + ",".join('"' + value.replace("\\", "\\\\").replace('"', '\\"') + '"' for value in sorted(values)) + "}"
+
+
 def not_excluded_sku_condition(*columns: ColumnElement[Any]) -> ColumnElement[bool]:
     if not EXCLUDED_SKUS or not columns:
         return true()
     excluded = bindparam(
         "excluded_skus",
-        sorted(EXCLUDED_SKUS),
-        type_=ARRAY(Text()),
+        _excluded_sku_array(EXCLUDED_SKUS),
+        type_=Text(),
     )
     sku_column = columns[0]
-    return or_(sku_column.is_(None), sku_column == "", sku_column != all_(excluded))
+    return or_(sku_column.is_(None), sku_column == "", sku_column.not_in(select(func.unnest(cast(excluded, ARRAY(Text()))))))

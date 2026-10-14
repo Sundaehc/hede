@@ -388,5 +388,9 @@ def build_jst_aftersale_return_table() -> Table:
 
 JST_AFTERSALE_RETURN_TABLE = build_jst_aftersale_return_table()
 Index("idx_jst_aftersale_returns_original_code", JST_AFTERSALE_RETURN_TABLE.c.original_goods_code)
+Index(
+    "idx_jst_aftersale_returns_original_code_pattern", JST_AFTERSALE_RETURN_TABLE.c.original_goods_code,
+    postgresql_ops={"original_goods_code": "text_pattern_ops"},
+)
 Index("idx_jst_aftersale_returns_order_date", JST_AFTERSALE_RETURN_TABLE.c.order_date_value)
 Index("idx_jst_aftersale_returns_order_time", JST_AFTERSALE_RETURN_TABLE.c.order_time_value)

@@ -1,0 +1,43 @@
+         249812 function calls (234459 primitive calls) in 0.515 seconds
+
+   Ordered by: cumulative time
+   List reduced from 1120 to 35 due to restriction <35>
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+        1    0.002    0.002    0.516    0.516 E:\hede\backend\api\routes\product_goods.py:3153(list_product_goods)
+       84    0.374    0.004    0.374    0.004 {built-in method select.select}
+       37    0.000    0.000    0.347    0.009 E:\hede\backend\.venv\Lib\site-packages\sqlalchemy\sql\elements.py:517(_execute_on_connection)
+       37    0.000    0.000    0.346    0.009 E:\hede\backend\.venv\Lib\site-packages\sqlalchemy\engine\base.py:1593(_execute_clauseelement)
+       23    0.000    0.000    0.333    0.014 E:\hede\backend\.venv\Lib\site-packages\sqlalchemy\engine\base.py:1377(execute)
+       40    0.000    0.000    0.284    0.007 E:\hede\backend\.venv\Lib\site-packages\sqlalchemy\engine\base.py:1793(_execute_context)
+       40    0.001    0.000    0.279    0.007 E:\hede\backend\.venv\Lib\site-packages\sqlalchemy\engine\base.py:1852(_exec_single_context)
+       54    0.000    0.000    0.278    0.005 E:\hede\backend\.venv\Lib\site-packages\psycopg\connection.py:476(wait)
+       54    0.000    0.000    0.277    0.005 E:\hede\backend\.venv\Lib\site-packages\psycopg\waiting.py:251(wait_select)
+       42    0.000    0.000    0.277    0.007 E:\hede\backend\.venv\Lib\site-packages\psycopg\cursor.py:100(execute)
+       40    0.000    0.000    0.274    0.007 E:\hede\backend\.venv\Lib\site-packages\sqlalchemy\engine\default.py:951(do_execute)
+        1    0.000    0.000    0.212    0.212 E:\hede\backend\api\routes\product_goods.py:1945(_sales_matrix_payload)
+        9    0.000    0.000    0.127    0.014 E:\hede\backend\.venv\Lib\site-packages\sqlalchemy\engine\base.py:3272(connect)
+     10/9    0.000    0.000    0.127    0.014 E:\hede\backend\.venv\Lib\site-packages\sqlalchemy\engine\base.py:130(__init__)
+        9    0.000    0.000    0.127    0.014 E:\hede\backend\.venv\Lib\site-packages\sqlalchemy\engine\base.py:3297(raw_connection)
+        9    0.000    0.000    0.127    0.014 E:\hede\backend\.venv\Lib\site-packages\sqlalchemy\pool\base.py:440(connect)
+        9    0.000    0.000    0.127    0.014 E:\hede\backend\.venv\Lib\site-packages\sqlalchemy\pool\base.py:1264(_checkout)
+        9    0.000    0.000    0.127    0.014 E:\hede\backend\.venv\Lib\site-packages\sqlalchemy\pool\base.py:707(checkout)
+        9    0.000    0.000    0.127    0.014 E:\hede\backend\.venv\Lib\site-packages\sqlalchemy\pool\impl.py:152(_do_get)
+        2    0.000    0.000    0.127    0.063 E:\hede\backend\.venv\Lib\site-packages\sqlalchemy\pool\base.py:386(_create_connection)
+        2    0.000    0.000    0.127    0.063 E:\hede\backend\.venv\Lib\site-packages\sqlalchemy\pool\base.py:666(__init__)
+        2    0.000    0.000    0.127    0.063 E:\hede\backend\.venv\Lib\site-packages\sqlalchemy\pool\base.py:888(__connect)
+        2    0.000    0.000    0.121    0.061 E:\hede\backend\.venv\Lib\site-packages\sqlalchemy\engine\create.py:647(connect)
+        2    0.000    0.000    0.121    0.061 E:\hede\backend\.venv\Lib\site-packages\sqlalchemy\engine\default.py:628(connect)
+        2    0.000    0.000    0.121    0.061 E:\hede\backend\.venv\Lib\site-packages\psycopg\connection.py:81(connect)
+        2    0.000    0.000    0.120    0.060 E:\hede\backend\.venv\Lib\site-packages\psycopg\waiting.py:92(wait_conn)
+       12    0.000    0.000    0.112    0.009 D:\python\Lib\selectors.py:310(select)
+       12    0.000    0.000    0.112    0.009 D:\python\Lib\selectors.py:304(_select)
+        1    0.000    0.000    0.078    0.078 E:\hede\backend\api\routes\product_goods.py:1908(_historical_order_counts)
+       37    0.000    0.000    0.064    0.002 E:\hede\backend\.venv\Lib\site-packages\sqlalchemy\sql\elements.py:679(_compile_w_cache)
+        7    0.000    0.000    0.059    0.008 E:\hede\backend\.venv\Lib\site-packages\sqlalchemy\inspection.py:114(inspect)
+        7    0.000    0.000    0.059    0.008 E:\hede\backend\.venv\Lib\site-packages\sqlalchemy\engine\reflection.py:239(_construct)
+        2    0.000    0.000    0.059    0.030 E:\hede\backend\.venv\Lib\site-packages\sqlalchemy\engine\reflection.py:312(_engine_insp)
+        2    0.000    0.000    0.059    0.030 E:\hede\backend\.venv\Lib\site-packages\sqlalchemy\engine\reflection.py:256(_init_engine)
+ 5466/598    0.004    0.000    0.054    0.000 E:\hede\backend\.venv\Lib\site-packages\sqlalchemy\sql\visitors.py:126(_compiler_dispatch)
+
+

@@ -41,6 +41,10 @@ def build_gj_merged_product_info_table() -> Table:
     Index("idx_gj_merged_product_info_source_date", table.c.source_date_value)
     Index("idx_gj_merged_product_info_source_date_id_desc", table.c.source_date_value, table.c.id.desc())
     Index(
+        "idx_gj_merged_product_info_source_brand_code", table.c.source_date_value,
+        table.c.fine_table_brand, table.c.goods_code, postgresql_include=["id"],
+    )
+    Index(
         "idx_gj_merged_product_info_source_brand_id_desc",
         table.c.source_date_value,
         table.c.fine_table_brand,

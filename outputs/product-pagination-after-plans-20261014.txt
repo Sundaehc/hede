@@ -1,0 +1,634 @@
+=== goods-womens-1: SELECT vip_daily_sales_2026.goods_code, vip_daily_sales_2026.style_code, vip_daily_sales_2026.sales_date, vip_daily_sales_2026.size_name, vip_daily_sales_2026.size_id, sum(coalesce(vip_daily_sales_2026.sales_quantity, %(coalesce_1)s::INTEGER)) AS quantity, sum(coalesce(vip_daily_sales_2026.customer_count, %(coalesce_2)s::INTEGER)) AS order_count 
+FROM vip_daily_sales_2026 
+WHERE ((vip_daily_sales_2026.goods_code LIKE %(goods_code_1)s::VARCHAR || '%%') OR (vip_daily_sales_2026.goods_code LIKE %(goods_code_2)s::VARCHAR || '%%') OR (vip_daily_sales_2026.goods_code LIKE %(goods_code_3)s::VARCHAR || '%%') OR (vip_daily_sales_2026.goods_code LIKE %(goods_code_4)s::VARCHAR || '%%') OR (vip_daily_sales_2026.goods_code LIKE %(goods_code_5)s::VARCHAR || '%%') OR (vip_daily_sales_2026.goods_code LIKE %(goods_code_6)s::VARCHAR || '%%') OR (vip_daily_sales_2026.goods_code LIKE %(goods_code_7)s::VARCHAR || '%%') OR (vip_daily_sales_2026.goods_code LIKE %(goods_code_8)s::VARCHAR || '%%') OR (vip_daily_sales_2026.goods_code LIKE %(goods_code_9)s::VARCHAR || '%%') OR (vip_daily_sales_2026.goods_code LIKE %(goods_code_10)s::VARCHAR || '%%') OR (vip_daily_sales_2026.goods_code LIKE %(goods_code_11)s::VARCHAR || '%%') OR (vip_daily_sales_2026.goods_code LIKE %(goods_code_12)s::VARCHAR || '%%') OR (vip_daily_sales_2026.goods_code LIKE %(goods_code_13)s::VARCHAR || '%%') OR (vip_daily_sales_2026.goods_code LIKE %(goods_code_14)s::VARCHAR || '%%') OR (vip_daily_sales_2026.goods_code LIKE %(goods_code_15)s::VARCHAR || '%%') OR (vip_daily_sales_2026.goods_code LIKE %(goods_code_16)s::VARCHAR || '%%') OR (vip_daily_sales_2026.goods_code LIKE %(goods_code_17)s::VARCHAR || '%%') OR (vip_daily_sales_2026.goods_code LIKE %(goods_code_18)s::VARCHAR || '%%') OR (vip_daily_sales_2026.goods_code LIKE %(goods_code_19)s::VARCHAR || '%%') OR (vip_daily_sales_2026.goods_code LIKE %(goods_code_20)s::VARCHAR || '%%') OR (vip_daily_sales_2026.goods_code LIKE %(goods_code_21)s::VARCHAR || '%%') OR (vip_daily_sales_2026.goods_code LIKE %(goods_code_22)s::VARCHAR || '%%') OR (vip_daily_sales_2026.goods_code LIKE %(goods_code_23)s::VARCHAR || '%%') OR (vip_daily_sales_2026.goods_code LIKE %(goods_code_24)s::VARCHAR || '%%') OR (vip_daily_sales_2026.goods_code LIKE %(goods_code_25)s::VARCHAR || '%%') OR (vip_daily_sales_2026.goods_code LIKE %(goods_code_26)s::VARCHAR || '%%') OR (vip_daily_sales_2026.goods_code LIKE %(goods_code_27)s::VARCHAR || '%%') OR (vip_daily_sales_2026.goods_code LIKE %(goods_code_28)s::VARCHAR || '%%') OR (vip_daily_sales_2026.goods_code LIKE %(goods_code_29)s::VARCHAR || '%%') OR (vip_daily_sales_2026.goods_code LIKE %(goods_code_30)s::VARCHAR || '%%') OR (vip_daily_sales_2026.goods_code LIKE %(goods_code_31)s::VARCHAR || '%%') OR (vip_daily_sales_2026.goods_code LIKE %(goods_code_32)s::VARCHAR || '%%') OR (vip_daily_sales_2026.goods_code LIKE %(goods_code_33)s::VARCHAR || '%%') OR (vip_daily_sales_2026.goods_code LIKE %(goods_code_34)s::VARCHAR || '%%') OR (vip_daily_sales_2026.goods_code LIKE %(goods_code_35)s::VARCHAR || '%%') OR (vip_daily_sales_2026.goods_code LIKE %(goods_code_36)s::VARCHAR || '%%') OR (vip_daily_sales_2026.goods_code LIKE %(goods_code_37)s::VARCHAR || '%%') OR (vip_daily_sales_2026.goods_code LIKE %(goods_code_38)s::VARCHAR || '%%') OR (vip_daily_sales_2026.goods_code LIKE %(goods_code_39)s::VARCHAR || '%%') OR (vip_daily_sales_2026.goods_code LIKE %(goods_code_40)s::VARCHAR || '%%') OR (vip_daily_sales_2026.goods_code LIKE %(goods_code_41)s::VARCHAR || '%%') OR (vip_daily_sales_2026.goods_code LIKE %(goods_code_42)s::VARCHAR || '%%') OR (vip_daily_sales_2026.goods_code LIKE %(goods_code_43)s::VARCHAR || '%%') OR (vip_daily_sales_2026.goods_code LIKE %(goods_code_44)s::VARCHAR || '%%') OR (vip_daily_sales_2026.goods_code LIKE %(goods_code_45)s::VARCHAR || '%%') OR (vip_daily_sales_2026.goods_code LIKE %(goods_code_46)s::VARCHAR || '%%') OR (vip_daily_sales_2026.goods_code LIKE %(goods_code_47)s::VARCHAR || '%%') OR (vip_daily_sales_2026.goods_code LIKE %(goods_code_48)s::VARCHAR || '%%') OR (vip_daily_sales_2026.goods_code LIKE %(goods_code_49)s::VARCHAR || '%%') OR (vip_daily_sales_2026.goods_code LIKE %(goods_code_50)s::VARCHAR || '%%') OR vip_daily_sales_2026.style_code IN (%(style_code_1_1)s::VARCHAR, %(style_code_1_2)s::VARCHAR, %(style_code_1_3)s::VARCHAR, %(style_code_1_4)s::VARCHAR, %(style_code_1_5)s::VARCHAR, %(style_code_1_6)s::VARCHAR, %(style_code_1_7)s::VARCHAR, %(style_code_1_8)s::VARCHAR, %(style_code_1_9)s::VARCHAR, %(style_code_1_10)s::VARCHAR, %(style_code_1_11)s::VARCHAR, %(style_code_1_12)s::VARCHAR, %(style_code_1_13)s::VARCHAR, %(style_code_1_14)s::VARCHAR, %(style_code_1_15)s::VARCHAR, %(style_code_1_16)s::VARCHAR, %(style_code_1_17)s::VARCHAR, %(style_code_1_18)s::VARCHAR, %(style_code_1_19)s::VARCHAR, %(style_code_1_20)s::VARCHAR, %(style_code_1_21)s::VARCHAR, %(style_code_1_22)s::VARCHAR, %(style_code_1_23)s::VARCHAR, %(style_code_1_24)s::VARCHAR, %(style_code_1_25)s::VARCHAR, %(style_code_1_26)s::VARCHAR, %(style_code_1_27)s::VARCHAR, %(style_code_1_28)s::VARCHAR, %(style_code_1_29)s::VARCHAR, %(style_code_1_30)s::VARCHAR, %(style_code_1_31)s::VARCHAR, %(style_code_1_32)s::VARCHAR, %(style_code_1_33)s::VARCHAR, %(style_code_1_34)s::VARCHAR, %(style_code_1_35)s::VARCHAR, %(style_code_1_36)s::VARCHAR, %(style_code_1_37)s::VARCHAR, %(style_code_1_38)s::VARCHAR, %(style_code_1_39)s::VARCHAR, %(style_code_1_40)s::VARCHAR, %(style_code_1_41)s::VARCHAR, %(style_code_1_42)s::VARCHAR, %(style_code_1_43)s::VARCHAR, %(style_code_1_44)s::VARCHAR, %(style_code_1_45)s::VARCHAR, %(style_code_1_46)s::VARCHAR, %(style_code_1_47)s::VARCHAR, %(style_code_1_48)s::VARCHAR, %(style_code_1_49)s::VARCHAR, %(style_code_1_50)s::VARCHAR)) AND vip_daily_sales_2026.sales_date <= %(sales_date_1)s::DATE GROUP BY vip_daily_sales_2026.goods_code, vip_daily_sales_2026.style_code, vip_daily_sales_2026.sales_date, vip_daily_sales_2026.size_name, vip_daily_sales_2026.size_id ===
+GroupAggregate  (cost=870708.42..893955.04 rows=154647 width=67) (actual rows=0.00 loops=1)
+  Group Key: goods_code, style_code, sales_date, size_name, size_id
+  Buffers: shared hit=227
+  ->  Gather Merge  (cost=870708.42..889573.89 rows=161982 width=59) (actual rows=0.00 loops=1)
+        Workers Planned: 2
+        Workers Launched: 2
+        Buffers: shared hit=227
+        ->  Sort  (cost=869708.39..869877.12 rows=67492 width=59) (actual rows=0.00 loops=3)
+              Sort Key: goods_code, style_code, sales_date, size_name, size_id
+              Sort Method: quicksort  Memory: 25kB
+              Buffers: shared hit=227
+              Worker 0:  Sort Method: quicksort  Memory: 25kB
+              Worker 1:  Sort Method: quicksort  Memory: 25kB
+              ->  Parallel Bitmap Heap Scan on vip_daily_sales_2026  (cost=3348.02..861753.72 rows=67492 width=59) (actual rows=0.00 loops=3)
+                    Recheck Cond: ((goods_code ~~ 'H6162249W01%'::text) OR (goods_code ~~ 'H6162249W30%'::text) OR (goods_code ~~ 'H6162250D01%'::text) OR (goods_code ~~ 'H6162412D20%'::text) OR (goods_code ~~ 'H6162413D28%'::text) OR (goods_code ~~ 'H6162414D01%'::text) OR (goods_code ~~ 'H6162414D28%'::text) OR (goods_code ~~ 'H7962688X01%'::text) OR (goods_code ~~ 'H7962688X06%'::text) OR (goods_code ~~ 'H7962688X20%'::text) OR (goods_code ~~ 'H7962689X01%'::text) OR (goods_code ~~ 'H7962689X02%'::text) OR (goods_code ~~ 'H7962690X01%'::text) OR (goods_code ~~ 'H7962690X06%'::text) OR (goods_code ~~ 'H7962691X01%'::text) OR (goods_code ~~ 'H7962691X06%'::text) OR (goods_code ~~ 'H7962747X01%'::text) OR (goods_code ~~ 'H7962747X02%'::text) OR (goods_code ~~ 'H8661908D01%'::text) OR (goods_code ~~ 'H8662969D01%'::text) OR (goods_code ~~ 'H8662969D20%'::text) OR (goods_code ~~ 'HA762209D17%'::text) OR (goods_code ~~ 'HA762209D20%'::text) OR (goods_code ~~ 'HA762209D73%'::text) OR (goods_code ~~ 'HA762210D06%'::text) OR (goods_code ~~ 'HA762210D42%'::text) OR (goods_code ~~ 'HA762410D17%'::text) OR (goods_code ~~ 'HA762410D45%'::text) OR (goods_code ~~ 'HA762410D51%'::text) OR (goods_code ~~ 'HA762995L30%'::text) OR (goods_code ~~ 'HA762995L73%'::text) OR (goods_code ~~ 'HAH62112S01%'::text) OR (goods_code ~~ 'HAH62112S28%'::text) OR (goods_code ~~ 'HAH62630D01%'::text) OR (goods_code ~~ 'HAH62630D28%'::text) OR (goods_code ~~ 'HAH62631D01%'::text) OR (goods_code ~~ 'HAH62631D28%'::text) OR (goods_code ~~ 'HAH62632D01%'::text) OR (goods_code ~~ 'HAH62632D28%'::text) OR (goods_code ~~ 'HAH62633D01%'::text) OR (goods_code ~~ 'HAH62633DL7%'::text) OR (goods_code ~~ 'HAM62450D24%'::text) OR (goods_code ~~ 'HAM62450D38%'::text) OR (goods_code ~~ 'HAM62456D06%'::text) OR (goods_code ~~ 'HAM62456D09%'::text) OR (goods_code ~~ 'HAM62456D38%'::text) OR (goods_code ~~ 'HAM62456D73%'::text) OR (goods_code ~~ 'HAM62652D01%'::text) OR (goods_code ~~ 'HAM62652D73%'::text) OR (goods_code ~~ 'HAM62653D01%'::text) OR (style_code = ANY ('{H6162249W01,H6162249W30,H6162250D01,H6162412D20,H6162413D28,H6162414D01,H6162414D28,H7962688X01,H7962688X06,H7962688X20,H7962689X01,H7962689X02,H7962690X01,H7962690X06,H7962691X01,H7962691X06,H7962747X01,H7962747X02,H8661908D01,H8662969D01,H8662969D20,HA762209D17,HA762209D20,HA762209D73,HA762210D06,HA762210D42,HA762410D17,HA762410D45,HA762410D51,HA762995L30,HA762995L73,HAH62112S01,HAH62112S28,HAH62630D01,HAH62630D28,HAH62631D01,HAH62631D28,HAH62632D01,HAH62632D28,HAH62633D01,HAH62633DL7,HAM62450D24,HAM62450D38,HAM62456D06,HAM62456D09,HAM62456D38,HAM62456D73,HAM62652D01,HAM62652D73,HAM62653D01}'::text[])))
+                    Filter: ((sales_date <= '2026-10-13'::date) AND ((goods_code ~~ 'H6162249W01%'::text) OR (goods_code ~~ 'H6162249W30%'::text) OR (goods_code ~~ 'H6162250D01%'::text) OR (goods_code ~~ 'H6162412D20%'::text) OR (goods_code ~~ 'H6162413D28%'::text) OR (goods_code ~~ 'H6162414D01%'::text) OR (goods_code ~~ 'H6162414D28%'::text) OR (goods_code ~~ 'H7962688X01%'::text) OR (goods_code ~~ 'H7962688X06%'::text) OR (goods_code ~~ 'H7962688X20%'::text) OR (goods_code ~~ 'H7962689X01%'::text) OR (goods_code ~~ 'H7962689X02%'::text) OR (goods_code ~~ 'H7962690X01%'::text) OR (goods_code ~~ 'H7962690X06%'::text) OR (goods_code ~~ 'H7962691X01%'::text) OR (goods_code ~~ 'H7962691X06%'::text) OR (goods_code ~~ 'H7962747X01%'::text) OR (goods_code ~~ 'H7962747X02%'::text) OR (goods_code ~~ 'H8661908D01%'::text) OR (goods_code ~~ 'H8662969D01%'::text) OR (goods_code ~~ 'H8662969D20%'::text) OR (goods_code ~~ 'HA762209D17%'::text) OR (goods_code ~~ 'HA762209D20%'::text) OR (goods_code ~~ 'HA762209D73%'::text) OR (goods_code ~~ 'HA762210D06%'::text) OR (goods_code ~~ 'HA762210D42%'::text) OR (goods_code ~~ 'HA762410D17%'::text) OR (goods_code ~~ 'HA762410D45%'::text) OR (goods_code ~~ 'HA762410D51%'::text) OR (goods_code ~~ 'HA762995L30%'::text) OR (goods_code ~~ 'HA762995L73%'::text) OR (goods_code ~~ 'HAH62112S01%'::text) OR (goods_code ~~ 'HAH62112S28%'::text) OR (goods_code ~~ 'HAH62630D01%'::text) OR (goods_code ~~ 'HAH62630D28%'::text) OR (goods_code ~~ 'HAH62631D01%'::text) OR (goods_code ~~ 'HAH62631D28%'::text) OR (goods_code ~~ 'HAH62632D01%'::text) OR (goods_code ~~ 'HAH62632D28%'::text) OR (goods_code ~~ 'HAH62633D01%'::text) OR (goods_code ~~ 'HAH62633DL7%'::text) OR (goods_code ~~ 'HAM62450D24%'::text) OR (goods_code ~~ 'HAM62450D38%'::text) OR (goods_code ~~ 'HAM62456D06%'::text) OR (goods_code ~~ 'HAM62456D09%'::text) OR (goods_code ~~ 'HAM62456D38%'::text) OR (goods_code ~~ 'HAM62456D73%'::text) OR (goods_code ~~ 'HAM62652D01%'::text) OR (goods_code ~~ 'HAM62652D73%'::text) OR (goods_code ~~ 'HAM62653D01%'::text) OR (style_code = ANY ('{H6162249W01,H6162249W30,H6162250D01,H6162412D20,H6162413D28,H6162414D01,H6162414D28,H7962688X01,H7962688X06,H7962688X20,H7962689X01,H7962689X02,H7962690X01,H7962690X06,H7962691X01,H7962691X06,H7962747X01,H7962747X02,H8661908D01,H8662969D01,H8662969D20,HA762209D17,HA762209D20,HA762209D73,HA762210D06,HA762210D42,HA762410D17,HA762410D45,HA762410D51,HA762995L30,HA762995L73,HAH62112S01,HAH62112S28,HAH62630D01,HAH62630D28,HAH62631D01,HAH62631D28,HAH62632D01,HAH62632D28,HAH62633D01,HAH62633DL7,HAM62450D24,HAM62450D38,HAM62456D06,HAM62456D09,HAM62456D38,HAM62456D73,HAM62652D01,HAM62652D73,HAM62653D01}'::text[]))))
+                    Buffers: shared hit=195
+                    ->  BitmapOr  (cost=3347.90..3347.90 rows=85132 width=0) (actual rows=0.00 loops=1)
+                          Buffers: shared hit=153
+                          ->  Bitmap Index Scan on idx_vip_daily_sales_2026_goods_code_pattern  (cost=0.00..4.44 rows=1 width=0) (actual rows=0.00 loops=1)
+                                Index Cond: ((goods_code ~>=~ 'H6162249W01'::text) AND (goods_code ~<~ 'H6162249W02'::text))
+                                Index Searches: 1
+                                Buffers: shared hit=3
+                          ->  Bitmap Index Scan on idx_vip_daily_sales_2026_goods_code_pattern  (cost=0.00..4.44 rows=1 width=0) (actual rows=0.00 loops=1)
+                                Index Cond: ((goods_code ~>=~ 'H6162249W30'::text) AND (goods_code ~<~ 'H6162249W31'::text))
+                                Index Searches: 1
+                                Buffers: shared hit=3
+                          ->  Bitmap Index Scan on idx_vip_daily_sales_2026_goods_code_pattern  (cost=0.00..4.44 rows=1 width=0) (actual rows=0.00 loops=1)
+                                Index Cond: ((goods_code ~>=~ 'H6162250D01'::text) AND (goods_code ~<~ 'H6162250D02'::text))
+                                Index Searches: 1
+                                Buffers: shared hit=3
+                          ->  Bitmap Index Scan on idx_vip_daily_sales_2026_goods_code_pattern  (cost=0.00..4.44 rows=1 width=0) (actual rows=0.00 loops=1)
+                                Index Cond: ((goods_code ~>=~ 'H6162412D20'::text) AND (goods_code ~<~ 'H6162412D21'::text))
+                                Index Searches: 1
+                                Buffers: shared hit=3
+                          ->  Bitmap Index Scan on idx_vip_daily_sales_2026_goods_code_pattern  (cost=0.00..4.44 rows=1 width=0) (actual rows=0.00 loops=1)
+                                Index Cond: ((goods_code ~>=~ 'H6162413D28'::text) AND (goods_code ~<~ 'H6162413D29'::text))
+                                Index Searches: 1
+                                Buffers: shared hit=3
+                          ->  Bitmap Index Scan on idx_vip_daily_sales_2026_goods_code_pattern  (cost=0.00..4.44 rows=1 width=0) (actual rows=0.00 loops=1)
+                                Index Cond: ((goods_code ~>=~ 'H6162414D01'::text) AND (goods_code ~<~ 'H6162414D02'::text))
+                                Index Searches: 1
+                                Buffers: shared hit=3
+                          ->  Bitmap Index Scan on idx_vip_daily_sales_2026_goods_code_pattern  (cost=0.00..4.44 rows=1 width=0) (actual rows=0.00 loops=1)
+                                Index Cond: ((goods_code ~>=~ 'H6162414D28'::text) AND (goods_code ~<~ 'H6162414D29'::text))
+                                Index Searches: 1
+                                Buffers: shared hit=3
+                          ->  Bitmap Index Scan on idx_vip_daily_sales_2026_goods_code_pattern  (cost=0.00..4.44 rows=1 width=0) (actual rows=0.00 loops=1)
+                                Index Cond: ((goods_code ~>=~ 'H7962688X01'::text) AND (goods_code ~<~ 'H7962688X02'::text))
+                                Index Searches: 1
+                                Buffers: shared hit=3
+                          ->  Bitmap Index Scan on idx_vip_daily_sales_2026_goods_code_pattern  (cost=0.00..4.44 rows=1 width=0) (actual rows=0.00 loops=1)
+                                Index Cond: ((goods_code ~>=~ 'H7962688X06'::text) AND (goods_code ~<~ 'H7962688X07'::text))
+                                Index Searches: 1
+                                Buffers: shared hit=3
+                          ->  Bitmap Index Scan on idx_vip_daily_sales_2026_goods_code_pattern  (cost=0.00..4.44 rows=1 width=0) (actual rows=0.00 loops=1)
+                                Index Cond: ((goods_code ~>=~ 'H7962688X20'::text) AND (goods_code ~<~ 'H7962688X21'::text))
+                                Index Searches: 1
+                                Buffers: shared hit=3
+                          ->  Bitmap Index Scan on idx_vip_daily_sales_2026_goods_code_pattern  (cost=0.00..4.44 rows=1 width=0) (actual rows=0.00 loops=1)
+                                Index Cond: ((goods_code ~>=~ 'H7962689X01'::text) AND (goods_code ~<~ 'H7962689X02'::text))
+                                Index Searches: 1
+                                Buffers: shared hit=3
+                          ->  Bitmap Index Scan on idx_vip_daily_sales_2026_goods_code_pattern  (cost=0.00..4.44 rows=1 width=0) (actual rows=0.00 loops=1)
+                                Index Cond: ((goods_code ~>=~ 'H7962689X02'::text) AND (goods_code ~<~ 'H7962689X03'::text))
+                                Index Searches: 1
+                                Buffers: shared hit=3
+                          ->  Bitmap Index Scan on idx_vip_daily_sales_2026_goods_code_pattern  (cost=0.00..4.44 rows=1 width=0) (actual rows=0.00 loops=1)
+                                Index Cond: ((goods_code ~>=~ 'H7962690X01'::text) AND (goods_code ~<~ 'H7962690X02'::text))
+                                Index Searches: 1
+                                Buffers: shared hit=3
+                          ->  Bitmap Index Scan on idx_vip_daily_sales_2026_goods_code_pattern  (cost=0.00..4.44 rows=1 width=0) (actual rows=0.00 loops=1)
+                                Index Cond: ((goods_code ~>=~ 'H7962690X06'::text) AND (goods_code ~<~ 'H7962690X07'::text))
+                                Index Searches: 1
+                                Buffers: shared hit=3
+                          ->  Bitmap Index Scan on idx_vip_daily_sales_2026_goods_code_pattern  (cost=0.00..4.44 rows=1 width=0) (actual rows=0.00 loops=1)
+                                Index Cond: ((goods_code ~>=~ 'H7962691X01'::text) AND (goods_code ~<~ 'H7962691X02'::text))
+                                Index Searches: 1
+                                Buffers: shared hit=3
+                          ->  Bitmap Index Scan on idx_vip_daily_sales_2026_goods_code_pattern  (cost=0.00..4.44 rows=1 width=0) (actual rows=0.00 loops=1)
+                                Index Cond: ((goods_code ~>=~ 'H7962691X06'::text) AND (goods_code ~<~ 'H7962691X07'::text))
+                                Index Searches: 1
+                                Buffers: shared hit=3
+                          ->  Bitmap Index Scan on idx_vip_daily_sales_2026_goods_code_pattern  (cost=0.00..4.44 rows=1 width=0) (actual rows=0.00 loops=1)
+                                Index Cond: ((goods_code ~>=~ 'H7962747X01'::text) AND (goods_code ~<~ 'H7962747X02'::text))
+                                Index Searches: 1
+                                Buffers: shared hit=3
+                          ->  Bitmap Index Scan on idx_vip_daily_sales_2026_goods_code_pattern  (cost=0.00..4.44 rows=1 width=0) (actual rows=0.00 loops=1)
+                                Index Cond: ((goods_code ~>=~ 'H7962747X02'::text) AND (goods_code ~<~ 'H7962747X03'::text))
+                                Index Searches: 1
+                                Buffers: shared hit=3
+                          ->  Bitmap Index Scan on idx_vip_daily_sales_2026_goods_code_pattern  (cost=0.00..4.44 rows=1 width=0) (actual rows=0.00 loops=1)
+                                Index Cond: ((goods_code ~>=~ 'H8661908D01'::text) AND (goods_code ~<~ 'H8661908D02'::text))
+                                Index Searches: 1
+                                Buffers: shared hit=3
+                          ->  Bitmap Index Scan on idx_vip_daily_sales_2026_goods_code_pattern  (cost=0.00..4.44 rows=1 width=0) (actual rows=0.00 loops=1)
+                                Index Cond: ((goods_code ~>=~ 'H8662969D01'::text) AND (goods_code ~<~ 'H8662969D02'::text))
+                                Index Searches: 1
+                                Buffers: shared hit=3
+                          ->  Bitmap Index Scan on idx_vip_daily_sales_2026_goods_code_pattern  (cost=0.00..4.44 rows=1 width=0) (actual rows=0.00 loops=1)
+                                Index Cond: ((goods_code ~>=~ 'H8662969D20'::text) AND (goods_code ~<~ 'H8662969D21'::text))
+                                Index Searches: 1
+                                Buffers: shared hit=3
+                          ->  Bitmap Index Scan on idx_vip_daily_sales_2026_goods_code_pattern  (cost=0.00..4.44 rows=1 width=0) (actual rows=0.00 loops=1)
+                                Index Cond: ((goods_code ~>=~ 'HA762209D17'::text) AND (goods_code ~<~ 'HA762209D18'::text))
+                                Index Searches: 1
+                                Buffers: shared hit=3
+                          ->  Bitmap Index Scan on idx_vip_daily_sales_2026_goods_code_pattern  (cost=0.00..4.44 rows=1 width=0) (actual rows=0.00 loops=1)
+                                Index Cond: ((goods_code ~>=~ 'HA762209D20'::text) AND (goods_code ~<~ 'HA762209D21'::text))
+                                Index Searches: 1
+                                Buffers: shared hit=3
+                          ->  Bitmap Index Scan on idx_vip_daily_sales_2026_goods_code_pattern  (cost=0.00..4.44 rows=1 width=0) (actual rows=0.00 loops=1)
+                                Index Cond: ((goods_code ~>=~ 'HA762209D73'::text) AND (goods_code ~<~ 'HA762209D74'::text))
+                                Index Searches: 1
+                                Buffers: shared hit=3
+                          ->  Bitmap Index Scan on idx_vip_daily_sales_2026_goods_code_pattern  (cost=0.00..4.44 rows=1 width=0) (actual rows=0.00 loops=1)
+                                Index Cond: ((goods_code ~>=~ 'HA762210D06'::text) AND (goods_code ~<~ 'HA762210D07'::text))
+                                Index Searches: 1
+                                Buffers: shared hit=3
+                          ->  Bitmap Index Scan on idx_vip_daily_sales_2026_goods_code_pattern  (cost=0.00..4.44 rows=1 width=0) (actual rows=0.00 loops=1)
+                                Index Cond: ((goods_code ~>=~ 'HA762210D42'::text) AND (goods_code ~<~ 'HA762210D43'::text))
+                                Index Searches: 1
+                                Buffers: shared hit=3
+                          ->  Bitmap Index Scan on idx_vip_daily_sales_2026_goods_code_pattern  (cost=0.00..4.44 rows=1 width=0) (actual rows=0.00 loops=1)
+                                Index Cond: ((goods_code ~>=~ 'HA762410D17'::text) AND (goods_code ~<~ 'HA762410D18'::text))
+                                Index Searches: 1
+                                Buffers: shared hit=3
+                          ->  Bitmap Index Scan on idx_vip_daily_sales_2026_goods_code_pattern  (cost=0.00..4.44 rows=1 width=0) (actual rows=0.00 loops=1)
+                                Index Cond: ((goods_code ~>=~ 'HA762410D45'::text) AND (goods_code ~<~ 'HA762410D46'::text))
+                                Index Searches: 1
+                                Buffers: shared hit=3
+                          ->  Bitmap Index Scan on idx_vip_daily_sales_2026_goods_code_pattern  (cost=0.00..4.44 rows=1 width=0) (actual rows=0.00 loops=1)
+                                Index Cond: ((goods_code ~>=~ 'HA762410D51'::text) AND (goods_code ~<~ 'HA762410D52'::text))
+                                Index Searches: 1
+                                Buffers: shared hit=3
+                          ->  Bitmap Index Scan on idx_vip_daily_sales_2026_goods_code_pattern  (cost=0.00..4.44 rows=1 width=0) (actual rows=0.00 loops=1)
+                                Index Cond: ((goods_code ~>=~ 'HA762995L30'::text) AND (goods_code ~<~ 'HA762995L31'::text))
+                                Index Searches: 1
+                                Buffers: shared hit=3
+                          ->  Bitmap Index Scan on idx_vip_daily_sales_2026_goods_code_pattern  (cost=0.00..4.44 rows=1 width=0) (actual rows=0.00 loops=1)
+                                Index Cond: ((goods_code ~>=~ 'HA762995L73'::text) AND (goods_code ~<~ 'HA762995L74'::text))
+                                Index Searches: 1
+                                Buffers: shared hit=3
+                          ->  Bitmap Index Scan on idx_vip_daily_sales_2026_goods_code_pattern  (cost=0.00..4.44 rows=1 width=0) (actual rows=0.00 loops=1)
+                                Index Cond: ((goods_code ~>=~ 'HAH62112S01'::text) AND (goods_code ~<~ 'HAH62112S02'::text))
+                                Index Searches: 1
+                                Buffers: shared hit=3
+                          ->  Bitmap Index Scan on idx_vip_daily_sales_2026_goods_code_pattern  (cost=0.00..4.44 rows=1 width=0) (actual rows=0.00 loops=1)
+                                Index Cond: ((goods_code ~>=~ 'HAH62112S28'::text) AND (goods_code ~<~ 'HAH62112S29'::text))
+                                Index Searches: 1
+                                Buffers: shared hit=3
+                          ->  Bitmap Index Scan on idx_vip_daily_sales_2026_goods_code_pattern  (cost=0.00..4.44 rows=1 width=0) (actual rows=0.00 loops=1)
+                                Index Cond: ((goods_code ~>=~ 'HAH62630D01'::text) AND (goods_code ~<~ 'HAH62630D02'::text))
+                                Index Searches: 1
+                                Buffers: shared hit=3
+                          ->  Bitmap Index Scan on idx_vip_daily_sales_2026_goods_code_pattern  (cost=0.00..4.44 rows=1 width=0) (actual rows=0.00 loops=1)
+                                Index Cond: ((goods_code ~>=~ 'HAH62630D28'::text) AND (goods_code ~<~ 'HAH62630D29'::text))
+                                Index Searches: 1
+                                Buffers: shared hit=3
+                          ->  Bitmap Index Scan on idx_vip_daily_sales_2026_goods_code_pattern  (cost=0.00..4.44 rows=1 width=0) (actual rows=0.00 loops=1)
+                                Index Cond: ((goods_code ~>=~ 'HAH62631D01'::text) AND (goods_code ~<~ 'HAH62631D02'::text))
+                                Index Searches: 1
+                                Buffers: shared hit=3
+                          ->  Bitmap Index Scan on idx_vip_daily_sales_2026_goods_code_pattern  (cost=0.00..4.44 rows=1 width=0) (actual rows=0.00 loops=1)
+                                Index Cond: ((goods_code ~>=~ 'HAH62631D28'::text) AND (goods_code ~<~ 'HAH62631D29'::text))
+                                Index Searches: 1
+                                Buffers: shared hit=3
+                          ->  Bitmap Index Scan on idx_vip_daily_sales_2026_goods_code_pattern  (cost=0.00..4.44 rows=1 width=0) (actual rows=0.00 loops=1)
+                                Index Cond: ((goods_code ~>=~ 'HAH62632D01'::text) AND (goods_code ~<~ 'HAH62632D02'::text))
+                                Index Searches: 1
+                                Buffers: shared hit=3
+                          ->  Bitmap Index Scan on idx_vip_daily_sales_2026_goods_code_pattern  (cost=0.00..4.44 rows=1 width=0) (actual rows=0.00 loops=1)
+                                Index Cond: ((goods_code ~>=~ 'HAH62632D28'::text) AND (goods_code ~<~ 'HAH62632D29'::text))
+                                Index Searches: 1
+                                Buffers: shared hit=3
+                          ->  Bitmap Index Scan on idx_vip_daily_sales_2026_goods_code_pattern  (cost=0.00..4.44 rows=1 width=0) (actual rows=0.00 loops=1)
+                                Index Cond: ((goods_code ~>=~ 'HAH62633D01'::text) AND (goods_code ~<~ 'HAH62633D02'::text))
+                                Index Searches: 1
+                                Buffers: shared hit=3
+                          ->  Bitmap Index Scan on idx_vip_daily_sales_2026_goods_code_pattern  (cost=0.00..4.44 rows=1 width=0) (actual rows=0.00 loops=1)
+                                Index Cond: ((goods_code ~>=~ 'HAH62633DL7'::text) AND (goods_code ~<~ 'HAH62633DL8'::text))
+                                Index Searches: 1
+                                Buffers: shared hit=3
+                          ->  Bitmap Index Scan on idx_vip_daily_sales_2026_goods_code_pattern  (cost=0.00..4.44 rows=1 width=0) (actual rows=0.00 loops=1)
+                                Index Cond: ((goods_code ~>=~ 'HAM62450D24'::text) AND (goods_code ~<~ 'HAM62450D25'::text))
+                                Index Searches: 1
+                                Buffers: shared hit=3
+                          ->  Bitmap Index Scan on idx_vip_daily_sales_2026_goods_code_pattern  (cost=0.00..4.44 rows=1 width=0) (actual rows=0.00 loops=1)
+                                Index Cond: ((goods_code ~>=~ 'HAM62450D38'::text) AND (goods_code ~<~ 'HAM62450D39'::text))
+                                Index Searches: 1
+                                Buffers: shared hit=3
+                          ->  Bitmap Index Scan on idx_vip_daily_sales_2026_goods_code_pattern  (cost=0.00..4.44 rows=1 width=0) (actual rows=0.00 loops=1)
+                                Index Cond: ((goods_code ~>=~ 'HAM62456D06'::text) AND (goods_code ~<~ 'HAM62456D07'::text))
+                                Index Searches: 1
+                                Buffers: shared hit=3
+                          ->  Bitmap Index Scan on idx_vip_daily_sales_2026_goods_code_pattern  (cost=0.00..4.44 rows=1 width=0) (actual rows=0.00 loops=1)
+                                Index Cond: ((goods_code ~>=~ 'HAM62456D09'::text) AND (goods_code ~<~ 'HAM62456D0:'::text))
+                                Index Searches: 1
+                                Buffers: shared hit=3
+                          ->  Bitmap Index Scan on idx_vip_daily_sales_2026_goods_code_pattern  (cost=0.00..4.44 rows=1 width=0) (actual rows=0.00 loops=1)
+                                Index Cond: ((goods_code ~>=~ 'HAM62456D38'::text) AND (goods_code ~<~ 'HAM62456D39'::text))
+                                Index Searches: 1
+                                Buffers: shared hit=3
+                          ->  Bitmap Index Scan on idx_vip_daily_sales_2026_goods_code_pattern  (cost=0.00..4.44 rows=1 width=0) (actual rows=0.00 loops=1)
+                                Index Cond: ((goods_code ~>=~ 'HAM62456D73'::text) AND (goods_code ~<~ 'HAM62456D74'::text))
+                                Index Searches: 1
+                                Buffers: shared hit=3
+                          ->  Bitmap Index Scan on idx_vip_daily_sales_2026_goods_code_pattern  (cost=0.00..4.44 rows=1 width=0) (actual rows=0.00 loops=1)
+                                Index Cond: ((goods_code ~>=~ 'HAM62652D01'::text) AND (goods_code ~<~ 'HAM62652D02'::text))
+                                Index Searches: 1
+                                Buffers: shared hit=3
+                          ->  Bitmap Index Scan on idx_vip_daily_sales_2026_goods_code_pattern  (cost=0.00..4.44 rows=1 width=0) (actual rows=0.00 loops=1)
+                                Index Cond: ((goods_code ~>=~ 'HAM62652D73'::text) AND (goods_code ~<~ 'HAM62652D74'::text))
+                                Index Searches: 1
+                                Buffers: shared hit=3
+                          ->  Bitmap Index Scan on idx_vip_daily_sales_2026_goods_code_pattern  (cost=0.00..4.44 rows=1 width=0) (actual rows=0.00 loops=1)
+                                Index Cond: ((goods_code ~>=~ 'HAM62653D01'::text) AND (goods_code ~<~ 'HAM62653D02'::text))
+                                Index Searches: 1
+                                Buffers: shared hit=3
+                          ->  Bitmap Index Scan on idx_vip_daily_sales_2026_style_code  (cost=0.00..1060.38 rows=85132 width=0) (actual rows=0.00 loops=1)
+                                Index Cond: (style_code = ANY ('{H6162249W01,H6162249W30,H6162250D01,H6162412D20,H6162413D28,H6162414D01,H6162414D28,H7962688X01,H7962688X06,H7962688X20,H7962689X01,H7962689X02,H7962690X01,H7962690X06,H7962691X01,H7962691X06,H7962747X01,H7962747X02,H8661908D01,H8662969D01,H8662969D20,HA762209D17,HA762209D20,HA762209D73,HA762210D06,HA762210D42,HA762410D17,HA762410D45,HA762410D51,HA762995L30,HA762995L73,HAH62112S01,HAH62112S28,HAH62630D01,HAH62630D28,HAH62631D01,HAH62631D28,HAH62632D01,HAH62632D28,HAH62633D01,HAH62633DL7,HAM62450D24,HAM62450D38,HAM62456D06,HAM62456D09,HAM62456D38,HAM62456D73,HAM62652D01,HAM62652D73,HAM62653D01}'::text[]))
+                                Index Searches: 1
+                                Buffers: shared hit=3
+Planning:
+  Buffers: shared hit=209
+Planning Time: 1.607 ms
+Execution Time: 89.897 ms
+=== goods-womens-1: SELECT cbanner_womens_products.id, cbanner_womens_products.source_workbook, cbanner_womens_products.source_sheet, cbanner_womens_products.source_row_number, cbanner_womens_products.raw_payload, cbanner_womens_products.image_path, cbanner_womens_products.sku, cbanner_womens_products.original_sku, cbanner_womens_products.product_name, cbanner_womens_products.group_name, cbanner_womens_products.category, cbanner_womens_products.product_level, cbanner_womens_products.cost, cbanner_womens_products.cost_price, cbanner_womens_products.factory_sku, cbanner_womens_products.color, cbanner_womens_products.season_category, cbanner_womens_products.year, cbanner_womens_products.upper_material, cbanner_womens_products.lining_material, cbanner_womens_products.outsole_material, cbanner_womens_products.insole_material, cbanner_womens_products.execution_standard, cbanner_womens_products.heel_height, cbanner_womens_products.rear_heel_height, cbanner_womens_products.sole_style, cbanner_womens_products.fashion_elements, cbanner_womens_products.shoe_width, cbanner_womens_products.shoe_length, cbanner_womens_products.shaft_circumference, cbanner_womens_products.shaft_height, cbanner_womens_products.internal_height_increase, cbanner_womens_products.internal_height_note, cbanner_womens_products.upper_height, cbanner_womens_products.opening_depth, cbanner_womens_products.boot_shaft, cbanner_womens_products.toe_shape, cbanner_womens_products.closure_type, cbanner_womens_products.mesh_upper_type, cbanner_womens_products.shoe_box_spec, cbanner_womens_products.shoe_box_type, cbanner_womens_products.selling_points, cbanner_womens_products.first_order_time, cbanner_womens_products.size_range, cbanner_womens_products.product_model, cbanner_womens_products.supplier_name, cbanner_womens_products.color_code, cbanner_womens_products.barcode_build_rule, cbanner_womens_products.launch_date, cbanner_womens_products.cost_manual_override, cbanner_womens_products.extra_fields, cbanner_womens_products.created_at, cbanner_womens_products.updated_at, cbanner_womens_products.last_imported_at, cbanner_womens_products.deleted_at, product_goods_overrides.id AS id_1, product_goods_overrides.brand, product_goods_overrides.product_id, product_goods_overrides.platform, product_goods_overrides.category_l4, product_goods_overrides.product_role, product_goods_overrides.product_type, product_goods_overrides.douyin_hot, product_goods_overrides.clearance, product_goods_overrides.remark, product_goods_overrides.extra_fields AS extra_fields_1, product_goods_overrides.created_at AS created_at_1, product_goods_overrides.updated_at AS updated_at_1, gj_merged_product_info.goods_code AS _gj_goods_code, gj_merged_product_info.original_goods_code AS _gj_original_goods_code, gj_merged_product_info.factory_code AS _gj_factory_code, gj_merged_product_info.product_name AS _gj_product_name, gj_merged_product_info.execution_standard AS _gj_execution_standard, gj_merged_product_info.launch_date AS _gj_launch_date, gj_merged_product_info.insole_material AS _gj_insole_material, gj_merged_product_info.outsole_material AS _gj_outsole_material, gj_merged_product_info.lining_material AS _gj_lining_material, gj_merged_product_info.upper_material AS _gj_upper_material, gj_merged_product_info.shoe_box_spec AS _gj_shoe_box_spec, gj_merged_product_info.primary_supplier AS _gj_primary_supplier, gj_merged_product_info.extra_fields AS _gj_extra_fields 
+FROM (SELECT cbanner_womens_products.id AS product_id, CAST(cbanner_womens_products.year AS TEXT) AS sort_year, CAST(coalesce(nullif(trim(CAST(gj_merged_product_info.goods_code AS TEXT)), %(nullif_1)s::VARCHAR), nullif(trim(CAST(cbanner_womens_products.sku AS TEXT)), %(nullif_2)s::VARCHAR), %(coalesce_1)s::VARCHAR) AS TEXT) AS sort_sku, gj_merged_product_info.id AS gj_id 
+FROM gj_merged_product_info JOIN cbanner_womens_products ON cbanner_womens_products.sku = gj_merged_product_info.goods_code AND cbanner_womens_products.deleted_at IS NULL LEFT OUTER JOIN product_goods_overrides ON product_goods_overrides.brand = %(brand_1)s::VARCHAR AND product_goods_overrides.product_id = cbanner_womens_products.id 
+WHERE gj_merged_product_info.source_date_value = %(source_date_value_1)s::DATE AND gj_merged_product_info.fine_table_brand = %(fine_table_brand_1)s::VARCHAR ORDER BY CAST(cbanner_womens_products.year AS TEXT) DESC NULLS LAST, CAST(coalesce(nullif(trim(CAST(gj_merged_product_info.goods_code AS TEXT)), %(nullif_1)s::VARCHAR), nullif(trim(CAST(cbanner_womens_products.sku AS TEXT)), %(nullif_2)s::VARCHAR), %(coalesce_1)s::VARCHAR) AS TEXT) 
+ LIMIT %(param_1)s::INTEGER OFFSET %(param_2)s::INTEGER) AS goods_page JOIN cbanner_womens_products ON cbanner_womens_products.id = goods_page.product_id JOIN gj_merged_product_info ON gj_merged_product_info.id = goods_page.gj_id LEFT OUTER JOIN product_goods_overrides ON product_goods_overrides.brand = %(brand_2)s::VARCHAR AND product_goods_overrides.product_id = cbanner_womens_products.id ORDER BY goods_page.sort_year DESC NULLS LAST, goods_page.sort_sku ===
+Nested Loop Left Join  (cost=7326.96..8329.99 rows=50 width=1642) (actual rows=50.00 loops=1)
+  Buffers: shared hit=3265 read=3939
+  ->  Nested Loop  (cost=7326.68..8136.21 rows=50 width=1510) (actual rows=50.00 loops=1)
+        Buffers: shared hit=3135 read=3939
+        ->  Nested Loop  (cost=7326.24..7713.71 rows=50 width=1341) (actual rows=50.00 loops=1)
+              Buffers: shared hit=2935 read=3939
+              ->  Limit  (cost=7325.96..7326.08 rows=50 width=63) (actual rows=50.00 loops=1)
+                    Buffers: shared hit=2785 read=3939
+                    ->  Sort  (cost=7325.96..7335.38 rows=3770 width=63) (actual rows=50.00 loops=1)
+                          Sort Key: cbanner_womens_products_1.year DESC NULLS LAST, (COALESCE(NULLIF(TRIM(BOTH FROM gj_merged_product_info_1.goods_code), ''::text), NULLIF(TRIM(BOTH FROM cbanner_womens_products_1.sku), ''::text), ''::text))
+                          Sort Method: top-N heapsort  Memory: 28kB
+                          Buffers: shared hit=2785 read=3939
+                          ->  Hash Join  (cost=4640.26..7200.72 rows=3770 width=63) (actual rows=16019.00 loops=1)
+                                Hash Cond: (gj_merged_product_info_1.goods_code = cbanner_womens_products_1.sku)
+                                Buffers: shared hit=2785 read=3939
+                                ->  Index Only Scan using idx_gj_merged_product_info_source_brand_code on gj_merged_product_info gj_merged_product_info_1  (cost=0.56..2485.52 rows=14400 width=20) (actual rows=16019.00 loops=1)
+                                      Index Cond: ((source_date_value = '2026-10-14'::date) AND (fine_table_brand = 'cbanner_womens'::text))
+                                      Heap Fetches: 16019
+                                      Index Searches: 1
+                                      Buffers: shared hit=2446
+                                ->  Hash  (cost=4438.80..4438.80 rows=16072 width=35) (actual rows=16072.00 loops=1)
+                                      Buckets: 16384  Batches: 1  Memory Usage: 1144kB
+                                      Buffers: shared hit=339 read=3939
+                                      ->  Seq Scan on cbanner_womens_products cbanner_womens_products_1  (cost=0.00..4438.80 rows=16072 width=35) (actual rows=16072.00 loops=1)
+                                            Filter: (deleted_at IS NULL)
+                                            Rows Removed by Filter: 8
+                                            Buffers: shared hit=339 read=3939
+              ->  Index Scan using qbd_womens_products_pkey on cbanner_womens_products  (cost=0.29..7.74 rows=1 width=1286) (actual rows=1.00 loops=50)
+                    Index Cond: (id = cbanner_womens_products_1.id)
+                    Index Searches: 50
+                    Buffers: shared hit=150
+        ->  Index Scan using gj_merged_product_info_pkey on gj_merged_product_info  (cost=0.43..8.45 rows=1 width=185) (actual rows=1.00 loops=50)
+              Index Cond: (id = gj_merged_product_info_1.id)
+              Index Searches: 50
+              Buffers: shared hit=200
+  ->  Index Scan using uq_product_goods_overrides_brand_product on product_goods_overrides  (cost=0.29..3.88 rows=1 width=132) (actual rows=0.60 loops=50)
+        Index Cond: ((brand = 'cbanner_womens'::text) AND (product_id = cbanner_womens_products.id))
+        Index Searches: 50
+        Buffers: shared hit=130
+Planning:
+  Buffers: shared hit=650
+Planning Time: 2.033 ms
+Execution Time: 19.785 ms
+=== goods-womens-1: SELECT count(*) AS count_1 
+FROM gj_merged_product_info JOIN cbanner_womens_products ON cbanner_womens_products.sku = gj_merged_product_info.goods_code AND cbanner_womens_products.deleted_at IS NULL LEFT OUTER JOIN product_goods_overrides ON product_goods_overrides.brand = %(brand_1)s::VARCHAR AND product_goods_overrides.product_id = cbanner_womens_products.id 
+WHERE gj_merged_product_info.source_date_value = %(source_date_value_1)s::DATE AND gj_merged_product_info.fine_table_brand = %(fine_table_brand_1)s::VARCHAR ===
+Aggregate  (cost=3399.01..3399.02 rows=1 width=8) (actual rows=1.00 loops=1)
+  Buffers: shared hit=2661
+  ->  Hash Join  (cost=866.82..3389.59 rows=3770 width=0) (actual rows=16019.00 loops=1)
+        Hash Cond: (gj_merged_product_info.goods_code = cbanner_womens_products.sku)
+        Buffers: shared hit=2661
+        ->  Index Only Scan using idx_gj_merged_product_info_source_brand_code on gj_merged_product_info  (cost=0.56..2485.52 rows=14400 width=12) (actual rows=16019.00 loops=1)
+              Index Cond: ((source_date_value = '2026-10-14'::date) AND (fine_table_brand = 'cbanner_womens'::text))
+              Heap Fetches: 16019
+              Index Searches: 1
+              Buffers: shared hit=2446
+        ->  Hash  (cost=665.37..665.37 rows=16072 width=20) (actual rows=16072.00 loops=1)
+              Buckets: 16384  Batches: 1  Memory Usage: 1007kB
+              Buffers: shared hit=215
+              ->  Index Only Scan using idx_cbanner_womens_products_active_id on cbanner_womens_products  (cost=0.29..665.37 rows=16072 width=20) (actual rows=16072.00 loops=1)
+                    Heap Fetches: 148
+                    Index Searches: 1
+                    Buffers: shared hit=215
+Planning:
+  Buffers: shared hit=15
+Planning Time: 0.264 ms
+Execution Time: 6.151 ms
+=== goods-womens-1: SELECT jst_daily_sales_2026.product_code, jst_daily_sales_2026.style_code, jst_daily_sales_2026.sales_date, jst_daily_sales_2026.channel, jst_daily_sales_2026.color_spec, sum(coalesce(jst_daily_sales_2026.net_sales_quantity, %(coalesce_1)s::INTEGER)) AS quantity, sum(coalesce(jst_daily_sales_2026.sales_order_count, %(coalesce_2)s::INTEGER)) AS order_count 
+FROM jst_daily_sales_2026 
+WHERE ((jst_daily_sales_2026.product_code LIKE %(product_code_1)s::VARCHAR || '%%') OR (jst_daily_sales_2026.product_code LIKE %(product_code_2)s::VARCHAR || '%%') OR (jst_daily_sales_2026.product_code LIKE %(product_code_3)s::VARCHAR || '%%') OR (jst_daily_sales_2026.product_code LIKE %(product_code_4)s::VARCHAR || '%%') OR (jst_daily_sales_2026.product_code LIKE %(product_code_5)s::VARCHAR || '%%') OR (jst_daily_sales_2026.product_code LIKE %(product_code_6)s::VARCHAR || '%%') OR (jst_daily_sales_2026.product_code LIKE %(product_code_7)s::VARCHAR || '%%') OR (jst_daily_sales_2026.product_code LIKE %(product_code_8)s::VARCHAR || '%%') OR (jst_daily_sales_2026.product_code LIKE %(product_code_9)s::VARCHAR || '%%') OR (jst_daily_sales_2026.product_code LIKE %(product_code_10)s::VARCHAR || '%%') OR (jst_daily_sales_2026.product_code LIKE %(product_code_11)s::VARCHAR || '%%') OR (jst_daily_sales_2026.product_code LIKE %(product_code_12)s::VARCHAR || '%%') OR (jst_daily_sales_2026.product_code LIKE %(product_code_13)s::VARCHAR || '%%') OR (jst_daily_sales_2026.product_code LIKE %(product_code_14)s::VARCHAR || '%%') OR (jst_daily_sales_2026.product_code LIKE %(product_code_15)s::VARCHAR || '%%') OR (jst_daily_sales_2026.product_code LIKE %(product_code_16)s::VARCHAR || '%%') OR (jst_daily_sales_2026.product_code LIKE %(product_code_17)s::VARCHAR || '%%') OR (jst_daily_sales_2026.product_code LIKE %(product_code_18)s::VARCHAR || '%%') OR (jst_daily_sales_2026.product_code LIKE %(product_code_19)s::VARCHAR || '%%') OR (jst_daily_sales_2026.product_code LIKE %(product_code_20)s::VARCHAR || '%%') OR (jst_daily_sales_2026.product_code LIKE %(product_code_21)s::VARCHAR || '%%') OR (jst_daily_sales_2026.product_code LIKE %(product_code_22)s::VARCHAR || '%%') OR (jst_daily_sales_2026.product_code LIKE %(product_code_23)s::VARCHAR || '%%') OR (jst_daily_sales_2026.product_code LIKE %(product_code_24)s::VARCHAR || '%%') OR (jst_daily_sales_2026.product_code LIKE %(product_code_25)s::VARCHAR || '%%') OR (jst_daily_sales_2026.product_code LIKE %(product_code_26)s::VARCHAR || '%%') OR (jst_daily_sales_2026.product_code LIKE %(product_code_27)s::VARCHAR || '%%') OR (jst_daily_sales_2026.product_code LIKE %(product_code_28)s::VARCHAR || '%%') OR (jst_daily_sales_2026.product_code LIKE %(product_code_29)s::VARCHAR || '%%') OR (jst_daily_sales_2026.product_code LIKE %(product_code_30)s::VARCHAR || '%%') OR (jst_daily_sales_2026.product_code LIKE %(product_code_31)s::VARCHAR || '%%') OR (jst_daily_sales_2026.product_code LIKE %(product_code_32)s::VARCHAR || '%%') OR (jst_daily_sales_2026.product_code LIKE %(product_code_33)s::VARCHAR || '%%') OR (jst_daily_sales_2026.product_code LIKE %(product_code_34)s::VARCHAR || '%%') OR (jst_daily_sales_2026.product_code LIKE %(product_code_35)s::VARCHAR || '%%') OR (jst_daily_sales_2026.product_code LIKE %(product_code_36)s::VARCHAR || '%%') OR (jst_daily_sales_2026.product_code LIKE %(product_code_37)s::VARCHAR || '%%') OR (jst_daily_sales_2026.product_code LIKE %(product_code_38)s::VARCHAR || '%%') OR (jst_daily_sales_2026.product_code LIKE %(product_code_39)s::VARCHAR || '%%') OR (jst_daily_sales_2026.product_code LIKE %(product_code_40)s::VARCHAR || '%%') OR (jst_daily_sales_2026.product_code LIKE %(product_code_41)s::VARCHAR || '%%') OR (jst_daily_sales_2026.product_code LIKE %(product_code_42)s::VARCHAR || '%%') OR (jst_daily_sales_2026.product_code LIKE %(product_code_43)s::VARCHAR || '%%') OR (jst_daily_sales_2026.product_code LIKE %(product_code_44)s::VARCHAR || '%%') OR (jst_daily_sales_2026.product_code LIKE %(product_code_45)s::VARCHAR || '%%') OR (jst_daily_sales_2026.product_code LIKE %(product_code_46)s::VARCHAR || '%%') OR (jst_daily_sales_2026.product_code LIKE %(product_code_47)s::VARCHAR || '%%') OR (jst_daily_sales_2026.product_code LIKE %(product_code_48)s::VARCHAR || '%%') OR (jst_daily_sales_2026.product_code LIKE %(product_code_49)s::VARCHAR || '%%') OR (jst_daily_sales_2026.product_code LIKE %(product_code_50)s::VARCHAR || '%%') OR jst_daily_sales_2026.style_code IN (%(style_code_1_1)s::VARCHAR, %(style_code_1_2)s::VARCHAR, %(style_code_1_3)s::VARCHAR, %(style_code_1_4)s::VARCHAR, %(style_code_1_5)s::VARCHAR, %(style_code_1_6)s::VARCHAR, %(style_code_1_7)s::VARCHAR, %(style_code_1_8)s::VARCHAR, %(style_code_1_9)s::VARCHAR, %(style_code_1_10)s::VARCHAR, %(style_code_1_11)s::VARCHAR, %(style_code_1_12)s::VARCHAR, %(style_code_1_13)s::VARCHAR, %(style_code_1_14)s::VARCHAR, %(style_code_1_15)s::VARCHAR, %(style_code_1_16)s::VARCHAR, %(style_code_1_17)s::VARCHAR, %(style_code_1_18)s::VARCHAR, %(style_code_1_19)s::VARCHAR, %(style_code_1_20)s::VARCHAR, %(style_code_1_21)s::VARCHAR, %(style_code_1_22)s::VARCHAR, %(style_code_1_23)s::VARCHAR, %(style_code_1_24)s::VARCHAR, %(style_code_1_25)s::VARCHAR, %(style_code_1_26)s::VARCHAR, %(style_code_1_27)s::VARCHAR, %(style_code_1_28)s::VARCHAR, %(style_code_1_29)s::VARCHAR, %(style_code_1_30)s::VARCHAR, %(style_code_1_31)s::VARCHAR, %(style_code_1_32)s::VARCHAR, %(style_code_1_33)s::VARCHAR, %(style_code_1_34)s::VARCHAR, %(style_code_1_35)s::VARCHAR, %(style_code_1_36)s::VARCHAR, %(style_code_1_37)s::VARCHAR, %(style_code_1_38)s::VARCHAR, %(style_code_1_39)s::VARCHAR, %(style_code_1_40)s::VARCHAR, %(style_code_1_41)s::VARCHAR, %(style_code_1_42)s::VARCHAR, %(style_code_1_43)s::VARCHAR, %(style_code_1_44)s::VARCHAR, %(style_code_1_45)s::VARCHAR, %(style_code_1_46)s::VARCHAR, %(style_code_1_47)s::VARCHAR, %(style_code_1_48)s::VARCHAR, %(style_code_1_49)s::VARCHAR, %(style_code_1_50)s::VARCHAR)) AND jst_daily_sales_2026.sales_date <= %(sales_date_1)s::DATE AND coalesce(jst_daily_sales_2026.channel, %(coalesce_3)s::VARCHAR) NOT ILIKE %(coalesce_4)s::VARCHAR AND coalesce(jst_daily_sales_2026.channel, %(coalesce_3)s::VARCHAR) NOT ILIKE %(coalesce_5)s::VARCHAR AND coalesce(jst_daily_sales_2026.channel, %(coalesce_3)s::VARCHAR) NOT ILIKE %(coalesce_6)s::VARCHAR GROUP BY jst_daily_sales_2026.product_code, jst_daily_sales_2026.style_code, jst_daily_sales_2026.sales_date, jst_daily_sales_2026.channel, jst_daily_sales_2026.color_spec ===
+HashAggregate  (cost=20479.16..20583.94 rows=10478 width=87) (actual rows=0.00 loops=1)
+  Group Key: product_code, style_code, sales_date, channel, color_spec
+  Batches: 1  Memory Usage: 289kB
+  Buffers: shared hit=463
+  ->  Bitmap Heap Scan on jst_daily_sales_2026  (cost=621.97..20288.59 rows=10890 width=79) (actual rows=0.00 loops=1)
+        Recheck Cond: ((product_code ~~ 'H6162249W01%'::text) OR (product_code ~~ 'H6162249W30%'::text) OR (product_code ~~ 'H6162250D01%'::text) OR (product_code ~~ 'H6162412D20%'::text) OR (product_code ~~ 'H6162413D28%'::text) OR (product_code ~~ 'H6162414D01%'::text) OR (product_code ~~ 'H6162414D28%'::text) OR (product_code ~~ 'H7962688X01%'::text) OR (product_code ~~ 'H7962688X06%'::text) OR (product_code ~~ 'H7962688X20%'::text) OR (product_code ~~ 'H7962689X01%'::text) OR (product_code ~~ 'H7962689X02%'::text) OR (product_code ~~ 'H7962690X01%'::text) OR (product_code ~~ 'H7962690X06%'::text) OR (product_code ~~ 'H7962691X01%'::text) OR (product_code ~~ 'H7962691X06%'::text) OR (product_code ~~ 'H7962747X01%'::text) OR (product_code ~~ 'H7962747X02%'::text) OR (product_code ~~ 'H8661908D01%'::text) OR (product_code ~~ 'H8662969D01%'::text) OR (product_code ~~ 'H8662969D20%'::text) OR (product_code ~~ 'HA762209D17%'::text) OR (product_code ~~ 'HA762209D20%'::text) OR (product_code ~~ 'HA762209D73%'::text) OR (product_code ~~ 'HA762210D06%'::text) OR (product_code ~~ 'HA762210D42%'::text) OR (product_code ~~ 'HA762410D17%'::text) OR (product_code ~~ 'HA762410D45%'::text) OR (product_code ~~ 'HA762410D51%'::text) OR (product_code ~~ 'HA762995L30%'::text) OR (product_code ~~ 'HA762995L73%'::text) OR (product_code ~~ 'HAH62112S01%'::text) OR (product_code ~~ 'HAH62112S28%'::text) OR (product_code ~~ 'HAH62630D01%'::text) OR (product_code ~~ 'HAH62630D28%'::text) OR (product_code ~~ 'HAH62631D01%'::text) OR (product_code ~~ 'HAH62631D28%'::text) OR (product_code ~~ 'HAH62632D01%'::text) OR (product_code ~~ 'HAH62632D28%'::text) OR (product_code ~~ 'HAH62633D01%'::text) OR (product_code ~~ 'HAH62633DL7%'::text) OR (product_code ~~ 'HAM62450D24%'::text) OR (product_code ~~ 'HAM62450D38%'::text) OR (product_code ~~ 'HAM62456D06%'::text) OR (product_code ~~ 'HAM62456D09%'::text) OR (product_code ~~ 'HAM62456D38%'::text) OR (product_code ~~ 'HAM62456D73%'::text) OR (product_code ~~ 'HAM62652D01%'::text) OR (product_code ~~ 'HAM62652D73%'::text) OR (product_code ~~ 'HAM62653D01%'::text) OR (style_code = ANY ('{H6162249W01,H6162249W30,H6162250D01,H6162412D20,H6162413D28,H6162414D01,H6162414D28,H7962688X01,H7962688X06,H7962688X20,H7962689X01,H7962689X02,H7962690X01,H7962690X06,H7962691X01,H7962691X06,H7962747X01,H7962747X02,H8661908D01,H8662969D01,H8662969D20,HA762209D17,HA762209D20,HA762209D73,HA762210D06,HA762210D42,HA762410D17,HA762410D45,HA762410D51,HA762995L30,HA762995L73,HAH62112S01,HAH62112S28,HAH62630D01,HAH62630D28,HAH62631D01,HAH62631D28,HAH62632D01,HAH62632D28,HAH62633D01,HAH62633DL7,HAM62450D24,HAM62450D38,HAM62456D06,HAM62456D09,HAM62456D38,HAM62456D73,HAM62652D01,HAM62652D73,HAM62653D01}'::text[])))
+        Filter: ((sales_date <= '2026-10-13'::date) AND (COALESCE(channel, ''::text) !~~* '%采购%'::text) AND (COALESCE(channel, ''::text) !~~* '%-公司'::text) AND (COALESCE(channel, ''::text) !~~* '%VMI%'::text) AND ((product_code ~~ 'H6162249W01%'::text) OR (product_code ~~ 'H6162249W30%'::text) OR (product_code ~~ 'H6162250D01%'::text) OR (product_code ~~ 'H6162412D20%'::text) OR (product_code ~~ 'H6162413D28%'::text) OR (product_code ~~ 'H6162414D01%'::text) OR (product_code ~~ 'H6162414D28%'::text) OR (product_code ~~ 'H7962688X01%'::text) OR (product_code ~~ 'H7962688X06%'::text) OR (product_code ~~ 'H7962688X20%'::text) OR (product_code ~~ 'H7962689X01%'::text) OR (product_code ~~ 'H7962689X02%'::text) OR (product_code ~~ 'H7962690X01%'::text) OR (product_code ~~ 'H7962690X06%'::text) OR (product_code ~~ 'H7962691X01%'::text) OR (product_code ~~ 'H7962691X06%'::text) OR (product_code ~~ 'H7962747X01%'::text) OR (product_code ~~ 'H7962747X02%'::text) OR (product_code ~~ 'H8661908D01%'::text) OR (product_code ~~ 'H8662969D01%'::text) OR (product_code ~~ 'H8662969D20%'::text) OR (product_code ~~ 'HA762209D17%'::text) OR (product_code ~~ 'HA762209D20%'::text) OR (product_code ~~ 'HA762209D73%'::text) OR (product_code ~~ 'HA762210D06%'::text) OR (product_code ~~ 'HA762210D42%'::text) OR (product_code ~~ 'HA762410D17%'::text) OR (product_code ~~ 'HA762410D45%'::text) OR (product_code ~~ 'HA762410D51%'::text) OR (product_code ~~ 'HA762995L30%'::text) OR (product_code ~~ 'HA762995L73%'::text) OR (product_code ~~ 'HAH62112S01%'::text) OR (product_code ~~ 'HAH62112S28%'::text) OR (product_code ~~ 'HAH62630D01%'::text) OR (product_code ~~ 'HAH62630D28%'::text) OR (product_code ~~ 'HAH62631D01%'::text) OR (product_code ~~ 'HAH62631D28%'::text) OR (product_code ~~ 'HAH62632D01%'::text) OR (product_code ~~ 'HAH62632D28%'::text) OR (product_code ~~ 'HAH62633D01%'::text) OR (product_code ~~ 'HAH62633DL7%'::text) OR (product_code ~~ 'HAM62450D24%'::text) OR (product_code ~~ 'HAM62450D38%'::text) OR (product_code ~~ 'HAM62456D06%'::text) OR (product_code ~~ 'HAM62456D09%'::text) OR (product_code ~~ 'HAM62456D38%'::text) OR (product_code ~~ 'HAM62456D73%'::text) OR (product_code ~~ 'HAM62652D01%'::text) OR (product_code ~~ 'HAM62652D73%'::text) OR (product_code ~~ 'HAM62653D01%'::text) OR (style_code = ANY ('{H6162249W01,H6162249W30,H6162250D01,H6162412D20,H6162413D28,H6162414D01,H6162414D28,H7962688X01,H7962688X06,H7962688X20,H7962689X01,H7962689X02,H7962690X01,H7962690X06,H7962691X01,H7962691X06,H7962747X01,H7962747X02,H8661908D01,H8662969D01,H8662969D20,HA762209D17,HA762209D20,HA762209D73,HA762210D06,HA762210D42,HA762410D17,HA762410D45,HA762410D51,HA762995L30,HA762995L73,HAH62112S01,HAH62112S28,HAH62630D01,HAH62630D28,HAH62631D01,HAH62631D28,HAH62632D01,HAH62632D28,HAH62633D01,HAH62633DL7,HAM62450D24,HAM62450D38,HAM62456D06,HAM62456D09,HAM62456D38,HAM62456D73,HAM62652D01,HAM62652D73,HAM62653D01}'::text[]))))
+        Rows Removed by Filter: 473
+        Heap Blocks: exact=305
+        Buffers: shared hit=463
+        ->  BitmapOr  (cost=621.85..621.85 rows=5278 width=0) (actual rows=0.00 loops=1)
+              Buffers: shared hit=158
+              ->  Bitmap Index Scan on idx_jst_daily_sales_2026_product_code_pattern  (cost=0.00..4.44 rows=1 width=0) (actual rows=8.00 loops=1)
+                    Index Cond: ((product_code ~>=~ 'H6162249W01'::text) AND (product_code ~<~ 'H6162249W02'::text))
+                    Index Searches: 1
+                    Buffers: shared hit=3
+              ->  Bitmap Index Scan on idx_jst_daily_sales_2026_product_code_pattern  (cost=0.00..4.44 rows=1 width=0) (actual rows=31.00 loops=1)
+                    Index Cond: ((product_code ~>=~ 'H6162249W30'::text) AND (product_code ~<~ 'H6162249W31'::text))
+                    Index Searches: 1
+                    Buffers: shared hit=3
+              ->  Bitmap Index Scan on idx_jst_daily_sales_2026_product_code_pattern  (cost=0.00..4.44 rows=1 width=0) (actual rows=0.00 loops=1)
+                    Index Cond: ((product_code ~>=~ 'H6162250D01'::text) AND (product_code ~<~ 'H6162250D02'::text))
+                    Index Searches: 1
+                    Buffers: shared hit=3
+              ->  Bitmap Index Scan on idx_jst_daily_sales_2026_product_code_pattern  (cost=0.00..4.44 rows=1 width=0) (actual rows=9.00 loops=1)
+                    Index Cond: ((product_code ~>=~ 'H6162412D20'::text) AND (product_code ~<~ 'H6162412D21'::text))
+                    Index Searches: 1
+                    Buffers: shared hit=3
+              ->  Bitmap Index Scan on idx_jst_daily_sales_2026_product_code_pattern  (cost=0.00..4.44 rows=1 width=0) (actual rows=8.00 loops=1)
+                    Index Cond: ((product_code ~>=~ 'H6162413D28'::text) AND (product_code ~<~ 'H6162413D29'::text))
+                    Index Searches: 1
+                    Buffers: shared hit=3
+              ->  Bitmap Index Scan on idx_jst_daily_sales_2026_product_code_pattern  (cost=0.00..4.44 rows=1 width=0) (actual rows=36.00 loops=1)
+                    Index Cond: ((product_code ~>=~ 'H6162414D01'::text) AND (product_code ~<~ 'H6162414D02'::text))
+                    Index Searches: 1
+                    Buffers: shared hit=4
+              ->  Bitmap Index Scan on idx_jst_daily_sales_2026_product_code_pattern  (cost=0.00..4.44 rows=1 width=0) (actual rows=34.00 loops=1)
+                    Index Cond: ((product_code ~>=~ 'H6162414D28'::text) AND (product_code ~<~ 'H6162414D29'::text))
+                    Index Searches: 1
+                    Buffers: shared hit=3
+              ->  Bitmap Index Scan on idx_jst_daily_sales_2026_product_code_pattern  (cost=0.00..4.44 rows=1 width=0) (actual rows=29.00 loops=1)
+                    Index Cond: ((product_code ~>=~ 'H7962688X01'::text) AND (product_code ~<~ 'H7962688X02'::text))
+                    Index Searches: 1
+                    Buffers: shared hit=4
+              ->  Bitmap Index Scan on idx_jst_daily_sales_2026_product_code_pattern  (cost=0.00..4.44 rows=1 width=0) (actual rows=0.00 loops=1)
+                    Index Cond: ((product_code ~>=~ 'H7962688X06'::text) AND (product_code ~<~ 'H7962688X07'::text))
+                    Index Searches: 1
+                    Buffers: shared hit=3
+              ->  Bitmap Index Scan on idx_jst_daily_sales_2026_product_code_pattern  (cost=0.00..4.44 rows=1 width=0) (actual rows=30.00 loops=1)
+                    Index Cond: ((product_code ~>=~ 'H7962688X20'::text) AND (product_code ~<~ 'H7962688X21'::text))
+                    Index Searches: 1
+                    Buffers: shared hit=3
+              ->  Bitmap Index Scan on idx_jst_daily_sales_2026_product_code_pattern  (cost=0.00..4.44 rows=1 width=0) (actual rows=17.00 loops=1)
+                    Index Cond: ((product_code ~>=~ 'H7962689X01'::text) AND (product_code ~<~ 'H7962689X02'::text))
+                    Index Searches: 1
+                    Buffers: shared hit=3
+              ->  Bitmap Index Scan on idx_jst_daily_sales_2026_product_code_pattern  (cost=0.00..4.44 rows=1 width=0) (actual rows=0.00 loops=1)
+                    Index Cond: ((product_code ~>=~ 'H7962689X02'::text) AND (product_code ~<~ 'H7962689X03'::text))
+                    Index Searches: 1
+                    Buffers: shared hit=3
+              ->  Bitmap Index Scan on idx_jst_daily_sales_2026_product_code_pattern  (cost=0.00..4.44 rows=1 width=0) (actual rows=26.00 loops=1)
+                    Index Cond: ((product_code ~>=~ 'H7962690X01'::text) AND (product_code ~<~ 'H7962690X02'::text))
+                    Index Searches: 1
+                    Buffers: shared hit=3
+              ->  Bitmap Index Scan on idx_jst_daily_sales_2026_product_code_pattern  (cost=0.00..4.44 rows=1 width=0) (actual rows=0.00 loops=1)
+                    Index Cond: ((product_code ~>=~ 'H7962690X06'::text) AND (product_code ~<~ 'H7962690X07'::text))
+                    Index Searches: 1
+                    Buffers: shared hit=3
+              ->  Bitmap Index Scan on idx_jst_daily_sales_2026_product_code_pattern  (cost=0.00..4.44 rows=1 width=0) (actual rows=0.00 loops=1)
+                    Index Cond: ((product_code ~>=~ 'H7962691X01'::text) AND (product_code ~<~ 'H7962691X02'::text))
+                    Index Searches: 1
+                    Buffers: shared hit=3
+              ->  Bitmap Index Scan on idx_jst_daily_sales_2026_product_code_pattern  (cost=0.00..4.44 rows=1 width=0) (actual rows=0.00 loops=1)
+                    Index Cond: ((product_code ~>=~ 'H7962691X06'::text) AND (product_code ~<~ 'H7962691X07'::text))
+                    Index Searches: 1
+                    Buffers: shared hit=3
+              ->  Bitmap Index Scan on idx_jst_daily_sales_2026_product_code_pattern  (cost=0.00..4.44 rows=1 width=0) (actual rows=7.00 loops=1)
+                    Index Cond: ((product_code ~>=~ 'H7962747X01'::text) AND (product_code ~<~ 'H7962747X02'::text))
+                    Index Searches: 1
+                    Buffers: shared hit=3
+              ->  Bitmap Index Scan on idx_jst_daily_sales_2026_product_code_pattern  (cost=0.00..4.44 rows=1 width=0) (actual rows=21.00 loops=1)
+                    Index Cond: ((product_code ~>=~ 'H7962747X02'::text) AND (product_code ~<~ 'H7962747X03'::text))
+                    Index Searches: 1
+                    Buffers: shared hit=3
+              ->  Bitmap Index Scan on idx_jst_daily_sales_2026_product_code_pattern  (cost=0.00..4.44 rows=1 width=0) (actual rows=9.00 loops=1)
+                    Index Cond: ((product_code ~>=~ 'H8661908D01'::text) AND (product_code ~<~ 'H8661908D02'::text))
+                    Index Searches: 1
+                    Buffers: shared hit=3
+              ->  Bitmap Index Scan on idx_jst_daily_sales_2026_product_code_pattern  (cost=0.00..4.44 rows=1 width=0) (actual rows=0.00 loops=1)
+                    Index Cond: ((product_code ~>=~ 'H8662969D01'::text) AND (product_code ~<~ 'H8662969D02'::text))
+                    Index Searches: 1
+                    Buffers: shared hit=3
+              ->  Bitmap Index Scan on idx_jst_daily_sales_2026_product_code_pattern  (cost=0.00..4.44 rows=1 width=0) (actual rows=0.00 loops=1)
+                    Index Cond: ((product_code ~>=~ 'H8662969D20'::text) AND (product_code ~<~ 'H8662969D21'::text))
+                    Index Searches: 1
+                    Buffers: shared hit=3
+              ->  Bitmap Index Scan on idx_jst_daily_sales_2026_product_code_pattern  (cost=0.00..4.44 rows=1 width=0) (actual rows=0.00 loops=1)
+                    Index Cond: ((product_code ~>=~ 'HA762209D17'::text) AND (product_code ~<~ 'HA762209D18'::text))
+                    Index Searches: 1
+                    Buffers: shared hit=3
+              ->  Bitmap Index Scan on idx_jst_daily_sales_2026_product_code_pattern  (cost=0.00..4.44 rows=1 width=0) (actual rows=0.00 loops=1)
+                    Index Cond: ((product_code ~>=~ 'HA762209D20'::text) AND (product_code ~<~ 'HA762209D21'::text))
+                    Index Searches: 1
+                    Buffers: shared hit=3
+              ->  Bitmap Index Scan on idx_jst_daily_sales_2026_product_code_pattern  (cost=0.00..4.44 rows=1 width=0) (actual rows=0.00 loops=1)
+                    Index Cond: ((product_code ~>=~ 'HA762209D73'::text) AND (product_code ~<~ 'HA762209D74'::text))
+                    Index Searches: 1
+                    Buffers: shared hit=3
+              ->  Bitmap Index Scan on idx_jst_daily_sales_2026_product_code_pattern  (cost=0.00..4.44 rows=1 width=0) (actual rows=0.00 loops=1)
+                    Index Cond: ((product_code ~>=~ 'HA762210D06'::text) AND (product_code ~<~ 'HA762210D07'::text))
+                    Index Searches: 1
+                    Buffers: shared hit=3
+              ->  Bitmap Index Scan on idx_jst_daily_sales_2026_product_code_pattern  (cost=0.00..4.44 rows=1 width=0) (actual rows=0.00 loops=1)
+                    Index Cond: ((product_code ~>=~ 'HA762210D42'::text) AND (product_code ~<~ 'HA762210D43'::text))
+                    Index Searches: 1
+                    Buffers: shared hit=3
+              ->  Bitmap Index Scan on idx_jst_daily_sales_2026_product_code_pattern  (cost=0.00..4.44 rows=1 width=0) (actual rows=31.00 loops=1)
+                    Index Cond: ((product_code ~>=~ 'HA762410D17'::text) AND (product_code ~<~ 'HA762410D18'::text))
+                    Index Searches: 1
+                    Buffers: shared hit=3
+              ->  Bitmap Index Scan on idx_jst_daily_sales_2026_product_code_pattern  (cost=0.00..4.44 rows=1 width=0) (actual rows=0.00 loops=1)
+                    Index Cond: ((product_code ~>=~ 'HA762410D45'::text) AND (product_code ~<~ 'HA762410D46'::text))
+                    Index Searches: 1
+                    Buffers: shared hit=3
+              ->  Bitmap Index Scan on idx_jst_daily_sales_2026_product_code_pattern  (cost=0.00..4.44 rows=1 width=0) (actual rows=33.00 loops=1)
+                    Index Cond: ((product_code ~>=~ 'HA762410D51'::text) AND (product_code ~<~ 'HA762410D52'::text))
+                    Index Searches: 1
+                    Buffers: shared hit=3
+              ->  Bitmap Index Scan on idx_jst_daily_sales_2026_product_code_pattern  (cost=0.00..4.44 rows=1 width=0) (actual rows=0.00 loops=1)
+                    Index Cond: ((product_code ~>=~ 'HA762995L30'::text) AND (product_code ~<~ 'HA762995L31'::text))
+                    Index Searches: 1
+                    Buffers: shared hit=3
+              ->  Bitmap Index Scan on idx_jst_daily_sales_2026_product_code_pattern  (cost=0.00..4.44 rows=1 width=0) (actual rows=0.00 loops=1)
+                    Index Cond: ((product_code ~>=~ 'HA762995L73'::text) AND (product_code ~<~ 'HA762995L74'::text))
+                    Index Searches: 1
+                    Buffers: shared hit=3
+              ->  Bitmap Index Scan on idx_jst_daily_sales_2026_product_code_pattern  (cost=0.00..4.44 rows=1 width=0) (actual rows=9.00 loops=1)
+                    Index Cond: ((product_code ~>=~ 'HAH62112S01'::text) AND (product_code ~<~ 'HAH62112S02'::text))
+                    Index Searches: 1
+                    Buffers: shared hit=3
+              ->  Bitmap Index Scan on idx_jst_daily_sales_2026_product_code_pattern  (cost=0.00..4.44 rows=1 width=0) (actual rows=8.00 loops=1)
+                    Index Cond: ((product_code ~>=~ 'HAH62112S28'::text) AND (product_code ~<~ 'HAH62112S29'::text))
+                    Index Searches: 1
+                    Buffers: shared hit=3
+              ->  Bitmap Index Scan on idx_jst_daily_sales_2026_product_code_pattern  (cost=0.00..4.44 rows=1 width=0) (actual rows=17.00 loops=1)
+                    Index Cond: ((product_code ~>=~ 'HAH62630D01'::text) AND (product_code ~<~ 'HAH62630D02'::text))
+                    Index Searches: 1
+                    Buffers: shared hit=3
+              ->  Bitmap Index Scan on idx_jst_daily_sales_2026_product_code_pattern  (cost=0.00..4.44 rows=1 width=0) (actual rows=9.00 loops=1)
+                    Index Cond: ((product_code ~>=~ 'HAH62630D28'::text) AND (product_code ~<~ 'HAH62630D29'::text))
+                    Index Searches: 1
+                    Buffers: shared hit=3
+              ->  Bitmap Index Scan on idx_jst_daily_sales_2026_product_code_pattern  (cost=0.00..4.44 rows=1 width=0) (actual rows=8.00 loops=1)
+                    Index Cond: ((product_code ~>=~ 'HAH62631D01'::text) AND (product_code ~<~ 'HAH62631D02'::text))
+                    Index Searches: 1
+                    Buffers: shared hit=3
+              ->  Bitmap Index Scan on idx_jst_daily_sales_2026_product_code_pattern  (cost=0.00..4.44 rows=1 width=0) (actual rows=9.00 loops=1)
+                    Index Cond: ((product_code ~>=~ 'HAH62631D28'::text) AND (product_code ~<~ 'HAH62631D29'::text))
+                    Index Searches: 1
+                    Buffers: shared hit=3
+              ->  Bitmap Index Scan on idx_jst_daily_sales_2026_product_code_pattern  (cost=0.00..4.44 rows=1 width=0) (actual rows=0.00 loops=1)
+                    Index Cond: ((product_code ~>=~ 'HAH62632D01'::text) AND (product_code ~<~ 'HAH62632D02'::text))
+                    Index Searches: 1
+                    Buffers: shared hit=3
+              ->  Bitmap Index Scan on idx_jst_daily_sales_2026_product_code_pattern  (cost=0.00..4.44 rows=1 width=0) (actual rows=0.00 loops=1)
+                    Index Cond: ((product_code ~>=~ 'HAH62632D28'::text) AND (product_code ~<~ 'HAH62632D29'::text))
+                    Index Searches: 1
+                    Buffers: shared hit=3
+              ->  Bitmap Index Scan on idx_jst_daily_sales_2026_product_code_pattern  (cost=0.00..4.44 rows=1 width=0) (actual rows=10.00 loops=1)
+                    Index Cond: ((product_code ~>=~ 'HAH62633D01'::text) AND (product_code ~<~ 'HAH62633D02'::text))
+                    Index Searches: 1
+                    Buffers: shared hit=3
+              ->  Bitmap Index Scan on idx_jst_daily_sales_2026_product_code_pattern  (cost=0.00..4.44 rows=1 width=0) (actual rows=9.00 loops=1)
+                    Index Cond: ((product_code ~>=~ 'HAH62633DL7'::text) AND (product_code ~<~ 'HAH62633DL8'::text))
+                    Index Searches: 1
+                    Buffers: shared hit=3
+              ->  Bitmap Index Scan on idx_jst_daily_sales_2026_product_code_pattern  (cost=0.00..4.44 rows=1 width=0) (actual rows=8.00 loops=1)
+                    Index Cond: ((product_code ~>=~ 'HAM62450D24'::text) AND (product_code ~<~ 'HAM62450D25'::text))
+                    Index Searches: 1
+                    Buffers: shared hit=3
+              ->  Bitmap Index Scan on idx_jst_daily_sales_2026_product_code_pattern  (cost=0.00..4.44 rows=1 width=0) (actual rows=12.00 loops=1)
+                    Index Cond: ((product_code ~>=~ 'HAM62450D38'::text) AND (product_code ~<~ 'HAM62450D39'::text))
+                    Index Searches: 1
+                    Buffers: shared hit=3
+              ->  Bitmap Index Scan on idx_jst_daily_sales_2026_product_code_pattern  (cost=0.00..4.44 rows=1 width=0) (actual rows=22.00 loops=1)
+                    Index Cond: ((product_code ~>=~ 'HAM62456D06'::text) AND (product_code ~<~ 'HAM62456D07'::text))
+                    Index Searches: 1
+                    Buffers: shared hit=3
+              ->  Bitmap Index Scan on idx_jst_daily_sales_2026_product_code_pattern  (cost=0.00..4.44 rows=1 width=0) (actual rows=0.00 loops=1)
+                    Index Cond: ((product_code ~>=~ 'HAM62456D09'::text) AND (product_code ~<~ 'HAM62456D0:'::text))
+                    Index Searches: 1
+                    Buffers: shared hit=3
+              ->  Bitmap Index Scan on idx_jst_daily_sales_2026_product_code_pattern  (cost=0.00..4.44 rows=1 width=0) (actual rows=23.00 loops=1)
+                    Index Cond: ((product_code ~>=~ 'HAM62456D38'::text) AND (product_code ~<~ 'HAM62456D39'::text))
+                    Index Searches: 1
+                    Buffers: shared hit=3
+              ->  Bitmap Index Scan on idx_jst_daily_sales_2026_product_code_pattern  (cost=0.00..4.44 rows=1 width=0) (actual rows=0.00 loops=1)
+                    Index Cond: ((product_code ~>=~ 'HAM62456D73'::text) AND (product_code ~<~ 'HAM62456D74'::text))
+                    Index Searches: 1
+                    Buffers: shared hit=3
+              ->  Bitmap Index Scan on idx_jst_daily_sales_2026_product_code_pattern  (cost=0.00..4.44 rows=1 width=0) (actual rows=0.00 loops=1)
+                    Index Cond: ((product_code ~>=~ 'HAM62652D01'::text) AND (product_code ~<~ 'HAM62652D02'::text))
+                    Index Searches: 1
+                    Buffers: shared hit=3
+              ->  Bitmap Index Scan on idx_jst_daily_sales_2026_product_code_pattern  (cost=0.00..4.44 rows=1 width=0) (actual rows=0.00 loops=1)
+                    Index Cond: ((product_code ~>=~ 'HAM62652D73'::text) AND (product_code ~<~ 'HAM62652D74'::text))
+                    Index Searches: 1
+                    Buffers: shared hit=3
+              ->  Bitmap Index Scan on idx_jst_daily_sales_2026_product_code_pattern  (cost=0.00..4.44 rows=1 width=0) (actual rows=0.00 loops=1)
+                    Index Cond: ((product_code ~>=~ 'HAM62653D01'::text) AND (product_code ~<~ 'HAM62653D02'::text))
+                    Index Searches: 1
+                    Buffers: shared hit=3
+              ->  Bitmap Index Scan on idx_jst_daily_sales_2026_style_code  (cost=0.00..261.12 rows=5278 width=0) (actual rows=473.00 loops=1)
+                    Index Cond: (style_code = ANY ('{H6162249W01,H6162249W30,H6162250D01,H6162412D20,H6162413D28,H6162414D01,H6162414D28,H7962688X01,H7962688X06,H7962688X20,H7962689X01,H7962689X02,H7962690X01,H7962690X06,H7962691X01,H7962691X06,H7962747X01,H7962747X02,H8661908D01,H8662969D01,H8662969D20,HA762209D17,HA762209D20,HA762209D73,HA762210D06,HA762210D42,HA762410D17,HA762410D45,HA762410D51,HA762995L30,HA762995L73,HAH62112S01,HAH62112S28,HAH62630D01,HAH62630D28,HAH62631D01,HAH62631D28,HAH62632D01,HAH62632D28,HAH62633D01,HAH62633DL7,HAM62450D24,HAM62450D38,HAM62456D06,HAM62456D09,HAM62456D38,HAM62456D73,HAM62652D01,HAM62652D73,HAM62653D01}'::text[]))
+                    Index Searches: 1
+                    Buffers: shared hit=6
+Planning:
+  Buffers: shared hit=149
+Planning Time: 1.683 ms
+Execution Time: 1.316 ms
+=== goods-womens-1: SELECT product_goods_historical_orders_2025.original_sku, sum(product_goods_historical_orders_2025.order_quantity) AS order_quantity 
+FROM product_goods_historical_orders_2025 
+WHERE product_goods_historical_orders_2025.brand = %(brand_1)s::VARCHAR AND ((product_goods_historical_orders_2025.original_sku LIKE %(original_sku_1)s::VARCHAR || '%%') OR (product_goods_historical_orders_2025.original_sku LIKE %(original_sku_2)s::VARCHAR || '%%') OR (product_goods_historical_orders_2025.original_sku LIKE %(original_sku_3)s::VARCHAR || '%%') OR (product_goods_historical_orders_2025.original_sku LIKE %(original_sku_4)s::VARCHAR || '%%') OR (product_goods_historical_orders_2025.original_sku LIKE %(original_sku_5)s::VARCHAR || '%%') OR (product_goods_historical_orders_2025.original_sku LIKE %(original_sku_6)s::VARCHAR || '%%') OR (product_goods_historical_orders_2025.original_sku LIKE %(original_sku_7)s::VARCHAR || '%%') OR (product_goods_historical_orders_2025.original_sku LIKE %(original_sku_8)s::VARCHAR || '%%') OR (product_goods_historical_orders_2025.original_sku LIKE %(original_sku_9)s::VARCHAR || '%%') OR (product_goods_historical_orders_2025.original_sku LIKE %(original_sku_10)s::VARCHAR || '%%') OR (product_goods_historical_orders_2025.original_sku LIKE %(original_sku_11)s::VARCHAR || '%%') OR (product_goods_historical_orders_2025.original_sku LIKE %(original_sku_12)s::VARCHAR || '%%') OR (product_goods_historical_orders_2025.original_sku LIKE %(original_sku_13)s::VARCHAR || '%%') OR (product_goods_historical_orders_2025.original_sku LIKE %(original_sku_14)s::VARCHAR || '%%') OR (product_goods_historical_orders_2025.original_sku LIKE %(original_sku_15)s::VARCHAR || '%%') OR (product_goods_historical_orders_2025.original_sku LIKE %(original_sku_16)s::VARCHAR || '%%') OR (product_goods_historical_orders_2025.original_sku LIKE %(original_sku_17)s::VARCHAR || '%%') OR (product_goods_historical_orders_2025.original_sku LIKE %(original_sku_18)s::VARCHAR || '%%') OR (product_goods_historical_orders_2025.original_sku LIKE %(original_sku_19)s::VARCHAR || '%%') OR (product_goods_historical_orders_2025.original_sku LIKE %(original_sku_20)s::VARCHAR || '%%') OR (product_goods_historical_orders_2025.original_sku LIKE %(original_sku_21)s::VARCHAR || '%%') OR (product_goods_historical_orders_2025.original_sku LIKE %(original_sku_22)s::VARCHAR || '%%') OR (product_goods_historical_orders_2025.original_sku LIKE %(original_sku_23)s::VARCHAR || '%%') OR (product_goods_historical_orders_2025.original_sku LIKE %(original_sku_24)s::VARCHAR || '%%') OR (product_goods_historical_orders_2025.original_sku LIKE %(original_sku_25)s::VARCHAR || '%%') OR (product_goods_historical_orders_2025.original_sku LIKE %(original_sku_26)s::VARCHAR || '%%') OR (product_goods_historical_orders_2025.original_sku LIKE %(original_sku_27)s::VARCHAR || '%%') OR (product_goods_historical_orders_2025.original_sku LIKE %(original_sku_28)s::VARCHAR || '%%') OR (product_goods_historical_orders_2025.original_sku LIKE %(original_sku_29)s::VARCHAR || '%%') OR (product_goods_historical_orders_2025.original_sku LIKE %(original_sku_30)s::VARCHAR || '%%') OR (product_goods_historical_orders_2025.original_sku LIKE %(original_sku_31)s::VARCHAR || '%%') OR (product_goods_historical_orders_2025.original_sku LIKE %(original_sku_32)s::VARCHAR || '%%') OR (product_goods_historical_orders_2025.original_sku LIKE %(original_sku_33)s::VARCHAR || '%%') OR (product_goods_historical_orders_2025.original_sku LIKE %(original_sku_34)s::VARCHAR || '%%') OR (product_goods_historical_orders_2025.original_sku LIKE %(original_sku_35)s::VARCHAR || '%%') OR (product_goods_historical_orders_2025.original_sku LIKE %(original_sku_36)s::VARCHAR || '%%') OR (product_goods_historical_orders_2025.original_sku LIKE %(original_sku_37)s::VARCHAR || '%%') OR (product_goods_historical_orders_2025.original_sku LIKE %(original_sku_38)s::VARCHAR || '%%') OR (product_goods_historical_orders_2025.original_sku LIKE %(original_sku_39)s::VARCHAR || '%%') OR (product_goods_historical_orders_2025.original_sku LIKE %(original_sku_40)s::VARCHAR || '%%') OR (product_goods_historical_orders_2025.original_sku LIKE %(original_sku_41)s::VARCHAR || '%%') OR (product_goods_historical_orders_2025.original_sku LIKE %(original_sku_42)s::VARCHAR || '%%') OR (product_goods_historical_orders_2025.original_sku LIKE %(original_sku_43)s::VARCHAR || '%%') OR (product_goods_historical_orders_2025.original_sku LIKE %(original_sku_44)s::VARCHAR || '%%') OR (product_goods_historical_orders_2025.original_sku LIKE %(original_sku_45)s::VARCHAR || '%%') OR (product_goods_historical_orders_2025.original_sku LIKE %(original_sku_46)s::VARCHAR || '%%') OR (product_goods_historical_orders_2025.original_sku LIKE %(original_sku_47)s::VARCHAR || '%%') OR (product_goods_historical_orders_2025.original_sku LIKE %(original_sku_48)s::VARCHAR || '%%') OR (product_goods_historical_orders_2025.original_sku LIKE %(original_sku_49)s::VARCHAR || '%%') OR (product_goods_historical_orders_2025.original_sku LIKE %(original_sku_50)s::VARCHAR || '%%') OR product_goods_historical_orders_2025.original_sku IN (%(original_sku_51_1)s::VARCHAR, %(original_sku_51_2)s::VARCHAR, %(original_sku_51_3)s::VARCHAR, %(original_sku_51_4)s::VARCHAR, %(original_sku_51_5)s::VARCHAR, %(original_sku_51_6)s::VARCHAR, %(original_sku_51_7)s::VARCHAR, %(original_sku_51_8)s::VARCHAR, %(original_sku_51_9)s::VARCHAR, %(original_sku_51_10)s::VARCHAR, %(original_sku_51_11)s::VARCHAR, %(original_sku_51_12)s::VARCHAR, %(original_sku_51_13)s::VARCHAR, %(original_sku_51_14)s::VARCHAR, %(original_sku_51_15)s::VARCHAR, %(original_sku_51_16)s::VARCHAR, %(original_sku_51_17)s::VARCHAR, %(original_sku_51_18)s::VARCHAR, %(original_sku_51_19)s::VARCHAR, %(original_sku_51_20)s::VARCHAR, %(original_sku_51_21)s::VARCHAR, %(original_sku_51_22)s::VARCHAR, %(original_sku_51_23)s::VARCHAR, %(original_sku_51_24)s::VARCHAR, %(original_sku_51_25)s::VARCHAR, %(original_sku_51_26)s::VARCHAR, %(original_sku_51_27)s::VARCHAR, %(original_sku_51_28)s::VARCHAR, %(original_sku_51_29)s::VARCHAR, %(original_sku_51_30)s::VARCHAR, %(original_sku_51_31)s::VARCHAR, %(original_sku_51_32)s::VARCHAR, %(original_sku_51_33)s::VARCHAR, %(original_sku_51_34)s::VARCHAR, %(original_sku_51_35)s::VARCHAR, %(original_sku_51_36)s::VARCHAR, %(original_sku_51_37)s::VARCHAR, %(original_sku_51_38)s::VARCHAR, %(original_sku_51_39)s::VARCHAR, %(original_sku_51_40)s::VARCHAR, %(original_sku_51_41)s::VARCHAR, %(original_sku_51_42)s::VARCHAR, %(original_sku_51_43)s::VARCHAR, %(original_sku_51_44)s::VARCHAR, %(original_sku_51_45)s::VARCHAR, %(original_sku_51_46)s::VARCHAR, %(original_sku_51_47)s::VARCHAR, %(original_sku_51_48)s::VARCHAR, %(original_sku_51_49)s::VARCHAR, %(original_sku_51_50)s::VARCHAR)) GROUP BY product_goods_historical_orders_2025.original_sku ===
+GroupAggregate  (cost=1782.83..1784.54 rows=98 width=20) (actual rows=0.00 loops=1)
+  Group Key: original_sku
+  Buffers: shared hit=208
+  ->  Sort  (cost=1782.83..1783.07 rows=98 width=16) (actual rows=0.00 loops=1)
+        Sort Key: original_sku
+        Sort Method: quicksort  Memory: 25kB
+        Buffers: shared hit=208
+        ->  Bitmap Heap Scan on product_goods_historical_orders_2025  (cost=227.04..1779.58 rows=98 width=16) (actual rows=0.00 loops=1)
+              Recheck Cond: (brand = 'cbanner_womens'::text)
+              Filter: ((original_sku ~~ 'H6162249W01%'::text) OR (original_sku ~~ 'H6162249W30%'::text) OR (original_sku ~~ 'H6162250D01%'::text) OR (original_sku ~~ 'H6162412D20%'::text) OR (original_sku ~~ 'H6162413D28%'::text) OR (original_sku ~~ 'H6162414D01%'::text) OR (original_sku ~~ 'H6162414D28%'::text) OR (original_sku ~~ 'H7962688X01%'::text) OR (original_sku ~~ 'H7962688X06%'::text) OR (original_sku ~~ 'H7962688X20%'::text) OR (original_sku ~~ 'H7962689X01%'::text) OR (original_sku ~~ 'H7962689X02%'::text) OR (original_sku ~~ 'H7962690X01%'::text) OR (original_sku ~~ 'H7962690X06%'::text) OR (original_sku ~~ 'H7962691X01%'::text) OR (original_sku ~~ 'H7962691X06%'::text) OR (original_sku ~~ 'H7962747X01%'::text) OR (original_sku ~~ 'H7962747X02%'::text) OR (original_sku ~~ 'H8661908D01%'::text) OR (original_sku ~~ 'H8662969D01%'::text) OR (original_sku ~~ 'H8662969D20%'::text) OR (original_sku ~~ 'HA762209D17%'::text) OR (original_sku ~~ 'HA762209D20%'::text) OR (original_sku ~~ 'HA762209D73%'::text) OR (original_sku ~~ 'HA762210D06%'::text) OR (original_sku ~~ 'HA762210D42%'::text) OR (original_sku ~~ 'HA762410D17%'::text) OR (original_sku ~~ 'HA762410D45%'::text) OR (original_sku ~~ 'HA762410D51%'::text) OR (original_sku ~~ 'HA762995L30%'::text) OR (original_sku ~~ 'HA762995L73%'::text) OR (original_sku ~~ 'HAH62112S01%'::text) OR (original_sku ~~ 'HAH62112S28%'::text) OR (original_sku ~~ 'HAH62630D01%'::text) OR (original_sku ~~ 'HAH62630D28%'::text) OR (original_sku ~~ 'HAH62631D01%'::text) OR (original_sku ~~ 'HAH62631D28%'::text) OR (original_sku ~~ 'HAH62632D01%'::text) OR (original_sku ~~ 'HAH62632D28%'::text) OR (original_sku ~~ 'HAH62633D01%'::text) OR (original_sku ~~ 'HAH62633DL7%'::text) OR (original_sku ~~ 'HAM62450D24%'::text) OR (original_sku ~~ 'HAM62450D38%'::text) OR (original_sku ~~ 'HAM62456D06%'::text) OR (original_sku ~~ 'HAM62456D09%'::text) OR (original_sku ~~ 'HAM62456D38%'::text) OR (original_sku ~~ 'HAM62456D73%'::text) OR (original_sku ~~ 'HAM62652D01%'::text) OR (original_sku ~~ 'HAM62652D73%'::text) OR (original_sku ~~ 'HAM62653D01%'::text) OR (original_sku = ANY ('{H6162249W01,H6162249W30,H6162250D01,H6162412D20,H6162413D28,H6162414D01,H6162414D28,H7962688X01,H7962688X06,H7962688X20,H7962689X01,H7962689X02,H7962690X01,H7962690X06,H7962691X01,H7962691X06,H7962747X01,H7962747X02,H8661908D01,H8662969D01,H8662969D20,HA762209D17,HA762209D20,HA762209D73,HA762210D06,HA762210D42,HA762410D17,HA762410D45,HA762410D51,HA762995L30,HA762995L73,HAH62112S01,HAH62112S28,HAH62630D01,HAH62630D28,HAH62631D01,HAH62631D28,HAH62632D01,HAH62632D28,HAH62633D01,HAH62633DL7,HAM62450D24,HAM62450D38,HAM62456D06,HAM62456D09,HAM62456D38,HAM62456D73,HAM62652D01,HAM62652D73,HAM62653D01}'::text[])))
+              Rows Removed by Filter: 8881
+              Heap Blocks: exact=171
+              Buffers: shared hit=208
+              ->  Bitmap Index Scan on idx_product_goods_historical_orders_2025_brand_original  (cost=0.00..226.89 rows=8881 width=0) (actual rows=8881.00 loops=1)
+                    Index Cond: (brand = 'cbanner_womens'::text)
+                    Index Searches: 1
+                    Buffers: shared hit=37
+Planning:
+  Buffers: shared hit=84
+Planning Time: 0.764 ms
+Execution Time: 7.676 ms
+=== fine-mens-2: SELECT jst_monthly_orders.style_code, jst_monthly_orders.shop_name, jst_monthly_orders.status, jst_monthly_orders.order_time_at, jst_monthly_orders.quantity 
+FROM jst_monthly_orders 
+WHERE jst_monthly_orders.style_code IN (%(style_code_1_1)s::VARCHAR, %(style_code_1_2)s::VARCHAR, %(style_code_1_3)s::VARCHAR, %(style_code_1_4)s::VARCHAR, %(style_code_1_5)s::VARCHAR, %(style_code_1_6)s::VARCHAR, %(style_code_1_7)s::VARCHAR, %(style_code_1_8)s::VARCHAR, %(style_code_1_9)s::VARCHAR, %(style_code_1_10)s::VARCHAR, %(style_code_1_11)s::VARCHAR, %(style_code_1_12)s::VARCHAR, %(style_code_1_13)s::VARCHAR, %(style_code_1_14)s::VARCHAR, %(style_code_1_15)s::VARCHAR, %(style_code_1_16)s::VARCHAR, %(style_code_1_17)s::VARCHAR, %(style_code_1_18)s::VARCHAR, %(style_code_1_19)s::VARCHAR, %(style_code_1_20)s::VARCHAR, %(style_code_1_21)s::VARCHAR, %(style_code_1_22)s::VARCHAR, %(style_code_1_23)s::VARCHAR, %(style_code_1_24)s::VARCHAR, %(style_code_1_25)s::VARCHAR, %(style_code_1_26)s::VARCHAR, %(style_code_1_27)s::VARCHAR, %(style_code_1_28)s::VARCHAR, %(style_code_1_29)s::VARCHAR, %(style_code_1_30)s::VARCHAR, %(style_code_1_31)s::VARCHAR, %(style_code_1_32)s::VARCHAR, %(style_code_1_33)s::VARCHAR, %(style_code_1_34)s::VARCHAR, %(style_code_1_35)s::VARCHAR, %(style_code_1_36)s::VARCHAR, %(style_code_1_37)s::VARCHAR, %(style_code_1_38)s::VARCHAR, %(style_code_1_39)s::VARCHAR, %(style_code_1_40)s::VARCHAR, %(style_code_1_41)s::VARCHAR, %(style_code_1_42)s::VARCHAR, %(style_code_1_43)s::VARCHAR, %(style_code_1_44)s::VARCHAR, %(style_code_1_45)s::VARCHAR, %(style_code_1_46)s::VARCHAR, %(style_code_1_47)s::VARCHAR, %(style_code_1_48)s::VARCHAR, %(style_code_1_49)s::VARCHAR, %(style_code_1_50)s::VARCHAR, %(style_code_1_51)s::VARCHAR, %(style_code_1_52)s::VARCHAR, %(style_code_1_53)s::VARCHAR, %(style_code_1_54)s::VARCHAR, %(style_code_1_55)s::VARCHAR, %(style_code_1_56)s::VARCHAR, %(style_code_1_57)s::VARCHAR, %(style_code_1_58)s::VARCHAR, %(style_code_1_59)s::VARCHAR, %(style_code_1_60)s::VARCHAR, %(style_code_1_61)s::VARCHAR, %(style_code_1_62)s::VARCHAR, %(style_code_1_63)s::VARCHAR, %(style_code_1_64)s::VARCHAR, %(style_code_1_65)s::VARCHAR, %(style_code_1_66)s::VARCHAR, %(style_code_1_67)s::VARCHAR, %(style_code_1_68)s::VARCHAR, %(style_code_1_69)s::VARCHAR, %(style_code_1_70)s::VARCHAR, %(style_code_1_71)s::VARCHAR, %(style_code_1_72)s::VARCHAR, %(style_code_1_73)s::VARCHAR, %(style_code_1_74)s::VARCHAR, %(style_code_1_75)s::VARCHAR, %(style_code_1_76)s::VARCHAR, %(style_code_1_77)s::VARCHAR, %(style_code_1_78)s::VARCHAR, %(style_code_1_79)s::VARCHAR, %(style_code_1_80)s::VARCHAR, %(style_code_1_81)s::VARCHAR, %(style_code_1_82)s::VARCHAR, %(style_code_1_83)s::VARCHAR, %(style_code_1_84)s::VARCHAR, %(style_code_1_85)s::VARCHAR, %(style_code_1_86)s::VARCHAR, %(style_code_1_87)s::VARCHAR, %(style_code_1_88)s::VARCHAR, %(style_code_1_89)s::VARCHAR, %(style_code_1_90)s::VARCHAR, %(style_code_1_91)s::VARCHAR, %(style_code_1_92)s::VARCHAR, %(style_code_1_93)s::VARCHAR, %(style_code_1_94)s::VARCHAR, %(style_code_1_95)s::VARCHAR, %(style_code_1_96)s::VARCHAR, %(style_code_1_97)s::VARCHAR, %(style_code_1_98)s::VARCHAR, %(style_code_1_99)s::VARCHAR, %(style_code_1_100)s::VARCHAR, %(style_code_1_101)s::VARCHAR, %(style_code_1_102)s::VARCHAR, %(style_code_1_103)s::VARCHAR, %(style_code_1_104)s::VARCHAR, %(style_code_1_105)s::VARCHAR, %(style_code_1_106)s::VARCHAR, %(style_code_1_107)s::VARCHAR, %(style_code_1_108)s::VARCHAR, %(style_code_1_109)s::VARCHAR, %(style_code_1_110)s::VARCHAR, %(style_code_1_111)s::VARCHAR, %(style_code_1_112)s::VARCHAR) AND jst_monthly_orders.order_time_at >= %(order_time_at_1)s::TIMESTAMP WITHOUT TIME ZONE AND jst_monthly_orders.order_time_at < %(order_time_at_2)s::TIMESTAMP WITHOUT TIME ZONE ===
+Bitmap Heap Scan on jst_monthly_orders_2026 jst_monthly_orders  (cost=532.14..11234.81 rows=2789 width=57) (actual rows=350.00 loops=1)
+  Recheck Cond: ((style_code = ANY ('{C2853132D03,C2853132DAB5,C2853132DCB5,C2853132DD03,C2853132DDB5,C2853133D03,C2853133DAB5,C2853133DC03,C2853133DCB5,C3323839D01,C3323839DA24,C3323839DB01,C3323839DC24,C3323839DD01,C3323839DE01,C3323839DE24,C3323839M01,C3323839MA01,C3323839MA20,C3323839MB01,C3323839MB20,C3323839MC20,C3323839ME20,C3323839MF01,C3323839MG20,C3323839MH01,C3323839MH20,C3323839MK01,C3323839MK20,C3332851L24,C3332851LA01,C3332851LB24,C3332851LC01,C3332851LH01,C3332851LH24,C3333807D01,C3333807D02,C3333807DA02,C3333807DB01,C3333807DD02,C3333807DE01,C3334706M02,C3334706MA01,C3334706MB01,C3334706MC02,C3334706ME01,C3334706MF01,C3334706MF02,C3334706MH01,C3334706MH02,C3341868D24,C3341868DA01,C3344402M01,C3344402ME01,C3344402MF01,C3344403M01,C3344403ME01,C3344403MF01,C3344405M01,C3344405ME01,C3344405MF01,TC2213606XA18,TC2213606XB18,TC2213606XC18,TC2853132D03,TC2853132DAB5,TC2853133D03,TC2853133DAB5,TC3323839D01,TC3323839DA24,TC3323839DB01,TC3323839DC24,TC3323839DD01,TC3323839DE01,TC3323839DE24,TC3323839M01,TC3323839MA01,TC3323839MA20,TC3323839MB01,TC3323839MB20,TC3323839MC20,TC3323839MH01,TC3323839MH20,TC3332851L24,TC3332851LA01,TC3332851LB24,TC3332851LC01,TC3332851LH01,TC3332851LH24,TC3333807D01,TC3333807D02,TC3333807D24,TC3333807DA02,TC3333807DB01,TC3334706M02,TC3334706MA01,TC3334706MF01,TC3334706MF02,TC3334708M24,TC3334708MA01,TC3334708MB02,TC3341868D24,TC3341868DA01,TC3342867L24,TC3342867LA01,TC3342867LH24,TC3344402M01,TC3344402ME01,TC3344403M01,TC3344403ME01,TC3344405M01,TC3344405ME01}'::text[])) AND (order_time_at >= '2026-09-14 00:00:00'::timestamp without time zone) AND (order_time_at < '2026-10-14 00:00:00'::timestamp without time zone))
+  Heap Blocks: exact=340
+  Buffers: shared hit=403
+  ->  Bitmap Index Scan on jst_monthly_orders_2026_style_code_order_time_at_idx  (cost=0.00..531.16 rows=2789 width=0) (actual rows=350.00 loops=1)
+        Index Cond: ((style_code = ANY ('{C2853132D03,C2853132DAB5,C2853132DCB5,C2853132DD03,C2853132DDB5,C2853133D03,C2853133DAB5,C2853133DC03,C2853133DCB5,C3323839D01,C3323839DA24,C3323839DB01,C3323839DC24,C3323839DD01,C3323839DE01,C3323839DE24,C3323839M01,C3323839MA01,C3323839MA20,C3323839MB01,C3323839MB20,C3323839MC20,C3323839ME20,C3323839MF01,C3323839MG20,C3323839MH01,C3323839MH20,C3323839MK01,C3323839MK20,C3332851L24,C3332851LA01,C3332851LB24,C3332851LC01,C3332851LH01,C3332851LH24,C3333807D01,C3333807D02,C3333807DA02,C3333807DB01,C3333807DD02,C3333807DE01,C3334706M02,C3334706MA01,C3334706MB01,C3334706MC02,C3334706ME01,C3334706MF01,C3334706MF02,C3334706MH01,C3334706MH02,C3341868D24,C3341868DA01,C3344402M01,C3344402ME01,C3344402MF01,C3344403M01,C3344403ME01,C3344403MF01,C3344405M01,C3344405ME01,C3344405MF01,TC2213606XA18,TC2213606XB18,TC2213606XC18,TC2853132D03,TC2853132DAB5,TC2853133D03,TC2853133DAB5,TC3323839D01,TC3323839DA24,TC3323839DB01,TC3323839DC24,TC3323839DD01,TC3323839DE01,TC3323839DE24,TC3323839M01,TC3323839MA01,TC3323839MA20,TC3323839MB01,TC3323839MB20,TC3323839MC20,TC3323839MH01,TC3323839MH20,TC3332851L24,TC3332851LA01,TC3332851LB24,TC3332851LC01,TC3332851LH01,TC3332851LH24,TC3333807D01,TC3333807D02,TC3333807D24,TC3333807DA02,TC3333807DB01,TC3334706M02,TC3334706MA01,TC3334706MF01,TC3334706MF02,TC3334708M24,TC3334708MA01,TC3334708MB02,TC3341868D24,TC3341868DA01,TC3342867L24,TC3342867LA01,TC3342867LH24,TC3344402M01,TC3344402ME01,TC3344403M01,TC3344403ME01,TC3344405M01,TC3344405ME01}'::text[])) AND (order_time_at >= '2026-09-14 00:00:00'::timestamp without time zone) AND (order_time_at < '2026-10-14 00:00:00'::timestamp without time zone))
+        Index Searches: 17
+        Buffers: shared hit=63
+Planning:
+  Buffers: shared hit=331
+Planning Time: 1.132 ms
+Execution Time: 0.994 ms
+=== fine-mens-2: SELECT count(*) AS count_1 
+FROM gj_merged_product_info 
+WHERE gj_merged_product_info.source_date_value = %(source_date_value_1)s::DATE AND gj_merged_product_info.fine_table_brand = %(fine_table_brand_1)s::VARCHAR AND (gj_merged_product_info.goods_code IS NULL OR gj_merged_product_info.goods_code = %(goods_code_1)s::VARCHAR OR (gj_merged_product_info.goods_code NOT IN (SELECT unnest(CAST(%(excluded_skus)s::VARCHAR AS TEXT[])) AS unnest_1))) ===
+Aggregate  (cost=3449.46..3449.47 rows=1 width=8) (actual rows=1.00 loops=1)
+  Buffers: shared hit=2661
+  ->  Index Only Scan using idx_gj_merged_product_info_source_brand_code on gj_merged_product_info  (cost=126.89..3426.19 rows=9309 width=0) (actual rows=19665.00 loops=1)
+        Index Cond: ((source_date_value = '2026-10-14'::date) AND (fine_table_brand = 'cbanner_mens'::text))
+        Filter: ((goods_code IS NULL) OR (goods_code = ''::text) OR (NOT (ANY (goods_code = (hashed SubPlan 1).col1))))
+        Heap Fetches: 19665
+        Index Searches: 1
+        Buffers: shared hit=2661
+        SubPlan 1
+          ->  ProjectSet  (cost=0.00..84.23 rows=16841 width=32) (actual rows=16841.00 loops=1)
+                ->  Result  (cost=0.00..0.01 rows=1 width=0) (actual rows=1.00 loops=1)
+Planning:
+  Buffers: shared hit=19
+Planning Time: 2.003 ms
+Execution Time: 11.154 ms
+=== fine-mens-2: SELECT vip_product_daily.id, vip_product_daily.source_workbook, vip_product_daily.source_sheet, vip_product_daily.source_row_number, vip_product_daily.raw_payload, vip_product_daily.goods_id, vip_product_daily.date, vip_product_daily.goods_name, vip_product_daily.goods_code, vip_product_daily.style_code, vip_product_daily.p_spu_id, vip_product_daily.goods_image, vip_product_daily.brand_sn, vip_product_daily.brand_name, vip_product_daily.category_l3, vip_product_daily.first_listing_time, vip_product_daily.main_style, vip_product_daily.detail_uv, vip_product_daily.ctr, vip_product_daily.fav_count, vip_product_daily.sales_amount, vip_product_daily.sales_volume, vip_product_daily.customer_count, vip_product_daily.purchase_conversion, vip_product_daily.reject_count, vip_product_daily.reject_rate, vip_product_daily.report_type, vip_product_daily.period, vip_product_daily.date_range, vip_product_daily.report_start_date, vip_product_daily.report_end_date, vip_product_daily.extra_fields, vip_product_daily.created_at, vip_product_daily.updated_at 
+FROM vip_product_daily 
+WHERE vip_product_daily.goods_code IN (%(goods_code_1_1)s::VARCHAR, %(goods_code_1_2)s::VARCHAR, %(goods_code_1_3)s::VARCHAR, %(goods_code_1_4)s::VARCHAR, %(goods_code_1_5)s::VARCHAR, %(goods_code_1_6)s::VARCHAR, %(goods_code_1_7)s::VARCHAR, %(goods_code_1_8)s::VARCHAR, %(goods_code_1_9)s::VARCHAR, %(goods_code_1_10)s::VARCHAR, %(goods_code_1_11)s::VARCHAR, %(goods_code_1_12)s::VARCHAR, %(goods_code_1_13)s::VARCHAR, %(goods_code_1_14)s::VARCHAR, %(goods_code_1_15)s::VARCHAR, %(goods_code_1_16)s::VARCHAR, %(goods_code_1_17)s::VARCHAR, %(goods_code_1_18)s::VARCHAR, %(goods_code_1_19)s::VARCHAR, %(goods_code_1_20)s::VARCHAR, %(goods_code_1_21)s::VARCHAR, %(goods_code_1_22)s::VARCHAR, %(goods_code_1_23)s::VARCHAR, %(goods_code_1_24)s::VARCHAR, %(goods_code_1_25)s::VARCHAR, %(goods_code_1_26)s::VARCHAR, %(goods_code_1_27)s::VARCHAR, %(goods_code_1_28)s::VARCHAR, %(goods_code_1_29)s::VARCHAR, %(goods_code_1_30)s::VARCHAR, %(goods_code_1_31)s::VARCHAR, %(goods_code_1_32)s::VARCHAR, %(goods_code_1_33)s::VARCHAR, %(goods_code_1_34)s::VARCHAR, %(goods_code_1_35)s::VARCHAR, %(goods_code_1_36)s::VARCHAR, %(goods_code_1_37)s::VARCHAR, %(goods_code_1_38)s::VARCHAR, %(goods_code_1_39)s::VARCHAR, %(goods_code_1_40)s::VARCHAR, %(goods_code_1_41)s::VARCHAR, %(goods_code_1_42)s::VARCHAR, %(goods_code_1_43)s::VARCHAR, %(goods_code_1_44)s::VARCHAR, %(goods_code_1_45)s::VARCHAR, %(goods_code_1_46)s::VARCHAR, %(goods_code_1_47)s::VARCHAR, %(goods_code_1_48)s::VARCHAR, %(goods_code_1_49)s::VARCHAR, %(goods_code_1_50)s::VARCHAR, %(goods_code_1_51)s::VARCHAR, %(goods_code_1_52)s::VARCHAR, %(goods_code_1_53)s::VARCHAR, %(goods_code_1_54)s::VARCHAR, %(goods_code_1_55)s::VARCHAR, %(goods_code_1_56)s::VARCHAR, %(goods_code_1_57)s::VARCHAR, %(goods_code_1_58)s::VARCHAR, %(goods_code_1_59)s::VARCHAR, %(goods_code_1_60)s::VARCHAR, %(goods_code_1_61)s::VARCHAR, %(goods_code_1_62)s::VARCHAR, %(goods_code_1_63)s::VARCHAR, %(goods_code_1_64)s::VARCHAR, %(goods_code_1_65)s::VARCHAR, %(goods_code_1_66)s::VARCHAR, %(goods_code_1_67)s::VARCHAR, %(goods_code_1_68)s::VARCHAR, %(goods_code_1_69)s::VARCHAR, %(goods_code_1_70)s::VARCHAR, %(goods_code_1_71)s::VARCHAR, %(goods_code_1_72)s::VARCHAR, %(goods_code_1_73)s::VARCHAR, %(goods_code_1_74)s::VARCHAR, %(goods_code_1_75)s::VARCHAR, %(goods_code_1_76)s::VARCHAR, %(goods_code_1_77)s::VARCHAR) ORDER BY vip_product_daily.report_end_date DESC, vip_product_daily.updated_at DESC, vip_product_daily.id DESC ===
+Sort  (cost=1934.35..1935.46 rows=441 width=1207) (actual rows=25.00 loops=1)
+  Sort Key: report_end_date DESC, updated_at DESC, id DESC
+  Sort Method: quicksort  Memory: 55kB
+  Buffers: shared hit=53
+  ->  Index Scan using idx_vip_daily_goods_code_report_updated on vip_product_daily  (cost=0.42..1914.98 rows=441 width=1207) (actual rows=25.00 loops=1)
+        Index Cond: (goods_code = ANY ('{C2853132D03,C2853132DB5,C2853133D03,C2853133DB5,C3323839D01,C3323839D24,C3323839M01,C3323839M20,C3332851L01,C3332851L24,C3333807D01,C3333807D02,C3334706M01,C3334706M02,C3341868D01,C3341868D24,C3342867L01,C3342867L24,C3344402M01,C3344403M01,C3344405M01,TC2213606X18,TC2213606XA18,TC2213606XB18,TC2213606XC18,TC2853132D03,TC2853132DAB5,TC2853133D03,TC2853133DAB5,TC3323839D01,TC3323839D24,TC3323839DA24,TC3323839DB01,TC3323839DC24,TC3323839DD01,TC3323839DE01,TC3323839DE24,TC3323839M01,TC3323839MA01,TC3323839MA20,TC3323839MB01,TC3323839MB20,TC3323839MC20,TC3323839MH01,TC3323839MH20,TC3332851L01,TC3332851L24,TC3332851LA01,TC3332851LB24,TC3332851LC01,TC3332851LH01,TC3332851LH24,TC3333807D01,TC3333807D02,TC3333807D24,TC3333807DA02,TC3333807DB01,TC3334706M01,TC3334706M02,TC3334706MA01,TC3334706MF01,TC3334706MF02,TC3334708M01,TC3334708M02,TC3334708M24,TC3334708MA01,TC3334708MB02,TC3341868D24,TC3341868DA01,TC3342867L24,TC3342867LA01,TC3342867LH24,TC3344402M01,TC3344402ME01,TC3344403M01,TC3344403ME01,TC3344405M01}'::text[]))
+        Index Searches: 5
+        Buffers: shared hit=47
+Planning:
+  Buffers: shared hit=225
+Planning Time: 0.711 ms
+Execution Time: 0.222 ms
+=== fine-mens-2: SELECT gj_merged_product_info.id, gj_merged_product_info.source_date, gj_merged_product_info.source_date_value, gj_merged_product_info.fine_table_brand, gj_merged_product_info.source_workbook, gj_merged_product_info.source_sheet, gj_merged_product_info.source_row_number, gj_merged_product_info.raw_payload, gj_merged_product_info.row_no, gj_merged_product_info.goods_code, gj_merged_product_info.original_goods_code, gj_merged_product_info.goods_full_name, gj_merged_product_info.barcode, gj_merged_product_info.factory_code, gj_merged_product_info.product_name, gj_merged_product_info.execution_standard, gj_merged_product_info.barcode_format, gj_merged_product_info.launch_date, gj_merged_product_info.insole_material, gj_merged_product_info.outsole_material, gj_merged_product_info.lining_material, gj_merged_product_info.upper_material, gj_merged_product_info.shoe_box_spec, gj_merged_product_info.brand, gj_merged_product_info.disabled_flag, gj_merged_product_info.primary_supplier, gj_merged_product_info.extra_fields, gj_merged_product_info.created_at, gj_merged_product_info.updated_at 
+FROM gj_merged_product_info 
+WHERE gj_merged_product_info.source_date_value = %(source_date_value_1)s::DATE AND gj_merged_product_info.fine_table_brand = %(fine_table_brand_1)s::VARCHAR AND (gj_merged_product_info.goods_code IS NULL OR gj_merged_product_info.goods_code = %(goods_code_1)s::VARCHAR OR (gj_merged_product_info.goods_code NOT IN (SELECT unnest(CAST(%(excluded_skus)s::VARCHAR AS TEXT[])) AS unnest_1))) ORDER BY gj_merged_product_info.id DESC 
+ LIMIT %(param_1)s::INTEGER OFFSET %(param_2)s::INTEGER ===
+Limit  (cost=319.60..512.31 rows=50 width=882) (actual rows=50.00 loops=1)
+  Buffers: shared hit=19
+  ->  Index Scan using idx_gj_merged_product_info_source_brand_id_desc on gj_merged_product_info  (cost=126.89..36005.67 rows=9309 width=882) (actual rows=100.00 loops=1)
+        Index Cond: ((source_date_value = '2026-10-14'::date) AND (fine_table_brand = 'cbanner_mens'::text))
+        Filter: ((goods_code IS NULL) OR (goods_code = ''::text) OR (NOT (ANY (goods_code = (hashed SubPlan 1).col1))))
+        Index Searches: 1
+        Buffers: shared hit=19
+        SubPlan 1
+          ->  ProjectSet  (cost=0.00..84.23 rows=16841 width=32) (actual rows=16841.00 loops=1)
+                ->  Result  (cost=0.00..0.01 rows=1 width=0) (actual rows=1.00 loops=1)
+Planning:
+  Buffers: shared hit=37
+Planning Time: 1.680 ms
+Execution Time: 2.925 ms
+=== fine-mens-2: SELECT cbanner_mens_products.sku, cbanner_mens_products.original_sku 
+FROM cbanner_mens_products 
+WHERE cbanner_mens_products.original_sku IN (%(original_sku_1_1)s::VARCHAR, %(original_sku_1_2)s::VARCHAR, %(original_sku_1_3)s::VARCHAR, %(original_sku_1_4)s::VARCHAR, %(original_sku_1_5)s::VARCHAR, %(original_sku_1_6)s::VARCHAR, %(original_sku_1_7)s::VARCHAR, %(original_sku_1_8)s::VARCHAR, %(original_sku_1_9)s::VARCHAR, %(original_sku_1_10)s::VARCHAR, %(original_sku_1_11)s::VARCHAR, %(original_sku_1_12)s::VARCHAR, %(original_sku_1_13)s::VARCHAR, %(original_sku_1_14)s::VARCHAR, %(original_sku_1_15)s::VARCHAR, %(original_sku_1_16)s::VARCHAR, %(original_sku_1_17)s::VARCHAR, %(original_sku_1_18)s::VARCHAR, %(original_sku_1_19)s::VARCHAR, %(original_sku_1_20)s::VARCHAR, %(original_sku_1_21)s::VARCHAR, %(original_sku_1_22)s::VARCHAR, %(original_sku_1_23)s::VARCHAR, %(original_sku_1_24)s::VARCHAR, %(original_sku_1_25)s::VARCHAR, %(original_sku_1_26)s::VARCHAR, %(original_sku_1_27)s::VARCHAR, %(original_sku_1_28)s::VARCHAR, %(original_sku_1_29)s::VARCHAR, %(original_sku_1_30)s::VARCHAR, %(original_sku_1_31)s::VARCHAR, %(original_sku_1_32)s::VARCHAR, %(original_sku_1_33)s::VARCHAR, %(original_sku_1_34)s::VARCHAR, %(original_sku_1_35)s::VARCHAR) AND cbanner_mens_products.deleted_at IS NULL AND (cbanner_mens_products.sku IS NULL OR cbanner_mens_products.sku = %(sku_1)s::VARCHAR OR (cbanner_mens_products.sku NOT IN (SELECT unnest(CAST(%(excluded_skus)s::VARCHAR AS TEXT[])) AS unnest_1))) ===
+Bitmap Heap Scan on cbanner_mens_products  (cost=231.11..553.30 rows=44 width=24) (actual rows=112.00 loops=1)
+  Recheck Cond: (original_sku = ANY ('{C2853133D03,TC3334706M01,TC3334708M02,C3333807D02,C3332851L01,C3323839M20,TC3323839D24,TC3323839D01,C3341868D24,C3344405M01,C3341868D01,C3334706M02,C3333807D01,TC3323839M01,C3342867L01,TC3333807D01,C2853132DB5,C3334706M01,TC3334708M01,C3323839D01,TC3333807D02,TC3332851L24,TC3332851L01,C3344402M01,C2853133DB5,TC3333807D24,C3342867L24,C3323839D24,TC3334706M02,TC3334708M24,TC2213606X18,C3344403M01,C3323839M01,C2853132D03,C3332851L24}'::text[]))
+  Filter: ((deleted_at IS NULL) AND ((sku IS NULL) OR (sku = ''::text) OR (NOT (ANY (sku = (hashed SubPlan 1).col1)))))
+  Heap Blocks: exact=102
+  Buffers: shared hit=110
+  ->  Bitmap Index Scan on idx_cbanner_mens_products_original_sku  (cost=0.00..104.68 rows=88 width=0) (actual rows=113.00 loops=1)
+        Index Cond: (original_sku = ANY ('{C2853133D03,TC3334706M01,TC3334708M02,C3333807D02,C3332851L01,C3323839M20,TC3323839D24,TC3323839D01,C3341868D24,C3344405M01,C3341868D01,C3334706M02,C3333807D01,TC3323839M01,C3342867L01,TC3333807D01,C2853132DB5,C3334706M01,TC3334708M01,C3323839D01,TC3333807D02,TC3332851L24,TC3332851L01,C3344402M01,C2853133DB5,TC3333807D24,C3342867L24,C3323839D24,TC3334706M02,TC3334708M24,TC2213606X18,C3344403M01,C3323839M01,C2853132D03,C3332851L24}'::text[]))
+        Index Searches: 4
+        Buffers: shared hit=8
+  SubPlan 1
+    ->  ProjectSet  (cost=0.00..84.23 rows=16841 width=32) (actual rows=16841.00 loops=1)
+          ->  Result  (cost=0.00..0.01 rows=1 width=0) (actual rows=1.00 loops=1)
+Planning:
+  Buffers: shared hit=114
+Planning Time: 2.160 ms
+Execution Time: 3.150 ms

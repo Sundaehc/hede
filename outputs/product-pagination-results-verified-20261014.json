@@ -1,0 +1,48 @@
+[
+  {
+    "case": "goods-search",
+    "result_equal": true,
+    "total": 1,
+    "item_count": 1
+  },
+  {
+    "case": "goods-style",
+    "result_equal": true,
+    "total": 1,
+    "item_count": 1
+  },
+  {
+    "case": "goods-year",
+    "result_equal": true,
+    "total": 0,
+    "item_count": 0
+  },
+  {
+    "case": "fine-search",
+    "result_equal": true,
+    "total": 1,
+    "item_count": 1
+  },
+  {
+    "case": "fine-prefix",
+    "result_equal": true,
+    "total": 1,
+    "item_count": 0
+  },
+  {
+    "case": "fine-payload-filter",
+    "result_equal": true,
+    "total": 1,
+    "item_count": 1
+  },
+  {
+    "case": "fine-export",
+    "result_equal": true,
+    "total": 1,
+    "item_count": 1
+  },
+  {
+    "case": "excluded-sku-escaping-and-null",
+    "result_equal": true
+  }
+]

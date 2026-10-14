@@ -1,0 +1,87 @@
+{
+  "generated_at": "2026-10-14T11:22:17.468020+08:00",
+  "execute": false,
+  "indexes": [
+    {
+      "name": "idx_gj_merged_product_info_source_brand_code",
+      "table": "gj_merged_product_info",
+      "partitioned": false,
+      "definition": "CREATE INDEX idx_gj_merged_product_info_source_brand_code ON public.gj_merged_product_info USING btree (source_date_value, fine_table_brand, goods_code) INCLUDE (id)",
+      "statement": "CREATE INDEX CONCURRENTLY idx_gj_merged_product_info_source_brand_code ON public.gj_merged_product_info USING btree (source_date_value, fine_table_brand, goods_code) INCLUDE (id)",
+      "rollback": "DROP INDEX CONCURRENTLY IF EXISTS public.idx_gj_merged_product_info_source_brand_code",
+      "status": "pending"
+    },
+    {
+      "name": "idx_product_goods_sales_period_brand_product_pattern",
+      "table": "product_goods_sales_periods",
+      "partitioned": false,
+      "definition": "CREATE INDEX idx_product_goods_sales_period_brand_product_pattern ON public.product_goods_sales_periods USING btree (brand, product_code text_pattern_ops)",
+      "statement": "CREATE INDEX CONCURRENTLY idx_product_goods_sales_period_brand_product_pattern ON public.product_goods_sales_periods USING btree (brand, product_code text_pattern_ops)",
+      "rollback": "DROP INDEX CONCURRENTLY IF EXISTS public.idx_product_goods_sales_period_brand_product_pattern",
+      "status": "pending"
+    },
+    {
+      "name": "idx_jst_aftersale_returns_2024_original_code_pattern",
+      "table": "jst_aftersale_returns_2024",
+      "partitioned": false,
+      "definition": "CREATE INDEX idx_jst_aftersale_returns_2024_original_code_pattern ON public.jst_aftersale_returns_2024 USING btree (original_goods_code text_pattern_ops)",
+      "statement": "CREATE INDEX CONCURRENTLY idx_jst_aftersale_returns_2024_original_code_pattern ON public.jst_aftersale_returns_2024 USING btree (original_goods_code text_pattern_ops)",
+      "rollback": "DROP INDEX CONCURRENTLY IF EXISTS public.idx_jst_aftersale_returns_2024_original_code_pattern",
+      "status": "pending"
+    },
+    {
+      "name": "idx_jst_aftersale_returns_2025_original_code_pattern",
+      "table": "jst_aftersale_returns_2025",
+      "partitioned": false,
+      "definition": "CREATE INDEX idx_jst_aftersale_returns_2025_original_code_pattern ON public.jst_aftersale_returns_2025 USING btree (original_goods_code text_pattern_ops)",
+      "statement": "CREATE INDEX CONCURRENTLY idx_jst_aftersale_returns_2025_original_code_pattern ON public.jst_aftersale_returns_2025 USING btree (original_goods_code text_pattern_ops)",
+      "rollback": "DROP INDEX CONCURRENTLY IF EXISTS public.idx_jst_aftersale_returns_2025_original_code_pattern",
+      "status": "pending"
+    },
+    {
+      "name": "idx_jst_aftersale_returns_2026_original_code_pattern",
+      "table": "jst_aftersale_returns_2026",
+      "partitioned": false,
+      "definition": "CREATE INDEX idx_jst_aftersale_returns_2026_original_code_pattern ON public.jst_aftersale_returns_2026 USING btree (original_goods_code text_pattern_ops)",
+      "statement": "CREATE INDEX CONCURRENTLY idx_jst_aftersale_returns_2026_original_code_pattern ON public.jst_aftersale_returns_2026 USING btree (original_goods_code text_pattern_ops)",
+      "rollback": "DROP INDEX CONCURRENTLY IF EXISTS public.idx_jst_aftersale_returns_2026_original_code_pattern",
+      "status": "pending"
+    },
+    {
+      "name": "idx_jst_aftersale_returns_2027_original_code_pattern",
+      "table": "jst_aftersale_returns_2027",
+      "partitioned": false,
+      "definition": "CREATE INDEX idx_jst_aftersale_returns_2027_original_code_pattern ON public.jst_aftersale_returns_2027 USING btree (original_goods_code text_pattern_ops)",
+      "statement": "CREATE INDEX CONCURRENTLY idx_jst_aftersale_returns_2027_original_code_pattern ON public.jst_aftersale_returns_2027 USING btree (original_goods_code text_pattern_ops)",
+      "rollback": "DROP INDEX CONCURRENTLY IF EXISTS public.idx_jst_aftersale_returns_2027_original_code_pattern",
+      "status": "pending"
+    },
+    {
+      "name": "idx_jst_aftersale_returns_default_original_code_pattern",
+      "table": "jst_aftersale_returns_default",
+      "partitioned": false,
+      "definition": "CREATE INDEX idx_jst_aftersale_returns_default_original_code_pattern ON public.jst_aftersale_returns_default USING btree (original_goods_code text_pattern_ops)",
+      "statement": "CREATE INDEX CONCURRENTLY idx_jst_aftersale_returns_default_original_code_pattern ON public.jst_aftersale_returns_default USING btree (original_goods_code text_pattern_ops)",
+      "rollback": "DROP INDEX CONCURRENTLY IF EXISTS public.idx_jst_aftersale_returns_default_original_code_pattern",
+      "status": "pending"
+    },
+    {
+      "name": "idx_jst_aftersale_returns_original_code_pattern",
+      "table": "jst_aftersale_returns",
+      "partitioned": true,
+      "definition": "CREATE INDEX idx_jst_aftersale_returns_original_code_pattern ON ONLY public.jst_aftersale_returns USING btree (original_goods_code text_pattern_ops)",
+      "statement": "CREATE INDEX idx_jst_aftersale_returns_original_code_pattern ON ONLY public.jst_aftersale_returns USING btree (original_goods_code text_pattern_ops)",
+      "rollback": "DROP INDEX IF EXISTS public.idx_jst_aftersale_returns_original_code_pattern",
+      "attachments": [
+        "ALTER INDEX public.idx_jst_aftersale_returns_original_code_pattern ATTACH PARTITION public.idx_jst_aftersale_returns_2024_original_code_pattern",
+        "ALTER INDEX public.idx_jst_aftersale_returns_original_code_pattern ATTACH PARTITION public.idx_jst_aftersale_returns_2025_original_code_pattern",
+        "ALTER INDEX public.idx_jst_aftersale_returns_original_code_pattern ATTACH PARTITION public.idx_jst_aftersale_returns_2026_original_code_pattern",
+        "ALTER INDEX public.idx_jst_aftersale_returns_original_code_pattern ATTACH PARTITION public.idx_jst_aftersale_returns_2027_original_code_pattern",
+        "ALTER INDEX public.idx_jst_aftersale_returns_original_code_pattern ATTACH PARTITION public.idx_jst_aftersale_returns_default_original_code_pattern"
+      ],
+      "status": "pending"
+    }
+  ],
+  "completed": [],
+  "attachments": []
+}

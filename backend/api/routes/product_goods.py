@@ -1963,7 +1963,7 @@ def _sales_matrix_payload(
         if len(matches) == 1
     }
     shop_channel_mappings = _shop_channel_mapping_payload(connection, brand)
-    inspector = inspect(engine)
+    inspector = inspect(connection)
     jst_tables = []
     vip_tables = []
     sales_year = as_of_date.year if as_of_date else date.today().year
@@ -2336,7 +2336,7 @@ def _sales_period_payload(
         for month in range(1, 13)
         if (year, month) <= (latest_period.year, latest_period.month)
     ]
-    if not product_sales_codes or not inspect(engine).has_table(PRODUCT_GOODS_SALES_PERIODS_TABLE.name):
+    if not product_sales_codes or not inspect(connection).has_table(PRODUCT_GOODS_SALES_PERIODS_TABLE.name):
         return annual_columns, monthly_columns, {}, {}
     product_codes = sorted(product_sales_codes, key=len, reverse=True)
     style_code_matches: dict[str, list[str]] = defaultdict(list)
@@ -3176,6 +3176,8 @@ def list_product_goods(
     parsed_filters = _parse_product_goods_filters(filters)
     normalized_filters = tuple(sorted((item.field, item.operator, item.value or "", tuple(sorted(item.values or []))) for item in parsed_filters))
     cache_key = (brand, view, "style-summary-v5" if view == "style_summary" else "shortage-risk-v4" if view == "shortage_risk" else "goods-v4", normalized_query, normalized_platform, normalized_year, normalized_filters, normalized_snapshot_date, page, page_size)
+    total_cache_key = (*cache_key[:-2], 0, 0)
+    cached_total = None if cache_bust else get_product_goods_cache(total_cache_key)
     if not cache_bust:
         cached = get_product_goods_cache(cache_key)
         if cached is not None:
@@ -3261,17 +3263,37 @@ def list_product_goods(
                 cast(source_columns["sku"], Text),
             )
         else:
-            statement = select(*selected_columns).select_from(join)
             count_statement = select(func.count()).select_from(join)
+            page_columns = [
+                product_table.c.id.label("product_id"),
+                cast(source_columns["year"], Text).label("sort_year"),
+                cast(source_columns["sku"], Text).label("sort_sku"),
+            ]
+            if gj_table is not None:
+                page_columns.append(gj_table.c.id.label("gj_id"))
+            page_statement = select(*page_columns).select_from(join)
             for condition in conditions:
-                statement = statement.where(condition)
+                page_statement = page_statement.where(condition)
                 count_statement = count_statement.where(condition)
-            statement = statement.order_by(
+            page_rows = page_statement.order_by(
                 cast(source_columns["year"], Text).desc().nulls_last(),
                 cast(source_columns["sku"], Text),
-            ).offset((page - 1) * page_size).limit(page_size)
+            ).offset((page - 1) * page_size).limit(page_size).subquery("goods_page")
+            page_join = page_rows.join(product_table, product_table.c.id == page_rows.c.product_id)
+            if gj_table is not None:
+                page_join = page_join.join(gj_table, gj_table.c.id == page_rows.c.gj_id)
+            page_join = page_join.outerjoin(
+                override, (override.c.brand == brand) & (override.c.product_id == product_table.c.id),
+            )
+            statement = select(*selected_columns).select_from(page_join).order_by(
+                page_rows.c.sort_year.desc().nulls_last(), page_rows.c.sort_sku,
+            )
 
-        total = int(connection.execute(count_statement).scalar() or 0)
+        if cached_total is None:
+            total = int(connection.execute(count_statement).scalar() or 0)
+            set_product_goods_cache(total_cache_key, {"total": total})
+        else:
+            total = int(cached_total["total"])
         if view == "style_summary":
             style_codes = [
                 str(item or "").strip()

@@ -1,0 +1,43 @@
+         96622 function calls (96140 primitive calls) in 0.100 seconds
+
+   Ordered by: cumulative time
+   List reduced from 625 to 35 due to restriction <35>
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+        1    0.006    0.006    0.100    0.100 E:\hede\backend\api\routes\fine_table.py:1687(list_fine_table)
+       18    0.000    0.000    0.075    0.004 E:\hede\backend\.venv\Lib\site-packages\sqlalchemy\engine\base.py:1377(execute)
+       18    0.000    0.000    0.075    0.004 E:\hede\backend\.venv\Lib\site-packages\sqlalchemy\sql\elements.py:517(_execute_on_connection)
+       18    0.000    0.000    0.075    0.004 E:\hede\backend\.venv\Lib\site-packages\sqlalchemy\engine\base.py:1593(_execute_clauseelement)
+       18    0.000    0.000    0.072    0.004 E:\hede\backend\.venv\Lib\site-packages\sqlalchemy\engine\base.py:1793(_execute_context)
+       18    0.000    0.000    0.068    0.004 E:\hede\backend\.venv\Lib\site-packages\sqlalchemy\engine\base.py:1852(_exec_single_context)
+       19    0.000    0.000    0.066    0.003 E:\hede\backend\.venv\Lib\site-packages\psycopg\connection.py:476(wait)
+       19    0.000    0.000    0.066    0.003 E:\hede\backend\.venv\Lib\site-packages\psycopg\waiting.py:251(wait_select)
+       18    0.000    0.000    0.066    0.004 E:\hede\backend\.venv\Lib\site-packages\sqlalchemy\engine\default.py:951(do_execute)
+       18    0.000    0.000    0.066    0.004 E:\hede\backend\.venv\Lib\site-packages\psycopg\cursor.py:100(execute)
+       48    0.057    0.001    0.057    0.001 {built-in method select.select}
+       65    0.000    0.000    0.008    0.000 E:\hede\backend\.venv\Lib\site-packages\psycopg\_cursor_base.py:195(_execute_gen)
+       81    0.000    0.000    0.007    0.000 {built-in method builtins.next}
+     1248    0.001    0.000    0.006    0.000 E:\hede\backend\.venv\Lib\site-packages\sqlalchemy\engine\result.py:565(iterrows)
+       18    0.000    0.000    0.005    0.000 E:\hede\backend\.venv\Lib\site-packages\psycopg\_cursor_base.py:461(_convert_query)
+       18    0.000    0.000    0.005    0.000 E:\hede\backend\.venv\Lib\site-packages\psycopg\_queries.py:59(convert)
+     1248    0.000    0.000    0.005    0.000 E:\hede\backend\.venv\Lib\site-packages\sqlalchemy\engine\cursor.py:2248(_fetchiter_impl)
+        1    0.000    0.000    0.005    0.005 E:\hede\backend\api\routes\fine_table.py:837(_hydrate_fine_table_platforms)
+     1254    0.000    0.000    0.005    0.000 E:\hede\backend\.venv\Lib\site-packages\sqlalchemy\engine\cursor.py:1163(fetchone)
+       12    0.001    0.000    0.005    0.000 E:\hede\backend\.venv\Lib\site-packages\psycopg\_queries.py:198(_query2pg_nocache)
+     1254    0.001    0.000    0.004    0.000 E:\hede\backend\.venv\Lib\site-packages\psycopg\cursor.py:239(fetchone)
+       18    0.000    0.000    0.004    0.000 E:\hede\backend\.venv\Lib\site-packages\sqlalchemy\engine\default.py:1313(_init_compiled)
+       14    0.000    0.000    0.004    0.000 E:\hede\backend\.venv\Lib\site-packages\sqlalchemy\sql\compiler.py:2033(_process_parameters_for_postcompile)
+      176    0.000    0.000    0.004    0.000 {method 'join' of 'str' objects}
+       12    0.002    0.000    0.003    0.000 E:\hede\backend\.venv\Lib\site-packages\psycopg\_queries.py:376(_split_query)
+       16    0.000    0.000    0.003    0.000 E:\hede\backend\.venv\Lib\site-packages\sqlalchemy\sql\compiler.py:3316(_literal_execute_expanding_parameter)
+     1137    0.000    0.000    0.003    0.000 E:\hede\backend\.venv\Lib\site-packages\sqlalchemy\sql\compiler.py:3389(<genexpr>)
+       18    0.000    0.000    0.003    0.000 E:\hede\backend\.venv\Lib\site-packages\sqlalchemy\sql\elements.py:679(_compile_w_cache)
+     1121    0.000    0.000    0.003    0.000 E:\hede\backend\.venv\Lib\site-packages\sqlalchemy\sql\compiler.py:3335(_render_bindtemplate)
+      352    0.000    0.000    0.003    0.000 E:\hede\backend\.venv\Lib\site-packages\psycopg\types\json.py:256(load)
+       64    0.001    0.000    0.003    0.000 E:\hede\backend\.venv\Lib\site-packages\psycopg\_cursor_base.py:275(_maybe_prepare_gen)
+     1125    0.000    0.000    0.002    0.000 E:\hede\backend\.venv\Lib\site-packages\sqlalchemy\dialects\postgresql\base.py:1946(render_bind_cast)
+       39    0.000    0.000    0.002    0.000 E:\hede\backend\.venv\Lib\site-packages\sqlalchemy\sql\elements.py:1528(operate)
+      225    0.001    0.000    0.002    0.000 E:\hede\backend\.venv\Lib\site-packages\sqlalchemy\sql\coercions.py:314(expect)
+       39    0.000    0.000    0.002    0.000 E:\hede\backend\.venv\Lib\site-packages\sqlalchemy\sql\type_api.py:202(operate)
+
+

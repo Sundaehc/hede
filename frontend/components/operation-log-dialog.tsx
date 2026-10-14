@@ -622,14 +622,6 @@ export function OperationLogDialog({
                     >
                       {item.entity_label || "-"}
                     </p>
-                    {item.entity_id ? (
-                      <p
-                        className="mt-0.5 truncate text-xs text-muted-foreground"
-                        title={String(item.entity_id)}
-                      >
-                        {item.entity_id}
-                      </p>
-                    ) : null}
                   </td>
                   <td className="px-4 py-3 leading-6">
                     <p className="[overflow-wrap:anywhere]">{item.summary}</p>

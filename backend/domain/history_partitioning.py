@@ -37,6 +37,7 @@ AFTERSALE_PARTITION_SPEC = HistoryPartitionSpec(
             "(COALESCE(application_date_value, order_date_value, order_time_value))",
         ),
         ("idx_jst_aftersale_returns_original_code", "original_goods_code"),
+        ("idx_jst_aftersale_returns_original_code_pattern", "original_goods_code text_pattern_ops"),
         ("idx_jst_aftersale_returns_order_date", "order_date_value"),
         ("idx_jst_aftersale_returns_order_time", "order_time_value"),
         ("idx_jst_aftersale_returns_application_date", "application_date_value"),

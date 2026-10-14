@@ -1,0 +1,502 @@
+[
+  {
+    "tablename": "cbanner_mens_products",
+    "indexname": "idx_cbanner_mens_products_active_id",
+    "indexdef": "CREATE INDEX idx_cbanner_mens_products_active_id ON public.cbanner_mens_products USING btree (id DESC) INCLUDE (sku) WHERE (deleted_at IS NULL)"
+  },
+  {
+    "tablename": "cbanner_mens_products",
+    "indexname": "idx_cbanner_mens_products_deleted_at",
+    "indexdef": "CREATE INDEX idx_cbanner_mens_products_deleted_at ON public.cbanner_mens_products USING btree (deleted_at)"
+  },
+  {
+    "tablename": "cbanner_mens_products",
+    "indexname": "idx_cbanner_mens_products_factory_sku_trgm",
+    "indexdef": "CREATE INDEX idx_cbanner_mens_products_factory_sku_trgm ON public.cbanner_mens_products USING gin (factory_sku gin_trgm_ops)"
+  },
+  {
+    "tablename": "cbanner_mens_products",
+    "indexname": "idx_cbanner_mens_products_last_imported_at",
+    "indexdef": "CREATE INDEX idx_cbanner_mens_products_last_imported_at ON public.cbanner_mens_products USING btree (last_imported_at)"
+  },
+  {
+    "tablename": "cbanner_mens_products",
+    "indexname": "idx_cbanner_mens_products_original_sku",
+    "indexdef": "CREATE INDEX idx_cbanner_mens_products_original_sku ON public.cbanner_mens_products USING btree (original_sku)"
+  },
+  {
+    "tablename": "cbanner_mens_products",
+    "indexname": "idx_cbanner_mens_products_original_sku_trgm",
+    "indexdef": "CREATE INDEX idx_cbanner_mens_products_original_sku_trgm ON public.cbanner_mens_products USING gin (original_sku gin_trgm_ops)"
+  },
+  {
+    "tablename": "cbanner_mens_products",
+    "indexname": "idx_cbanner_mens_products_recycle_bin",
+    "indexdef": "CREATE INDEX idx_cbanner_mens_products_recycle_bin ON public.cbanner_mens_products USING btree (deleted_at DESC, id DESC) WHERE (deleted_at IS NOT NULL)"
+  },
+  {
+    "tablename": "cbanner_mens_products",
+    "indexname": "idx_cbanner_mens_products_sku_trgm",
+    "indexdef": "CREATE INDEX idx_cbanner_mens_products_sku_trgm ON public.cbanner_mens_products USING gin (sku gin_trgm_ops)"
+  },
+  {
+    "tablename": "cbanner_mens_products",
+    "indexname": "idx_cbanner_mens_products_year",
+    "indexdef": "CREATE INDEX idx_cbanner_mens_products_year ON public.cbanner_mens_products USING btree (year)"
+  },
+  {
+    "tablename": "cbanner_mens_products",
+    "indexname": "idx_cbanner_mens_products_year_pattern",
+    "indexdef": "CREATE INDEX idx_cbanner_mens_products_year_pattern ON public.cbanner_mens_products USING btree (year text_pattern_ops)"
+  },
+  {
+    "tablename": "cbanner_mens_products",
+    "indexname": "qbd_mens_products_pkey",
+    "indexdef": "CREATE UNIQUE INDEX qbd_mens_products_pkey ON public.cbanner_mens_products USING btree (id)"
+  },
+  {
+    "tablename": "cbanner_mens_products",
+    "indexname": "uq_cbanner_mens_products_sku",
+    "indexdef": "CREATE UNIQUE INDEX uq_cbanner_mens_products_sku ON public.cbanner_mens_products USING btree (sku)"
+  },
+  {
+    "tablename": "cbanner_womens_products",
+    "indexname": "idx_cbanner_womens_products_active_id",
+    "indexdef": "CREATE INDEX idx_cbanner_womens_products_active_id ON public.cbanner_womens_products USING btree (id DESC) INCLUDE (sku) WHERE (deleted_at IS NULL)"
+  },
+  {
+    "tablename": "cbanner_womens_products",
+    "indexname": "idx_cbanner_womens_products_deleted_at",
+    "indexdef": "CREATE INDEX idx_cbanner_womens_products_deleted_at ON public.cbanner_womens_products USING btree (deleted_at)"
+  },
+  {
+    "tablename": "cbanner_womens_products",
+    "indexname": "idx_cbanner_womens_products_factory_sku_trgm",
+    "indexdef": "CREATE INDEX idx_cbanner_womens_products_factory_sku_trgm ON public.cbanner_womens_products USING gin (factory_sku gin_trgm_ops)"
+  },
+  {
+    "tablename": "cbanner_womens_products",
+    "indexname": "idx_cbanner_womens_products_last_imported_at",
+    "indexdef": "CREATE INDEX idx_cbanner_womens_products_last_imported_at ON public.cbanner_womens_products USING btree (last_imported_at)"
+  },
+  {
+    "tablename": "cbanner_womens_products",
+    "indexname": "idx_cbanner_womens_products_original_sku",
+    "indexdef": "CREATE INDEX idx_cbanner_womens_products_original_sku ON public.cbanner_womens_products USING btree (original_sku)"
+  },
+  {
+    "tablename": "cbanner_womens_products",
+    "indexname": "idx_cbanner_womens_products_original_sku_trgm",
+    "indexdef": "CREATE INDEX idx_cbanner_womens_products_original_sku_trgm ON public.cbanner_womens_products USING gin (original_sku gin_trgm_ops)"
+  },
+  {
+    "tablename": "cbanner_womens_products",
+    "indexname": "idx_cbanner_womens_products_recycle_bin",
+    "indexdef": "CREATE INDEX idx_cbanner_womens_products_recycle_bin ON public.cbanner_womens_products USING btree (deleted_at DESC, id DESC) WHERE (deleted_at IS NOT NULL)"
+  },
+  {
+    "tablename": "cbanner_womens_products",
+    "indexname": "idx_cbanner_womens_products_sku_trgm",
+    "indexdef": "CREATE INDEX idx_cbanner_womens_products_sku_trgm ON public.cbanner_womens_products USING gin (sku gin_trgm_ops)"
+  },
+  {
+    "tablename": "cbanner_womens_products",
+    "indexname": "idx_cbanner_womens_products_year",
+    "indexdef": "CREATE INDEX idx_cbanner_womens_products_year ON public.cbanner_womens_products USING btree (year)"
+  },
+  {
+    "tablename": "cbanner_womens_products",
+    "indexname": "idx_cbanner_womens_products_year_pattern",
+    "indexdef": "CREATE INDEX idx_cbanner_womens_products_year_pattern ON public.cbanner_womens_products USING btree (year text_pattern_ops)"
+  },
+  {
+    "tablename": "cbanner_womens_products",
+    "indexname": "qbd_womens_products_pkey",
+    "indexdef": "CREATE UNIQUE INDEX qbd_womens_products_pkey ON public.cbanner_womens_products USING btree (id)"
+  },
+  {
+    "tablename": "cbanner_womens_products",
+    "indexname": "uq_cbanner_womens_products_sku",
+    "indexdef": "CREATE UNIQUE INDEX uq_cbanner_womens_products_sku ON public.cbanner_womens_products USING btree (sku)"
+  },
+  {
+    "tablename": "gj_merged_product_info",
+    "indexname": "gj_merged_product_info_pkey",
+    "indexdef": "CREATE UNIQUE INDEX gj_merged_product_info_pkey ON public.gj_merged_product_info USING btree (id)"
+  },
+  {
+    "tablename": "gj_merged_product_info",
+    "indexname": "idx_gj_merged_product_info_goods_code",
+    "indexdef": "CREATE INDEX idx_gj_merged_product_info_goods_code ON public.gj_merged_product_info USING btree (goods_code)"
+  },
+  {
+    "tablename": "gj_merged_product_info",
+    "indexname": "idx_gj_merged_product_info_goods_code_trgm",
+    "indexdef": "CREATE INDEX idx_gj_merged_product_info_goods_code_trgm ON public.gj_merged_product_info USING gin (goods_code gin_trgm_ops)"
+  },
+  {
+    "tablename": "gj_merged_product_info",
+    "indexname": "idx_gj_merged_product_info_original_code",
+    "indexdef": "CREATE INDEX idx_gj_merged_product_info_original_code ON public.gj_merged_product_info USING btree (original_goods_code)"
+  },
+  {
+    "tablename": "gj_merged_product_info",
+    "indexname": "idx_gj_merged_product_info_original_goods_code_trgm",
+    "indexdef": "CREATE INDEX idx_gj_merged_product_info_original_goods_code_trgm ON public.gj_merged_product_info USING gin (original_goods_code gin_trgm_ops)"
+  },
+  {
+    "tablename": "gj_merged_product_info",
+    "indexname": "idx_gj_merged_product_info_source_brand_code",
+    "indexdef": "CREATE INDEX idx_gj_merged_product_info_source_brand_code ON public.gj_merged_product_info USING btree (source_date_value, fine_table_brand, goods_code) INCLUDE (id)"
+  },
+  {
+    "tablename": "gj_merged_product_info",
+    "indexname": "idx_gj_merged_product_info_source_brand_id_desc",
+    "indexdef": "CREATE INDEX idx_gj_merged_product_info_source_brand_id_desc ON public.gj_merged_product_info USING btree (source_date_value, fine_table_brand, id DESC)"
+  },
+  {
+    "tablename": "gj_merged_product_info",
+    "indexname": "idx_gj_merged_product_info_source_date",
+    "indexdef": "CREATE INDEX idx_gj_merged_product_info_source_date ON public.gj_merged_product_info USING btree (source_date_value)"
+  },
+  {
+    "tablename": "gj_merged_product_info",
+    "indexname": "idx_gj_merged_product_info_source_date_goods_updated",
+    "indexdef": "CREATE INDEX idx_gj_merged_product_info_source_date_goods_updated ON public.gj_merged_product_info USING btree (source_date_value, goods_code, updated_at DESC, id DESC)"
+  },
+  {
+    "tablename": "gj_merged_product_info",
+    "indexname": "idx_gj_merged_product_info_source_date_id_desc",
+    "indexdef": "CREATE INDEX idx_gj_merged_product_info_source_date_id_desc ON public.gj_merged_product_info USING btree (source_date_value, id DESC)"
+  },
+  {
+    "tablename": "gj_merged_product_info",
+    "indexname": "uq_gj_merged_product_info_date_code",
+    "indexdef": "CREATE UNIQUE INDEX uq_gj_merged_product_info_date_code ON public.gj_merged_product_info USING btree (source_date, goods_code)"
+  },
+  {
+    "tablename": "jst_aftersale_returns",
+    "indexname": "idx_jst_aftersale_returns_application_date",
+    "indexdef": "CREATE INDEX idx_jst_aftersale_returns_application_date ON ONLY public.jst_aftersale_returns USING btree (application_date_value)"
+  },
+  {
+    "tablename": "jst_aftersale_returns",
+    "indexname": "idx_jst_aftersale_returns_business_code",
+    "indexdef": "CREATE INDEX idx_jst_aftersale_returns_business_code ON ONLY public.jst_aftersale_returns USING btree (COALESCE(application_date_value, order_date_value, order_time_value), original_goods_code)"
+  },
+  {
+    "tablename": "jst_aftersale_returns",
+    "indexname": "idx_jst_aftersale_returns_business_date",
+    "indexdef": "CREATE INDEX idx_jst_aftersale_returns_business_date ON ONLY public.jst_aftersale_returns USING btree (COALESCE(application_date_value, order_date_value, order_time_value))"
+  },
+  {
+    "tablename": "jst_aftersale_returns",
+    "indexname": "idx_jst_aftersale_returns_id",
+    "indexdef": "CREATE INDEX idx_jst_aftersale_returns_id ON ONLY public.jst_aftersale_returns USING btree (id)"
+  },
+  {
+    "tablename": "jst_aftersale_returns",
+    "indexname": "idx_jst_aftersale_returns_order_date",
+    "indexdef": "CREATE INDEX idx_jst_aftersale_returns_order_date ON ONLY public.jst_aftersale_returns USING btree (order_date_value)"
+  },
+  {
+    "tablename": "jst_aftersale_returns",
+    "indexname": "idx_jst_aftersale_returns_order_time",
+    "indexdef": "CREATE INDEX idx_jst_aftersale_returns_order_time ON ONLY public.jst_aftersale_returns USING btree (order_time_value)"
+  },
+  {
+    "tablename": "jst_aftersale_returns",
+    "indexname": "idx_jst_aftersale_returns_original_code",
+    "indexdef": "CREATE INDEX idx_jst_aftersale_returns_original_code ON ONLY public.jst_aftersale_returns USING btree (original_goods_code)"
+  },
+  {
+    "tablename": "jst_aftersale_returns",
+    "indexname": "idx_jst_aftersale_returns_original_code_pattern",
+    "indexdef": "CREATE INDEX idx_jst_aftersale_returns_original_code_pattern ON ONLY public.jst_aftersale_returns USING btree (original_goods_code text_pattern_ops)"
+  },
+  {
+    "tablename": "jst_aftersale_returns_2024",
+    "indexname": "idx_jst_aftersale_returns_2024_original_code_pattern",
+    "indexdef": "CREATE INDEX idx_jst_aftersale_returns_2024_original_code_pattern ON public.jst_aftersale_returns_2024 USING btree (original_goods_code text_pattern_ops)"
+  },
+  {
+    "tablename": "jst_aftersale_returns_2024",
+    "indexname": "jst_aftersale_returns_2024_application_date_value_idx",
+    "indexdef": "CREATE INDEX jst_aftersale_returns_2024_application_date_value_idx ON public.jst_aftersale_returns_2024 USING btree (application_date_value)"
+  },
+  {
+    "tablename": "jst_aftersale_returns_2024",
+    "indexname": "jst_aftersale_returns_2024_coalesce_idx",
+    "indexdef": "CREATE INDEX jst_aftersale_returns_2024_coalesce_idx ON public.jst_aftersale_returns_2024 USING btree (COALESCE(application_date_value, order_date_value, order_time_value))"
+  },
+  {
+    "tablename": "jst_aftersale_returns_2024",
+    "indexname": "jst_aftersale_returns_2024_coalesce_original_goods_code_idx",
+    "indexdef": "CREATE INDEX jst_aftersale_returns_2024_coalesce_original_goods_code_idx ON public.jst_aftersale_returns_2024 USING btree (COALESCE(application_date_value, order_date_value, order_time_value), original_goods_code)"
+  },
+  {
+    "tablename": "jst_aftersale_returns_2024",
+    "indexname": "jst_aftersale_returns_2024_id_idx",
+    "indexdef": "CREATE INDEX jst_aftersale_returns_2024_id_idx ON public.jst_aftersale_returns_2024 USING btree (id)"
+  },
+  {
+    "tablename": "jst_aftersale_returns_2024",
+    "indexname": "jst_aftersale_returns_2024_order_date_value_idx",
+    "indexdef": "CREATE INDEX jst_aftersale_returns_2024_order_date_value_idx ON public.jst_aftersale_returns_2024 USING btree (order_date_value)"
+  },
+  {
+    "tablename": "jst_aftersale_returns_2024",
+    "indexname": "jst_aftersale_returns_2024_order_time_value_idx",
+    "indexdef": "CREATE INDEX jst_aftersale_returns_2024_order_time_value_idx ON public.jst_aftersale_returns_2024 USING btree (order_time_value)"
+  },
+  {
+    "tablename": "jst_aftersale_returns_2024",
+    "indexname": "jst_aftersale_returns_2024_original_goods_code_idx",
+    "indexdef": "CREATE INDEX jst_aftersale_returns_2024_original_goods_code_idx ON public.jst_aftersale_returns_2024 USING btree (original_goods_code)"
+  },
+  {
+    "tablename": "jst_aftersale_returns_2025",
+    "indexname": "idx_jst_aftersale_returns_2025_original_code_pattern",
+    "indexdef": "CREATE INDEX idx_jst_aftersale_returns_2025_original_code_pattern ON public.jst_aftersale_returns_2025 USING btree (original_goods_code text_pattern_ops)"
+  },
+  {
+    "tablename": "jst_aftersale_returns_2025",
+    "indexname": "jst_aftersale_returns_2025_application_date_value_idx",
+    "indexdef": "CREATE INDEX jst_aftersale_returns_2025_application_date_value_idx ON public.jst_aftersale_returns_2025 USING btree (application_date_value)"
+  },
+  {
+    "tablename": "jst_aftersale_returns_2025",
+    "indexname": "jst_aftersale_returns_2025_coalesce_idx",
+    "indexdef": "CREATE INDEX jst_aftersale_returns_2025_coalesce_idx ON public.jst_aftersale_returns_2025 USING btree (COALESCE(application_date_value, order_date_value, order_time_value))"
+  },
+  {
+    "tablename": "jst_aftersale_returns_2025",
+    "indexname": "jst_aftersale_returns_2025_coalesce_original_goods_code_idx",
+    "indexdef": "CREATE INDEX jst_aftersale_returns_2025_coalesce_original_goods_code_idx ON public.jst_aftersale_returns_2025 USING btree (COALESCE(application_date_value, order_date_value, order_time_value), original_goods_code)"
+  },
+  {
+    "tablename": "jst_aftersale_returns_2025",
+    "indexname": "jst_aftersale_returns_2025_id_idx",
+    "indexdef": "CREATE INDEX jst_aftersale_returns_2025_id_idx ON public.jst_aftersale_returns_2025 USING btree (id)"
+  },
+  {
+    "tablename": "jst_aftersale_returns_2025",
+    "indexname": "jst_aftersale_returns_2025_order_date_value_idx",
+    "indexdef": "CREATE INDEX jst_aftersale_returns_2025_order_date_value_idx ON public.jst_aftersale_returns_2025 USING btree (order_date_value)"
+  },
+  {
+    "tablename": "jst_aftersale_returns_2025",
+    "indexname": "jst_aftersale_returns_2025_order_time_value_idx",
+    "indexdef": "CREATE INDEX jst_aftersale_returns_2025_order_time_value_idx ON public.jst_aftersale_returns_2025 USING btree (order_time_value)"
+  },
+  {
+    "tablename": "jst_aftersale_returns_2025",
+    "indexname": "jst_aftersale_returns_2025_original_goods_code_idx",
+    "indexdef": "CREATE INDEX jst_aftersale_returns_2025_original_goods_code_idx ON public.jst_aftersale_returns_2025 USING btree (original_goods_code)"
+  },
+  {
+    "tablename": "jst_aftersale_returns_2026",
+    "indexname": "idx_jst_aftersale_returns_2026_original_code_pattern",
+    "indexdef": "CREATE INDEX idx_jst_aftersale_returns_2026_original_code_pattern ON public.jst_aftersale_returns_2026 USING btree (original_goods_code text_pattern_ops)"
+  },
+  {
+    "tablename": "jst_aftersale_returns_2026",
+    "indexname": "jst_aftersale_returns_2026_application_date_value_idx",
+    "indexdef": "CREATE INDEX jst_aftersale_returns_2026_application_date_value_idx ON public.jst_aftersale_returns_2026 USING btree (application_date_value)"
+  },
+  {
+    "tablename": "jst_aftersale_returns_2026",
+    "indexname": "jst_aftersale_returns_2026_coalesce_idx",
+    "indexdef": "CREATE INDEX jst_aftersale_returns_2026_coalesce_idx ON public.jst_aftersale_returns_2026 USING btree (COALESCE(application_date_value, order_date_value, order_time_value))"
+  },
+  {
+    "tablename": "jst_aftersale_returns_2026",
+    "indexname": "jst_aftersale_returns_2026_coalesce_original_goods_code_idx",
+    "indexdef": "CREATE INDEX jst_aftersale_returns_2026_coalesce_original_goods_code_idx ON public.jst_aftersale_returns_2026 USING btree (COALESCE(application_date_value, order_date_value, order_time_value), original_goods_code)"
+  },
+  {
+    "tablename": "jst_aftersale_returns_2026",
+    "indexname": "jst_aftersale_returns_2026_id_idx",
+    "indexdef": "CREATE INDEX jst_aftersale_returns_2026_id_idx ON public.jst_aftersale_returns_2026 USING btree (id)"
+  },
+  {
+    "tablename": "jst_aftersale_returns_2026",
+    "indexname": "jst_aftersale_returns_2026_order_date_value_idx",
+    "indexdef": "CREATE INDEX jst_aftersale_returns_2026_order_date_value_idx ON public.jst_aftersale_returns_2026 USING btree (order_date_value)"
+  },
+  {
+    "tablename": "jst_aftersale_returns_2026",
+    "indexname": "jst_aftersale_returns_2026_order_time_value_idx",
+    "indexdef": "CREATE INDEX jst_aftersale_returns_2026_order_time_value_idx ON public.jst_aftersale_returns_2026 USING btree (order_time_value)"
+  },
+  {
+    "tablename": "jst_aftersale_returns_2026",
+    "indexname": "jst_aftersale_returns_2026_original_goods_code_idx",
+    "indexdef": "CREATE INDEX jst_aftersale_returns_2026_original_goods_code_idx ON public.jst_aftersale_returns_2026 USING btree (original_goods_code)"
+  },
+  {
+    "tablename": "jst_aftersale_returns_2027",
+    "indexname": "idx_jst_aftersale_returns_2027_original_code_pattern",
+    "indexdef": "CREATE INDEX idx_jst_aftersale_returns_2027_original_code_pattern ON public.jst_aftersale_returns_2027 USING btree (original_goods_code text_pattern_ops)"
+  },
+  {
+    "tablename": "jst_aftersale_returns_2027",
+    "indexname": "jst_aftersale_returns_2027_application_date_value_idx",
+    "indexdef": "CREATE INDEX jst_aftersale_returns_2027_application_date_value_idx ON public.jst_aftersale_returns_2027 USING btree (application_date_value)"
+  },
+  {
+    "tablename": "jst_aftersale_returns_2027",
+    "indexname": "jst_aftersale_returns_2027_coalesce_idx",
+    "indexdef": "CREATE INDEX jst_aftersale_returns_2027_coalesce_idx ON public.jst_aftersale_returns_2027 USING btree (COALESCE(application_date_value, order_date_value, order_time_value))"
+  },
+  {
+    "tablename": "jst_aftersale_returns_2027",
+    "indexname": "jst_aftersale_returns_2027_coalesce_original_goods_code_idx",
+    "indexdef": "CREATE INDEX jst_aftersale_returns_2027_coalesce_original_goods_code_idx ON public.jst_aftersale_returns_2027 USING btree (COALESCE(application_date_value, order_date_value, order_time_value), original_goods_code)"
+  },
+  {
+    "tablename": "jst_aftersale_returns_2027",
+    "indexname": "jst_aftersale_returns_2027_id_idx",
+    "indexdef": "CREATE INDEX jst_aftersale_returns_2027_id_idx ON public.jst_aftersale_returns_2027 USING btree (id)"
+  },
+  {
+    "tablename": "jst_aftersale_returns_2027",
+    "indexname": "jst_aftersale_returns_2027_order_date_value_idx",
+    "indexdef": "CREATE INDEX jst_aftersale_returns_2027_order_date_value_idx ON public.jst_aftersale_returns_2027 USING btree (order_date_value)"
+  },
+  {
+    "tablename": "jst_aftersale_returns_2027",
+    "indexname": "jst_aftersale_returns_2027_order_time_value_idx",
+    "indexdef": "CREATE INDEX jst_aftersale_returns_2027_order_time_value_idx ON public.jst_aftersale_returns_2027 USING btree (order_time_value)"
+  },
+  {
+    "tablename": "jst_aftersale_returns_2027",
+    "indexname": "jst_aftersale_returns_2027_original_goods_code_idx",
+    "indexdef": "CREATE INDEX jst_aftersale_returns_2027_original_goods_code_idx ON public.jst_aftersale_returns_2027 USING btree (original_goods_code)"
+  },
+  {
+    "tablename": "jst_aftersale_returns_default",
+    "indexname": "idx_jst_aftersale_returns_default_original_code_pattern",
+    "indexdef": "CREATE INDEX idx_jst_aftersale_returns_default_original_code_pattern ON public.jst_aftersale_returns_default USING btree (original_goods_code text_pattern_ops)"
+  },
+  {
+    "tablename": "jst_aftersale_returns_default",
+    "indexname": "jst_aftersale_returns_default_application_date_value_idx",
+    "indexdef": "CREATE INDEX jst_aftersale_returns_default_application_date_value_idx ON public.jst_aftersale_returns_default USING btree (application_date_value)"
+  },
+  {
+    "tablename": "jst_aftersale_returns_default",
+    "indexname": "jst_aftersale_returns_default_coalesce_idx",
+    "indexdef": "CREATE INDEX jst_aftersale_returns_default_coalesce_idx ON public.jst_aftersale_returns_default USING btree (COALESCE(application_date_value, order_date_value, order_time_value))"
+  },
+  {
+    "tablename": "jst_aftersale_returns_default",
+    "indexname": "jst_aftersale_returns_default_coalesce_original_goods_code_idx",
+    "indexdef": "CREATE INDEX jst_aftersale_returns_default_coalesce_original_goods_code_idx ON public.jst_aftersale_returns_default USING btree (COALESCE(application_date_value, order_date_value, order_time_value), original_goods_code)"
+  },
+  {
+    "tablename": "jst_aftersale_returns_default",
+    "indexname": "jst_aftersale_returns_default_id_idx",
+    "indexdef": "CREATE INDEX jst_aftersale_returns_default_id_idx ON public.jst_aftersale_returns_default USING btree (id)"
+  },
+  {
+    "tablename": "jst_aftersale_returns_default",
+    "indexname": "jst_aftersale_returns_default_order_date_value_idx",
+    "indexdef": "CREATE INDEX jst_aftersale_returns_default_order_date_value_idx ON public.jst_aftersale_returns_default USING btree (order_date_value)"
+  },
+  {
+    "tablename": "jst_aftersale_returns_default",
+    "indexname": "jst_aftersale_returns_default_order_time_value_idx",
+    "indexdef": "CREATE INDEX jst_aftersale_returns_default_order_time_value_idx ON public.jst_aftersale_returns_default USING btree (order_time_value)"
+  },
+  {
+    "tablename": "jst_aftersale_returns_default",
+    "indexname": "jst_aftersale_returns_default_original_goods_code_idx",
+    "indexdef": "CREATE INDEX jst_aftersale_returns_default_original_goods_code_idx ON public.jst_aftersale_returns_default USING btree (original_goods_code)"
+  },
+  {
+    "tablename": "product_goods_sales_periods",
+    "indexname": "idx_product_goods_sales_period_brand_product",
+    "indexdef": "CREATE INDEX idx_product_goods_sales_period_brand_product ON public.product_goods_sales_periods USING btree (brand, product_code)"
+  },
+  {
+    "tablename": "product_goods_sales_periods",
+    "indexname": "idx_product_goods_sales_period_brand_product_pattern",
+    "indexdef": "CREATE INDEX idx_product_goods_sales_period_brand_product_pattern ON public.product_goods_sales_periods USING btree (brand, product_code text_pattern_ops)"
+  },
+  {
+    "tablename": "product_goods_sales_periods",
+    "indexname": "idx_product_goods_sales_period_brand_style",
+    "indexdef": "CREATE INDEX idx_product_goods_sales_period_brand_style ON public.product_goods_sales_periods USING btree (brand, style_code)"
+  },
+  {
+    "tablename": "product_goods_sales_periods",
+    "indexname": "idx_product_goods_sales_period_period",
+    "indexdef": "CREATE INDEX idx_product_goods_sales_period_period ON public.product_goods_sales_periods USING btree (period_type, period_start)"
+  },
+  {
+    "tablename": "product_goods_sales_periods",
+    "indexname": "product_goods_sales_periods_pkey",
+    "indexdef": "CREATE UNIQUE INDEX product_goods_sales_periods_pkey ON public.product_goods_sales_periods USING btree (id)"
+  },
+  {
+    "tablename": "product_goods_sales_periods",
+    "indexname": "uq_product_goods_sales_period_source",
+    "indexdef": "CREATE UNIQUE INDEX uq_product_goods_sales_period_source ON public.product_goods_sales_periods USING btree (source_workbook, source_sheet, source_row_number, period_type, period_start)"
+  },
+  {
+    "tablename": "vip_daily_sales_2026",
+    "indexname": "idx_vip_daily_sales_2026_goods_code_pattern",
+    "indexdef": "CREATE INDEX idx_vip_daily_sales_2026_goods_code_pattern ON public.vip_daily_sales_2026 USING btree (goods_code text_pattern_ops)"
+  },
+  {
+    "tablename": "vip_daily_sales_2026",
+    "indexname": "idx_vip_daily_sales_2026_sales_date",
+    "indexdef": "CREATE INDEX idx_vip_daily_sales_2026_sales_date ON public.vip_daily_sales_2026 USING btree (sales_date)"
+  },
+  {
+    "tablename": "vip_daily_sales_2026",
+    "indexname": "idx_vip_daily_sales_2026_style_code",
+    "indexdef": "CREATE INDEX idx_vip_daily_sales_2026_style_code ON public.vip_daily_sales_2026 USING btree (style_code)"
+  },
+  {
+    "tablename": "vip_daily_sales_2026",
+    "indexname": "idx_vip_daily_sales_2026_style_date",
+    "indexdef": "CREATE INDEX idx_vip_daily_sales_2026_style_date ON public.vip_daily_sales_2026 USING btree (style_code, sales_date)"
+  },
+  {
+    "tablename": "vip_daily_sales_2026",
+    "indexname": "uq_vip_daily_sales_2026_business_key",
+    "indexdef": "CREATE UNIQUE INDEX uq_vip_daily_sales_2026_business_key ON public.vip_daily_sales_2026 USING btree (sales_date, goods_id, size_id)"
+  },
+  {
+    "tablename": "vip_daily_sales_2026",
+    "indexname": "vip_daily_sales_2026_pkey",
+    "indexdef": "CREATE UNIQUE INDEX vip_daily_sales_2026_pkey ON public.vip_daily_sales_2026 USING btree (id)"
+  },
+  {
+    "tablename": "vip_product_daily_snapshots",
+    "indexname": "idx_daily_snapshots_code_type_period_date",
+    "indexdef": "CREATE INDEX idx_daily_snapshots_code_type_period_date ON public.vip_product_daily_snapshots USING btree (goods_code, report_type, period, snapshot_date)"
+  },
+  {
+    "tablename": "vip_product_daily_snapshots",
+    "indexname": "idx_daily_snapshots_goods_code_date",
+    "indexdef": "CREATE INDEX idx_daily_snapshots_goods_code_date ON public.vip_product_daily_snapshots USING btree (goods_code, snapshot_date)"
+  },
+  {
+    "tablename": "vip_product_daily_snapshots",
+    "indexname": "idx_daily_snapshots_snapshot_date",
+    "indexdef": "CREATE INDEX idx_daily_snapshots_snapshot_date ON public.vip_product_daily_snapshots USING btree (snapshot_date)"
+  },
+  {
+    "tablename": "vip_product_daily_snapshots",
+    "indexname": "uq_daily_snapshot_date_goods",
+    "indexdef": "CREATE UNIQUE INDEX uq_daily_snapshot_date_goods ON public.vip_product_daily_snapshots USING btree (snapshot_date, goods_id)"
+  },
+  {
+    "tablename": "vip_product_daily_snapshots",
+    "indexname": "vip_product_daily_snapshots_pkey",
+    "indexdef": "CREATE UNIQUE INDEX vip_product_daily_snapshots_pkey ON public.vip_product_daily_snapshots USING btree (id)"
+  }
+]
