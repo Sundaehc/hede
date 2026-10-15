@@ -22,6 +22,7 @@ type SearchableFilterInputProps = {
 }
 
 type SearchableMultiFilterInputProps = {
+  id?: string
   values: string[]
   options: SearchableFilterOption[]
   onChange: (values: string[]) => void
@@ -187,6 +188,7 @@ export function SearchableFilterInput({
 }
 
 export function SearchableMultiFilterInput({
+  id,
   values,
   options,
   onChange,
@@ -243,6 +245,7 @@ export function SearchableMultiFilterInput({
         <div className="flex min-w-24 flex-1 items-center">
           <Search className="pointer-events-none ml-1 mr-1.5 h-4 w-4 shrink-0 text-muted-foreground" />
           <input
+            id={id}
             value={searchTerm}
             role="combobox"
             aria-expanded={open}

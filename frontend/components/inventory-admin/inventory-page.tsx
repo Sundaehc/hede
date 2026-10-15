@@ -1783,8 +1783,16 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
     setSelectedIds(new Set())
   }
 
-  const hasFilters = Object.entries(submittedFilters).some(
-    ([key, value]) => Boolean(value && (!Array.isArray(value) || value.length > 0)) && !(isPurchaseOrderTab && key === "document_type" && value === PURCHASE_ORDER_DOCUMENT_TYPE),
+  const activeFilterCount = Object.entries(submittedFilters).filter(
+    ([key, value]) => Boolean(value && (!Array.isArray(value) || value.length > 0))
+      && !(key === "date_end" && submittedFilters.date_start)
+      && !(isPurchaseOrderTab && key === "document_type" && value === PURCHASE_ORDER_DOCUMENT_TYPE),
+  ).length
+  const hasFilters = activeFilterCount > 0
+  const hasDraftFilters = Boolean(
+    searchDateStart || searchDateEnd || searchBrands.length || searchSuppliers.length
+    || searchWarehouses.length || searchDocumentTypes.length || searchDocumentNumber.trim()
+    || searchSummary.trim() || searchOriginalSku.trim() || searchProductCode.trim() || searchHandler.trim(),
   )
   const isPurchaseDetailSearch = Boolean(isPurchaseOrderTab && submittedFilters.product_code)
   const totalPages = Math.max(1, Math.ceil(total / pageSize))
@@ -2027,13 +2035,14 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
               </div>
             )}
             <form
-              className="surface-panel relative z-30 p-4"
+              aria-label={isPurchaseOrderTab ? "采购单筛选" : "经营历程筛选"}
+              className="surface-panel relative z-30"
               onKeyDown={(event) => {
                 if (
                   event.key !== "Enter"
                   || event.defaultPrevented
                   || event.nativeEvent.isComposing
-                  || event.target instanceof HTMLTextAreaElement
+                  || !(event.target instanceof HTMLInputElement)
                 ) return
                 event.preventDefault()
                 search()
@@ -2043,99 +2052,106 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
                 search()
               }}
             >
-              <div className="grid gap-3 xl:grid-cols-[1fr_auto] xl:items-end">
-                <div className="grid gap-3 lg:grid-cols-12">
-                  <DateRangeControl className="lg:col-span-12" start={searchDateStart} end={searchDateEnd} onStartChange={setSearchDateStart} onEndChange={setSearchDateEnd} />
-                  {!isPurchaseOrderTab && (
-                    <div className="space-y-1.5 lg:col-span-3 xl:col-span-3">
-                      <Label className="text-xs text-muted-foreground">品牌</Label>
-                      <SearchableMultiFilterInput
-                        values={searchBrands}
-                        options={inventoryBrandOptions}
-                        onChange={setSearchBrands}
-                        onSubmit={search}
-                        placeholder="选择品牌"
-                      />
-                    </div>
-                  )}
-                  {!isPurchaseOrderTab && (
-                    <div className="space-y-1.5 lg:col-span-3 xl:col-span-3">
-                      <Label className="text-xs text-muted-foreground">单据类型</Label>
-                      <SearchableMultiFilterInput
-                        values={searchDocumentTypes}
-                        options={documentTypeSelectOptions}
-                        onChange={setSearchDocumentTypes}
-                        onSubmit={search}
-                        placeholder="选择单据类型"
-                      />
-                    </div>
-                  )}
-                  {!isPurchaseOrderTab && (
-                    <div className="space-y-1.5 lg:col-span-3 xl:col-span-2">
-                      <Label className="text-xs text-muted-foreground">单据编号</Label>
-                      <Input value={searchDocumentNumber} onChange={(e) => setSearchDocumentNumber(e.target.value)} placeholder="输入单据编号" className="h-9" />
-                    </div>
-                  )}
-                  {!isPurchaseOrderTab && (
-                    <div className="space-y-1.5 lg:col-span-3 xl:col-span-3">
-                      <Label className="text-xs text-muted-foreground">仓库</Label>
-                      <SearchableMultiFilterInput
-                        values={searchWarehouses}
-                        options={warehouseSelectOptions}
-                        onChange={setSearchWarehouses}
-                        onSubmit={search}
-                        placeholder="选择仓库"
-                      />
-                    </div>
-                  )}
-                  <div className="space-y-1.5 lg:col-span-3 xl:col-span-3">
-                    <Label className="text-xs text-muted-foreground">客户/供应商</Label>
+              <div className="flex flex-col gap-4 rounded-t-2xl border-b border-border/70 bg-muted/20 px-4 py-4 sm:px-5 lg:flex-row lg:items-end lg:justify-between">
+                <DateRangeControl start={searchDateStart} end={searchDateEnd} onStartChange={setSearchDateStart} onEndChange={setSearchDateEnd} />
+                <div className="flex flex-wrap items-center gap-2 lg:shrink-0">
+                  {hasFilters ? (
+                    <span className="mr-1 rounded-full border border-border bg-card px-2.5 py-1 text-xs font-medium text-muted-foreground" role="status">
+                      已应用 {activeFilterCount} 项筛选
+                    </span>
+                  ) : null}
+                  <Button type="submit" disabled={isLoading} className="h-9 cursor-pointer gap-1.5 px-4">
+                    <Search className="size-4" aria-hidden="true" />
+                    搜索
+                  </Button>
+                  <Button type="button" variant="outline" onClick={clearSearch} disabled={!hasFilters && !hasDraftFilters} className="h-9 cursor-pointer gap-1.5 px-3">
+                    <RotateCcw className="size-4" aria-hidden="true" />
+                    清空
+                  </Button>
+                  <Button type="button" variant="outline" size="icon" aria-label="刷新列表" title="刷新列表" onClick={() => setReloadToken((current) => current + 1)} disabled={isLoading} className="size-9 cursor-pointer">
+                    <RefreshCw className={isLoading ? "size-4 animate-spin" : "size-4"} aria-hidden="true" />
+                  </Button>
+                </div>
+              </div>
+              <div className={isPurchaseOrderTab ? "grid gap-x-4 gap-y-3 p-4 sm:grid-cols-2 sm:px-5 lg:grid-cols-4" : "grid gap-x-4 gap-y-3 p-4 sm:grid-cols-2 sm:px-5 lg:grid-cols-3 xl:grid-cols-5"}>
+                {!isPurchaseOrderTab && (
+                  <div className="min-w-0 space-y-1.5">
+                    <Label htmlFor="inventory-brand-filter" className="text-xs text-muted-foreground">品牌</Label>
                     <SearchableMultiFilterInput
-                      values={searchSuppliers}
-                      options={counterpartySearchOptions}
-                      onChange={setSearchSuppliers}
+                      id="inventory-brand-filter"
+                      values={searchBrands}
+                      options={inventoryBrandOptions}
+                      onChange={setSearchBrands}
                       onSubmit={search}
-                      placeholder="选择客户/供应商"
+                      placeholder="选择品牌"
                     />
                   </div>
-                  <div className="space-y-1.5 lg:col-span-3 xl:col-span-2">
-                    <Label className="text-xs text-muted-foreground">经手人</Label>
-                    <Input value={searchHandler} onChange={(e) => setSearchHandler(e.target.value)} placeholder="经手人" className="h-9" />
+                )}
+                {!isPurchaseOrderTab && (
+                  <div className="min-w-0 space-y-1.5">
+                    <Label htmlFor="inventory-document-type-filter" className="text-xs text-muted-foreground">单据类型</Label>
+                    <SearchableMultiFilterInput
+                      id="inventory-document-type-filter"
+                      values={searchDocumentTypes}
+                      options={documentTypeSelectOptions}
+                      onChange={setSearchDocumentTypes}
+                      onSubmit={search}
+                      placeholder="选择单据类型"
+                    />
                   </div>
-                  <div className="space-y-1.5 lg:col-span-3 xl:col-span-2">
-                    <Label className="text-xs text-muted-foreground">{isPurchaseOrderTab ? "货号" : "原始货号"}</Label>
-                    <Input value={searchOriginalSku} onChange={(e) => setSearchOriginalSku(e.target.value)} placeholder={isPurchaseOrderTab ? "货号" : "原始货号"} className="h-9" />
+                )}
+                {!isPurchaseOrderTab && (
+                  <div className="min-w-0 space-y-1.5">
+                    <Label htmlFor="inventory-document-number-filter" className="text-xs text-muted-foreground">单据编号</Label>
+                    <Input id="inventory-document-number-filter" value={searchDocumentNumber} onChange={(event) => setSearchDocumentNumber(event.target.value)} placeholder="输入单据编号" className="h-9" />
                   </div>
-                  {!isPurchaseOrderTab && (
-                    <div className="space-y-1.5 lg:col-span-3 xl:col-span-2">
-                      <Label htmlFor="inventory-product-code-filter" className="text-xs text-muted-foreground">商品编码</Label>
-                      <InventoryProductCodeFilter
-                        id="inventory-product-code-filter"
-                        value={searchProductCode}
-                        onChange={setSearchProductCode}
-                        onSubmit={search}
-                      />
-                    </div>
-                  )}
-                  <div className="space-y-1.5 lg:col-span-6 xl:col-span-4">
-                    <Label className="text-xs text-muted-foreground">备注</Label>
-                    <Input value={searchSummary} onChange={(e) => setSearchSummary(e.target.value)} placeholder="摘要/备注" className="h-9" />
+                )}
+                {!isPurchaseOrderTab && (
+                  <div className="min-w-0 space-y-1.5">
+                    <Label htmlFor="inventory-warehouse-filter" className="text-xs text-muted-foreground">仓库</Label>
+                    <SearchableMultiFilterInput
+                      id="inventory-warehouse-filter"
+                      values={searchWarehouses}
+                      options={warehouseSelectOptions}
+                      onChange={setSearchWarehouses}
+                      onSubmit={search}
+                      placeholder="选择仓库"
+                    />
                   </div>
+                )}
+                <div className="min-w-0 space-y-1.5">
+                  <Label htmlFor="inventory-counterparty-filter" className="text-xs text-muted-foreground">客户/供应商</Label>
+                  <SearchableMultiFilterInput
+                    id="inventory-counterparty-filter"
+                    values={searchSuppliers}
+                    options={counterpartySearchOptions}
+                    onChange={setSearchSuppliers}
+                    onSubmit={search}
+                    placeholder="选择客户/供应商"
+                  />
                 </div>
-                <div className="flex flex-wrap gap-2 xl:justify-end">
-                  <Button type="submit" size="sm" disabled={isLoading} className="cursor-pointer">
-                    <Search className="h-4 w-4" />
-                    <span className="ml-1.5">搜索</span>
-                  </Button>
-                  {hasFilters && (
-                    <Button type="button" variant="outline" size="sm" onClick={clearSearch} className="cursor-pointer">
-                      <X className="h-4 w-4" />
-                      <span className="ml-1.5">清空</span>
-                    </Button>
-                  )}
-                  <Button type="button" variant="outline" size="sm" onClick={() => setReloadToken((t) => t + 1)} disabled={isLoading} className="cursor-pointer">
-                    <RefreshCw className={`h-4 w-4 ${isLoading ? "animate-spin" : ""}`} />
-                  </Button>
+                <div className="min-w-0 space-y-1.5">
+                  <Label htmlFor="inventory-handler-filter" className="text-xs text-muted-foreground">经手人</Label>
+                  <Input id="inventory-handler-filter" value={searchHandler} onChange={(event) => setSearchHandler(event.target.value)} placeholder="经手人" className="h-9" />
+                </div>
+                <div className="min-w-0 space-y-1.5">
+                  <Label htmlFor="inventory-original-sku-filter" className="text-xs text-muted-foreground">{isPurchaseOrderTab ? "货号" : "原始货号"}</Label>
+                  <Input id="inventory-original-sku-filter" value={searchOriginalSku} onChange={(event) => setSearchOriginalSku(event.target.value)} placeholder={isPurchaseOrderTab ? "货号" : "原始货号"} className="h-9" />
+                </div>
+                {!isPurchaseOrderTab && (
+                  <div className="min-w-0 space-y-1.5">
+                    <Label htmlFor="inventory-product-code-filter" className="text-xs text-muted-foreground">商品编码</Label>
+                    <InventoryProductCodeFilter
+                      id="inventory-product-code-filter"
+                      value={searchProductCode}
+                      onChange={setSearchProductCode}
+                      onSubmit={search}
+                    />
+                  </div>
+                )}
+                <div className={isPurchaseOrderTab ? "min-w-0 space-y-1.5" : "min-w-0 space-y-1.5 sm:col-span-2 lg:col-span-1 xl:col-span-2"}>
+                  <Label htmlFor="inventory-summary-filter" className="text-xs text-muted-foreground">备注</Label>
+                  <Input id="inventory-summary-filter" value={searchSummary} onChange={(event) => setSearchSummary(event.target.value)} placeholder="摘要/备注" className="h-9" />
                 </div>
               </div>
             </form>

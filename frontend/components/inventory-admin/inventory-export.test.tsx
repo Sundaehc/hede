@@ -70,6 +70,61 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 
+test("keeps all inventory filters accessible and clears unsubmitted changes", async () => {
+  const user = userEvent.setup()
+  render(<InventoryPage />)
+  await screen.findByText("EXPORT-0001")
+  const filters = within(screen.getByRole("form", { name: "经营历程筛选" }))
+  for (const name of ["品牌", "单据类型", "仓库", "客户/供应商", "商品编码"]) {
+    expect(filters.getByRole("combobox", { name })).toBeInTheDocument()
+  }
+  for (const name of ["单据编号", "经手人", "原始货号", "备注"]) {
+    expect(filters.getByRole("textbox", { name })).toBeInTheDocument()
+  }
+  expect(filters.getByRole("button", { name: "清空" })).toBeDisabled()
+  await user.type(filters.getByRole("textbox", { name: "单据编号" }), "DRAFT-001")
+  expect(filters.getByRole("button", { name: "清空" })).toBeEnabled()
+  filters.getByRole("button", { name: "清空" }).focus()
+  await user.keyboard("{Enter}")
+  expect(filters.getByRole("textbox", { name: "单据编号" })).toHaveValue("")
+  expect(filters.getByRole("button", { name: "清空" })).toBeDisabled()
+  expect(filters.queryByRole("status")).not.toBeInTheDocument()
+})
+
+test("counts applied filter groups and preserves Enter search, refresh and clear", async () => {
+  const user = userEvent.setup()
+  render(<InventoryPage />)
+  await screen.findByText("EXPORT-0001")
+  const filters = within(screen.getByRole("form", { name: "经营历程筛选" }))
+  await user.click(filters.getByRole("button", { name: "日" }))
+  await user.type(filters.getByRole("textbox", { name: "经手人" }), "张三{Enter}")
+  await waitFor(() => expect(mockListInventory).toHaveBeenLastCalledWith(expect.objectContaining({
+    handler: "张三", date_start: expect.any(String), date_end: expect.any(String),
+  })))
+  expect(filters.getByRole("status")).toHaveTextContent("已应用 2 项筛选")
+  await waitFor(() => expect(filters.getByRole("button", { name: "刷新列表" })).toBeEnabled())
+  const requestCount = mockListInventory.mock.calls.length
+  await user.click(filters.getByRole("button", { name: "刷新列表" }))
+  await waitFor(() => expect(mockListInventory.mock.calls.length).toBeGreaterThan(requestCount))
+  expect(mockListInventory).toHaveBeenLastCalledWith(expect.objectContaining({ handler: "张三" }))
+  await user.click(filters.getByRole("button", { name: "清空" }))
+  await waitFor(() => expect(mockListInventory).toHaveBeenLastCalledWith(expect.objectContaining({
+    date_start: undefined, date_end: undefined, handler: undefined,
+  })))
+  expect(filters.getByRole("textbox", { name: "经手人" })).toHaveValue("")
+  expect(filters.queryByRole("status")).not.toBeInTheDocument()
+})
+
+test("keeps the shared purchase filters in purchase mode", async () => {
+  render(<InventoryPage mode="purchase-orders" />)
+  await screen.findByText("EXPORT-0001")
+  const filters = within(screen.getByRole("form", { name: "采购单筛选" }))
+  expect(filters.getByRole("combobox", { name: "客户/供应商" })).toBeInTheDocument()
+  expect(filters.getByRole("textbox", { name: "货号" })).toBeInTheDocument()
+  expect(filters.queryByRole("combobox", { name: "品牌" })).not.toBeInTheDocument()
+  expect(filters.getByRole("button", { name: "清空" })).toBeDisabled()
+})
+
 test("exports all filtered fine records rather than only the visible page", async () => {
   const user = userEvent.setup()
   render(<InventoryPage />)
