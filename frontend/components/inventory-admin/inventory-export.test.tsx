@@ -120,6 +120,7 @@ test("keeps the shared purchase filters in purchase mode", async () => {
   await screen.findByText("EXPORT-0001")
   const filters = within(screen.getByRole("form", { name: "采购单筛选" }))
   expect(filters.getByRole("combobox", { name: "客户/供应商" })).toBeInTheDocument()
+  expect(filters.getByRole("textbox", { name: "单据编号" })).toBeInTheDocument()
   expect(filters.getByRole("textbox", { name: "货号" })).toBeInTheDocument()
   expect(filters.queryByRole("combobox", { name: "品牌" })).not.toBeInTheDocument()
   expect(filters.getByRole("button", { name: "清空" })).toBeDisabled()
@@ -231,6 +232,9 @@ test("restores inventory filters after another page and keeps purchase queries i
 
   const purchase = render(<InventoryPage mode="purchase-orders" />)
   await waitFor(() => expect(mockListInventory).toHaveBeenLastCalledWith(expect.objectContaining({ document_type: "进货订单", document_number: undefined })))
+  expect(screen.getByRole("textbox", { name: "单据编号" })).toHaveValue("")
+  await user.type(screen.getByRole("textbox", { name: "单据编号" }), "PURCHASE-456{Enter}")
+  await waitFor(() => expect(mockListInventory).toHaveBeenLastCalledWith(expect.objectContaining({ document_type: "进货订单", document_number: "PURCHASE-456" })))
   purchase.unmount()
 
   const restored = render(<InventoryPage />)
@@ -239,9 +243,71 @@ test("restores inventory filters after another page and keeps purchase queries i
   await user.click(screen.getByRole("button", { name: "清空" }))
   await waitFor(() => expect(mockListInventory).toHaveBeenLastCalledWith(expect.objectContaining({ document_number: undefined })))
   restored.unmount()
+
+  const restoredPurchase = render(<InventoryPage mode="purchase-orders" />)
+  expect(screen.getByRole("textbox", { name: "单据编号" })).toHaveValue("PURCHASE-456")
+  await waitFor(() => expect(mockListInventory).toHaveBeenLastCalledWith(expect.objectContaining({ document_type: "进货订单", document_number: "PURCHASE-456" })))
+  restoredPurchase.unmount()
+
   render(<InventoryPage />)
   expect(screen.getByPlaceholderText("输入单据编号")).toHaveValue("")
   await screen.findByText("EXPORT-0001")
+})
+
+test.each(["button", "enter"])("filters purchase document numbers through %s, paginates and exports all modes", async (submitMode) => {
+  const user = userEvent.setup()
+  render(<InventoryPage mode="purchase-orders" />)
+  await screen.findByText("EXPORT-0001")
+  const filters = within(screen.getByRole("form", { name: "采购单筛选" }))
+
+  await user.click(screen.getByText("下一页"))
+  await waitFor(() => expect(mockListInventory).toHaveBeenLastCalledWith(expect.objectContaining({ page: 2 })))
+  const callsBeforeTyping = mockListInventory.mock.calls.length
+  const input = filters.getByRole("textbox", { name: "单据编号" })
+  await user.type(input, "  JHDD-2026-0001  ")
+  expect(mockListInventory).toHaveBeenCalledTimes(callsBeforeTyping)
+  expect(filters.getByRole("button", { name: "清空" })).toBeEnabled()
+  if (submitMode === "button") {
+    await user.click(filters.getByRole("button", { name: "搜索" }))
+  } else {
+    await user.keyboard("{Enter}")
+  }
+  await waitFor(() => expect(mockListInventory).toHaveBeenLastCalledWith(expect.objectContaining({
+    document_number: "JHDD-2026-0001", document_type: "进货订单", page: 1,
+  })))
+  expect(filters.getByRole("status")).toHaveTextContent("已应用 1 项筛选")
+
+  await user.click(screen.getByText("下一页"))
+  await waitFor(() => expect(mockListInventory).toHaveBeenLastCalledWith(expect.objectContaining({
+    document_number: "JHDD-2026-0001", document_type: "进货订单", page: 2,
+  })))
+
+  await user.clear(input)
+  await user.type(input, "UNSUBMITTED")
+  const exportModes = [
+    { label: "汇总导出", mode: "summary" },
+    { label: "尺码明细导出", mode: "size_rows" },
+    { label: "生产采购单导出", mode: "production_order" },
+  ]
+  for (const [index, exportMode] of exportModes.entries()) {
+    const exportButton = screen.getByRole("button", { name: exportMode.label })
+    await waitFor(() => expect(exportButton).toBeEnabled())
+    await user.click(exportButton)
+    const params = new URL(downloadUrls[index]).searchParams
+    expect(params.get("document_number")).toBe("JHDD-2026-0001")
+    expect(params.get("document_type")).toBe("进货订单")
+    expect(params.get("purchase_export_mode")).toBe(exportMode.mode)
+    expect(params.has("page")).toBe(false)
+  }
+  expect(downloadUrls).toHaveLength(exportModes.length)
+
+  await user.click(filters.getByRole("button", { name: "清空" }))
+  expect(input).toHaveValue("")
+  await waitFor(() => expect(mockListInventory).toHaveBeenLastCalledWith(expect.objectContaining({
+    document_number: undefined, document_type: "进货订单", page: 1,
+  })))
+  expect(filters.queryByRole("status")).not.toBeInTheDocument()
+  expect(filters.getByRole("button", { name: "清空" })).toBeDisabled()
 })
 
 test("searches and exports by document number, then clears the filter", async () => {

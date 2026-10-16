@@ -1065,7 +1065,7 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
           document_types: isPurchaseOrderTab ? undefined : (submittedFilters.document_types as string[] | undefined),
           document_type: isPurchaseOrderTab ? PURCHASE_ORDER_DOCUMENT_TYPE : undefined,
           exclude_document_type: isPurchaseOrderTab ? undefined : PURCHASE_ORDER_DOCUMENT_TYPE,
-          document_number: isPurchaseOrderTab ? undefined : submittedFilters.document_number || undefined,
+          document_number: submittedFilters.document_number || undefined,
           summary: submittedFilters.summary || undefined,
           original_sku: isPurchaseOrderTab ? undefined : submittedFilters.original_sku || undefined,
           product_code: submittedFilters.product_code || undefined,
@@ -1658,7 +1658,7 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
         document_types: isPurchaseOrderTab ? undefined : (submittedFilters.document_types as string[] | undefined),
         document_type: isPurchaseOrderTab ? PURCHASE_ORDER_DOCUMENT_TYPE : undefined,
         exclude_document_type: isPurchaseOrderTab ? undefined : PURCHASE_ORDER_DOCUMENT_TYPE,
-        document_number: isPurchaseOrderTab ? undefined : submittedFilters.document_number || undefined,
+        document_number: submittedFilters.document_number || undefined,
         summary: submittedFilters.summary || undefined,
         original_sku: isPurchaseOrderTab ? undefined : submittedFilters.original_sku || undefined,
         product_code: submittedFilters.product_code || undefined,
@@ -1690,7 +1690,7 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
       warehouses: isPurchaseOrderTab ? [] : searchWarehouses,
       document_types: isPurchaseOrderTab ? [] : searchDocumentTypes,
       document_type: isPurchaseOrderTab ? PURCHASE_ORDER_DOCUMENT_TYPE : "",
-      document_number: isPurchaseOrderTab ? "" : searchDocumentNumber.trim(),
+      document_number: searchDocumentNumber.trim(),
       summary: searchSummary,
       original_sku: isPurchaseOrderTab ? "" : searchOriginalSku,
       product_code: isPurchaseOrderTab ? searchOriginalSku : searchProductCode,
@@ -2073,7 +2073,7 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
                   </Button>
                 </div>
               </div>
-              <div className={isPurchaseOrderTab ? "grid gap-x-4 gap-y-3 p-4 sm:grid-cols-2 sm:px-5 lg:grid-cols-4" : "grid gap-x-4 gap-y-3 p-4 sm:grid-cols-2 sm:px-5 lg:grid-cols-3 xl:grid-cols-5"}>
+              <div className="grid gap-x-4 gap-y-3 p-4 sm:grid-cols-2 sm:px-5 lg:grid-cols-3 xl:grid-cols-5">
                 {!isPurchaseOrderTab && (
                   <div className="min-w-0 space-y-1.5">
                     <Label htmlFor="inventory-brand-filter" className="text-xs text-muted-foreground">品牌</Label>
@@ -2100,12 +2100,10 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
                     />
                   </div>
                 )}
-                {!isPurchaseOrderTab && (
-                  <div className="min-w-0 space-y-1.5">
-                    <Label htmlFor="inventory-document-number-filter" className="text-xs text-muted-foreground">单据编号</Label>
-                    <Input id="inventory-document-number-filter" value={searchDocumentNumber} onChange={(event) => setSearchDocumentNumber(event.target.value)} placeholder="输入单据编号" className="h-9" />
-                  </div>
-                )}
+                <div className="min-w-0 space-y-1.5">
+                  <Label htmlFor="inventory-document-number-filter" className="text-xs text-muted-foreground">单据编号</Label>
+                  <Input id="inventory-document-number-filter" value={searchDocumentNumber} onChange={(event) => setSearchDocumentNumber(event.target.value)} placeholder="输入单据编号" className="h-9" />
+                </div>
                 {!isPurchaseOrderTab && (
                   <div className="min-w-0 space-y-1.5">
                     <Label htmlFor="inventory-warehouse-filter" className="text-xs text-muted-foreground">仓库</Label>
