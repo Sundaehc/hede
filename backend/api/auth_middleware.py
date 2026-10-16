@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from fastapi import Request
+from starlette.concurrency import run_in_threadpool
 from starlette.responses import JSONResponse
 
 from api.routes.auth import get_current_user_from_request, user_has_permission
@@ -75,10 +76,10 @@ async def auth_middleware(request: Request, call_next):
         return await call_next(request)
 
     repository = getattr(request.app.state, "auth_repository", None)
-    if repository is None or not repository.has_users():
+    if repository is None or not await run_in_threadpool(repository.has_users):
         return await call_next(request)
 
-    user = get_current_user_from_request(request)
+    user = await run_in_threadpool(get_current_user_from_request, request)
     if user is None:
         return JSONResponse({"detail": "未登录"}, status_code=401)
 

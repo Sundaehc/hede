@@ -5,6 +5,7 @@ import json
 import re
 import urllib.parse
 from collections import defaultdict
+from collections.abc import Mapping
 from decimal import Decimal, InvalidOperation
 from datetime import date, datetime, timedelta
 from uuid import uuid4
@@ -16,6 +17,7 @@ from openpyxl import Workbook, load_workbook
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 from sqlalchemy import MetaData, desc, or_, select as sa_select
+from starlette.concurrency import run_in_threadpool
 
 from api.excel_export import style_excel_workbook, style_excel_worksheet
 from api.operation_log_utils import (
@@ -4748,7 +4750,12 @@ def _validate_inventory_template_master_data(repository, documents) -> None:
 async def preview_inventory_template(request: Request, file: UploadFile = None):
     if file is None:
         raise HTTPException(status_code=400, detail="请选择 Excel 文件")
-    kind, _, documents = read_template_documents(await file.read())
+    content = await file.read()
+    return await run_in_threadpool(_preview_inventory_template, request, content)
+
+
+def _preview_inventory_template(request: Request, content: bytes):
+    kind, _, documents = read_template_documents(content)
     repository = request.app.state.inventory_repository
     _validate_inventory_template_master_data(repository, documents)
     preview = repository.preview_template_documents(documents)
@@ -4782,6 +4789,11 @@ async def import_inventory_template(request: Request, file: UploadFile = None):
     if file is None:
         raise HTTPException(status_code=400, detail="请选择 Excel 文件")
     form = await request.form()
+    content = await file.read()
+    return await run_in_threadpool(_import_inventory_template, request, file.filename, form, content)
+
+
+def _import_inventory_template(request: Request, filename: str | None, form: Mapping[str, object], content: bytes):
     try:
         decisions = json.loads(str(form.get("decisions") or "{}"))
     except (ValueError, TypeError) as error:
@@ -4789,7 +4801,7 @@ async def import_inventory_template(request: Request, file: UploadFile = None):
     if not isinstance(decisions, dict):
         raise HTTPException(status_code=400, detail="确认信息格式不正确")
     brand = str(form.get("brand") or "").strip().lower()
-    kind, sheet_name, documents = read_template_documents(await file.read())
+    kind, sheet_name, documents = read_template_documents(content)
     repository = request.app.state.inventory_repository
     active_documents = [
         document for document in documents
@@ -4843,7 +4855,7 @@ async def import_inventory_template(request: Request, file: UploadFile = None):
             "document_type": document.document_type, "supplier": document.supplier,
             "warehouse": document.warehouse, "handler": document.handler,
             "summary": document.summary, "details": details,
-            "source_workbook": file.filename or "", "source_sheet": sheet_name,
+            "source_workbook": filename or "", "source_sheet": sheet_name,
             "brand": (document_brand if kind != "accounting" else ""), "decision": decision.get("action"),
             "new_summary": str(decision.get("new_summary") or "").strip(),
             "same_file_conflict": same_file_conflict,
@@ -4857,10 +4869,10 @@ async def import_inventory_template(request: Request, file: UploadFile = None):
         raise HTTPException(status_code=409, detail=str(error)) from error
     write_operation_log(
         request, module="inventory", action="import", entity_type="inventory_record",
-        entity_label=file.filename or "模板导入", summary=(
+        entity_label=filename or "模板导入", summary=(
             f"按通用模板导入：新增 {result['created']} 条，覆盖 {result['replaced']} 条，取消 {result['skipped']} 条，"
             f"明细 {result['details']} 条"
-        ), after_data={"filename": file.filename, **result},
+        ), after_data={"filename": filename, **result},
     )
     return {**result, "message": (
         f"导入完成：新增 {result['created']} 条，覆盖 {result['replaced']} 条，取消 {result['skipped']} 条，"
@@ -4874,6 +4886,11 @@ async def import_purchase_inventory(request: Request, file: UploadFile = None):
         raise HTTPException(status_code=400, detail="No file uploaded")
 
     form = await request.form()
+    content = await file.read()
+    return await run_in_threadpool(_import_purchase_inventory, request, file.filename, form, content)
+
+
+def _import_purchase_inventory(request: Request, filename: str | None, form: Mapping[str, object], content: bytes):
     preview_only = str(form.get("preview") or "").lower() == "true"
     try:
         decisions = json.loads(str(form.get("decisions") or "{}"))
@@ -4892,7 +4909,6 @@ async def import_purchase_inventory(request: Request, file: UploadFile = None):
     delivery_date = _normalize_date(str(form.get("delivery_date") or "")) or None
     brand = str(form.get("brand") or "").strip() or _purchase_import_brand(document_type)
     fallback_unit_price = _to_decimal(form.get("unit_price"))
-    content = await file.read()
     repository = request.app.state.inventory_repository
     rows, sheet_name = _read_purchase_import_rows(content)
     if not rows:
@@ -5096,7 +5112,7 @@ async def import_purchase_inventory(request: Request, file: UploadFile = None):
             "additional_note": plan["additional_note"],
             "total_count": _fmt_decimal(total_count),
             "amount": _fmt_decimal(total_amount) if total_amount else None,
-            "source_workbook": file.filename or "",
+            "source_workbook": filename or "",
             "source_sheet": sheet_name,
             "source_row_number": "import_purchase",
             "extra_fields": {"delivery_date": plan_delivery_date} if plan_delivery_date else None,
@@ -5153,12 +5169,12 @@ async def import_purchase_inventory(request: Request, file: UploadFile = None):
         module="purchase" if document_type == "进货订单" else "inventory",
         action="import_purchase",
         entity_type="inventory_record",
-        entity_label=_document_log_label(document_numbers, file.filename or "采购/进销存导入"),
+        entity_label=_document_log_label(document_numbers, filename or "采购/进销存导入"),
         summary=f"导入{document_type}：{'，'.join(summary_parts)}" + (
             f"；单据编号：{'、'.join(document_numbers[:10])}" if document_numbers else ""
         ),
         after_data={
-            "filename": file.filename,
+            "filename": filename,
             "document_type": document_type,
             "documents": created_records[:200],
             "replaced_documents": replaced_records[:200],
@@ -6427,17 +6443,21 @@ def reset_purchase_print_template(request: Request):
 async def reimport_inventory_details_from_excel(request: Request, record_id: int, file: UploadFile = None):
     if file is None:
         raise HTTPException(status_code=400, detail="No file uploaded")
+    form = await request.form()
+    content = await file.read()
+    return await run_in_threadpool(_reimport_inventory_details_from_excel, request, record_id, file.filename, form, content)
+
+
+def _reimport_inventory_details_from_excel(request: Request, record_id: int, filename: str | None, form: Mapping[str, object], content: bytes):
     repository = request.app.state.inventory_repository
     record = repository.get_record(record_id)
     if record is None:
         raise HTTPException(status_code=404, detail="Record not found")
     before_details = repository.list_details(record_id)
 
-    form = await request.form()
     document_type = normalize_document_type(record.get("document_type"))
     brand = str(form.get("brand") or "").strip() or _purchase_import_brand_for_record(repository, record)
     fallback_unit_price = _to_decimal(form.get("unit_price"))
-    content = await file.read()
     details, sheet_name = _build_purchase_details_from_excel(
         repository,
         content,
@@ -6465,7 +6485,7 @@ async def reimport_inventory_details_from_excel(request: Request, record_id: int
         detail_payloads.append(item)
     import_result = repository.merge_imported_details(record_id, detail_payloads)
     repository.update_record(record_id, {
-        "source_workbook": file.filename or record.get("source_workbook") or "",
+        "source_workbook": filename or record.get("source_workbook") or "",
         "source_sheet": sheet_name or record.get("source_sheet") or "",
         "source_row_number": "replace_details",
     })
@@ -6482,7 +6502,7 @@ async def reimport_inventory_details_from_excel(request: Request, record_id: int
             f"保留 {len(before_details)} 条原有明细"
         ),
         before_data={"details": before_details[:200], "count": len(before_details)},
-        after_data={"details": detail_payloads[:200], "count": len(details), "filename": file.filename},
+        after_data={"details": detail_payloads[:200], "count": len(details), "filename": filename},
     )
     return {
         "updated": import_result["updated"],
@@ -6647,6 +6667,10 @@ async def import_inventory(request: Request, file: UploadFile = None):
         raise HTTPException(status_code=400, detail="No file uploaded")
 
     content = await file.read()
+    return await run_in_threadpool(_import_inventory, request, file.filename, content)
+
+
+def _import_inventory(request: Request, filename: str | None, content: bytes):
     try:
         wb = load_workbook(io.BytesIO(content), data_only=True, read_only=True)
     except Exception:
@@ -6740,7 +6764,7 @@ async def import_inventory(request: Request, file: UploadFile = None):
         if extra_fields:
             doc_payload["extra_fields"] = extra_fields
 
-        doc_payload.setdefault("source_workbook", file.filename or "")
+        doc_payload.setdefault("source_workbook", filename or "")
         doc_payload.setdefault("source_sheet", ws.title or "")
 
         # raw_payload stores the original row data
@@ -6935,13 +6959,13 @@ async def import_inventory(request: Request, file: UploadFile = None):
         module="inventory",
         action="import",
         entity_type="inventory_record",
-        entity_label=_document_log_label(document_numbers, file.filename or "进销存导入"),
+        entity_label=_document_log_label(document_numbers, filename or "进销存导入"),
         summary=(
             f"导入进销存：新增 {created_docs} 条单据，追加 {appended_docs} 条单据，"
             f"{created_details + appended_details} 条明细，跳过 {skipped_docs} 条"
         ) + (f"；单据编号：{'、'.join(document_numbers[:10])}" if document_numbers else ""),
         after_data={
-            "filename": file.filename,
+            "filename": filename,
             "documents": created_records[:200],
             "appended_documents": appended_records[:200],
             "document_numbers": document_numbers,

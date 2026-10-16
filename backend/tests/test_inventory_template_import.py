@@ -9,6 +9,7 @@ import pytest
 from fastapi import HTTPException, UploadFile
 from openpyxl import Workbook, load_workbook
 from sqlalchemy import create_engine, event, select
+from sqlalchemy.pool import StaticPool
 
 from domain.inventory_template_import import TEMPLATE_HEADERS, TemplateDocument, read_template_documents
 from domain.inventory_schema import GENERAL_CUSTOMER_SHOP_TABLE, GENERAL_CUSTOMER_UNIT_TABLE, INVENTORY_ACCOUNT_SUBJECT_TABLE, INVENTORY_DETAIL_TABLE, INVENTORY_TABLE, SUPPLIER_TABLE, WAREHOUSE_BRAND_TABLE, WAREHOUSE_TABLE
@@ -169,7 +170,7 @@ def test_stock_adjustment_template_import_creates_document_without_supplier(kind
     content = _workbook(TEMPLATE_HEADERS[kind], [
         ["2025-04-30", document_type, "NI仙岩仓库", "陈章瑜", "月末调整", "NI24Q1A02020139", 2],
     ])
-    engine = create_engine("sqlite://")
+    engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
     event.listen(engine, "connect", lambda connection, _record: connection.create_function(
         "date_trunc", 2, lambda _unit, value: value,
     ))
@@ -218,7 +219,7 @@ def test_transfer_template_import_uses_outbound_and_inbound_warehouses(monkeypat
     content = _workbook(TEMPLATE_HEADERS["transfer"], [
         ["2025-04-30", "同价调拨单", "NI出货仓库", "NI入货仓库", "陈章瑜", "月末调拨", "NI001", 2],
     ])
-    engine = create_engine("sqlite://")
+    engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
     event.listen(engine, "connect", lambda connection, _record: connection.create_function(
         "date_trunc", 2, lambda _unit, value: value,
     ))

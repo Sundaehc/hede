@@ -10,6 +10,7 @@ import pytest
 from fastapi import HTTPException, UploadFile
 from openpyxl import Workbook
 from sqlalchemy import create_engine, event
+from sqlalchemy.pool import StaticPool
 
 from api.routes import inventory as inventory_routes
 from domain.inventory_schema import SUPPLIER_TABLE
@@ -29,7 +30,7 @@ GENERIC_HEADERS = [
 
 @pytest.fixture
 def supplier_repository():
-    engine = create_engine("sqlite://")
+    engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
     event.listen(
         engine,
         "connect",
