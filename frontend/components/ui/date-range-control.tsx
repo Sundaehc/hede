@@ -1,8 +1,9 @@
 "use client"
 
-import { useState } from "react"
+import { useId, useState } from "react"
 import { CalendarDays, ChevronDown, ChevronLeft, ChevronRight } from "lucide-react"
 
+import { DatePicker } from "@/components/ui/date-picker"
 import { cn } from "@/lib/utils"
 
 type Period = "day" | "week" | "month" | "custom"
@@ -50,6 +51,8 @@ function periodFor(start: string, end: string, maxDate?: string): Period {
 
 export function DateRangeControl({ start, end, onStartChange, onEndChange, label = "日期范围", hideLabel = false, className, disabled, maxDate }: DateRangeControlProps) {
   const [customOpen, setCustomOpen] = useState(false)
+  const startId = useId()
+  const endId = useId()
   const today = new Date()
   today.setHours(0, 0, 0, 0)
   const configuredMax = parseDate(maxDate || "")
@@ -162,12 +165,14 @@ export function DateRangeControl({ start, end, onStartChange, onEndChange, label
       </div>
       {customOpen && (
         <div className="flex max-w-full flex-wrap items-end gap-3 rounded-lg border border-border bg-muted/25 p-3 shadow-xs">
-          <label className="grid min-w-0 gap-1.5 text-xs font-medium text-muted-foreground">开始日期
-            <input aria-label={`${label}开始日期`} type="date" value={start} max={end && end < maxValue ? end : maxValue} disabled={disabled} onChange={(event) => changeStart(event.target.value)} className="h-9 min-w-0 cursor-pointer rounded-lg border border-input bg-card px-2 text-sm font-normal tabular-nums text-foreground focus-visible:outline-2 focus-visible:outline-ring disabled:cursor-not-allowed disabled:opacity-50" />
-          </label>
-          <label className="grid min-w-0 gap-1.5 text-xs font-medium text-muted-foreground">结束日期
-            <input aria-label={`${label}结束日期`} type="date" value={end} min={start || undefined} max={maxValue} disabled={disabled} onChange={(event) => changeEnd(event.target.value)} className="h-9 min-w-0 cursor-pointer rounded-lg border border-input bg-card px-2 text-sm font-normal tabular-nums text-foreground focus-visible:outline-2 focus-visible:outline-ring disabled:cursor-not-allowed disabled:opacity-50" />
-          </label>
+          <div className="grid min-w-0 gap-1.5 text-xs font-medium text-muted-foreground">
+            <label htmlFor={startId}>开始日期</label>
+            <DatePicker id={startId} aria-label={`${label}开始日期`} value={start} max={end && end < maxValue ? end : maxValue} disabled={disabled} onValueChange={changeStart} className="h-9 min-w-0 cursor-pointer rounded-lg border border-input bg-card px-2 text-sm font-normal tabular-nums text-foreground focus-visible:outline-2 focus-visible:outline-ring disabled:cursor-not-allowed disabled:opacity-50" />
+          </div>
+          <div className="grid min-w-0 gap-1.5 text-xs font-medium text-muted-foreground">
+            <label htmlFor={endId}>结束日期</label>
+            <DatePicker id={endId} aria-label={`${label}结束日期`} value={end} min={start || undefined} max={maxValue} disabled={disabled} onValueChange={changeEnd} className="h-9 min-w-0 cursor-pointer rounded-lg border border-input bg-card px-2 text-sm font-normal tabular-nums text-foreground focus-visible:outline-2 focus-visible:outline-ring disabled:cursor-not-allowed disabled:opacity-50" />
+          </div>
           <button type="button" onClick={() => setCustomOpen(false)} className="h-9 cursor-pointer rounded-lg bg-primary px-4 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90 focus-visible:outline-2 focus-visible:outline-ring">完成</button>
         </div>
       )}

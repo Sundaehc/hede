@@ -1,3 +1,5 @@
+import { PROXY_MAX_BODY_BYTES } from "./lib/upload-limits.mjs"
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   devIndicators: false,
@@ -12,6 +14,7 @@ const nextConfig = {
     ]
   },
   experimental: {
+    proxyClientMaxBodySize: PROXY_MAX_BODY_BYTES,
     // AI SQL planning can legitimately exceed Next's 30s development proxy default.
     proxyTimeout: 180_000,
   },

@@ -20,6 +20,7 @@ import {
 import { useAuth } from "@/components/auth/auth-provider"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { DatePicker } from "@/components/ui/date-picker"
 import { Select } from "@/components/ui/select"
 import {
   ApiError,
@@ -533,16 +534,16 @@ export function ScheduledTaskPage() {
               setQuery(queryInput.trim())
             }}
           >
-            <Input
-              type="date"
+<DatePicker
               aria-label={mode === "runs" ? "执行日期" : "业务日期"}
               max={today}
               value={selectedDate}
-              onChange={(event) => {
-                setSelectedDate(event.target.value)
+              onValueChange={(nextDate) => {
+                setSelectedDate(nextDate)
                 setPage(1)
               }}
-              className="w-40 cursor-pointer"
+              wrapperClassName="w-40"
+              className="cursor-pointer"
             />
             <Select
               aria-label="状态筛选"

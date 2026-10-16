@@ -46,6 +46,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
+import { DatePicker } from "@/components/ui/date-picker"
 import { Select } from "@/components/ui/select"
 import { OperationLogDialog } from "@/components/operation-log-dialog"
 import {
@@ -1833,7 +1834,7 @@ export function ProductGoodsPage() {
   const [columnFilterLoading, setColumnFilterLoading] = useState(false)
   const [columnFilterError, setColumnFilterError] = useState("")
   const [snapshotDate, setSnapshotDate] = useSessionQueryState("product-goods:snapshotDate", "")
-  const historyDateInputRef = useRef<HTMLInputElement>(null)
+
   const loadRequestIdRef = useRef(0)
   const columnFilterRequestIdRef = useRef(0)
   const pageCacheRef = useRef(productGoodsPageCache)
@@ -2572,20 +2573,7 @@ export function ProductGoodsPage() {
       setPage(1)
     })
   }
-  function openHistoryDatePicker() {
-    const input = historyDateInputRef.current
-    if (!input) return
-    input.focus()
-    if (typeof input.showPicker === "function") {
-      try {
-        input.showPicker()
-        return
-      } catch {
-        // Fall back for browsers that reject programmatic picker opening.
-      }
-    }
-    input.click()
-  }
+
   function selectHistoryDate(nextDate: string) {
     if (!nextDate || data.snapshot_dates.includes(nextDate)) {
       setSnapshotDate(nextDate)
@@ -2684,49 +2672,46 @@ export function ProductGoodsPage() {
                   <Check className="h-3.5 w-3.5" />
                   当前
                 </button>
-                <div className="relative">
-                  <button
-                    type="button"
-                    aria-pressed={!!snapshotDate}
-                    onClick={openHistoryDatePicker}
-                    disabled={dataView === "shortage_risk"}
-                    className={cn(
-                      "inline-flex h-7 min-w-[9.5rem] cursor-pointer items-center gap-1.5 rounded-md border px-2.5 text-xs font-semibold transition-colors",
-                      snapshotDate
-                        ? "border-primary/35 bg-background text-foreground shadow-sm"
-                        : "border-transparent text-muted-foreground hover:bg-muted/50 hover:text-foreground"
-                    )}
-                  >
-                    <History
+                <DatePicker
+                  value={snapshotDate}
+                  max={data.snapshot_dates[0] || undefined}
+                  availableDates={data.snapshot_dates}
+                  disabled={dataView === "shortage_risk"}
+                  aria-label="选择历史快照日期"
+                  onValueChange={selectHistoryDate}
+                  trigger={
+                    <button
+                      type="button"
+                      aria-pressed={!!snapshotDate}
+                      disabled={dataView === "shortage_risk"}
                       className={cn(
-                        "h-3.5 w-3.5",
-                        snapshotDate && "text-primary"
-                      )}
-                    />
-                    <span>历史</span>
-                    <span
-                      className={cn(
-                        "tabular-nums",
+                        "inline-flex h-7 min-w-[9.5rem] cursor-pointer items-center gap-1.5 rounded-md border px-2.5 text-xs font-semibold transition-colors",
                         snapshotDate
-                          ? "text-foreground"
-                          : "text-muted-foreground"
+                          ? "border-primary/35 bg-background text-foreground shadow-sm"
+                          : "border-transparent text-muted-foreground hover:bg-muted/50 hover:text-foreground"
                       )}
                     >
-                      {snapshotDate || "选择日期"}
-                    </span>
-                    <CalendarDays className="ml-auto h-3.5 w-3.5 text-muted-foreground" />
-                  </button>
-                  <input
-                    ref={historyDateInputRef}
-                    type="date"
-                    value={snapshotDate}
-                    max={data.snapshot_dates[0] || undefined}
-                    onChange={(event) => selectHistoryDate(event.target.value)}
-                    className="pointer-events-none absolute top-0 left-0 h-px w-px opacity-0"
-                    aria-label="选择历史快照日期"
-                    tabIndex={-1}
-                  />
-                </div>
+                      <History
+                        className={cn(
+                          "h-3.5 w-3.5",
+                          snapshotDate && "text-primary"
+                        )}
+                      />
+                      <span>历史</span>
+                      <span
+                        className={cn(
+                          "tabular-nums",
+                          snapshotDate
+                            ? "text-foreground"
+                            : "text-muted-foreground"
+                        )}
+                      >
+                        {snapshotDate || "选择日期"}
+                      </span>
+                      <CalendarDays className="ml-auto h-3.5 w-3.5 text-muted-foreground" />
+                    </button>
+                  }
+                />
               </div>
               <Button
                 variant="outline"

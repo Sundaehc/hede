@@ -13,6 +13,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
+import { DatePicker } from "@/components/ui/date-picker"
 import { Label } from "@/components/ui/label"
 import { Select } from "@/components/ui/select"
 import { ApiError, createProduct, listProductAuxiliaryOptions, listProductColorBarcodes, listSizeGroupOptions, listSuppliersByBrand, lookupImage, updateProduct, type SupplierItem } from "@/lib/api"
@@ -999,11 +1000,10 @@ export function ProductFormDialog({ brands = PRODUCT_ARCHIVE_BRANDS, item, mode,
                                 onChange={(nextValue) => handleFieldChange("supplier_name", nextValue)}
                               />
                             ) : field === "first_order_time" || field === "launch_date" ? (
-                              <Input
+<DatePicker
                                 id={`product-form-${field}`}
-                                type="date"
                                 value={values[field as keyof ProductFormValues] as string}
-                                onChange={(event) => handleFieldChange(field as keyof ProductFormValues, event.target.value)}
+                                onValueChange={(nextDate) => handleFieldChange(field as keyof ProductFormValues, nextDate)}
                                 autoComplete="off"
                               />
                             ) : field === "color_code" && values.brand !== "ns" ? (

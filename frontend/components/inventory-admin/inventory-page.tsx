@@ -6,6 +6,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent } fro
 import { ArrowDown, ArrowUp, ArrowUpDown, Check, Copy, Plus, Download, Upload, Trash2, Edit, Search, X, RefreshCw, List, BadgeDollarSign, FileText, History, ChevronLeft, ChevronRight, GripVertical, RotateCcw } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { DatePicker } from "@/components/ui/date-picker"
 import { Label } from "@/components/ui/label"
 import { Select } from "@/components/ui/select"
 import { DateRangeControl } from "@/components/ui/date-range-control"
@@ -27,6 +28,7 @@ import {
 } from "@/components/ui/pagination"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { ConfirmDialog, MessageDialog } from "@/components/confirm-dialog"
+import { RecycleBinPagination } from "@/components/recycle-bin-page-jump"
 import { InventoryDetailPanel } from "@/components/inventory-admin/inventory-detail-panel"
 import { InventoryProductCodeFilter } from "@/components/inventory-admin/product-code-filter"
 import { OperationLogDialog } from "@/components/operation-log-dialog"
@@ -2597,11 +2599,10 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
             {/* Date */}
             <div className="space-y-1.5">
               <Label htmlFor="form-date">{formData.document_type === PURCHASE_ORDER_DOCUMENT_TYPE ? "订货日期" : "日期"}</Label>
-              <input
+              <DatePicker
                 id="form-date"
-                type="date"
                 value={formData.date || ""}
-                onChange={(e) => setFormData((prev) => ({ ...prev, date: e.target.value }))}
+                onValueChange={(nextDate) => setFormData((prev) => ({ ...prev, date: nextDate }))}
                 className="flex h-9 w-full rounded-lg border border-input bg-card px-3 py-2 text-sm shadow-xs outline-none transition-colors focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/35"
               />
             </div>
@@ -2628,12 +2629,11 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
             {formData.document_type === PURCHASE_ORDER_DOCUMENT_TYPE && (
               <div className="space-y-1.5">
                 <Label htmlFor="form-delivery-date">交货日期</Label>
-                <input
+                <DatePicker
                   id="form-delivery-date"
-                  type="date"
                   value={formData.delivery_date || ""}
                   min={formData.date || undefined}
-                  onChange={(e) => setFormData((prev) => ({ ...prev, delivery_date: e.target.value }))}
+                  onValueChange={(nextDate) => setFormData((prev) => ({ ...prev, delivery_date: nextDate }))}
                   className="flex h-9 w-full rounded-lg border border-input bg-card px-3 py-2 text-sm shadow-xs outline-none transition-colors focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/35"
                 />
               </div>
@@ -2836,10 +2836,10 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
                 <>
                   <div className="space-y-1.5">
                     <Label>{importFormData.document_type === PURCHASE_ORDER_DOCUMENT_TYPE ? "订货日期" : "单据日期"}</Label>
-                    <input
-                      type="date"
+                    <DatePicker
+                      aria-label="导入单据日期"
                       value={importFormData.date}
-                      onChange={(e) => { setImportError(""); setImportFormData((prev) => ({ ...prev, date: e.target.value })) }}
+                      onValueChange={(nextDate) => { setImportError(""); setImportFormData((prev) => ({ ...prev, date: nextDate })) }}
                       className="flex h-9 w-full rounded-lg border border-input bg-card px-3 py-2 text-sm shadow-xs outline-none transition-colors focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/35"
                     />
                   </div>
@@ -2858,11 +2858,11 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
                   {importFormData.document_type === PURCHASE_ORDER_DOCUMENT_TYPE && (
                     <div className="space-y-1.5">
                       <Label>交货日期</Label>
-                      <input
-                        type="date"
+                      <DatePicker
+                        aria-label="导入交货日期"
                         value={importFormData.delivery_date}
                         min={importFormData.date || undefined}
-                        onChange={(e) => { setImportError(""); setImportFormData((prev) => ({ ...prev, delivery_date: e.target.value })) }}
+                        onValueChange={(nextDate) => { setImportError(""); setImportFormData((prev) => ({ ...prev, delivery_date: nextDate })) }}
                         className="flex h-9 w-full rounded-lg border border-input bg-card px-3 py-2 text-sm shadow-xs outline-none transition-colors focus-visible:border-ring focus-visible:ring-ring/35"
                       />
                     </div>
@@ -3316,7 +3316,7 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
                 共 {recycleTotal} 条
                 {selectedRecycleIds.size > 0 && <span className="ml-2 font-medium text-foreground">已选 {selectedRecycleIds.size} 项</span>}
               </span>
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
                 {selectedRecycleIds.size > 0 && (
                   <>
                     <Button
@@ -3341,25 +3341,13 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
                     </Button>
                   </>
                 )}
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => setRecyclePage((p) => Math.max(1, p - 1))}
-                  disabled={recyclePage <= 1 || isRecycleLoading || recycleActionBusy}
-                  className="cursor-pointer"
-                >
-                  上一页
-                </Button>
-                <span className="tabular-nums">{recyclePage} / {recycleTotalPages}</span>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => setRecyclePage((p) => Math.min(recycleTotalPages, p + 1))}
-                  disabled={recyclePage >= recycleTotalPages || isRecycleLoading || recycleActionBusy}
-                  className="cursor-pointer"
-                >
-                  下一页
-                </Button>
+                <RecycleBinPagination
+                  key={String(recycleOpen) + ":" + mode}
+                  page={recyclePage}
+                  totalPages={recycleTotalPages}
+                  onPageChange={setRecyclePage}
+                  disabled={isRecycleLoading || recycleActionBusy || recycleTotal === 0}
+                />
               </div>
             </div>
           </div>

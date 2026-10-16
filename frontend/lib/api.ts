@@ -43,6 +43,7 @@ import type {
   ScheduledTaskRunItem,
   ScheduledTaskRunListResponse,
 } from "@/lib/types"
+import { INVENTORY_IMPORT_MAX_FILE_BYTES } from "@/lib/upload-limits.mjs"
 
 const API_PREFIX = "/api"
 
@@ -53,6 +54,12 @@ export class ApiError extends Error {
   ) {
     super(message)
     this.name = "ApiError"
+  }
+}
+
+function validateInventoryImportFile(file: File) {
+  if (file.size > INVENTORY_IMPORT_MAX_FILE_BYTES) {
+    throw new ApiError(413, "导入文件不能超过 100MB，请拆分 Excel 后重试")
   }
 }
 
@@ -1764,6 +1771,7 @@ export type InventoryImportResult = {
 }
 
 export function importInventory(file: File) {
+  validateInventoryImportFile(file)
   const formData = new FormData()
   formData.append("file", file)
   return fetch(`${API_PREFIX}/inventory/import`, {
@@ -1889,6 +1897,7 @@ export type PurchaseImportPreview = {
 }
 
 function submitPurchaseInventory(payload: PurchaseImportPayload): Promise<InventoryImportResult | PurchaseImportPreview> {
+  validateInventoryImportFile(payload.file)
   const formData = new FormData()
   formData.append("file", payload.file)
   formData.append("date", payload.date ?? "")
@@ -2186,6 +2195,7 @@ export function buildInventoryTemplateUrl(kind: InventoryTemplateKind) {
 }
 
 export async function previewInventoryTemplate(file: File): Promise<InventoryTemplatePreview> {
+  validateInventoryImportFile(file)
   const formData = new FormData()
   formData.append("file", file)
   const response = await fetch(`${API_PREFIX}/inventory/import-template/preview`, { method: "POST", body: formData, credentials: "include" })
@@ -2198,6 +2208,7 @@ export async function importInventoryTemplate(payload: {
   brand: string
   decisions: Record<string, { action: "overwrite" | "new" | "skip"; new_summary?: string }>
 }): Promise<InventoryImportResult> {
+  validateInventoryImportFile(payload.file)
   const formData = new FormData()
   formData.append("file", payload.file)
   formData.append("brand", payload.brand)
@@ -2322,6 +2333,7 @@ export function replaceDetailsFromExcel(payload: {
   file: File
   brand?: string
 }) {
+  validateInventoryImportFile(payload.file)
   const formData = new FormData()
   formData.append("file", payload.file)
   formData.append("brand", payload.brand ?? "")

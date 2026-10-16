@@ -1,0 +1,120 @@
+{
+  "server": [
+    {
+      "current_database": "commodity_department",
+      "clock_timestamp": "2026-10-16 16:07:43.994738+08:00",
+      "pg_postmaster_start_time": "2026-08-27 15:35:47.043535+08:00"
+    }
+  ],
+  "settings": [
+    {
+      "name": "log_line_prefix",
+      "setting": "%m [%p] db=%d user=%u app=%a ",
+      "unit": null,
+      "source": "configuration file",
+      "sourcefile": "D:/Postgresql/data/postgresql.auto.conf",
+      "pending_restart": false
+    },
+    {
+      "name": "log_min_duration_statement",
+      "setting": "1000",
+      "unit": "ms",
+      "source": "configuration file",
+      "sourcefile": "D:/Postgresql/data/postgresql.auto.conf",
+      "pending_restart": false
+    },
+    {
+      "name": "log_parameter_max_length",
+      "setting": "0",
+      "unit": "B",
+      "source": "configuration file",
+      "sourcefile": "D:/Postgresql/data/postgresql.auto.conf",
+      "pending_restart": false
+    },
+    {
+      "name": "log_rotation_age",
+      "setting": "1440",
+      "unit": "min",
+      "source": "default",
+      "sourcefile": null,
+      "pending_restart": false
+    },
+    {
+      "name": "log_rotation_size",
+      "setting": "10240",
+      "unit": "kB",
+      "source": "default",
+      "sourcefile": null,
+      "pending_restart": false
+    },
+    {
+      "name": "log_statement",
+      "setting": "none",
+      "unit": null,
+      "source": "configuration file",
+      "sourcefile": "D:/Postgresql/data/postgresql.auto.conf",
+      "pending_restart": false
+    },
+    {
+      "name": "log_temp_files",
+      "setting": "65536",
+      "unit": "kB",
+      "source": "configuration file",
+      "sourcefile": "D:/Postgresql/data/postgresql.auto.conf",
+      "pending_restart": false
+    },
+    {
+      "name": "log_truncate_on_rotation",
+      "setting": "off",
+      "unit": null,
+      "source": "default",
+      "sourcefile": null,
+      "pending_restart": false
+    },
+    {
+      "name": "logging_collector",
+      "setting": "on",
+      "unit": null,
+      "source": "configuration file",
+      "sourcefile": "D:/Postgresql/data/postgresql.conf",
+      "pending_restart": false
+    },
+    {
+      "name": "shared_preload_libraries",
+      "setting": "",
+      "unit": null,
+      "source": "default",
+      "sourcefile": null,
+      "pending_restart": false
+    }
+  ],
+  "extension": [
+    {
+      "extname": "pg_stat_statements",
+      "extversion": "1.12"
+    }
+  ],
+  "pending_restart": [],
+  "staged_settings": [
+    {
+      "name": "shared_preload_libraries",
+      "setting": "pg_stat_statements",
+      "applied": false,
+      "error": "setting could not be applied"
+    },
+    {
+      "name": "pg_stat_statements.track_planning",
+      "setting": "off",
+      "applied": true,
+      "error": null
+    }
+  ],
+  "log_file": "D:\\Postgresql\\data\\log\\postgresql-2026-10-16_000000.log",
+  "slowlog_probe_found": true,
+  "slowlog_probe_lines": [
+    "2026-10-16 16:05:41.655 CST [48268] db=commodity_department user=postgres app=codex_monitoring_verification LOG:  duration: 1105.978 ms  statement: SELECT pg_sleep(1.1) /* codex_monitoring_slowlog_probe_20261016 */"
+  ],
+  "database_restarted": false,
+  "pg_stat_statements_status": "pg_stat_statements must be loaded via \"shared_preload_libraries\"",
+  "postmaster_start_time": "2026-08-27 15:35:47.043535+08:00"
+}

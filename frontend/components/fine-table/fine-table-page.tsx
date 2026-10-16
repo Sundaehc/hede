@@ -40,6 +40,7 @@ import {
 import { useAuth } from "@/components/auth/auth-provider"
 import { OperationLogDialog } from "@/components/operation-log-dialog"
 import { Input } from "@/components/ui/input"
+import { DatePicker } from "@/components/ui/date-picker"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { BRANDS, type BrandKey } from "@/lib/brands"
 import { ApiError, getFineTableSnapshotByDate, listFineTable, listFineTableFilterOptions, logFineTableExport, type FineTableFilter, type FineTableFilterField, type FineTableFilterOption, type FineTableFilterOptionsResponse } from "@/lib/api"
@@ -1569,7 +1570,7 @@ export function FineTablePage() {
   const columnFilterRequestIdRef = useRef(0)
   const pageCacheRef = useRef(fineTablePageCache)
   const prefetchingPagesRef = useRef(fineTablePagePrefetching)
-  const historyDateInputRef = useRef<HTMLInputElement>(null)
+
   const maxHistoryDate = getMaxHistoryDate()
   const canExportFineTable = hasPermission("fine_table.export")
 
@@ -2043,22 +2044,7 @@ export function FineTablePage() {
     showCachedPageOrLoading(nextContext, 1, null)
   }
 
-  function openHistoryDatePicker() {
-    const input = historyDateInputRef.current
-    if (!input) return
-    input.focus()
 
-    const dateInput = input as HTMLInputElement & { showPicker?: () => void }
-    if (typeof dateInput.showPicker === "function") {
-      try {
-        dateInput.showPicker()
-        return
-      } catch {
-        // Fall back to click for browsers that restrict showPicker.
-      }
-    }
-    input.click()
-  }
 
   function handleHistoryDateChange(nextDate: string) {
     if (nextDate && nextDate > maxHistoryDate) {
@@ -2235,36 +2221,31 @@ export function FineTablePage() {
                   <Check className="h-3.5 w-3.5" />
                   当前
                 </button>
-                <div className="relative">
-                  <button
-                    type="button"
-                    aria-pressed={!!historyDate}
-                    onClick={openHistoryDatePicker}
-                    className={cn(
-                      "inline-flex h-7 min-w-[9.5rem] cursor-pointer items-center gap-1.5 rounded-md border px-2.5 text-xs font-semibold transition-colors",
-                      historyDate
-                        ? "border-primary/35 bg-background text-foreground shadow-sm"
-                        : "border-transparent text-muted-foreground hover:bg-muted/50 hover:text-foreground",
-                    )}
-                  >
-                    <History className={cn("h-3.5 w-3.5", historyDate && "text-primary")} />
-                    <span>历史</span>
-                    <span className={cn("tabular-nums", historyDate ? "text-foreground" : "text-muted-foreground")}>
-                      {historyDate || "选择日期"}
-                    </span>
-                    <CalendarDays className="ml-auto h-3.5 w-3.5 text-muted-foreground" />
-                  </button>
-                  <input
-                    ref={historyDateInputRef}
-                    type="date"
-                    value={historyDate}
-                    max={maxHistoryDate}
-                    onChange={(event) => handleHistoryDateChange(event.target.value)}
-                    className="pointer-events-none absolute left-0 top-0 h-px w-px opacity-0"
-                    aria-label="选择历史快照日期"
-                    tabIndex={-1}
-                  />
-                </div>
+                <DatePicker
+                  value={historyDate}
+                  max={maxHistoryDate}
+                  aria-label="选择历史快照日期"
+                  onValueChange={handleHistoryDateChange}
+                  trigger={
+                    <button
+                      type="button"
+                      aria-pressed={!!historyDate}
+                      className={cn(
+                        "inline-flex h-7 min-w-[9.5rem] cursor-pointer items-center gap-1.5 rounded-md border px-2.5 text-xs font-semibold transition-colors",
+                        historyDate
+                          ? "border-primary/35 bg-background text-foreground shadow-sm"
+                          : "border-transparent text-muted-foreground hover:bg-muted/50 hover:text-foreground",
+                      )}
+                    >
+                      <History className={cn("h-3.5 w-3.5", historyDate && "text-primary")} />
+                      <span>历史</span>
+                      <span className={cn("tabular-nums", historyDate ? "text-foreground" : "text-muted-foreground")}>
+                        {historyDate || "选择日期"}
+                      </span>
+                      <CalendarDays className="ml-auto h-3.5 w-3.5 text-muted-foreground" />
+                    </button>
+                  }
+                />
               </div>
               <Button variant="outline" className="h-8 px-3 text-xs font-semibold" onClick={() => setReloadToken((current) => current + 1)}>
                 <RefreshCw className="h-4 w-4" />

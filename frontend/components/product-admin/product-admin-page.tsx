@@ -8,6 +8,7 @@ import { RotateCcw, Trash2, X } from "lucide-react"
 import { useAuth } from "@/components/auth/auth-provider"
 import { ConfirmDialog, MessageDialog } from "@/components/confirm-dialog"
 import { OperationLogDialog } from "@/components/operation-log-dialog"
+import { RecycleBinPagination } from "@/components/recycle-bin-page-jump"
 import { ProductDetailDialog } from "@/components/product-admin/product-detail-dialog"
 import { ProductCopywritingDialog } from "@/components/product-admin/product-copywriting-dialog"
 import { ProductFormDialog } from "@/components/product-admin/product-form-dialog"
@@ -351,6 +352,7 @@ export function ProductAdminPage() {
   const canExportPrices = (canExportProducts || hasPermission("product.price_export")) && canViewProductCost
   const canSelectProducts = canManageProducts || canExportProducts || canExportPrices
   const canGenerateCopywriting = canViewProducts && (user?.department_code === "美工部" || user?.role_code === "super_admin")
+  const recycleTotalPages = Math.max(1, Math.ceil(recycleTotal / 20))
 
   return (
     <div className="app-page">
@@ -607,10 +609,14 @@ export function ProductAdminPage() {
                   </tbody>
                 </table>
               </div>
-              <div className="flex items-center justify-end gap-3">
-                <Button type="button" size="sm" variant="outline" className="cursor-pointer" disabled={recyclePage <= 1 || isRecycleLoading} onClick={() => setRecyclePage((value) => value - 1)}>上一页</Button>
-                <span className="text-sm text-muted-foreground">{recyclePage} / {Math.max(1, Math.ceil(recycleTotal / 20))}</span>
-                <Button type="button" size="sm" variant="outline" className="cursor-pointer" disabled={recyclePage >= Math.max(1, Math.ceil(recycleTotal / 20)) || isRecycleLoading} onClick={() => setRecyclePage((value) => value + 1)}>下一页</Button>
+              <div className="flex flex-wrap items-center justify-end gap-2">
+                <RecycleBinPagination
+                  key={String(recycleOpen) + ":" + recycleBrand}
+                  page={recyclePage}
+                  totalPages={recycleTotalPages}
+                  onPageChange={setRecyclePage}
+                  disabled={isRecycleLoading || isRecycleActioning || recycleTotal === 0}
+                />
               </div>
             </div>
           </DialogContent>
