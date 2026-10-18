@@ -502,11 +502,25 @@ class InventoryRepository:
             (record.c.document_type == "进货退货单", -func.coalesce(detail.c.amount, 0)),
             else_=func.coalesce(detail.c.amount, 0),
         )
-        count_statement = select(func.count()).select_from(joined).where(criterion)
         totals_statement = select(
+            func.count().label("detail_count"),
             func.coalesce(func.sum(signed_quantity), 0).label("quantity_total"),
             func.coalesce(func.sum(signed_amount), 0).label("purchase_amount_total"),
         ).select_from(joined).where(criterion)
+        page_details = (
+            select(
+                detail.c.id.label("detail_id"),
+                record.c.date_value,
+                record.c.date,
+                record.c.document_number,
+            )
+            .select_from(joined)
+            .where(criterion)
+            .order_by(record.c.date_value.nulls_last(), record.c.date, record.c.document_number, detail.c.id)
+            .offset((page - 1) * page_size)
+            .limit(page_size)
+            .cte("purchase_inbound_page")
+        )
         items_statement = (
             select(
                 detail.c.id,
@@ -525,17 +539,21 @@ class InventoryRepository:
                 record.c.supplier,
                 record.c.warehouse,
             )
-            .select_from(joined)
-            .where(criterion)
-            .order_by(record.c.date_value.nulls_last(), record.c.date, record.c.document_number, detail.c.id)
-            .offset((page - 1) * page_size)
-            .limit(page_size)
+            .select_from(
+                page_details
+                .join(detail, detail.c.id == page_details.c.detail_id)
+                .join(record, record.c.id == detail.c.document_id)
+            )
+            .order_by(page_details.c.date_value.nulls_last(), page_details.c.date, page_details.c.document_number, page_details.c.detail_id)
         )
 
         with self.engine.connect() as connection:
-            total = connection.execute(count_statement).scalar_one()
             totals = connection.execute(totals_statement).mappings().one()
-            rows = [dict(row) for row in connection.execute(items_statement).mappings()]
+            total = int(totals["detail_count"])
+            rows = (
+                [dict(row) for row in connection.execute(items_statement).mappings()]
+                if (page - 1) * page_size < total else []
+            )
             supplier_names = sorted({
                 str(row.get("supplier") or "").strip()
                 for row in rows

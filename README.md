@@ -188,6 +188,16 @@ alembic upgrade head
 - `unit_price` — 单价
 - `amount` — 金额
 
+商品进货明细分页将总行数和数量/金额合计合并为一次查询，先对明细 ID 和排序键分页，再读取当前页商品、尺码及额外字段；保持日期、单据编号、明细 ID 顺序和退货负数合计，不缓存统计结果。空结果或超出末页时不再读取明细。新库包含覆盖索引 `idx_inventory_details_document_page (document_id, id) INCLUDE (quantity, amount)`；已有 PostgreSQL 库需独立执行以下命令并手动重启后端，不在应用启动时阻塞建索引：
+
+```bash
+cd backend
+python -m scripts.optimize_purchase_inbound_pagination --output logs/purchase-inbound-index-plan.json
+python -m scripts.optimize_purchase_inbound_pagination --execute --output logs/purchase-inbound-index-result.json
+```
+
+脚本核对同名索引定义，使用 `CREATE INDEX CONCURRENTLY` 在线构建，设置锁等待/执行超时并保存结果及回滚命令。也保留独立 SQL 文件 `database/purchase-inbound-pagination-index-2026-10-18.sql`，必须在事务外执行。
+
 **suppliers** — 供应商表
 - `id` / `name` / `contact` / `address` / `notes`
 
