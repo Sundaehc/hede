@@ -465,8 +465,8 @@ export function ProductTable({
       </div>
 
       {totalPages > 1 && (
-        <div className="flex items-center justify-center gap-4">
-          <Pagination>
+        <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-3">
+          <Pagination className="mx-0 w-auto">
             <PaginationContent>
               <PaginationItem>
                 <PaginationPrevious
@@ -501,7 +501,7 @@ export function ProductTable({
               </PaginationItem>
             </PaginationContent>
           </Pagination>
-          <div className="flex items-center gap-1 text-sm text-muted-foreground whitespace-nowrap">
+          <div className="flex shrink-0 items-center gap-1 text-sm text-muted-foreground whitespace-nowrap">
             <span>跳至</span>
             <input
               type="number"
