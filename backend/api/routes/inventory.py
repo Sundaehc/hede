@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import io
 import json
+import logging
 import re
 import urllib.parse
 from collections import defaultdict
@@ -12,7 +13,7 @@ from uuid import uuid4
 
 import xlrd
 from fastapi import APIRouter, HTTPException, Query, Request, UploadFile
-from fastapi.responses import StreamingResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from openpyxl import Workbook, load_workbook
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
@@ -20,6 +21,9 @@ from sqlalchemy import MetaData, desc, or_, select as sa_select
 from starlette.concurrency import run_in_threadpool
 
 from api.excel_export import style_excel_workbook, style_excel_worksheet
+from api.inventory_import_tasks import submit_inventory_import, task_response, task_user_id
+from api.inventory_selection import InventorySelectionFilters
+from storage.inventory_import_tasks import complete_inventory_import
 from api.operation_log_utils import (
     ACCOUNT_SUBJECT_FIELD_LABELS,
     DETAIL_FIELD_LABELS,
@@ -4283,11 +4287,19 @@ def list_inventory(
     }
 
 
+@router.post("/inventory/selection-ids")
+def list_inventory_selection_ids(request: Request, payload: InventorySelectionFilters):
+    repository = request.app.state.inventory_repository
+    ids = repository.list_record_ids(**payload.repository_filters())
+    return JSONResponse({"ids": ids, "total": len(ids)}, headers={"Cache-Control": "no-store"})
+
+
 @router.get("/inventory-reports/purchase-inbound-details")
 def list_purchase_inbound_details(
     request: Request,
     date_start: str | None = None,
     date_end: str | None = None,
+    brands: list[str] | None = Query(None),
     document_type: str | None = None,
     supplier: str | None = None,
     warehouse: list[str] | None = Query(None),
@@ -4305,6 +4317,7 @@ def list_purchase_inbound_details(
     return repository.list_purchase_inbound_details(
         date_start=date_start,
         date_end=date_end,
+        brands=_query_values(brands),
         document_type=normalized_document_type,
         supplier=supplier,
         warehouse=warehouse,
@@ -4322,6 +4335,7 @@ def export_purchase_inbound_details(
     request: Request,
     date_start: str | None = None,
     date_end: str | None = None,
+    brands: list[str] | None = Query(None),
     document_type: str | None = None,
     supplier: str | None = None,
     warehouse: list[str] | None = Query(None),
@@ -4337,6 +4351,7 @@ def export_purchase_inbound_details(
     result = repository.list_purchase_inbound_details(
         date_start=date_start,
         date_end=date_end,
+        brands=_query_values(brands),
         document_type=normalized_document_type,
         supplier=supplier,
         warehouse=warehouse,
@@ -4385,6 +4400,7 @@ def export_purchase_inbound_details(
     style_excel_workbook(workbook)
     filters = [
         f"日期 {date_start or '不限'} 至 {date_end or '不限'}",
+        f"品牌 {', '.join(_query_values(brands)) or '全部'}",
         f"单据类型 {normalized_document_type or '全部'}",
         f"供应商 {supplier or '全部'}",
         f"仓库 {warehouse or '全部'}",
@@ -4784,6 +4800,31 @@ def _preview_inventory_template(request: Request, content: bytes):
     }
 
 
+@router.get("/inventory/import-template/tasks/{task_id}")
+def get_inventory_template_task(request: Request, task_id: str):
+    tasks = getattr(request.app.state, "inventory_import_tasks", None)
+    if tasks is None:
+        raise HTTPException(status_code=503, detail="后台导入服务尚未初始化，请联系管理员重启后端")
+    row = tasks.get(task_id, task_user_id(request))
+    if row is None:
+        raise HTTPException(status_code=404, detail="未找到该导入批次")
+    return JSONResponse(task_response(row), headers={"Cache-Control": "no-store"})
+
+
+@router.post("/inventory/import-template/tasks/{task_id}")
+async def submit_inventory_template_task(request: Request, task_id: str, file: UploadFile = None):
+    if not re.fullmatch(r"[a-f0-9]{32}", task_id):
+        raise HTTPException(status_code=400, detail="导入批次编号格式不正确")
+    if file is None:
+        raise HTTPException(status_code=400, detail="请选择 Excel 文件")
+    form = await request.form()
+    content = await file.read()
+    result = await run_in_threadpool(
+        submit_inventory_import, request, task_id, file.filename, form, content, _import_inventory_template,
+    )
+    return JSONResponse(result, status_code=202, headers={"Cache-Control": "no-store"})
+
+
 @router.post("/inventory/import-template")
 async def import_inventory_template(request: Request, file: UploadFile = None):
     if file is None:
@@ -4793,7 +4834,7 @@ async def import_inventory_template(request: Request, file: UploadFile = None):
     return await run_in_threadpool(_import_inventory_template, request, file.filename, form, content)
 
 
-def _import_inventory_template(request: Request, filename: str | None, form: Mapping[str, object], content: bytes):
+def _import_inventory_template(request: Request, filename: str | None, form: Mapping[str, object], content: bytes, *, task_id: str | None = None):
     try:
         decisions = json.loads(str(form.get("decisions") or "{}"))
     except (ValueError, TypeError) as error:
@@ -4861,19 +4902,25 @@ def _import_inventory_template(request: Request, filename: str | None, form: Map
             "same_file_conflict": same_file_conflict,
         })
     if plans and all(plan["decision"] == "skip" for plan in plans):
+        if task_id is not None:
+            with repository.engine.begin() as connection:
+                complete_inventory_import(connection, task_id, {"created": 0, "replaced": 0, "skipped": len(plans), "details": 0})
         return {"created": 0, "replaced": 0, "skipped": len(plans), "details": 0,
                 "message": f"已取消 {len(plans)} 张单据，本次没有导入数据"}
     try:
-        result = repository.import_template_documents(plans)
+        result = repository.import_template_documents(plans, task_id=task_id) if task_id is not None else repository.import_template_documents(plans)
     except ValueError as error:
         raise HTTPException(status_code=409, detail=str(error)) from error
-    write_operation_log(
-        request, module="inventory", action="import", entity_type="inventory_record",
-        entity_label=filename or "模板导入", summary=(
-            f"按通用模板导入：新增 {result['created']} 条，覆盖 {result['replaced']} 条，取消 {result['skipped']} 条，"
-            f"明细 {result['details']} 条"
-        ), after_data={"filename": filename, **result},
-    )
+    try:
+        write_operation_log(
+            request, module="inventory", action="import", entity_type="inventory_record",
+            entity_label=filename or "模板导入", summary=(
+                f"按通用模板导入：新增 {result['created']} 条，覆盖 {result['replaced']} 条，取消 {result['skipped']} 条，"
+                f"明细 {result['details']} 条"
+            ), after_data={"filename": filename, **result},
+        )
+    except Exception:
+        logging.getLogger(__name__).exception("Inventory template import committed but operation log failed: %s", filename)
     return {**result, "message": (
         f"导入完成：新增 {result['created']} 条，覆盖 {result['replaced']} 条，取消 {result['skipped']} 条，"
         f"明细 {result['details']} 条"
@@ -6129,14 +6176,20 @@ def batch_permanently_delete_inventory(request: Request, payload: dict):
 @router.post("/inventory/batch-delete")
 def batch_delete_inventory(request: Request, payload: dict):
     ids = payload.get("ids", [])
+    if not isinstance(ids, list):
+        raise HTTPException(status_code=400, detail="ids 必须是编号列表")
     repository = request.app.state.inventory_repository
     record_ids = []
     for value in ids:
         try:
-            record_ids.append(int(value))
+            record_id = int(value)
+            if isinstance(value, bool) or record_id <= 0 or str(record_id) != str(value).strip():
+                raise ValueError
+            record_ids.append(record_id)
         except (TypeError, ValueError):
             raise HTTPException(status_code=400, detail="ids 中包含非法编号") from None
-    before_records = [record for record_id in record_ids if (record := repository.get_record(record_id)) is not None]
+    record_ids = list(dict.fromkeys(record_ids))
+    before_records = repository.get_records_by_ids(record_ids)
     deleted = repository.delete_records(record_ids)
     grouped: dict[str, list[dict[str, object]]] = defaultdict(list)
     for record in before_records:

@@ -30,6 +30,8 @@ from domain.product_archive_identity_schema import PRODUCT_ARCHIVE_IDENTITY_TABL
 from domain.schema import PRODUCT_ARCHIVE_TABLES
 from domain.size_group_schema import SIZE_GROUP_ITEMS_TABLE, SIZE_GROUPS_TABLE
 from storage.date_normalization import parse_date, parse_month_day
+from storage.inventory_import_tasks import complete_inventory_import
+from domain.inventory_import_task_schema import INVENTORY_IMPORT_TASK_TABLE
 
 
 DOCUMENT_NUMBER_PREFIXES = {
@@ -109,8 +111,6 @@ class InventoryRepository:
         page_size: int,
     ) -> dict[str, object]:
         table = INVENTORY_TABLE
-        detail = INVENTORY_DETAIL_TABLE
-        stock = JST_STOCK_TABLE
         totals_statement = select(
             func.count().label("record_count"),
             func.coalesce(
@@ -131,6 +131,124 @@ class InventoryRepository:
         items_statement = select(table)
 
         self.purge_expired_deleted_records()
+        conditions = self._record_filter_conditions(
+            date_start=date_start,
+            date_end=date_end,
+            supplier=supplier,
+            suppliers=suppliers,
+            brands=brands,
+            warehouse=warehouse,
+            warehouses=warehouses,
+            document_type=document_type,
+            document_types=document_types,
+            exclude_document_type=exclude_document_type,
+            document_number=document_number,
+            summary=summary,
+            original_sku=original_sku,
+            product_code=product_code,
+            handler=handler,
+            completion_status=completion_status,
+        )
+        if conditions:
+            criterion = conditions[0] if len(conditions) == 1 else and_(*conditions)
+            items_statement = items_statement.where(criterion)
+            totals_statement = totals_statement.where(criterion)
+
+        sort_columns = {
+            "document_number": table.c.document_number,
+            "date": table.c.date_value,
+            "delivery_date": table.c.extra_fields["delivery_date"].as_string(),
+            "document_type": table.c.document_type,
+            "supplier": table.c.supplier,
+            "total_count": table.c.total_count,
+            "amount": table.c.amount,
+            "warehouse": table.c.warehouse,
+            "handler": table.c.handler,
+            "summary": table.c.summary,
+            "additional_note": table.c.additional_note,
+            "updated_at": table.c.updated_at,
+        }
+        normalized_sort_rules = list(sort_rules or [])
+        if not normalized_sort_rules and sort_by:
+            normalized_sort_rules = [(str(sort_by).strip(), str(sort_direction or "desc").lower())]
+        order_by = []
+        seen_sort_keys: set[str] = set()
+        for sort_key, direction in normalized_sort_rules:
+            normalized_key = str(sort_key or "").strip()
+            sort_column = sort_columns.get(normalized_key)
+            if sort_column is None or normalized_key in seen_sort_keys:
+                continue
+            seen_sort_keys.add(normalized_key)
+            if str(direction or "").lower() == "asc":
+                order_by.append(sort_column.asc().nulls_last())
+            else:
+                order_by.append(sort_column.desc().nulls_last())
+        if not order_by:
+            order_by = [desc(table.c.id)]
+        else:
+            order_by.append(desc(table.c.id))
+        items_statement = items_statement.order_by(*order_by).offset((page - 1) * page_size).limit(page_size)
+
+        with self.engine.connect() as connection:
+            all_totals = connection.execute(totals_statement).mappings().one()
+            total = int(all_totals["record_count"])
+            items = [dict(row) for row in connection.execute(items_statement).mappings()]
+        for item in items:
+            self._clear_accounting_record_summary(item)
+            if item.get("document_type") == "进货退货单":
+                for field in ("total_count", "amount"):
+                    if item.get(field) is not None:
+                        item[field] = abs(Decimal(str(item[field])))
+
+        page_total_count = sum(
+            (Decimal(str(item.get("total_count") or "0")) for item in items),
+            Decimal("0"),
+        )
+        page_amount = sum(
+            (Decimal(str(item.get("amount") or "0")) for item in items),
+            Decimal("0"),
+        )
+
+        return {
+            "items": items,
+            "total": total,
+            "page": page,
+            "page_size": page_size,
+            "totals": {
+                "current_page": {
+                    "total_count": self._format_decimal(page_total_count),
+                    "amount": self._format_decimal(page_amount),
+                },
+                "all": {
+                    "total_count": self._format_decimal(Decimal(str(all_totals["total_count"] or "0"))),
+                    "amount": self._format_decimal(Decimal(str(all_totals["amount"] or "0"))),
+                },
+            },
+        }
+
+    def _record_filter_conditions(
+        self,
+        *,
+        date_start: str | None = None,
+        date_end: str | None = None,
+        supplier: str | None = None,
+        suppliers: list[str] | None = None,
+        brands: list[str] | None = None,
+        warehouse: str | None = None,
+        warehouses: list[str] | None = None,
+        document_type: str | None = None,
+        document_types: list[str] | None = None,
+        exclude_document_type: str | None = None,
+        document_number: str | None = None,
+        summary: str | None = None,
+        original_sku: str | None = None,
+        product_code: str | None = None,
+        handler: str | None = None,
+        completion_status: str | None = None,
+    ):
+        table = INVENTORY_TABLE
+        detail = INVENTORY_DETAIL_TABLE
+        stock = JST_STOCK_TABLE
         conditions = [table.c.deleted_at.is_(None)]
         if date_start:
             parsed = parse_date(date_start)
@@ -321,88 +439,21 @@ class InventoryRepository:
                 .exists()
             )
 
-        if conditions:
-            criterion = conditions[0] if len(conditions) == 1 else and_(*conditions)
-            items_statement = items_statement.where(criterion)
-            totals_statement = totals_statement.where(criterion)
+        return conditions
 
-        sort_columns = {
-            "document_number": table.c.document_number,
-            "date": table.c.date_value,
-            "delivery_date": table.c.extra_fields["delivery_date"].as_string(),
-            "document_type": table.c.document_type,
-            "supplier": table.c.supplier,
-            "total_count": table.c.total_count,
-            "amount": table.c.amount,
-            "warehouse": table.c.warehouse,
-            "handler": table.c.handler,
-            "summary": table.c.summary,
-            "additional_note": table.c.additional_note,
-            "updated_at": table.c.updated_at,
-        }
-        normalized_sort_rules = list(sort_rules or [])
-        if not normalized_sort_rules and sort_by:
-            normalized_sort_rules = [(str(sort_by).strip(), str(sort_direction or "desc").lower())]
-        order_by = []
-        seen_sort_keys: set[str] = set()
-        for sort_key, direction in normalized_sort_rules:
-            normalized_key = str(sort_key or "").strip()
-            sort_column = sort_columns.get(normalized_key)
-            if sort_column is None or normalized_key in seen_sort_keys:
-                continue
-            seen_sort_keys.add(normalized_key)
-            if str(direction or "").lower() == "asc":
-                order_by.append(sort_column.asc().nulls_last())
-            else:
-                order_by.append(sort_column.desc().nulls_last())
-        if not order_by:
-            order_by = [desc(table.c.id)]
-        else:
-            order_by.append(desc(table.c.id))
-        items_statement = items_statement.order_by(*order_by).offset((page - 1) * page_size).limit(page_size)
-
+    def list_record_ids(self, **filters) -> list[int]:
+        conditions = self._record_filter_conditions(**filters)
         with self.engine.connect() as connection:
-            all_totals = connection.execute(totals_statement).mappings().one()
-            total = int(all_totals["record_count"])
-            items = [dict(row) for row in connection.execute(items_statement).mappings()]
-        for item in items:
-            self._clear_accounting_record_summary(item)
-            if item.get("document_type") == "进货退货单":
-                for field in ("total_count", "amount"):
-                    if item.get(field) is not None:
-                        item[field] = abs(Decimal(str(item[field])))
-
-        page_total_count = sum(
-            (Decimal(str(item.get("total_count") or "0")) for item in items),
-            Decimal("0"),
-        )
-        page_amount = sum(
-            (Decimal(str(item.get("amount") or "0")) for item in items),
-            Decimal("0"),
-        )
-
-        return {
-            "items": items,
-            "total": total,
-            "page": page,
-            "page_size": page_size,
-            "totals": {
-                "current_page": {
-                    "total_count": self._format_decimal(page_total_count),
-                    "amount": self._format_decimal(page_amount),
-                },
-                "all": {
-                    "total_count": self._format_decimal(Decimal(str(all_totals["total_count"] or "0"))),
-                    "amount": self._format_decimal(Decimal(str(all_totals["amount"] or "0"))),
-                },
-            },
-        }
+            return list(connection.execute(
+                select(INVENTORY_TABLE.c.id).where(*conditions).order_by(INVENTORY_TABLE.c.id)
+            ).scalars())
 
     def list_purchase_inbound_details(
         self,
         *,
         date_start: str | None = None,
         date_end: str | None = None,
+        brands: list[str] | None = None,
         document_type: str | None = None,
         supplier: str | None = None,
         warehouse: list[str] | None = None,
@@ -416,28 +467,22 @@ class InventoryRepository:
         record = INVENTORY_TABLE
         detail = INVENTORY_DETAIL_TABLE
         joined = detail.join(record, detail.c.document_id == record.c.id)
-        conditions = [
-            record.c.deleted_at.is_(None),
-            record.c.document_type.in_(PURCHASE_INBOUND_DETAIL_TYPES),
-        ]
-        if date_start:
-            parsed = parse_date(date_start)
-            conditions.append(record.c.date_value >= parsed if parsed else record.c.date >= date_start)
-        if date_end:
-            parsed = parse_date(date_end)
-            conditions.append(record.c.date_value <= parsed if parsed else record.c.date <= date_end)
-        if document_type:
-            conditions.append(record.c.document_type == document_type)
-        if supplier:
-            conditions.append(record.c.supplier.ilike(f"%{supplier.strip()}%"))
         warehouse_values = [warehouse] if isinstance(warehouse, str) else (warehouse or [])
         warehouse_names = list(dict.fromkeys(
             warehouse_name.strip()
             for warehouse_name in warehouse_values
             if warehouse_name and warehouse_name.strip()
         ))
-        if warehouse_names:
-            conditions.append(record.c.warehouse.in_(warehouse_names))
+        conditions = self._record_filter_conditions(
+            date_start=date_start,
+            date_end=date_end,
+            brands=brands,
+            document_types=list(PURCHASE_INBOUND_DETAIL_TYPES),
+            supplier=supplier,
+            warehouses=warehouse_names,
+        )
+        if document_type:
+            conditions.append(record.c.document_type == document_type)
         if product_code:
             conditions.append(detail.c.product_code.ilike(f"%{product_code.strip()}%"))
         if product_name:
@@ -684,7 +729,7 @@ class InventoryRepository:
             seen.append(document)
         return {"total": len(documents), "conflicts": conflicts}
 
-    def import_template_documents(self, plans: list[dict[str, object]]) -> dict[str, int]:
+    def import_template_documents(self, plans: list[dict[str, object]], *, task_id: str | None = None) -> dict[str, int]:
         record_table = INVENTORY_TABLE
         detail_table = INVENTORY_DETAIL_TABLE
         created = replaced = skipped = detail_count = 0
@@ -833,7 +878,10 @@ class InventoryRepository:
                 quantity = None if is_accounting else self._apply_document_total_sign(plan["document_type"], totals[0])
                 amount = totals[1] if is_accounting else self._apply_document_total_sign(plan["document_type"], totals[1])
                 connection.execute(update(record_table).where(record_table.c.id == document_id).values(total_count=quantity, amount=amount))
-        return {"created": created, "replaced": replaced, "skipped": skipped, "details": detail_count}
+            result = {"created": created, "replaced": replaced, "skipped": skipped, "details": detail_count}
+            if task_id is not None:
+                complete_inventory_import(connection, task_id, result)
+        return result
 
     def create_record(self, record: Mapping[str, object]) -> dict[str, object]:
         table = INVENTORY_TABLE
@@ -888,14 +936,28 @@ class InventoryRepository:
         if not ids:
             return 0
         table = INVENTORY_TABLE
-        statement = (
-            update(table)
-            .where(table.c.id.in_(ids), table.c.deleted_at.is_(None))
-            .values(deleted_at=func.now())
-        )
+        record_ids = list(dict.fromkeys(ids))
+        deleted = 0
         with self.engine.begin() as connection:
-            result = connection.execute(statement)
-        return result.rowcount
+            for offset in range(0, len(record_ids), 1000):
+                result = connection.execute(
+                    update(table)
+                    .where(table.c.id.in_(record_ids[offset:offset + 1000]), table.c.deleted_at.is_(None))
+                    .values(deleted_at=func.now())
+                )
+                deleted += result.rowcount
+        return deleted
+
+    def get_records_by_ids(self, ids: list[int]) -> list[dict[str, object]]:
+        table = INVENTORY_TABLE
+        record_ids = list(dict.fromkeys(ids))
+        records = []
+        with self.engine.connect() as connection:
+            for offset in range(0, len(record_ids), 1000):
+                records.extend(dict(row) for row in connection.execute(
+                    select(table).where(table.c.id.in_(record_ids[offset:offset + 1000]), table.c.deleted_at.is_(None))
+                ).mappings())
+        return records
 
     def list_deleted_records(
         self,
@@ -3853,6 +3915,7 @@ class InventoryRepository:
     def create_tables(self) -> None:
         with self.engine.begin() as connection:
             INVENTORY_TABLE.create(connection, checkfirst=True)
+            INVENTORY_IMPORT_TASK_TABLE.create(connection, checkfirst=True)
             PRODUCT_ARCHIVE_IDENTITY_TABLE.create(connection, checkfirst=True)
             INVENTORY_DETAIL_TABLE.create(connection, checkfirst=True)
             JST_STOCK_TABLE.create(connection, checkfirst=True)

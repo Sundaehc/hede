@@ -46,7 +46,8 @@ export function resolveProductArchiveBrands(managedBrands: readonly ManagedBrand
     const staticBrand = staticByCode.get(code)
     if (configuredCodes.has(code)) continue
     configuredCodes.add(code)
-    configuredBrands.push({ key: code, label: managedBrand.name || staticBrand?.label || code })
+    const archiveLabel = code === "eblan" ? staticBrand?.label : managedBrand.name
+    configuredBrands.push({ key: code, label: archiveLabel || staticBrand?.label || code })
   }
 
   const unconfiguredBrands: ProductArchiveBrand[] = staticBrands

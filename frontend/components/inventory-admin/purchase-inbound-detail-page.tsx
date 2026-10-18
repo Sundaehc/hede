@@ -31,7 +31,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
-import { ApiError, buildPurchaseInboundDetailExportUrl, listInventoryDetailCandidates, listPurchaseInboundDetails, listSuppliers, listWarehouses, type InventoryDetailCandidate, type PurchaseInboundDetailItem, type SupplierItem, type WarehouseItem } from "@/lib/api"
+import { ApiError, buildPurchaseInboundDetailExportUrl, listInventoryBrands, listInventoryDetailCandidates, listPurchaseInboundDetails, listSuppliers, listWarehouses, type InventoryDetailCandidate, type PurchaseInboundDetailItem, type SupplierItem, type WarehouseItem } from "@/lib/api"
 import { cn } from "@/lib/utils"
 
 const PAGE_SIZES = [50, 100, 200]
@@ -42,6 +42,7 @@ const FILTER_CONTROL_CLASS_NAME = "bg-background"
 type SubmittedFilters = {
   date_start?: string
   date_end?: string
+  brands?: string[]
   document_type?: string
   supplier?: string
   warehouse?: string[]
@@ -84,6 +85,8 @@ function numericTone(value: string | null | undefined) {
 export function PurchaseInboundDetailPage() {
   const [dateStart, setDateStart] = useSessionQueryState("purchase-inbound-details:dateStart", "")
   const [dateEnd, setDateEnd] = useSessionQueryState("purchase-inbound-details:dateEnd", "")
+  const [brands, setBrands] = useSessionQueryState<string[]>("purchase-inbound-details:brands", [])
+  const [brandOptions, setBrandOptions] = useState<SearchableFilterOption[]>([])
   const [documentType, setDocumentType] = useSessionQueryState("purchase-inbound-details:documentType", "")
   const [supplier, setSupplier] = useSessionQueryState("purchase-inbound-details:supplier", "")
   const [supplierOptions, setSupplierOptions] = useState<SupplierItem[]>([])
@@ -115,15 +118,17 @@ export function PurchaseInboundDetailPage() {
 
     async function loadOptions() {
       try {
-        const [suppliersResponse, warehousesResponse] = await Promise.all([listSuppliers(), listWarehouses()])
+        const [suppliersResponse, warehousesResponse, brandsResponse] = await Promise.all([listSuppliers(), listWarehouses(), listInventoryBrands()])
         if (!cancelled) {
           setSupplierOptions(suppliersResponse.items)
           setWarehouseOptions(warehousesResponse.items)
+          setBrandOptions(brandsResponse.items)
         }
       } catch {
         if (!cancelled) {
           setSupplierOptions([])
           setWarehouseOptions([])
+          setBrandOptions([])
         }
       }
     }
@@ -213,6 +218,7 @@ export function PurchaseInboundDetailPage() {
     setSubmittedFilters({
       date_start: dateStart || undefined,
       date_end: dateEnd || undefined,
+      brands: brands.length ? brands : undefined,
       document_type: documentType || undefined,
       supplier: supplier || undefined,
       warehouse: warehouse.length ? warehouse : undefined,
@@ -226,6 +232,7 @@ export function PurchaseInboundDetailPage() {
   const clearSearch = () => {
     setDateStart("")
     setDateEnd("")
+    setBrands([])
     setDocumentType("")
     setSupplier("")
     setWarehouse([])
@@ -275,6 +282,18 @@ export function PurchaseInboundDetailPage() {
         <div className="rounded-lg border border-border bg-card px-4 py-3 shadow-xs">
           <div className="grid items-end gap-x-3 gap-y-2.5 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
             <DateRangeControl className="md:col-span-2 lg:col-span-3 xl:col-span-5" start={dateStart} end={dateEnd} onStartChange={setDateStart} onEndChange={setDateEnd} />
+            <div className={FILTER_FIELD_CLASS_NAME}>
+              <Label htmlFor="purchase-inbound-brand-filter" className={FILTER_LABEL_CLASS_NAME}>品牌</Label>
+              <SearchableMultiFilterInput
+                id="purchase-inbound-brand-filter"
+                values={brands}
+                options={brandOptions}
+                onChange={setBrands}
+                onSubmit={submitSearch}
+                placeholder="选择品牌"
+                className={FILTER_CONTROL_CLASS_NAME}
+              />
+            </div>
             <div className={FILTER_FIELD_CLASS_NAME}>
               <Label className={FILTER_LABEL_CLASS_NAME}>单据类型</Label>
               <Select className={FILTER_CONTROL_CLASS_NAME} value={documentType} onChange={(event) => setDocumentType(event.target.value)}>

@@ -1501,7 +1501,7 @@ export type PurchaseOrderRequirementTemplate = {
   is_custom: boolean
 }
 
-export function listInventory(params: {
+export type InventorySelectionFilters = {
   date_start?: string
   date_end?: string
   supplier?: string
@@ -1518,6 +1518,17 @@ export function listInventory(params: {
   product_code?: string
   handler?: string
   completion_status?: string
+}
+
+export function listInventorySelectionIds(filters: InventorySelectionFilters) {
+  return request<{ ids: number[]; total: number }>("/inventory/selection-ids", {
+    method: "POST",
+    body: JSON.stringify(filters),
+    cache: "no-store",
+  })
+}
+
+export function listInventory(params: InventorySelectionFilters & {
   purchaseDetailMode?: PurchaseDetailView
   sortBy?: string
   sortDirection?: "asc" | "desc"
@@ -2218,6 +2229,43 @@ export async function importInventoryTemplate(payload: {
   return response.json()
 }
 
+export type InventoryImportTask = {
+  task_id: string
+  filename: string
+  status: "queued" | "running" | "succeeded" | "failed"
+  result: InventoryImportResult | null
+  error: string | null
+  error_status: number | null
+}
+
+export async function submitInventoryTemplateTask(payload: {
+  taskId: string
+  file: File
+  brand: string
+  decisions: Record<string, { action: "overwrite" | "new" | "skip"; new_summary?: string }>
+}): Promise<InventoryImportTask> {
+  validateInventoryImportFile(payload.file)
+  const formData = new FormData()
+  formData.append("file", payload.file)
+  formData.append("brand", payload.brand)
+  formData.append("decisions", JSON.stringify(payload.decisions))
+  const response = await fetch(
+    `${API_PREFIX}/inventory/import-template/tasks/${encodeURIComponent(payload.taskId)}`,
+    { method: "POST", body: formData, credentials: "include", signal: AbortSignal.timeout(60_000) }
+  )
+  if (!response.ok) throw new ApiError(response.status, await readApiError(response))
+  return response.json()
+}
+
+export async function getInventoryTemplateTask(taskId: string, signal?: AbortSignal): Promise<InventoryImportTask> {
+  const response = await fetch(
+    `${API_PREFIX}/inventory/import-template/tasks/${encodeURIComponent(taskId)}`,
+    { credentials: "include", cache: "no-store", signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(10_000)]) : AbortSignal.timeout(10_000) }
+  )
+  if (!response.ok) throw new ApiError(response.status, await readApiError(response))
+  return response.json()
+}
+
 export type InventoryDetailUnitPriceOption = {
   value: string | null
   count: number
@@ -2538,6 +2586,7 @@ export function listEndingInventory(params: {
 export function listPurchaseInboundDetails(params: {
   date_start?: string
   date_end?: string
+  brands?: string[]
   document_type?: string
   supplier?: string
   warehouse?: string[]
@@ -2556,6 +2605,7 @@ export function listPurchaseInboundDetails(params: {
   if (params.date_end) search.set("date_end", params.date_end)
   if (params.document_type) search.set("document_type", params.document_type)
   if (params.supplier) search.set("supplier", params.supplier)
+  for (const brand of params.brands ?? []) if (brand) search.append("brands", brand)
   for (const warehouse of params.warehouse ?? []) {
     if (warehouse) search.append("warehouse", warehouse)
   }
@@ -2609,6 +2659,7 @@ export function buildPurchaseInboundDetailExportUrl(
   params: {
     date_start?: string
     date_end?: string
+    brands?: string[]
     document_type?: string
     supplier?: string
     warehouse?: string[]
@@ -2623,6 +2674,7 @@ export function buildPurchaseInboundDetailExportUrl(
   if (params.date_end) search.set("date_end", params.date_end)
   if (params.document_type) search.set("document_type", params.document_type)
   if (params.supplier) search.set("supplier", params.supplier)
+  for (const brand of params.brands ?? []) if (brand) search.append("brands", brand)
   for (const warehouse of params.warehouse ?? []) {
     if (warehouse) search.append("warehouse", warehouse)
   }

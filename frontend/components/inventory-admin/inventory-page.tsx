@@ -3,7 +3,7 @@
 import { useSessionQueryState } from "@/lib/session-query-state"
 
 import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent } from "react"
-import { ArrowDown, ArrowUp, ArrowUpDown, Check, Copy, Plus, Download, Upload, Trash2, Edit, Search, X, RefreshCw, List, BadgeDollarSign, FileText, History, ChevronLeft, ChevronRight, GripVertical, RotateCcw } from "lucide-react"
+import { FileSpreadsheet, ClipboardCheck, LoaderCircle, ArrowDown, ArrowUp, ArrowUpDown, Check, Copy, Plus, Download, Upload, Trash2, Edit, Search, X, RefreshCw, List, BadgeDollarSign, FileText, History, ChevronLeft, ChevronRight, GripVertical, RotateCcw } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { DatePicker } from "@/components/ui/date-picker"
@@ -13,6 +13,7 @@ import { DateRangeControl } from "@/components/ui/date-range-control"
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
@@ -30,6 +31,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert"
 import { ConfirmDialog, MessageDialog } from "@/components/confirm-dialog"
 import { RecycleBinPagination } from "@/components/recycle-bin-page-jump"
 import { InventoryDetailPanel } from "@/components/inventory-admin/inventory-detail-panel"
+import { InventoryImportUpload } from "@/components/inventory-admin/inventory-import-upload"
 import { InventoryProductCodeFilter } from "@/components/inventory-admin/product-code-filter"
 import { OperationLogDialog } from "@/components/operation-log-dialog"
 import { useAuth } from "@/components/auth/auth-provider"
@@ -37,6 +39,7 @@ import { SearchableFilterInput, SearchableMultiFilterInput, type SearchableFilte
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import {
   listInventory,
+  listInventorySelectionIds,
   createInventoryRecord,
   updateInventoryRecord,
   createDetail,
@@ -51,7 +54,9 @@ import {
   importPurchaseInventory,
   previewPurchaseInventory,
   previewInventoryTemplate,
-  importInventoryTemplate,
+  submitInventoryTemplateTask,
+  getInventoryTemplateTask,
+  type InventoryImportTask,
   buildInventoryTemplateUrl,
   type InventoryTemplateKind,
   type InventoryTemplatePreview,
@@ -79,6 +84,8 @@ import {
   type WarehouseItem,
 } from "@/lib/api"
 import type { GeneralCustomerBrandItem, GeneralCustomerShopItem, GeneralCustomerUnitItem } from "@/lib/types"
+import { INVENTORY_IMPORT_MAX_FILE_BYTES } from "@/lib/upload-limits.mjs"
+import { cn } from "@/lib/utils"
 
 const PAGE_SIZES = [10, 50, 100]
 
@@ -783,6 +790,11 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
   const [error, setError] = useState<string | null>(null)
 
   const [selectedIds, setSelectedIds] = useState<Set<number>>(() => new Set())
+  const [isSelectingAll, setIsSelectingAll] = useState(false)
+  const [isAllMatchingSelected, setIsAllMatchingSelected] = useState(false)
+  const selectionRequestRef = useRef(0)
+  const [batchDeleteIds, setBatchDeleteIds] = useState<number[]>([])
+  const batchDeleteInFlightRef = useRef(false)
   const [deleteTarget, setDeleteTarget] = useState<InventoryRecord | null>(null)
   const [isDeleting, setIsDeleting] = useState(false)
   const [batchDeleteOpen, setBatchDeleteOpen] = useState(false)
@@ -823,6 +835,22 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
   const draggedInventoryColumnRef = useRef<InventoryTableColumnKey | null>(null)
   const [recordCompletionStatus, setRecordCompletionStatus] = useSessionQueryState<CompletionStatus>("inventory:" + mode + ":recordCompletionStatus", "completed")
   const isPurchaseOrderTab = isPurchasePage
+  const selectionFilters = useMemo(() => ({
+    date_start: submittedFilters.date_start || undefined,
+    date_end: submittedFilters.date_end || undefined,
+    suppliers: submittedFilters.suppliers,
+    brands: isPurchaseOrderTab ? undefined : submittedFilters.brands,
+    warehouses: isPurchaseOrderTab ? undefined : submittedFilters.warehouses,
+    document_types: isPurchaseOrderTab ? undefined : submittedFilters.document_types,
+    document_type: isPurchaseOrderTab ? PURCHASE_ORDER_DOCUMENT_TYPE : undefined,
+    exclude_document_type: isPurchaseOrderTab ? undefined : PURCHASE_ORDER_DOCUMENT_TYPE,
+    document_number: submittedFilters.document_number || undefined,
+    summary: submittedFilters.summary || undefined,
+    original_sku: isPurchaseOrderTab ? undefined : submittedFilters.original_sku || undefined,
+    product_code: submittedFilters.product_code || undefined,
+    handler: submittedFilters.handler || undefined,
+    completion_status: isPurchaseOrderTab ? undefined : recordCompletionStatus,
+  }), [isPurchaseOrderTab, recordCompletionStatus, submittedFilters])
   const inventoryColumnOrderStorageKey = user ? getInventoryColumnOrderStorageKey(user.id) : null
   const inventoryColumnWidthsStorageKey = user ? getInventoryColumnWidthsStorageKey(user.id, isPurchasePage) : null
 
@@ -965,8 +993,6 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
     }
   }
 
-  const fileInputRef = useRef<HTMLInputElement>(null)
-  const importDragDepthRef = useRef(0)
   const [isImporting, setIsImporting] = useState(false)
   const [importDialogOpen, setImportDialogOpen] = useState(false)
   const [importMode, setImportMode] = useState<"existing" | "template">("existing")
@@ -977,8 +1003,10 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
   const [purchaseDecisions, setPurchaseDecisions] = useState<Record<string, { action: "overwrite" | "new" | "skip"; new_summary?: string }>>({})
   const [importFormData, setImportFormData] = useState<Record<string, string>>({ ...EMPTY_IMPORT_FORM })
   const [importFile, setImportFile] = useState<File | null>(null)
-  const [isImportDragging, setIsImportDragging] = useState(false)
   const [importError, setImportError] = useState("")
+  const [importTaskId, setImportTaskId] = useState("")
+  const [importTaskMessage, setImportTaskMessage] = useState("")
+  const importTaskStorageKey = "inventory-import-task:" + (user?.id ?? "anonymous")
   useEffect(() => {
     setPurchasePreview(null)
     setPurchaseDecisions({})
@@ -1059,20 +1087,7 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
       setError(null)
       try {
         const response = await listInventory({
-          date_start: submittedFilters.date_start || undefined,
-          date_end: submittedFilters.date_end || undefined,
-          suppliers: submittedFilters.suppliers as string[] | undefined,
-          brands: isPurchaseOrderTab ? undefined : (submittedFilters.brands as string[] | undefined),
-          warehouses: isPurchaseOrderTab ? undefined : (submittedFilters.warehouses as string[] | undefined),
-          document_types: isPurchaseOrderTab ? undefined : (submittedFilters.document_types as string[] | undefined),
-          document_type: isPurchaseOrderTab ? PURCHASE_ORDER_DOCUMENT_TYPE : undefined,
-          exclude_document_type: isPurchaseOrderTab ? undefined : PURCHASE_ORDER_DOCUMENT_TYPE,
-          document_number: submittedFilters.document_number || undefined,
-          summary: submittedFilters.summary || undefined,
-          original_sku: isPurchaseOrderTab ? undefined : submittedFilters.original_sku || undefined,
-          product_code: submittedFilters.product_code || undefined,
-          handler: submittedFilters.handler || undefined,
-          completion_status: isPurchaseOrderTab ? undefined : recordCompletionStatus,
+          ...selectionFilters,
           purchaseDetailMode: isPurchaseOrderTab && submittedFilters.product_code
             ? purchaseDetailView
             : undefined,
@@ -1102,14 +1117,110 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
     }
     void load()
     return () => { cancelled = true }
-  }, [isPurchaseOrderTab, page, pageSize, purchaseDetailView, recordCompletionStatus, reloadToken, sortRules, submittedFilters])
+  }, [isPurchaseOrderTab, page, pageSize, purchaseDetailView, reloadToken, selectionFilters, sortRules, submittedFilters.product_code])
 
-  useEffect(() => { setSelectedIds(new Set()) }, [page, recordCompletionStatus, submittedFilters])
+  useEffect(() => {
+    selectionRequestRef.current += 1
+    setSelectedIds(new Set())
+    setIsAllMatchingSelected(false)
+    setIsSelectingAll(false)
+    setBatchDeleteOpen(false)
+    return () => { selectionRequestRef.current += 1 }
+  }, [selectionFilters])
 
   const showMessage = useCallback((title: string, description: string) => {
     setMessageContent({ title, description })
     setMessageOpen(true)
   }, [])
+
+  const applyImportTaskResult = useCallback(
+    (task: InventoryImportTask) => {
+      if (task.status === "queued" || task.status === "running") {
+        setIsImporting(true)
+        setImportTaskMessage(
+          "后台正在导入 " + task.filename + "，完成后自动刷新列表；请勿重复提交"
+        )
+        return false
+      }
+      if (
+        task.status !== "failed" &&
+        (task.status !== "succeeded" || !task.result)
+      ) {
+        throw new Error("导入结果尚未确认")
+      }
+      try {
+        window.sessionStorage.removeItem(importTaskStorageKey)
+      } catch {}
+      setImportTaskId("")
+      setImportTaskMessage("")
+      setIsImporting(false)
+      setTemplatePreview(null)
+      setReloadToken((token) => token + 1)
+      if (task.status === "succeeded" && task.result) {
+        showMessage("导入完成", task.result.message)
+        setImportDialogOpen(false)
+        setImportFile(null)
+        setImportError("")
+      } else {
+        setImportError(task.error || "本批次导入失败，请重新预检查后再试")
+        setImportDialogOpen(true)
+      }
+      return true
+    },
+    [importTaskStorageKey, showMessage, setImportDialogOpen, setImportError]
+  )
+
+  useEffect(() => {
+    const restore = setTimeout(() => {
+      let pending = ""
+      try {
+        pending = window.sessionStorage.getItem(importTaskStorageKey) || ""
+      } catch {}
+      if (/^[a-f0-9]{32}$/.test(pending)) {
+        setImportTaskId(pending)
+        setImportMode("template")
+        setIsImporting(true)
+        setImportTaskMessage("正在恢复并核验上次导入结果，请勿重复导入")
+        setImportDialogOpen(true)
+      }
+    }, 0)
+    return () => clearTimeout(restore)
+  }, [importTaskStorageKey, setImportDialogOpen])
+
+  useEffect(() => {
+    if (!importTaskId) return
+    const controller = new AbortController()
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const started = Date.now()
+    let refreshedAfterDisconnect = false
+    const poll = async () => {
+      try {
+        const task = await getInventoryTemplateTask(
+          importTaskId,
+          controller.signal
+        )
+        if (controller.signal.aborted || applyImportTaskResult(task)) return
+      } catch (error) {
+        if (controller.signal.aborted) return
+        setImportTaskMessage(
+          error instanceof ApiError && error.status === 404
+            ? "暂未查到该批次，仍在核验提交结果，请勿重新上传"
+            : "连接暂时中断，正在自动核验导入结果；请勿重复提交"
+        )
+        if (!refreshedAfterDisconnect && Date.now() - started >= 120_000) {
+          refreshedAfterDisconnect = true
+          setIsImporting(false)
+          setReloadToken((token) => token + 1)
+        }
+      }
+      timer = setTimeout(poll, 3000)
+    }
+    void poll()
+    return () => {
+      controller.abort()
+      if (timer) clearTimeout(timer)
+    }
+  }, [importTaskId, applyImportTaskResult])
 
   const handleTableSort = (columnKey: InventorySortKey, append: boolean) => {
     setPage(1)
@@ -1236,6 +1347,10 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
   }
 
   const openImportDialog = () => {
+    if (importTaskId) {
+      setImportDialogOpen(true)
+      return
+    }
     setImportError("")
     setImportFile(null)
     setImportMode("existing")
@@ -1243,9 +1358,6 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
     setTemplateDecisions({})
     setPurchasePreview(null)
     setPurchaseDecisions({})
-    setIsImportDragging(false)
-    importDragDepthRef.current = 0
-    if (fileInputRef.current) fileInputRef.current.value = ""
     setImportFormData((prev) => ({
       ...EMPTY_IMPORT_FORM,
       date: isPurchasePage ? todayInputValue() : (lastInventoryEntryDefaults.date || todayInputValue()),
@@ -1257,6 +1369,7 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
   }
 
   const handleImportFileSelection = (file: File | null) => {
+    if (isImporting || importTaskId) return
     setImportError("")
     setTemplatePreview(null)
     setTemplateDecisions({})
@@ -1266,54 +1379,29 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
       setImportFile(null)
       return
     }
-
-    const extension = file.name.includes(".") ? `.${file.name.split(".").pop()?.toLowerCase()}` : ""
+    const extension = file.name.includes(".") ? "." + file.name.split(".").pop()?.toLowerCase() : ""
     if (![".xlsx", ".xls", ".xlsm"].includes(extension)) {
       setImportFile(null)
-      if (fileInputRef.current) fileInputRef.current.value = ""
       setImportError("仅支持 .xlsx、.xls 或 .xlsm 格式的 Excel 文件")
+      return
+    }
+    if (file.size > INVENTORY_IMPORT_MAX_FILE_BYTES) {
+      setImportFile(null)
+      setImportError("导入文件不能超过 100MB，请拆分 Excel 后重试")
       return
     }
     setImportFile(file)
   }
 
-  const clearImportFile = () => {
+  const changeImportMode = (mode: "existing" | "template") => {
+    if (isImporting || importTaskId || mode === importMode) return
+    setImportMode(mode)
     setImportError("")
     setTemplatePreview(null)
+    setTemplateDecisions({})
     setPurchasePreview(null)
     setPurchaseDecisions({})
     setImportFile(null)
-    if (fileInputRef.current) fileInputRef.current.value = ""
-  }
-
-  const handleImportDragEnter = (event: DragEvent<HTMLDivElement>) => {
-    event.preventDefault()
-    event.stopPropagation()
-    if (isImporting) return
-    importDragDepthRef.current += 1
-    setIsImportDragging(true)
-  }
-
-  const handleImportDragOver = (event: DragEvent<HTMLDivElement>) => {
-    event.preventDefault()
-    event.stopPropagation()
-    event.dataTransfer.dropEffect = isImporting ? "none" : "copy"
-  }
-
-  const handleImportDragLeave = (event: DragEvent<HTMLDivElement>) => {
-    event.preventDefault()
-    event.stopPropagation()
-    importDragDepthRef.current = Math.max(0, importDragDepthRef.current - 1)
-    if (importDragDepthRef.current === 0) setIsImportDragging(false)
-  }
-
-  const handleImportDrop = (event: DragEvent<HTMLDivElement>) => {
-    event.preventDefault()
-    event.stopPropagation()
-    importDragDepthRef.current = 0
-    setIsImportDragging(false)
-    if (isImporting) return
-    handleImportFileSelection(event.dataTransfer.files?.[0] ?? null)
   }
 
   const openEdit = (item: InventoryRecord) => {
@@ -1401,15 +1489,20 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
   }
 
   const handleBatchDeleteConfirm = async () => {
+    if (batchDeleteInFlightRef.current || batchDeleteIds.length === 0) return
+    batchDeleteInFlightRef.current = true
     setIsBatchDeleting(true)
     try {
-      const result = await batchDeleteInventory(Array.from(selectedIds))
+      const result = await batchDeleteInventory(batchDeleteIds)
       setSelectedIds(new Set())
+      setIsAllMatchingSelected(false)
+      setPage(1)
       setReloadToken((t) => t + 1)
       showMessage("已移入回收站", result.message)
     } catch (e) {
       showMessage("批量删除失败", getErrorMessage(e))
     } finally {
+      batchDeleteInFlightRef.current = false
       setIsBatchDeleting(false)
       setBatchDeleteOpen(false)
     }
@@ -1490,6 +1583,7 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
   }
 
   const handleToggleSelect = (id: number) => {
+    setIsAllMatchingSelected(false)
     setSelectedIds((prev) => {
       const next = new Set(prev)
       next.has(id) ? next.delete(id) : next.add(id)
@@ -1498,12 +1592,35 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
   }
 
   const handleToggleSelectAll = () => {
+    setIsAllMatchingSelected(false)
     setSelectedIds((prev) => {
       const allSelected = items.every((item) => prev.has(item.id))
       const next = new Set(prev)
       for (const item of items) allSelected ? next.delete(item.id) : next.add(item.id)
       return next
     })
+  }
+
+  const handleSelectAllMatching = async () => {
+    const requestId = ++selectionRequestRef.current
+    setIsSelectingAll(true)
+    try {
+      const result = await listInventorySelectionIds(selectionFilters)
+      if (requestId !== selectionRequestRef.current) return
+      setSelectedIds(new Set(result.ids))
+      setIsAllMatchingSelected(true)
+    } catch (error) {
+      if (requestId === selectionRequestRef.current) showMessage("全选失败", getErrorMessage(error))
+    } finally {
+      if (requestId === selectionRequestRef.current) setIsSelectingAll(false)
+    }
+  }
+
+  const clearSelection = () => {
+    selectionRequestRef.current += 1
+    setSelectedIds(new Set())
+    setIsAllMatchingSelected(false)
+    setIsSelectingAll(false)
   }
 
   const handleImport = async () => {
@@ -1581,8 +1698,6 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
       setImportFile(null)
       setPurchasePreview(null)
       setPurchaseDecisions({})
-      setIsImportDragging(false)
-      importDragDepthRef.current = 0
       setReloadToken((t) => t + 1)
     } catch (err) {
       setImportError(getErrorMessage(err))
@@ -1593,6 +1708,7 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
   }
 
   const handleTemplateImport = async () => {
+    if (importTaskId || isImporting) return
     setImportError("")
     if (!importFile) {
       setImportError("请选择 Excel 文件")
@@ -1631,18 +1747,25 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
       }
     }
     setIsImporting(true)
+    const taskId = Array.from(crypto.getRandomValues(new Uint8Array(16)), (value) => value.toString(16).padStart(2, "0")).join("")
+    setImportTaskMessage("正在提交导入任务，请勿重复操作")
     try {
-      const result = await importInventoryTemplate({ file: importFile, brand: templateBrand, decisions: templateDecisions })
-      showMessage("导入完成", result.message)
-      setImportDialogOpen(false)
-      setImportFile(null)
-      setTemplatePreview(null)
-      setReloadToken((token) => token + 1)
+      window.sessionStorage.setItem(importTaskStorageKey, taskId)
+    } catch {}
+    try {
+      const task = await submitInventoryTemplateTask({ taskId, file: importFile, brand: templateBrand, decisions: templateDecisions })
+      setImportTaskId(taskId)
+      applyImportTaskResult(task)
     } catch (error) {
-      setImportError(getErrorMessage(error))
-      setTemplatePreview(null)
-    } finally {
-      setIsImporting(false)
+      if (error instanceof ApiError && error.status >= 400 && error.status < 500 && error.status !== 408) {
+        try { window.sessionStorage.removeItem(importTaskStorageKey) } catch {}
+        setImportError(error.status === 404 ? "后台导入接口尚未更新，请联系管理员更新并重启后端后再试；本次未导入。" : getErrorMessage(error))
+        setIsImporting(false)
+        setImportTaskMessage("")
+      } else {
+        setImportTaskId(taskId)
+        setImportTaskMessage("提交响应中断，正在核验该批次是否已接收，请勿重复导入")
+      }
     }
   }
 
@@ -1949,9 +2072,9 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
             <h1 className="page-title">{isPurchasePage ? "采购单管理" : "进销存管理"}</h1>
           </div>
           <div className="flex items-center gap-2">
-            <Button variant="outline" size="sm" onClick={openImportDialog} disabled={isImporting} className="cursor-pointer">
+            <Button variant="outline" size="sm" onClick={openImportDialog} disabled={isImporting && !importTaskId} className="cursor-pointer">
               <Upload className="h-4 w-4" />
-              <span className="ml-2 hidden sm:inline">{isImporting ? "导入中..." : isPurchaseOrderTab ? "导入采购单" : "导入Excel"}</span>
+              <span className="ml-2 hidden sm:inline">{importTaskId ? "查看导入进度" : isImporting ? "导入中..." : isPurchaseOrderTab ? "导入采购单" : "导入Excel"}</span>
             </Button>
             {isPurchaseOrderTab ? (
               <>
@@ -2161,15 +2284,23 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
               <div className="flex flex-wrap items-center gap-3">
                 <input
                   type="checkbox"
+                  aria-label="全选当前页单据"
                   checked={allSelected}
                   ref={(el) => { if (el) el.indeterminate = !allSelected && someSelected }}
                   onChange={handleToggleSelectAll}
+                  disabled={isLoading || isSelectingAll || isBatchDeleting || items.length === 0}
                   className="h-4 w-4 cursor-pointer rounded border border-input accent-primary"
                 />
                 <span>
                   共 {total} 条{hasFilters ? " (已筛选)" : ""}
-                  {selectedIds.size > 0 && <span className="ml-2 font-medium text-foreground">已选 {selectedIds.size} 项</span>}
+                  {selectedIds.size > 0 && <span className="ml-2 font-medium text-foreground">已选 {selectedIds.size} 张单据{isAllMatchingSelected ? "（全部筛选结果）" : "（跨页保留）"}</span>}
                 </span>
+                <Button type="button" variant="outline" size="sm" onClick={() => void handleSelectAllMatching()} disabled={isLoading || isSelectingAll || isBatchDeleting || total === 0 || isAllMatchingSelected} className="h-7 cursor-pointer px-2 text-xs">
+                  {isSelectingAll ? "正在全选..." : "全选筛选结果"}
+                </Button>
+                {selectedIds.size > 0 && (
+                  <Button type="button" variant="ghost" size="sm" onClick={clearSelection} disabled={isBatchDeleting} className="h-7 cursor-pointer px-2 text-xs">取消选择</Button>
+                )}
                 {isPurchaseDetailSearch && (
                   <div className="flex items-center gap-2">
                     <div className="inline-flex items-center rounded-lg border border-border bg-muted/55 p-0.5" aria-label="采购单货号搜索展示方式">
@@ -2178,7 +2309,7 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
                         onClick={() => {
                           setPurchaseDetailView("summary")
                           setPage(1)
-                          setSelectedIds(new Set())
+                          clearSelection()
                         }}
                         className={`h-7 cursor-pointer rounded-md px-3 text-xs font-medium transition-colors ${purchaseDetailView === "summary" ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
                       >
@@ -2189,7 +2320,7 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
                         onClick={() => {
                           setPurchaseDetailView("size_rows")
                           setPage(1)
-                          setSelectedIds(new Set())
+                          clearSelection()
                         }}
                         className={`h-7 cursor-pointer rounded-md px-3 text-xs font-medium transition-colors ${purchaseDetailView === "size_rows" ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
                       >
@@ -2213,7 +2344,7 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
               </div>
               <div className="flex items-center gap-2">
                 {selectedIds.size > 0 && (
-                  <Button variant="outline" size="sm" className="text-destructive hover:text-destructive cursor-pointer" onClick={() => setBatchDeleteOpen(true)}>
+                  <Button variant="outline" size="sm" disabled={isLoading || isSelectingAll || isBatchDeleting} className="text-destructive hover:text-destructive cursor-pointer" onClick={() => { setBatchDeleteIds(Array.from(selectedIds)); setBatchDeleteOpen(true) }}>
                     <Trash2 className="h-4 w-4" />
                     <span className="ml-1.5">批量删除 ({selectedIds.size})</span>
                   </Button>
@@ -2352,8 +2483,10 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
                         <td className="px-4 py-3 align-middle">
                           <input
                             type="checkbox"
+                            aria-label={`选择单据 ${item.document_number || item.id}`}
                             checked={selectedIds.has(item.id)}
                             onChange={() => handleToggleSelect(item.id)}
+                            disabled={isLoading || isSelectingAll || isBatchDeleting}
                             className="h-4 w-4 cursor-pointer rounded border border-input accent-primary"
                           />
                         </td>
@@ -2749,54 +2882,68 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
       <Dialog
         open={importDialogOpen}
         onOpenChange={(open) => {
-          setImportDialogOpen(open)
-          if (!open) {
-            setIsImportDragging(false)
-            importDragDepthRef.current = 0
-          }
+          if (!isImporting || importTaskId) setImportDialogOpen(open)
         }}
       >
-        <DialogContent className="flex max-h-[90vh] max-w-xl flex-col gap-4 overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>{isPurchaseOrderTab ? "导入采购单" : "导入单据明细"}</DialogTitle>
+        <DialogContent className="flex max-h-[90vh] max-w-2xl flex-col gap-0 overflow-hidden p-0">
+          <DialogHeader className="shrink-0 gap-1.5 border-b border-border/70 px-5 py-5 sm:px-6">
+            <div className="flex items-start justify-between gap-4">
+              <div className="space-y-1.5">
+                <DialogTitle className="text-lg">{isPurchaseOrderTab ? "导入采购单" : "导入单据明细"}</DialogTitle>
+                <DialogDescription className="text-xs leading-5">{isPurchaseOrderTab ? "上传采购单 Excel，系统将识别单据信息并检查重复记录。" : "选择导入方式并上传 Excel，系统将检查单据与重复记录。"}</DialogDescription>
+              </div>
+              <span className="mt-0.5 flex size-10 shrink-0 items-center justify-center rounded-xl border border-border/70 bg-muted/40 text-muted-foreground"><FileSpreadsheet className="size-5" aria-hidden="true" /></span>
+            </div>
           </DialogHeader>
+          <div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-5 py-5 sm:px-6" aria-busy={isImporting}>
           {importError && (
             <Alert className="border-destructive/30 bg-destructive/5 text-destructive">
-              <AlertDescription>{importError}</AlertDescription>
+              <AlertDescription className="text-inherit">{importError}</AlertDescription>
             </Alert>
           )}
           {!isPurchaseOrderTab && (
-            <div className="flex gap-2">
-              <Button type="button" variant={importMode === "existing" ? "default" : "outline"} onClick={() => { setImportMode("existing"); setImportError(""); setTemplatePreview(null); setPurchasePreview(null); setPurchaseDecisions({}); setImportFile(null); if (fileInputRef.current) fileInputRef.current.value = "" }} disabled={isImporting}>普通导入</Button>
-              <Button type="button" variant={importMode === "template" ? "default" : "outline"} onClick={() => { setImportMode("template"); setImportError(""); setTemplatePreview(null); setPurchasePreview(null); setPurchaseDecisions({}); setImportFile(null); if (fileInputRef.current) fileInputRef.current.value = "" }} disabled={isImporting}>按模板导入</Button>
+            <div role="group" aria-label="导入方式" className="grid grid-cols-2 gap-1 rounded-xl border border-border/60 bg-muted/50 p-1">
+              {([{ value: "existing", label: "普通导入", description: "填写单据信息，上传商品明细", icon: Upload }, { value: "template", label: "按模板导入", description: "按标准模板，批量识别单据", icon: FileSpreadsheet }] as const).map((option) => (
+                <button key={option.value} type="button" aria-label={option.label} aria-pressed={importMode === option.value} onClick={() => changeImportMode(option.value)} disabled={isImporting || Boolean(importTaskId)} className={cn("min-w-0 cursor-pointer rounded-lg px-3 py-2.5 text-left outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50", importMode === option.value ? "bg-background text-foreground shadow-sm ring-1 ring-border/60" : "text-muted-foreground hover:bg-background/50 hover:text-foreground")}>
+                  <span className="flex items-center gap-2"><option.icon className="size-4 shrink-0" aria-hidden="true" /><span className="text-sm font-semibold">{option.label}</span>{importMode === option.value && <Check className="ml-auto size-3.5" aria-hidden="true" />}</span>
+                  <span className="mt-1 hidden text-[11px] leading-4 text-muted-foreground sm:block">{option.description}</span>
+                </button>
+              ))}
             </div>
           )}
           {importMode === "template" && !isPurchaseOrderTab ? (
-            <div className="space-y-4">
-              <div className="flex flex-wrap gap-2">
-                {UNIVERSAL_TEMPLATE_OPTIONS.map((option) => (
-                  <Button key={option.kind} type="button" size="sm" variant="outline" onClick={() => {
-                    const link = document.createElement("a")
-                    link.href = buildInventoryTemplateUrl(option.kind)
-                    link.rel = "noopener"
-                    link.click()
-                  }}><Download className="mr-1 h-3.5 w-3.5" />{option.label}模板</Button>
-                ))}
-              </div>
-              <div className="space-y-1.5">
-                <Label>备用品牌（无法从往来单位或仓库识别时使用）</Label>
-                <Select value={templateBrand} onChange={(event) => { setTemplateBrand(event.target.value); setImportError("") }}>
-                  <option value="">不设置</option>
+            <div className="space-y-5">
+              <section aria-label="下载导入模板" className="space-y-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <h3 className="text-sm font-semibold">下载模板</h3>
+                  <span className="text-[11px] text-muted-foreground">下载模板 → 填写并上传 → 预检查</span>
+                </div>
+                <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                  {UNIVERSAL_TEMPLATE_OPTIONS.map((option) => (
+                    <button key={option.kind} type="button" disabled={isImporting || Boolean(importTaskId)} aria-label={"下载" + option.label + "模板"} onClick={() => {
+                      const link = document.createElement("a")
+                      link.href = buildInventoryTemplateUrl(option.kind)
+                      link.rel = "noopener"
+                      link.click()
+                    }} className="group flex min-w-0 cursor-pointer items-center gap-2 rounded-lg border border-border/80 bg-card px-3 py-3 text-left shadow-xs outline-none transition-colors hover:border-foreground/25 hover:bg-muted/40 focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50">
+                      <FileSpreadsheet className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+                      <span className="min-w-0 flex-1 truncate text-xs font-medium">{option.label}</span>
+                      <Download className="size-3.5 shrink-0 text-muted-foreground/60 transition-colors group-hover:text-foreground" aria-hidden="true" />
+                    </button>
+                  ))}
+                </div>
+              </section>
+              <div className="space-y-2 rounded-xl border border-border/70 bg-muted/20 p-3.5">
+                <div className="flex items-center gap-2"><Label htmlFor="inventory-template-brand" className="text-sm font-medium">备用品牌</Label><span className="rounded-md bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">选填</span></div>
+                <Select id="inventory-template-brand" aria-describedby="inventory-template-brand-hint" value={templateBrand} disabled={isImporting || Boolean(importTaskId)} onChange={(event) => { setTemplateBrand(event.target.value); setImportError("") }} className="bg-background">
+                  <option value="">不设置（优先自动识别）</option>
                   {Object.entries(INVENTORY_BRAND_LABELS).filter(([code]) => code !== "通用").map(([code, label]) => (
                     <option key={code} value={code}>{label}</option>
                   ))}
                 </Select>
+                <p id="inventory-template-brand-hint" className="text-xs leading-5 text-muted-foreground">优先从往来单位或仓库识别品牌，仅在无法识别时使用此设置。</p>
               </div>
-              <div className="space-y-1.5">
-                <Label>Excel 文件</Label>
-                <Input type="file" accept=".xls,.xlsx,.xlsm" disabled={isImporting} onChange={(event) => handleImportFileSelection(event.target.files?.[0] ?? null)} />
-                {importFile && <p className="text-xs text-muted-foreground">已选：{importFile.name}</p>}
-              </div>
+              <InventoryImportUpload key="template" file={importFile} disabled={isImporting || Boolean(importTaskId)} onFileChange={handleImportFileSelection} />
               {templatePreview && (
                 <div className="space-y-3 rounded-lg border p-3">
                   <p className="text-sm">共 {templatePreview.total} 张单据；日期、摘要、类型、往来单位及仓库均相同的 {templatePreview.conflicts.length} 张需确认。</p>
@@ -2811,7 +2958,7 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
                       <div key={conflict.key} className="space-y-2 border-t pt-3 text-sm">
                         <p>{conflict.date} · {conflict.document_type}</p>
                         <p className="text-muted-foreground">摘要：{conflict.summary}；{conflict.existing_number ? `已有单据：${conflict.existing_number}` : "与本次导入的其他单据匹配字段相同"}</p>
-                        <Select value={decision?.action ?? ""} onChange={(event) => {
+                        <Select disabled={isImporting || Boolean(importTaskId)} value={decision?.action ?? ""} onChange={(event) => {
                           const action = event.target.value as "overwrite" | "new" | "skip"
                           setTemplateDecisions((previous) => ({ ...previous, [conflict.key]: { action, new_summary: previous[conflict.key]?.new_summary ?? "" } }))
                           setImportError("")
@@ -2822,7 +2969,7 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
                           <option value="skip">取消该单据（其他单据继续导入）</option>
                         </Select>
                         {decision?.action === "new" && (
-                          <Input value={decision.new_summary ?? ""} placeholder="请输入不同于原摘要的新摘要" onChange={(event) => setTemplateDecisions((previous) => ({ ...previous, [conflict.key]: { action: "new", new_summary: event.target.value } }))} />
+                          <Input disabled={isImporting || Boolean(importTaskId)} value={decision.new_summary ?? ""} placeholder="请输入不同于原摘要的新摘要" onChange={(event) => setTemplateDecisions((previous) => ({ ...previous, [conflict.key]: { action: "new", new_summary: event.target.value } }))} />
                         )}
                       </div>
                     )
@@ -2899,95 +3046,14 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
                   </div>
                 </>
               )}
-              <div className="col-span-2 space-y-1.5">
-                <div className="flex items-center justify-between gap-3">
-                  <Label>Excel 文件</Label>
-                  {isPurchaseOrderTab && (
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      onClick={handleDownloadPurchaseTemplate}
-                      disabled={isImporting}
-                      className="h-8 cursor-pointer"
-                    >
-                      <Download className="h-3.5 w-3.5" />
-                      <span className="ml-1.5">模版下载</span>
-                    </Button>
-                  )}
-                </div>
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  accept=".xlsx,.xls,.xlsm"
-                  onChange={(event) => handleImportFileSelection(event.target.files?.[0] ?? null)}
-                  className="sr-only"
-                  tabIndex={-1}
-                />
-                <div
-                  role="button"
-                  tabIndex={isImporting ? -1 : 0}
-                  aria-disabled={isImporting}
-                  onClick={() => {
-                    if (!isImporting) fileInputRef.current?.click()
-                  }}
-                  onKeyDown={(event) => {
-                    if (!isImporting && (event.key === "Enter" || event.key === " ")) {
-                      event.preventDefault()
-                      fileInputRef.current?.click()
-                    }
-                  }}
-                  onDragEnter={handleImportDragEnter}
-                  onDragOver={handleImportDragOver}
-                  onDragLeave={handleImportDragLeave}
-                  onDrop={handleImportDrop}
-                  className={`flex min-h-28 w-full cursor-pointer items-center justify-center rounded-lg border border-dashed px-5 py-4 text-center outline-none transition-colors focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/35 ${isImportDragging
-                    ? "border-primary bg-primary/5 ring-3 ring-primary/15"
-                    : importFile
-                      ? "border-primary/50 bg-primary/[0.03] hover:border-primary/70 hover:bg-primary/[0.05]"
-                      : "border-input bg-muted/20 hover:border-primary/50 hover:bg-muted/35"
-                    } ${isImporting ? "cursor-not-allowed opacity-60" : ""}`}
-                >
-                  {importFile ? (
-                    <div className="flex w-full min-w-0 items-center gap-3 text-left">
-                      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
-                        <FileText className="h-5 w-5" />
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <p className="truncate text-sm font-medium text-foreground" title={importFile.name}>{importFile.name}</p>
-                        <p className="mt-0.5 text-xs text-muted-foreground">
-                          {importFile.size >= 1024 * 1024
-                            ? `${(importFile.size / 1024 / 1024).toFixed(2)} MB`
-                            : `${Math.max(1, Math.ceil(importFile.size / 1024))} KB`}
-                          <span className="mx-1.5">·</span>可重新拖入文件替换
-                        </p>
-                      </div>
-                      <button
-                        type="button"
-                        aria-label="移除已选文件"
-                        title="移除文件"
-                        disabled={isImporting}
-                        onClick={(event) => {
-                          event.stopPropagation()
-                          clearImportFile()
-                        }}
-                        className="flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive disabled:cursor-not-allowed"
-                      >
-                        <X className="h-4 w-4" />
-                      </button>
-                    </div>
-                  ) : (
-                    <div className="flex flex-col items-center">
-                      <div className="mb-2 flex h-10 w-10 items-center justify-center rounded-lg bg-muted text-muted-foreground">
-                        <Upload className="h-5 w-5" />
-                      </div>
-                      <p className="text-sm font-medium text-foreground">
-                        {isImportDragging ? "松开即可添加文件" : `拖拽${isPurchaseOrderTab ? "采购单" : "单据"} Excel 到此处，或点击选择`}
-                      </p>
-                      <p className="mt-1 text-xs text-muted-foreground">支持 .xlsx、.xls、.xlsm</p>
-                    </div>
-                  )}
-                </div>
+              <div className="col-span-2 space-y-3">
+                {isPurchaseOrderTab && (
+                  <div className="flex items-center justify-between gap-3 rounded-xl border border-border/70 bg-muted/20 px-3 py-2.5">
+                    <span className="text-xs text-muted-foreground">首次导入？先下载采购单模板</span>
+                    <Button type="button" variant="outline" size="sm" onClick={handleDownloadPurchaseTemplate} disabled={isImporting || Boolean(importTaskId)} className="h-8 shrink-0 text-xs"><Download className="size-3.5" aria-hidden="true" /><span className="ml-1.5">模版下载</span></Button>
+                  </div>
+                )}
+                <InventoryImportUpload file={importFile} disabled={isImporting || Boolean(importTaskId)} onFileChange={handleImportFileSelection} />
                 {purchasePreview && (
                   <div className="col-span-2 space-y-3 rounded-lg border p-3">
                     <p className="text-sm">共 {purchasePreview.total} 张单据；日期、摘要、类型、往来单位及仓库均相同的 {purchasePreview.conflicts.length} 张需确认。</p>
@@ -3025,18 +3091,16 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
               </div>
             </div>
           )}
-          <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => {
-                setImportDialogOpen(false)
-              }}
-              disabled={isImporting}
-              className="cursor-pointer"
-            >
-              关闭
-            </Button>
-            <Button onClick={() => void (importMode === "template" && !isPurchaseOrderTab ? handleTemplateImport() : handleImport())} disabled={isImporting} className="cursor-pointer">{isImporting ? "处理中..." : importMode === "template" && !isPurchaseOrderTab ? templatePreview ? "确认导入" : "预检查" : purchasePreview ? "确认导入" : "预检查"}</Button>
+          </div>
+          <DialogFooter className="shrink-0 flex-wrap justify-between gap-3 border-t border-border/70 bg-muted/20 px-5 py-4 sm:px-6">
+            <p role="status" aria-live="polite" className="min-w-0 flex-1 text-xs leading-5 text-muted-foreground">{importTaskMessage || (isImporting ? "正在处理，请勿关闭窗口" : !importFile ? "选择 Excel 文件后开始检查" : importMode === "template" && !isPurchaseOrderTab ? templatePreview ? "预检查完成，请核对结果后确认导入" : "先预检查，确认后再写入数据" : purchasePreview ? "请处理重复单据后确认导入" : "预检查通过后将自动导入")}</p>
+            <div className="flex items-center gap-2">
+              <Button type="button" variant="outline" onClick={() => setImportDialogOpen(false)} disabled={isImporting && !importTaskId} className="h-9 px-4">关闭</Button>
+              <Button type="button" onClick={() => void (importMode === "template" && !isPurchaseOrderTab ? handleTemplateImport() : handleImport())} disabled={isImporting || Boolean(importTaskId) || !importFile} className="h-9 min-w-24 gap-1.5 px-4">
+                {isImporting ? <LoaderCircle className="size-4 animate-spin motion-reduce:animate-none" aria-hidden="true" /> : <ClipboardCheck className="size-4" aria-hidden="true" />}
+                {isImporting ? "处理中..." : importMode === "template" && !isPurchaseOrderTab ? templatePreview ? "确认导入" : "预检查" : purchasePreview ? "确认导入" : "预检查"}
+              </Button>
+            </div>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -3367,7 +3431,7 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
       <ConfirmDialog
         open={batchDeleteOpen}
         title="确认批量删除"
-        description={`确定把选中的 ${selectedIds.size} 条记录移入回收站？10 天内可以恢复。`}
+        description={`确定把跨页选中的 ${batchDeleteIds.length} 张单据移入回收站？包含其他页面已选择的单据，不仅是当前页。只处理本次已选中的单据，10 天内可以恢复。`}
         confirmLabel={isBatchDeleting ? "处理中..." : "移入回收站"}
         variant="destructive"
         onConfirm={handleBatchDeleteConfirm}

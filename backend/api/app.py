@@ -13,6 +13,7 @@ from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 
 from api.auth_middleware import auth_middleware
+from api.inventory_import_tasks import configure_inventory_import_tasks
 from api.request_rate_limit import RequestRateLimitMiddleware
 from api.routes.auth import router as auth_router
 from api.routes.mcp_tokens import router as mcp_tokens_router
@@ -90,6 +91,9 @@ async def _app_lifespan(app: FastAPI):
         executor = getattr(app.state, "product_copywriting_executor", None)
         if executor is not None:
             executor.shutdown(wait=False, cancel_futures=True)
+        inventory_executor = getattr(app.state, "inventory_import_executor", None)
+        if inventory_executor is not None:
+            inventory_executor.shutdown(wait=False, cancel_futures=True)
 
 
 def _is_public_read_path(path: str) -> bool:
@@ -197,6 +201,9 @@ def create_app(*, settings, repository=None, image_matchers=None, inventory_repo
     )
     app.state.product_copywriting_slots = BoundedSemaphore(2)
     app.state.inventory_repository = resolved_inventory_repository
+    inventory_engine = getattr(resolved_inventory_repository, "engine", None)
+    if inventory_engine is not None:
+        configure_inventory_import_tasks(app, inventory_engine)
     app.state.auth_repository = resolved_auth_repository
     app.state.operation_log_repository = resolved_operation_log_repository
     resolved_auth_repository.create_tables()

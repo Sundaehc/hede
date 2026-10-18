@@ -39,3 +39,15 @@ def test_other_product_export_modes_still_require_full_export_permission(method,
 @pytest.mark.parametrize("method", ["POST", "PUT", "PATCH", "DELETE"])
 def test_price_mode_does_not_grant_product_export_mutations(method):
     assert required_permission_for_request(method, "/export", export_mode="price") == "product.export"
+
+
+@pytest.mark.parametrize("method", ["POST", "GET"])
+def test_inventory_import_task_endpoints_require_import_management_permissions(method):
+    assert required_permission_for_request(method, "/inventory/import-template/tasks/" + "a" * 32) == (
+        "inventory.manage", "purchase.import", "purchase.manage",
+    )
+
+
+def test_inventory_selection_and_deletion_require_management_permission():
+    for path in ("/inventory/selection-ids", "/inventory/batch-delete"):
+        assert required_permission_for_request("POST", path) == ("inventory.manage", "purchase.manage")

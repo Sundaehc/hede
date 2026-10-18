@@ -1,6 +1,6 @@
 import { beforeEach, expect, test, vi } from "vitest"
 
-import { importInventory, importInventoryTemplate, importPurchaseInventory, previewInventoryTemplate, previewPurchaseInventory, replaceDetailsFromExcel } from "@/lib/api"
+import { importInventory, importInventoryTemplate, importPurchaseInventory, previewInventoryTemplate, previewPurchaseInventory, replaceDetailsFromExcel, submitInventoryTemplateTask } from "@/lib/api"
 import { INVENTORY_IMPORT_MAX_FILE_BYTES } from "@/lib/upload-limits.mjs"
 
 
@@ -47,6 +47,7 @@ const importOperations: Array<{ name: string; path: string; submit: (file: File)
   { name: "purchase import", path: "/api/inventory/import-purchase", submit: (file: File) => importPurchaseInventory({ ...purchaseFields, file }) },
   { name: "template preview", path: "/api/inventory/import-template/preview", submit: (file: File) => previewInventoryTemplate(file) },
   { name: "template import", path: "/api/inventory/import-template", submit: (file: File) => importInventoryTemplate({ file, brand: "cbanner_mens", decisions: {} }) },
+  { name: "background template import", path: "/api/inventory/import-template/tasks/" + "a".repeat(32), submit: (file: File) => submitInventoryTemplateTask({ taskId: "a".repeat(32), file, brand: "cbanner_mens", decisions: {} }) },
   { name: "detail reimport", path: "/api/inventory/7/details/import-replace", submit: (file: File) => replaceDetailsFromExcel({ documentId: 7, file }) },
 ]
 
