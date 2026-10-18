@@ -477,13 +477,17 @@ test("tracks a background batch, prevents duplicate submission and refreshes on 
   )
   const { user, ui } = await confirmTemplateImport()
   await waitFor(() => expect(getTaskMock).toHaveBeenCalledOnce())
-  expect(ui.getByRole("status")).toHaveTextContent("后台正在导入")
-  expect(ui.getByRole("button", { name: "处理中..." })).toBeDisabled()
+  expect(ui.getByRole("status")).toHaveTextContent("等待后台处理")
+  expect(ui.getByRole("button", { name: "等待结果" })).toBeDisabled()
   expect(ui.getByRole("button", { name: "更换 Excel 文件" })).toBeDisabled()
   const taskId = importTemplateMock.mock.calls[0][0].taskId
   expect(window.sessionStorage.getItem("inventory-import-task:1")).toBe(taskId)
   const previousLoads = listInventoryMock.mock.calls.length
   await user.click(ui.getByRole("button", { name: "关闭" }))
+  const banner = screen.getByRole("region", { name: "导入任务状态" })
+  expect(within(banner).getByRole("status")).toHaveTextContent("文件已接收")
+  await user.click(within(banner).getByRole("button", { name: "立即核验" }))
+  expect(getTaskMock).toHaveBeenCalledOnce()
   await user.click(screen.getByRole("button", { name: "查看导入进度" }))
   expect(importTemplateMock).toHaveBeenCalledOnce()
   await act(async () => resolveStatus(importTask("succeeded", taskId)))
@@ -527,7 +531,7 @@ test.each([500, 404])(
         status === 404 ? "暂未查到该批次" : "连接暂时中断"
       )
     )
-    expect(ui.getByRole("button", { name: "处理中..." })).toBeDisabled()
+    expect(ui.getByRole("button", { name: "等待结果" })).toBeDisabled()
     expect(window.sessionStorage.getItem("inventory-import-task:1")).toMatch(
       /^[a-f0-9]{32}$/
     )
@@ -570,6 +574,8 @@ test("reports a persisted failure and requires another preview", async () => {
   getTaskMock.mockResolvedValueOnce(importTask("failed"))
   const { ui } = await confirmTemplateImport()
   expect(await ui.findByRole("alert")).toHaveTextContent("本批次未提交")
+  expect(ui.getByRole("alert")).toHaveTextContent("重新预检查")
+  expect(ui.getByRole("alert")).toHaveTextContent("不支持从中断位置继续")
   expect(ui.getByRole("button", { name: "预检查" })).toBeEnabled()
   expect(window.sessionStorage.getItem("inventory-import-task:1")).toBeNull()
   expect(
@@ -644,3 +650,107 @@ test("recovers from a temporary status error, observes running and refreshes onl
   expect(getTaskMock).toHaveBeenCalledTimes(3)
   expect(window.sessionStorage.getItem("inventory-import-task:1")).toBeNull()
 }, 15_000)
+
+test("keeps submission distinct from accepted background processing", async () => {
+  let resolveSubmission!: (task: InventoryImportTask) => void
+  importTemplateMock.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        resolveSubmission = resolve
+      })
+  )
+  const { ui } = await confirmTemplateImport()
+  expect(ui.getByRole("status")).toHaveTextContent("正在提交文件")
+  expect(ui.getByRole("status")).toHaveTextContent("文件尚未确认接收")
+  expect(ui.getByRole("button", { name: "关闭" })).toBeDisabled()
+  expect(ui.queryByRole("button", { name: "立即核验" })).not.toBeInTheDocument()
+  expect(getTaskMock).not.toHaveBeenCalled()
+  const taskId = importTemplateMock.mock.calls[0][0].taskId
+  await act(async () => resolveSubmission(importTask("succeeded", taskId)))
+  expect(
+    await screen.findByRole("alertdialog", { name: "导入完成" })
+  ).toBeInTheDocument()
+})
+
+test("manual verification only queries the existing batch and preserves unknown results", async () => {
+  importTemplateMock.mockImplementationOnce(async (payload) =>
+    importTask("running", payload.taskId)
+  )
+  getTaskMock.mockRejectedValueOnce(new ApiError(404, "未找到批次"))
+  const { user, ui } = await confirmTemplateImport()
+  await waitFor(() =>
+    expect(ui.getByRole("status")).toHaveTextContent("批次待确认")
+  )
+  const taskId = importTemplateMock.mock.calls[0][0].taskId
+  expect(ui.getByText(taskId)).toBeInTheDocument()
+  expect(ui.getByText(/不支持文件断点续传/)).toBeInTheDocument()
+  await user.click(ui.getByRole("button", { name: "关闭" }))
+  const banner = within(screen.getByRole("region", { name: "导入任务状态" }))
+  expect(banner.getByRole("status")).toHaveTextContent("暂未查到该批次")
+  await user.click(banner.getByRole("button", { name: "查看详情" }))
+  const reopened = within(screen.getByRole("dialog", { name: "导入单据明细" }))
+  expect(reopened.getByRole("status")).toHaveTextContent("批次待确认")
+  await user.click(reopened.getByRole("button", { name: "立即核验" }))
+  expect(
+    await screen.findByRole("alertdialog", { name: "导入完成" })
+  ).toBeInTheDocument()
+  expect(getTaskMock).toHaveBeenCalledTimes(2)
+  expect(getTaskMock).toHaveBeenLastCalledWith(taskId, expect.any(AbortSignal))
+  expect(importTemplateMock).toHaveBeenCalledOnce()
+})
+
+test("rechecks when the connection returns without overlapping requests and cleans up on leaving", async () => {
+  const taskId = "c".repeat(32)
+  window.sessionStorage.setItem("inventory-import-task:1", taskId)
+  let resolveStatus!: (task: InventoryImportTask) => void
+  getTaskMock
+    .mockRejectedValueOnce(new TypeError("Offline"))
+    .mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveStatus = resolve
+        })
+    )
+  const { unmount } = render(<InventoryPage />)
+  const dialog = await screen.findByRole("dialog", { name: "导入单据明细" })
+  const ui = within(dialog)
+  await waitFor(() =>
+    expect(ui.getByRole("status")).toHaveTextContent("连接暂时中断")
+  )
+  act(() => window.dispatchEvent(new Event("online")))
+  await waitFor(() => expect(getTaskMock).toHaveBeenCalledTimes(2))
+  expect(ui.getByRole("button", { name: "立即核验" })).toBeDisabled()
+  act(() => window.dispatchEvent(new Event("online")))
+  expect(getTaskMock).toHaveBeenCalledTimes(2)
+  await act(async () => resolveStatus(importTask("running", taskId)))
+  expect(ui.getByRole("status")).toHaveTextContent("正在导入")
+  unmount()
+  act(() => window.dispatchEvent(new Event("online")))
+  expect(getTaskMock).toHaveBeenCalledTimes(2)
+  expect(importTemplateMock).not.toHaveBeenCalled()
+})
+
+test("does not unlock an unconfirmed batch after a prolonged disconnection", async () => {
+  importTemplateMock.mockImplementationOnce(async (payload) =>
+    importTask("queued", payload.taskId)
+  )
+  getTaskMock.mockRejectedValue(new TypeError("Offline"))
+  const { user, ui } = await confirmTemplateImport()
+  await waitFor(() =>
+    expect(ui.getByRole("status")).toHaveTextContent("连接暂时中断")
+  )
+  const later = Date.now() + 180_000
+  vi.spyOn(Date, "now").mockReturnValue(later)
+  const previousLoads = listInventoryMock.mock.calls.length
+  await user.click(ui.getByRole("button", { name: "立即核验" }))
+  await waitFor(() =>
+    expect(listInventoryMock.mock.calls.length).toBeGreaterThan(previousLoads)
+  )
+  expect(ui.getByRole("button", { name: "等待结果" })).toBeDisabled()
+  expect(ui.getByRole("button", { name: "更换 Excel 文件" })).toBeDisabled()
+  expect(ui.getByRole("status")).toHaveTextContent("不代表导入失败")
+  expect(
+    window.sessionStorage.getItem("inventory-import-task:1")
+  ).not.toBeNull()
+  expect(importTemplateMock).toHaveBeenCalledOnce()
+})

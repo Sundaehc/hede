@@ -735,6 +735,9 @@ class InventoryRepository:
         created = replaced = skipped = detail_count = 0
         with self.engine.begin() as connection:
             if connection.dialect.name == "postgresql":
+                if task_id is not None:
+                    connection.execute(text("SET LOCAL lock_timeout = '30s'"))
+                    connection.execute(text("SET LOCAL statement_timeout = '10min'"))
                 connection.execute(text("SELECT pg_advisory_xact_lock(42917001)"))
             active_plans = [plan for plan in plans if plan.get("decision") != "skip"]
             supplier_names = {

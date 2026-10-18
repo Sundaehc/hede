@@ -79,6 +79,9 @@ def _warm_default_product_goods_page(app: FastAPI) -> None:
 
 @asynccontextmanager
 async def _app_lifespan(app: FastAPI):
+    inventory_monitor = getattr(app.state, "inventory_import_monitor", None)
+    if inventory_monitor is not None:
+        inventory_monitor.start()
     Thread(
         target=_warm_default_product_goods_page,
         args=(app,),
@@ -94,6 +97,8 @@ async def _app_lifespan(app: FastAPI):
         inventory_executor = getattr(app.state, "inventory_import_executor", None)
         if inventory_executor is not None:
             inventory_executor.shutdown(wait=False, cancel_futures=True)
+        if inventory_monitor is not None:
+            inventory_monitor.stop()
 
 
 def _is_public_read_path(path: str) -> bool:

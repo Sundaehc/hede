@@ -32,6 +32,7 @@ import { ConfirmDialog, MessageDialog } from "@/components/confirm-dialog"
 import { RecycleBinPagination } from "@/components/recycle-bin-page-jump"
 import { InventoryDetailPanel } from "@/components/inventory-admin/inventory-detail-panel"
 import { InventoryImportUpload } from "@/components/inventory-admin/inventory-import-upload"
+import { InventoryImportTaskStatus, type InventoryImportTaskNotice } from "@/components/inventory-admin/inventory-import-task-status"
 import { InventoryProductCodeFilter } from "@/components/inventory-admin/product-code-filter"
 import { OperationLogDialog } from "@/components/operation-log-dialog"
 import { useAuth } from "@/components/auth/auth-provider"
@@ -1005,7 +1006,9 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
   const [importFile, setImportFile] = useState<File | null>(null)
   const [importError, setImportError] = useState("")
   const [importTaskId, setImportTaskId] = useState("")
-  const [importTaskMessage, setImportTaskMessage] = useState("")
+  const [importTaskNotice, setImportTaskNotice] = useState<InventoryImportTaskNotice | null>(null)
+  const [isImportTaskChecking, setIsImportTaskChecking] = useState(false)
+  const checkImportTaskRef = useRef<(() => void) | null>(null)
   const importTaskStorageKey = "inventory-import-task:" + (user?.id ?? "anonymous")
   useEffect(() => {
     setPurchasePreview(null)
@@ -1137,9 +1140,7 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
     (task: InventoryImportTask) => {
       if (task.status === "queued" || task.status === "running") {
         setIsImporting(true)
-        setImportTaskMessage(
-          "后台正在导入 " + task.filename + "，完成后自动刷新列表；请勿重复提交"
-        )
+        setImportTaskNotice({ phase: task.status, filename: task.filename })
         return false
       }
       if (
@@ -1152,7 +1153,7 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
         window.sessionStorage.removeItem(importTaskStorageKey)
       } catch {}
       setImportTaskId("")
-      setImportTaskMessage("")
+      setImportTaskNotice(null)
       setIsImporting(false)
       setTemplatePreview(null)
       setReloadToken((token) => token + 1)
@@ -1162,7 +1163,7 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
         setImportFile(null)
         setImportError("")
       } else {
-        setImportError(task.error || "本批次导入失败，请重新预检查后再试")
+        setImportError((task.error || "本批次导入失败") + " 请重新预检查后再导入；当前不支持从中断位置继续。")
         setImportDialogOpen(true)
       }
       return true
@@ -1180,7 +1181,7 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
         setImportTaskId(pending)
         setImportMode("template")
         setIsImporting(true)
-        setImportTaskMessage("正在恢复并核验上次导入结果，请勿重复导入")
+        setImportTaskNotice({ phase: "restoring" })
         setImportDialogOpen(true)
       }
     }, 0)
@@ -1193,7 +1194,11 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
     let timer: ReturnType<typeof setTimeout> | undefined
     const started = Date.now()
     let refreshedAfterDisconnect = false
+    let checking = false
     const poll = async () => {
+      if (checking || controller.signal.aborted) return
+      checking = true
+      setIsImportTaskChecking(true)
       try {
         const task = await getInventoryTemplateTask(
           importTaskId,
@@ -1202,23 +1207,34 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
         if (controller.signal.aborted || applyImportTaskResult(task)) return
       } catch (error) {
         if (controller.signal.aborted) return
-        setImportTaskMessage(
-          error instanceof ApiError && error.status === 404
-            ? "暂未查到该批次，仍在核验提交结果，请勿重新上传"
-            : "连接暂时中断，正在自动核验导入结果；请勿重复提交"
-        )
+        setImportTaskNotice((notice) => ({
+          ...notice,
+          phase: error instanceof ApiError && error.status === 404 ? "not-found" : "disconnected",
+        }))
         if (!refreshedAfterDisconnect && Date.now() - started >= 120_000) {
           refreshedAfterDisconnect = true
           setIsImporting(false)
           setReloadToken((token) => token + 1)
         }
+      } finally {
+        checking = false
+        if (!controller.signal.aborted) setIsImportTaskChecking(false)
       }
       timer = setTimeout(poll, 3000)
     }
-    void poll()
+    const check = () => {
+      if (checking || controller.signal.aborted) return
+      if (timer) clearTimeout(timer)
+      void poll()
+    }
+    checkImportTaskRef.current = check
+    window.addEventListener("online", check)
+    timer = setTimeout(poll, 0)
     return () => {
       controller.abort()
       if (timer) clearTimeout(timer)
+      window.removeEventListener("online", check)
+      if (checkImportTaskRef.current === check) checkImportTaskRef.current = null
     }
   }, [importTaskId, applyImportTaskResult])
 
@@ -1748,7 +1764,7 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
     }
     setIsImporting(true)
     const taskId = Array.from(crypto.getRandomValues(new Uint8Array(16)), (value) => value.toString(16).padStart(2, "0")).join("")
-    setImportTaskMessage("正在提交导入任务，请勿重复操作")
+    setImportTaskNotice({ phase: "submitting", filename: importFile.name })
     try {
       window.sessionStorage.setItem(importTaskStorageKey, taskId)
     } catch {}
@@ -1761,10 +1777,10 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
         try { window.sessionStorage.removeItem(importTaskStorageKey) } catch {}
         setImportError(error.status === 404 ? "后台导入接口尚未更新，请联系管理员更新并重启后端后再试；本次未导入。" : getErrorMessage(error))
         setIsImporting(false)
-        setImportTaskMessage("")
+        setImportTaskNotice(null)
       } else {
         setImportTaskId(taskId)
-        setImportTaskMessage("提交响应中断，正在核验该批次是否已接收，请勿重复导入")
+        setImportTaskNotice({ phase: "disconnected", filename: importFile.name })
       }
     }
   }
@@ -2143,6 +2159,16 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
             </Button>
           </div>
         </div>
+
+        {!importDialogOpen && importTaskId && importTaskNotice && (
+          <InventoryImportTaskStatus
+            notice={importTaskNotice}
+            taskId={importTaskId}
+            isChecking={isImportTaskChecking}
+            onCheck={() => checkImportTaskRef.current?.()}
+            onViewDetails={() => setImportDialogOpen(true)}
+          />
+        )}
 
         <Tabs defaultValue="records">
           <>
@@ -2895,7 +2921,15 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
               <span className="mt-0.5 flex size-10 shrink-0 items-center justify-center rounded-xl border border-border/70 bg-muted/40 text-muted-foreground"><FileSpreadsheet className="size-5" aria-hidden="true" /></span>
             </div>
           </DialogHeader>
-          <div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-5 py-5 sm:px-6" aria-busy={isImporting}>
+          <div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-5 py-5 sm:px-6" aria-busy={isImporting && !importTaskNotice}>
+          {importTaskNotice && (
+            <InventoryImportTaskStatus
+              notice={importTaskNotice}
+              taskId={importTaskId}
+              isChecking={isImportTaskChecking}
+              onCheck={() => checkImportTaskRef.current?.()}
+            />
+          )}
           {importError && (
             <Alert className="border-destructive/30 bg-destructive/5 text-destructive">
               <AlertDescription className="text-inherit">{importError}</AlertDescription>
@@ -3093,12 +3127,16 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
           )}
           </div>
           <DialogFooter className="shrink-0 flex-wrap justify-between gap-3 border-t border-border/70 bg-muted/20 px-5 py-4 sm:px-6">
-            <p role="status" aria-live="polite" className="min-w-0 flex-1 text-xs leading-5 text-muted-foreground">{importTaskMessage || (isImporting ? "正在处理，请勿关闭窗口" : !importFile ? "选择 Excel 文件后开始检查" : importMode === "template" && !isPurchaseOrderTab ? templatePreview ? "预检查完成，请核对结果后确认导入" : "先预检查，确认后再写入数据" : purchasePreview ? "请处理重复单据后确认导入" : "预检查通过后将自动导入")}</p>
+            {importTaskNotice ? (
+              <p className="min-w-0 flex-1 text-xs leading-5 text-muted-foreground">{importTaskId ? "关闭弹窗不影响结果核验，请勿重复提交。" : "文件提交中，请等待接收确认。"}</p>
+            ) : (
+              <p role="status" aria-live="polite" className="min-w-0 flex-1 text-xs leading-5 text-muted-foreground">{isImporting ? "正在处理，请勿关闭窗口" : !importFile ? "选择 Excel 文件后开始检查" : importMode === "template" && !isPurchaseOrderTab ? templatePreview ? "预检查完成，请核对结果后确认导入" : "先预检查，确认后再写入数据" : purchasePreview ? "请处理重复单据后确认导入" : "预检查通过后将自动导入"}</p>
+            )}
             <div className="flex items-center gap-2">
               <Button type="button" variant="outline" onClick={() => setImportDialogOpen(false)} disabled={isImporting && !importTaskId} className="h-9 px-4">关闭</Button>
               <Button type="button" onClick={() => void (importMode === "template" && !isPurchaseOrderTab ? handleTemplateImport() : handleImport())} disabled={isImporting || Boolean(importTaskId) || !importFile} className="h-9 min-w-24 gap-1.5 px-4">
                 {isImporting ? <LoaderCircle className="size-4 animate-spin motion-reduce:animate-none" aria-hidden="true" /> : <ClipboardCheck className="size-4" aria-hidden="true" />}
-                {isImporting ? "处理中..." : importMode === "template" && !isPurchaseOrderTab ? templatePreview ? "确认导入" : "预检查" : purchasePreview ? "确认导入" : "预检查"}
+                {importTaskId ? "等待结果" : isImporting ? "处理中..." : importMode === "template" && !isPurchaseOrderTab ? templatePreview ? "确认导入" : "预检查" : purchasePreview ? "确认导入" : "预检查"}
               </Button>
             </div>
           </DialogFooter>
