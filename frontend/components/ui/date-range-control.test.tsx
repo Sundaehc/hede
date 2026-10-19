@@ -4,11 +4,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import { DateRangeControl } from "@/components/ui/date-range-control"
 
-function RangeFixture({ initialStart = "", initialEnd = "", maxDate }: { initialStart?: string; initialEnd?: string; maxDate?: string }) {
+function RangeFixture({ initialStart = "", initialEnd = "", maxDate, size }: { initialStart?: string; initialEnd?: string; maxDate?: string; size?: "default" | "sm" }) {
   const [start, setStart] = useState(initialStart)
   const [end, setEnd] = useState(initialEnd)
 
-  return <DateRangeControl start={start} end={end} onStartChange={setStart} onEndChange={setEnd} maxDate={maxDate} />
+  return <DateRangeControl start={start} end={end} onStartChange={setStart} onEndChange={setEnd} maxDate={maxDate} size={size} />
 }
 
 describe("DateRangeControl", () => {
@@ -39,6 +39,27 @@ describe("DateRangeControl", () => {
     fireEvent.click(screen.getByRole("button", { name: /导出时间段：2026-10-08至2026-10-08/ }))
     expect(screen.getByLabelText("导出时间段开始日期")).toHaveValue("2026-10-08")
     expect(screen.getByLabelText("导出时间段结束日期")).toHaveValue("2026-10-08")
+  })
+
+  it("supports compact controls without changing date editing or default sizing", () => {
+    const { rerender } = render(<RangeFixture initialStart="2026-10-08" initialEnd="2026-10-08" size="sm" />)
+    expect(screen.getByRole("group", { name: "日期周期" })).toHaveClass("h-8", "shadow-none")
+    expect(screen.getByRole("group", { name: "切换日期周期" })).toHaveClass("h-8")
+    expect(screen.getByRole("button", { name: /^日期范围：/ })).toHaveClass("h-8", "px-2")
+    expect(screen.getByRole("button", { name: "上一周期" })).toHaveClass("size-6")
+
+    fireEvent.click(screen.getByRole("button", { name: "上一周期" }))
+    expect(screen.getByRole("button", { name: /2026-10-07至2026-10-07/ })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole("button", { name: "自定义" }))
+    fireEvent.change(screen.getByLabelText("日期范围开始日期"), { target: { value: "2026-10-01" } })
+    expect(screen.getByLabelText("日期范围开始日期")).toHaveValue("2026-10-01")
+    fireEvent.click(screen.getByRole("button", { name: "完成" }))
+    expect(screen.queryByLabelText("日期范围开始日期")).not.toBeInTheDocument()
+
+    rerender(<RangeFixture initialStart="2026-10-08" initialEnd="2026-10-08" />)
+    expect(screen.getByRole("group", { name: "日期周期" })).toHaveClass("h-9", "shadow-xs")
+    expect(screen.getByRole("button", { name: /^日期范围：/ })).toHaveClass("h-9", "px-3")
+    expect(screen.getByRole("button", { name: "上一周期" })).toHaveClass("size-7")
   })
 
   it("shifts whole calendar months without losing their last day", () => {

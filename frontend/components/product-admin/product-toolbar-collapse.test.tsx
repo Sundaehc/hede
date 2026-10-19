@@ -1,5 +1,5 @@
 import { useState } from "react"
-import { cleanup, fireEvent, render, screen } from "@testing-library/react"
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { afterEach, expect, test, vi } from "vitest"
 
@@ -34,6 +34,79 @@ function toolbarProps() {
 }
 
 afterEach(cleanup)
+
+test("keeps comma-separated searches compact and only grows for newlines", async () => {
+  const props = toolbarProps()
+  const { rerender } = render(<ProductToolbar {...props} value="ER1,ER2，ER3" />)
+  await waitFor(() => expect(screen.getByRole("button", { name: "搜索" })).toBeEnabled())
+
+  const search = screen.getByLabelText("包含搜索")
+  expect(search).toHaveAttribute("rows", "1")
+  expect(search).toHaveClass("min-h-8", "w-full", "min-w-0")
+  expect(screen.getByLabelText("货号前缀")).toHaveClass("h-8", "w-full", "min-w-0")
+
+  rerender(<ProductToolbar {...props} value={"ER1\nER2"} />)
+  expect(search).toHaveAttribute("rows", "2")
+  rerender(<ProductToolbar {...props} value={"ER1\nER2\nER3\nER4"} />)
+  expect(search).toHaveAttribute("rows", "3")
+})
+
+test("flattens export groups and uses compact dates with responsive wrapping", async () => {
+  render(<ProductToolbar {...toolbarProps()} onCreate={vi.fn()} />)
+  await waitFor(() => expect(screen.getByRole("button", { name: "搜索" })).toBeEnabled())
+
+  const exports = screen.getByRole("group", { name: "数据导出" })
+  const maintenance = screen.getByRole("group", { name: "商品维护" })
+  const activity = screen.getByRole("group", { name: "按时间导出" })
+  expect(exports.parentElement).toBe(activity.parentElement)
+  expect(maintenance.parentElement).toBe(activity.parentElement)
+  expect(activity.parentElement).toHaveClass("flex-wrap", "pt-2", "min-w-0")
+  expect(activity).toHaveClass("flex-wrap", "max-w-full", "min-w-0")
+  expect(activity).not.toHaveClass("border", "p-3", "rounded-xl")
+  expect(activity).toHaveAccessibleDescription("仅包含所选时间内导入或新增的商品")
+  expect(screen.getByText("仅包含所选时间内导入或新增的商品")).toHaveClass("sr-only")
+  expect(screen.queryByText("数据导出")).not.toBeInTheDocument()
+  expect(screen.queryByText("商品维护")).not.toBeInTheDocument()
+  expect(screen.queryByRole("status")).not.toBeInTheDocument()
+  expect(within(activity).getByRole("button", { name: /^导出时间段：/ })).toHaveClass("h-8", "max-w-full")
+  for (const group of [exports, maintenance, activity]) {
+    for (const button of within(group).getAllByRole("button")) {
+      if (button.textContent?.includes("导出") || button.textContent === "新增商品") {
+        expect(button).toHaveClass("h-8")
+      }
+    }
+  }
+})
+
+test("preserves search shortcuts and toolbar actions in compact mode", async () => {
+  const user = userEvent.setup()
+  const props = toolbarProps()
+  const onSearch = vi.fn()
+  const onOpenLogs = vi.fn()
+  const onOpenRecycleBin = vi.fn()
+  function ToolbarHarness() {
+    const [value, setValue] = useState("")
+    const [prefixValue, setPrefixValue] = useState("")
+    return <ProductToolbar {...props} value={value} prefixValue={prefixValue} onValueChange={setValue} onPrefixValueChange={setPrefixValue} onSearch={() => onSearch(value, prefixValue)} onOpenLogs={onOpenLogs} onOpenRecycleBin={onOpenRecycleBin} />
+  }
+  render(<ToolbarHarness />)
+  await user.type(screen.getByLabelText("包含搜索"), "ER1,ER2{enter}")
+  expect(onSearch).toHaveBeenCalledExactlyOnceWith("ER1,ER2", "")
+  await user.keyboard("{Shift>}{Enter}{/Shift}ER3")
+  expect(onSearch).toHaveBeenCalledTimes(1)
+  expect(screen.getByLabelText("包含搜索")).toHaveValue("ER1,ER2\nER3")
+  await user.type(screen.getByLabelText("货号前缀"), "ER7{enter}")
+  expect(onSearch).toHaveBeenLastCalledWith("ER1,ER2\nER3", "ER7")
+  expect(onSearch).toHaveBeenCalledTimes(2)
+  await user.click(screen.getByRole("button", { name: "清空" }))
+  await user.click(screen.getByRole("button", { name: "刷新" }))
+  await user.click(screen.getByRole("button", { name: "操作日志" }))
+  await user.click(screen.getByRole("button", { name: "回收站" }))
+  expect(props.onClear).toHaveBeenCalledTimes(1)
+  expect(props.onRefresh).toHaveBeenCalledTimes(1)
+  expect(onOpenLogs).toHaveBeenCalledTimes(1)
+  expect(onOpenRecycleBin).toHaveBeenCalledTimes(1)
+})
 
 test("collapses the full search and export area without changing filters", async () => {
   const user = userEvent.setup()

@@ -15,6 +15,7 @@ type DateRangeControlProps = {
   onEndChange: (value: string) => void
   label?: string
   hideLabel?: boolean
+  size?: "default" | "sm"
   className?: string
   disabled?: boolean
   maxDate?: string
@@ -49,7 +50,7 @@ function periodFor(start: string, end: string, maxDate?: string): Period {
   return "custom"
 }
 
-export function DateRangeControl({ start, end, onStartChange, onEndChange, label = "日期范围", hideLabel = false, className, disabled, maxDate }: DateRangeControlProps) {
+export function DateRangeControl({ start, end, onStartChange, onEndChange, label = "日期范围", hideLabel = false, size = "default", className, disabled, maxDate }: DateRangeControlProps) {
   const [customOpen, setCustomOpen] = useState(false)
   const startId = useId()
   const endId = useId()
@@ -126,7 +127,7 @@ export function DateRangeControl({ start, end, onStartChange, onEndChange, label
     <div className={cn("min-w-0 space-y-1.5", className)}>
       {!hideLabel ? <span className="block text-xs font-medium text-muted-foreground">{label}</span> : null}
       <div className="flex flex-wrap items-center gap-1.5">
-        <div className="inline-flex h-9 shrink-0 items-center rounded-lg border border-input bg-card p-0.5 shadow-xs" role="group" aria-label="日期周期">
+        <div className={cn("inline-flex shrink-0 items-center rounded-lg border border-input bg-card p-0.5", size === "sm" ? "h-8 shadow-none" : "h-9 shadow-xs")} role="group" aria-label="日期周期">
           {([ ["day", "日"], ["week", "周"], ["month", "月"], ["custom", "自定义"] ] as const).map(([value, text]) => (
             <button
               key={value}
@@ -150,7 +151,8 @@ export function DateRangeControl({ start, end, onStartChange, onEndChange, label
           aria-expanded={customOpen}
           onClick={() => setCustomOpen((open) => !open)}
           className={cn(
-            "inline-flex h-9 max-w-full min-w-0 cursor-pointer items-center gap-2 rounded-lg border border-input bg-card px-3 text-xs text-foreground shadow-xs transition-colors hover:border-ring/60 hover:bg-muted/40 focus-visible:outline-2 focus-visible:outline-ring disabled:cursor-not-allowed disabled:opacity-50",
+            "inline-flex max-w-full min-w-0 cursor-pointer items-center gap-2 rounded-lg border border-input bg-card text-xs text-foreground transition-colors hover:border-ring/60 hover:bg-muted/40 focus-visible:outline-2 focus-visible:outline-ring disabled:cursor-not-allowed disabled:opacity-50",
+            size === "sm" ? "h-8 px-2 shadow-none" : "h-9 px-3 shadow-xs",
             customOpen && "border-ring/60 bg-muted/40"
           )}
         >
@@ -158,9 +160,9 @@ export function DateRangeControl({ start, end, onStartChange, onEndChange, label
           <span className="truncate whitespace-nowrap tabular-nums">{start || "未选择"} <span className="px-0.5 text-muted-foreground">—</span> {end || "未选择"}</span>
           <ChevronDown className={cn("size-3.5 shrink-0 text-muted-foreground transition-transform", customOpen && "rotate-180")} aria-hidden="true" />
         </button>
-        <div className="inline-flex h-9 shrink-0 items-center rounded-lg border border-input bg-card p-0.5 shadow-xs" role="group" aria-label="切换日期周期">
-          <button type="button" aria-label="上一周期" title="上一周期" disabled={disabled || !start || !end || start > end} onClick={() => shift(-1)} className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring disabled:cursor-not-allowed disabled:opacity-40"><ChevronLeft className="size-4" /></button>
-          <button type="button" aria-label="下一周期" title="下一周期" disabled={disabled || !start || !end || start > end || !canNext} onClick={() => shift(1)} className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring disabled:cursor-not-allowed disabled:opacity-40"><ChevronRight className="size-4" /></button>
+        <div className={cn("inline-flex shrink-0 items-center rounded-lg border border-input bg-card p-0.5", size === "sm" ? "h-8 shadow-none" : "h-9 shadow-xs")} role="group" aria-label="切换日期周期">
+          <button type="button" aria-label="上一周期" title="上一周期" disabled={disabled || !start || !end || start > end} onClick={() => shift(-1)} className={cn("flex cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring disabled:cursor-not-allowed disabled:opacity-40", size === "sm" ? "size-6" : "size-7")}><ChevronLeft className="size-4" /></button>
+          <button type="button" aria-label="下一周期" title="下一周期" disabled={disabled || !start || !end || start > end || !canNext} onClick={() => shift(1)} className={cn("flex cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring disabled:cursor-not-allowed disabled:opacity-40", size === "sm" ? "size-6" : "size-7")}><ChevronRight className="size-4" /></button>
         </div>
       </div>
       {customOpen && (
