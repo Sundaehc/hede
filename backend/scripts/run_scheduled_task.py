@@ -6,6 +6,7 @@ from collections import deque
 from datetime import datetime
 import os
 from pathlib import Path
+import re
 import socket
 import subprocess
 import sys
@@ -43,10 +44,27 @@ def _normalized_command(command: list[str]) -> list[str]:
 
 
 def _error_summary(lines: deque[str]) -> str | None:
-    summary = "".join(lines).strip()
-    if not summary:
+    output_lines = "".join(lines).strip().splitlines()
+    if not output_lines:
         return None
-    return summary[-ERROR_SUMMARY_MAX_CHARS:]
+    diagnostic_indexes = [
+        index for index, line in enumerate(output_lines)
+        if re.match(r"^(?:\[(?:FAILED|ERROR)\]|[\w.]+(?:Error|Exception):|psycopg\.errors\.\w+:)", line)
+    ]
+    if diagnostic_indexes:
+        output_lines = output_lines[diagnostic_indexes[-1]:]
+    summary_lines = []
+    for line in output_lines:
+        if line.lstrip().startswith(("[SQL:", "[parameters:", "(Background on this error")):
+            break
+        summary_lines.append(line)
+    summary = "\n".join(summary_lines).strip()
+    if not summary:
+        return "任务执行失败，请查看完整日志"
+    if len(summary) <= ERROR_SUMMARY_MAX_CHARS:
+        return summary
+    suffix = "\n…完整内容请查看任务日志"
+    return summary[:ERROR_SUMMARY_MAX_CHARS - len(suffix)] + suffix
 
 
 def _write_line(log_handle, message: str) -> None:

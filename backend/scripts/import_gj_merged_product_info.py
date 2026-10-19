@@ -7,7 +7,7 @@ from typing import Any
 
 import orjson
 from openpyxl import load_workbook
-from sqlalchemy import create_engine, delete
+from sqlalchemy import create_engine, delete, text
 
 from config import load_settings
 from domain.excluded_skus import is_excluded_sku
@@ -20,6 +20,7 @@ from transform.rows import normalize_cell, normalize_header, normalize_upper_mat
 
 SOURCE_FILE_KEYWORD = "男女鞋合并商品信息"
 HEADER_ROW = 4
+IMPORT_LOCK_NAMESPACE = 68473105
 
 
 def _json_serializer(value: object) -> str:
@@ -128,17 +129,25 @@ def import_gj_merged_product_info(database_url: str, source_dir: Path) -> dict[s
         deduped_by_goods_code[str(row["goods_code"])] = row
     payload = list(deduped_by_goods_code.values())
 
-    engine = create_engine(database_url, future=True, json_serializer=_json_serializer)
-    with engine.begin() as conn:
-        conn.execute(
-            delete(GJ_MERGED_PRODUCT_INFO_TABLE)
-            .where(GJ_MERGED_PRODUCT_INFO_TABLE.c.source_date == source_date)
-        )
-        for index in range(0, len(payload), 1000):
-            chunk = payload[index:index + 1000]
-            if not chunk:
-                continue
-            conn.execute(GJ_MERGED_PRODUCT_INFO_TABLE.insert(), chunk)
+    engine = create_engine(database_url, future=True, json_serializer=_json_serializer, hide_parameters=True)
+    try:
+        with engine.begin() as connection:
+            if connection.dialect.name == "postgresql":
+                connection.execute(
+                    text("SELECT pg_advisory_xact_lock(:namespace, hashtext(:source_date))"),
+                    {"namespace": IMPORT_LOCK_NAMESPACE, "source_date": source_date},
+                )
+            connection.execute(
+                delete(GJ_MERGED_PRODUCT_INFO_TABLE)
+                .where(GJ_MERGED_PRODUCT_INFO_TABLE.c.source_date == source_date)
+            )
+            for index in range(0, len(payload), 1000):
+                chunk = payload[index:index + 1000]
+                if not chunk:
+                    continue
+                connection.execute(GJ_MERGED_PRODUCT_INFO_TABLE.insert(), chunk)
+    finally:
+        engine.dispose()
 
     return {
         "source_dir": str(source_dir),

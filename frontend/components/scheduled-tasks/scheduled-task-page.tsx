@@ -18,6 +18,7 @@ import {
 } from "lucide-react"
 
 import { useAuth } from "@/components/auth/auth-provider"
+import { TaskResultText } from "@/components/scheduled-tasks/task-result-text"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { DatePicker } from "@/components/ui/date-picker"
@@ -214,16 +215,14 @@ function RunHistory({
             <span className="text-muted-foreground tabular-nums">
               {formatDuration(item.duration_ms)}
             </span>
-            <span
+            <TaskResultText
+              value={item.error_summary || "执行完成"}
               className={cn(
-                "break-words",
                 item.error_summary
                   ? "text-red-600 dark:text-red-300"
                   : "text-muted-foreground"
               )}
-            >
-              {item.error_summary || "执行完成"}
-            </span>
+            />
           </div>
         ))}
       </div>
@@ -726,9 +725,7 @@ export function ScheduledTaskPage() {
                               : "text-muted-foreground"
                           )}
                         >
-                          <span className="break-words">
-                            {item.message || "-"}
-                          </span>
+                          <TaskResultText value={item.message || "-"} />
                         </td>
                       </tr>
                     ))
@@ -845,19 +842,17 @@ function FragmentRunRow({
           {item.host_name || "-"}
         </td>
         <td className="px-3 py-3">
-          <div
+          <TaskResultText
+            value={item.error_summary ||
+              (item.status === "running"
+                ? "任务正在执行"
+                : `退出码 ${item.exit_code ?? 0}`)}
             className={cn(
-              "text-xs leading-5 break-words",
               item.error_summary
                 ? "text-red-600 dark:text-red-300"
                 : "text-muted-foreground"
             )}
-          >
-            {item.error_summary ||
-              (item.status === "running"
-                ? "任务正在执行"
-                : `退出码 ${item.exit_code ?? 0}`)}
-          </div>
+          />
           {item.log_path ? (
             <div className="mt-1">
               <CopyableText value={item.log_path} />

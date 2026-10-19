@@ -13,12 +13,16 @@ from dataclasses import dataclass
 from datetime import date, datetime, time as day_time, timedelta
 from pathlib import Path
 
+from sqlalchemy import text
+from sqlalchemy.exc import DBAPIError
+
 from config import load_settings
 from scripts.import_gj_merged_product_info import import_gj_merged_product_info
 from storage.task_status_repository import ScheduledTaskStatusRepository
 
 
 TASK_NAME = "import_gj_merged_product_info_daily"
+DAILY_LOCK_ID = 68473104
 
 
 @dataclass
@@ -115,7 +119,8 @@ def _run_once(
                 summary.retry_target_unresolved = True
             print(f"[SKIP] {business_date.isoformat()} {message}")
         except Exception as exc:  # pragma: no cover - logged for scheduled task diagnosis
-            message = f"{type(exc).__name__}: {exc}"
+            error_detail = exc.orig if isinstance(exc, DBAPIError) else exc
+            message = f"{type(exc).__name__}: {error_detail}"[:2000]
             status_repo.mark_finished(
                 TASK_NAME,
                 business_date,
@@ -127,6 +132,7 @@ def _run_once(
             summary.failed += 1
             if business_date == retry_target:
                 summary.retry_target_unresolved = True
+            traceback.print_exc()
             print(f"[FAILED] {business_date.isoformat()} {message}")
         else:
             status_repo.mark_finished(
@@ -143,28 +149,10 @@ def _run_once(
     return summary
 
 
-def main() -> int:
-    parser = argparse.ArgumentParser(description="导入管家婆男女鞋合并商品信息，支持重试和近 7 天补采")
-    parser.add_argument("--source-date", type=date.fromisoformat, default=None, help="只导入指定日期")
-    parser.add_argument("--lookback-days", type=int, default=7, help="检查最近 N 天缺失导入")
-    parser.add_argument("--retry-until", default=None, help="当天目标未就绪时重试到本地时间 HH:MM")
-    parser.add_argument("--retry-interval-seconds", type=int, default=1800, help="重试间隔秒数")
-    parser.add_argument(
-        "--allow-missing-current",
-        action="store_true",
-        help="当天源文件未就绪时正常退出，供计划任务短周期重试",
-    )
-    parser.add_argument("--force", action="store_true", help="即使状态表已有成功记录也重新导入")
-    args = parser.parse_args()
-
-    settings = load_settings(require_database=True)
-    assert settings.database_url is not None
-    assert settings.jst_price_root is not None, "JST_PRICE_ROOT is required in .env"
-
+def run_daily_import(settings, status_repo: ScheduledTaskStatusRepository, args: argparse.Namespace) -> int:
     today = date.today()
     dates = [args.source_date] if args.source_date else _recent_dates(today, max(args.lookback_days, 1))
     retry_until = _parse_retry_until(args.retry_until)
-    status_repo = ScheduledTaskStatusRepository(settings.database_url)
 
     exit_code = 0
     while True:
@@ -193,6 +181,39 @@ def main() -> int:
         time.sleep(sleep_seconds)
 
     return exit_code
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="导入管家婆男女鞋合并商品信息，支持重试和近 7 天补采")
+    parser.add_argument("--source-date", type=date.fromisoformat, default=None, help="只导入指定日期")
+    parser.add_argument("--lookback-days", type=int, default=7, help="检查最近 N 天缺失导入")
+    parser.add_argument("--retry-until", default=None, help="当天目标未就绪时重试到本地时间 HH:MM")
+    parser.add_argument("--retry-interval-seconds", type=int, default=1800, help="重试间隔秒数")
+    parser.add_argument(
+        "--allow-missing-current",
+        action="store_true",
+        help="当天源文件未就绪时正常退出，供计划任务短周期重试",
+    )
+    parser.add_argument("--force", action="store_true", help="即使状态表已有成功记录也重新导入")
+    args = parser.parse_args()
+
+    settings = load_settings(require_database=True)
+    assert settings.database_url is not None
+    assert settings.jst_price_root is not None, "JST_PRICE_ROOT is required in .env"
+
+    status_repo = ScheduledTaskStatusRepository(settings.database_url)
+    try:
+        with status_repo.engine.connect().execution_options(isolation_level="AUTOCOMMIT") as connection:
+            acquired = connection.execute(text("SELECT pg_try_advisory_lock(:key)"), {"key": DAILY_LOCK_ID}).scalar_one()
+            if not acquired:
+                print("[SKIP] 管家婆商品信息更新已在执行，本次不重复导入或覆盖业务状态")
+                return 0
+            try:
+                return run_daily_import(settings, status_repo, args)
+            finally:
+                connection.execute(text("SELECT pg_advisory_unlock(:key)"), {"key": DAILY_LOCK_ID})
+    finally:
+        status_repo.engine.dispose()
 
 
 if __name__ == "__main__":
