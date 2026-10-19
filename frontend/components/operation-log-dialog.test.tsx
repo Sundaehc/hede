@@ -33,6 +33,35 @@ const logItem: OperationLogItem = {
 beforeEach(() => mockListOperationLogs.mockReset())
 afterEach(cleanup)
 
+test.each(["warehouse", "general_customer"] as const)(
+  "displays reorder actions in Chinese for %s logs",
+  async (module) => {
+    mockListOperationLogs.mockResolvedValue({
+      items: [{ ...logItem, module, action: "reorder" }],
+      total: 1,
+      page: 1,
+      page_size: 20,
+    })
+
+    render(
+      <OperationLogDialog
+        module={module}
+        open
+        title="操作日志"
+        onOpenChange={vi.fn()}
+      />
+    )
+
+    const actionLabel = await screen.findByText("调整排序")
+    const actionCell = within(actionLabel.closest("tr")!).getAllByRole("cell")[2]
+
+    expect(actionCell).toHaveTextContent("调整排序")
+    expect(actionLabel).toHaveAttribute("title", "调整排序")
+    expect(screen.queryByText("reorder")).not.toBeInTheDocument()
+    expect(screen.queryByTitle("reorder")).not.toBeInTheDocument()
+  }
+)
+
 test.each([
   { entityLabel: "鞋花费用", expectedLabel: "鞋花费用" },
   { entityLabel: null, expectedLabel: "-" },

@@ -53,6 +53,7 @@ const ACTION_LABELS: Record<string, string> = {
   mcp_token_revoke: "撤销凭证",
   create: "新增",
   update: "编辑",
+  reorder: "调整排序",
   delete: "删除",
   batch_delete: "批量删除",
   restore: "恢复",
