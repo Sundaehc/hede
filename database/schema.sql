@@ -1685,9 +1685,9 @@ CREATE TABLE public.inventory_details (
     id bigint NOT NULL,
     document_id bigint NOT NULL,
     product_code text,
-    quantity numeric(10,2),
-    unit_price numeric(10,2),
-    amount numeric(10,2),
+    quantity numeric(18,2),
+    unit_price numeric(18,2),
+    amount numeric(18,2),
     created_at timestamp without time zone DEFAULT date_trunc('minute'::text, now()),
     updated_at timestamp without time zone DEFAULT date_trunc('minute'::text, now()),
     product_name text,
@@ -1735,8 +1735,8 @@ CREATE TABLE public.inventory_records (
     raw_payload json NOT NULL,
     date text,
     supplier text,
-    total_count numeric(10,2),
-    amount numeric(10,2),
+    total_count numeric(18,2),
+    amount numeric(18,2),
     warehouse text,
     document_type text,
     summary text,
@@ -12428,4 +12428,3 @@ ALTER TABLE ONLY public.smiley_product_copy_base
 --
 
 \unrestrict 93EzkRJxNSfSjZmjrK733OKaTYrqgy3jOzAUQIKeYuf5ZMtC0mHxuFWvTqjTqub
-

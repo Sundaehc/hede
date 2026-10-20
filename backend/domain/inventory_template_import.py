@@ -11,6 +11,7 @@ from fastapi import HTTPException
 from openpyxl import load_workbook
 
 from domain.inventory_sources import ACCOUNTING_DOCUMENT_TYPES
+from domain.inventory_numeric import INVENTORY_NUMBER_MAX, INVENTORY_NUMBER_OVERFLOW
 
 
 TEMPLATE_HEADERS = {
@@ -40,10 +41,6 @@ TEMPLATE_TYPES = {
     "transfer": {"同价调拨单"},
     "accounting": set(ACCOUNTING_DOCUMENT_TYPES),
 }
-
-INVENTORY_NUMBER_MAX = Decimal("99999999.99")
-INVENTORY_NUMBER_OVERFLOW = Decimal("99999999.995")
-
 
 def validate_template_number(value: object, label: str) -> Decimal:
     try:

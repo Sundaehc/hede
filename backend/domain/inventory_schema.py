@@ -48,12 +48,13 @@ from domain.fields import (
     GENERAL_CUSTOMER_UNIT_FIELDS,
 )
 from domain.schema import METADATA
+from domain.inventory_numeric import INVENTORY_NUMBER_PRECISION, INVENTORY_NUMBER_SCALE
 from domain.product_archive_identity_schema import PRODUCT_ARCHIVE_IDENTITY_TABLE
 
 
-def _column_type(field: FieldSpec):
+def _column_type(field: FieldSpec, *, numeric_precision: int = 10):
     if field.type_key == "numeric":
-        return Numeric(10, 2)
+        return Numeric(numeric_precision, INVENTORY_NUMBER_SCALE)
     if field.type_key == "integer":
         return Integer()
     return Text()
@@ -67,7 +68,7 @@ def build_inventory_table() -> Table:
         Column("source_row_number", Text, nullable=False, default=""),
         Column("raw_payload", JSON, nullable=False, default=dict),
     ]
-    columns.extend(Column(field.name, _column_type(field)) for field in INVENTORY_FIELDS)
+    columns.extend(Column(field.name, _column_type(field, numeric_precision=INVENTORY_NUMBER_PRECISION)) for field in INVENTORY_FIELDS)
     columns.append(Column("date_value", Date, nullable=True))
     columns.append(Column("extra_fields", JSON, nullable=True))
     columns.append(Column("deleted_at", DateTime(timezone=True), nullable=True))
@@ -93,7 +94,7 @@ def build_inventory_detail_table() -> Table:
             nullable=True,
         ),
     ]
-    columns.extend(Column(field.name, _column_type(field)) for field in INVENTORY_DETAIL_FIELDS)
+    columns.extend(Column(field.name, _column_type(field, numeric_precision=INVENTORY_NUMBER_PRECISION)) for field in INVENTORY_DETAIL_FIELDS)
     columns.append(Column("size_quantities", JSON, nullable=True))
     columns.append(Column("extra_fields", JSON, nullable=True))
     columns.append(Column("created_at", DateTime(timezone=True), server_default=func.date_trunc('minute', func.now())))

@@ -1,0 +1,1 @@
+D:/Postgresql/bin/postgres.exe "-D" "E:/hede/backend/tmp/pg-inventory-numeric-20261020" "-h" "127.0.0.1" "-p" "55441"
