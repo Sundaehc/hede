@@ -31,6 +31,7 @@ from domain.excluded_skus import is_excluded_sku, not_excluded_sku_condition
 from domain.fields import PRODUCT_FIELDS
 from domain.gj_schema import GJ_MERGED_PRODUCT_INFO_TABLE
 from domain.inventory_schema import SUPPLIER_BRAND_TABLE
+from domain.product_archive_features import has_womens_product_style_fields
 from domain.schema import PRODUCT_ARCHIVE_TABLES
 from domain.product_defaults import apply_product_defaults
 from domain.product_archive_identity_schema import PURCHASE_PRODUCT_SYNC_FIELDS, product_sync_fields_changed
@@ -183,21 +184,21 @@ def _backfill_product_export_costs(repository, brand: str, items: list[dict[str,
 def _export_columns_for_brand(brand: str, *, include_cost: bool = True) -> list[str]:
     columns = (
         list(EXPORT_COLUMNS)
-        if brand == "cbanner_womens"
+        if has_womens_product_style_fields(brand)
         else [column for column in EXPORT_COLUMNS if column not in CBANNER_WOMENS_ONLY_EXPORT_COLUMNS]
     )
     return columns if include_cost else [column for column in columns if column not in {"cost", "cost_price"}]
 
 
 def _export_label(column: str, brand: str | None = None) -> str:
-    if brand == "cbanner_womens":
+    if has_womens_product_style_fields(brand):
         if column == "upper_height":
             return "鞋帮高度"
     return EXPORT_LABELS.get(column, column)
 
 
 def _size_export_headers_for_brand(brand: str, *, include_cost: bool = True) -> list[str]:
-    headers = list(SIZE_EXPORT_HEADERS) if brand != "cbanner_womens" else [
+    headers = list(SIZE_EXPORT_HEADERS) if not has_womens_product_style_fields(brand) else [
         *SIZE_EXPORT_HEADERS,
         *(_export_label(column, brand) for column in SIZE_EXPORT_CBANNER_WOMENS_EXTRA_COLUMNS),
     ]
@@ -1120,7 +1121,7 @@ def _export_products_with_sizes(
         ]
         if not include_cost:
             row.pop(SIZE_EXPORT_HEADERS.index("成本价"))
-        if brand == "cbanner_womens":
+        if has_womens_product_style_fields(brand):
             row.extend(
                 _first_text(context[column], raw_payload.get(_export_label(column, brand)))
                 for column in SIZE_EXPORT_CBANNER_WOMENS_EXTRA_COLUMNS
@@ -1562,7 +1563,7 @@ async def import_products(
                         if normalized is not None and str(normalized).strip():
                             extra_fields[key] = normalized
 
-                if brand != "cbanner_womens":
+                if not has_womens_product_style_fields(brand):
                     payload.pop("rear_heel_height", None)
 
                 raw_sku = payload.get("sku")

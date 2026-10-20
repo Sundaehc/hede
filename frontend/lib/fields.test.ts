@@ -14,8 +14,8 @@ describe("product archive field groups", () => {
     expect(getProductFieldLabel("cost_price", brand)).toBe("成本价")
   })
 
-  it("shows the complete style group for C.banner women's products", () => {
-    const groups = getProductFieldGroups("cbanner_womens")
+  it.each(["cbanner_womens", "supplier_brand_33aa8a0c3b6a"])("shows the complete style group for %s", (brand) => {
+    const groups = getProductFieldGroups(brand)
     const styleGroup = groups.find((group) => group.label === "女鞋款式信息")
 
     expect(styleGroup?.fields).toEqual([
@@ -28,9 +28,13 @@ describe("product archive field groups", () => {
       "closure_type",
       "mesh_upper_type",
     ])
-    expect(getProductFieldLabel("heel_height", "cbanner_womens")).toBe("跟高")
-    expect(getProductFieldLabel("rear_heel_height", "cbanner_womens")).toBe("后跟高")
-    expect(getProductFieldLabel("upper_height", "cbanner_womens")).toBe("鞋帮高度")
+    expect(getProductFieldLabel("heel_height", brand)).toBe("跟高")
+    expect(getProductFieldLabel("rear_heel_height", brand)).toBe("后跟高")
+    expect(getProductFieldLabel("upper_height", brand)).toBe("鞋帮高度")
+    const fields = groups.flatMap((group) => group.fields)
+    expect(fields.filter((field) => field === "upper_height")).toHaveLength(1)
+    expect(fields.filter((field) => field === "closure_type")).toHaveLength(1)
+    expect(fields).toContain("toe_shape")
   })
 
   it("keeps women's-only fields out of other brand groups", () => {

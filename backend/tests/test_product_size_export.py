@@ -56,17 +56,18 @@ def test_product_export_headers_use_field_labels():
     assert EXPORT_LABELS["barcode_build_rule"] == "条码构成逻辑"
 
 
-def test_cbanner_womens_export_includes_style_fields_and_brand_labels():
-    columns = _export_columns_for_brand("cbanner_womens")
+@pytest.mark.parametrize("brand", ["cbanner_womens", "supplier_brand_33aa8a0c3b6a"])
+def test_womens_export_includes_style_fields_and_brand_labels(brand):
+    columns = _export_columns_for_brand(brand)
 
     assert "sole_style" in columns
     assert "fashion_elements" in columns
     assert "opening_depth" in columns
     assert "boot_shaft" in columns
     assert "mesh_upper_type" in columns
-    assert _export_label("heel_height", "cbanner_womens") == "跟高"
-    assert _export_label("rear_heel_height", "cbanner_womens") == "后跟高"
-    assert _export_label("upper_height", "cbanner_womens") == "鞋帮高度"
+    assert _export_label("heel_height", brand) == "跟高"
+    assert _export_label("rear_heel_height", brand) == "后跟高"
+    assert _export_label("upper_height", brand) == "鞋帮高度"
 
 
 def test_other_brand_exports_omit_cbanner_womens_only_fields():
@@ -79,8 +80,9 @@ def test_other_brand_exports_omit_cbanner_womens_only_fields():
     assert "mesh_upper_type" not in columns
 
 
-def test_cbanner_womens_size_export_includes_separate_heel_height_fields():
-    headers = _size_export_headers_for_brand("cbanner_womens")
+@pytest.mark.parametrize("brand", ["cbanner_womens", "supplier_brand_33aa8a0c3b6a"])
+def test_womens_size_export_includes_separate_heel_height_fields(brand):
+    headers = _size_export_headers_for_brand(brand)
 
     assert headers[-10:] == [
         "跟底款式",

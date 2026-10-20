@@ -1,3 +1,5 @@
+import { hasWomensProductStyleFields } from "@/lib/brands"
+
 export const SEASON_OPTIONS = ["春季", "夏季", "秋季", "冬季", "春夏", "春秋", "秋冬"] as const
 export const BARCODE_BUILD_RULE_OPTIONS = ["货号+颜色代码+尺码", "货号+尺码"] as const
 
@@ -100,7 +102,7 @@ const CBANNER_WOMENS_RELOCATED_FIELDS = new Set<string>([
 ])
 
 export function getProductFieldGroups(brand?: string | null) {
-  if (brand !== "cbanner_womens") {
+  if (!hasWomensProductStyleFields(brand)) {
     return FIELD_GROUPS
   }
 
@@ -113,7 +115,7 @@ export function getProductFieldGroups(brand?: string | null) {
 }
 
 export function getProductFieldLabel(field: string, brand?: string | null) {
-  if (brand === "cbanner_womens") {
+  if (hasWomensProductStyleFields(brand)) {
     if (field === "upper_height") return "鞋帮高度"
   }
   return FIELD_LABELS[field] ?? field

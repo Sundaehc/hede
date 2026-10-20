@@ -25,6 +25,7 @@ from domain.product_archive_identity_schema import (
 )
 from domain.ni_gendered_costs import FEMALE_KEY, MALE_KEY, GENDER_COSTS_FIELD, normalize_gender_costs
 from domain.excluded_skus import is_excluded_sku
+from domain.product_archive_features import has_womens_product_style_fields
 from domain.product_auxiliary_attribute_schema import PRODUCT_AUXILIARY_ATTRIBUTE_FIELDS, PRODUCT_AUXILIARY_ATTRIBUTE_TABLE
 from domain.schema import PRODUCT_ARCHIVE_TABLES
 from domain.size_group_schema import SIZE_GROUPS_TABLE
@@ -204,7 +205,7 @@ def list_product_auxiliary_options(request: Request, brand: ProductArchiveBrandK
     repository = request.app.state.repository
     if not repository.is_product_archive_brand(brand):
         raise HTTPException(status_code=400, detail=f"Invalid brand: {brand}")
-    brand_scope = "cbanner_womens" if brand == "cbanner_womens" else "other"
+    brand_scope = "cbanner_womens" if has_womens_product_style_fields(brand) else "other"
     with repository.engine.connect() as connection:
         rows = connection.execute(
             sa_select(
@@ -421,7 +422,7 @@ def update_product(request: Request, brand: ProductArchiveBrandKey, product_id: 
     clear_product_goods_cache()
     label = product_entity_label(item)
     field_labels = PRODUCT_FIELD_LABELS
-    if brand == "cbanner_womens":
+    if has_womens_product_style_fields(brand):
         field_labels = {
             **PRODUCT_FIELD_LABELS,
             "upper_height": "鞋帮高度",

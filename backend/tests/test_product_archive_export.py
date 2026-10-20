@@ -19,6 +19,7 @@ from domain import excluded_skus
 from domain.color_barcode_schema import COLOR_BARCODE_TABLE
 from domain.gj_schema import GJ_MERGED_PRODUCT_INFO_TABLE
 from domain.inventory_schema import SUPPLIER_BRAND_TABLE
+from domain.product_archive_features import has_womens_product_style_fields
 from domain.schema import PRODUCT_ARCHIVE_TABLES, build_product_archive_table
 from domain.size_group_schema import SIZE_GROUP_ITEMS_TABLE, SIZE_GROUPS_TABLE
 from domain.vip_schema import JST_PRODUCT_PROFILE_TABLE
@@ -505,3 +506,25 @@ def test_new_brand_price_export_denies_cost_restricted_users(archive_export_clie
     })
     assert response.status_code == 403
     archive_export_client.log.assert_not_called()
+
+
+@pytest.mark.parametrize("mode", [None, "with_sizes"])
+@pytest.mark.parametrize("filters", [{}, {"ids": "1"}, {"activity_date": EXPORT_DATE}])
+def test_womens_style_exports_preserve_all_fields_for_enabled_brands(archive_export_client, mode, filters):
+    values = {
+        "sole_style": "厚底", "fashion_elements": "蝴蝶结", "upper_height": "低帮",
+        "opening_depth": "浅口", "boot_shaft": "短筒", "closure_type": "搭扣",
+        "mesh_upper_type": "网面", "toe_shape": "方头", "heel_height": "高跟", "rear_heel_height": "5cm",
+    }
+    table = archive_export_client.tables[archive_export_client.brand]
+    with archive_export_client.repository.engine.begin() as connection:
+        connection.execute(table.update().values(**values, updated_at=datetime(2026, 9, 20)))
+    result = _export(archive_export_client, **filters, **({"mode": mode} if mode else {}))
+    assert result.rows
+    if has_womens_product_style_fields(archive_export_client.brand):
+        for row in result.rows:
+            for field, value in values.items():
+                assert row[import_export._export_label(field, archive_export_client.brand)] == value
+    else:
+        assert "后跟高" not in result.rows[0]
+        assert "跟底款式" not in result.rows[0]

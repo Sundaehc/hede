@@ -507,4 +507,37 @@ describe("ProductFormDialog", () => {
     await user.keyboard("{Escape}")
     expect(screen.getByLabelText("品名")).toHaveValue("")
   })
+
+  it.each(["create", "edit"] as const)("supports Hejin women's style fields when %s", async (mode) => {
+    const user = userEvent.setup()
+    const brand = "supplier_brand_33aa8a0c3b6a"
+    const fields = [
+      ["sole_style", "跟底款式", "厚底"],
+      ["fashion_elements", "流行元素", "蝴蝶结"],
+      ["upper_height", "鞋帮高度", "低帮"],
+      ["opening_depth", "开口深度", "浅口"],
+      ["boot_shaft", "靴筒", "短筒"],
+      ["closure_type", "闭合方式", "搭扣"],
+      ["mesh_upper_type", "鞋网面类型", "网面"],
+      ["toe_shape", "鞋头款式", "方头"],
+      ["rear_heel_height", "后跟高", "5cm"],
+    ]
+    render(<ProductFormDialog open mode={mode} item={mode === "edit" ? { ...sampleItem, brand } : undefined} brands={[{ key: brand, label: "千百度赫锦" }]} onOpenChange={vi.fn()} onSaved={vi.fn()} />)
+    if (mode === "create") {
+      await user.selectOptions(screen.getByLabelText("品牌"), brand)
+      await user.type(screen.getByLabelText("商品货号"), "HJ-001")
+    }
+    await waitFor(() => expect(mockListProductAuxiliaryOptions).toHaveBeenCalledWith(brand))
+    expect(screen.getByText("女鞋款式信息")).toBeInTheDocument()
+    for (const [, label, value] of fields) {
+      await user.type(screen.getByLabelText(label), value)
+    }
+    await user.click(screen.getByRole("button", { name: "保存" }))
+    const expected = expect.objectContaining(Object.fromEntries(fields.map(([field, , value]) => [field, value])))
+    if (mode === "edit") {
+      await waitFor(() => expect(mockUpdateProduct).toHaveBeenCalledWith(brand, 7, expected))
+    } else {
+      await waitFor(() => expect(mockCreateProduct).toHaveBeenCalledWith(brand, expected))
+    }
+  })
 })

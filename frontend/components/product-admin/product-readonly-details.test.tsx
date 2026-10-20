@@ -134,6 +134,22 @@ it("restores the product query after navigation without reapplying an old link",
   expect(mockListProducts).toHaveBeenLastCalledWith(expect.objectContaining({ brand: "cbanner_womens", query: "NEW-QUERY" }))
 })
 
+it("shows Hejin women's style fields on product cards", async () => {
+  mockListProducts.mockResolvedValue({
+    items: [{
+      ...sampleItem, brand: "supplier_brand_33aa8a0c3b6a", sole_style: "厚底", fashion_elements: "蝴蝶结",
+      upper_height: "低帮", opening_depth: "浅口", boot_shaft: "短筒", closure_type: "搭扣",
+      mesh_upper_type: "网面", toe_shape: "方头", rear_heel_height: "5cm",
+    }],
+    total: 1, page: 1, page_size: 10,
+  })
+  render(<ProductAdminPage />)
+  const card = await screen.findByRole("button", { name: "查看商品详情 READONLY-007" })
+  for (const value of ["女鞋款式信息", "跟底款式:", "流行元素:", "鞋帮高度:", "开口深度:", "靴筒:", "闭合方式:", "鞋网面类型:", "后跟高:", "厚底", "蝴蝶结", "低帮", "浅口", "短筒", "搭扣", "网面", "方头", "5cm"]) {
+    expect(within(card).getByText(value)).toBeInTheDocument()
+  }
+})
+
 it("design users see the copywriting button immediately after details and open the correct product", async () => {
   const user = userEvent.setup()
   render(<ProductAdminPage />)
@@ -285,14 +301,21 @@ describe("ProductDetailDialog", () => {
     ).not.toBeInTheDocument()
   })
 
-  it("uses women's field groups and displays their full values", () => {
+  it.each(["cbanner_womens", "supplier_brand_33aa8a0c3b6a"])("uses women's field groups and displays their full values for %s", (brand) => {
     render(
       <ProductDetailDialog
         item={{
           ...sampleItem,
-          brand: "cbanner_womens",
+          brand,
           upper_height: "低帮",
           sole_style: "平底",
+          fashion_elements: "蝴蝶结",
+          opening_depth: "浅口",
+          boot_shaft: "短筒",
+          closure_type: "搭扣",
+          mesh_upper_type: "网面",
+          toe_shape: "方头",
+          rear_heel_height: "5cm",
         }}
         onClose={vi.fn()}
       />
@@ -303,6 +326,9 @@ describe("ProductDetailDialog", () => {
     expect(screen.getByText("鞋帮高度")).toBeInTheDocument()
     expect(screen.getByText("低帮")).toBeInTheDocument()
     expect(screen.getByText("平底")).toBeInTheDocument()
+    for (const value of ["蝴蝶结", "浅口", "短筒", "搭扣", "网面", "方头", "5cm"]) {
+      expect(screen.getByText(value)).toBeInTheDocument()
+    }
   })
 
   it("includes smiley-specific fields without leaking costs", () => {

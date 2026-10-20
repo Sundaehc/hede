@@ -21,6 +21,15 @@ export type ProductArchiveBrand = {
   label: string
 }
 
+const WOMENS_PRODUCT_STYLE_BRANDS = new Set([
+  "cbanner_womens",
+  "supplier_brand_33aa8a0c3b6a",
+])
+
+export function hasWomensProductStyleFields(brand?: string | null) {
+  return WOMENS_PRODUCT_STYLE_BRANDS.has(brand ?? "")
+}
+
 type ManagedBrand = {
   code: string
   name: string
