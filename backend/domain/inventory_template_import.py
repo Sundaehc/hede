@@ -4,7 +4,7 @@ import io
 from collections import OrderedDict
 from dataclasses import dataclass
 from datetime import date, datetime
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 
 import xlrd
 from fastapi import HTTPException
@@ -40,6 +40,45 @@ TEMPLATE_TYPES = {
     "transfer": {"同价调拨单"},
     "accounting": set(ACCOUNTING_DOCUMENT_TYPES),
 }
+
+INVENTORY_NUMBER_MAX = Decimal("99999999.99")
+INVENTORY_NUMBER_OVERFLOW = Decimal("99999999.995")
+
+
+def validate_template_number(value: object, label: str) -> Decimal:
+    try:
+        number = Decimal(str(value))
+    except (InvalidOperation, ValueError):
+        raise ValueError(f"{label}必须是有效数字") from None
+    if not number.is_finite():
+        raise ValueError(f"{label}必须是有效数字")
+    if number.copy_abs() >= INVENTORY_NUMBER_OVERFLOW:
+        raise ValueError(
+            f"{label}超出系统数值范围（绝对值不能超过 {INVENTORY_NUMBER_MAX}），"
+            "请核对数量、单价和金额；单据汇总过大时请使用不同摘要拆分单据"
+        )
+    return number.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
+
+def validate_template_document_numbers(rows: list[dict[str, object]], label: str) -> None:
+    total_quantity = Decimal("0")
+    total_amount = Decimal("0")
+    for index, row in enumerate(rows, start=1):
+        row_label = f"{label}：明细第 {index} 行"
+        if row.get("product_code"):
+            row_label += f"（商品编码：{row['product_code']}）"
+        values = {}
+        for field, field_label in (("quantity", "数量"), ("unit_price", "单价"), ("amount", "金额")):
+            value = row.get(field)
+            if value is not None and value != "":
+                values[field] = validate_template_number(value, f"{row_label}的{field_label}")
+        if "amount" not in row and "quantity" in values and "unit_price" in values:
+            amount = Decimal(str(row["quantity"])) * Decimal(str(row["unit_price"]))
+            values["amount"] = validate_template_number(amount, f"{row_label}的金额")
+        total_quantity += values.get("quantity", Decimal("0"))
+        total_amount += values.get("amount", Decimal("0"))
+    validate_template_number(total_quantity, f"{label}的总数量")
+    validate_template_number(total_amount, f"{label}的总金额")
 
 
 @dataclass
@@ -84,9 +123,13 @@ def _amount(value: object, row_number: int, field: str, *, required: bool = True
         number = Decimal(raw)
         if not number.is_finite() or number < 0 or (required and number == 0):
             raise InvalidOperation
-        return str(number)
     except (InvalidOperation, ValueError):
         raise HTTPException(status_code=400, detail=f"Excel 第 {row_number} 行：{field}必须是有效的正数") from None
+    try:
+        validate_template_number(number, f"Excel 第 {row_number} 行的{field}")
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    return str(number)
 
 
 def read_template_documents(content: bytes) -> tuple[str, str, list[TemplateDocument]]:
@@ -170,6 +213,12 @@ def read_template_documents(content: bytes) -> tuple[str, str, list[TemplateDocu
         if not documents:
             raise HTTPException(status_code=400, detail="模板没有可导入的单据")
         assert kind is not None
+        for document in documents.values():
+            label = f"{document.date} {document.document_type}（摘要：{document.summary}）"
+            try:
+                validate_template_document_numbers(document.rows, label)
+            except ValueError as error:
+                raise HTTPException(status_code=400, detail=str(error)) from error
         return kind, sheet_name, list(documents.values())
     except HTTPException:
         raise

@@ -10,7 +10,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 import pytest
 from sqlalchemy import create_engine, event, select, update
-from sqlalchemy.exc import OperationalError
+from sqlalchemy.exc import DataError, OperationalError
 
 from api.inventory_import_tasks import configure_inventory_import_tasks, submit_inventory_import
 from api.routes import inventory as routes
@@ -384,6 +384,27 @@ def test_database_failure_reports_safe_reason_and_batch_identifier(setup_tasks, 
     assert "private" not in row["error"]
     assert task_id in caplog.text
     app.state.inventory_import_executor.shutdown(wait=True)
+
+
+def test_numeric_overflow_reports_data_range_instead_of_database_outage(setup_tasks, caplog):
+    _engine, app, request, tasks = setup_tasks
+    database_error = RuntimeError("private sql and parameters")
+    database_error.sqlstate = "22003"
+    error = DataError("private sql", {}, database_error)
+    task_id = "a" * 32
+
+    submit_inventory_import(request, task_id, "test.xlsx", {}, b"data", Mock(side_effect=error))
+    row = wait_terminal(tasks, task_id)
+    app.state.inventory_import_executor.shutdown(wait=True)
+
+    assert row["error_status"] == 400
+    assert "超出数据库字段范围" in row["error"]
+    assert "本批次未提交" in row["error"]
+    assert "不同摘要拆分单据" in row["error"]
+    assert "数据库访问异常" not in row["error"]
+    assert "private" not in row["error"]
+    assert row["result"] is None
+    assert task_id in caplog.text
 
 
 def test_monitor_does_not_fail_live_or_completed_batches(setup_tasks):

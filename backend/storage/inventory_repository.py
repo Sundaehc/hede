@@ -15,6 +15,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from domain.gj_schema import GJ_MERGED_PRODUCT_INFO_TABLE
 from domain.inventory_schema import GENERAL_CUSTOMER_BRAND_TABLE, GENERAL_CUSTOMER_SHOP_TABLE, GENERAL_CUSTOMER_SORT_PREFERENCE_TABLE, GENERAL_CUSTOMER_UNIT_TABLE, INVENTORY_ACCOUNT_SUBJECT_TABLE, INVENTORY_DETAIL_TABLE, INVENTORY_TABLE, JST_STOCK_TABLE, PURCHASE_ORDER_REQUIREMENT_TABLE, PURCHASE_PRINT_TEMPLATE_TABLE, SUPPLIER_BRAND_TABLE, SUPPLIER_TABLE, WAREHOUSE_BRAND_TABLE, WAREHOUSE_TABLE
 from domain.inventory_sources import ACCOUNTING_DOCUMENT_TYPES, ACCOUNT_SUBJECT_CATEGORIES
+from domain.inventory_template_import import validate_template_document_numbers
 from domain.inventory_brands import inventory_brand_filter_aliases, inventory_brand_options
 from domain.gj_brand import CBANNER_MENS_BRAND, EBLAN_BRAND, EBLAN_WOMENS_SUPPLIER_BRAND, GJ_FINE_TABLE_BRANDS, SUPPLIER_BRANDS, infer_supplier_brand_from_name
 from domain import jst_stock_snapshot_schema  # noqa: F401 - register JST stock snapshot tables on METADATA
@@ -748,6 +749,10 @@ class InventoryRepository:
         return {"total": len(documents), "conflicts": conflicts}
 
     def import_template_documents(self, plans: list[dict[str, object]], *, task_id: str | None = None) -> dict[str, int]:
+        for plan in plans:
+            if plan.get("decision") != "skip":
+                label = f"{plan.get('date') or ''} {plan['document_type']}（摘要：{plan.get('summary') or ''}）"
+                validate_template_document_numbers(plan.get("details") or [], label)
         record_table = INVENTORY_TABLE
         detail_table = INVENTORY_DETAIL_TABLE
         created = replaced = skipped = detail_count = 0

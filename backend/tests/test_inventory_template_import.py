@@ -1,5 +1,6 @@
 from io import BytesIO
 from datetime import date
+from decimal import Decimal
 import asyncio
 import json
 from types import SimpleNamespace
@@ -11,7 +12,7 @@ from openpyxl import Workbook, load_workbook
 from sqlalchemy import create_engine, event, select
 from sqlalchemy.pool import StaticPool
 
-from domain.inventory_template_import import TEMPLATE_HEADERS, TemplateDocument, read_template_documents
+from domain.inventory_template_import import TEMPLATE_HEADERS, TemplateDocument, read_template_documents, validate_template_number
 from domain.inventory_schema import GENERAL_CUSTOMER_SHOP_TABLE, GENERAL_CUSTOMER_UNIT_TABLE, INVENTORY_ACCOUNT_SUBJECT_TABLE, INVENTORY_DETAIL_TABLE, INVENTORY_TABLE, SUPPLIER_TABLE, WAREHOUSE_BRAND_TABLE, WAREHOUSE_TABLE
 from api.routes import inventory as inventory_routes
 from storage.inventory_repository import InventoryRepository
@@ -41,6 +42,112 @@ def _seed_template_purchase_master_data(engine):
             {"id": 1, "name": "仓库A"},
             {"id": 2, "name": "仓库B"},
         ])
+
+
+@pytest.mark.parametrize("value,expected", [
+    ("99999999.99", "99999999.99"),
+    ("99999999.994", "99999999.99"),
+    ("-99999999.994", "-99999999.99"),
+    ("0.005", "0.01"),
+])
+def test_template_numeric_limits_match_database_rounding(value, expected):
+    assert validate_template_number(value, "数量") == Decimal(expected)
+
+
+@pytest.mark.parametrize("value", ["100000000", "99999999.995", "-99999999.995", "1e100", "NaN", "Infinity"])
+def test_template_numeric_limits_reject_overflow_and_nonfinite_values(value):
+    with pytest.raises(ValueError, match="数量"):
+        validate_template_number(value, "数量")
+
+
+@pytest.mark.parametrize("quantity,unit_price,field", [
+    (100000000, 1, "数量"),
+    (1, 100000000, "单价"),
+    (20000, 5000, "金额"),
+])
+def test_template_preview_rejects_numeric_overflow_before_database_access(quantity, unit_price, field):
+    content = _workbook(TEMPLATE_HEADERS["sale"], [
+        ["2026-10-01", "批发销售单", "客户A", "仓库A", "张三", "销售一批", "A001", quantity, unit_price],
+    ])
+    repository = Mock(spec=InventoryRepository)
+    request = SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace(inventory_repository=repository)))
+
+    with pytest.raises(HTTPException, match=field) as error:
+        inventory_routes._preview_inventory_template(request, content)
+
+    assert error.value.status_code == 400
+    assert "超出系统数值范围" in error.value.detail
+    assert "行" in error.value.detail
+    assert not repository.mock_calls
+
+
+@pytest.mark.parametrize("quantity,unit_price,field", [
+    (50000000, "", "总数量"),
+    (5000, 10000, "总金额"),
+])
+def test_template_preview_rejects_document_total_overflow(quantity, unit_price, field):
+    content = _workbook(TEMPLATE_HEADERS["sale"], [
+        ["2026-10-01", "批发销售单", "客户A", "仓库A", "张三", "销售一批", code, quantity, unit_price]
+        for code in ("A001", "A002")
+    ])
+
+    with pytest.raises(HTTPException, match=field) as error:
+        read_template_documents(content)
+
+    assert "销售一批" in error.value.detail
+    assert "不同摘要拆分单据" in error.value.detail
+
+
+def test_template_numeric_limits_apply_per_document_not_entire_file():
+    content = _workbook(TEMPLATE_HEADERS["sale"], [
+        ["2026-10-01", "批发销售单", "客户A", "仓库A", "张三", summary, "A001", 5000, 10000]
+        for summary in ("销售第一批", "销售第二批")
+    ])
+
+    _, _, documents = read_template_documents(content)
+
+    assert len(documents) == 2
+
+
+def test_accounting_template_preview_rejects_total_overflow():
+    content = _workbook(TEMPLATE_HEADERS["accounting"], [
+        ["2026-10-01", "应付款增加", "张三", "供应商A", "费用汇总", subject, 50000000]
+        for subject in ("包装费", "运输费")
+    ])
+
+    with pytest.raises(HTTPException, match="总金额"):
+        read_template_documents(content)
+
+
+def test_template_import_skips_numeric_validation_for_cancelled_documents():
+    repository = object.__new__(InventoryRepository)
+    repository.engine = Mock()
+    repository.engine.begin.side_effect = RuntimeError("entered transaction")
+    plan = {"decision": "skip", "details": [{"amount": "100000000"}]}
+
+    with pytest.raises(RuntimeError, match="entered transaction"):
+        repository.import_template_documents([plan])
+
+
+@pytest.mark.parametrize("details,field", [
+    ([{"product_code": "A001", "quantity": "100000000", "amount": "1"}], "数量"),
+    ([{"product_code": "A001", "quantity": "1", "unit_price": "100000000"}], "单价"),
+    ([{"product_code": "A001", "quantity": "1", "amount": "100000000"}], "金额"),
+    ([{"quantity": "50000000"}, {"quantity": "50000000"}], "总数量"),
+    ([{"amount": "50000000"}, {"amount": "50000000"}], "总金额"),
+])
+def test_template_import_validates_resolved_details_before_opening_write_transaction(details, field):
+    repository = object.__new__(InventoryRepository)
+    repository.engine = Mock()
+    plan = {
+        "date": "2026-10-01", "document_type": "批发销售单", "summary": "销售一批",
+        "decision": None, "details": details,
+    }
+
+    with pytest.raises(ValueError, match=field):
+        repository.import_template_documents([plan])
+
+    repository.engine.begin.assert_not_called()
 
 
 def test_all_downloadable_templates_omit_document_number_and_system_code():

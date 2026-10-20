@@ -195,6 +195,13 @@ def _run_import(tasks, task_id, run_import, request, filename, form, content):
         logger.exception("Inventory import task %s failed", task_id)
         if isinstance(error, SQLAlchemyError):
             sqlstate = getattr(getattr(error, "orig", None), "sqlstate", None)
+            if sqlstate == "22003":
+                monitor.fail(
+                    request, task_id, filename,
+                    "数量、单价、金额或单据汇总超出数据库字段范围，本批次未提交。"
+                    "请核对数据，必要时使用不同摘要拆分单据，再重新预检查后导入。", 400,
+                )
+                return
             reason = {
                 "55P03": "数据库锁等待超时",
                 "57014": "数据库执行超时或查询被取消",
