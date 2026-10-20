@@ -7,15 +7,17 @@ import { PageTabs } from "@/components/auth/page-tabs"
 import { ApiError, type InventoryDetail, type InventoryRecord } from "@/lib/api"
 import { SessionQueryProvider } from "@/lib/session-query-state"
 
-const { mockListDetails, mockUpdateDetail } = vi.hoisted(() => ({
+const { mockListDetails, mockUpdateDetail, mockCreateDetail } = vi.hoisted(() => ({
   mockListDetails: vi.fn(),
   mockUpdateDetail: vi.fn(),
+  mockCreateDetail: vi.fn(),
 }))
 
 vi.mock("@/lib/api", async () => ({
   ...(await vi.importActual<typeof import("@/lib/api")>("@/lib/api")),
   listDetails: mockListDetails,
   updateDetail: mockUpdateDetail,
+  createDetail: mockCreateDetail,
   getPinnedPageTabs: vi.fn().mockResolvedValue({ pinned_paths: [] }),
   listInventoryAccountSubjects: vi.fn().mockResolvedValue({
     items: [{ id: 16, name: "大底收入", category: "收入类" }],
@@ -100,10 +102,36 @@ async function editAccountingSubject(documentType = "应付款减少") {
   await screen.findByText("大底费用")
   await user.click(screen.getByRole("button", { name: "编辑明细" }))
   const dialog = screen.getByRole("dialog", { name: "编辑明细" })
-  await user.selectOptions(within(dialog).getByLabelText("费用项目名 / 科目"), "大底收入")
+  await user.click(within(dialog).getByLabelText("费用项目名 / 科目"))
+  await user.click(within(dialog).getByRole("option", { name: "大底收入" }))
   await user.click(within(dialog).getByRole("button", { name: "保存" }))
   return dialog
 }
+
+test("creates an accounting detail with a searched subject and preserves the entered amount", async () => {
+  const user = userEvent.setup()
+  const onTotalChanged = vi.fn()
+  mockCreateDetail.mockResolvedValue({ item: { ...detail, product_name: "大底收入" } })
+  render(<InventoryDetailPanel record={record} suppliers={[]} onClose={vi.fn()} onTotalChanged={onTotalChanged} />)
+  await screen.findByText("大底费用")
+  await user.click(screen.getByRole("button", { name: "新增明细" }))
+  const dialog = screen.getByRole("dialog", { name: "新增明细" })
+  await user.type(within(dialog).getByLabelText("减少金额"), "681.25")
+  await user.type(within(dialog).getByLabelText("备注"), "测试费用")
+  await user.click(within(dialog).getByLabelText("费用项目名 / 科目"))
+  await user.type(within(dialog).getByRole("combobox", { name: "搜索科目" }), "大底")
+  await user.click(within(dialog).getByRole("option", { name: "大底收入" }))
+  expect(within(dialog).getByLabelText("减少金额")).toHaveValue(681.25)
+  await user.click(within(dialog).getByRole("button", { name: "保存" }))
+  await waitFor(() => expect(mockCreateDetail).toHaveBeenCalledWith(6787, {
+    product_code: "",
+    product_name: "大底收入",
+    amount: "681.25",
+    remark: "测试费用",
+  }))
+  await waitFor(() => expect(onTotalChanged).toHaveBeenCalledOnce())
+  expect(screen.queryByRole("dialog", { name: "新增明细" })).not.toBeInTheDocument()
+})
 
 test.each(["应付款减少", "应付款增加", "应收款减少", "应收款增加"])("saves a changed subject for %s with a numeric amount", async (documentType) => {
   mockUpdateDetail.mockResolvedValue({ item: { ...detail, product_name: "大底收入" }, message: "明细更新成功" })

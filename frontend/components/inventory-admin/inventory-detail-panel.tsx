@@ -5,6 +5,7 @@ import { Plus, Trash2, Edit, X, Upload, Search, Printer, Settings2, ChevronLeft,
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { AccountSubjectSelect } from "@/components/inventory-admin/account-subject-select"
 import {
   Dialog,
   DialogContent,
@@ -1505,26 +1506,12 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
               <>
                 <div className="space-y-1.5">
                   <Label htmlFor="detail-subject">费用项目名 / 科目</Label>
-                  <select
+                  <AccountSubjectSelect
                     id="detail-subject"
                     value={formData.product_name || ""}
-                    onChange={(event) => handleSubjectSelect(event.target.value)}
-                    className="flex h-9 w-full cursor-pointer rounded-lg border border-input bg-card px-3 py-2 text-sm shadow-xs outline-none transition-colors focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/35"
-                  >
-                    <option value="">请选择科目</option>
-                    {(["收入类", "支出类"] as const).map((category) => {
-                      const categorySubjects = subjects.filter((subject) => (subject.category || "收入类") === category)
-                      return (
-                        <optgroup key={category} label={category}>
-                          {categorySubjects.map((subject) => (
-                            <option key={subject.id} value={subject.name}>
-                              {subject.name}
-                            </option>
-                          ))}
-                        </optgroup>
-                      )
-                    })}
-                  </select>
+                    subjects={subjects}
+                    onValueChange={handleSubjectSelect}
+                  />
                 </div>
                 <div className="space-y-1.5">
                   <Label htmlFor="detail-accounting-amount">{accountingAmountLabel}</Label>

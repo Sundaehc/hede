@@ -31,6 +31,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert"
 import { ConfirmDialog, MessageDialog } from "@/components/confirm-dialog"
 import { RecycleBinPagination } from "@/components/recycle-bin-page-jump"
 import { InventoryDetailPanel } from "@/components/inventory-admin/inventory-detail-panel"
+import { AccountSubjectSelect } from "@/components/inventory-admin/account-subject-select"
 import { InventoryImportUpload } from "@/components/inventory-admin/inventory-import-upload"
 import { InventoryImportTaskStatus, type InventoryImportTaskNotice } from "@/components/inventory-admin/inventory-import-task-status"
 import { InventoryProductCodeFilter } from "@/components/inventory-admin/product-code-filter"
@@ -2856,23 +2857,12 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
                 <div className="grid grid-cols-2 gap-3">
                   <div className="space-y-1.5">
                     <Label htmlFor="form-detail-subject">费用项目名 / 科目</Label>
-                    <Select
+                    <AccountSubjectSelect
                       id="form-detail-subject"
                       value={formData.detail_subject || ""}
-                      onChange={(e) => setFormData((prev) => ({ ...prev, detail_subject: e.target.value }))}
-                    >
-                      <option value="">请选择科目</option>
-                      {(["收入类", "支出类"] as const).map((category) => {
-                        const categorySubjects = accountSubjectOptions.filter((subject) => (subject.category || "收入类") === category)
-                        return (
-                          <optgroup key={category} label={category}>
-                            {categorySubjects.map((subject) => (
-                              <option key={subject.id} value={subject.name}>{subject.name}</option>
-                            ))}
-                          </optgroup>
-                        )
-                      })}
-                    </Select>
+                      subjects={accountSubjectOptions}
+                      onValueChange={(nextValue) => setFormData((prev) => ({ ...prev, detail_subject: nextValue }))}
+                    />
                   </div>
                   <div className="space-y-1.5">
                     <Label htmlFor="form-detail-amount">{formData.document_type?.includes("减少") ? "减少金额" : "增加金额"}</Label>

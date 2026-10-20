@@ -4,11 +4,14 @@ import { afterEach, beforeEach, expect, test, vi } from "vitest"
 
 import { InventoryPage } from "@/components/inventory-admin/inventory-page"
 
-const { mockListInventory, mockCustomerShops, mockCustomerUnits, mockCustomerBrands, mockInventoryBrands, mockProductCandidates } = vi.hoisted(() => ({
+const { mockListInventory, mockCustomerShops, mockCustomerUnits, mockCustomerBrands, mockInventoryBrands, mockProductCandidates, mockAccountSubjects, mockCreateRecord, mockCreateDetail } = vi.hoisted(() => ({
   mockListInventory: vi.fn(), mockCustomerShops: vi.fn(),
   mockCustomerUnits: vi.fn(), mockCustomerBrands: vi.fn(),
   mockInventoryBrands: vi.fn(),
   mockProductCandidates: vi.fn(),
+  mockAccountSubjects: vi.fn(),
+  mockCreateRecord: vi.fn(),
+  mockCreateDetail: vi.fn(),
 }))
 
 vi.mock("@/components/auth/auth-provider", () => ({
@@ -34,7 +37,9 @@ vi.mock("@/lib/api", async () => ({
   listGeneralCustomerBrands: mockCustomerBrands,
   listGeneralCustomerShops: mockCustomerShops,
   listGeneralCustomerUnits: mockCustomerUnits,
-  listInventoryAccountSubjects: async () => ({ items: [] }),
+  listInventoryAccountSubjects: mockAccountSubjects,
+  createInventoryRecord: mockCreateRecord,
+  createDetail: mockCreateDetail,
 }))
 
 let downloadUrls: string[] = []
@@ -46,6 +51,7 @@ beforeEach(() => {
   mockCustomerUnits.mockResolvedValue({ items: [] })
   mockInventoryBrands.mockResolvedValue({ items: [] })
   mockProductCandidates.mockResolvedValue({ items: [] })
+  mockAccountSubjects.mockResolvedValue({ items: [] })
   window.localStorage.clear()
   downloadUrls = []
   vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(function (this: HTMLAnchorElement) {
@@ -200,6 +206,36 @@ test("excludes disabled shops and their units from new customer business options
   await user.type(customerInput, "启用")
   expect(within(dialog).getByRole("button", { name: "客户品牌 / 启用店铺" })).toBeInTheDocument()
   expect(within(dialog).getByRole("button", { name: "客户品牌 / 启用店铺 / 启用单位" })).toBeInTheDocument()
+})
+
+test("creates a record with an accounting subject from the searchable grouped dropdown", async () => {
+  mockAccountSubjects.mockResolvedValue({ items: [
+    { id: 1, name: "大底收入", category: "收入类" },
+    { id: 2, name: "包装费用", category: "支出类" },
+  ] })
+  mockCreateRecord.mockResolvedValue({ item: { id: 22 } })
+  mockCreateDetail.mockResolvedValue({ item: { id: 23 } })
+  const user = userEvent.setup()
+  render(<InventoryPage />)
+  await screen.findByText("EXPORT-0001")
+  await user.click(screen.getByRole("button", { name: "新增经营历程" }))
+  const dialog = screen.getByRole("dialog", { name: "新增经营历程" })
+  await user.selectOptions(within(dialog).getByRole("combobox"), "应付款减少")
+  await user.type(within(dialog).getByLabelText("减少金额"), "268.5")
+  await user.type(within(dialog).getByLabelText("明细备注"), "包装调整")
+  await user.click(within(dialog).getByLabelText("费用项目名 / 科目"))
+  await user.type(within(dialog).getByRole("combobox", { name: "搜索科目" }), "包装")
+  await user.click(within(dialog).getByRole("option", { name: "包装费用" }))
+  expect(within(dialog).getByLabelText("减少金额")).toHaveValue(268.5)
+  await user.click(within(dialog).getByRole("button", { name: "保存" }))
+  await waitFor(() => expect(mockCreateRecord).toHaveBeenCalledWith(expect.objectContaining({ document_type: "应付款减少" })))
+  await waitFor(() => expect(mockCreateDetail).toHaveBeenCalledWith(22, {
+    product_code: "",
+    product_name: "包装费用",
+    amount: "268.5",
+    remark: "包装调整",
+  }))
+  await waitFor(() => expect(screen.queryByRole("dialog", { name: "新增经营历程" })).not.toBeInTheDocument())
 })
 
 test("searches and exports using unified supplier and customer brand options without warehouses", async () => {
