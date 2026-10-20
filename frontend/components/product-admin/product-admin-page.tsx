@@ -67,6 +67,7 @@ export function ProductAdminPage() {
   const [previewImage, setPreviewImage] = useState<{ src: string; alt: string } | null>(null)
   const [operationLogOpen, setOperationLogOpen] = useState(false)
   const [managedBrands, setManagedBrands] = useState<SupplierBrandItem[]>([])
+  const [archiveBrandsReady, setArchiveBrandsReady] = useState(false)
   const productArchiveBrands = resolveProductArchiveBrands(managedBrands)
   const [recycleOpen, setRecycleOpen] = useState(false)
   const [recycleBrand, setRecycleBrand] = useState<ProductArchiveBrandKey | "all">("all")
@@ -95,16 +96,17 @@ export function ProductAdminPage() {
 
   useEffect(() => {
     if (routeContextInitializedRef.current) return
-    routeContextInitializedRef.current = true
     const params = new URLSearchParams(window.location.search)
+    const nextBrand = params.get("brand")
+    if (nextBrand && !PRODUCT_ARCHIVE_BRANDS.some((item) => item.key === nextBrand) && !archiveBrandsReady) return
+    routeContextInitializedRef.current = true
     if (window.location.search && appliedRouteContext === window.location.search) {
       setRouteContextReady(true)
       return
     }
     setAppliedRouteContext(window.location.search)
-    const nextBrand = params.get("brand")
     const nextQuery = params.get("query") || ""
-    if (nextBrand && PRODUCT_ARCHIVE_BRANDS.some((item) => item.key === nextBrand)) {
+    if (nextBrand && (PRODUCT_ARCHIVE_BRANDS.some((item) => item.key === nextBrand) || managedBrands.some((item) => item.code === nextBrand))) {
       setBrand(nextBrand)
     }
     if (nextQuery) {
@@ -113,7 +115,7 @@ export function ProductAdminPage() {
     }
     if (nextBrand || nextQuery) setPage(1)
     setRouteContextReady(true)
-  }, [appliedRouteContext, setAppliedRouteContext, setBrand, setPage, setSearchInput, setSubmittedQuery])
+  }, [appliedRouteContext, archiveBrandsReady, managedBrands, setAppliedRouteContext, setBrand, setPage, setSearchInput, setSubmittedQuery])
 
   useEffect(() => {
     if (!routeContextReady) return
@@ -141,6 +143,9 @@ export function ProductAdminPage() {
       })
       .catch(() => {
         if (!cancelled) setManagedBrands([])
+      })
+      .finally(() => {
+        if (!cancelled) setArchiveBrandsReady(true)
       })
 
     return () => {

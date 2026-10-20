@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import io
 import logging
+import re
 import urllib.parse
 import unicodedata
 from collections.abc import Iterator
@@ -29,6 +30,8 @@ from api.routes.images import get_image_matcher, image_url_for
 from domain.excluded_skus import is_excluded_sku, not_excluded_sku_condition
 from domain.fields import PRODUCT_FIELDS
 from domain.gj_schema import GJ_MERGED_PRODUCT_INFO_TABLE
+from domain.inventory_schema import SUPPLIER_BRAND_TABLE
+from domain.schema import PRODUCT_ARCHIVE_TABLES
 from domain.product_defaults import apply_product_defaults
 from domain.product_archive_identity_schema import PURCHASE_PRODUCT_SYNC_FIELDS, product_sync_fields_changed
 from domain.product_size_code import build_product_size_code
@@ -151,6 +154,32 @@ BRAND_LABELS = {
 }
 
 
+def _product_export_brand_labels(repository) -> dict[str, str]:
+    labels = dict(BRAND_LABELS)
+    with repository.engine.connect() as connection:
+        rows = connection.execute(
+            select(SUPPLIER_BRAND_TABLE.c.code, SUPPLIER_BRAND_TABLE.c.name)
+            .where(SUPPLIER_BRAND_TABLE.c.product_archive_enabled.is_(True))
+        ).mappings()
+        for row in rows:
+            name = str(row["name"] or "").strip()
+            if name and row["code"] not in {"eblan", "all"}:
+                labels[row["code"]] = name
+    return labels
+
+
+def _product_export_sheet_title(title: str) -> str:
+    return re.sub(r"[\\*?:/\[\]]", "_", str(_excel_cell_value(title)))[:31].strip("'") or "商品档案"
+
+
+def _backfill_product_export_costs(repository, brand: str, items: list[dict[str, object]]) -> None:
+    if brand not in PRODUCT_ARCHIVE_TABLES:
+        return
+    missing_cost_items = [item for item in items if item.get("cost") in (None, "")]
+    if missing_cost_items:
+        apply_jst_product_costs(repository.engine, missing_cost_items)
+
+
 def _export_columns_for_brand(brand: str, *, include_cost: bool = True) -> list[str]:
     columns = (
         list(EXPORT_COLUMNS)
@@ -231,6 +260,13 @@ def _product_prefix_condition(table, sku_prefix: str | None):
     ))
 
 
+def _active_product_export_conditions(table) -> list:
+    return [
+        table.c.deleted_at.is_(None),
+        not_excluded_sku_condition(table.c.sku, table.c.original_sku),
+    ]
+
+
 def _activity_export_label(
     activity_date_start: date_type | None,
     activity_date_end: date_type | None = None,
@@ -280,7 +316,7 @@ def _iter_all_export_rows(
     export_columns = [column for column in EXPORT_COLUMNS if include_cost or column not in {"cost", "cost_price"}]
     for brand in repository.product_archive_brands():
         table = repository._table_for_brand(brand)
-        conditions = [not_excluded_sku_condition(table.c.sku, table.c.original_sku)]
+        conditions = _active_product_export_conditions(table)
         if activity_date_start:
             conditions.append(_activity_date_export_condition(table, activity_date_start, activity_date_end))
         if year:
@@ -301,9 +337,7 @@ def _iter_all_export_rows(
         # costs during export instead of rescanning the large price history for
         # every product in a full overview export.
         if include_cost:
-            items_missing_cost = [item for item in items if item.get("cost") in (None, "")]
-            if items_missing_cost:
-                apply_jst_product_costs(repository.engine, items_missing_cost)
+            _backfill_product_export_costs(repository, brand, items)
         for item in items:
             yield brand, [item.get(column) for column in export_columns]
 
@@ -422,11 +456,12 @@ def _export_all_products(
     sku_prefix: str | None = None,
 ) -> StreamingResponse:
     include_cost = request_can_view_product_cost(request)
+    brand_labels = _product_export_brand_labels(repository)
     export_columns = [column for column in EXPORT_COLUMNS if include_cost or column not in {"cost", "cost_price"}]
     headers = ["品牌"] + [EXPORT_LABELS.get(c, c) for c in export_columns]
     wb = Workbook(write_only=True)
     export_label = _activity_export_label(activity_date_start, activity_date_end)
-    ws = wb.create_sheet(title=export_label)
+    ws = wb.create_sheet(title=_product_export_sheet_title(export_label))
     header_font = Font(name="宋体", size=10, bold=True)
     header_fill = PatternFill("solid", fgColor="F2F2F2")
     header_alignment = Alignment(horizontal="center", vertical="center", wrap_text=False)
@@ -453,7 +488,7 @@ def _export_all_products(
         sku_prefix=sku_prefix,
         include_cost=include_cost,
     ):
-        row = [BRAND_LABELS.get(brand, brand)] + [_excel_cell_value(value) for value in values]
+        row = [_excel_cell_value(brand_labels.get(brand, brand))] + [_excel_cell_value(value) for value in values]
         # A small sample is enough to keep widths readable without scanning
         # every cell in a 60k+ row overview export.
         if row_count <= 1000:
@@ -557,7 +592,7 @@ def _load_size_export_source_items(
     table = repository._table_for_brand(brand)
     statement = (
         select(table)
-        .where(not_excluded_sku_condition(table.c.sku, table.c.original_sku))
+        .where(*_active_product_export_conditions(table))
     )
     id_list = _parse_id_list(ids)
     if id_list:
@@ -601,6 +636,7 @@ def _load_product_archive_rows(repository, connection, brand: str, codes: set[st
     for chunk in _chunk_values(codes):
         for row in connection.execute(
             select(table)
+            .where(*_active_product_export_conditions(table))
             .where(or_(table.c.sku.in_(chunk), table.c.original_sku.in_(chunk)))
             .order_by(desc(table.c.updated_at), desc(table.c.id))
         ).mappings():
@@ -981,8 +1017,8 @@ def _export_products_with_sizes(
     selected_codes = _size_export_source_codes(source_items)
 
     wb = Workbook(write_only=True)
-    brand_label = BRAND_LABELS.get(brand, brand)
-    ws = wb.create_sheet(title=f"{brand_label}带尺码")
+    brand_label = _product_export_brand_labels(repository).get(brand, brand)
+    ws = wb.create_sheet(title=_product_export_sheet_title(f"{brand_label}带尺码"))
     export_headers = _size_export_headers_for_brand(brand, include_cost=include_cost)
     column_widths = [
         max(
@@ -997,7 +1033,7 @@ def _export_products_with_sizes(
     ws.append(_write_only_header_cells(ws, export_headers))
 
     with repository.engine.connect() as connection:
-        profiles = _load_product_profile_rows(connection, selected_codes)
+        profiles = _load_product_profile_rows(connection, selected_codes) if brand in PRODUCT_ARCHIVE_TABLES else []
         size_group_items = _load_size_group_items(connection, source_items)
         resolved_color_codes = _resolve_size_export_color_codes(connection, source_items)
         size_group_profiles, source_codes_with_size_groups = _size_export_profiles_from_size_groups(
@@ -1034,14 +1070,9 @@ def _export_products_with_sizes(
         lookup_codes.update(selected_codes)
         loaded_archive_rows = _load_product_archive_rows(repository, connection, brand, lookup_codes)
         if include_cost:
-            missing_cost_items = [
-                item for item in loaded_archive_rows.values()
-                if item.get("cost") in (None, "")
-            ]
-            if missing_cost_items:
-                apply_jst_product_costs(repository.engine, missing_cost_items)
+            _backfill_product_export_costs(repository, brand, list(loaded_archive_rows.values()))
         archive_rows = dict(loaded_archive_rows)
-        gj_rows = _load_gj_rows(connection, lookup_codes)
+        gj_rows = _load_gj_rows(connection, lookup_codes) if brand in PRODUCT_ARCHIVE_TABLES else {}
 
     row_count = 1
     style_contexts: dict[str, dict[str, str]] = {}
@@ -1060,6 +1091,11 @@ def _export_products_with_sizes(
         product_name = _size_export_product_name(style_code, color_name, product_code)
         category = _first_text(context["category"], "男鞋" if brand == "cbanner_mens" else None, raw_payload.get("分类"))
         logo = _first_text(context["logo"], raw_payload.get("LOGO"), raw_payload.get("品牌"))
+        export_brand = (
+            brand_label
+            if brand not in PRODUCT_ARCHIVE_TABLES
+            else _first_text(raw_payload.get("品牌"), context["brand"], brand_label)
+        )
         row = [
             _first_text(context["supplier_name"], raw_payload.get("供应商名"), raw_payload.get("供应商")),
             product_code,
@@ -1076,7 +1112,7 @@ def _export_products_with_sizes(
             _first_text(context["insole_material"], raw_payload.get("鞋垫材质")),
             _first_text(context["original_sku"], raw_payload.get("原始货号")),
             _first_text(raw_payload.get("供应商商品款号"), context["factory_code"]),
-            _first_text(raw_payload.get("品牌"), context["brand"]),
+            export_brand,
             f"{color_name};{size_barcode}" if color_name or size_barcode else "",
             category,
             _first_text(context["cost"], raw_payload.get("成本价"), raw_payload.get("成本")),
@@ -1156,10 +1192,7 @@ def _export_product_prices(
     exported_rows = 0
     for archive_brand in brands:
         table = repository._table_for_brand(archive_brand)
-        conditions = [
-            table.c.deleted_at.is_(None),
-            not_excluded_sku_condition(table.c.sku, table.c.original_sku),
-        ]
+        conditions = _active_product_export_conditions(table)
         if selected_ids:
             conditions.append(table.c.id.in_(selected_ids))
         else:
@@ -1201,7 +1234,7 @@ def _export_product_prices(
     workbook.save(buffer)
     workbook.close()
     buffer.seek(0)
-    brand_label = BRAND_LABELS.get(brand, brand)
+    brand_label = _product_export_brand_labels(repository).get(brand, brand)
     filename = f"{brand_label}物价.xlsx"
     write_operation_log(
         request,
@@ -1300,15 +1333,13 @@ def export_products(
                 dict(row)
                 for row in connection.execute(
                     select(table)
-                    .where(not_excluded_sku_condition(table.c.sku, table.c.original_sku))
+                    .where(*_active_product_export_conditions(table))
                     .where(_activity_date_export_condition(table, export_date_start, export_date_end))
                     .order_by(desc(table.c.id))
                 ).mappings()
             ]
         if request_can_view_product_cost(request):
-            missing_cost_items = [item for item in items if item.get("cost") in (None, "")]
-            if missing_cost_items:
-                apply_jst_product_costs(repository.engine, missing_cost_items)
+            _backfill_product_export_costs(repository, brand, items)
     elif ids:
         id_list = [int(i.strip()) for i in ids.split(",") if i.strip()]
         items = repository.get_products_by_ids(brand, id_list)
@@ -1318,7 +1349,8 @@ def export_products(
 
     wb = Workbook()
     ws = wb.active
-    ws.title = BRAND_LABELS.get(brand, brand)
+    brand_label = _product_export_brand_labels(repository).get(brand, brand)
+    ws.title = _product_export_sheet_title(brand_label)
 
     export_columns = _export_columns_for_brand(
         brand,
@@ -1337,7 +1369,6 @@ def export_products(
     wb.save(buf)
     buf.seek(0)
 
-    brand_label = BRAND_LABELS.get(brand, brand)
     export_label = (
         f"{brand_label}"
         f"{_activity_export_label(export_date_start, export_date_end) if export_date_start else ''}"

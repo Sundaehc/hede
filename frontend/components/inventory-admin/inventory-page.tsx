@@ -1992,6 +1992,8 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
   }))
   const customerCounterpartySelectOptions = [...customerShopSelectOptions, ...customerUnitSelectOptions]
   const supplierHierarchicalOptions = useMemo<HierarchicalOption[]>(() => {
+    const brandLabels = new Map(inventoryBrandOptions.map((option) => [option.value, option.label]))
+    const labelForBrand = (brand: string) => brandLabels.get(brand) || supplierBrandLabel(brand)
     const suppliersByBrand = new Map<string, SupplierItem[]>()
     for (const supplier of supplierOptions) {
       const brand = String(supplier.brand || "").trim() || "通用"
@@ -1999,9 +2001,9 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
       group.push(supplier)
       suppliersByBrand.set(brand, group)
     }
-    return Array.from(suppliersByBrand.entries()).sort(([left], [right]) => supplierBrandLabel(left).localeCompare(supplierBrandLabel(right), "zh-CN")).map(([brand, suppliers]) => ({
+    return Array.from(suppliersByBrand.entries()).sort(([left], [right]) => labelForBrand(left).localeCompare(labelForBrand(right), "zh-CN")).map(([brand, suppliers]) => ({
       id: `supplier-brand:${brand}`,
-      label: supplierBrandLabel(brand),
+      label: labelForBrand(brand),
       children: suppliers.sort((left, right) => left.name.localeCompare(right.name, "zh-CN")).map((supplier) => ({
         id: `supplier:${supplier.id}`,
         label: supplier.name,
@@ -2009,7 +2011,14 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
         keywords: [supplier.factory_code, supplier.contact, supplier.address].filter(Boolean).join(" "),
       })),
     }))
-  }, [supplierOptions])
+  }, [inventoryBrandOptions, supplierOptions])
+  const templateBrandOptions = useMemo(() => {
+    const options = new Map(Object.entries(INVENTORY_BRAND_LABELS)
+      .filter(([code]) => code !== "通用")
+      .map(([value, label]) => [value, { value, label }]))
+    for (const option of inventoryBrandOptions) options.set(option.value, option)
+    return Array.from(options.values())
+  }, [inventoryBrandOptions])
   const warehouseHierarchicalOptions = useMemo<HierarchicalOption[]>(() => {
     const warehousesByBrand = new Map<string, WarehouseItem[]>()
     for (const warehouse of warehouseOptions) {
@@ -2961,8 +2970,8 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
                 <div className="flex items-center gap-2"><Label htmlFor="inventory-template-brand" className="text-sm font-medium">备用品牌</Label><span className="rounded-md bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">选填</span></div>
                 <Select id="inventory-template-brand" aria-describedby="inventory-template-brand-hint" value={templateBrand} disabled={isImporting || Boolean(importTaskId)} onChange={(event) => { setTemplateBrand(event.target.value); setImportError("") }} className="bg-background">
                   <option value="">不设置（优先自动识别）</option>
-                  {Object.entries(INVENTORY_BRAND_LABELS).filter(([code]) => code !== "通用").map(([code, label]) => (
-                    <option key={code} value={code}>{label}</option>
+                  {templateBrandOptions.map(({ value, label }) => (
+                    <option key={value} value={value}>{label}</option>
                   ))}
                 </Select>
                 <p id="inventory-template-brand-hint" className="text-xs leading-5 text-muted-foreground">优先从往来单位或仓库识别品牌，仅在无法识别时使用此设置。</p>

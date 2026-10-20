@@ -10,7 +10,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from openpyxl import load_workbook
-from sqlalchemy import Column, DateTime, Integer, MetaData, Numeric, Table, Text, create_engine
+from sqlalchemy import Boolean, Column, DateTime, Integer, MetaData, Numeric, Table, Text, create_engine
 from sqlalchemy.pool import StaticPool
 
 from api.auth_middleware import auth_middleware, required_permission_for_request
@@ -23,6 +23,13 @@ from storage.auth_repository import DEFAULT_ROLES
 def price_export_client(monkeypatch):
     engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
     metadata = MetaData()
+    brand_table = Table(
+        "supplier_brands",
+        metadata,
+        Column("code", Text),
+        Column("name", Text),
+        Column("product_archive_enabled", Boolean),
+    )
     tables = {
         brand: Table(
             brand,
@@ -44,6 +51,10 @@ def price_export_client(monkeypatch):
     }
     metadata.create_all(engine)
     with engine.begin() as connection:
+        connection.execute(brand_table.insert(), [
+            {"code": "eblan", "name": "伊伴男鞋", "product_archive_enabled": True},
+            {"code": "manual_brand", "name": "自定义品牌", "product_archive_enabled": True},
+        ])
         connection.execute(tables["eblan"].insert(), [
             {
                 "id": 1, "sku": "ER741079D24", "original_sku": "ORIGINAL-1",

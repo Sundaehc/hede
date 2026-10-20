@@ -89,6 +89,17 @@ test("supports the same searchable brand multiselect as inventory without queryi
   )
 })
 
+test("shows a newly registered brand by its name and queries using its internal code", async () => {
+  const code = "supplier_brand_33aa8a0c3b6a"
+  brandsMock.mockResolvedValue({ items: [{ value: code, label: "千百度赫锦" }] })
+  const { user } = await openPage()
+  await user.type(screen.getByRole("combobox", { name: "品牌" }), "赫锦")
+  await user.click(await screen.findByRole("button", { name: "千百度赫锦" }))
+  expect(screen.getByRole("button", { name: "移除 千百度赫锦" })).toBeInTheDocument()
+  await user.click(screen.getByRole("button", { name: "查询" }))
+  await waitFor(() => expect(listMock).toHaveBeenLastCalledWith(expect.objectContaining({ brands: [code], page: 1 })))
+})
+
 test("exports applied brand filters rather than an unsubmitted brand draft", async () => {
   const { user } = await openPage()
   await user.click(screen.getByRole("combobox", { name: "品牌" }))

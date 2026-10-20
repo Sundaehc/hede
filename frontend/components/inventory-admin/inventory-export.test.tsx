@@ -4,7 +4,7 @@ import { afterEach, beforeEach, expect, test, vi } from "vitest"
 
 import { InventoryPage } from "@/components/inventory-admin/inventory-page"
 
-const { mockListInventory, mockCustomerShops, mockCustomerUnits, mockCustomerBrands, mockInventoryBrands, mockProductCandidates, mockAccountSubjects, mockCreateRecord, mockCreateDetail } = vi.hoisted(() => ({
+const { mockListInventory, mockCustomerShops, mockCustomerUnits, mockCustomerBrands, mockInventoryBrands, mockProductCandidates, mockAccountSubjects, mockCreateRecord, mockCreateDetail, mockSuppliers } = vi.hoisted(() => ({
   mockListInventory: vi.fn(), mockCustomerShops: vi.fn(),
   mockCustomerUnits: vi.fn(), mockCustomerBrands: vi.fn(),
   mockInventoryBrands: vi.fn(),
@@ -12,6 +12,7 @@ const { mockListInventory, mockCustomerShops, mockCustomerUnits, mockCustomerBra
   mockAccountSubjects: vi.fn(),
   mockCreateRecord: vi.fn(),
   mockCreateDetail: vi.fn(),
+  mockSuppliers: vi.fn(),
 }))
 
 vi.mock("@/components/auth/auth-provider", () => ({
@@ -31,7 +32,7 @@ vi.mock("@/lib/api", async () => ({
   listInventory: mockListInventory,
   listInventoryBrands: mockInventoryBrands,
   listInventoryDetailCandidates: mockProductCandidates,
-  listSuppliers: async () => ({ items: [] }),
+  listSuppliers: mockSuppliers,
   listWarehouseBrands: async () => ({ items: [] }),
   listWarehouses: async () => ({ items: [] }),
   listGeneralCustomerBrands: mockCustomerBrands,
@@ -52,6 +53,7 @@ beforeEach(() => {
   mockInventoryBrands.mockResolvedValue({ items: [] })
   mockProductCandidates.mockResolvedValue({ items: [] })
   mockAccountSubjects.mockResolvedValue({ items: [] })
+  mockSuppliers.mockResolvedValue({ items: [] })
   window.localStorage.clear()
   downloadUrls = []
   vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(function (this: HTMLAnchorElement) {
@@ -255,6 +257,43 @@ test("searches and exports using unified supplier and customer brand options wit
   })))
   await user.click(screen.getByRole("button", { name: "导出Excel" }))
   expect(new URL(downloadUrls[0]).searchParams.getAll("brands")).toEqual(["yandou", "custom"])
+})
+
+test.each(["inventory", "purchase-orders"] as const)("shows new supplier brand names rather than internal codes in %s creation and import controls", async (mode) => {
+  const brandCode = "supplier_brand_33aa8a0c3b6a"
+  mockInventoryBrands.mockResolvedValue({ items: [{ value: brandCode, label: "千百度赫锦" }] })
+  mockSuppliers.mockResolvedValue({ items: [{ id: 1676, brand: brandCode, name: "靓典（千百度赫锦）" }] })
+  const user = userEvent.setup()
+  render(<InventoryPage mode={mode} />)
+  await screen.findByText("EXPORT-0001")
+  if (mode === "inventory") {
+    await user.click(screen.getByRole("combobox", { name: "品牌" }))
+    await user.click(await screen.findByRole("button", { name: "千百度赫锦" }))
+    await user.click(screen.getByRole("button", { name: "搜索" }))
+    await waitFor(() => expect(mockListInventory).toHaveBeenLastCalledWith(expect.objectContaining({ brands: [brandCode] })))
+  }
+  await user.click(screen.getByRole("button", { name: mode === "inventory" ? "新增经营历程" : "新增采购单" }))
+  const dialog = screen.getByRole("dialog", { name: mode === "inventory" ? "新增经营历程" : "新增采购单" })
+  const supplier = within(dialog).getByPlaceholderText("选择品牌后选供应商")
+  await user.click(supplier)
+  await user.click(await within(dialog).findByRole("button", { name: "千百度赫锦" }))
+  await user.click(within(dialog).getByRole("button", { name: "靓典（千百度赫锦）" }))
+  expect(supplier).toHaveValue("千百度赫锦 / 靓典（千百度赫锦）")
+  expect(within(dialog).queryByText(brandCode)).not.toBeInTheDocument()
+  await user.click(within(dialog).getByRole("button", { name: "取消" }))
+  if (mode === "purchase-orders") return
+  await user.click(screen.getByRole("button", { name: "导入Excel" }))
+  const importDialog = screen.getByRole("dialog", { name: "导入单据明细" })
+  await user.click(within(importDialog).getByRole("button", { name: "按模板导入" }))
+  const fallbackBrand = within(importDialog).getByRole("combobox", { name: "备用品牌" })
+  await user.selectOptions(fallbackBrand, brandCode)
+  expect(fallbackBrand).toHaveValue(brandCode)
+  expect(within(fallbackBrand).getByRole("option", { name: "千百度赫锦" })).toBeInTheDocument()
+  await user.click(within(importDialog).getByRole("button", { name: "普通导入" }))
+  const importSupplier = within(importDialog).getByPlaceholderText("选择品牌后选供货单位")
+  await user.type(importSupplier, "赫锦")
+  expect(within(importDialog).getByRole("button", { name: "千百度赫锦 / 靓典（千百度赫锦）" })).toBeInTheDocument()
+  expect(within(importDialog).queryByText(brandCode)).not.toBeInTheDocument()
 })
 
 test("restores inventory filters after another page and keeps purchase queries isolated", async () => {
