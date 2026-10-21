@@ -524,14 +524,17 @@ export function getFactoryChannelDashboard(params: {
   productYear?: string
   dateStart?: string
   dateEnd?: string
-}) {
+  cacheBust?: string
+}, init: RequestInit = {}) {
   const search = new URLSearchParams({ brand: params.brand })
   if (params.salesYear) search.set("sales_year", String(params.salesYear))
   if (params.productYear) search.set("product_year", params.productYear)
   if (params.dateStart) search.set("date_start", params.dateStart)
   if (params.dateEnd) search.set("date_end", params.dateEnd)
+  if (params.cacheBust) search.set("cache_bust", params.cacheBust)
   return request<FactoryChannelDashboardResponse>(
-    `/product-goods/factory-channel-dashboard?${search.toString()}`
+    `/product-goods/factory-channel-dashboard?${search.toString()}`,
+    init
   )
 }
 

@@ -1191,14 +1191,16 @@ def _factory_dashboard_historical_detail_returns(
 
     return_rows: list[dict[str, object]] = []
     snapshot_rows = connection.execute(
-        select(table.c.goods_code, table.c.style_code, table.c.data)
+        select(
+            table.c.goods_code,
+            table.c.style_code,
+            table.c.data[("metrics", "return_qty")].label("return_quantity"),
+        )
         .where(table.c.brand == brand)
         .where(table.c.snapshot_date == latest_snapshot_date)
     ).mappings()
     for row in snapshot_rows:
-        data = row.get("data") or {}
-        metrics = data.get("metrics") if isinstance(data, dict) else None
-        raw_return_quantity = metrics.get("return_qty") if isinstance(metrics, dict) else None
+        raw_return_quantity = row.get("return_quantity")
         try:
             return_quantity = int(raw_return_quantity or 0)
         except (TypeError, ValueError):
@@ -1583,6 +1585,7 @@ def get_factory_channel_dashboard(
     product_year: str | None = None,
     date_start: date | None = None,
     date_end: date | None = None,
+    cache_bust: str | None = None,
 ):
     """Aggregate seasonal factory styles and sales by traditional, live and clearance channels."""
     if brand not in PRODUCT_TABLES:
@@ -1591,22 +1594,29 @@ def get_factory_channel_dashboard(
         raise HTTPException(status_code=400, detail="开始日期不能晚于结束日期")
 
     repository = request.app.state.repository
-    available_sales_years = _factory_dashboard_available_sales_years(repository.engine)
-    selected_sales_year = sales_year or (available_sales_years[-1] if available_sales_years else date.today().year)
-    if selected_sales_year < SALES_PERIOD_START_YEAR or selected_sales_year > date.today().year:
+    today = date.today()
+    if sales_year is not None and not SALES_PERIOD_START_YEAR <= sales_year <= today.year:
         raise HTTPException(status_code=400, detail="销售年份无效")
     normalized_product_year = str(product_year or "").strip()
-    cache_key = (
-        "factory-channel-dashboard-v4",
+    cache_context = (
+        "factory-channel-dashboard-v5",
+        repository.engine,
+        today,
         brand,
-        selected_sales_year,
+    )
+    cache_filters = (
         normalized_product_year,
         date_start.isoformat() if date_start else "",
         date_end.isoformat() if date_end else "",
     )
-    cached = get_product_goods_cache(cache_key)
+    cache_key = (*cache_context, sales_year, *cache_filters)
+    cached = None if cache_bust else get_product_goods_cache(cache_key)
     if cached is not None:
         return cached
+
+    available_sales_years = _factory_dashboard_available_sales_years(repository.engine)
+    latest_sales_year = available_sales_years[-1] if available_sales_years else today.year
+    selected_sales_year = sales_year if sales_year is not None else latest_sales_year
 
     product_table = PRODUCT_TABLES[brand]
     with repository.engine.connect() as connection:
@@ -1692,22 +1702,25 @@ def get_factory_channel_dashboard(
     vip_product_dates: set[tuple[str, date]] = set()
     unmatched_sales = 0
     unclassified_sales = 0
+    resolved_products: dict[tuple[str, str], dict[str, object] | None] = {}
     for sale in sales_rows:
         net_quantity, gross_quantity, return_quantity = sales_metrics(sale)
         if sale.get("preaggregated") and sale.get("match_status") == "unmatched":
             unmatched_sales += gross_quantity
             continue
-        product = (
-            by_sku.get(str(sale.get("product_code") or "").strip())
-            if sale.get("preaggregated")
-            else _factory_dashboard_product_for_sale(
-                sale.get("product_code"),
-                sale.get("style_code"),
-                by_sku=by_sku,
-                by_prefix=by_prefix,
-                unique_style_matches=unique_style_matches,
-            )
-        )
+        product_code = str(sale.get("product_code") or "").strip()
+        if sale.get("preaggregated"):
+            product = by_sku.get(product_code)
+        else:
+            product_key = (product_code, str(sale.get("style_code") or "").strip())
+            if product_key not in resolved_products:
+                resolved_products[product_key] = _factory_dashboard_product_for_sale(
+                    *product_key,
+                    by_sku=by_sku,
+                    by_prefix=by_prefix,
+                    unique_style_matches=unique_style_matches,
+                )
+            product = resolved_products[product_key]
         if product is None:
             unmatched_sales += gross_quantity
             continue
@@ -1848,7 +1861,9 @@ def get_factory_channel_dashboard(
         },
         "seasons": seasons,
     }
-    set_product_goods_cache(cache_key, payload)
+    set_product_goods_cache((*cache_context, selected_sales_year, *cache_filters), payload)
+    if selected_sales_year == latest_sales_year:
+        set_product_goods_cache((*cache_context, None, *cache_filters), payload)
     return payload
 
 

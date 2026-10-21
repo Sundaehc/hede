@@ -2,7 +2,7 @@
 
 import { useSessionQueryState } from "@/lib/session-query-state"
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import {
   BarChart3,
   CalendarDays,
@@ -245,6 +245,8 @@ export function FactoryChannelDashboardPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState("")
   const [refreshToken, setRefreshToken] = useState(0)
+  const autoSelectedQueryRef = useRef("")
+  const handledRefreshRef = useRef(0)
 
   useEffect(() => {
     if (routeContextInitializedRef.current) return
@@ -264,30 +266,46 @@ export function FactoryChannelDashboardPage() {
     setRouteContextReady(true)
   }, [appliedRouteContext, setAppliedRouteContext, setBrand, setSalesYear])
 
-  const loadDashboard = useCallback(async () => {
+  useEffect(() => {
     if (!routeContextReady) return
+    const queryKey = JSON.stringify([brand, salesYear, dateStart, dateEnd, refreshToken])
+    if (autoSelectedQueryRef.current === queryKey) {
+      autoSelectedQueryRef.current = ""
+      return
+    }
+    autoSelectedQueryRef.current = ""
+    const controller = new AbortController()
+    const forceRefresh = refreshToken !== handledRefreshRef.current
+    handledRefreshRef.current = refreshToken
     setLoading(true)
     setError("")
-    try {
-      const response = await getFactoryChannelDashboard({
-        brand,
-        salesYear: salesYear ? Number(salesYear) : undefined,
-        dateStart: dateStart || undefined,
-        dateEnd: dateEnd || undefined,
-      })
-      setData(response)
-      if (!salesYear) setSalesYear(String(response.sales_year))
-    } catch (requestError) {
-      setData(null)
-      setError(requestError instanceof Error ? requestError.message : "看板数据加载失败")
-    } finally {
-      setLoading(false)
+    async function loadDashboard() {
+      try {
+        const response = await getFactoryChannelDashboard({
+          brand,
+          salesYear: salesYear ? Number(salesYear) : undefined,
+          dateStart: dateStart || undefined,
+          dateEnd: dateEnd || undefined,
+          cacheBust: forceRefresh ? String(refreshToken) : undefined,
+        }, { signal: controller.signal })
+        if (controller.signal.aborted) return
+        setData(response)
+        if (!salesYear) {
+          const selectedYear = String(response.sales_year)
+          autoSelectedQueryRef.current = JSON.stringify([brand, selectedYear, dateStart, dateEnd, refreshToken])
+          setSalesYear(selectedYear)
+        }
+      } catch (requestError) {
+        if (controller.signal.aborted) return
+        setData(null)
+        setError(requestError instanceof Error ? requestError.message : "看板数据加载失败")
+      } finally {
+        if (!controller.signal.aborted) setLoading(false)
+      }
     }
-  }, [brand, dateEnd, dateStart, routeContextReady, salesYear, setSalesYear])
-
-  useEffect(() => {
     void loadDashboard()
-  }, [loadDashboard, refreshToken])
+    return () => controller.abort()
+  }, [brand, dateEnd, dateStart, refreshToken, routeContextReady, salesYear, setSalesYear])
 
   function resetFilters() {
     setSalesYear("")
