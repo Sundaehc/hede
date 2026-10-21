@@ -2,18 +2,24 @@
 
 import { useSessionQueryState } from "@/lib/session-query-state"
 
-import { useEffect, useMemo, useRef, useState } from "react"
+import { useEffect, useId, useMemo, useRef, useState } from "react"
 import {
+  ArrowLeftRight,
   BarChart3,
   CalendarDays,
+  ChevronDown,
   Clock3,
   Factory,
   Layers3,
   RefreshCw,
   Search,
   ShoppingBag,
+  SlidersHorizontal,
+  Snowflake,
   Sparkles,
+  Sun,
   TriangleAlert,
+  X,
 } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
@@ -35,6 +41,7 @@ const DASHBOARD_BRANDS = BRANDS.filter((brand) => brand.key !== "all") as Array<
   label: string
 }>
 const DEFAULT_BRAND: DashboardBrand = "cbanner_mens"
+const EMPTY_SEASONS: FactoryChannelDashboardResponse["seasons"] = []
 
 const numberFormatter = new Intl.NumberFormat("zh-CN")
 
@@ -85,49 +92,56 @@ function MetricCard({
   hint,
   icon: Icon,
   tone,
+  prominent = false,
 }: {
   label: string
   value: string
   hint: string
   icon: typeof Factory
-  tone: "slate" | "blue" | "violet" | "orange" | "emerald"
+  tone: "slate" | "blue" | "violet"
+  prominent?: boolean
 }) {
   const toneClass = {
     slate: "bg-slate-500/10 text-slate-600 dark:text-slate-300",
     blue: "bg-blue-500/10 text-blue-700 dark:text-blue-300",
     violet: "bg-violet-500/10 text-violet-700 dark:text-violet-300",
-    orange: "bg-orange-500/10 text-orange-700 dark:text-orange-300",
-    emerald: "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
   }[tone]
 
   return (
-    <div className="min-w-0 rounded-lg border border-border bg-card px-4 py-4 shadow-sm">
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <p className="text-xs font-medium text-muted-foreground">{label}</p>
-          <p className="mt-2 truncate text-2xl font-semibold tabular-nums text-foreground">
-            {value}
-          </p>
-        </div>
-        <span className={cn("flex size-8 shrink-0 items-center justify-center rounded-md", toneClass)}>
-          <Icon className="size-4" />
+    <div className={cn(
+      "min-w-0 rounded-xl border bg-card px-3.5 py-3 sm:px-4",
+      prominent ? "col-span-2 border-blue-500/25 bg-blue-500/[0.04] sm:col-span-1" : "border-border"
+    )}>
+      <div className="flex items-center gap-2">
+        <span className={cn("flex size-6 shrink-0 items-center justify-center rounded-md", toneClass)}>
+          <Icon className="size-3.5" aria-hidden="true" />
         </span>
+        <p className="text-xs font-medium text-muted-foreground">{label}</p>
       </div>
-      <p className="mt-2 truncate text-xs text-muted-foreground">{hint}</p>
+      <p className={cn(
+        "mt-2 break-words text-[clamp(1.125rem,1.65vw,1.75rem)] leading-tight font-semibold tracking-tight tabular-nums",
+        prominent ? "text-blue-700 dark:text-blue-300" : "text-foreground"
+      )}>{value}</p>
+      <p className="mt-1.5 text-xs leading-5 text-muted-foreground">{hint}</p>
     </div>
   )
 }
 
-function ChannelBar({ item }: { item: FactoryChannelDashboardItem }) {
+type ChannelBreakdown = Pick<FactoryChannelDashboardItem,
+  "traditional_sales" | "live_sales" | "clearance_sales" |
+  "traditional_ratio" | "live_ratio" | "clearance_ratio"
+>
+
+function ChannelBar({ item }: { item: ChannelBreakdown }) {
   const segments = [
-    { key: "traditional", label: "传统", ratio: item.traditional_ratio, color: "bg-blue-600" },
-    { key: "live", label: "直播", ratio: item.live_ratio, color: "bg-violet-500" },
-    { key: "clearance", label: "清仓", ratio: item.clearance_ratio, color: "bg-orange-500" },
+    { key: "traditional", label: "传统", sales: item.traditional_sales, ratio: item.traditional_ratio, color: "bg-blue-600", textColor: "text-blue-700 dark:text-blue-300" },
+    { key: "live", label: "直播", sales: item.live_sales, ratio: item.live_ratio, color: "bg-violet-500", textColor: "text-violet-700 dark:text-violet-300" },
+    { key: "clearance", label: "清仓", sales: item.clearance_sales, ratio: item.clearance_ratio, color: "bg-orange-500", textColor: "text-orange-700 dark:text-orange-300" },
   ]
 
   return (
     <div className="min-w-0">
-      <div className="flex h-2 overflow-hidden rounded-full bg-muted">
+      <div className="flex h-1.5 overflow-hidden rounded-full bg-muted" aria-hidden="true">
         {segments.map((segment) => (
           <span
             key={segment.key}
@@ -137,19 +151,16 @@ function ChannelBar({ item }: { item: FactoryChannelDashboardItem }) {
           />
         ))}
       </div>
-      <div className="mt-2 space-y-1 text-xs tabular-nums">
-        <div className="flex items-center justify-between gap-2 text-blue-700 dark:text-blue-300">
-          <span>传统</span>
-          <span>{number(item.traditional_sales)} · {ratio(item.traditional_ratio)}</span>
-        </div>
-        <div className="flex items-center justify-between gap-2 text-violet-700 dark:text-violet-300">
-          <span>直播</span>
-          <span>{number(item.live_sales)} · {ratio(item.live_ratio)}</span>
-        </div>
-        <div className="flex items-center justify-between gap-2 text-orange-700 dark:text-orange-300">
-          <span>清仓</span>
-          <span>{number(item.clearance_sales)} · {ratio(item.clearance_ratio)}</span>
-        </div>
+      <div className="mt-1.5 grid grid-cols-3 gap-2 text-[11px] leading-4 tabular-nums">
+        {segments.map((segment) => (
+          <div key={segment.key} className="min-w-0">
+            <p className={cn("flex items-center gap-1 whitespace-nowrap", segment.textColor)}>
+              <span>{segment.label}</span>
+              <span>{ratio(segment.ratio)}</span>
+            </p>
+            <p className="mt-0.5 font-medium text-foreground">{number(segment.sales)}</p>
+          </div>
+        ))}
       </div>
     </div>
   )
@@ -158,10 +169,15 @@ function ChannelBar({ item }: { item: FactoryChannelDashboardItem }) {
 function SeasonTable({
   title,
   items,
+  seasonKey,
 }: {
   title: string
   items: FactoryChannelDashboardItem[]
+  seasonKey: FactoryChannelDashboardResponse["seasons"][number]["key"]
 }) {
+  const headingId = useId()
+  const isSpringSummer = seasonKey === "spring_summer"
+  const SeasonIcon = isSpringSummer ? Sun : Snowflake
   const totals = useMemo(
     () =>
       items.reduce(
@@ -178,54 +194,84 @@ function SeasonTable({
   )
 
   return (
-    <section className="overflow-hidden rounded-lg border border-border bg-card shadow-sm">
-      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border px-5 py-4">
-        <div>
-          <h2 className="text-base font-semibold text-foreground">{title}</h2>
-          <p className="mt-1 text-xs text-muted-foreground">
-            {items.length ? `${number(items.length)} 家工厂 · ${number(totals.styleCount)} 款` : "暂无符合条件的工厂数据"}
-          </p>
+    <section aria-labelledby={headingId} className="min-w-0 overflow-hidden rounded-xl border border-border bg-card">
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border px-4 py-3">
+        <div className="flex min-w-0 items-center gap-2.5">
+          <span className={cn(
+            "flex size-9 shrink-0 items-center justify-center rounded-lg",
+            isSpringSummer ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300" : "bg-amber-500/10 text-amber-700 dark:text-amber-300"
+          )}>
+            <SeasonIcon className="size-4" aria-hidden="true" />
+          </span>
+          <div>
+            <h2 id={headingId} className="text-sm font-semibold text-foreground">{title}</h2>
+            <p className="mt-0.5 text-xs text-muted-foreground">
+              {items.length ? `${number(items.length)} 家工厂 · ${number(totals.styleCount)} 款` : "暂无符合条件的工厂数据"}
+            </p>
+          </div>
         </div>
-        <span className="rounded-md bg-muted px-2.5 py-1 text-xs font-medium tabular-nums text-muted-foreground">
-          销量 {number(totals.totalSales)}
-        </span>
+        <p className="text-xs text-muted-foreground">销量 <span className="ml-1 text-base font-semibold tabular-nums text-foreground">{number(totals.totalSales)}</span></p>
       </div>
-      <div className="overflow-hidden">
-        <table className="w-full table-fixed border-collapse text-sm">
+      <p className="flex items-center justify-end gap-1.5 border-b border-border/60 px-4 py-1.5 text-[11px] text-muted-foreground sm:hidden">
+        <ArrowLeftRight className="size-3" aria-hidden="true" />左右滑动查看完整渠道数据
+      </p>
+      <div role="region" aria-label={`${title}工厂明细`} tabIndex={0} className="max-h-[580px] overflow-auto outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring">
+        <table aria-label={`${title}销量与渠道占比`} className="w-full min-w-[560px] table-fixed border-separate border-spacing-0 text-sm">
           <colgroup>
-            <col className="w-[47%]" />
-            <col className="w-[9%]" />
-            <col className="w-[15%]" />
-            <col className="w-[29%]" />
+            <col className="w-[30%]" />
+            <col className="w-[10%]" />
+            <col className="w-[17%]" />
+            <col className="w-[43%]" />
           </colgroup>
-          <thead className="bg-muted/55 text-xs text-muted-foreground">
-            <tr className="border-b border-border">
-              <th className="px-5 py-3 text-left font-medium">工厂</th>
-              <th className="px-3 py-3 text-center font-medium">款数</th>
-              <th className="px-3 py-3 text-right font-medium">销量汇总</th>
-              <th className="px-3 py-3 text-left font-medium sm:px-5">渠道占比</th>
+          <thead className="sticky top-0 z-10 bg-muted text-xs text-muted-foreground">
+            <tr>
+              <th scope="col" className="border-b border-border px-4 py-2.5 text-left font-medium">工厂 / 代码</th>
+              <th scope="col" className="border-b border-border px-2 py-2.5 text-right font-medium">款数</th>
+              <th scope="col" className="border-b border-border px-3 py-2.5 text-right font-medium">销量汇总</th>
+              <th scope="col" className="border-b border-border px-4 py-2.5 text-left font-medium">渠道占比 / 销量</th>
             </tr>
           </thead>
           <tbody>
             {items.map((item) => (
-              <tr key={`${item.factory_name}-${item.factory_code ?? ""}`} className="border-b border-border/70 last:border-0 hover:bg-muted/35">
-                <td className="px-3 py-3 sm:px-5">
+              <tr key={`${item.factory_name}-${item.factory_code ?? ""}`} className="transition-colors even:bg-muted/15 hover:bg-muted/50 [&>td]:border-b [&>td]:border-border/60">
+                <td className="px-4 py-2.5">
                   <div className="break-words font-medium leading-5 text-foreground">{item.factory_name}</div>
-                  {item.factory_code && <div className="mt-0.5 text-xs text-muted-foreground">{item.factory_code}</div>}
+                  {item.factory_code && <div className="mt-0.5 font-mono text-[11px] text-muted-foreground">{item.factory_code}</div>}
                 </td>
-                <td className="px-3 py-3 text-center tabular-nums text-foreground">{number(item.style_count)}</td>
-                <td className="px-3 py-3 text-right font-medium tabular-nums text-foreground">{number(item.total_sales)}</td>
-                <td className="px-3 py-3 sm:px-5"><ChannelBar item={item} /></td>
+                <td className="px-2 py-2.5 text-right tabular-nums text-muted-foreground">{number(item.style_count)}</td>
+                <td className="px-3 py-2.5 text-right font-semibold tabular-nums text-foreground">{number(item.total_sales)}</td>
+                <td className="px-4 py-2.5"><ChannelBar item={item} /></td>
               </tr>
             ))}
             {!items.length && (
               <tr>
-                <td colSpan={4} className="px-5 py-10 text-center text-sm text-muted-foreground">
-                  当前筛选条件下暂无数据
+                <td colSpan={4} className="px-5 py-12 text-center text-sm text-muted-foreground">
+                  <Factory className="mx-auto mb-3 size-7 text-muted-foreground/50" aria-hidden="true" />
+                  <p className="font-medium text-foreground">当前筛选条件下暂无数据</p>
+                  <p className="mt-1 text-xs">可调整品牌、销售年份或工厂名称后重试</p>
                 </td>
               </tr>
             )}
           </tbody>
+          {items.length > 0 && (
+            <tfoot className="sticky bottom-0 bg-muted text-xs font-medium tabular-nums">
+              <tr className="[&>td]:border-t [&>td]:border-border">
+                <th scope="row" className="border-t border-border px-4 py-2.5 text-left">本季合计</th>
+                <td className="px-2 py-2.5 text-right">{number(totals.styleCount)}</td>
+                <td className="px-3 py-2.5 text-right">{number(totals.totalSales)}</td>
+                <td className="px-4 py-2.5">
+                  <ChannelBar item={{
+                    traditional_sales: totals.traditionalSales,
+                    live_sales: totals.liveSales,
+                    clearance_sales: totals.clearanceSales,
+                    traditional_ratio: totals.totalSales ? totals.traditionalSales / totals.totalSales * 100 : 0,
+                    live_ratio: totals.totalSales ? totals.liveSales / totals.totalSales * 100 : 0,
+                    clearance_ratio: totals.totalSales ? totals.clearanceSales / totals.totalSales * 100 : 0,
+                  }} />
+                </td>
+              </tr>
+            </tfoot>
+          )}
         </table>
       </div>
     </section>
@@ -233,6 +279,7 @@ function SeasonTable({
 }
 
 export function FactoryChannelDashboardPage() {
+  const factorySearchId = useId()
   const [brand, setBrand] = useSessionQueryState<DashboardBrand>("factory-channel-dashboard:brand", DEFAULT_BRAND)
   const [appliedRouteContext, setAppliedRouteContext] = useSessionQueryState("factory-channel-dashboard:routeContext", "")
   const routeContextInitializedRef = useRef(false)
@@ -316,7 +363,7 @@ export function FactoryChannelDashboardPage() {
 
   const summary = data?.summary
   const selectedBrand = DASHBOARD_BRANDS.find((item) => item.key === brand)
-  const seasonalItems = data?.seasons ?? []
+  const seasonalItems = data?.seasons ?? EMPTY_SEASONS
   const normalizedFactoryQuery = factoryQuery.trim().toLocaleLowerCase()
   const filteredSeasons = useMemo(
     () => seasonalItems.map((season) => ({
@@ -369,56 +416,70 @@ export function FactoryChannelDashboardPage() {
   const pendingRefreshSources = salesDateCoverage?.sources.filter((source) => source.pending_refresh_date_count > 0) ?? []
 
   return (
-    <main className="min-h-svh bg-background px-5 py-6 md:px-7">
-      <div className="mx-auto max-w-[1680px]">
-        <header className="flex flex-col gap-5 border-b border-border pb-5 xl:flex-row xl:items-end xl:justify-between">
-          <div>
-            <div className="flex items-center gap-2 text-primary">
-              <BarChart3 className="size-4" />
-              <span className="text-xs font-semibold tracking-wide">商品经营分析</span>
+    <main className="min-h-svh bg-background px-3 py-4 sm:px-5 lg:px-6">
+      <div className="@container mx-auto max-w-[1680px]">
+        <header className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex min-w-0 items-center gap-3">
+            <span className="flex size-10 shrink-0 items-center justify-center rounded-xl border border-border bg-card text-foreground">
+              <Factory className="size-5" aria-hidden="true" />
+            </span>
+            <div>
+              <div className="flex flex-wrap items-center gap-2">
+                <h1 className="text-xl font-semibold tracking-tight text-foreground">工厂渠道看板</h1>
+                <span className="rounded-md border border-border bg-card px-1.5 py-0.5 text-[11px] font-medium text-muted-foreground">商品经营分析</span>
+              </div>
+              <p className="mt-0.5 text-xs leading-5 text-muted-foreground">按季节对比工厂销量与传统、直播、清仓渠道结构</p>
             </div>
-            <h1 className="mt-2 text-2xl font-semibold tracking-normal text-foreground">工厂销量与渠道占比</h1>
           </div>
-          <div className="flex items-center gap-2 text-xs text-muted-foreground">
-            <CalendarDays className="size-3.5" />
-            销售数据截至 {dateLabel(data?.latest_sales_date ?? null)}
+          <div role="status" className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+            <span className="flex items-center gap-1.5 rounded-md border border-border bg-card px-2.5 py-1.5 tabular-nums">
+              <CalendarDays className="size-3.5" aria-hidden="true" />
+              {data?.latest_sales_date ? `销售数据截至 ${dateLabel(data.latest_sales_date)}` : loading ? "正在加载销售数据" : "暂无销售数据"}
+            </span>
+            {loading && data && <span>正在更新，暂显示上次结果</span>}
           </div>
         </header>
 
-        <section className="mt-5 rounded-lg border border-border bg-card p-4 shadow-sm">
-          <div className="flex flex-col gap-3 xl:flex-row xl:items-end">
-            <div className="grid flex-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        <section aria-label="看板筛选" className="mt-4 rounded-xl border border-border bg-card px-3 py-3 sm:px-4">
+          <div className="flex flex-wrap items-end gap-x-4 gap-y-3">
+            <div className="grid w-full min-w-0 grid-cols-2 gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,0.8fr)_minmax(0,1.2fr)] xl:w-auto xl:flex-1">
               <label className="grid gap-1.5 text-xs font-medium text-muted-foreground">
                 品牌
-                <Select value={brand} onChange={(event) => setBrand(event.target.value as DashboardBrand)}>
+                <Select className="h-8 min-w-0 py-1 text-xs text-foreground shadow-none" value={brand} onChange={(event) => setBrand(event.target.value as DashboardBrand)}>
                   {DASHBOARD_BRANDS.map((item) => <option key={item.key} value={item.key}>{item.label}</option>)}
                 </Select>
               </label>
               <label className="grid gap-1.5 text-xs font-medium text-muted-foreground">
                 销售年份
-                <Select value={salesYear} onChange={(event) => setSalesYear(event.target.value)}>
+                <Select className="h-8 min-w-0 py-1 text-xs text-foreground shadow-none" value={salesYear} onChange={(event) => setSalesYear(event.target.value)}>
                   {!salesYear && <option value="">自动选择最新</option>}
                   {(data?.available_sales_years ?? []).map((year) => <option key={year} value={year}>{year} 年</option>)}
                 </Select>
               </label>
-              <label className="grid gap-1.5 text-xs font-medium text-muted-foreground">
-                工厂名称
+              <div className="col-span-2 grid min-w-0 gap-1.5 text-xs font-medium text-muted-foreground sm:col-span-1">
+                <label htmlFor={factorySearchId}>工厂名称</label>
                 <div className="relative">
-                  <Search className="pointer-events-none absolute left-3 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+                  <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
                   <Input
+                    id={factorySearchId}
                     value={factoryQuery}
                     onChange={(event) => setFactoryQuery(event.target.value)}
                     placeholder="名称或工厂代码"
-                    className="pl-9"
+                    className="h-8 pr-8 pl-8 text-xs text-foreground shadow-none"
                   />
+                  {factoryQuery && (
+                    <button type="button" aria-label="清除工厂筛选" onClick={() => setFactoryQuery("")} className="absolute top-1/2 right-1 flex size-6 -translate-y-1/2 cursor-pointer items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring">
+                      <X className="size-3.5" aria-hidden="true" />
+                    </button>
+                  )}
                 </div>
-              </label>
+              </div>
             </div>
-            <DateRangeControl start={dateStart} end={dateEnd} onStartChange={setDateStart} onEndChange={setDateEnd} />
-            <div className="flex shrink-0 gap-2">
-              <Button type="button" variant="outline" onClick={resetFilters}>重置</Button>
+            <DateRangeControl size="sm" start={dateStart} end={dateEnd} onStartChange={setDateStart} onEndChange={setDateEnd} />
+            <div className="ml-auto flex shrink-0 gap-2">
+              <Button type="button" variant="outline" onClick={resetFilters} className="text-xs shadow-none">重置</Button>
               <Button type="button" onClick={() => setRefreshToken((value) => value + 1)} disabled={loading}>
-                <RefreshCw className={cn("size-3.5", loading && "animate-spin")} />
+                <RefreshCw className={cn("size-3.5", loading && "motion-safe:animate-spin")} aria-hidden="true" />
                 刷新
               </Button>
             </div>
@@ -426,10 +487,14 @@ export function FactoryChannelDashboardPage() {
         </section>
 
         {!!pendingRefreshSources.length && (
-          <div className="mt-4 flex items-start gap-3 rounded-lg border border-sky-500/30 bg-sky-500/10 px-4 py-3 text-sky-950 dark:text-sky-100">
-            <Clock3 className="mt-0.5 size-4 shrink-0 text-sky-600 dark:text-sky-300" />
-            <div className="min-w-0 text-xs leading-5">
-              <p className="font-semibold">昨日销售数据等待今日自动更新</p>
+          <details className="group mt-3 rounded-lg border border-sky-500/25 bg-sky-500/5 text-sky-950 dark:text-sky-100">
+            <summary className="flex cursor-pointer list-none flex-wrap items-center gap-2 px-3 py-2 text-xs focus-visible:rounded-lg focus-visible:outline-2 focus-visible:outline-ring [&::-webkit-details-marker]:hidden">
+              <Clock3 className="size-3.5 shrink-0 text-sky-600 dark:text-sky-300" aria-hidden="true" />
+              <span className="font-semibold">昨日销售数据等待今日自动更新</span>
+              <span className="text-sky-900/75 dark:text-sky-100/75">正常刷新窗口内，不计为缺失</span>
+              <span className="ml-auto flex items-center gap-1">查看详情<ChevronDown className="size-3.5 transition-transform group-open:rotate-180" aria-hidden="true" /></span>
+            </summary>
+            <div className="border-t border-sky-500/15 px-3 py-2 text-xs leading-5">
               <p className="text-sky-900/80 dark:text-sky-100/75">
                 {compactDateRanges(salesDateCoverage?.pending_refresh_dates ?? [])} 尚在正常刷新窗口内，暂不计为数据缺失。
               </p>
@@ -442,14 +507,18 @@ export function FactoryChannelDashboardPage() {
                 ))}
               </div>
             </div>
-          </div>
+          </details>
         )}
 
         {!!salesDateCoverage?.missing_date_count && (
-          <div className="mt-4 flex items-start gap-3 rounded-lg border border-amber-500/35 bg-amber-500/10 px-4 py-3 text-amber-900 dark:text-amber-100">
-            <TriangleAlert className="mt-0.5 size-4 shrink-0 text-amber-600 dark:text-amber-300" />
-            <div className="min-w-0 text-xs leading-5">
-              <p className="font-semibold">销售数据存在缺失日期</p>
+          <details className="group mt-3 rounded-lg border border-amber-500/30 bg-amber-500/5 text-amber-900 dark:text-amber-100">
+            <summary className="flex cursor-pointer list-none flex-wrap items-center gap-2 px-3 py-2 text-xs focus-visible:rounded-lg focus-visible:outline-2 focus-visible:outline-ring [&::-webkit-details-marker]:hidden">
+              <TriangleAlert className="size-3.5 shrink-0 text-amber-600 dark:text-amber-300" aria-hidden="true" />
+              <span className="font-semibold">销售数据存在缺失日期</span>
+              <span>共 {salesDateCoverage.missing_date_count} 天不完整，结果仅基于已有数据</span>
+              <span className="ml-auto flex items-center gap-1">查看详情<ChevronDown className="size-3.5 transition-transform group-open:rotate-180" aria-hidden="true" /></span>
+            </summary>
+            <div className="border-t border-amber-500/15 px-3 py-2 text-xs leading-5">
               <p className="text-amber-800/90 dark:text-amber-100/80">
                 统计范围 {salesDateCoverage.expected_start} 至 {salesDateCoverage.expected_end}，共 {salesDateCoverage.missing_date_count} 个日期的数据不完整，当前销量及渠道占比仅基于已有数据。
               </p>
@@ -462,40 +531,66 @@ export function FactoryChannelDashboardPage() {
                 ))}
               </div>
             </div>
-          </div>
+          </details>
         )}
 
         {error && (
-          <div className="mt-5 flex items-start gap-3 rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive">
-            <TriangleAlert className="mt-0.5 size-4 shrink-0" />
+          <div role="alert" className="mt-3 flex items-start gap-3 rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive">
+            <TriangleAlert className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
             <span>{error}</span>
           </div>
         )}
 
         {loading && !data ? (
-          <div className="mt-5 grid gap-4 md:grid-cols-3 xl:grid-cols-5">
-            {Array.from({ length: 5 }, (_, index) => <div key={index} className="h-32 animate-pulse rounded-lg border border-border bg-muted/45" />)}
-          </div>
+          <section aria-label="正在加载看板" aria-busy="true" className="mt-4 space-y-4">
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-5">
+              {Array.from({ length: 5 }, (_, index) => <div key={index} className="h-28 rounded-xl border border-border bg-muted/45 motion-safe:animate-pulse" />)}
+            </div>
+            <div className="grid gap-4 @min-[1140px]:grid-cols-2">
+              {[0, 1].map((index) => <div key={index} className="h-72 rounded-xl border border-border bg-muted/30 motion-safe:animate-pulse" />)}
+            </div>
+          </section>
         ) : data && summary ? (
-          <>
-            <section className="mt-5 grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
-              <MetricCard label="工厂数" value={number(filteredSummary.factory_count)} hint={`${selectedBrand?.label ?? ""}符合筛选的工厂`} icon={Factory} tone="slate" />
-              <MetricCard label="季款数" value={number(filteredSummary.style_count)} hint="按去除末尾颜色的款号去重" icon={Layers3} tone="blue" />
+          <div aria-busy={loading} className={cn("mt-4 space-y-4 transition-opacity motion-reduce:transition-none", loading && "opacity-60")}>
+            <section aria-label="销量概览" className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-5">
               <MetricCard
                 label="销量汇总"
                 value={number(filteredSummary.total_sales)}
                 hint={`销售 ${data.sales_year} 年 · 净销量 ${number(filteredSummary.total_net_sales)}`}
                 icon={ShoppingBag}
-                tone="slate"
+                tone="blue"
+                prominent
               />
+              <MetricCard label="工厂数" value={number(filteredSummary.factory_count)} hint={`${selectedBrand?.label ?? ""}符合筛选的工厂`} icon={Factory} tone="slate" />
+              <MetricCard label="季款数" value={number(filteredSummary.style_count)} hint="按去除末尾颜色的款号去重" icon={Layers3} tone="blue" />
               <MetricCard label="传统赛道" value={ratio(summaryTotal ? filteredSummary.traditional_sales / summaryTotal * 100 : 0)} hint={`销量 ${number(filteredSummary.traditional_sales)}`} icon={BarChart3} tone="blue" />
               <MetricCard label="直播 / 清仓" value={`${ratio(summaryTotal ? filteredSummary.live_sales / summaryTotal * 100 : 0)} / ${ratio(summaryTotal ? filteredSummary.clearance_sales / summaryTotal * 100 : 0)}`} hint={`直播 ${number(filteredSummary.live_sales)} · 清仓 ${number(filteredSummary.clearance_sales)}`} icon={Sparkles} tone="violet" />
             </section>
 
-            <div className="mt-5 grid gap-5 2xl:grid-cols-2">
-              {filteredSeasons.map((season) => <SeasonTable key={season.key} title={season.label} items={season.items} />)}
+            <div>
+              <div className="mb-2.5 flex flex-wrap items-center justify-between gap-2 px-0.5">
+                <div className="flex items-center gap-2">
+                  <h2 className="text-sm font-semibold text-foreground">分季工厂明细</h2>
+                  {normalizedFactoryQuery && <span className="flex items-center gap-1 text-xs text-muted-foreground"><SlidersHorizontal className="size-3" aria-hidden="true" />已按工厂筛选</span>}
+                </div>
+                <div aria-label="渠道颜色图例" className="flex items-center gap-3 text-[11px] text-muted-foreground">
+                  <span className="flex items-center gap-1.5"><span className="size-1.5 rounded-full bg-blue-600" />传统</span>
+                  <span className="flex items-center gap-1.5"><span className="size-1.5 rounded-full bg-violet-500" />直播</span>
+                  <span className="flex items-center gap-1.5"><span className="size-1.5 rounded-full bg-orange-500" />清仓</span>
+                </div>
+              </div>
+              <div className="grid items-start gap-4 @min-[1140px]:grid-cols-2">
+                {filteredSeasons.map((season) => <SeasonTable key={season.key} seasonKey={season.key} title={season.label} items={season.items} />)}
+              </div>
+              {!filteredSeasons.length && (
+                <div className="rounded-xl border border-dashed border-border bg-card px-4 py-12 text-center">
+                  <Factory className="mx-auto mb-3 size-7 text-muted-foreground/50" aria-hidden="true" />
+                  <p className="text-sm font-medium">暂无工厂渠道数据</p>
+                  <p className="mt-1 text-xs text-muted-foreground">请调整品牌、销售年份或日期范围</p>
+                </div>
+              )}
             </div>
-          </>
+          </div>
         ) : null}
       </div>
     </main>

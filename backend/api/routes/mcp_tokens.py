@@ -6,6 +6,7 @@ from pydantic import BaseModel, ConfigDict, Field, StrictInt, field_validator
 from sqlalchemy import insert, text
 from sqlalchemy.exc import SQLAlchemyError
 
+from api.operation_log_utils import MCP_PROFILE_LABELS
 from api.routes.auth import require_permission
 from domain.operation_log_schema import OPERATION_LOG_TABLE
 from storage.mcp_token_repository import issue_credential, list_audit_records, list_candidates, list_credentials, revoke_credential
@@ -70,7 +71,8 @@ def token_connection(request):
 
 
 def audit_change(connection, actor, action, item):
-    summary = f"{'签发' if action == 'mcp_token_issue' else '撤销'}MCP凭证 #{item['id']}，用户ID {item['user_id']}，范围 {item['profile']}"
+    profile_label = MCP_PROFILE_LABELS.get(item["profile"], item["profile"])
+    summary = f"{'签发' if action == 'mcp_token_issue' else '撤销'}MCP凭证 #{item['id']}，用户ID {item['user_id']}，范围 {profile_label}"
     if action == "mcp_token_issue":
         summary += "，永久有效" if item["expires_at"] is None else f"，到期时间 {item['expires_at']}"
     connection.execute(insert(OPERATION_LOG_TABLE).values(

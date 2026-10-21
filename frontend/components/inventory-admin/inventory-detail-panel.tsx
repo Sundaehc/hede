@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { AccountSubjectSelect } from "@/components/inventory-admin/account-subject-select"
+import { SizeGroupSelect } from "@/components/inventory-admin/size-group-select"
 import {
   Dialog,
   DialogContent,
@@ -1796,17 +1797,12 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="detail-size-range">尺码段</Label>
-              <select
+              <SizeGroupSelect
                 id="detail-size-range"
                 value={purchaseSizeRange}
-                onChange={(event) => handleSizeGroupChange(event.target.value)}
-                className="flex h-9 w-full cursor-pointer rounded-lg border border-input bg-card px-3 py-2 text-sm shadow-xs outline-none transition-colors focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/35"
-              >
-                <option value="">未选择尺码段</option>
-                {sizeGroups.map((sizeGroup) => (
-                  <option key={sizeGroup.id} value={sizeGroup.name}>{sizeGroup.name}</option>
-                ))}
-              </select>
+                groups={sizeGroups}
+                onValueChange={handleSizeGroupChange}
+              />
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">

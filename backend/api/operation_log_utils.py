@@ -138,6 +138,16 @@ USER_FIELD_LABELS = {
     "password": "密码",
 }
 
+MCP_PROFILE_LABELS = {
+    "products": "商品档案（历史凭证）",
+    "design": "商品档案 + 美工文案",
+    "finance": "财务部数据",
+    "merchandise": "商品部数据",
+    "operation": "运营部数据",
+    "development": "开发部数据",
+    "customer_service": "客服部数据",
+}
+
 IGNORED_FIELDS = {
     "created_at",
     "updated_at",
@@ -150,6 +160,25 @@ IGNORED_FIELDS = {
 }
 
 PURCHASE_ORDER_DOCUMENT_TYPE = "进货订单"
+
+
+def localize_mcp_token_log_item(item: Mapping[str, object]) -> dict[str, object]:
+    result = dict(item)
+    if (
+        item.get("module") != "user"
+        or item.get("entity_type") != "mcp_token"
+        or item.get("action") not in {"mcp_token_issue", "mcp_token_revoke"}
+    ):
+        return result
+    summary = item.get("summary")
+    if not isinstance(summary, str):
+        return result
+    prefix, separator, scope_and_suffix = summary.partition("，范围 ")
+    profile, suffix_separator, suffix = scope_and_suffix.partition("，")
+    label = MCP_PROFILE_LABELS.get(profile)
+    if separator and label:
+        result["summary"] = f"{prefix}{separator}{label}{suffix_separator}{suffix}"
+    return result
 
 
 def actor_from_request(request: Request) -> Mapping[str, object] | None:

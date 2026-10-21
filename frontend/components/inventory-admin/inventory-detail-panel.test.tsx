@@ -22,6 +22,12 @@ vi.mock("@/lib/api", async () => ({
   listInventoryAccountSubjects: vi.fn().mockResolvedValue({
     items: [{ id: 16, name: "大底收入", category: "收入类" }],
   }),
+  listSizeGroupOptions: vi.fn().mockResolvedValue({
+    items: [
+      { id: 1, name: "女鞋尺码组220-250", product_count: 0, items: ["220", "225", "230", "235", "240", "245", "250"].map((size, index) => ({ id: index, size_name: size, barcode: size, sort_order: index })) },
+      { id: 2, name: "男鞋尺码组240-270", product_count: 0, items: ["240", "245", "250", "255", "260", "265", "270"].map((size, index) => ({ id: index + 10, size_name: size, barcode: size, sort_order: index })) },
+    ],
+  }),
 }))
 
 vi.mock("next/navigation", () => ({
@@ -154,4 +160,46 @@ test("shows a failed save inside the still-open edit dialog", async () => {
 
   expect(await within(dialog).findByRole("alert")).toHaveTextContent("保存失败：没有编辑权限")
   expect(dialog).toBeInTheDocument()
+})
+
+test("preserves size quantities when reselecting a group and updates size columns only after changing selection", async () => {
+  const user = userEvent.setup()
+  mockUpdateDetail.mockResolvedValueOnce({ item: detail, message: "明细更新成功" })
+  mockListDetails.mockResolvedValue({ items: [{
+    ...detail,
+    product_code: "TEST-001",
+    product_name: "测试商品",
+    quantity: "1",
+    unit_price: "149",
+    amount: 149,
+    size_quantities: { "235": "1" },
+    extra_fields: { size_range: "女鞋尺码组220-250", size_labels: "220|225|230|235|240|245|250" },
+  }], total: 1, page: 1, page_size: 100 })
+  render(<InventoryDetailPanel record={{ ...record, document_type: "进货单" }} suppliers={[]} onClose={vi.fn()} onTotalChanged={vi.fn()} />)
+  await screen.findByText("测试商品")
+  await user.click(screen.getByRole("button", { name: "编辑明细" }))
+  const dialog = screen.getByRole("dialog", { name: "编辑明细" })
+  await user.click(within(dialog).getByLabelText("尺码段"))
+  await user.click(await within(dialog).findByRole("option", { name: "女鞋尺码组220-250 7 码" }))
+  expect(within(dialog).getByLabelText("数量")).toHaveValue(1)
+  expect(within(dialog).getByLabelText("金额")).toHaveValue(149)
+  expect(within(dialog).getByLabelText("235")).toHaveValue("1")
+  await user.click(within(dialog).getByLabelText("尺码段"))
+  await user.type(within(dialog).getByRole("combobox", { name: "搜索尺码段" }), "男鞋")
+  await user.click(within(dialog).getByRole("option", { name: "男鞋尺码组240-270 7 码" }))
+  expect(within(dialog).queryByLabelText("235")).not.toBeInTheDocument()
+  expect(within(dialog).getByLabelText("270")).toHaveValue("")
+  expect(within(dialog).getByLabelText("数量")).toHaveValue(null)
+  expect(within(dialog).getByLabelText("单价")).toHaveValue(149)
+  await user.type(within(dialog).getByLabelText("270"), "2")
+  expect(within(dialog).getByLabelText("数量")).toHaveValue(2)
+  expect(within(dialog).getByLabelText("金额")).toHaveValue(298)
+  await user.click(within(dialog).getByRole("button", { name: "保存" }))
+  await waitFor(() => expect(mockUpdateDetail).toHaveBeenCalledWith(6787, 130839, expect.objectContaining({
+    quantity: "2",
+    unit_price: "149",
+    amount: "298.00",
+    size_quantities: { "270": "2" },
+    extra_fields: expect.objectContaining({ size_range: "男鞋尺码组240-270", size_labels: "240|245|250|255|260|265|270" }),
+  })))
 })

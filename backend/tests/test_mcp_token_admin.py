@@ -79,6 +79,34 @@ def test_issue_saves_only_hash_and_atomic_audit(token_client):
     assert listed.json()["items"][0]["state"] == "active"
 
 
+@pytest.mark.parametrize("profile,label", [
+    ("design", "商品档案 + 美工文案"),
+    ("finance", "财务部数据"),
+    ("merchandise", "商品部数据"),
+    ("operation", "运营部数据"),
+    ("development", "开发部数据"),
+    ("customer_service", "客服部数据"),
+])
+@pytest.mark.parametrize("days", [None, 30])
+def test_issue_and_revoke_log_chinese_scopes_without_changing_profile(token_client, profile, label, days):
+    response = issue(token_client, user_id=1, profile=profile, days=days)
+    assert response.status_code == 201
+    item = response.json()["item"]
+    assert item["profile"] == profile
+    revoked = token_client.client.post(BASE + f"/{item['id']}/revoke", headers=HEADERS, json={})
+    assert revoked.status_code == 200
+    assert revoked.json()["item"]["profile"] == profile
+    with token_client.engine.connect() as connection:
+        saved_profile = connection.scalar(text("SELECT profile FROM mcp_private.tokens WHERE id=:id"), {"id": item["id"]})
+        summaries = connection.execute(text("SELECT summary FROM operation_logs ORDER BY id")).scalars().all()
+    assert saved_profile == profile
+    prefix = f"MCP凭证 #{item['id']}，用户ID 1，范围 {label}"
+    assert summaries[0].startswith(f"签发{prefix}，")
+    assert ("，永久有效" in summaries[0]) is (days is None)
+    assert ("，到期时间 " in summaries[0]) is (days is not None)
+    assert summaries[1] == f"撤销{prefix}"
+
+
 @pytest.mark.parametrize("role,permissions,status,expected", [
     ("staff", ["product.view"], "active", 403),
     ("staff", ["system.admin"], "active", 403),

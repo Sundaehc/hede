@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException, Query, Request
 
+from api.operation_log_utils import localize_mcp_token_log_item
 from api.routes.auth import get_current_user_from_request, require_permission, user_has_permission
 from api.product_cost_access import redact_product_cost_log_item, user_can_view_product_cost
 
@@ -74,4 +75,6 @@ def list_operation_logs(
     )
     if module == "product" and not user_can_view_product_cost(user):
         result["items"] = [redact_product_cost_log_item(item) for item in result["items"]]
+    elif module == "user":
+        result["items"] = [localize_mcp_token_log_item(item) for item in result["items"]]
     return result
