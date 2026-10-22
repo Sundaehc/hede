@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi.responses import JSONResponse
 
 from api.routes.images import image_storage_path_for, image_url_for
 from api.operation_log_utils import (
@@ -13,7 +14,7 @@ from api.operation_log_utils import (
 from api.fine_table_cache import clear_fine_table_cache
 from api.product_cost_access import redact_product_cost_item, request_can_view_product_cost
 from api.product_goods_cache import clear_product_goods_cache
-from api.schemas import BatchDeleteRequest, ProductArchiveBrandKey, ProductWriteRequest
+from api.schemas import BatchDeleteRequest, ProductArchiveBrandKey, ProductSelectionFilters, ProductWriteRequest
 
 from sqlalchemy import distinct as sa_distinct, select as sa_select
 
@@ -136,6 +137,15 @@ def list_products(
             for item in payload["items"]
         ],
     }
+
+
+@router.post("/products/selection-ids")
+def list_product_selection_ids(request: Request, body: ProductSelectionFilters):
+    repository = request.app.state.repository
+    if body.brand != "all" and not repository.is_product_archive_brand(body.brand):
+        raise HTTPException(status_code=400, detail=f"Invalid brand: {body.brand}")
+    items = repository.list_product_targets(**body.model_dump())
+    return JSONResponse({"items": items, "total": len(items)}, headers={"Cache-Control": "no-store"})
 
 
 @router.get("/products/{brand}/years")

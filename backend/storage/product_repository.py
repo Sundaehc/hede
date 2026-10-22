@@ -27,6 +27,7 @@ def _json_serializer(value: object) -> bytes:
 # historical price table during full product exports.
 PRICE_LOOKUP_CHUNK_SIZE = 20000
 IMPORT_MARK_CHUNK_SIZE = 2000
+PRODUCT_DELETE_CHUNK_SIZE = 1000
 PRODUCT_RECYCLE_BIN_RETENTION_DAYS = 10
 PRODUCT_STYLE_DETAIL_COLUMNS = (
     "rear_heel_height",
@@ -75,6 +76,22 @@ def _sku_search_condition(table, value: str | None, *, prefix: bool = False):
             table.c.sku.ilike(wildcard.format(term)),
         )
     ))
+
+
+def _product_list_conditions(table, query=None, sku_prefix=None, year=None):
+    conditions = [
+        table.c.deleted_at.is_(None),
+        not_excluded_sku_condition(table.c.sku, table.c.original_sku),
+    ]
+    query_condition = _sku_search_condition(table, query)
+    if query_condition is not None:
+        conditions.append(query_condition)
+    prefix_condition = _sku_search_condition(table, sku_prefix, prefix=True)
+    if prefix_condition is not None:
+        conditions.append(prefix_condition)
+    if year:
+        conditions.append(or_(table.c.year.startswith(year), table.c.year.startswith(year[-2:])))
+    return conditions
 
 
 def _color_name_variants(value: object) -> set[str]:
@@ -759,22 +776,7 @@ class ProductRepository:
         count_statement = select(func.count()).select_from(table)
         items_statement = select(table)
 
-        conditions = [
-            table.c.deleted_at.is_(None),
-            not_excluded_sku_condition(table.c.sku, table.c.original_sku),
-        ]
-        query_condition = _sku_search_condition(table, query)
-        if query_condition is not None:
-            conditions.append(query_condition)
-        prefix_condition = _sku_search_condition(table, sku_prefix, prefix=True)
-        if prefix_condition is not None:
-            conditions.append(prefix_condition)
-        if year:
-            # year values like "21年春季款" or "2025" — match by prefix
-            prefix2 = year[-2:]
-            conditions.append(
-                or_(table.c.year.startswith(year), table.c.year.startswith(prefix2))
-            )
+        conditions = _product_list_conditions(table, query, sku_prefix, year)
         if conditions:
             criterion = conditions[0] if len(conditions) == 1 else and_(*conditions)
             count_statement = count_statement.where(criterion)
@@ -810,14 +812,7 @@ class ProductRepository:
                 literal(brand_key).label("brand"),
                 *([c for c in table.columns if c.key not in ("id",)]),
             )
-            sq = sq.where(table.c.deleted_at.is_(None))
-            sq = sq.where(not_excluded_sku_condition(table.c.sku, table.c.original_sku))
-            query_condition = _sku_search_condition(table, query)
-            if query_condition is not None:
-                sq = sq.where(query_condition)
-            prefix_condition = _sku_search_condition(table, sku_prefix, prefix=True)
-            if prefix_condition is not None:
-                sq = sq.where(prefix_condition)
+            sq = sq.where(*_product_list_conditions(table, query, sku_prefix))
             subqueries.append(sq)
 
         combined = union_all(*subqueries).subquery()
@@ -835,6 +830,28 @@ class ProductRepository:
             "page": page,
             "page_size": page_size,
         }
+
+    def list_product_targets(
+        self,
+        *,
+        brand: str,
+        query: str | None = None,
+        sku_prefix: str | None = None,
+        year: str | None = None,
+    ) -> list[dict[str, object]]:
+        brands = self.product_archive_brands() if brand == "all" else [brand]
+        statements = []
+        for brand_key in brands:
+            table = self._table_for_brand(brand_key)
+            statements.append(
+                select(literal(brand_key).label("brand"), table.c.id)
+                .where(*_product_list_conditions(table, query, sku_prefix, year if brand != "all" else None))
+            )
+        if not statements:
+            return []
+        statement = union_all(*statements) if len(statements) > 1 else statements[0]
+        with self.engine.connect() as connection:
+            return [dict(row) for row in connection.execute(statement).mappings()]
 
     def get_product(self, brand: str, product_id: int) -> dict[str, object] | None:
         table = self._table_for_brand(brand)
@@ -855,15 +872,18 @@ class ProductRepository:
         if not ids:
             return []
         table = self._table_for_brand(brand)
-        statement = (
-            select(table)
-            .where(table.c.id.in_(ids))
-            .where(table.c.deleted_at.is_(None))
-            .where(not_excluded_sku_condition(table.c.sku, table.c.original_sku))
-            .order_by(desc(table.c.id))
-        )
+        ordered_ids = sorted(set(ids), reverse=True)
+        items = []
         with self.engine.connect() as connection:
-            items = [dict(row) for row in connection.execute(statement).mappings()]
+            for offset in range(0, len(ordered_ids), PRODUCT_DELETE_CHUNK_SIZE):
+                statement = (
+                    select(table)
+                    .where(table.c.id.in_(ordered_ids[offset:offset + PRODUCT_DELETE_CHUNK_SIZE]))
+                    .where(table.c.deleted_at.is_(None))
+                    .where(not_excluded_sku_condition(table.c.sku, table.c.original_sku))
+                    .order_by(desc(table.c.id))
+                )
+                items.extend(dict(row) for row in connection.execute(statement).mappings())
         return items
 
     def mark_products_imported(self, brand: str, product_ids: list[int], *, connection=None) -> None:
@@ -1051,17 +1071,23 @@ class ProductRepository:
         if not ids:
             return 0
         table = self._table_for_brand(brand)
-        statement = (
-            update(table)
-            .where(table.c.id.in_(ids), table.c.deleted_at.is_(None))
-            .values(deleted_at=func.now())
-        )
+        ordered_ids = sorted(set(ids))
+
+        def delete_selected(active_connection):
+            deleted = 0
+            for offset in range(0, len(ordered_ids), PRODUCT_DELETE_CHUNK_SIZE):
+                statement = (
+                    update(table)
+                    .where(table.c.id.in_(ordered_ids[offset:offset + PRODUCT_DELETE_CHUNK_SIZE]), table.c.deleted_at.is_(None))
+                    .values(deleted_at=func.now())
+                )
+                deleted += active_connection.execute(statement).rowcount
+            return deleted
+
         if connection is not None:
-            result = connection.execute(statement)
-            return result.rowcount
-        with self.engine.begin() as connection:
-            result = connection.execute(statement)
-        return result.rowcount
+            return delete_selected(connection)
+        with self.engine.begin() as active_connection:
+            return delete_selected(active_connection)
 
     def list_recycled_products(
         self,

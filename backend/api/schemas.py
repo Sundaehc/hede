@@ -92,6 +92,15 @@ class ImageLookupRequest(BaseModel):
         raise ValueError("Either original_sku or sku must be provided")
 
 
+class ProductSelectionFilters(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    brand: ProductArchiveBrandKey
+    query: str | None = None
+    sku_prefix: str | None = None
+    year: str | None = None
+
+
 class BatchDeleteItem(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

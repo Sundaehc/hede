@@ -27,6 +27,10 @@ type ProductTableProps = {
   selectable?: boolean
   showCost?: boolean
   selectedKeys: Set<string>
+  selectionDisabled?: boolean
+  isSelectingAll?: boolean
+  isAllMatchingSelected?: boolean
+  onSelectAllMatching?: () => void
   onToggleSelect: (item: ProductListItem) => void
   onToggleSelectAll: () => void
   onBatchDelete?: () => void
@@ -138,11 +142,12 @@ async function copyProductCode(value: string) {
   textarea.remove()
 }
 
-function ProductCard({ item, selectable, showCost = true, selectedKeys, onToggleSelect, onView, onCopywriting, onEdit, onDelete, onPreviewImage }: {
+function ProductCard({ item, selectable, showCost = true, selectedKeys, selectionDisabled, onToggleSelect, onView, onCopywriting, onEdit, onDelete, onPreviewImage }: {
   item: ProductListItem
   selectable?: boolean
   showCost?: boolean
   selectedKeys: Set<string>
+  selectionDisabled?: boolean
   onToggleSelect: (item: ProductListItem) => void
   onView?: (item: ProductListItem) => void
   onCopywriting?: (item: ProductListItem) => void
@@ -195,6 +200,7 @@ function ProductCard({ item, selectable, showCost = true, selectedKeys, onToggle
         <input
           type="checkbox"
           checked={checked}
+          disabled={selectionDisabled}
           onClick={(event) => event.stopPropagation()}
           onChange={() => onToggleSelect(item)}
           aria-label={`选择商品 ${item.sku || item.original_sku || item.id}`}
@@ -343,6 +349,10 @@ export function ProductTable({
   selectable,
   showCost = true,
   selectedKeys,
+  selectionDisabled = false,
+  isSelectingAll = false,
+  isAllMatchingSelected = false,
+  onSelectAllMatching,
   onToggleSelect,
   onToggleSelectAll,
   onBatchDelete,
@@ -384,7 +394,7 @@ export function ProductTable({
   return (
     <div className="space-y-4">
       <div className="flex flex-col gap-2 text-sm text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3">
           {selectable ? (
             <input
               type="checkbox"
@@ -393,6 +403,7 @@ export function ProductTable({
                 if (el) el.indeterminate = !allSelected && someSelected
               }}
               onChange={onToggleSelectAll}
+              disabled={selectionDisabled || items.length === 0}
               aria-label="选择当前页全部商品"
               className="h-4 w-4 cursor-pointer rounded border border-input accent-primary"
             />
@@ -400,8 +411,13 @@ export function ProductTable({
           <p>
             共 {total} 条，当前显示 {start}-{end}
             {isLoading && items.length > 0 ? <span className="ml-2">加载中...</span> : null}
-            {selectedKeys.size > 0 ? <span className="ml-2 text-foreground">已选 {selectedKeys.size} 项</span> : null}
+            {selectedKeys.size > 0 ? <span className="ml-2 text-foreground">已选 {selectedKeys.size} 项{isAllMatchingSelected ? "（全部筛选结果）" : "（跨页保留）"}</span> : null}
           </p>
+          {selectable && onSelectAllMatching ? (
+            <Button type="button" variant="outline" size="sm" onClick={onSelectAllMatching} disabled={selectionDisabled || total === 0 || isAllMatchingSelected} className="h-7 px-2 text-xs">
+              {isSelectingAll ? "正在全选..." : "全选筛选结果"}
+            </Button>
+          ) : null}
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <span>每页</span>
@@ -422,16 +438,16 @@ export function ProductTable({
         <div className="sticky top-[calc(var(--page-tabs-height,0px)+0.5rem)] z-20 flex flex-col gap-3 rounded-lg border border-border bg-background/95 p-3 shadow-sm backdrop-blur sm:flex-row sm:items-center sm:justify-between">
           <div>
             <p className="text-sm font-medium text-foreground">已选 {selectedKeys.size} 个商品</p>
-            <p className="text-xs text-muted-foreground">可导出选中商品，或执行批量删除。</p>
+            <p className="text-xs text-muted-foreground">翻页及调整每页条数保留选择；切换品牌、年份或重新搜索会清空选择。</p>
           </div>
           <div className="flex flex-wrap gap-2">
             {onClearSelection ? (
-              <Button type="button" variant="outline" size="sm" onClick={onClearSelection} className="cursor-pointer">
+              <Button type="button" variant="outline" size="sm" onClick={onClearSelection} disabled={selectionDisabled && !isSelectingAll} className="cursor-pointer">
                 清空选择
               </Button>
             ) : null}
             {onBatchDelete ? (
-              <Button type="button" variant="destructive" size="sm" className="cursor-pointer" onClick={onBatchDelete}>
+              <Button type="button" variant="destructive" size="sm" className="cursor-pointer" onClick={onBatchDelete} disabled={selectionDisabled}>
                 <Trash2 className="h-3.5 w-3.5" />
                 批量删除
               </Button>
@@ -453,6 +469,7 @@ export function ProductTable({
               selectable={selectable}
               showCost={showCost}
               selectedKeys={selectedKeys}
+              selectionDisabled={selectionDisabled}
               onToggleSelect={onToggleSelect}
               onView={onView}
               onCopywriting={onCopywriting}

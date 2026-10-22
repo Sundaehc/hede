@@ -258,11 +258,22 @@ export function deleteSizeGroup(id: number) {
   })
 }
 
-export function listProducts(params: {
+export type ProductSelectionFilters = {
   brand: ProductArchiveBrandKey
   query?: string
   skuPrefix?: string
   year?: string
+}
+
+export function listProductSelectionIds({ skuPrefix, ...filters }: ProductSelectionFilters) {
+  return request<{ items: ProductDeleteTarget[]; total: number }>("/products/selection-ids", {
+    method: "POST",
+    cache: "no-store",
+    body: JSON.stringify({ ...filters, sku_prefix: skuPrefix }),
+  })
+}
+
+export function listProducts(params: ProductSelectionFilters & {
   page: number
   pageSize: number
 }) {
