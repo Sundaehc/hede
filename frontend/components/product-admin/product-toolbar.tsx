@@ -3,7 +3,7 @@
 import { useSessionQueryState } from "@/lib/session-query-state"
 
 import { useEffect, useId, useRef, useState } from "react"
-import { BadgeDollarSign, ChevronDown, ChevronUp, FileDown, FileSpreadsheet, History, ImagePlus, Plus, Ruler, Search, Trash2, Upload } from "lucide-react"
+import { BadgeDollarSign, ChevronDown, FileDown, FileSpreadsheet, History, ImagePlus, Plus, Ruler, Search, Trash2, Upload } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { DateRangeControl } from "@/components/ui/date-range-control"
@@ -256,21 +256,41 @@ export function ProductToolbar({
     : lastImageRun
       ? `最近刷新：更新 ${lastImageRun.updated ?? 0} 条`
       : "图片刷新将由后台任务执行"
-  const collapsedSearchSummary = [
-    query.trim() ? `包含：${query.trim().replace(/\s+/g, " ")}` : "",
-    skuPrefix.trim() ? `前缀：${skuPrefix.trim()}` : "",
-  ].filter(Boolean).join("；")
+  const activeSearchFilters = [
+    { label: "包含", value: query.trim().replace(/\s+/g, " ") },
+    { label: "前缀", value: skuPrefix.trim() },
+  ].filter((filter) => filter.value)
+  const collapsedSearchSummary = activeSearchFilters.map((filter) => `${filter.label}：${filter.value}`).join("；")
 
   return (
     <div className={`surface-panel flex min-w-0 flex-col px-3 py-2 ${isExpanded ? "gap-2" : ""}`}>
       <div className="flex min-w-0 items-center justify-between gap-3">
-        <div className="flex min-w-0 items-center gap-3">
-          <span className="shrink-0 text-xs font-medium text-muted-foreground">搜索与导出</span>
+        <div className="flex min-w-0 flex-1 items-center gap-2">
+          <span aria-hidden="true" className="hidden size-6 shrink-0 items-center justify-center rounded-md bg-muted/70 text-muted-foreground sm:flex">
+            <Search className="size-3.5" />
+          </span>
+          <span className="shrink-0 text-xs font-medium text-foreground">搜索与导出</span>
           {isExpanded && canRefreshImages ? (
-            <span role="status" className="truncate text-[11px] text-muted-foreground" title={imageStatusText}>{imageStatusText}</span>
+            <span role="status" className="truncate border-l border-border pl-2 text-[11px] text-muted-foreground" title={imageStatusText}>{imageStatusText}</span>
           ) : null}
-          {!isExpanded && collapsedSearchSummary ? (
-            <span className="truncate text-xs text-muted-foreground" title={collapsedSearchSummary}>{collapsedSearchSummary}</span>
+          {!isExpanded ? (
+            activeSearchFilters.length > 0 ? (
+              <>
+                <span className="shrink-0 rounded-md bg-muted px-1.5 py-0.5 text-[10px] font-medium tabular-nums text-muted-foreground">
+                  {activeSearchFilters.length} 项条件
+                </span>
+                <div role="group" aria-label="当前搜索条件" title={collapsedSearchSummary} className="hidden min-w-0 items-center gap-1.5 sm:flex">
+                  {activeSearchFilters.map((filter) => (
+                    <span key={filter.label} title={`${filter.label}：${filter.value}`} className="inline-flex min-w-0 max-w-64 items-center gap-1 rounded-md border border-border/70 bg-muted/30 px-1.5 py-0.5 text-[11px]">
+                      <span className="shrink-0 text-muted-foreground">{filter.label}</span>
+                      <span className="truncate font-medium text-foreground">{filter.value}</span>
+                    </span>
+                  ))}
+                </div>
+              </>
+            ) : (
+              <span className="hidden truncate text-[11px] text-muted-foreground sm:inline">未设置搜索条件</span>
+            )
           ) : null}
         </div>
         <Button
@@ -280,10 +300,12 @@ export function ProductToolbar({
           aria-expanded={isExpanded}
           aria-controls={toolbarContentId}
           onClick={() => setIsExpanded((expanded) => !expanded)}
-          className="h-6 shrink-0 cursor-pointer gap-1 px-1.5 text-xs text-muted-foreground"
+          title={isExpanded ? "收起搜索与导出工具，保留当前搜索条件" : "展开搜索与导出工具"}
+          className="h-7 shrink-0 cursor-pointer gap-2 rounded-md border-border/80 bg-background px-2.5 text-xs text-muted-foreground shadow-none hover:border-foreground/25 hover:bg-muted/70 hover:text-foreground aria-expanded:bg-background aria-expanded:text-muted-foreground"
         >
-          {isExpanded ? <ChevronUp aria-hidden="true" /> : <ChevronDown aria-hidden="true" />}
           {isExpanded ? "收起搜索区" : "展开搜索区"}
+          <span aria-hidden="true" className="h-3 w-px bg-border" />
+          <ChevronDown aria-hidden="true" className={`size-3.5 transition-transform duration-200 motion-reduce:transition-none ${isExpanded ? "rotate-180" : "rotate-0"}`} />
         </Button>
       </div>
       <div id={toolbarContentId} hidden={!isExpanded} className={isExpanded ? "flex min-w-0 flex-col gap-2" : "hidden"}>
