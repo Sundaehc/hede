@@ -59,6 +59,7 @@ const TASK_LABELS: Record<string, string> = {
   HedeImportProductGoodsOrdersDaily: "货品表订单数据导入",
   HedeDatabaseMaintenance: "数据库日常维护",
   HedeDataGovernanceAudit: "数据库治理检查",
+  HedeCheckInventoryProductLinksDaily: "商品档案关联检查",
 }
 
 const RUN_STATUS_OPTIONS = [

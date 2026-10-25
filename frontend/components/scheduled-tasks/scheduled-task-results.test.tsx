@@ -123,3 +123,15 @@ test("uses bounded disclosures for business-date failures too", async () => {
   expect(disclosure).toHaveAttribute("open")
   expect(disclosure.querySelector("pre")!.textContent).toBe(longError)
 })
+
+test("shows product link checks with a Chinese task name", async () => {
+  mocks.listRuns.mockResolvedValue({
+    items: [{ ...run, task_name: "HedeCheckInventoryProductLinksDaily", error_summary: "发现关联档案已失效，请人工确认" }],
+    total: 1,
+    page: 1,
+    page_size: 50,
+    summary: { total: 1, success: 0, failed: 1, running: 0, task_count: 1, latest_started_at: run.started_at },
+  })
+  render(<ScheduledTaskPage />)
+  expect(await screen.findByText("商品档案关联检查")).toBeVisible()
+})

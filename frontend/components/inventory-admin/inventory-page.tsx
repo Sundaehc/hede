@@ -3,7 +3,7 @@
 import { useSessionQueryState } from "@/lib/session-query-state"
 
 import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent } from "react"
-import { FileSpreadsheet, ClipboardCheck, LoaderCircle, ArrowDown, ArrowUp, ArrowUpDown, Check, Copy, Plus, Download, Upload, Trash2, Edit, Search, X, RefreshCw, List, BadgeDollarSign, FileText, History, ChevronLeft, ChevronRight, GripVertical, RotateCcw } from "lucide-react"
+import { FileSpreadsheet, ClipboardCheck, LoaderCircle, Check, Copy, Plus, Download, Upload, Trash2, Edit, Search, X, RefreshCw, List, BadgeDollarSign, FileText, History, ChevronLeft, ChevronRight, GripVertical, RotateCcw } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { DatePicker } from "@/components/ui/date-picker"
@@ -35,6 +35,7 @@ import { AccountSubjectSelect } from "@/components/inventory-admin/account-subje
 import { InventoryImportUpload } from "@/components/inventory-admin/inventory-import-upload"
 import { InventoryImportTaskStatus, type InventoryImportTaskNotice } from "@/components/inventory-admin/inventory-import-task-status"
 import { InventoryProductCodeFilter } from "@/components/inventory-admin/product-code-filter"
+import { SortableColumnLabel } from "@/components/inventory-admin/sortable-column-label"
 import { OperationLogDialog } from "@/components/operation-log-dialog"
 import { useAuth } from "@/components/auth/auth-provider"
 import { SearchableFilterInput, SearchableMultiFilterInput, type SearchableFilterOption } from "@/components/inventory-admin/searchable-filter-input"
@@ -382,36 +383,6 @@ function formatLastModifiedAt(value: string | null) {
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return value
   return date.toLocaleString("zh-CN", { hour12: false })
-}
-
-function SortableColumnLabel({
-  label,
-  sortRule,
-  onClick,
-}: {
-  label: string
-  sortRule?: InventorySortRule & { index: number }
-  onClick: (event: React.MouseEvent<HTMLButtonElement>) => void
-}) {
-  const active = Boolean(sortRule)
-  const direction = sortRule?.direction ?? "desc"
-  const Icon = active ? (direction === "asc" ? ArrowUp : ArrowDown) : ArrowUpDown
-  const nextDirectionLabel = !active ? "降序" : direction === "desc" ? "升序" : "取消排序"
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={`inline-flex shrink-0 cursor-pointer items-center gap-1 whitespace-nowrap text-left transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 ${active ? "text-foreground" : ""}`}
-      aria-label={`按${label}${nextDirectionLabel}${sortRule ? `，第 ${sortRule.index ?? 0} 个排序条件` : ""}`}
-      title={`按${label}${nextDirectionLabel}；按住 Shift 点击可追加排序`}
-    >
-      <span>{label}</span>
-      <Icon className={`size-3.5 shrink-0 ${active ? "text-primary" : "text-muted-foreground/70"}`} aria-hidden="true" />
-      {sortRule && (
-        <span className="min-w-3 text-center text-[10px] font-medium leading-none text-primary">{sortRule.index}</span>
-      )}
-    </button>
-  )
 }
 
 function ColumnResizeHandle({
@@ -1261,7 +1232,13 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
 
   const getSortRule = (columnKey: InventorySortKey) => {
     const index = sortRules.findIndex((rule) => rule.key === columnKey)
-    return index === -1 ? undefined : { ...sortRules[index], index: index + 1 }
+    return index === -1 ? undefined : { ...sortRules[index], index: index + 1, total: sortRules.length }
+  }
+
+  const getColumnAriaSort = (columnKey: InventorySortKey) => {
+    const primaryRule = sortRules[0]
+    if (primaryRule?.key !== columnKey) return undefined
+    return primaryRule.direction === "asc" ? "ascending" : "descending"
   }
 
   const openRequirementDialog = async () => {
@@ -2455,10 +2432,10 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
                     <th className="px-4 py-3"></th>
                     {isPurchaseDetailSearch ? (
                       <>
-                        <th className="px-4 py-3 font-medium"><SortableColumnLabel label="单据编号" sortRule={getSortRule("document_number")} onClick={(event) => handleTableSort("document_number", event.shiftKey)} /></th>
-                        <th className="px-4 py-3 font-medium"><SortableColumnLabel label="订货日期" sortRule={getSortRule("date")} onClick={(event) => handleTableSort("date", event.shiftKey)} /></th>
+                        <th aria-sort={getColumnAriaSort("document_number")} className="px-4 py-3 font-medium"><SortableColumnLabel label="单据编号" sortRule={getSortRule("document_number")} onClick={(event) => handleTableSort("document_number", event.shiftKey)} /></th>
+                        <th aria-sort={getColumnAriaSort("date")} className="px-4 py-3 font-medium"><SortableColumnLabel label="订货日期" sortRule={getSortRule("date")} onClick={(event) => handleTableSort("date", event.shiftKey)} /></th>
                         <th className="px-4 py-3 font-medium">交货日期</th>
-                        <th className="px-4 py-3 font-medium"><SortableColumnLabel label="供应商" sortRule={getSortRule("supplier")} onClick={(event) => handleTableSort("supplier", event.shiftKey)} /></th>
+                        <th aria-sort={getColumnAriaSort("supplier")} className="px-4 py-3 font-medium"><SortableColumnLabel label="供应商" sortRule={getSortRule("supplier")} onClick={(event) => handleTableSort("supplier", event.shiftKey)} /></th>
                         <th className="px-4 py-3 font-medium">货号</th>
                         <th className="px-4 py-3 font-medium">商品名称</th>
                         <th className="px-4 py-3 font-medium">颜色</th>
@@ -2466,28 +2443,29 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
                         <th className="px-4 py-3 text-right font-medium">数量</th>
                         <th className="px-4 py-3 text-right font-medium">单价</th>
                         <th className="px-4 py-3 text-right font-medium">金额</th>
-                        <th className="px-4 py-3 font-medium"><SortableColumnLabel label="最后修改时间" sortRule={getSortRule("updated_at")} onClick={(event) => handleTableSort("updated_at", event.shiftKey)} /></th>
+                        <th aria-sort={getColumnAriaSort("updated_at")} className="px-4 py-3 font-medium"><SortableColumnLabel label="最后修改时间" sortRule={getSortRule("updated_at")} onClick={(event) => handleTableSort("updated_at", event.shiftKey)} /></th>
                       </>
                     ) : isPurchaseOrderTab ? (
                       <>
-                        <th className="relative px-4 py-3 pr-7 font-medium"><SortableColumnLabel label="单据编号" sortRule={getSortRule("document_number")} onClick={(event) => handleTableSort("document_number", event.shiftKey)} /><ColumnResizeHandle columnKey="document_number" label="单据编号" onResizeStart={handleInventoryColumnResizeStart} /></th>
-                        <th className="relative px-4 py-3 pr-7 font-medium"><SortableColumnLabel label="订货日期" sortRule={getSortRule("date")} onClick={(event) => handleTableSort("date", event.shiftKey)} /><ColumnResizeHandle columnKey="date" label="订货日期" onResizeStart={handleInventoryColumnResizeStart} /></th>
-                        <th className="relative px-4 py-3 pr-7 font-medium"><SortableColumnLabel label="交货日期" sortRule={getSortRule("delivery_date")} onClick={(event) => handleTableSort("delivery_date", event.shiftKey)} /><ColumnResizeHandle columnKey="delivery_date" label="交货日期" onResizeStart={handleInventoryColumnResizeStart} /></th>
-                        <th className="relative px-4 py-3 pr-7 font-medium"><SortableColumnLabel label="供应商/收货客户/出货仓库" sortRule={getSortRule("supplier")} onClick={(event) => handleTableSort("supplier", event.shiftKey)} /><ColumnResizeHandle columnKey="supplier" label="供应商/收货客户/出货仓库" onResizeStart={handleInventoryColumnResizeStart} /></th>
-                        <th className="relative px-4 py-3 pr-7 font-medium"><SortableColumnLabel label="经手人" sortRule={getSortRule("handler")} onClick={(event) => handleTableSort("handler", event.shiftKey)} /><ColumnResizeHandle columnKey="handler" label="经手人" onResizeStart={handleInventoryColumnResizeStart} /></th>
-                        <th className="relative px-4 py-3 pr-7 font-medium"><SortableColumnLabel label="摘要" sortRule={getSortRule("summary")} onClick={(event) => handleTableSort("summary", event.shiftKey)} /><ColumnResizeHandle columnKey="summary" label="摘要" onResizeStart={handleInventoryColumnResizeStart} /></th>
-                        <th className="relative px-4 py-3 pr-7 font-medium"><SortableColumnLabel label="附加说明" sortRule={getSortRule("additional_note")} onClick={(event) => handleTableSort("additional_note", event.shiftKey)} /><ColumnResizeHandle columnKey="additional_note" label="附加说明" onResizeStart={handleInventoryColumnResizeStart} /></th>
-                        <th className="relative px-4 py-3 pr-7 font-medium"><SortableColumnLabel label="最后修改时间" sortRule={getSortRule("updated_at")} onClick={(event) => handleTableSort("updated_at", event.shiftKey)} /><ColumnResizeHandle columnKey="updated_at" label="最后修改时间" onResizeStart={handleInventoryColumnResizeStart} /></th>
+                        <th aria-sort={getColumnAriaSort("document_number")} className="relative px-4 py-3 pr-7 font-medium"><SortableColumnLabel label="单据编号" sortRule={getSortRule("document_number")} onClick={(event) => handleTableSort("document_number", event.shiftKey)} /><ColumnResizeHandle columnKey="document_number" label="单据编号" onResizeStart={handleInventoryColumnResizeStart} /></th>
+                        <th aria-sort={getColumnAriaSort("date")} className="relative px-4 py-3 pr-7 font-medium"><SortableColumnLabel label="订货日期" sortRule={getSortRule("date")} onClick={(event) => handleTableSort("date", event.shiftKey)} /><ColumnResizeHandle columnKey="date" label="订货日期" onResizeStart={handleInventoryColumnResizeStart} /></th>
+                        <th aria-sort={getColumnAriaSort("delivery_date")} className="relative px-4 py-3 pr-7 font-medium"><SortableColumnLabel label="交货日期" sortRule={getSortRule("delivery_date")} onClick={(event) => handleTableSort("delivery_date", event.shiftKey)} /><ColumnResizeHandle columnKey="delivery_date" label="交货日期" onResizeStart={handleInventoryColumnResizeStart} /></th>
+                        <th aria-sort={getColumnAriaSort("supplier")} className="relative px-4 py-3 pr-7 font-medium"><SortableColumnLabel label="供应商/收货客户/出货仓库" sortRule={getSortRule("supplier")} onClick={(event) => handleTableSort("supplier", event.shiftKey)} /><ColumnResizeHandle columnKey="supplier" label="供应商/收货客户/出货仓库" onResizeStart={handleInventoryColumnResizeStart} /></th>
+                        <th aria-sort={getColumnAriaSort("handler")} className="relative px-4 py-3 pr-7 font-medium"><SortableColumnLabel label="经手人" sortRule={getSortRule("handler")} onClick={(event) => handleTableSort("handler", event.shiftKey)} /><ColumnResizeHandle columnKey="handler" label="经手人" onResizeStart={handleInventoryColumnResizeStart} /></th>
+                        <th aria-sort={getColumnAriaSort("summary")} className="relative px-4 py-3 pr-7 font-medium"><SortableColumnLabel label="摘要" sortRule={getSortRule("summary")} onClick={(event) => handleTableSort("summary", event.shiftKey)} /><ColumnResizeHandle columnKey="summary" label="摘要" onResizeStart={handleInventoryColumnResizeStart} /></th>
+                        <th aria-sort={getColumnAriaSort("additional_note")} className="relative px-4 py-3 pr-7 font-medium"><SortableColumnLabel label="附加说明" sortRule={getSortRule("additional_note")} onClick={(event) => handleTableSort("additional_note", event.shiftKey)} /><ColumnResizeHandle columnKey="additional_note" label="附加说明" onResizeStart={handleInventoryColumnResizeStart} /></th>
+                        <th aria-sort={getColumnAriaSort("updated_at")} className="relative px-4 py-3 pr-7 font-medium"><SortableColumnLabel label="最后修改时间" sortRule={getSortRule("updated_at")} onClick={(event) => handleTableSort("updated_at", event.shiftKey)} /><ColumnResizeHandle columnKey="updated_at" label="最后修改时间" onResizeStart={handleInventoryColumnResizeStart} /></th>
                       </>
                     ) : inventoryColumnOrder.map((columnKey) => (
                       <th
                         key={columnKey}
+                        aria-sort={getColumnAriaSort(columnKey)}
                         onDragOver={(event) => handleInventoryColumnDragOver(event, columnKey)}
                         onDrop={(event) => handleInventoryColumnDrop(event, columnKey)}
                         className={`relative select-none px-4 py-3 pr-7 font-medium transition-colors ${dragOverInventoryColumn === columnKey ? "bg-primary/15 text-primary" : ""
                           } ${draggedInventoryColumn === columnKey ? "opacity-50" : ""}`}
                       >
-                        <div className="flex items-center gap-1.5">
+                        <div className="flex min-w-0 items-center gap-1.5">
                           <button
                             type="button"
                             draggable
