@@ -58,6 +58,7 @@ const ACTION_LABELS: Record<string, string> = {
   batch_delete: "批量删除",
   restore: "恢复",
   batch_restore: "批量恢复",
+  permanent_delete: "彻底删除",
   batch_permanent_delete: "彻底删除",
   import: "导入",
   export: "导出",

@@ -134,6 +134,63 @@ test("keeps the shared purchase filters in purchase mode", async () => {
   expect(filters.getByRole("button", { name: "清空" })).toBeDisabled()
 })
 
+test.each(["inventory", "purchase-orders"] as const)("accepts multiple typed handlers and preserves the submitted %s export scope", async (mode) => {
+  const user = userEvent.setup()
+  const first = render(<InventoryPage mode={mode} />)
+  await screen.findByText("EXPORT-0001")
+  const input = screen.getByRole("textbox", { name: "经手人" })
+  expect(input).toHaveAttribute("placeholder", "姓名，多个用逗号分隔")
+  expect(input).toHaveAttribute("rows", "1")
+  expect(input).toHaveAccessibleDescription(/匹配任意一人/)
+  const requestCount = mockListInventory.mock.calls.length
+  await user.type(input, "张三，李四;王五{Shift>}{Enter}{/Shift}赵六")
+  const handlers = "张三，李四;王五\n赵六"
+  expect(input).toHaveValue(handlers)
+  expect(input).toHaveAttribute("rows", "2")
+  expect(mockListInventory).toHaveBeenCalledTimes(requestCount)
+  await user.keyboard("{Enter}")
+  await waitFor(() => expect(mockListInventory).toHaveBeenLastCalledWith(expect.objectContaining({
+    handler: handlers,
+    page: 1,
+    document_type: mode === "purchase-orders" ? "进货订单" : undefined,
+    exclude_document_type: mode === "inventory" ? "进货订单" : undefined,
+  })))
+  expect(screen.getByRole("status")).toHaveTextContent("已应用 1 项筛选")
+
+  await user.type(input, "，未提交")
+  const exportNames = mode === "purchase-orders" ? ["汇总导出", "尺码明细导出", "生产采购单导出"] : ["导出Excel"]
+  for (const name of exportNames) {
+    const exportButton = screen.getByRole("button", { name })
+    await waitFor(() => expect(exportButton).toBeEnabled())
+    await user.click(exportButton)
+    expect(new URL(downloadUrls.at(-1)!).searchParams.get("handler")).toBe(handlers)
+  }
+
+  first.unmount()
+  render(<InventoryPage mode={mode} />)
+  await screen.findByText("EXPORT-0001")
+  await waitFor(() => expect(mockListInventory).toHaveBeenLastCalledWith(expect.objectContaining({ handler: handlers })))
+  expect(screen.getByRole("textbox", { name: "经手人" })).toHaveValue(`${handlers}，未提交`)
+  await user.click(screen.getByRole("button", { name: "清空" }))
+  await waitFor(() => expect(mockListInventory).toHaveBeenLastCalledWith(expect.objectContaining({ handler: undefined })))
+  expect(screen.getByRole("textbox", { name: "经手人" })).toHaveValue("")
+})
+
+test("allows pasting multiple handler lines without submitting during composition", async () => {
+  const user = userEvent.setup()
+  render(<InventoryPage />)
+  await screen.findByText("EXPORT-0001")
+  const input = screen.getByRole("textbox", { name: "经手人" })
+  await user.click(input)
+  await user.paste("张三\n李四\n王五\n赵六")
+  expect(input).toHaveAttribute("rows", "3")
+  const requestCount = mockListInventory.mock.calls.length
+  fireEvent.keyDown(input, { key: "Enter", code: "Enter", isComposing: true })
+  expect(mockListInventory).toHaveBeenCalledTimes(requestCount)
+  await user.click(screen.getByRole("button", { name: "搜索" }))
+  await waitFor(() => expect(mockListInventory).toHaveBeenLastCalledWith(expect.objectContaining({ handler: "张三\n李四\n王五\n赵六" })))
+})
+
 test("exports all filtered fine records rather than only the visible page", async () => {
   const user = userEvent.setup()
   render(<InventoryPage />)

@@ -171,6 +171,22 @@ test("purchase all matching selection is limited to purchase documents", async (
   )
 })
 
+test.each(["inventory", "purchase-orders"] as const)(
+  "selects across pages using the submitted multiple-handler filter in %s",
+  async (mode) => {
+    const user = await openPage(mode)
+    const input = screen.getByRole("textbox", { name: "经手人" })
+    await user.type(input, "张三，李四{Enter}")
+    await waitFor(() => expect(listMock).toHaveBeenLastCalledWith(expect.objectContaining({ handler: "张三，李四" })))
+    await nextPage(user)
+    expect(listMock).toHaveBeenLastCalledWith(expect.objectContaining({ handler: "张三，李四", page: 2 }))
+    await user.type(input, "，未提交")
+    await user.click(screen.getByRole("button", { name: "全选筛选结果" }))
+    expect(selectionMock).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ handler: "张三，李四" }))
+    expect(screen.getByRole("button", { name: "批量删除 (5)" })).toBeInTheDocument()
+  }
+)
+
 test("searching again clears cross-page selection and ignores a late select-all response", async () => {
   let finish!: (result: { ids: number[]; total: number }) => void
   selectionMock.mockImplementationOnce(

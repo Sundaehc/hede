@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from collections.abc import Mapping
 from datetime import date
 from decimal import Decimal
@@ -306,8 +307,11 @@ class InventoryRepository:
             conditions.append(table.c.document_number.ilike(f"%{document_number.strip()}%"))
         if summary:
             conditions.append(table.c.summary.ilike(f"%{summary.strip()}%"))
-        if handler:
-            conditions.append(table.c.handler.ilike(f"%{handler.strip()}%"))
+        handler_values = list(dict.fromkeys(
+            value.strip() for value in re.split(r"[,，;；、\r\n]+", handler or "") if value.strip()
+        ))
+        if handler_values:
+            conditions.append(or_(*(table.c.handler.ilike(f"%{value}%") for value in handler_values)))
         internal_customer_names = union_all(
             select(GENERAL_CUSTOMER_SHOP_TABLE.c.shop_name)
             .where(GENERAL_CUSTOMER_SHOP_TABLE.c.shop_name.ilike("%内销客户%")),

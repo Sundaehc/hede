@@ -1,6 +1,6 @@
 import { afterEach, expect, test, vi } from "vitest"
 
-import { batchDeleteInventory, listInventorySelectionIds } from "@/lib/api"
+import { batchDeleteInventory, buildInventoryExportUrl, listInventory, listInventorySelectionIds } from "@/lib/api"
 
 afterEach(() => vi.restoreAllMocks())
 
@@ -55,4 +55,19 @@ test("propagates failed selection requests without reporting successful selectio
     status: 403,
     message: "权限不足",
   })
+})
+
+test("preserves multiple typed handler names in list, export and selection requests", async () => {
+  const fetchMock = vi.spyOn(global, "fetch").mockImplementation(async () => new Response(JSON.stringify({ items: [], ids: [], total: 0 })))
+  const handler = "张三，李四;Alice Smith\n王五"
+  await listInventory({ handler, page: 2, pageSize: 10 })
+  const listUrl = new URL(String(fetchMock.mock.calls[0][0]), "http://localhost")
+  expect(listUrl.searchParams.get("handler")).toBe(handler)
+  expect(new URL(buildInventoryExportUrl({ handler }), "http://localhost").searchParams.get("handler")).toBe(handler)
+
+  await listInventorySelectionIds({ handler })
+  expect(fetchMock).toHaveBeenLastCalledWith("/api/inventory/selection-ids", expect.objectContaining({
+    body: JSON.stringify({ handler }),
+    cache: "no-store",
+  }))
 })

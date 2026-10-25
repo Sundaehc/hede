@@ -62,6 +62,34 @@ test.each(["warehouse", "general_customer"] as const)(
   }
 )
 
+test.each(["permanent_delete", "batch_permanent_delete"])(
+  "displays %s actions and tooltips in Chinese",
+  async (action) => {
+    mockListOperationLogs.mockResolvedValue({
+      items: [{ ...logItem, module: "product", action }],
+      total: 1,
+      page: 1,
+      page_size: 20,
+    })
+
+    render(
+      <OperationLogDialog
+        module="product"
+        open
+        title="商品操作日志"
+        onOpenChange={vi.fn()}
+      />
+    )
+
+    const actionLabel = await screen.findByText("彻底删除")
+    const actionCell = within(actionLabel.closest("tr")!).getAllByRole("cell")[2]
+    expect(actionCell).toHaveTextContent("彻底删除")
+    expect(actionLabel).toHaveAttribute("title", "彻底删除")
+    expect(screen.queryByText(action)).not.toBeInTheDocument()
+    expect(screen.queryByTitle(action)).not.toBeInTheDocument()
+  }
+)
+
 test.each([
   { entityLabel: "鞋花费用", expectedLabel: "鞋花费用" },
   { entityLabel: null, expectedLabel: "-" },

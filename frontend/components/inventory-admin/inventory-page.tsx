@@ -2291,7 +2291,23 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
                 </div>
                 <div className="min-w-0 space-y-1.5">
                   <Label htmlFor="inventory-handler-filter" className="text-xs text-muted-foreground">经手人</Label>
-                  <Input id="inventory-handler-filter" value={searchHandler} onChange={(event) => setSearchHandler(event.target.value)} placeholder="经手人" className="h-9" />
+                  <textarea
+                    id="inventory-handler-filter"
+                    value={searchHandler}
+                    onChange={(event) => setSearchHandler(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
+                        event.preventDefault()
+                        search()
+                      }
+                    }}
+                    rows={Math.min(3, searchHandler.split("\n").length)}
+                    placeholder="姓名，多个用逗号分隔"
+                    aria-describedby="inventory-handler-filter-help"
+                    title="多个经手人可用逗号、分号或换行分隔，匹配任意一人"
+                    className="block max-h-24 min-h-9 w-full min-w-0 resize-none rounded-lg border border-input bg-card px-3 py-1.5 text-sm leading-5 shadow-xs outline-none transition-colors placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/35"
+                  />
+                  <span id="inventory-handler-filter-help" className="sr-only">多个经手人可用逗号、分号或换行分隔，匹配任意一人；回车搜索，按住上档键再回车换行</span>
                 </div>
                 <div className="min-w-0 space-y-1.5">
                   <Label htmlFor="inventory-original-sku-filter" className="text-xs text-muted-foreground">{isPurchaseOrderTab ? "货号" : "原始货号"}</Label>
