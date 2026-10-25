@@ -203,3 +203,35 @@ test("preserves size quantities when reselecting a group and updates size column
     extra_fields: expect.objectContaining({ size_range: "男鞋尺码组240-270", size_labels: "240|245|250|255|260|265|270" }),
   })))
 })
+
+test.each(["进货订单", "进货单", "进货退货单"])("saves a manually changed unit price for %s and recalculates the amount", async (documentType) => {
+  const user = userEvent.setup()
+  const onTotalChanged = vi.fn()
+  const productDetail = {
+    ...detail,
+    product_code: "NAG2658015B01",
+    product_name: "测试商品",
+    quantity: "3",
+    unit_price: "268",
+    amount: 804,
+    size_quantities: { "230": "3" },
+    extra_fields: { size_range: "女鞋尺码组220-250", size_labels: "220|225|230|235|240|245|250" },
+  }
+  mockListDetails.mockResolvedValue({ items: [productDetail], total: 1, page: 1, page_size: 100 })
+  mockUpdateDetail.mockResolvedValue({ item: { ...productDetail, unit_price: "250.6", amount: 751.8 }, message: "明细更新成功" })
+  render(<InventoryDetailPanel record={{ ...record, document_type: documentType }} suppliers={[]} onClose={vi.fn()} onTotalChanged={onTotalChanged} />)
+  await user.click(await screen.findByRole("button", { name: "编辑明细" }))
+  const dialog = screen.getByRole("dialog", { name: "编辑明细" })
+  await user.clear(within(dialog).getByLabelText("单价"))
+  await user.type(within(dialog).getByLabelText("单价"), "250.60")
+  expect(within(dialog).getByLabelText("金额")).toHaveValue(751.8)
+  await user.click(within(dialog).getByRole("button", { name: "保存" }))
+  await waitFor(() => expect(mockUpdateDetail).toHaveBeenCalledWith(6787, 130839, expect.objectContaining({
+    quantity: "3",
+    unit_price: "250.6",
+    amount: "751.80",
+    size_quantities: { "230": "3" },
+  })))
+  await waitFor(() => expect(onTotalChanged).toHaveBeenCalledOnce())
+  expect(screen.queryByRole("dialog", { name: "编辑明细" })).not.toBeInTheDocument()
+})

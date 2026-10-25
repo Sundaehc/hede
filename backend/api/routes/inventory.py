@@ -3532,7 +3532,9 @@ def _latest_document_cost(repository, product_code: str, lookup: dict[str, objec
 
 
 def _gendered_detail_payloads(repository, record: dict[str, object], payload: dict[str, object]) -> list[dict[str, object]]:
-    """Apply NI gender prices to manual detail saves as well as Excel imports."""
+    """Split unpriced NI manual details by gender when no historical cost exists."""
+    if _to_decimal(payload.get("unit_price")) > 0:
+        return [payload]
     if _cell_text(record.get("document_type")) in WHOLESALE_DOCUMENT_TYPES:
         return [payload]
     if _has_explicit_zero_unit_price(payload) and _allows_zero_unit_price(repository, record):
@@ -3581,22 +3583,20 @@ def _gendered_detail_payloads(repository, record: dict[str, object], payload: di
 
 
 def _apply_product_archive_cost(repository, record: dict[str, object], payload: dict[str, object]) -> dict[str, object]:
-    """Prefer the latest document cost over the product lookup for manual details."""
+    """Preserve manual prices, falling back to historical and archive costs."""
     if _has_explicit_zero_unit_price(payload) and _allows_zero_unit_price(repository, record):
         normalized = dict(payload)
         normalized["unit_price"] = "0"
         normalized["amount"] = "0"
         return normalized
-    if _cell_text(record.get("document_type")) in WHOLESALE_DOCUMENT_TYPES:
-        manual_price_text = _cell_text(payload.get("unit_price"))
-        manual_price = _to_decimal(manual_price_text)
-        if manual_price_text and manual_price > 0:
-            normalized = dict(payload)
-            normalized["unit_price"] = _fmt_decimal(manual_price)
-            normalized["amount"] = _fmt_decimal(
-                _to_decimal(normalized.get("quantity")) * manual_price
-            )
-            return normalized
+    manual_price = _to_decimal(payload.get("unit_price"))
+    if manual_price > 0:
+        normalized = dict(payload)
+        normalized["unit_price"] = _fmt_decimal(manual_price)
+        normalized["amount"] = _fmt_decimal(
+            _to_decimal(normalized.get("quantity")) * manual_price
+        )
+        return normalized
     product_code = _cell_text(payload.get("product_code"))
     if not product_code:
         return payload
@@ -6573,9 +6573,11 @@ def create_inventory_detail(request: Request, record_id: int, payload: dict):
         raise HTTPException(status_code=404, detail="Record not found")
     _validate_purchase_detail_remark(record, payload)
     _normalize_inventory_product_identity(payload)
-    payload = _apply_product_archive_cost(repository, record, payload)
     payload["document_id"] = record_id
-    detail_payloads = _gendered_detail_payloads(repository, record, payload)
+    detail_payloads = [
+        _apply_product_archive_cost(repository, record, detail_payload)
+        for detail_payload in _gendered_detail_payloads(repository, record, payload)
+    ]
     details = [repository.create_detail(detail_payload) for detail_payload in detail_payloads]
     for detail in details:
         _log_detail_operation(request, action="detail_create", prefix="新增", record=record, after=detail)
@@ -6597,9 +6599,11 @@ def update_inventory_detail(request: Request, record_id: int, detail_id: int, pa
         raise HTTPException(status_code=404, detail="Detail not found")
     _validate_purchase_detail_remark(record, payload)
     _normalize_inventory_product_identity(payload)
-    payload = _apply_product_archive_cost(repository, record, payload)
     payload["document_id"] = record_id
-    detail_payloads = _gendered_detail_payloads(repository, record, payload)
+    detail_payloads = [
+        _apply_product_archive_cost(repository, record, detail_payload)
+        for detail_payload in _gendered_detail_payloads(repository, record, payload)
+    ]
     detail = repository.update_detail(detail_id, detail_payloads[0])
     if detail is None:
         raise HTTPException(status_code=404, detail="Detail not found")
