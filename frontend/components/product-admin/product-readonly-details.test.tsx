@@ -1,4 +1,4 @@
-import { cleanup, render, screen, waitFor, within } from "@testing-library/react"
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
@@ -144,7 +144,7 @@ it("shows Hejin women's style fields on product cards", async () => {
     total: 1, page: 1, page_size: 10,
   })
   render(<ProductAdminPage />)
-  const card = await screen.findByRole("button", { name: "查看商品详情 READONLY-007" })
+  const card = await screen.findByRole("group", { name: "商品信息 READONLY-007" })
   for (const value of ["女鞋款式信息", "跟底款式:", "流行元素:", "鞋帮高度:", "开口深度:", "靴筒:", "闭合方式:", "鞋网面类型:", "后跟高:", "厚底", "蝴蝶结", "低帮", "浅口", "短筒", "搭扣", "网面", "方头", "5cm"]) {
     expect(within(card).getByText(value)).toBeInTheDocument()
   }
@@ -381,14 +381,14 @@ describe("ProductAdminPage read-only access", () => {
     ["美工部", "design_viewer", false],
     ["客服部", "customer_service_viewer", false],
   ])(
-    "lets %s open read-only cards with the appropriate cost visibility",
+    "lets %s open explicit details with the appropriate cost visibility",
     async (department, role, canViewCost) => {
       const user = userEvent.setup()
       mockAuth.user = { department_code: department, role_code: role }
       render(<ProductAdminPage />)
 
-      const card = await screen.findByRole("button", {
-        name: "查看商品详情 READONLY-007",
+      const card = await screen.findByRole("group", {
+        name: "商品信息 READONLY-007",
       })
       if (canViewCost) {
         expect(card).toHaveTextContent("女码 111.11 / 男码 222.22")
@@ -403,7 +403,7 @@ describe("ProductAdminPage read-only access", () => {
       ).not.toBeInTheDocument()
       expect(screen.queryByRole("checkbox")).not.toBeInTheDocument()
 
-      await user.click(card)
+      await user.click(within(card).getByRole("button", { name: "查看详情" }))
       const dialog = screen.getByRole("dialog", { name: "商品详情" })
       expect(
         within(dialog).queryByText("只读查看商品资料，不可修改。")
@@ -439,14 +439,14 @@ describe("ProductAdminPage read-only access", () => {
   )
 
   it.each(["{Enter}", " "])(
-    "opens read-only cards with the %s key",
+    "opens the explicit read-only details button with the %s key",
     async (key) => {
       const user = userEvent.setup()
       render(<ProductAdminPage />)
-      const card = await screen.findByRole("button", {
-        name: "查看商品详情 READONLY-007",
+      const button = await screen.findByRole("button", {
+        name: "查看详情",
       })
-      card.focus()
+      button.focus()
       await user.keyboard(key)
       expect(
         screen.getByRole("dialog", { name: "商品详情" })
@@ -481,6 +481,75 @@ describe("ProductAdminPage read-only access", () => {
     expect(
       screen.queryByRole("dialog", { name: "商品详情" })
     ).not.toBeInTheDocument()
+  })
+
+  it.each([false, true])(
+    "lets users select and copy card information without opening dialogs with editing=%s",
+    async (canManage) => {
+      const user = userEvent.setup()
+      if (canManage) {
+        mockAuth.user = { role_code: "product_user", department_code: "商品部" }
+        mockAuth.hasPermission.mockImplementation((permission) =>
+          ["product.view", "product.manage"].includes(permission)
+        )
+      }
+      render(<ProductAdminPage />)
+      const card = await screen.findByRole("group", {
+        name: "商品信息 READONLY-007",
+      })
+      expect(card).not.toHaveAttribute("tabindex")
+      const productName = within(card).getByText("只读测试商品")
+      await user.click(productName)
+      await user.dblClick(productName)
+      const sellingPoints = within(card).getByText(
+        "完整卖点第一行 完整卖点第二行，不应截断"
+      )
+      expect(productName.closest(".select-text")).toHaveClass("cursor-text")
+      const selection = window.getSelection()!
+      const range = document.createRange()
+      range.selectNodeContents(sellingPoints)
+      selection.removeAllRanges()
+      selection.addRange(range)
+      try {
+        await user.copy()
+        expect(await navigator.clipboard.readText()).toBe(sampleItem.selling_points)
+        expect(selection.toString()).toBe(sampleItem.selling_points)
+        expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
+        expect(mockCreateProduct).not.toHaveBeenCalled()
+        expect(mockUpdateProduct).not.toHaveBeenCalled()
+      } finally {
+        selection.removeAllRanges()
+      }
+    }
+  )
+
+  it("copies only selected text within a card field without opening details on mouse release", async () => {
+    const user = userEvent.setup()
+    mockListProducts.mockResolvedValue({
+      items: [{ ...sampleItem, barcode_build_rule: "货号+颜色代码+尺码" }],
+      total: 1, page: 1, page_size: 10,
+    })
+    render(<ProductAdminPage />)
+    const card = await screen.findByRole("group", { name: "商品信息 READONLY-007" })
+    const field = within(card).getByText("货号+颜色代码+尺码")
+    const selection = window.getSelection()!
+    const range = document.createRange()
+    range.setStart(field.firstChild!, 3)
+    range.setEnd(field.firstChild!, 7)
+    selection.removeAllRanges()
+    selection.addRange(range)
+    try {
+      fireEvent.mouseUp(field)
+      fireEvent.click(field)
+      await user.copy()
+      expect(selection.toString()).toBe("颜色代码")
+      expect(await navigator.clipboard.readText()).toBe("颜色代码")
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
+      expect(mockCreateProduct).not.toHaveBeenCalled()
+      expect(mockUpdateProduct).not.toHaveBeenCalled()
+    } finally {
+      selection.removeAllRanges()
+    }
   })
 
   it("does not expose a detail action without product viewing permission", async () => {
@@ -523,8 +592,8 @@ describe("ProductAdminPage read-only access", () => {
       render(<ProductAdminPage />)
 
       await user.click(screen.getByRole("tab", { name: "千百度男鞋" }))
-      const card = await screen.findByRole("button", {
-        name: "编辑商品 READONLY-007",
+      const card = await screen.findByRole("group", {
+        name: "商品信息 READONLY-007",
       })
       expect(card).toHaveTextContent("女码 111.11 / 男码 222.22")
       expect(
@@ -532,7 +601,7 @@ describe("ProductAdminPage read-only access", () => {
       ).toBeInTheDocument()
       expect(screen.getByRole("button", { name: "编辑" })).toBeInTheDocument()
       expect(screen.getByRole("button", { name: "删除" })).toBeInTheDocument()
-      await user.click(card)
+      await user.click(within(card).getByRole("button", { name: "编辑" }))
       const dialog = screen.getByRole("dialog", { name: "编辑商品" })
       expect(within(dialog).getByLabelText("品牌")).toBeDisabled()
       expect(within(dialog).getByLabelText("工厂出货价")).toHaveValue("123.45")

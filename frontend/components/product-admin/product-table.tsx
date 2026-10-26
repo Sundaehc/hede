@@ -156,7 +156,6 @@ function ProductCard({ item, selectable, showCost = true, selectedKeys, selectio
   onPreviewImage?: (item: ProductListItem) => void
 }) {
   const checked = selectedKeys.has(`${item.brand}:${item.id}`)
-  const onOpen = onEdit ?? onView
   const costText = showCost ? productCostText(item) : ""
   const [copiedCode, setCopiedCode] = useState<string | null>(null)
   const handleCopyCode = async (event: React.MouseEvent<HTMLButtonElement>, value: string) => {
@@ -183,18 +182,9 @@ function ProductCard({ item, selectable, showCost = true, selectedKeys, selectio
 
   return (
     <div
-      className={`surface-panel flex items-center gap-4 p-4 transition-shadow hover:shadow-md${onOpen ? " cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2" : ""}`}
-      role={onOpen ? "button" : undefined}
-      aria-label={onOpen ? `${onEdit ? "编辑商品" : "查看商品详情"} ${item.sku || item.original_sku || item.id}` : undefined}
-      tabIndex={onOpen ? 0 : undefined}
-      onClick={onOpen ? () => onOpen(item) : undefined}
-      onKeyDown={onOpen ? (event) => {
-        if (event.target !== event.currentTarget) return
-        if (event.key === "Enter" || event.key === " ") {
-          event.preventDefault()
-          onOpen(item)
-        }
-      } : undefined}
+      className="surface-panel flex items-center gap-4 p-4 transition-shadow hover:shadow-md"
+      role="group"
+      aria-label={`商品信息 ${item.sku || item.original_sku || item.id}`}
     >
       {selectable ? (
         <input
@@ -208,7 +198,7 @@ function ProductCard({ item, selectable, showCost = true, selectedKeys, selectio
         />
       ) : null}
       <ProductImage item={item} onPreviewImage={onPreviewImage} />
-      <div className="flex min-w-0 flex-1 flex-col gap-2">
+      <div className="flex min-w-0 flex-1 cursor-text flex-col gap-2 select-text">
         {/* Header: SKU + actions */}
         <div className="flex items-start justify-between gap-2">
           <div className="min-w-0">

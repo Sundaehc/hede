@@ -1,0 +1,8 @@
+﻿{
+    "previous_build_id":  "VTl1RS49lB7JJiVudToso",
+    "status":  "aborted_before_build_old_frontend_recovered",
+    "reason": "Original build directory could not be renamed; deployment completed through the isolated build documented in activation.json.",
+    "backend_restarted":  false,
+    "previous_process_id":  59584,
+    "started_at":  "2026-10-26T10:02:51.7906249+08:00"
+}

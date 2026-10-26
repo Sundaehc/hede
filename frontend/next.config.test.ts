@@ -8,6 +8,19 @@ import { expect, test, vi } from "vitest"
 import nextConfig from "./next.config.mjs"
 import { INVENTORY_IMPORT_MAX_FILE_BYTES, PROXY_MAX_BODY_BYTES } from "@/lib/upload-limits.mjs"
 
+test("allows an isolated production build without replacing the active build", async () => {
+  vi.stubEnv("NEXT_DIST_DIR", ".next-product-copy-20261026")
+  vi.resetModules()
+  try {
+    const { default: isolatedConfig } = await import("./next.config.mjs")
+    expect(isolatedConfig.distDir).toBe(".next-product-copy-20261026")
+    expect(configSchema.safeParse(isolatedConfig).success).toBe(true)
+  } finally {
+    vi.unstubAllEnvs()
+    vi.resetModules()
+  }
+})
+
 test("configures the supported Next.js proxy body limit with room for multipart fields", () => {
   expect(configSchema.safeParse(nextConfig).success).toBe(true)
   expect(nextConfig.experimental?.proxyClientMaxBodySize).toBe(PROXY_MAX_BODY_BYTES)

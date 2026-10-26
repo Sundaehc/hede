@@ -3,6 +3,7 @@ import { PROXY_MAX_BODY_BYTES } from "./lib/upload-limits.mjs"
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   devIndicators: false,
+  distDir: process.env.NEXT_DIST_DIR || ".next",
   async rewrites() {
     const backendUrl = process.env.BACKEND_URL ?? "http://127.0.0.1:8137"
 
