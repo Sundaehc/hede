@@ -4,14 +4,18 @@ import re
 from collections.abc import Mapping
 from datetime import date
 from decimal import Decimal
+from itertools import groupby
 from uuid import uuid4
 
 from pathlib import Path
 
 import orjson
 from openpyxl import load_workbook
-from sqlalchemy import MetaData, Table, Text, and_, case, create_engine, delete, desc, func, insert, inspect, or_, select, text, union_all, update
+from psycopg import Error as PsycopgError, sql
+from psycopg.types.json import Json
+from sqlalchemy import JSON, MetaData, Table, Text, and_, case, create_engine, delete, desc, func, insert, inspect, or_, select, text, union_all, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy.exc import DBAPIError
 
 from domain.gj_schema import GJ_MERGED_PRODUCT_INFO_TABLE
 from domain.inventory_schema import GENERAL_CUSTOMER_BRAND_TABLE, GENERAL_CUSTOMER_SHOP_TABLE, GENERAL_CUSTOMER_SORT_PREFERENCE_TABLE, GENERAL_CUSTOMER_UNIT_TABLE, INVENTORY_ACCOUNT_SUBJECT_TABLE, INVENTORY_DETAIL_TABLE, INVENTORY_TABLE, JST_STOCK_TABLE, PURCHASE_ORDER_REQUIREMENT_TABLE, PURCHASE_PRINT_TEMPLATE_TABLE, SUPPLIER_BRAND_TABLE, SUPPLIER_TABLE, WAREHOUSE_BRAND_TABLE, WAREHOUSE_TABLE
@@ -69,6 +73,9 @@ GENERAL_CUSTOMER_SORT_SCOPE_SHOP = "shop"
 GENERAL_CUSTOMER_SORT_SCOPE_UNIT = "unit"
 
 GENERAL_CUSTOMER_ROOT_SORT_PARENT_ID = 0
+TEMPLATE_DETAIL_WRITE_BATCH_SIZE = 5000
+TEMPLATE_DETAIL_COPY_MIN_ROWS = 100
+TEMPLATE_TOTALS_BATCH_SIZE = 1000
 
 
 def _json_serializer(value: object) -> str:
@@ -817,6 +824,14 @@ class InventoryRepository:
                     missing.append(f"费用项目名/科目（科目管理）：{'、'.join(sorted(unknown))}")
             if missing:
                 raise ValueError(f"模板中的以下档案不存在：{'；'.join(missing)}。请先在对应管理页面处理后再导入；本次未导入任何数据")
+            for plan in active_plans:
+                if not plan.get("details"):
+                    label = f"{plan.get('date') or ''} {plan['document_type']}（摘要：{plan.get('summary') or ''}）"
+                    raise ValueError(f"{label}：没有可导入的明细")
+            document_sequences: dict[tuple[str, str], int] = {}
+            written_document_ids: set[int] = set()
+            pending_details: list[dict[str, object]] = []
+            pending_document_ids: set[int] = set()
             for plan in plans:
                 if plan.get("decision") == "skip":
                     skipped += 1
@@ -862,6 +877,10 @@ class InventoryRepository:
                         raise ValueError(f"{label}：修改后的摘要仍与已有单据重复")
                 if matched and decision == "overwrite":
                     document_id = matched["id"]
+                    if document_id in pending_document_ids:
+                        self._insert_template_details(connection, pending_details)
+                        pending_details.clear()
+                        pending_document_ids.clear()
                     connection.execute(delete(detail_table).where(detail_table.c.document_id == document_id))
                     connection.execute(update(record_table).where(record_table.c.id == document_id).values(
                         warehouse=plan["warehouse"] or None,
@@ -877,6 +896,7 @@ class InventoryRepository:
                         connection,
                         plan["date"],
                         plan["document_type"],
+                        sequences=document_sequences,
                     )
                     payload = self._prepare_record({
                         "document_number": generated_number,
@@ -898,20 +918,86 @@ class InventoryRepository:
                         insert(record_table).values(**payload).returning(record_table.c.id)
                     ).scalar_one()
                     created += 1
-                rows = [dict(row, document_id=document_id) for row in plan["details"]]
-                connection.execute(insert(detail_table), rows)
-                detail_count += len(rows)
-                totals = connection.execute(select(
-                    func.sum(detail_table.c.quantity), func.sum(detail_table.c.amount)
-                ).where(detail_table.c.document_id == document_id)).one()
-                is_accounting = plan["document_type"] in ACCOUNTING_DOCUMENT_TYPES
-                quantity = None if is_accounting else self._apply_document_total_sign(plan["document_type"], totals[0])
-                amount = totals[1] if is_accounting else self._apply_document_total_sign(plan["document_type"], totals[1])
-                connection.execute(update(record_table).where(record_table.c.id == document_id).values(total_count=quantity, amount=amount))
+                for row in plan["details"]:
+                    pending_details.append(dict(row, document_id=document_id))
+                    pending_document_ids.add(document_id)
+                    if len(pending_details) >= TEMPLATE_DETAIL_WRITE_BATCH_SIZE:
+                        self._insert_template_details(connection, pending_details)
+                        pending_details.clear()
+                        pending_document_ids.clear()
+                detail_count += len(plan["details"])
+                written_document_ids.add(document_id)
+            if pending_details:
+                self._insert_template_details(connection, pending_details)
+            self._update_template_totals(connection, sorted(written_document_ids))
             result = {"created": created, "replaced": replaced, "skipped": skipped, "details": detail_count}
             if task_id is not None:
                 complete_inventory_import(connection, task_id, result)
         return result
+
+    @staticmethod
+    def _insert_template_details(connection, rows: list[dict[str, object]]) -> None:
+        table = INVENTORY_DETAIL_TABLE
+        for _, grouped_rows in groupby(rows, key=lambda row: frozenset(row)):
+            batch = list(grouped_rows)
+            if (
+                connection.dialect.name != "postgresql"
+                or connection.dialect.driver != "psycopg"
+                or len(batch) < TEMPLATE_DETAIL_COPY_MIN_ROWS
+            ):
+                connection.execute(insert(table), batch)
+                continue
+            columns = tuple(batch[0])
+            json_columns = {name for name in columns if isinstance(table.c[name].type, JSON)}
+            table_name = sql.Identifier(table.schema, table.name) if table.schema else sql.Identifier(table.name)
+            statement = sql.SQL("COPY {} ({}) FROM STDIN").format(
+                table_name,
+                sql.SQL(", ").join(map(sql.Identifier, columns)),
+            )
+            try:
+                with connection.connection.driver_connection.cursor() as cursor:
+                    with cursor.copy(statement) as writer:
+                        for row in batch:
+                            writer.write_row(tuple(
+                                Json(row[name], dumps=_json_serializer) if name in json_columns else row[name]
+                                for name in columns
+                            ))
+            except PsycopgError as error:
+                raise DBAPIError.instance(
+                    statement.as_string(), None, error, connection.dialect.dbapi.Error,
+                    hide_parameters=True, dialect=connection.dialect,
+                ) from error
+
+    @staticmethod
+    def _update_template_totals(connection, document_ids: list[int]) -> None:
+        record = INVENTORY_TABLE
+        detail = INVENTORY_DETAIL_TABLE
+        for offset in range(0, len(document_ids), TEMPLATE_TOTALS_BATCH_SIZE):
+            totals = (
+                select(
+                    detail.c.document_id,
+                    func.sum(detail.c.quantity).label("quantity"),
+                    func.sum(detail.c.amount).label("amount"),
+                )
+                .where(detail.c.document_id.in_(document_ids[offset:offset + TEMPLATE_TOTALS_BATCH_SIZE]))
+                .group_by(detail.c.document_id)
+                .subquery()
+            )
+            connection.execute(
+                update(record)
+                .where(record.c.id == totals.c.document_id)
+                .values(
+                    total_count=case(
+                        (record.c.document_type.in_(ACCOUNTING_DOCUMENT_TYPES), None),
+                        (record.c.document_type.in_(NEGATIVE_TOTAL_DOCUMENT_TYPES), -func.abs(totals.c.quantity)),
+                        else_=totals.c.quantity,
+                    ),
+                    amount=case(
+                        (record.c.document_type.in_(NEGATIVE_TOTAL_DOCUMENT_TYPES), -func.abs(totals.c.amount)),
+                        else_=totals.c.amount,
+                    ),
+                )
+            )
 
     def create_record(self, record: Mapping[str, object]) -> dict[str, object]:
         table = INVENTORY_TABLE
@@ -4587,20 +4673,33 @@ class InventoryRepository:
         return f"{prefix}-{date_text}-{sequence:04d}"
 
     @staticmethod
-    def _generate_document_number(connection, date_value: object, document_type: object) -> str:
+    def _generate_document_number(
+        connection,
+        date_value: object,
+        document_type: object,
+        *,
+        sequences: dict[tuple[str, str], int] | None = None,
+    ) -> str:
         prefix = InventoryRepository._document_number_prefix(document_type)
         date_text = InventoryRepository._document_number_date_text(date_value)
-        pattern = f"{prefix}-{date_text}-%"
-        rows = connection.execute(
-            select(INVENTORY_TABLE.c.document_number)
-            .where(INVENTORY_TABLE.c.document_number.like(pattern))
-        ).all()
-        max_sequence = 0
-        for row in rows:
-            suffix = str(row[0] or "").rsplit("-", 1)[-1]
-            if suffix.isdigit():
-                max_sequence = max(max_sequence, int(suffix))
-        return f"{prefix}-{date_text}-{max_sequence + 1:04d}"
+        key = (prefix, date_text)
+        if sequences is not None and key in sequences:
+            sequence = sequences[key] + 1
+        else:
+            pattern = f"{prefix}-{date_text}-%"
+            rows = connection.execute(
+                select(INVENTORY_TABLE.c.document_number)
+                .where(INVENTORY_TABLE.c.document_number.like(pattern))
+            ).all()
+            max_sequence = 0
+            for row in rows:
+                suffix = str(row[0] or "").rsplit("-", 1)[-1]
+                if suffix.isdigit():
+                    max_sequence = max(max_sequence, int(suffix))
+            sequence = max_sequence + 1
+        if sequences is not None:
+            sequences[key] = sequence
+        return f"{prefix}-{date_text}-{sequence:04d}"
 
     @staticmethod
     def _backfill_document_numbers(connection) -> None:

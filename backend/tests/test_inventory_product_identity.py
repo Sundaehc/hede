@@ -9,6 +9,7 @@ from unittest.mock import Mock
 import pytest
 from fastapi import HTTPException
 from sqlalchemy import create_engine, event, text
+from sqlalchemy.exc import IntegrityError
 
 from api.routes import inventory as inventory_routes
 from domain.inventory_sources import ACCOUNTING_DOCUMENT_TYPES, DOCUMENT_TYPES
@@ -540,6 +541,81 @@ def test_archive_rename_rollback_restores_all_document_codes(identity_connection
     assert connection.execute(text("SELECT product_code FROM inventory_details")).scalar_one() == "NEW-CODE"
     savepoint.rollback()
     assert connection.execute(text("SELECT product_code FROM inventory_details")).scalar_one() == "OLD-CODE"
+
+
+def test_template_copy_runs_identity_triggers_and_preserves_values(identity_connection):
+    connection = identity_connection
+    identity_id = _product(connection)
+    _document(connection)
+    rows = [{
+        "id": index, "document_id": 1, "product_identity_id": None,
+        "product_code": "ORIGINAL-CODE", "product_name": "测试鞋", "color_barcode": "24",
+        "quantity": Decimal("1.235"), "unit_price": Decimal("12.34"), "amount": Decimal("2.345"),
+        "size_quantities": {"240": "1.235"}, "extra_fields": {"备注": "换行\n制表\t\\"},
+        "remark": "中文\t换行\n\\",
+    } for index in range(1, 121)]
+
+    InventoryRepository._insert_template_details(connection, rows)
+
+    details = connection.execute(text("SELECT * FROM inventory_details ORDER BY id")).mappings().all()
+    assert len(details) == len(rows)
+    assert all(row["product_identity_id"] == identity_id and row["product_code"] == "OLD-CODE" for row in details)
+    assert details[0]["quantity"] == Decimal("1.235")
+    assert details[0]["extra_fields"] == rows[0]["extra_fields"]
+    assert details[0]["size_quantities"] == rows[0]["size_quantities"]
+    assert details[0]["remark"] == rows[0]["remark"]
+
+
+def test_template_copy_foreign_key_failure_can_be_rolled_back(identity_connection):
+    connection = identity_connection
+    _document(connection)
+    savepoint = connection.begin_nested()
+    with pytest.raises(IntegrityError):
+        InventoryRepository._insert_template_details(connection, [
+            {"id": index, "document_id": 999, "product_code": "UNKNOWN"}
+            for index in range(1, 121)
+        ])
+    savepoint.rollback()
+
+    assert connection.execute(text("SELECT count(*) FROM inventory_details")).scalar_one() == 0
+    assert connection.execute(text("SELECT count(*) FROM inventory_records")).scalar_one() == 1
+
+
+@pytest.mark.parametrize("document_type,expected_quantity,expected_amount", [
+    ("进货单", Decimal("148.80"), Decimal("282.00")),
+    ("进货退货单", Decimal("-148.80"), Decimal("-282.00")),
+    ("应付款增加", None, Decimal("282.00")),
+])
+def test_template_grouped_totals_use_database_rounded_values(
+    identity_connection, document_type, expected_quantity, expected_amount,
+):
+    connection = identity_connection
+    connection.execute(text("ALTER TABLE inventory_records ADD COLUMN total_count numeric(18,2)"))
+    connection.execute(text("ALTER TABLE inventory_details ALTER COLUMN quantity TYPE numeric(18,2), ALTER COLUMN amount TYPE numeric(18,2)"))
+    _document(connection, document_type=document_type)
+    InventoryRepository._insert_template_details(connection, [{
+        "id": index, "document_id": 1, "product_code": "UNKNOWN",
+        "quantity": Decimal("1.235"), "amount": Decimal("2.345"),
+    } for index in range(1, 121)])
+
+    InventoryRepository._update_template_totals(connection, [1])
+
+    assert connection.execute(text("SELECT total_count, amount FROM inventory_records")).one() == (expected_quantity, expected_amount)
+
+
+def test_template_copy_distinguishes_numeric_null_from_json_null(identity_connection):
+    connection = identity_connection
+    _document(connection)
+    InventoryRepository._insert_template_details(connection, [{
+        "id": index, "document_id": 1, "product_code": "UNKNOWN", "unit_price": None,
+        "size_quantities": None, "extra_fields": None,
+    } for index in range(1, 121)])
+
+    assert connection.execute(text("""
+        SELECT count(*) FROM inventory_details
+        WHERE unit_price IS NULL AND size_quantities IS NOT NULL AND extra_fields IS NOT NULL
+          AND size_quantities::text = 'null' AND extra_fields::text = 'null'
+    """)).scalar_one() == 120
 
 
 @pytest.mark.parametrize("document_type", DOCUMENT_TYPES)
