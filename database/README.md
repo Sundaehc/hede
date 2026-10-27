@@ -47,6 +47,8 @@ psql -X -h 127.0.0.1 -p 5432 -U postgres -d commodity_department_new -v ON_ERROR
 
 ## 后续重新导出
 
+2026-10-27 新增独立的采购入库历史年度分区表、来源批次表及库龄日期参考视图，增量 SQL 见 `purchase-inbound-history-2026-10-27.sql`，对应 Alembic `20261027_0079`。不修改原有采购单、经营历程和库存；年度子分区由导入器按实际入库日期创建。数据导入及库龄口径见 `docs/采购入库历史与库龄参考-2026-10-27.md`。本增量不包含在 2026-10-13 的 `schema.sql` 中。
+
 2026-10-16 经营历程后台模板导入新增批次结果表，建表 SQL 见 `inventory-import-tasks-2026-10-16.sql`，对应 Alembic 迁移 `20261016_0077`。后端初始化也会检查并补建该表。此表不在下述 2026-10-13 结构快照中；本次代码修改没有直接对运行中的数据库执行建表。
 
 2026-10-14 商品货品表和精细表分页优化新增索引见 `product-pagination-indexes-2026-10-14.sql`。此处 schema.sql 仍是 2026-10-13 已验证快照；用它初始化新库后，还需按增量 SQL 的非事务执行说明应用新增索引，或优先使用 backend/scripts/optimize_product_pagination.py 识别目标分区并核对定义。

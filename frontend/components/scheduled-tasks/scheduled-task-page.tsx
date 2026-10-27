@@ -46,6 +46,8 @@ const TASK_LABELS: Record<string, string> = {
   HedeImportVipDaily: "唯品商品日报导入",
   HedeImportVipDailySalesReport: "唯品日销导入",
   HedeImportDewuOrders: "得物订单导入",
+  HedeImportPurchaseInboundDaily: "采购入库历史导入",
+  import_purchase_inbound_daily: "采购入库历史导入",
   HedeImportJstFullStock: "聚水潭全量库存导入",
   Hede_JST_Stock_Sync: "聚水潭尺码库存同步",
   HedeImportPriceDaily: "商品物价信息更新",

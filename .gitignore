@@ -24,3 +24,6 @@ backend/.us3_image_sync_manifest.json
 
 # Generated outputs
 /outputs/
+scripts/
+tests/
+tmp/
