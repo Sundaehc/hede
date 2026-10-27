@@ -431,7 +431,8 @@ describe("ProductAdminPage", () => {
     await user.type(document.getElementById("product-form-sku")!, "SKU-NEW")
     await user.type(document.getElementById("product-form-color")!, "黑色")
     await user.type(document.getElementById("product-form-year")!, "2026")
-    await user.selectOptions(document.getElementById("product-form-season_category")!, "春季")
+    await user.click(document.getElementById("product-form-season_category")!)
+    await user.click(screen.getByRole("option", { name: "春季" }))
     await user.type(document.getElementById("product-form-original_sku")!, "NEW-001")
     await user.click(screen.getByRole("button", { name: "保存" }))
 

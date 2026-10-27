@@ -1,9 +1,11 @@
 "use client"
 
-import { useEffect, useId, useMemo, useRef, useState } from "react"
-import { Check, Search, X } from "lucide-react"
+import { useEffect, useMemo, useRef, useState } from "react"
+import { X } from "lucide-react"
 
+import { SizeGroupSelect } from "@/components/inventory-admin/size-group-select"
 import { ImageLookupStatus } from "@/components/product-admin/image-lookup-status"
+import { ProductOptionSelect } from "@/components/product-admin/product-option-select"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -83,133 +85,25 @@ type ColorCodeSearchSelectProps = {
 }
 
 function ColorCodeSearchSelect({ allowCustomValue = false, disabled, id, isLoading, onChange, options, value }: ColorCodeSearchSelectProps) {
-  const listboxId = useId()
-  const inputRef = useRef<HTMLInputElement>(null)
-  const rootRef = useRef<HTMLDivElement>(null)
-  const [isOpen, setIsOpen] = useState(false)
-  const [query, setQuery] = useState("")
-
-  const selected = options.find((option) => option.color_code === value)
-  const displayValue = selected ? `${selected.color_code} - ${selected.color_name}` : value
-  const filteredOptions = useMemo(() => {
-    const normalizedQuery = query.trim().toLowerCase()
-    if (!normalizedQuery) {
-      return options
-    }
-
-    return options.filter((option) => {
-      return `${option.color_code} ${option.color_name}`.toLowerCase().includes(normalizedQuery)
-    })
-  }, [options, query])
-  const visibleOptions = filteredOptions.slice(0, 80)
-
-  useEffect(() => {
-    if (!isOpen) {
-      return
-    }
-
-    const handlePointerDown = (event: MouseEvent | TouchEvent) => {
-      if (rootRef.current?.contains(event.target as Node)) {
-        return
-      }
-
-      setIsOpen(false)
-      setQuery("")
-    }
-
-    document.addEventListener("mousedown", handlePointerDown)
-    document.addEventListener("touchstart", handlePointerDown)
-
-    return () => {
-      document.removeEventListener("mousedown", handlePointerDown)
-      document.removeEventListener("touchstart", handlePointerDown)
-    }
-  }, [isOpen])
-
-  const handleSelect = (nextValue: string) => {
-    onChange(nextValue)
-    setQuery("")
-    setIsOpen(false)
-    inputRef.current?.blur()
-  }
+  const selectOptions = useMemo(() => options.map((option) => ({
+    value: option.color_code,
+    label: option.color_code,
+    description: option.color_name,
+  })), [options])
 
   return (
-    <div ref={rootRef} className="relative">
-      <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-      <Input
-        id={id}
-        ref={inputRef}
-        role="combobox"
-        aria-expanded={isOpen}
-        aria-controls={listboxId}
-        aria-autocomplete="list"
-        value={isOpen ? query : displayValue}
-        placeholder={isLoading ? "颜色代码加载中..." : "搜索颜色代码/颜色名称"}
-        disabled={disabled}
-        onFocus={() => {
-          if (disabled) return
-          setQuery("")
-          setIsOpen(true)
-        }}
-        onChange={(event) => {
-          setQuery(event.target.value)
-          setIsOpen(true)
-          if (allowCustomValue) onChange(event.target.value)
-        }}
-        onKeyDown={(event) => {
-          if (event.key === "Escape") {
-            setIsOpen(false)
-            setQuery("")
-            inputRef.current?.blur()
-            return
-          }
-
-          if (event.key === "Enter" && isOpen && visibleOptions.length > 0) {
-            event.preventDefault()
-            handleSelect(visibleOptions[0].color_code)
-          }
-        }}
-        className="pl-8"
-        autoComplete="off"
-        spellCheck={false}
-      />
-
-      {isOpen ? (
-        <div
-          id={listboxId}
-          role="listbox"
-          className="absolute z-50 mt-1 max-h-56 w-full overflow-y-auto rounded-lg border border-border bg-popover py-1 text-sm shadow-lg"
-        >
-          {visibleOptions.length > 0 ? (
-            visibleOptions.map((option) => {
-              const isSelected = option.color_code === value
-              return (
-                <button
-                  key={`${option.brand}-${option.color_code}-${option.color_name}`}
-                  type="button"
-                  role="option"
-                  aria-selected={isSelected}
-                  className={cn(
-                    "flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-muted focus-visible:bg-muted focus-visible:outline-none",
-                    isSelected && "bg-muted",
-                  )}
-                  onMouseDown={(event) => {
-                    event.preventDefault()
-                    handleSelect(option.color_code)
-                  }}
-                >
-                  <span className="shrink-0 font-medium text-foreground">{option.color_code}</span>
-                  <span className="min-w-0 truncate text-muted-foreground">{option.color_name}</span>
-                  <Check className={cn("ml-auto h-4 w-4 shrink-0", isSelected ? "opacity-100" : "opacity-0")} />
-                </button>
-              )
-            })
-          ) : (
-            <div className="px-3 py-2 text-muted-foreground">没有匹配的颜色代码</div>
-          )}
-        </div>
-      ) : null}
-    </div>
+    <ProductOptionSelect
+      id={id}
+      label="颜色代码"
+      value={value}
+      options={selectOptions}
+      onValueChange={onChange}
+      allowCustomValue={allowCustomValue}
+      disabled={disabled}
+      isLoading={isLoading}
+      placeholder="搜索颜色代码/颜色名称"
+      emptyText="没有匹配的颜色代码"
+    />
   )
 }
 
@@ -225,246 +119,46 @@ type SupplierSearchSelectProps = {
 type AuxiliaryAttributeSelectProps = {
   disabled: boolean
   id: string
+  label: string
   onChange: (value: string) => void
   options: string[]
   value: string
 }
 
-function AuxiliaryAttributeSelect({
-  disabled,
-  id,
-  onChange,
-  options,
-  value,
-}: AuxiliaryAttributeSelectProps) {
-  const listboxId = useId()
-  const inputRef = useRef<HTMLInputElement>(null)
-  const rootRef = useRef<HTMLDivElement>(null)
-  const [isOpen, setIsOpen] = useState(false)
-  const [query, setQuery] = useState("")
-  const normalizedQuery = query.trim().toLowerCase()
-  const visibleOptions = (normalizedQuery
-    ? options.filter((option) => option.toLowerCase().includes(normalizedQuery))
-    : options
-  ).slice(0, 80)
-
-  useEffect(() => {
-    if (!isOpen) return
-
-    const handlePointerDown = (event: MouseEvent | TouchEvent) => {
-      if (rootRef.current?.contains(event.target as Node)) return
-      setIsOpen(false)
-      setQuery("")
-    }
-
-    document.addEventListener("mousedown", handlePointerDown)
-    document.addEventListener("touchstart", handlePointerDown)
-    return () => {
-      document.removeEventListener("mousedown", handlePointerDown)
-      document.removeEventListener("touchstart", handlePointerDown)
-    }
-  }, [isOpen])
-
-  const handleSelect = (nextValue: string) => {
-    onChange(nextValue)
-    setQuery("")
-    setIsOpen(false)
-    inputRef.current?.blur()
-  }
-
+function AuxiliaryAttributeSelect({ disabled, id, label, onChange, options, value }: AuxiliaryAttributeSelectProps) {
+  const selectOptions = useMemo(() => options.map((option) => ({ value: option, label: option })), [options])
   return (
-    <div ref={rootRef} className="relative">
-      <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-      <Input
-        id={id}
-        ref={inputRef}
-        role="combobox"
-        aria-expanded={isOpen}
-        aria-controls={listboxId}
-        aria-autocomplete="list"
-        value={isOpen ? query : value}
-        placeholder={disabled ? "选项加载中..." : "搜索并选择"}
-        disabled={disabled}
-        onFocus={() => {
-          if (disabled) return
-          setQuery("")
-          setIsOpen(true)
-        }}
-        onChange={(event) => {
-          setQuery(event.target.value)
-          setIsOpen(true)
-        }}
-        onKeyDown={(event) => {
-          if (event.key === "Escape") {
-            setIsOpen(false)
-            setQuery("")
-            inputRef.current?.blur()
-            return
-          }
-          if (event.key === "Enter" && isOpen && visibleOptions.length > 0) {
-            event.preventDefault()
-            handleSelect(visibleOptions[0])
-          }
-        }}
-        className="cursor-pointer pl-8"
-        autoComplete="off"
-        spellCheck={false}
-      />
-
-      {isOpen ? (
-        <div
-          id={listboxId}
-          role="listbox"
-          className="absolute z-50 mt-1 max-h-56 w-full overflow-y-auto rounded-lg border border-border bg-popover py-1 text-sm shadow-lg"
-        >
-          {visibleOptions.length > 0 ? visibleOptions.map((option) => (
-            <button
-              key={option}
-              type="button"
-              role="option"
-              aria-selected={option === value}
-              onMouseDown={(event) => {
-                event.preventDefault()
-                handleSelect(option)
-              }}
-              className={cn(
-                "flex w-full cursor-pointer items-center gap-2 px-3 py-2 text-left hover:bg-muted focus-visible:bg-muted focus-visible:outline-none",
-                option === value && "bg-muted",
-              )}
-            >
-              <span className="min-w-0 flex-1 break-words">{option}</span>
-              <Check className={cn("h-4 w-4 shrink-0", option === value ? "opacity-100" : "opacity-0")} />
-            </button>
-          )) : (
-            <div className="px-3 py-2 text-muted-foreground">没有匹配的辅助属性</div>
-          )}
-          {visibleOptions.length === 80 ? (
-            <div className="border-t border-border px-3 py-2 text-xs text-muted-foreground">结果较多，请继续输入缩小范围</div>
-          ) : null}
-        </div>
-      ) : null}
-    </div>
+    <ProductOptionSelect
+      id={id}
+      label={label}
+      value={value}
+      options={selectOptions}
+      onValueChange={onChange}
+      disabled={disabled}
+      isLoading={disabled}
+      emptyText="没有匹配的辅助属性"
+    />
   )
 }
 
 function SupplierSearchSelect({ disabled, id, isLoading, onChange, options, value }: SupplierSearchSelectProps) {
-  const listboxId = useId()
-  const inputRef = useRef<HTMLInputElement>(null)
-  const rootRef = useRef<HTMLDivElement>(null)
-  const [isOpen, setIsOpen] = useState(false)
-  const [query, setQuery] = useState("")
-
-  const selected = options.find((option) => option.name === value)
-  const normalizedQuery = query.trim().toLowerCase()
-  const visibleOptions = (normalizedQuery
-    ? options.filter((option) => `${option.name} ${option.factory_code || ""}`.toLowerCase().includes(normalizedQuery))
-    : options
-  ).slice(0, 80)
-
-  useEffect(() => {
-    if (!isOpen) return
-
-    const handlePointerDown = (event: MouseEvent | TouchEvent) => {
-      if (rootRef.current?.contains(event.target as Node)) return
-      setIsOpen(false)
-      setQuery("")
-    }
-
-    document.addEventListener("mousedown", handlePointerDown)
-    document.addEventListener("touchstart", handlePointerDown)
-    return () => {
-      document.removeEventListener("mousedown", handlePointerDown)
-      document.removeEventListener("touchstart", handlePointerDown)
-    }
-  }, [isOpen])
-
-  const handleSelect = (nextValue: string) => {
-    onChange(nextValue)
-    setIsOpen(false)
-    setQuery("")
-    inputRef.current?.blur()
-  }
-
+  const selectOptions = useMemo(() => options.map((option) => ({
+    value: option.name,
+    label: option.name,
+    keywords: option.factory_code || "",
+  })), [options])
   return (
-    <div ref={rootRef} className="relative">
-      <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-      <Input
-        id={id}
-        ref={inputRef}
-        role="combobox"
-        aria-expanded={isOpen}
-        aria-controls={listboxId}
-        aria-autocomplete="list"
-        value={isOpen ? query : selected?.name || value}
-        placeholder={isLoading ? "供应商加载中..." : "搜索供应商/工厂代码"}
-        disabled={disabled}
-        onFocus={() => {
-          if (disabled) return
-          setQuery("")
-          setIsOpen(true)
-        }}
-        onChange={(event) => {
-          setQuery(event.target.value)
-          setIsOpen(true)
-        }}
-        onKeyDown={(event) => {
-          if (event.key === "Escape") {
-            setIsOpen(false)
-            setQuery("")
-            inputRef.current?.blur()
-            return
-          }
-          if (event.key === "Enter" && isOpen && visibleOptions.length > 0) {
-            event.preventDefault()
-            handleSelect(visibleOptions[0].name)
-          }
-        }}
-        className="px-8"
-        autoComplete="off"
-        spellCheck={false}
-      />
-      {value && !disabled ? (
-        <button
-          type="button"
-          aria-label="清空供应商"
-          onMouseDown={(event) => event.preventDefault()}
-          onClick={() => handleSelect("")}
-          className="absolute right-1.5 top-1/2 inline-flex h-6 w-6 -translate-y-1/2 cursor-pointer items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground"
-        >
-          <X className="h-3.5 w-3.5" />
-        </button>
-      ) : null}
-
-      {isOpen ? (
-        <div id={listboxId} role="listbox" className="absolute z-50 mt-1 max-h-64 w-full overflow-y-auto rounded-lg border border-border bg-popover py-1 text-sm shadow-lg">
-          {visibleOptions.length > 0 ? visibleOptions.map((option) => (
-            <button
-              key={option.id}
-              type="button"
-              role="option"
-              aria-selected={option.name === value}
-              onMouseDown={(event) => {
-                event.preventDefault()
-                handleSelect(option.name)
-              }}
-              className={cn(
-                "flex w-full cursor-pointer items-center gap-2 px-3 py-2 text-left hover:bg-muted focus-visible:bg-muted focus-visible:outline-none",
-                option.name === value && "bg-muted",
-              )}
-            >
-              <span className="min-w-0 flex-1 truncate font-medium text-foreground">{option.name}</span>
-              {option.factory_code ? <span className="shrink-0 text-xs text-muted-foreground">{option.factory_code}</span> : null}
-              <Check className={cn("h-4 w-4 shrink-0", option.name === value ? "opacity-100" : "opacity-0")} />
-            </button>
-          )) : (
-            <div className="px-3 py-2 text-muted-foreground">该品牌暂无匹配供应商</div>
-          )}
-          {normalizedQuery && visibleOptions.length === 80 ? (
-            <div className="border-t border-border px-3 py-2 text-xs text-muted-foreground">结果较多，请继续输入缩小范围</div>
-          ) : null}
-        </div>
-      ) : null}
-    </div>
+    <ProductOptionSelect
+      id={id}
+      label="供应商"
+      value={value}
+      options={selectOptions}
+      onValueChange={onChange}
+      disabled={disabled}
+      isLoading={isLoading}
+      placeholder="搜索供应商/工厂代码"
+      emptyText="该品牌暂无匹配供应商"
+    />
   )
 }
 
@@ -945,51 +639,38 @@ export function ProductFormDialog({ brands = PRODUCT_ARCHIVE_BRANDS, item, mode,
                             {(isLoadingAuxiliaryOptions && AUXILIARY_OPTION_FIELDS.has(field)) || auxiliaryOptionsByField.has(field) ? (
                               <AuxiliaryAttributeSelect
                                 id={`product-form-${field}`}
+                                label={getProductFieldLabel(field, values.brand)}
                                 value={values[field as keyof ProductFormValues] as string}
                                 disabled={isLoadingAuxiliaryOptions}
                                 options={auxiliaryOptionsByField.get(field) ?? []}
                                 onChange={(nextValue) => handleFieldChange(field as keyof ProductFormValues, nextValue)}
                               />
                             ) : field === "season_category" ? (
-                              <Select
+                              <ProductOptionSelect
                                 id={`product-form-${field}`}
+                                label={getProductFieldLabel(field, values.brand)}
                                 value={values[field as keyof ProductFormValues] as string}
-                                onChange={(event) => handleFieldChange(field as keyof ProductFormValues, event.target.value)}
-                                autoComplete="off"
-                              >
-                                <option value="">请选择</option>
-                                {SEASON_OPTIONS.map((opt) => (
-                                  <option key={opt} value={opt}>{opt}</option>
-                                ))}
-                              </Select>
+                                options={SEASON_OPTIONS.map((option) => ({ value: option, label: option }))}
+                                onValueChange={(nextValue) => handleFieldChange(field as keyof ProductFormValues, nextValue)}
+                                placeholder="请选择季节"
+                              />
                             ) : field === "barcode_build_rule" ? (
-                              <Select
+                              <ProductOptionSelect
                                 id={`product-form-${field}`}
+                                label={getProductFieldLabel(field, values.brand)}
                                 value={values.barcode_build_rule}
-                                onChange={(event) => handleFieldChange("barcode_build_rule", event.target.value)}
-                                autoComplete="off"
-                              >
-                                <option value="">请选择</option>
-                                {BARCODE_BUILD_RULE_OPTIONS.map((option) => (
-                                  <option key={option} value={option}>{option}</option>
-                                ))}
-                              </Select>
+                                options={BARCODE_BUILD_RULE_OPTIONS.map((option) => ({ value: option, label: option }))}
+                                onValueChange={(nextValue) => handleFieldChange("barcode_build_rule", nextValue)}
+                                placeholder="请选择条码构成逻辑"
+                              />
                             ) : field === "size_range" ? (
-                              <Select
+                              <SizeGroupSelect
                                 id={`product-form-${field}`}
                                 value={values.size_range}
+                                groups={sizeGroups}
                                 disabled={isLoadingSizeGroups}
-                                onChange={(event) => handleFieldChange("size_range", event.target.value)}
-                                autoComplete="off"
-                              >
-                                <option value="">{isLoadingSizeGroups ? "尺码组加载中..." : "请选择尺码组"}</option>
-                                {values.size_range && !sizeGroups.some((group) => group.name === values.size_range) ? (
-                                  <option value={values.size_range}>{values.size_range}</option>
-                                ) : null}
-                                {sizeGroups.map((group) => (
-                                  <option key={group.id} value={group.name}>{group.name}</option>
-                                ))}
-                              </Select>
+                                onValueChange={(nextValue) => handleFieldChange("size_range", nextValue)}
+                              />
                             ) : field === "supplier_name" ? (
                               <SupplierSearchSelect
                                 id={`product-form-${field}`}
@@ -1000,7 +681,7 @@ export function ProductFormDialog({ brands = PRODUCT_ARCHIVE_BRANDS, item, mode,
                                 onChange={(nextValue) => handleFieldChange("supplier_name", nextValue)}
                               />
                             ) : field === "first_order_time" || field === "launch_date" ? (
-<DatePicker
+                              <DatePicker
                                 id={`product-form-${field}`}
                                 value={values[field as keyof ProductFormValues] as string}
                                 onValueChange={(nextDate) => handleFieldChange(field as keyof ProductFormValues, nextDate)}

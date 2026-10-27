@@ -21,3 +21,6 @@ frontend/.env.local
 backend/logs/
 backend/.image_refresh_status.json
 backend/.us3_image_sync_manifest.json
+
+# Generated outputs
+/outputs/

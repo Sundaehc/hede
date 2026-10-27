@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react"
+import { render, screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
@@ -279,7 +279,8 @@ describe("ProductFormDialog", () => {
 
     render(<ProductFormDialog open mode="edit" item={sampleItem} onOpenChange={vi.fn()} onSaved={vi.fn()} />)
 
-    await user.selectOptions(screen.getByLabelText("条码构成逻辑"), "货号+颜色代码+尺码")
+    await user.click(screen.getByLabelText("条码构成逻辑"))
+    await user.click(screen.getByRole("option", { name: "货号+颜色代码+尺码" }))
     await user.click(screen.getByRole("button", { name: "保存" }))
 
     await waitFor(() => {
@@ -303,6 +304,42 @@ describe("ProductFormDialog", () => {
     await waitFor(() => {
       expect(screen.getByLabelText("颜色代码")).toHaveValue("01 - 黑色")
     })
+  })
+
+  it("uses a compact searchable size selector in the product editor and saves its name", async () => {
+    const user = userEvent.setup()
+    mockListSizeGroups.mockResolvedValue({ items: [
+      { id: 1, name: "女鞋尺码组220-250", product_count: 0, items: [{ id: 1, size_name: "220", barcode: "220", sort_order: 0 }] },
+      { id: 2, name: "男鞋尺码组240-270", product_count: 0, items: [{ id: 2, size_name: "240", barcode: "240", sort_order: 0 }] },
+    ] })
+    render(<ProductFormDialog open mode="edit" item={{ ...sampleItem, size_range: "男鞋尺码组240-270" }} onOpenChange={vi.fn()} onSaved={vi.fn()} />)
+    const trigger = screen.getByLabelText("尺码段")
+    await waitFor(() => expect(trigger).toBeEnabled())
+    expect(trigger.tagName).toBe("BUTTON")
+    await user.click(trigger)
+    const panel = screen.getByRole("dialog", { name: "选择尺码段" })
+    expect(panel.closest('[data-slot="dialog-content"]')).toBe(screen.getByRole("dialog", { name: "编辑商品" }))
+    expect(within(panel).getByRole("option", { name: "男鞋尺码组240-270 1 码" })).toHaveAttribute("aria-selected", "true")
+    await user.type(screen.getByRole("combobox", { name: "搜索尺码段" }), "220")
+    await user.click(screen.getByRole("option", { name: "女鞋尺码组220-250 1 码" }))
+    expect(trigger).toHaveTextContent("女鞋尺码组220-250")
+    await user.click(screen.getByRole("button", { name: "保存" }))
+    await waitFor(() => expect(mockUpdateProduct).toHaveBeenCalledWith("cbanner_mens", 7, expect.objectContaining({ size_range: "女鞋尺码组220-250" })))
+  })
+
+  it("keeps saved size names and season unchanged when dismissing dropdowns", async () => {
+    const user = userEvent.setup()
+    const onOpenChange = vi.fn()
+    render(<ProductFormDialog open mode="edit" item={{ ...sampleItem, size_range: "历史尺码组" }} onOpenChange={onOpenChange} onSaved={vi.fn()} />)
+    const trigger = screen.getByLabelText("尺码段")
+    await waitFor(() => expect(trigger).toBeEnabled())
+    await user.click(trigger)
+    await user.keyboard("{Escape}")
+    expect(trigger).toHaveTextContent("历史尺码组")
+    await user.click(screen.getByLabelText("季节分类"))
+    await user.click(screen.getByRole("option", { name: "冬季" }))
+    expect(screen.getByLabelText("季节分类")).toHaveValue("冬季")
+    expect(onOpenChange).not.toHaveBeenCalled()
   })
 
   it.each([null, "NS-MANUAL"])("does not match NS color codes when editing with saved code %s", async (colorCode) => {

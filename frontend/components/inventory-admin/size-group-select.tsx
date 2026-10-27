@@ -106,7 +106,7 @@ export function SizeGroupSelect({ id, value, groups, onValueChange, disabled = f
           onOpenAutoFocus={(event) => {
             event.preventDefault()
             inputRef.current?.focus()
-            scrollToOption(activeIndex)
+            requestAnimationFrame(() => scrollToOption(activeIndex))
           }}
           onEscapeKeyDown={(event) => {
             event.preventDefault()
