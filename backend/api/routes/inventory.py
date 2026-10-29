@@ -3064,6 +3064,7 @@ def _load_purchase_product_lookup(connection, brand: str, product_codes: set[str
                 product_table.c.sku.in_(codes),
                 product_table.c.original_sku.in_(codes),
             ))
+            .where(product_table.c.deleted_at.is_(None))
             .order_by(desc(product_table.c.updated_at), desc(product_table.c.id))
         ).mappings():
             for code_key in ("sku", "original_sku"):
@@ -3625,6 +3626,54 @@ def _apply_product_archive_cost(repository, record: dict[str, object], payload: 
     return normalized
 
 
+def _validate_inventory_import_product_codes(
+    rows: list[dict[str, object]],
+    brand: str,
+    product_lookup: dict[str, dict[str, object]],
+    size_group_items_by_range: dict[str, tuple[tuple[str, str], ...]],
+) -> None:
+    unmatched: dict[str, None] = {}
+    for row in rows:
+        raw_code = _cell_text(row.get("raw_code") or row.get("product_code"))
+        product_info = _matched_purchase_product_info(product_lookup, brand, raw_code)
+        archive_codes = {
+            _cell_text(product_info.get("_archive_sku")),
+            _cell_text(product_info.get("_archive_original_sku")),
+        } - {""}
+        if product_info.get("_archive_matched") and (
+            raw_code in archive_codes
+            or _purchase_product_code_matches_archive(
+                product_info, raw_code, brand,
+                size_group_items_by_range.get(_cell_text(product_info.get("size_range")), ()),
+            )
+        ):
+            continue
+        unmatched[raw_code] = None
+    if unmatched:
+        codes = "、".join(list(unmatched)[:20])
+        if len(unmatched) > 20:
+            codes += f"等 {len(unmatched)} 个商品编码"
+        raise HTTPException(
+            status_code=400,
+            detail=f"以下商品编码未匹配到商品信息档案：{codes}。请联系商品部维护商品信息档案后再导入；本次未导入任何数据。",
+        )
+
+
+def _validate_inventory_import_products(repository, rows: list[dict[str, object]], brand: str) -> None:
+    if not rows:
+        return
+    with repository.engine.connect() as connection:
+        product_lookup = _load_purchase_product_lookup(
+            connection, brand, {_cell_text(row.get("product_code")) for row in rows},
+        )
+        size_groups = _load_purchase_size_group_items(connection, {
+            _cell_text(item.get("size_range"))
+            for item in product_lookup.values()
+            if _cell_text(item.get("size_range"))
+        })
+    _validate_inventory_import_product_codes(rows, brand, product_lookup, size_groups)
+
+
 def _build_purchase_details_from_rows(
     repository,
     rows: list[dict[str, object]],
@@ -3633,6 +3682,7 @@ def _build_purchase_details_from_rows(
     fallback_unit_price: Decimal,
     prefer_lookup_unit_price: bool = False,
     require_archive_product_code: bool = False,
+    require_archive_product: bool = False,
     preserve_explicit_zero_price: bool = False,
     wholesale_customer: str = "",
     wholesale_price_date: object | None = None,
@@ -3700,6 +3750,9 @@ def _build_purchase_details_from_rows(
             if _cell_text(product_info.get("size_range"))
         }
         size_group_items_by_range = _load_purchase_size_group_items(connection, size_ranges)
+
+    if require_archive_product:
+        _validate_inventory_import_product_codes(parsed_rows, brand, product_lookup, size_group_items_by_range)
 
     use_wholesale_price_history = bool(_cell_text(wholesale_customer))
     wholesale_price_candidates = {
@@ -4005,6 +4058,7 @@ def _build_purchase_details_from_excel(
         brand=brand,
         fallback_unit_price=fallback_unit_price,
         prefer_lookup_unit_price=prefer_lookup_unit_price,
+        require_archive_product=purchase_order_supplier is None,
         preserve_explicit_zero_price=preserve_explicit_zero_price,
         wholesale_customer=wholesale_customer,
         wholesale_price_date=wholesale_price_date,
@@ -4778,6 +4832,7 @@ def _preview_inventory_template(request: Request, content: bytes):
     brand_by_key: dict[str, str] = {}
     brand_sources: dict[str, str] = {}
     unresolved_brand_keys: list[str] = []
+    product_rows_by_brand: dict[str, list[dict[str, object]]] = defaultdict(list)
     if kind != "accounting":
         repository = request.app.state.inventory_repository
         for document in documents:
@@ -4789,8 +4844,11 @@ def _preview_inventory_template(request: Request, content: bytes):
             if inferred_brand:
                 brand_by_key[document.key] = inferred_brand
                 brand_sources[document.key] = source
+                product_rows_by_brand[inferred_brand].extend(document.rows)
             else:
                 unresolved_brand_keys.append(document.key)
+        for inferred_brand, rows in product_rows_by_brand.items():
+            _validate_inventory_import_products(repository, rows, inferred_brand)
     return {
         "kind": kind,
         "brand_by_key": brand_by_key,
@@ -4887,6 +4945,7 @@ def _import_inventory_template(request: Request, filename: str | None, form: Map
                 document.rows,
                 brand=document_brand,
                 fallback_unit_price=Decimal("0"),
+                require_archive_product=True,
                 wholesale_customer=document.supplier if kind in {"sale", "sale_return"} else "",
                 wholesale_price_date=document.date if kind in {"sale", "sale_return"} else None,
                 document_date=document.date,
@@ -5074,6 +5133,9 @@ def _import_purchase_inventory(request: Request, filename: str | None, form: Map
             plan["existing_record"] = None
         plan["decision"] = action
     if preview_only:
+        if not is_purchase_order_import:
+            for plan in plans:
+                _validate_inventory_import_products(repository, plan["rows"], str(plan["brand"]))
         return preview
     skipped_docs = sum(plan["decision"] == "skip" for plan in plans)
     plans = [plan for plan in plans if plan["decision"] != "skip"]
@@ -5102,6 +5164,7 @@ def _import_purchase_inventory(request: Request, filename: str | None, form: Map
             fallback_unit_price=fallback_unit_price,
             prefer_lookup_unit_price=not is_wholesale_import,
             require_archive_product_code=is_purchase_order_import,
+            require_archive_product=not is_purchase_order_import,
             preserve_explicit_zero_price=bool(plan["preserve_explicit_zero_price"]),
             wholesale_customer=_cell_text(plan["supplier"]) if is_wholesale_import else "",
             wholesale_price_date=plan["date"] if is_wholesale_import else None,
@@ -6762,6 +6825,7 @@ def _import_inventory(request: Request, filename: str | None, content: bytes):
     groups: dict[tuple[str, str, str, str] | tuple[str, int], list[dict]] = {}
     group_order: list[tuple[str, str, str, str] | tuple[str, int]] = []  # preserve insertion order
     purchase_order_rows: list[dict[str, object]] = []
+    product_rows_by_brand: dict[str, list[dict[str, object]]] = defaultdict(list)
 
     for row_number, row in enumerate(iterator, start=2):
         row_dict = {}
@@ -6843,6 +6907,8 @@ def _import_inventory(request: Request, filename: str | None, content: bytes):
                 "",
                 _cell_text(doc_payload.get("warehouse")),
             )
+            if doc_type not in ACCOUNTING_DOCUMENT_TYPES and doc_type != "进货订单":
+                product_rows_by_brand[imported_brand].append({"product_code": product_code})
             with repository.engine.connect() as connection:
                 lookup = _build_purchase_detail_lookup(
                     connection,
@@ -6945,6 +7011,8 @@ def _import_inventory(request: Request, filename: str | None, content: bytes):
     wb.close()
 
     _validate_purchase_order_import_suppliers(repository, purchase_order_rows)
+    for imported_brand, product_rows in product_rows_by_brand.items():
+        _validate_inventory_import_products(repository, product_rows, imported_brand)
 
     # Phase 2: Create documents with details grouped by the append key.
     new_suppliers: set[str] = set()

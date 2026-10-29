@@ -26,4 +26,7 @@ backend/.us3_image_sync_manifest.json
 /outputs/
 scripts/
 tests/
+!backend/tests/
+backend/tests/*
+!backend/tests/test_inventory_import_product_validation.py
 tmp/

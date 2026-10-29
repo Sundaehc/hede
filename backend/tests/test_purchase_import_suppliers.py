@@ -74,6 +74,7 @@ def detail_builder(monkeypatch):
     }])
     monkeypatch.setattr(inventory_routes, "_build_purchase_details_from_rows", builder)
     monkeypatch.setattr(inventory_routes, "_build_purchase_detail_lookup", lambda *_args: {})
+    monkeypatch.setattr(inventory_routes, "_validate_inventory_import_products", Mock())
     monkeypatch.setattr(inventory_routes, "write_operation_log", lambda *_args, **_kwargs: None)
     return builder
 
