@@ -812,7 +812,7 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
     date_start: submittedFilters.date_start || undefined,
     date_end: submittedFilters.date_end || undefined,
     suppliers: submittedFilters.suppliers,
-    brands: isPurchaseOrderTab ? undefined : submittedFilters.brands,
+    brands: submittedFilters.brands,
     warehouses: isPurchaseOrderTab ? undefined : submittedFilters.warehouses,
     document_types: isPurchaseOrderTab ? undefined : submittedFilters.document_types,
     document_type: isPurchaseOrderTab ? PURCHASE_ORDER_DOCUMENT_TYPE : undefined,
@@ -1772,7 +1772,7 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
         date_start: submittedFilters.date_start || undefined,
         date_end: submittedFilters.date_end || undefined,
         suppliers: submittedFilters.suppliers as string[] | undefined,
-        brands: isPurchaseOrderTab ? undefined : (submittedFilters.brands as string[] | undefined),
+        brands: submittedFilters.brands,
         warehouses: isPurchaseOrderTab ? undefined : (submittedFilters.warehouses as string[] | undefined),
         document_types: isPurchaseOrderTab ? undefined : (submittedFilters.document_types as string[] | undefined),
         document_type: isPurchaseOrderTab ? PURCHASE_ORDER_DOCUMENT_TYPE : undefined,
@@ -1804,7 +1804,7 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
     setSubmittedFilters({
       date_start: searchDateStart,
       date_end: searchDateEnd,
-      brands: isPurchaseOrderTab ? [] : searchBrands,
+      brands: searchBrands,
       suppliers: searchSuppliers,
       warehouses: isPurchaseOrderTab ? [] : searchWarehouses,
       document_types: isPurchaseOrderTab ? [] : searchDocumentTypes,
@@ -2212,19 +2212,17 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
                 </div>
               </div>
               <div className="grid gap-x-4 gap-y-3 p-4 sm:grid-cols-2 sm:px-5 lg:grid-cols-3 xl:grid-cols-5">
-                {!isPurchaseOrderTab && (
-                  <div className="min-w-0 space-y-1.5">
-                    <Label htmlFor="inventory-brand-filter" className="text-xs text-muted-foreground">品牌</Label>
-                    <SearchableMultiFilterInput
-                      id="inventory-brand-filter"
-                      values={searchBrands}
-                      options={inventoryBrandOptions}
-                      onChange={setSearchBrands}
-                      onSubmit={search}
-                      placeholder="选择品牌"
-                    />
-                  </div>
-                )}
+                <div className="min-w-0 space-y-1.5">
+                  <Label htmlFor="inventory-brand-filter" className="text-xs text-muted-foreground">品牌</Label>
+                  <SearchableMultiFilterInput
+                    id="inventory-brand-filter"
+                    values={searchBrands}
+                    options={inventoryBrandOptions}
+                    onChange={setSearchBrands}
+                    onSubmit={search}
+                    placeholder="选择品牌"
+                  />
+                </div>
                 {!isPurchaseOrderTab && (
                   <div className="min-w-0 space-y-1.5">
                     <Label htmlFor="inventory-document-type-filter" className="text-xs text-muted-foreground">单据类型</Label>

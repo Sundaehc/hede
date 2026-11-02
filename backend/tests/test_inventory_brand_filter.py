@@ -146,6 +146,34 @@ def test_brand_filter_still_intersects_explicit_warehouse_and_document_filters(b
     assert {item["id"] for item in multiple["items"]} == {1, 2, 3, 4, 5, 7, 8, 15, 16, 17}
 
 
+@pytest.mark.parametrize("brands,expected_ids", [
+    (["yandou"], {30, 31}), (["custom"], {32}), (["烟斗", "custom"], {30, 31, 32}),
+])
+def test_purchase_order_brands_filter_lists_totals_and_selection(brand_repository, brands, expected_ids):
+    with brand_repository.engine.begin() as connection:
+        connection.execute(INVENTORY_TABLE.insert(), [
+            {
+                "id": record_id, "document_number": f"PO-{record_id}", "document_type": "进货订单",
+                "supplier": supplier, "warehouse": warehouse, "date": "2026-11-02",
+                "date_value": date(2026, 11, 2), "total_count": 2, "amount": 20,
+            }
+            for record_id, supplier, warehouse in (
+                (30, "烟斗供应商", ""), (31, "未知", "烟斗总仓"),
+                (32, "自定义供应商", ""), (33, "女鞋供应商", ""),
+            )
+        ])
+    filters = {"brands": brands, "document_type": "进货订单"}
+    first = brand_repository.list_records(**filters, page=1, page_size=1)
+    last = brand_repository.list_records(**filters, page=len(expected_ids), page_size=1)
+    assert first["total"] == last["total"] == len(expected_ids)
+    assert first["totals"]["all"] == last["totals"]["all"] == {
+        "total_count": str(2 * len(expected_ids)), "amount": str(20 * len(expected_ids)),
+    }
+    assert first["items"][0]["id"] == max(expected_ids)
+    assert last["items"][0]["id"] == min(expected_ids)
+    assert set(brand_repository.list_record_ids(**filters)) == expected_ids
+
+
 def test_brand_options_merge_all_master_data_without_duplicate_aliases(brand_repository):
     options = brand_repository.list_inventory_brand_options()
     assert {item["value"] for item in options} == {

@@ -4,8 +4,9 @@ import { afterEach, beforeEach, expect, test, vi } from "vitest"
 
 import { InventoryPage } from "@/components/inventory-admin/inventory-page"
 
-const { mockListInventory, mockCustomerShops, mockCustomerUnits, mockCustomerBrands, mockInventoryBrands, mockProductCandidates, mockAccountSubjects, mockCreateRecord, mockCreateDetail, mockSuppliers } = vi.hoisted(() => ({
+const { mockListInventory, mockListSelectionIds, mockCustomerShops, mockCustomerUnits, mockCustomerBrands, mockInventoryBrands, mockProductCandidates, mockAccountSubjects, mockCreateRecord, mockCreateDetail, mockSuppliers } = vi.hoisted(() => ({
   mockListInventory: vi.fn(), mockCustomerShops: vi.fn(),
+  mockListSelectionIds: vi.fn(),
   mockCustomerUnits: vi.fn(), mockCustomerBrands: vi.fn(),
   mockInventoryBrands: vi.fn(),
   mockProductCandidates: vi.fn(),
@@ -30,6 +31,7 @@ vi.mock("@/components/operation-log-dialog", () => ({
 vi.mock("@/lib/api", async () => ({
   ...(await vi.importActual<typeof import("@/lib/api")>("@/lib/api")),
   listInventory: mockListInventory,
+  listInventorySelectionIds: mockListSelectionIds,
   listInventoryBrands: mockInventoryBrands,
   listInventoryDetailCandidates: mockProductCandidates,
   listSuppliers: mockSuppliers,
@@ -54,6 +56,7 @@ beforeEach(() => {
   mockProductCandidates.mockResolvedValue({ items: [] })
   mockAccountSubjects.mockResolvedValue({ items: [] })
   mockSuppliers.mockResolvedValue({ items: [] })
+  mockListSelectionIds.mockResolvedValue({ ids: [1, 2, 30], total: 3 })
   window.localStorage.clear()
   downloadUrls = []
   vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(function (this: HTMLAnchorElement) {
@@ -130,7 +133,7 @@ test("keeps the shared purchase filters in purchase mode", async () => {
   expect(filters.getByRole("combobox", { name: "客户/供应商" })).toBeInTheDocument()
   expect(filters.getByRole("textbox", { name: "单据编号" })).toBeInTheDocument()
   expect(filters.getByRole("textbox", { name: "货号" })).toBeInTheDocument()
-  expect(filters.queryByRole("combobox", { name: "品牌" })).not.toBeInTheDocument()
+  expect(filters.getByRole("combobox", { name: "品牌" })).toBeInTheDocument()
   expect(filters.getByRole("button", { name: "清空" })).toBeDisabled()
 })
 
@@ -297,23 +300,81 @@ test("creates a record with an accounting subject from the searchable grouped dr
   await waitFor(() => expect(screen.queryByRole("dialog", { name: "新增经营历程" })).not.toBeInTheDocument())
 })
 
-test("searches and exports using unified supplier and customer brand options without warehouses", async () => {
+test.each(["inventory", "purchase-orders"] as const)("searches and exports using unified brand options in %s without warehouses", async (mode) => {
   mockInventoryBrands.mockResolvedValue({ items: [
     { value: "yandou", label: "烟斗" },
     { value: "custom", label: "自定义品牌" },
   ] })
   const user = userEvent.setup()
-  render(<InventoryPage />)
+  render(<InventoryPage mode={mode} />)
   await screen.findByText("EXPORT-0001")
   await user.click(screen.getByPlaceholderText("选择品牌"))
   await user.click(await screen.findByRole("button", { name: "烟斗" }))
   await user.click(await screen.findByRole("button", { name: "自定义品牌" }))
   await user.click(screen.getByRole("button", { name: "搜索" }))
   await waitFor(() => expect(mockListInventory).toHaveBeenLastCalledWith(expect.objectContaining({
-    brands: ["yandou", "custom"], completion_status: "completed",
+    brands: ["yandou", "custom"],
+    completion_status: mode === "inventory" ? "completed" : undefined,
+    document_type: mode === "purchase-orders" ? "进货订单" : undefined,
   })))
-  await user.click(screen.getByRole("button", { name: "导出Excel" }))
-  expect(new URL(downloadUrls[0]).searchParams.getAll("brands")).toEqual(["yandou", "custom"])
+  for (const name of mode === "purchase-orders" ? ["汇总导出", "尺码明细导出", "生产采购单导出"] : ["导出Excel"]) {
+    await user.click(screen.getByRole("button", { name }))
+    expect(new URL(downloadUrls.at(-1)!).searchParams.getAll("brands")).toEqual(["yandou", "custom"])
+  }
+})
+
+test("preserves applied purchase brands across paging, detail views, selection and return, then clears them", async () => {
+  mockInventoryBrands.mockResolvedValue({ items: [
+    { value: "yandou", label: "烟斗" },
+    { value: "custom", label: "自定义品牌" },
+  ] })
+  const user = userEvent.setup()
+  const first = render(<InventoryPage mode="purchase-orders" />)
+  await screen.findByText("EXPORT-0001")
+  await user.click(screen.getByRole("combobox", { name: "品牌" }))
+  await user.click(await screen.findByRole("button", { name: "烟斗" }))
+  await user.type(screen.getByRole("textbox", { name: "货号" }), "SKU-01")
+  await user.click(screen.getByRole("button", { name: "搜索" }))
+  await waitFor(() => expect(mockListInventory).toHaveBeenLastCalledWith(expect.objectContaining({
+    brands: ["yandou"], document_type: "进货订单", product_code: "SKU-01", page: 1,
+    purchaseDetailMode: "summary",
+  })))
+  await user.click(screen.getByText("下一页"))
+  await waitFor(() => expect(mockListInventory).toHaveBeenLastCalledWith(expect.objectContaining({ brands: ["yandou"], page: 2 })))
+  await user.click(screen.getByRole("button", { name: "按尺码" }))
+  await waitFor(() => expect(mockListInventory).toHaveBeenLastCalledWith(expect.objectContaining({
+    brands: ["yandou"], page: 1, purchaseDetailMode: "size_rows",
+  })))
+  const requestCount = mockListInventory.mock.calls.length
+  await user.click(screen.getByRole("combobox", { name: "品牌" }))
+  await user.click(await screen.findByRole("button", { name: "自定义品牌" }))
+  expect(mockListInventory).toHaveBeenCalledTimes(requestCount)
+  await user.click(screen.getByRole("button", { name: "全选筛选结果" }))
+  await waitFor(() => expect(mockListSelectionIds).toHaveBeenCalledWith(expect.objectContaining({
+    brands: ["yandou"], document_type: "进货订单", product_code: "SKU-01",
+  })))
+  await user.click(screen.getByRole("button", { name: "取消选择" }))
+  for (const name of ["汇总导出", "尺码明细导出", "生产采购单导出"]) {
+    await user.click(screen.getByRole("button", { name }))
+    expect(new URL(downloadUrls.at(-1)!).searchParams.getAll("brands")).toEqual(["yandou"])
+  }
+
+  first.unmount()
+  const inventory = render(<InventoryPage />)
+  await screen.findByText("EXPORT-0001")
+  await waitFor(() => expect(mockListInventory).toHaveBeenLastCalledWith(expect.objectContaining({ brands: undefined })))
+  expect(screen.queryByRole("button", { name: "移除 烟斗" })).not.toBeInTheDocument()
+  inventory.unmount()
+  render(<InventoryPage mode="purchase-orders" />)
+  await screen.findByText("EXPORT-0001")
+  await waitFor(() => expect(mockListInventory).toHaveBeenLastCalledWith(expect.objectContaining({ brands: ["yandou"] })))
+  expect(screen.getByRole("button", { name: "移除 自定义品牌" })).toBeInTheDocument()
+  await user.click(screen.getByRole("button", { name: "清空" }))
+  await waitFor(() => expect(mockListInventory).toHaveBeenLastCalledWith(expect.objectContaining({
+    brands: undefined, document_type: "进货订单", page: 1,
+  })))
+  expect(screen.queryByRole("button", { name: "移除 烟斗" })).not.toBeInTheDocument()
+  expect(screen.queryByRole("status")).not.toBeInTheDocument()
 })
 
 test.each(["inventory", "purchase-orders"] as const)("shows new supplier brand names rather than internal codes in %s creation and import controls", async (mode) => {

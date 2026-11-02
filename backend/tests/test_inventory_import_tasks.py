@@ -171,11 +171,19 @@ def test_operation_log_failure_does_not_turn_committed_import_into_http_500(monk
     assert result["created"] == 1
 
 
-def test_unmatched_product_failure_is_persisted_with_contact_product_department(setup_tasks, monkeypatch):
+def test_unmatched_product_succeeds_in_background_import(setup_tasks, monkeypatch):
     engine, app, request, tasks = setup_tasks
     repository = Mock(spec=InventoryRepository)
     repository.engine = engine
     repository.preview_template_documents.return_value = {"conflicts": []}
+    repository.latest_document_costs.return_value = {}
+
+    def import_documents(_plans, *, task_id):
+        result = {"created": 1, "replaced": 0, "skipped": 0, "details": 1}
+        finish(engine, task_id, result)
+        return result
+
+    repository.import_template_documents.side_effect = import_documents
     app.state.inventory_repository = repository
     document = TemplateDocument("one", "2026-10-29", "进货单", "供应商", "仓库", "测试", "测试", [
         {"product_code": "UNKNOWN", "quantity": "1"},
@@ -189,12 +197,12 @@ def test_unmatched_product_failure_is_persisted_with_contact_product_department(
     task_id = "f" * 32
     submit_inventory_import(request, task_id, "test.xlsx", {}, b"data", routes._import_inventory_template)
     row = wait_terminal(tasks, task_id)
-    assert row["status"] == "failed"
-    assert row["error_status"] == 400
-    assert "UNKNOWN" in row["error"]
-    assert "请联系商品部" in row["error"]
-    assert "本次未导入任何数据" in row["error"]
-    repository.import_template_documents.assert_not_called()
+    assert row["status"] == "succeeded"
+    assert row["result"]["details"] == 1
+    repository.import_template_documents.assert_called_once()
+    detail = repository.import_template_documents.call_args.args[0][0]["details"][0]
+    assert detail["product_code"] == "UNKNOWN"
+    assert detail["product_identity_id"] is None
 
 
 def test_task_endpoint_returns_202_and_status_does_not_cache(setup_tasks, monkeypatch):

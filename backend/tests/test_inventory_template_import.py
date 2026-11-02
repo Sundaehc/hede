@@ -277,16 +277,13 @@ def test_stock_adjustment_template_preview_needs_warehouse_but_no_supplier(kind,
     repository.get_warehouse_by_name.return_value = {"name": "NI仙岩仓库", "brand": "ni"}
     repository.preview_template_documents.return_value = {"total": 1, "conflicts": []}
     request = SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace(inventory_repository=repository)))
-    validate_products = Mock()
-    monkeypatch.setattr(inventory_routes, "_validate_inventory_import_products", validate_products)
-
     preview = asyncio.run(inventory_routes.preview_inventory_template(
         request, UploadFile(filename="调整.xlsx", file=BytesIO(content)),
     ))
     assert preview["kind"] == kind
     assert preview["brand_by_key"]
     repository.list_suppliers.assert_not_called()
-    assert validate_products.call_args.args[2] == "ni"
+    assert set(preview["brand_by_key"].values()) == {"ni"}
 
     repository.list_warehouses.return_value = []
     with pytest.raises(HTTPException, match="仓库"):

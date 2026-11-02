@@ -1,5 +1,6 @@
 from dataclasses import replace
-from datetime import datetime
+from datetime import date, datetime
+from decimal import Decimal
 from io import BytesIO
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
@@ -18,6 +19,7 @@ from domain.inventory_template_import import TEMPLATE_HEADERS, read_template_doc
 from domain.product_archive_identity_schema import PRODUCT_ARCHIVE_IDENTITY_TABLE
 from domain.schema import PRODUCT_ARCHIVE_TABLES
 from domain.size_group_schema import SIZE_GROUP_ITEMS_TABLE, SIZE_GROUPS_TABLE
+from domain.smiley_schema import SMILEY_FINE_TABLE
 from domain.vip_schema import JST_PRICE_TABLE
 from storage.inventory_repository import InventoryRepository
 
@@ -107,6 +109,8 @@ def context(monkeypatch):
     repository.list_account_subjects.return_value = [{"name": "包装费"}]
     repository.preview_template_documents.return_value = {"total": 1, "conflicts": []}
     repository.get_record_for_append.return_value = None
+    repository.create_record.side_effect = lambda payload: {"id": 1, **payload}
+    repository.merge_imported_details.return_value = {"added": 2, "updated": 0}
     repository.latest_document_costs.return_value = {}
     repository.latest_wholesale_sales_prices.return_value = {}
     repository.get_record.return_value = {
@@ -133,28 +137,29 @@ def assert_no_writes(repository):
 
 
 @pytest.mark.parametrize("code", ["UNKNOWN", "ERPONLY", "PRICEONLY", "DELETED", "OTHERBRAND", SKU + "99", SKU + "JUNK"])
-def test_unmatched_product_blocks_whole_template_and_names_product_department(context, code):
+def test_unmatched_product_no_longer_blocks_template_import(context, code):
     repository, request = context
-    with pytest.raises(HTTPException) as error:
-        routes._import_inventory_template(request, "导入.xlsx", {}, template(codes=(SKU, code)))
-    assert error.value.status_code == 400
-    assert code in error.value.detail
-    assert "请联系商品部" in error.value.detail
-    assert "本次未导入任何数据" in error.value.detail
-    assert_no_writes(repository)
+    result = routes._import_inventory_template(request, "导入.xlsx", {}, template(codes=(SKU, code)))
+    assert result["created"] == 1
+    details = repository.import_template_documents.call_args.args[0][0]["details"]
+    assert sum(Decimal(detail["quantity"]) for detail in details) == 2
+    if code in {"UNKNOWN", "ERPONLY", "PRICEONLY", "DELETED", "OTHERBRAND"}:
+        unmatched = next(detail for detail in details if detail["product_code"] == code)
+        assert unmatched["product_identity_id"] is None
 
 
 @pytest.mark.parametrize("kind", ["purchase", "purchase_return", "sale", "sale_return", "stock_loss", "stock_gain", "transfer"])
-def test_all_goods_templates_validate_on_preview_and_submit(context, kind):
+def test_all_goods_templates_allow_unmatched_products_on_preview_and_submit(context, kind):
     repository, request = context
     content = template(kind, codes=("UNKNOWN",))
-    for run in (
-        lambda: routes._preview_inventory_template(request, content),
-        lambda: routes._import_inventory_template(request, "导入.xlsx", {}, content),
-    ):
-        with pytest.raises(HTTPException, match="请联系商品部"):
-            run()
-        assert_no_writes(repository)
+    # Preview still checks master data and brands, but needs no product queries.
+    with patch.object(repository.engine, "connect", side_effect=AssertionError("preview queried products")):
+        assert routes._preview_inventory_template(request, content)["total"] == 1
+    assert_no_writes(repository)
+    assert routes._import_inventory_template(request, "导入.xlsx", {}, content)["created"] == 1
+    detail = repository.import_template_documents.call_args.args[0][0]["details"][0]
+    assert detail["product_code"] == "UNKNOWN"
+    assert detail["product_identity_id"] is None
 
 
 @pytest.mark.parametrize("code", [SKU, SKU + "39", SKU + "35-36", SKU + "45-46"])
@@ -168,7 +173,7 @@ def test_archive_sku_and_valid_size_codes_import_with_product_link(context, code
     assert detail["product_code"] == SKU
 
 
-def test_unresolved_brand_is_validated_when_fallback_brand_is_submitted(context):
+def test_unmatched_product_imports_when_fallback_brand_is_submitted(context):
     repository, request = context
     repository.get_supplier_by_name.return_value = None
     repository.get_warehouse_by_name.return_value = None
@@ -179,9 +184,10 @@ def test_unresolved_brand_is_validated_when_fallback_brand_is_submitted(context)
     repository.list_warehouses.return_value = [{"name": "普通仓库"}]
     with patch.object(routes, "read_template_documents", return_value=("purchase", "data", [document])):
         assert routes._preview_inventory_template(request, content)["unresolved_brand_keys"]
-        with pytest.raises(HTTPException, match="请联系商品部"):
-            routes._import_inventory_template(request, "导入.xlsx", {"brand": "ni"}, content)
-    assert_no_writes(repository)
+        assert routes._import_inventory_template(request, "导入.xlsx", {"brand": "ni"}, content)["created"] == 1
+    detail = repository.import_template_documents.call_args.args[0][0]["details"][0]
+    assert detail["product_code"] == "UNKNOWN"
+    assert detail["product_identity_id"] is None
 
 
 def test_cancelled_goods_document_does_not_block_valid_document(context):
@@ -211,25 +217,159 @@ def test_accounting_template_uses_subjects_without_product_validation(context):
 
 
 @pytest.mark.parametrize("entry", ["existing", "existing-preview", "reimport", "generic"])
-def test_other_import_entries_cannot_bypass_product_validation(context, entry):
+def test_other_inventory_import_entries_allow_unmatched_products(context, entry):
     repository, request = context
     content = workbook(["商品编码", "数量"], [[SKU + "39", 1], ["UNKNOWN", 1]])
     form = {
         "document_type": "进货单", "supplier": "单位A", "warehouse": "NI仓库",
         "handler": "测试", "summary": "测试", "brand": "ni", "date": "2026-10-29",
     }
-    with pytest.raises(HTTPException, match="请联系商品部"):
-        if entry.startswith("existing"):
-            if entry == "existing-preview":
-                form["preview"] = "true"
-            routes._import_purchase_inventory(request, "导入.xlsx", form, content)
-        elif entry == "reimport":
-            routes._reimport_inventory_details_from_excel(request, 1, "导入.xlsx", {}, content)
-        else:
-            content = workbook(
-                ["date", "document_type", "supplier", "warehouse", "summary", "product_code", "quantity"],
-                [["2026-10-29", "进货单", "单位A", "NI仓库", "有效", SKU, 1],
-                 ["2026-10-29", "进货单", "单位A", "NI仓库", "无效", "UNKNOWN", 1]],
-            )
-            routes._import_inventory(request, "导入.xlsx", content)
+    if entry.startswith("existing"):
+        if entry == "existing-preview":
+            form["preview"] = "true"
+        result = routes._import_purchase_inventory(request, "导入.xlsx", form, content)
+        if entry == "existing-preview":
+            assert result["total"] == 1
+            assert_no_writes(repository)
+            return
+        assert result["created"] == 1
+        details = repository.create_details.call_args.args[0]
+    elif entry == "reimport":
+        result = routes._reimport_inventory_details_from_excel(request, 1, "导入.xlsx", {}, content)
+        assert result["details"] == 2
+        details = repository.merge_imported_details.call_args.args[1]
+    else:
+        content = workbook(
+            ["date", "document_type", "supplier", "warehouse", "summary", "product_code", "quantity"],
+            [["2026-10-29", "进货单", "单位A", "NI仓库", "测试", SKU, 1],
+             ["2026-10-29", "进货单", "单位A", "NI仓库", "测试", "UNKNOWN", 1]],
+        )
+        result = routes._import_inventory(request, "导入.xlsx", content)
+        assert result["created"] == 1
+        assert result["details"] == 2
+        details = repository.create_details.call_args.args[0]
+    assert len(details) == 2
+    assert any(detail["product_code"] == "UNKNOWN" for detail in details)
+
+
+def test_purchase_order_keeps_existing_archive_code_validation(context):
+    repository, _request = context
+    with pytest.raises(HTTPException, match="不是由商品信息档案中的已有商品构成"):
+        routes._build_purchase_details_from_rows(
+            repository, [{"product_code": "UNKNOWN", "quantity": "1"}],
+            brand="ni", fallback_unit_price=Decimal("0"), require_archive_product_code=True,
+        )
     assert_no_writes(repository)
+
+
+def test_large_product_lookup_bounds_expanded_query_parameters(context):
+    repository, _request = context
+    product_codes = {f"BULK{index:05d}END39" for index in range(12500)} | {SKU + "39"}
+    expanded_codes = {
+        candidate
+        for code in product_codes
+        for candidate in routes._purchase_product_lookup_candidates(code, "ni")
+    }
+    # The previous two-column IN query exceeded PostgreSQL's parameter limit.
+    assert len(expanded_codes) * 2 > 65535
+    queries = []
+
+    def capture_query(_connection, _cursor, statement, parameters, _context, _executemany):
+        queries.append((statement, len(parameters)))
+
+    with repository.engine.connect() as connection:
+        event.listen(connection, "before_cursor_execute", capture_query)
+        lookup = routes._load_purchase_product_lookup(connection, "ni", product_codes)
+    assert set(lookup) == expanded_codes
+    assert lookup[SKU]["_archive_identity_id"] == 1
+    assert max(count for _statement, count in queries) <= 2 * routes.PURCHASE_PRODUCT_LOOKUP_BATCH_SIZE
+    batch_size = routes.PURCHASE_PRODUCT_LOOKUP_BATCH_SIZE
+    expected_batches = (len(expanded_codes) + batch_size - 1) // batch_size
+    for table in (
+        GJ_MERGED_PRODUCT_INFO_TABLE, JST_PRICE_TABLE,
+        PRODUCT_ARCHIVE_TABLES["ni"], PRODUCT_ARCHIVE_IDENTITY_TABLE,
+    ):
+        assert sum(f"FROM {table.name} " in statement for statement, _count in queries) == expected_batches
+    assert not lookup["BULK00000END39"].get("_archive_matched")
+    assert_no_writes(repository)
+
+
+@pytest.mark.parametrize("brand", ["ni", "smiley"])
+def test_product_lookup_batches_preserve_alias_order_prices_and_identity(context, monkeypatch, brand):
+    repository, _request = context
+    table = PRODUCT_ARCHIVE_TABLES[brand]
+    today = datetime(2026, 10, 29)
+    with repository.engine.begin() as connection:
+        if brand == "smiley":
+            connection.execute(CreateTable(table))
+            connection.execute(CreateTable(SMILEY_FINE_TABLE))
+        for product_id, sku, original_sku in (
+            (10, "AA-STYLE", "ZZ-ALIAS"), (11, "MM-SECOND", "MM-SECOND"),
+        ):
+            connection.execute(table.insert().values(
+                id=product_id, sku=sku, original_sku=original_sku,
+                source_workbook="test.xlsx", source_sheet="商品", source_row_number=str(product_id), raw_payload={},
+                color="黑色", color_code="01", barcode_build_rule="货号+尺码",
+                lining_material="档案内里", size_range="测试尺码", updated_at=today,
+            ))
+            connection.execute(PRODUCT_ARCHIVE_IDENTITY_TABLE.insert().values(
+                id=1000 + product_id, brand=brand, source_table=table.name,
+                source_product_id=product_id, sku=sku, original_sku=original_sku,
+                created_at=today, updated_at=today,
+            ))
+        for row_id, day, sku, original_sku, name in (
+            (10, 27, "ZZ-ALIAS", "AA-STYLE", "旧资料"),
+            (11, 28, "AA-STYLE", "ZZ-ALIAS", "货号最新资料"),
+            (12, 29, "QQ-ERP-ONLY", "ZZ-ALIAS", "别名最新资料"),
+        ):
+            connection.execute(GJ_MERGED_PRODUCT_INFO_TABLE.insert().values(
+                id=row_id, source_date=f"2026-10-{day}", source_date_value=date(2026, 10, day),
+                goods_code=sku, original_goods_code=original_sku, product_name=name,
+                updated_at=today,
+            ))
+        for row_id, sku, day, price in (
+            (10, "AA-STYLE", 28, "10"), (11, "AA-STYLE", 29, "20"),
+            (12, "ZZ-ALIAS", 28, "11"), (13, "ZZ-ALIAS", 29, "21"),
+        ):
+            connection.execute(JST_PRICE_TABLE.insert().values(
+                id=row_id, source_date=f"2026-10-{day}", source_date_value=date(2026, 10, day),
+                goods_code=sku, preset_price=price, updated_at=today,
+            ))
+        if brand == "smiley":
+            for row_id, day, sku, original_sku, material in (
+                (10, 27, "ZZ-ALIAS", "AA-STYLE", "旧鞋垫"),
+                (11, 28, "AA-STYLE", "ZZ-ALIAS", "货号最新鞋垫"),
+                (12, 29, "QQ-FINE-ONLY", "ZZ-ALIAS", "别名最新鞋垫"),
+                (13, 29, "MM-SECOND", "MM-SECOND", "第二商品鞋垫"),
+            ):
+                connection.execute(SMILEY_FINE_TABLE.insert().values(
+                    id=row_id, snapshot_date=date(2026, 10, day),
+                    source_workbook="test.xlsx", source_sheet="商品", source_row_number=row_id,
+                    sku=sku, original_sku=original_sku, insole_material=material, cost=Decimal("33.50"),
+                    shop_sales={}, size_stock={}, return_rates={}, raw_payload={}, updated_at=today,
+                ))
+
+    product_codes = {"AA-STYLE", "ZZ-ALIAS", "MM-SECOND"}
+    with repository.engine.connect() as connection:
+        baseline = routes._load_purchase_product_lookup(connection, brand, product_codes)
+        monkeypatch.setattr(routes, "PURCHASE_PRODUCT_LOOKUP_BATCH_SIZE", 2)
+        queries = []
+
+        def capture_query(_connection, _cursor, statement, parameters, _context, _executemany):
+            queries.append((statement, len(parameters)))
+
+        event.listen(connection, "before_cursor_execute", capture_query)
+        lookup = routes._load_purchase_product_lookup(connection, brand, product_codes)
+    assert lookup == baseline
+    assert max(count for _statement, count in queries) <= 4
+    assert lookup["AA-STYLE"]["product_name"] == "货号最新资料"
+    assert lookup["ZZ-ALIAS"]["product_name"] == "别名最新资料"
+    assert lookup["AA-STYLE"]["unit_price"] == Decimal("20")
+    assert lookup["ZZ-ALIAS"]["unit_price"] == Decimal("21")
+    for code, identity_id in (("AA-STYLE", 1010), ("ZZ-ALIAS", 1010), ("MM-SECOND", 1011)):
+        assert lookup[code]["_archive_identity_id"] == identity_id
+        assert lookup[code]["lining_material"] == "档案内里"
+    if brand == "smiley":
+        assert lookup["AA-STYLE"]["insole_material"] == "货号最新鞋垫"
+        assert lookup["ZZ-ALIAS"]["insole_material"] == "别名最新鞋垫"
+        assert lookup["MM-SECOND"]["unit_price"] == Decimal("33.50")
