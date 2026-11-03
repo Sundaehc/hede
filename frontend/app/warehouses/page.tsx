@@ -6,6 +6,7 @@ import { type DragEvent, useCallback, useEffect, useMemo, useState } from "react
 import { ChevronRight, Edit, Eye, GripVertical, History, Plus, Search, Trash2, X } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
+import { DateRangeControl } from "@/components/ui/date-range-control"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import {
@@ -25,6 +26,7 @@ import {
   deleteWarehouse,
   deleteWarehouseBrand,
   listWarehouseBrands,
+  listWarehouseInventorySummary,
   listWarehouses,
   reorderWarehouseBrands,
   reorderWarehouses,
@@ -32,6 +34,7 @@ import {
   updateWarehouseBrand,
   type WarehouseBrandItem,
   type WarehouseItem,
+  type WarehouseInventorySummaryItem,
 } from "@/lib/api"
 
 type WarehouseForm = {
@@ -43,6 +46,13 @@ type WarehouseForm = {
 
 type DropPlacement = "before" | "after"
 type DropTarget = { id: number; placement: DropPlacement }
+type DateRange = { start: string; end: string }
+
+function defaultDateRange(): DateRange {
+  const now = new Date()
+  const month = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`
+  return { start: `${month}-01`, end: `${month}-${String(now.getDate()).padStart(2, "0")}` }
+}
 
 function getErrorMessage(error: unknown) {
   if (error instanceof ApiError) return error.message || `请求失败（${error.status}）`
@@ -73,6 +83,21 @@ export default function WarehousesPage() {
   const [queryInput, setQueryInput] = useSessionQueryState("warehouses:queryInput", "")
   const [query, setQuery] = useSessionQueryState("warehouses:query", "")
   const [selectedBrandId, setSelectedBrandId] = useSessionQueryState<number | null>("warehouses:selectedBrandId", null)
+  const [dateRange, setDateRange] = useSessionQueryState<DateRange>("warehouses:dateRange", defaultDateRange)
+  const [dateStart, setDateStart] = useSessionQueryState("warehouses:dateStart", dateRange.start)
+  const [dateEnd, setDateEnd] = useSessionQueryState("warehouses:dateEnd", dateRange.end)
+  const [summaryRevision, setSummaryRevision] = useState(0)
+  const [summary, setSummary] = useState<{
+    key: string
+    items: WarehouseInventorySummaryItem[]
+    error: string
+  }>({ key: "", items: [], error: "" })
+  const summaryKey = `${dateRange.start}:${dateRange.end}:${summaryRevision}`
+  const summaryLoading = summary.key !== summaryKey
+  const summaryError = summary.key === summaryKey ? summary.error : ""
+  const inventoryByWarehouse = useMemo(() => new Map(
+    summary.key === summaryKey ? summary.items.map((item) => [item.warehouse_id, item]) : [],
+  ), [summary, summaryKey])
 
   const [brandFormOpen, setBrandFormOpen] = useState(false)
   const [brandFormMode, setBrandFormMode] = useState<"create" | "edit">("create")
@@ -100,25 +125,50 @@ export default function WarehousesPage() {
   const [messageOpen, setMessageOpen] = useState(false)
   const [messageContent, setMessageContent] = useState({ title: "", description: "" })
 
-  const load = useCallback(async () => {
-    setIsLoading(true)
-    try {
-      const [brandResponse, warehouseResponse] = await Promise.all([listWarehouseBrands(), listWarehouses()])
+  const load = useCallback((refreshSummary = true) => (
+    Promise.all([listWarehouseBrands(), listWarehouses()]).then(([brandResponse, warehouseResponse]) => {
       setBrands(brandResponse.items)
       setWarehouses(warehouseResponse.items)
-    } catch (error) {
+      if (refreshSummary) setSummaryRevision((value) => value + 1)
+    }).catch((error: unknown) => {
       setBrands([])
       setWarehouses([])
       setMessageContent({ title: "加载失败", description: getErrorMessage(error) })
       setMessageOpen(true)
-    } finally {
+    }).finally(() => {
       setIsLoading(false)
-    }
-  }, [])
+    })
+  ), [])
 
   useEffect(() => {
-    void load()
+    void load(false)
   }, [load])
+
+  useEffect(() => {
+    const controller = new AbortController()
+    let cancelled = false
+    void listWarehouseInventorySummary({
+      date_start: dateRange.start || undefined,
+      date_end: dateRange.end || undefined,
+    }, controller.signal).then((response) => {
+      if (!cancelled) setSummary({ key: summaryKey, items: response.items, error: "" })
+    }).catch((error: unknown) => {
+      if (!cancelled) setSummary({ key: summaryKey, items: [], error: getErrorMessage(error) })
+    })
+    return () => { cancelled = true; controller.abort() }
+  }, [dateRange.start, dateRange.end, summaryKey])
+
+  const submitDates = () => {
+    setDateRange({ start: dateStart, end: dateEnd })
+    setSummaryRevision((value) => value + 1)
+  }
+
+  const clearDates = () => {
+    setDateStart("")
+    setDateEnd("")
+    setDateRange({ start: "", end: "" })
+    setSummaryRevision((value) => value + 1)
+  }
 
   const filteredBrands = useMemo(() => {
     const term = query.trim().toLowerCase()
@@ -198,6 +248,7 @@ export default function WarehousesPage() {
           : null
       if (result) setSelectedBrandId(result.item.id)
       setBrandFormOpen(false)
+      setIsLoading(true)
       await load()
     } catch (error) {
       showMessage("保存失败", getErrorMessage(error))
@@ -220,6 +271,7 @@ export default function WarehousesPage() {
         await updateWarehouse(editingWarehouseId, payload)
       }
       setWarehouseFormOpen(false)
+      setIsLoading(true)
       await load()
     } catch (error) {
       showMessage("保存失败", getErrorMessage(error))
@@ -234,6 +286,7 @@ export default function WarehousesPage() {
     try {
       await deleteWarehouseBrand(deleteBrandTarget.id)
       setDeleteBrandTarget(null)
+      setIsLoading(true)
       await load()
     } catch (error) {
       showMessage("删除失败", getErrorMessage(error))
@@ -248,6 +301,7 @@ export default function WarehousesPage() {
     try {
       await deleteWarehouse(deleteWarehouseTarget.id)
       setDeleteWarehouseTarget(null)
+      setIsLoading(true)
       await load()
     } catch (error) {
       showMessage("删除失败", getErrorMessage(error))
@@ -309,6 +363,11 @@ export default function WarehousesPage() {
             <History className="h-4 w-4" />
             <span className="ml-1.5">操作日志</span>
           </Button>
+          <div className="flex w-full flex-wrap items-end gap-3 border-t border-border pt-4">
+            <DateRangeControl label="日期范围" size="sm" start={dateStart} end={dateEnd} onStartChange={setDateStart} onEndChange={setDateEnd} />
+            <Button type="button" size="sm" className="cursor-pointer" onClick={submitDates}><Search className="size-4" /><span className="ml-1.5">查询</span></Button>
+            <Button type="button" size="sm" variant="outline" className="cursor-pointer" onClick={clearDates}><X className="size-4" /><span className="ml-1.5">清空</span></Button>
+          </div>
         </div>
 
         <div className="grid gap-4 lg:grid-cols-[320px_minmax(0,1fr)]">
@@ -379,14 +438,15 @@ export default function WarehousesPage() {
                   <p className="text-sm font-medium text-foreground">{activeBrand?.name || "请选择品牌"}</p>
                   {activeBrand && <span className="rounded-full border border-border bg-muted/45 px-2.5 py-0.5 text-xs text-muted-foreground tabular-nums">{visibleWarehouses.length} 个仓库</span>}
                 </div>
-                <p className="mt-1 text-xs text-muted-foreground">选择品牌后维护其下仓库</p>
+                <p className="mt-1 text-xs text-muted-foreground">库存期间：{dateRange.start || "最早"} 至 {dateRange.end || "当前"}</p>
               </div>
               <Button size="sm" onClick={openCreateWarehouse} disabled={!activeBrand} className="cursor-pointer"><Plus className="h-4 w-4" /><span className="ml-1.5">新增仓库</span></Button>
             </div>
+            {summaryError && <p role="alert" className="mt-3 rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">库存汇总加载失败：{summaryError}，请点击查询重试。</p>}
             <div className="mt-3 table-panel overflow-hidden">
               <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead><tr className="table-head-row"><th className="w-12 px-2 py-3 font-medium"><span className="sr-only">排序</span></th><th className="px-4 py-3 font-medium">仓库名称</th><th className="px-4 py-3 font-medium">地址</th><th className="px-4 py-3 font-medium">备注</th><th className="w-32 px-4 py-3 font-medium">操作</th></tr></thead>
+                <table className="min-w-[560px] w-full text-sm" aria-busy={isLoading || summaryLoading}>
+                  <thead><tr className="table-head-row"><th className="w-12 px-2 py-3 font-medium"><span className="sr-only">排序</span></th><th className="px-4 py-3 text-left font-medium">仓库名称</th><th className="px-4 py-3 text-right font-medium">期初库存</th><th className="px-4 py-3 text-right font-medium">期末库存</th><th className="w-32 px-4 py-3 font-medium">操作</th></tr></thead>
                   <tbody className="divide-y divide-border">
                     {isLoading && <tr><td colSpan={5} className="px-4 py-12 text-center text-muted-foreground">加载中...</td></tr>}
                     {!isLoading && !activeBrand && <tr><td colSpan={5} className="px-4 py-12 text-center text-muted-foreground">请先新增或选择品牌</td></tr>}
@@ -405,7 +465,10 @@ export default function WarehousesPage() {
                         className={`table-row transition-all duration-150 ${draggedWarehouseId === warehouse.id ? "opacity-40" : ""} ${warehouseDropTarget?.id === warehouse.id && draggedWarehouseId !== warehouse.id ? warehouseDropTarget.placement === "before" ? "border-t-2 border-primary bg-primary/5 translate-y-2" : "border-b-2 border-primary bg-primary/5 -translate-y-2" : ""}`}
                       >
                         <td className="px-2 py-2.5"><button type="button" draggable={!isReordering} onDragStart={(event) => { event.dataTransfer.effectAllowed = "move"; setWarehouseDropTarget(null); setDraggedWarehouseId(warehouse.id) }} className="flex size-8 cursor-grab items-center justify-center rounded-md text-muted-foreground hover:bg-muted active:cursor-grabbing" aria-label={`拖拽排序仓库 ${warehouse.name}`} title="拖拽排序"><GripVertical className="h-4 w-4" /></button></td>
-                        <td className="px-4 py-2.5 font-medium">{warehouse.name}</td><td className="px-4 py-2.5">{warehouse.address || "-"}</td><td className="max-w-64 truncate px-4 py-2.5" title={warehouse.notes || ""}>{warehouse.notes || "-"}</td><td className="px-4 py-2.5"><div className="flex items-center gap-0.5"><Button variant="ghost" size="icon" onClick={() => setInventoryWarehouse(warehouse)} className="cursor-pointer" aria-label={`查看仓库 ${warehouse.name} 库存`} title="查看库存"><Eye className="h-4 w-4" /></Button><Button variant="ghost" size="icon" onClick={() => openEditWarehouse(warehouse)} className="cursor-pointer" aria-label={`编辑仓库 ${warehouse.name}`}><Edit className="h-4 w-4" /></Button><Button variant="ghost" size="icon" onClick={() => setDeleteWarehouseTarget(warehouse)} className="cursor-pointer" aria-label={`删除仓库 ${warehouse.name}`}><Trash2 className="h-4 w-4 text-destructive" /></Button></div></td>
+                        <td className="px-4 py-2.5 font-medium">{warehouse.name}</td>
+                        <td className="px-4 py-2.5 text-right tabular-nums">{summaryLoading ? <span className="text-muted-foreground">加载中…</span> : inventoryByWarehouse.get(warehouse.id)?.beginning_qty ?? "—"}</td>
+                        <td className="px-4 py-2.5 text-right font-medium tabular-nums">{summaryLoading ? <span className="text-muted-foreground">加载中…</span> : inventoryByWarehouse.get(warehouse.id)?.ending_qty ?? "—"}</td>
+                        <td className="px-4 py-2.5"><div className="flex items-center gap-0.5"><Button variant="ghost" size="icon" onClick={() => setInventoryWarehouse(warehouse)} className="cursor-pointer" aria-label={`查看仓库 ${warehouse.name} 库存`} title="查看库存"><Eye className="h-4 w-4" /></Button><Button variant="ghost" size="icon" onClick={() => openEditWarehouse(warehouse)} className="cursor-pointer" aria-label={`编辑仓库 ${warehouse.name}`}><Edit className="h-4 w-4" /></Button><Button variant="ghost" size="icon" onClick={() => setDeleteWarehouseTarget(warehouse)} className="cursor-pointer" aria-label={`删除仓库 ${warehouse.name}`}><Trash2 className="h-4 w-4 text-destructive" /></Button></div></td>
                       </tr>
                     ))}
                   </tbody>
@@ -421,7 +484,7 @@ export default function WarehousesPage() {
 
       <ConfirmDialog open={deleteBrandTarget !== null} title="确认删除" description={`确定删除品牌 ${deleteBrandTarget?.name}？该品牌下的仓库需要先调整或删除。`} confirmLabel={isDeletingBrand ? "删除中..." : "删除"} variant="destructive" onConfirm={handleDeleteBrand} onCancel={() => setDeleteBrandTarget(null)} />
       <ConfirmDialog open={deleteWarehouseTarget !== null} title="确认删除" description={`确定删除仓库 ${deleteWarehouseTarget?.name}？此操作不可撤销。`} confirmLabel={isDeletingWarehouse ? "删除中..." : "删除"} variant="destructive" onConfirm={handleDeleteWarehouse} onCancel={() => setDeleteWarehouseTarget(null)} />
-      <WarehouseInventoryDialog warehouse={inventoryWarehouse} open={inventoryWarehouse !== null} onOpenChange={(nextOpen) => { if (!nextOpen) setInventoryWarehouse(null) }} />
+      {inventoryWarehouse && <WarehouseInventoryDialog key={`${inventoryWarehouse.id}:${dateRange.start}:${dateRange.end}`} warehouse={inventoryWarehouse} open initialDateRange={dateRange} onOpenChange={(nextOpen) => { if (!nextOpen) setInventoryWarehouse(null) }} />}
       <MessageDialog open={messageOpen} title={messageContent.title} description={messageContent.description} onClose={() => setMessageOpen(false)} />
       <OperationLogDialog module="warehouse" title="仓库管理操作日志" open={operationLogOpen} onOpenChange={setOperationLogOpen} />
     </div>

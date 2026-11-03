@@ -13,7 +13,7 @@ import orjson
 from openpyxl import load_workbook
 from psycopg import Error as PsycopgError, sql
 from psycopg.types.json import Json
-from sqlalchemy import JSON, MetaData, Table, Text, and_, case, create_engine, delete, desc, func, insert, inspect, or_, select, text, union_all, update
+from sqlalchemy import JSON, MetaData, Table, Text, and_, case, create_engine, delete, desc, func, insert, inspect, literal, or_, select, text, true, union_all, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import DBAPIError
 
@@ -68,6 +68,8 @@ NON_SUPPLIER_COUNTERPARTY_TYPES = (
 )
 NEGATIVE_TOTAL_DOCUMENT_TYPES = {"进货退货单"}
 PURCHASE_INBOUND_DETAIL_TYPES = ("进货单", "进货退货单")
+WAREHOUSE_INBOUND_TYPES = ("进货单", "报溢单", "批发销售退货单")
+WAREHOUSE_OUTBOUND_TYPES = ("进货退货单", "报损单", "批发销售单")
 GENERAL_CUSTOMER_SORT_SCOPE_BRAND = "brand"
 GENERAL_CUSTOMER_SORT_SCOPE_SHOP = "shop"
 GENERAL_CUSTOMER_SORT_SCOPE_UNIT = "unit"
@@ -2862,8 +2864,8 @@ class InventoryRepository:
         record = INVENTORY_TABLE
         detail = INVENTORY_DETAIL_TABLE
         quantity = func.coalesce(detail.c.quantity, 0)
-        inbound_types = ("进货单", "报溢单", "批发销售退货单")
-        outbound_types = ("进货退货单", "报损单", "批发销售单")
+        inbound_types = WAREHOUSE_INBOUND_TYPES
+        outbound_types = WAREHOUSE_OUTBOUND_TYPES
 
         inbound = case(
             (
@@ -2893,6 +2895,86 @@ class InventoryRepository:
             ),
         )
         return inbound, outbound, affected
+
+    def list_warehouse_inventory_summary(
+        self,
+        *,
+        date_start: str | None = None,
+        date_end: str | None = None,
+    ) -> list[dict[str, object]]:
+        """Aggregate all warehouses without loading document details into memory."""
+        record = INVENTORY_TABLE
+        detail = INVENTORY_DETAIL_TABLE
+        joined = detail.join(record, detail.c.document_id == record.c.id)
+        quantity = func.coalesce(detail.c.quantity, 0)
+        start_date = parse_date(date_start) if date_start else None
+        end_date = parse_date(date_end) if date_end else None
+        conditions = [record.c.deleted_at.is_(None)]
+        if end_date:
+            conditions.append(or_(
+                record.c.date_value <= end_date,
+                and_(record.c.date_value.is_(None), record.c.date <= date_end),
+            ))
+
+        if start_date:
+            before_period = or_(
+                record.c.date_value < start_date,
+                and_(record.c.date_value.is_(None), record.c.date < date_start),
+            )
+            in_period = or_(
+                record.c.date_value >= start_date,
+                and_(record.c.date_value.is_(None), record.c.date >= date_start),
+            )
+        else:
+            before_period = False
+            in_period = True
+
+        def movements(warehouse_name, change, scope):
+            return (
+                select(
+                    warehouse_name.label("warehouse_name"),
+                    func.sum(case((before_period, change), else_=0)).label("beginning_qty"),
+                    # Match detail totals even for legacy records with no date.
+                    func.sum(case((or_(before_period, in_period), change), else_=0)).label("ending_qty"),
+                )
+                .select_from(joined)
+                .where(*conditions, scope)
+                .group_by(warehouse_name)
+            )
+
+        warehouse_movements = union_all(
+            movements(
+                record.c.warehouse,
+                case((record.c.document_type.in_((*WAREHOUSE_INBOUND_TYPES, "同价调拨单")), quantity), else_=-quantity),
+                record.c.document_type.in_((*WAREHOUSE_INBOUND_TYPES, *WAREHOUSE_OUTBOUND_TYPES, "同价调拨单")),
+            ),
+            movements(record.c.supplier, -quantity, record.c.document_type == "同价调拨单"),
+        ).subquery()
+        totals = (
+            select(
+                warehouse_movements.c.warehouse_name,
+                func.sum(warehouse_movements.c.beginning_qty).label("beginning_qty"),
+                func.sum(warehouse_movements.c.ending_qty).label("ending_qty"),
+            )
+            .group_by(warehouse_movements.c.warehouse_name)
+            .subquery()
+        )
+        statement = (
+            select(
+                WAREHOUSE_TABLE.c.id.label("warehouse_id"),
+                func.coalesce(totals.c.beginning_qty, 0).label("beginning_qty"),
+                func.coalesce(totals.c.ending_qty, 0).label("ending_qty"),
+            )
+            .select_from(WAREHOUSE_TABLE.outerjoin(totals, totals.c.warehouse_name == WAREHOUSE_TABLE.c.name))
+            .order_by(WAREHOUSE_TABLE.c.id)
+        )
+        with self.engine.connect() as connection:
+            rows = connection.execute(statement).mappings().all()
+        return [{
+            "warehouse_id": row["warehouse_id"],
+            "beginning_qty": self._format_decimal(Decimal(str(row["beginning_qty"]))),
+            "ending_qty": self._format_decimal(Decimal(str(row["ending_qty"]))),
+        } for row in rows]
 
     def get_warehouse_inventory(
         self,
@@ -2959,27 +3041,36 @@ class InventoryRepository:
                 detail.c.color_name,
                 detail.c.color_spec,
             )
-            .subquery()
+            .cte("warehouse_inventory_grouped")
+            .prefix_with("MATERIALIZED", dialect="postgresql")
         )
         ending_qty = (grouped.c.beginning_qty + grouped.c.inbound_qty - grouped.c.outbound_qty).label("ending_qty")
-        count_statement = select(func.count()).select_from(grouped)
-        totals_statement = select(
-            func.coalesce(func.sum(grouped.c.beginning_qty), 0).label("beginning_qty"),
-            func.coalesce(func.sum(grouped.c.inbound_qty), 0).label("inbound_qty"),
-            func.coalesce(func.sum(grouped.c.outbound_qty), 0).label("outbound_qty"),
-            func.coalesce(func.sum(ending_qty), 0).label("ending_qty"),
-        )
-        items_statement = (
-            select(grouped, ending_qty)
-            .order_by(grouped.c.product_code, grouped.c.color_name, grouped.c.color_spec)
+        totals = select(
+            func.count().label("total"),
+            func.coalesce(func.sum(grouped.c.beginning_qty), 0).label("total_beginning_qty"),
+            func.coalesce(func.sum(grouped.c.inbound_qty), 0).label("total_inbound_qty"),
+            func.coalesce(func.sum(grouped.c.outbound_qty), 0).label("total_outbound_qty"),
+            func.coalesce(func.sum(ending_qty), 0).label("total_ending_qty"),
+        ).cte("warehouse_inventory_totals")
+        paged = (
+            select(grouped, ending_qty, literal(True).label("has_item"))
+            .order_by(grouped.c.product_code, grouped.c.color_name, grouped.c.color_spec, grouped.c.product_name)
             .offset((page - 1) * page_size)
             .limit(page_size)
+            .cte("warehouse_inventory_page")
+        )
+        # Reuse one aggregation for count, totals and the requested page. The
+        # outer join preserves totals for an empty or out-of-range page.
+        statement = (
+            select(totals, paged)
+            .select_from(totals.outerjoin(paged, true()))
+            .order_by(paged.c.product_code, paged.c.color_name, paged.c.color_spec, paged.c.product_name)
         )
 
         with self.engine.connect() as connection:
-            total = connection.execute(count_statement).scalar_one()
-            totals = connection.execute(totals_statement).mappings().one()
-            rows = [dict(row) for row in connection.execute(items_statement).mappings()]
+            rows = connection.execute(statement).mappings().all()
+        totals = rows[0]
+        total = int(totals["total"])
 
         def format_quantity(value: object) -> str:
             return self._format_decimal(Decimal(str(value or "0")))
@@ -2993,17 +3084,17 @@ class InventoryRepository:
             "inbound_qty": format_quantity(row.get("inbound_qty")),
             "outbound_qty": format_quantity(row.get("outbound_qty")),
             "ending_qty": format_quantity(row.get("ending_qty")),
-        } for row in rows]
+        } for row in rows if row["has_item"]]
         return {
             "items": items,
             "total": total,
             "page": page,
             "page_size": page_size,
             "totals": {
-                "beginning_qty": format_quantity(totals.get("beginning_qty")),
-                "inbound_qty": format_quantity(totals.get("inbound_qty")),
-                "outbound_qty": format_quantity(totals.get("outbound_qty")),
-                "ending_qty": format_quantity(totals.get("ending_qty")),
+                "beginning_qty": format_quantity(totals.get("total_beginning_qty")),
+                "inbound_qty": format_quantity(totals.get("total_inbound_qty")),
+                "outbound_qty": format_quantity(totals.get("total_outbound_qty")),
+                "ending_qty": format_quantity(totals.get("total_ending_qty")),
             },
         }
 

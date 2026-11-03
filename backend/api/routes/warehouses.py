@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import date
+
 from fastapi import APIRouter, HTTPException, Request
 
 from api.operation_log_utils import (
@@ -30,6 +32,21 @@ def _ordered_ids(payload: dict) -> list[int]:
 def list_warehouses(request: Request):
     repository = request.app.state.inventory_repository
     return {"items": repository.list_warehouses()}
+
+
+@router.get("/warehouses/inventory-summary")
+def list_warehouse_inventory_summary(
+    request: Request,
+    date_start: date | None = None,
+    date_end: date | None = None,
+):
+    if date_start and date_end and date_start > date_end:
+        raise HTTPException(status_code=400, detail="开始日期不能晚于结束日期")
+    repository = request.app.state.inventory_repository
+    return {"items": repository.list_warehouse_inventory_summary(
+        date_start=date_start.isoformat() if date_start else None,
+        date_end=date_end.isoformat() if date_end else None,
+    )}
 
 
 @router.get("/warehouses/{warehouse_id}/inventory")

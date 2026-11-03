@@ -7,6 +7,11 @@ wheels/
 *.egg-info
 .pytest_cache/
 
+# Excel export temporary files and local test artifacts
+openpyxl.*
+/backend/.pytest-tmp/
+/backend/pytest-of-*/
+
 # Virtual environments
 .venv
 .venv-mcp/

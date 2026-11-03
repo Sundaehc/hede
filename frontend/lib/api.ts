@@ -1450,6 +1450,12 @@ export type WarehouseInventoryItem = {
   ending_qty: string
 }
 
+export type WarehouseInventorySummaryItem = {
+  warehouse_id: number
+  beginning_qty: string
+  ending_qty: string
+}
+
 export type WarehouseInventoryResponse = {
   items: WarehouseInventoryItem[]
   total: number
@@ -2940,6 +2946,19 @@ export function listWarehouses() {
   return request<{ items: WarehouseItem[] }>("/warehouses")
 }
 
+export function listWarehouseInventorySummary(
+  params: { date_start?: string; date_end?: string },
+  signal?: AbortSignal,
+) {
+  const search = new URLSearchParams()
+  if (params.date_start) search.set("date_start", params.date_start)
+  if (params.date_end) search.set("date_end", params.date_end)
+  return request<{ items: WarehouseInventorySummaryItem[] }>(
+    `/warehouses/inventory-summary?${search.toString()}`,
+    { signal },
+  )
+}
+
 export function getWarehouseInventory(
   warehouseId: number,
   params: {
@@ -2948,7 +2967,8 @@ export function getWarehouseInventory(
     product_code?: string
     page: number
     pageSize: number
-  }
+  },
+  signal?: AbortSignal,
 ) {
   const search = new URLSearchParams({
     page: String(params.page),
@@ -2958,7 +2978,8 @@ export function getWarehouseInventory(
   if (params.date_end) search.set("date_end", params.date_end)
   if (params.product_code) search.set("product_code", params.product_code)
   return request<WarehouseInventoryResponse>(
-    `/warehouses/${warehouseId}/inventory?${search.toString()}`
+    `/warehouses/${warehouseId}/inventory?${search.toString()}`,
+    { signal },
   )
 }
 
@@ -2972,7 +2993,8 @@ export function listWarehouseInventoryMovements(
     color_spec?: string
     page: number
     pageSize: number
-  }
+  },
+  signal?: AbortSignal,
 ) {
   const search = new URLSearchParams({
     page: String(params.page),
@@ -2984,7 +3006,8 @@ export function listWarehouseInventoryMovements(
   if (params.color_name) search.set("color_name", params.color_name)
   if (params.color_spec) search.set("color_spec", params.color_spec)
   return request<WarehouseInventoryMovementResponse>(
-    `/warehouses/${warehouseId}/inventory/movements?${search.toString()}`
+    `/warehouses/${warehouseId}/inventory/movements?${search.toString()}`,
+    { signal },
   )
 }
 

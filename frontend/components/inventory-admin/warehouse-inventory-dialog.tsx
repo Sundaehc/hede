@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useState } from "react"
 import { ArrowLeft, Eye, LoaderCircle, Search, X } from "lucide-react"
 
 import { ApiError, getWarehouseInventory, listWarehouseInventoryMovements, type WarehouseInventoryItem, type WarehouseInventoryMovementItem, type WarehouseItem } from "@/lib/api"
@@ -45,16 +45,18 @@ export function WarehouseInventoryDialog({
   warehouse,
   open,
   onOpenChange,
+  initialDateRange,
 }: {
   warehouse: WarehouseItem | null
   open: boolean
   onOpenChange: (open: boolean) => void
+  initialDateRange?: { start: string; end: string }
 }) {
-  const defaultRange = useMemo(defaultDateRange, [])
+  const [defaultRange] = useState(() => initialDateRange ?? defaultDateRange())
   const [dateStart, setDateStart] = useState(defaultRange.start)
   const [dateEnd, setDateEnd] = useState(defaultRange.end)
   const [productCode, setProductCode] = useState("")
-  const [filters, setFilters] = useState<SubmittedFilters | null>(null)
+  const [filters, setFilters] = useState<SubmittedFilters>(() => ({ date_start: defaultRange.start, date_end: defaultRange.end }))
   const [items, setItems] = useState<WarehouseInventoryItem[]>([])
   const [total, setTotal] = useState(0)
   const [totals, setTotals] = useState({ beginning_qty: "0", inbound_qty: "0", outbound_qty: "0", ending_qty: "0" })
@@ -68,32 +70,22 @@ export function WarehouseInventoryDialog({
   const [movementPage, setMovementPage] = useState(1)
   const [movementLoading, setMovementLoading] = useState(false)
   const [movementError, setMovementError] = useState("")
+  const warehouseId = warehouse?.id
 
   useEffect(() => {
-    if (!open || !warehouse) return
-    const range = defaultDateRange()
-    setDateStart(range.start)
-    setDateEnd(range.end)
-    setProductCode("")
-    setFilters({ date_start: range.start, date_end: range.end })
-    setPage(1)
-    setSelectedItem(null)
-    setError("")
-  }, [open, warehouse?.id])
-
-  useEffect(() => {
-    if (!open || !warehouse || !filters || selectedItem) return
-    const warehouseId = warehouse.id
+    if (!open || warehouseId === undefined) return
+    const requestedWarehouseId = warehouseId
+    const controller = new AbortController()
     let cancelled = false
     async function loadInventory() {
       setLoading(true)
       setError("")
       try {
-        const response = await getWarehouseInventory(warehouseId, {
+        const response = await getWarehouseInventory(requestedWarehouseId, {
           ...filters,
           page,
           pageSize,
-        })
+        }, controller.signal)
         if (cancelled) return
         setItems(response.items)
         setTotal(response.total)
@@ -109,26 +101,27 @@ export function WarehouseInventoryDialog({
       }
     }
     void loadInventory()
-    return () => { cancelled = true }
-  }, [filters, open, page, pageSize, selectedItem, warehouse])
+    return () => { cancelled = true; controller.abort() }
+  }, [filters, open, page, pageSize, warehouseId])
 
   useEffect(() => {
-    if (!open || !warehouse || !filters || !selectedItem) return
-    const warehouseId = warehouse.id
+    if (!open || warehouseId === undefined || !selectedItem) return
+    const requestedWarehouseId = warehouseId
+    const controller = new AbortController()
     const inventoryItem = selectedItem
     let cancelled = false
     async function loadMovements() {
       setMovementLoading(true)
       setMovementError("")
       try {
-        const response = await listWarehouseInventoryMovements(warehouseId, {
+        const response = await listWarehouseInventoryMovements(requestedWarehouseId, {
           ...filters,
           product_code: inventoryItem.product_code || undefined,
           color_name: inventoryItem.color_name || undefined,
           color_spec: inventoryItem.color_spec || undefined,
           page: movementPage,
           pageSize: 50,
-        })
+        }, controller.signal)
         if (cancelled) return
         setMovementItems(response.items)
         setMovementTotal(response.total)
@@ -142,8 +135,8 @@ export function WarehouseInventoryDialog({
       }
     }
     void loadMovements()
-    return () => { cancelled = true }
-  }, [filters, movementPage, open, selectedItem, warehouse])
+    return () => { cancelled = true; controller.abort() }
+  }, [filters, movementPage, open, selectedItem, warehouseId])
 
   const totalPages = Math.max(1, Math.ceil(total / pageSize))
   const movementPages = Math.max(1, Math.ceil(movementTotal / 50))

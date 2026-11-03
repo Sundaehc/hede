@@ -1,8 +1,9 @@
 """Weekly missing-data / completeness review of the hede database.
 
 Runs a curated battery of read-only completeness checks, compares the numbers with
-the previous run (state file), and writes a Markdown report to the Desktop while
-keeping a history copy under ``backend/logs/missing_data_reports/``.
+the previous run (state file), and writes a Markdown report to the Desktop and
+``backend/logs/missing_data_reports/``. Each successful save removes that
+directory's reports from the previous calendar week.
 
     python -m scripts.review_missing_data
     python -m scripts.review_missing_data --days 90 --output-dir D:\\tmp
@@ -29,6 +30,7 @@ import json
 import os
 import re
 import sys
+import tempfile
 from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -787,7 +789,8 @@ class Review:
         add("*本报告由 Windows 计划任务 `HedeDatabaseMissingDataReview` 自动生成"
             "（每周一 00:00）。*")
         add("*运行日志：`backend/logs/missing_data_review.log`；"
-            "历史报告：`backend/logs/missing_data_reports/`。*")
+            "报告副本：`backend/logs/missing_data_reports/`。"
+            "新报告保存成功后自动删除对应目录中上一周的周报。*")
         return "\n".join(lines)
 
 
@@ -818,6 +821,43 @@ def _save_state(path: Path, state: dict[str, Any]) -> None:
     tmp = path.with_suffix(".tmp")
     tmp.write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8")
     os.replace(tmp, path)
+
+
+def _save_report(target: Path, report: str, report_date: date) -> None:
+    target.parent.mkdir(parents=True, exist_ok=True)
+    temporary: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w", encoding="utf-8-sig", dir=target.parent,
+            prefix=f".{target.name}.", suffix=".tmp", delete=False,
+        ) as output:
+            temporary = Path(output.name)
+            output.write(report)
+        os.replace(temporary, target)
+    finally:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
+
+    # Only remove last week's dated reports after this directory has a new copy.
+    this_week = report_date - timedelta(days=report_date.weekday())
+    previous_week = this_week - timedelta(days=7)
+    try:
+        for candidate in target.parent.glob("数据库缺失数据周报_*.md"):
+            match = re.fullmatch(r"数据库缺失数据周报_(\d{4}-\d{2}-\d{2})\.md", candidate.name)
+            if match is None or candidate.is_symlink() or not candidate.is_file():
+                continue
+            try:
+                candidate_date = date.fromisoformat(match[1])
+            except ValueError:
+                continue
+            if previous_week <= candidate_date < this_week:
+                try:
+                    candidate.unlink()
+                    print(f"[report] removed previous week: {candidate}", flush=True)
+                except OSError as exc:
+                    print(f"[report] CLEANUP FAILED {candidate}: {type(exc).__name__}: {exc}", flush=True)
+    except OSError as exc:
+        print(f"[report] CLEANUP FAILED {target.parent}: {type(exc).__name__}: {exc}", flush=True)
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -869,8 +909,7 @@ def main() -> int:
     written: list[Path] = []
     for target in targets:
         try:
-            target.parent.mkdir(parents=True, exist_ok=True)
-            target.write_text(report, encoding="utf-8-sig")
+            _save_report(target, report, started.date())
             written.append(target)
             print(f"[report] {target}", flush=True)
         except Exception as exc:  # noqa: BLE001
