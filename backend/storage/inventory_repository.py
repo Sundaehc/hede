@@ -237,6 +237,53 @@ class InventoryRepository:
             },
         }
 
+    @staticmethod
+    def _record_completion_condition(completion_status: str):
+        """Share the ledger's completion rules with warehouse stock queries."""
+        table = INVENTORY_TABLE
+        detail = INVENTORY_DETAIL_TABLE.alias("completion_detail")
+        internal_customer_names = union_all(
+            select(GENERAL_CUSTOMER_SHOP_TABLE.c.shop_name)
+            .where(GENERAL_CUSTOMER_SHOP_TABLE.c.shop_name.ilike("%内销客户%")),
+            select(GENERAL_CUSTOMER_UNIT_TABLE.c.unit_name)
+            .join(GENERAL_CUSTOMER_SHOP_TABLE, GENERAL_CUSTOMER_UNIT_TABLE.c.shop_id == GENERAL_CUSTOMER_SHOP_TABLE.c.id)
+            .where(GENERAL_CUSTOMER_SHOP_TABLE.c.shop_name.ilike("%内销客户%")),
+        )
+        always_completed = or_(
+            func.coalesce(table.c.supplier.in_(internal_customer_names), False),
+            and_(
+                table.c.document_type.is_not(None),
+                table.c.document_type.in_(WHOLESALE_DOCUMENT_TYPES),
+                func.replace(func.coalesce(table.c.supplier, ""), " ", "").like("%总部采购%"),
+            ),
+        )
+        # Correlate only to the document, even when the outer query joins details.
+        detail_query = select(detail.c.id).where(detail.c.document_id == table.c.id).correlate(table)
+        has_details = detail_query.exists()
+        has_missing_amount = detail_query.where(or_(detail.c.amount.is_(None), detail.c.amount == 0)).exists()
+        has_missing_price = detail_query.where(or_(detail.c.unit_price.is_(None), detail.c.unit_price == 0)).exists()
+        is_accounting_document = table.c.document_type.in_(ACCOUNTING_DOCUMENT_TYPES)
+        is_product_document = or_(table.c.document_type.is_(None), ~is_accounting_document)
+        if completion_status == "incomplete":
+            return and_(
+                ~always_completed,
+                or_(
+                    ~has_details,
+                    and_(is_accounting_document, has_missing_amount),
+                    and_(is_product_document, has_missing_price),
+                ),
+            )
+        return or_(
+            always_completed,
+            and_(
+                has_details,
+                or_(
+                    and_(is_accounting_document, ~has_missing_amount),
+                    and_(is_product_document, ~has_missing_price),
+                ),
+            ),
+        )
+
     def _record_filter_conditions(
         self,
         *,
@@ -321,95 +368,8 @@ class InventoryRepository:
         ))
         if handler_values:
             conditions.append(or_(*(table.c.handler.ilike(f"%{value}%") for value in handler_values)))
-        internal_customer_names = union_all(
-            select(GENERAL_CUSTOMER_SHOP_TABLE.c.shop_name)
-            .where(GENERAL_CUSTOMER_SHOP_TABLE.c.shop_name.ilike("%内销客户%")),
-            select(GENERAL_CUSTOMER_UNIT_TABLE.c.unit_name)
-            .join(GENERAL_CUSTOMER_SHOP_TABLE, GENERAL_CUSTOMER_UNIT_TABLE.c.shop_id == GENERAL_CUSTOMER_SHOP_TABLE.c.id)
-            .where(GENERAL_CUSTOMER_SHOP_TABLE.c.shop_name.ilike("%内销客户%")),
-        )
-        is_internal_sales_customer = func.coalesce(table.c.supplier.in_(internal_customer_names), False)
-        is_headquarters_procurement_wholesale = and_(
-            table.c.document_type.is_not(None),
-            table.c.document_type.in_(WHOLESALE_DOCUMENT_TYPES),
-            func.replace(func.coalesce(table.c.supplier, ""), " ", "").like("%总部采购%"),
-        )
-        is_always_completed_customer = or_(
-            is_internal_sales_customer,
-            is_headquarters_procurement_wholesale,
-        )
-        if completion_status == "incomplete":
-            is_accounting_document = table.c.document_type.in_(ACCOUNTING_DOCUMENT_TYPES)
-            is_product_document = or_(table.c.document_type.is_(None), ~is_accounting_document)
-            conditions.append(and_(
-                ~is_always_completed_customer,
-                or_(
-                    ~select(detail.c.id)
-                    .where(detail.c.document_id == table.c.id)
-                    .exists(),
-                    and_(
-                        is_accounting_document,
-                        select(detail.c.id)
-                        .where(
-                            detail.c.document_id == table.c.id,
-                            or_(
-                                detail.c.amount.is_(None),
-                                detail.c.amount == 0,
-                            ),
-                        )
-                        .exists(),
-                    ),
-                    and_(
-                        is_product_document,
-                        select(detail.c.id)
-                        .where(
-                            detail.c.document_id == table.c.id,
-                            or_(
-                                detail.c.unit_price.is_(None),
-                                detail.c.unit_price == 0,
-                            ),
-                        )
-                        .exists(),
-                    ),
-                ),
-            ))
-        elif completion_status == "completed":
-            is_accounting_document = table.c.document_type.in_(ACCOUNTING_DOCUMENT_TYPES)
-            is_product_document = or_(table.c.document_type.is_(None), ~is_accounting_document)
-            conditions.append(or_(
-                is_always_completed_customer,
-                and_(
-                    select(detail.c.id)
-                    .where(detail.c.document_id == table.c.id)
-                    .exists(),
-                    or_(
-                        and_(
-                            is_accounting_document,
-                            ~select(detail.c.id)
-                            .where(
-                                detail.c.document_id == table.c.id,
-                                or_(
-                                    detail.c.amount.is_(None),
-                                    detail.c.amount == 0,
-                                ),
-                            )
-                            .exists(),
-                        ),
-                        and_(
-                            is_product_document,
-                            ~select(detail.c.id)
-                            .where(
-                                detail.c.document_id == table.c.id,
-                                or_(
-                                    detail.c.unit_price.is_(None),
-                                    detail.c.unit_price == 0,
-                                ),
-                            )
-                            .exists(),
-                        ),
-                    ),
-                ),
-            ))
+        if completion_status in ("completed", "incomplete"):
+            conditions.append(self._record_completion_condition(completion_status))
         if original_sku:
             original_like = f"%{original_sku.strip()}%"
             conditions.append(
@@ -2909,7 +2869,7 @@ class InventoryRepository:
         quantity = func.coalesce(detail.c.quantity, 0)
         start_date = parse_date(date_start) if date_start else None
         end_date = parse_date(date_end) if date_end else None
-        conditions = [record.c.deleted_at.is_(None)]
+        conditions = [record.c.deleted_at.is_(None), self._record_completion_condition("completed")]
         if end_date:
             conditions.append(or_(
                 record.c.date_value <= end_date,
@@ -2993,7 +2953,7 @@ class InventoryRepository:
         start_date = parse_date(date_start) if date_start else None
         end_date = parse_date(date_end) if date_end else None
 
-        conditions = [record.c.deleted_at.is_(None), affected]
+        conditions = [record.c.deleted_at.is_(None), self._record_completion_condition("completed"), affected]
         if end_date:
             conditions.append(or_(
                 record.c.date_value <= end_date,
@@ -3114,7 +3074,7 @@ class InventoryRepository:
         detail = INVENTORY_DETAIL_TABLE
         joined = detail.join(record, detail.c.document_id == record.c.id)
         inbound, outbound, affected = self._warehouse_inventory_expressions(warehouse_name)
-        conditions = [record.c.deleted_at.is_(None), affected]
+        conditions = [record.c.deleted_at.is_(None), self._record_completion_condition("completed"), affected]
         start_date = parse_date(date_start) if date_start else None
         end_date = parse_date(date_end) if date_end else None
         if start_date:

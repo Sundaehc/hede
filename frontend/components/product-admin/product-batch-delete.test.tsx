@@ -23,7 +23,7 @@ vi.mock("@/lib/api", async () => ({
   listProductSelectionIds: selectionMock,
   batchDeleteProducts: deleteMock,
   listProductArchiveBrands: async () => ({ items: [{ id: 99, code: "new_brand", name: "新增品牌", sort_order: 99 }] }),
-  getProductYears: async () => ({ years: ["2025", "2026"] }),
+  getProductSearchOptions: async () => ({ years: ["2025", "2026"], seasons: [], product_names: [] }),
   getProductImageRefreshStatus: async () => ({ in_progress: false }),
 }))
 

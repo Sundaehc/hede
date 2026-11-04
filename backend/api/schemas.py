@@ -99,6 +99,8 @@ class ProductSelectionFilters(BaseModel):
     query: str | None = None
     sku_prefix: str | None = None
     year: str | None = None
+    season: str | None = None
+    product_name: str | None = None
 
 
 class BatchDeleteItem(BaseModel):

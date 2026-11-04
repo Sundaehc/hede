@@ -14,7 +14,12 @@ from pydantic import BaseModel
 from sqlalchemy import Text, and_, cast, delete, desc, false, func, insert, or_, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
-from api.fine_table_cache import get_fine_table_cache, set_fine_table_cache
+from api.fine_table_cache import (
+    get_fine_table_cache,
+    get_fine_table_result_cache,
+    set_fine_table_cache,
+    set_fine_table_result_cache,
+)
 from api.operation_log_utils import write_operation_log
 from api.routes.images import image_url_for
 from api.schemas import BrandKey
@@ -221,6 +226,7 @@ FINE_TABLE_VIP_OPS_FILTER_COLUMNS = {
     "sales_tag": VIP_OPS_TABLE.c.sales_tag,
     "goods_tag": VIP_OPS_TABLE.c.goods_tag,
 }
+FINE_TABLE_LIVE_SQL_FILTER_FIELDS = {"main_style"}
 FINE_TABLE_DYNAMIC_FILTER_PATTERN = re.compile(r"^(?:daily_sales_(\d+)_(?:quantity|uv)|size_.+)$")
 FINE_TABLE_SNAPSHOT_TEXT_FILTER_FIELDS = {
     "sku", "original_sku", "group_name", "product_level", "year", "season_category",
@@ -328,6 +334,47 @@ def _fine_table_filter_conditions(
         _fine_table_filter_condition(columns[item.field], item.operator, item.values)
         for item in filters
     ]
+
+
+def _compass_filter_column(sku_column, field: str):
+    # Match _compass_metric exactly: take the latest row of each period
+    # before falling back from an empty value to the next period.
+    values = []
+    for period in ("1d", "3d", "7d", "30d"):
+        latest_value = (
+            select(VIP_DAILY_TABLE.c[field])
+            .where(VIP_DAILY_TABLE.c.goods_code == sku_column)
+            .where(VIP_DAILY_TABLE.c.report_type == "罗盘")
+            .where(VIP_DAILY_TABLE.c.period == period)
+            .order_by(
+                desc(VIP_DAILY_TABLE.c.report_end_date),
+                desc(VIP_DAILY_TABLE.c.updated_at),
+                desc(VIP_DAILY_TABLE.c.id),
+            )
+            .limit(1)
+            .correlate_except(VIP_DAILY_TABLE)
+            .scalar_subquery()
+        )
+        values.append(func.nullif(latest_value, ""))
+    return func.coalesce(*values)
+
+
+def _fine_table_live_filter_conditions(sku_column, filters: tuple[FineTableFilter, ...]) -> list:
+    return [
+        _fine_table_filter_condition(_compass_filter_column(sku_column, item.field), item.operator, item.values)
+        for item in filters
+    ]
+
+
+def _fine_table_filtered_page(
+    result: dict[str, Any], filters: tuple[FineTableFilter, ...], *, page: int, page_size: int, include_all: bool,
+) -> dict[str, Any]:
+    items = _fine_table_rows_match_filters(result["items"], filters)
+    total = len(items)
+    if not include_all:
+        offset = (page - 1) * page_size
+        items = items[offset:offset + page_size]
+    return {**result, "items": items, "total": total, "page": page, "page_size": page_size}
 
 
 def _fine_table_status_label(row: dict[str, Any]) -> str:
@@ -1422,6 +1469,16 @@ def _load_fine_table_filter_option_cache(
     return dict(payload) if isinstance(payload, dict) else None
 
 
+def _latest_vip_ops_filter_column(sku_column, field: str):
+    return (
+        select(FINE_TABLE_VIP_OPS_FILTER_COLUMNS[field])
+        .where(VIP_OPS_TABLE.c.goods_code == sku_column)
+        .order_by(desc(VIP_OPS_TABLE.c.updated_at), desc(VIP_OPS_TABLE.c.id))
+        .limit(1)
+        .scalar_subquery()
+    )
+
+
 def _list_vip_ops_filter_options(
     *,
     repository,
@@ -1430,7 +1487,6 @@ def _list_vip_ops_filter_options(
     terms: list[str],
     prefix_terms: list[str],
 ) -> dict[str, Any]:
-    ops_column = FINE_TABLE_VIP_OPS_FILTER_COLUMNS[field]
     gj_brand = _gj_fine_table_brand(brand)
 
     if gj_brand is not None:
@@ -1440,12 +1496,7 @@ def _list_vip_ops_filter_options(
             ).scalar()
             if latest_source_date is None:
                 return {"field": field, "total": 0, "truncated": False, "options": []}
-            ops_value = (
-                select(ops_column)
-                .where(VIP_OPS_TABLE.c.goods_code == GJ_MERGED_PRODUCT_INFO_TABLE.c.goods_code)
-                .limit(1)
-                .scalar_subquery()
-            )
+            ops_value = _latest_vip_ops_filter_column(GJ_MERGED_PRODUCT_INFO_TABLE.c.goods_code, field)
             value_expression = func.coalesce(func.trim(cast(ops_value, Text)), "")
             conditions = [
                 GJ_MERGED_PRODUCT_INFO_TABLE.c.source_date_value == latest_source_date,
@@ -1490,12 +1541,7 @@ def _list_vip_ops_filter_options(
             total = int(connection.execute(total_statement).scalar() or 0)
     else:
         product_table = PRODUCT_TABLES[brand]
-        ops_value = (
-            select(ops_column)
-            .where(VIP_OPS_TABLE.c.goods_code == product_table.c.sku)
-            .limit(1)
-            .scalar_subquery()
-        )
+        ops_value = _latest_vip_ops_filter_column(product_table.c.sku, field)
         value_expression = func.coalesce(func.trim(cast(ops_value, Text)), "")
         conditions = [product_table.c.deleted_at.is_(None), not_excluded_sku_condition(product_table.c.sku, product_table.c.original_sku)]
         if terms:
@@ -1718,6 +1764,7 @@ def list_fine_table(
     normalized_sku_prefix = ",".join(prefix_terms)
     normalized_season = season if season and season != "all" else "all"
     parsed_filters = _parse_fine_table_filters(filters)
+    live_sql_filters = tuple(item for item in parsed_filters if item.field in FINE_TABLE_LIVE_SQL_FILTER_FIELDS)
     gj_sql_filters = tuple(
         item
         for item in parsed_filters
@@ -1729,9 +1776,9 @@ def list_fine_table(
         if item.field in FINE_TABLE_VIP_OPS_FILTER_COLUMNS and item.operator == "in"
     )
     payload_filters = (
-        tuple(item for item in parsed_filters if item not in (*gj_sql_filters, *gj_ops_sql_filters))
+        tuple(item for item in parsed_filters if item not in (*gj_sql_filters, *gj_ops_sql_filters, *live_sql_filters))
         if _gj_fine_table_brand(brand) is not None
-        else tuple(item for item in parsed_filters if item.field not in FINE_TABLE_SQL_FILTER_FIELDS)
+        else tuple(item for item in parsed_filters if item.field not in FINE_TABLE_SQL_FILTER_FIELDS | FINE_TABLE_LIVE_SQL_FILTER_FIELDS)
     )
     fetch_all_rows = include_all or bool(payload_filters)
     normalized_filters = tuple(sorted((item.field, item.operator, tuple(item.values)) for item in parsed_filters))
@@ -1741,6 +1788,17 @@ def list_fine_table(
     cached = None if bypass_cache else get_fine_table_cache(cache_key)
     if cached is not None:
         return cached
+    result_cache_key = (
+        brand, normalized_query, normalized_sku_prefix, normalized_season,
+        tuple(sorted((item.field, item.operator, tuple(item.values)) for item in parsed_filters if item not in payload_filters)),
+    )
+    if fetch_all_rows and not cache_bust:
+        cached_result = get_fine_table_result_cache(result_cache_key)
+        if cached_result is not None:
+            payload = _fine_table_filtered_page(cached_result, payload_filters, page=page, page_size=page_size, include_all=include_all)
+            if not include_all:
+                set_fine_table_cache(cache_key, payload)
+            return payload
     cached_total_payload = None if bypass_cache else get_fine_table_cache(total_cache_key)
     cached_total = (
         int(cached_total_payload["total"])
@@ -1809,13 +1867,11 @@ def list_fine_table(
                         .exists()
                     )
                 for ops_filter in gj_ops_sql_filters:
-                    ops_column = FINE_TABLE_VIP_OPS_FILTER_COLUMNS[ops_filter.field]
+                    ops_column = _latest_vip_ops_filter_column(GJ_MERGED_PRODUCT_INFO_TABLE.c.goods_code, ops_filter.field)
                     gj_conditions.append(
-                        select(VIP_OPS_TABLE.c.id)
-                        .where(VIP_OPS_TABLE.c.goods_code == GJ_MERGED_PRODUCT_INFO_TABLE.c.goods_code)
-                        .where(_fine_table_filter_condition(ops_column, ops_filter.operator, ops_filter.values))
-                        .exists()
+                        _fine_table_filter_condition(ops_column, ops_filter.operator, ops_filter.values)
                     )
+                gj_conditions.extend(_fine_table_live_filter_conditions(GJ_MERGED_PRODUCT_INFO_TABLE.c.goods_code, live_sql_filters))
                 gj_criterion = and_(*gj_conditions)
                 if fetch_all_rows:
                     total = 0
@@ -1891,6 +1947,7 @@ def list_fine_table(
                 conditions.append(product_table.c.season_category == normalized_season)
             sql_filters = tuple(item for item in parsed_filters if item.field in FINE_TABLE_SQL_FILTER_FIELDS)
             conditions.extend(_fine_table_filter_conditions(product_table, brand, sql_filters))
+            conditions.extend(_fine_table_live_filter_conditions(product_table.c.sku, live_sql_filters))
 
             count_stmt = select(func.count()).select_from(product_table)
             items_base_stmt = select(product_table).order_by(desc(product_table.c.id))
@@ -1918,8 +1975,9 @@ def list_fine_table(
         )
         skus = [str(row.get("sku") or "").strip() for row in product_rows if row.get("sku")]
         if not skus:
-            payload = {"items": [], "total": total, "page": page, "page_size": page_size}
-            set_fine_table_cache(cache_key, payload)
+            payload = {"items": [], "total": total, "page": page, "page_size": page_size, "latest_order_date": None}
+            if not include_all:
+                set_fine_table_cache(cache_key, payload)
             return payload
         original_skus = {
             str(row.get("original_sku") or "").strip()
@@ -2350,15 +2408,6 @@ def list_fine_table(
             "daily_sales": orders.get("daily_sales", []),
         })
 
-    if payload_filters:
-        items = _fine_table_rows_match_filters(items, payload_filters)
-        total = len(items)
-        if not include_all:
-            offset = (page - 1) * page_size
-            items = items[offset:offset + page_size]
-    elif include_all:
-        total = len(items)
-
     payload = {
         "items": items,
         "total": total,
@@ -2366,5 +2415,9 @@ def list_fine_table(
         "page_size": page_size,
         "latest_order_date": max_day.isoformat() if "max_day" in locals() else None,
     }
-    set_fine_table_cache(cache_key, payload)
+    if fetch_all_rows:
+        set_fine_table_result_cache(result_cache_key, payload)
+        payload = _fine_table_filtered_page(payload, payload_filters, page=page, page_size=page_size, include_all=include_all)
+    if not include_all:
+        set_fine_table_cache(cache_key, payload)
     return payload

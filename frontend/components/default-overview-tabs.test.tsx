@@ -21,7 +21,7 @@ vi.mock("@/lib/api", async () => ({
   listSuppliers: mockSuppliers,
   listSupplierBrands: mockSupplierBrands,
   listProductArchiveBrands: mockArchiveBrands,
-  getProductYears: vi.fn().mockResolvedValue({ years: [] }),
+  getProductSearchOptions: vi.fn().mockResolvedValue({ years: [], seasons: [], product_names: [] }),
   getProductImageRefreshStatus: vi.fn().mockResolvedValue({ in_progress: false }),
 }))
 

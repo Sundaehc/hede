@@ -2056,6 +2056,7 @@ export function ProductGoodsPage() {
   ])
   useEffect(() => {
     if (!activeColumnFilter) return
+    let cancelled = false
     const requestId = ++columnFilterRequestIdRef.current
     setColumnFilterLoading(true)
     setColumnFilterError("")
@@ -2064,9 +2065,10 @@ export function ProductGoodsPage() {
       field: activeColumnFilter.field,
       filters,
       query: query || undefined,
+      snapshotDate: snapshotDate || undefined,
     })
       .then((response) => {
-        if (requestId !== columnFilterRequestIdRef.current) return
+        if (cancelled || requestId !== columnFilterRequestIdRef.current) return
         setColumnFilterData(response)
         setDraftColumnValues((current) => {
           if (current !== null) return current
@@ -2099,16 +2101,17 @@ export function ProductGoodsPage() {
         })
       })
       .catch((error: unknown) => {
-        if (requestId === columnFilterRequestIdRef.current)
+        if (!cancelled && requestId === columnFilterRequestIdRef.current)
           setColumnFilterError(
             error instanceof Error ? error.message : "筛选项加载失败"
           )
       })
       .finally(() => {
-        if (requestId === columnFilterRequestIdRef.current)
+        if (!cancelled && requestId === columnFilterRequestIdRef.current)
           setColumnFilterLoading(false)
       })
-  }, [activeColumnFilter, brand, filters, query])
+    return () => { cancelled = true }
+  }, [activeColumnFilter, brand, filters, query, snapshotDate])
   const columns = useMemo(
     () => getProductGoodsColumns(data),
     [
@@ -2179,18 +2182,14 @@ export function ProductGoodsPage() {
     ],
     [visibleColumns]
   )
-  const selectedColumnValues = useMemo(
-    () =>
-      new Set(
-        draftColumnValues ??
-          columnFilterData?.options.map((item) => item.value) ??
-          []
-      ),
-    [columnFilterData, draftColumnValues]
-  )
-  const allVisibleColumnOptionsSelected =
-    visibleColumnFilterOptions.length > 0 &&
-    visibleColumnFilterOptions.every((item) =>
+  const selectedColumnValues = useMemo(() => {
+    const values = new Set(draftColumnValues ?? columnFilterData?.options.map((item) => item.value) ?? [])
+    if (!columnFilterSearch.trim()) return values
+    return new Set(matchingColumnFilterOptions.filter((item) => values.has(item.value)).map((item) => item.value))
+  }, [columnFilterData, columnFilterSearch, draftColumnValues, matchingColumnFilterOptions])
+  const allMatchingColumnOptionsSelected =
+    matchingColumnFilterOptions.length > 0 &&
+    matchingColumnFilterOptions.every((item) =>
       selectedColumnValues.has(item.value)
     )
   const activeFilterFields = useMemo(
@@ -2252,14 +2251,14 @@ export function ProductGoodsPage() {
       return [...values]
     })
   }
-  function toggleAllVisibleColumnFilterOptions() {
+  function toggleAllMatchingColumnFilterOptions() {
     setDraftColumnValues((current) => {
       const values = new Set(
         current ?? columnFilterData?.options.map((item) => item.value) ?? []
       )
-      if (allVisibleColumnOptionsSelected)
-        visibleColumnFilterOptions.forEach((item) => values.delete(item.value))
-      else visibleColumnFilterOptions.forEach((item) => values.add(item.value))
+      if (allMatchingColumnOptionsSelected)
+        matchingColumnFilterOptions.forEach((item) => values.delete(item.value))
+      else matchingColumnFilterOptions.forEach((item) => values.add(item.value))
       return [...values]
     })
   }
@@ -2277,7 +2276,8 @@ export function ProductGoodsPage() {
     closeColumnFilter()
   }
   function applyColumnFilter() {
-    if (!activeColumnFilter || !columnFilterData) return
+    if (!activeColumnFilter || !columnFilterData || columnFilterLoading) return
+    const hasSearch = Boolean(columnFilterSearch.trim())
     const allValues = columnFilterData.options.map((item) => item.value)
     const selectedValues = allValues.filter((value) =>
       selectedColumnValues.has(value)
@@ -2287,8 +2287,7 @@ export function ProductGoodsPage() {
       (value) => !selectedValueSet.has(value)
     )
     if (
-      selectedValues.length !== allValues.length &&
-      Math.min(selectedValues.length, excludedValues.length) > 5_000
+      (hasSearch ? selectedValues.length : Math.min(selectedValues.length, excludedValues.length)) > 5_000
     ) {
       setColumnFilterError("请先搜索缩小范围，再进行大批量筛选")
       return
@@ -2297,10 +2296,10 @@ export function ProductGoodsPage() {
       const otherFilters = current.filter(
         (item) => item.field !== activeColumnFilter.field
       )
-      if (selectedValues.length === allValues.length) return otherFilters
+      if (!hasSearch && selectedValues.length === allValues.length) return otherFilters
       return [
         ...otherFilters,
-        selectedValues.length <= excludedValues.length
+        hasSearch || selectedValues.length <= excludedValues.length
           ? {
               field: activeColumnFilter.field,
               operator: "in",
@@ -2926,6 +2925,8 @@ export function ProductGoodsPage() {
         </div>
         {activeColumnFilter && (
           <div
+            role="dialog"
+            aria-label={`${activeColumnFilter.label}筛选`}
             className="fixed z-[100] flex w-[min(24rem,calc(100vw-1.5rem))] flex-col overflow-hidden border border-border bg-card shadow-xl"
             style={{
               top: activeColumnFilter.top,
@@ -2962,8 +2963,16 @@ export function ProductGoodsPage() {
                   onChange={(event) =>
                     setColumnFilterSearch(event.target.value)
                   }
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" && !event.nativeEvent.isComposing) {
+                      event.preventDefault()
+                      applyColumnFilter()
+                    }
+                    if (event.key === "Escape") closeColumnFilter()
+                  }}
                   className="h-8 pl-8 text-xs"
                   placeholder="搜索筛选项"
+                  aria-label={`搜索${activeColumnFilter.label}筛选项`}
                   autoFocus
                 />
               </div>
@@ -2972,10 +2981,10 @@ export function ProductGoodsPage() {
               <label className="flex cursor-pointer items-center gap-2">
                 <input
                   type="checkbox"
-                  checked={allVisibleColumnOptionsSelected}
-                  onChange={toggleAllVisibleColumnFilterOptions}
+                  checked={allMatchingColumnOptionsSelected}
+                  onChange={toggleAllMatchingColumnFilterOptions}
                   disabled={
-                    !visibleColumnFilterOptions.length || columnFilterLoading
+                    !matchingColumnFilterOptions.length || columnFilterLoading
                   }
                 />
                 <span>全选/反选</span>
@@ -2985,6 +2994,11 @@ export function ProductGoodsPage() {
               </span>
             </div>
             <div className="max-h-[21rem] min-h-[15rem] overflow-y-auto px-3 py-2">
+              {!columnFilterLoading && columnFilterData?.truncated && (
+                <p className="mb-2 border border-border bg-muted/40 px-2 py-1.5 text-xs text-muted-foreground">
+                  筛选项较多，仅加载前 10000 项；可先通过页面搜索或其他列筛选缩小范围。
+                </p>
+              )}
               {columnFilterLoading && (
                 <p className="px-1 py-8 text-center text-sm text-muted-foreground">
                   正在加载筛选项...
@@ -2999,7 +3013,7 @@ export function ProductGoodsPage() {
                 !columnFilterError &&
                 hasHiddenColumnFilterOptions && (
                   <p className="mb-2 border border-border bg-muted/40 px-2 py-1.5 text-xs text-muted-foreground">
-                    当前展示前 300 项，请输入货号搜索更多结果。
+                    当前展示前 300 项，全选/反选会作用于全部匹配项，可输入关键词缩小范围。
                   </p>
                 )}
               {!columnFilterLoading &&
@@ -3019,6 +3033,7 @@ export function ProductGoodsPage() {
                     <span className="flex min-w-0 items-center gap-2">
                       <input
                         type="checkbox"
+                        aria-label={`选择${item.value || "空白"}`}
                         checked={selectedColumnValues.has(item.value)}
                         onChange={() => toggleColumnFilterValue(item.value)}
                       />

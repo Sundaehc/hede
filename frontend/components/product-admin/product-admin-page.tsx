@@ -20,11 +20,13 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Tabs, TabsContent } from "@/components/ui/tabs"
 
 import { PRODUCT_ARCHIVE_BRANDS, resolveProductArchiveBrands, type ProductArchiveBrandKey, type ProductArchiveRecordBrandKey } from "@/lib/brands"
-import { ApiError, batchDeleteProducts, deleteProduct, getProductYears, listProductArchiveBrands, listProductRecycleBin, listProductSelectionIds, listProducts, permanentlyDeleteProduct, restoreProductFromRecycleBin, type ProductDeleteTarget, type SupplierBrandItem } from "@/lib/api"
+import { ApiError, batchDeleteProducts, deleteProduct, getProductSearchOptions, listProductArchiveBrands, listProductRecycleBin, listProductSelectionIds, listProducts, permanentlyDeleteProduct, restoreProductFromRecycleBin, type ProductDeleteTarget, type ProductSearchOptions, type SupplierBrandItem } from "@/lib/api"
 import type { ProductListItem, ProductRecycleItem } from "@/lib/types"
+import { productAttributeFilter, productAttributeValues } from "@/lib/product-attribute-filters"
 
 const DEFAULT_BRAND = "all"
 const PAGE_SIZES = [10, 50, 100]
+const EMPTY_SEARCH_OPTIONS: ProductSearchOptions = { years: [], seasons: [], product_names: [] }
 
 const isAllBrand = (b: ProductArchiveBrandKey) => b === "all"
 
@@ -47,7 +49,20 @@ export function ProductAdminPage() {
   const routeContextInitializedRef = useRef(false)
   const [routeContextReady, setRouteContextReady] = useState(false)
   const [year, setYear] = useSessionQueryState("products:year", "")
-  const [availableYears, setAvailableYears] = useState<string[]>([])
+  const [yearInput, setYearInput] = useSessionQueryState("products:yearInput", "")
+  const [seasonInput, setSeasonInput] = useSessionQueryState("products:seasonInput", "")
+  const [season, setSeason] = useSessionQueryState("products:season", "")
+  const [productNameInput, setProductNameInput] = useSessionQueryState("products:productNameInput", "")
+  const [productName, setProductName] = useSessionQueryState("products:productName", "")
+  const [yearValues, setYearValues] = useSessionQueryState<string[]>("products:yearValues", () => productAttributeValues(year))
+  const [seasonValues, setSeasonValues] = useSessionQueryState<string[]>("products:seasonValues", () => productAttributeValues(season))
+  const [productNameValues, setProductNameValues] = useSessionQueryState<string[]>("products:productNameValues", () => productAttributeValues(productName))
+  const [searchOptions, setSearchOptions] = useState<{ brand: string; values: ProductSearchOptions } | null>(null)
+  const attributeOptions = searchOptions?.brand === brand ? searchOptions.values : EMPTY_SEARCH_OPTIONS
+  const availableYears = useMemo(() => [...new Set(attributeOptions.years.flatMap((value) => {
+    const prefix = value.match(/^\d+/)?.[0]
+    return prefix ? [prefix.length === 2 ? `20${prefix}` : prefix] : []
+  }))].sort(), [attributeOptions.years])
   const [searchInput, setSearchInput] = useSessionQueryState("products:searchInput", "")
   const [submittedQuery, setSubmittedQuery] = useSessionQueryState("products:submittedQuery", "")
   const [skuPrefixInput, setSkuPrefixInput] = useSessionQueryState("products:skuPrefixInput", "")
@@ -96,10 +111,12 @@ export function ProductAdminPage() {
   const batchDeleteInFlightRef = useRef(false)
   const selectionFilters = useMemo(() => ({
     brand,
-    year: isAllBrand(brand) ? undefined : year || undefined,
+    year: year || undefined,
     query: submittedQuery || undefined,
     skuPrefix: submittedSkuPrefix || undefined,
-  }), [brand, year, submittedQuery, submittedSkuPrefix])
+    season: season || undefined,
+    productName: productName || undefined,
+  }), [brand, year, submittedQuery, submittedSkuPrefix, season, productName])
 
   const clearSelection = useCallback(() => {
     selectionRequestRef.current += 1
@@ -139,20 +156,18 @@ export function ProductAdminPage() {
 
   useEffect(() => {
     if (!routeContextReady) return
-    if (isAllBrand(brand)) {
-      setAvailableYears([])
-      return
-    }
-    async function loadYears() {
+    let cancelled = false
+    async function loadSearchOptions() {
       try {
-        const res = await getProductYears(brand)
-        setAvailableYears(res.years)
+        const values = await getProductSearchOptions(brand)
+        if (!cancelled) setSearchOptions({ brand, values })
       } catch {
-        setAvailableYears([])
+        if (!cancelled) setSearchOptions({ brand, values: EMPTY_SEARCH_OPTIONS })
       }
     }
-    void loadYears()
-  }, [brand, routeContextReady])
+    void loadSearchOptions()
+    return () => { cancelled = true }
+  }, [brand, reloadToken, routeContextReady])
 
   useEffect(() => {
     let cancelled = false
@@ -189,6 +204,8 @@ export function ProductAdminPage() {
           query: submittedQuery || undefined,
           skuPrefix: submittedSkuPrefix || undefined,
           year: year || undefined,
+          season: season || undefined,
+          productName: productName || undefined,
         })
 
         if (cancelled) {
@@ -217,7 +234,7 @@ export function ProductAdminPage() {
     return () => {
       cancelled = true
     }
-  }, [brand, year, page, pageSize, reloadToken, routeContextReady, submittedQuery, submittedSkuPrefix])
+  }, [brand, year, season, productName, page, pageSize, reloadToken, routeContextReady, submittedQuery, submittedSkuPrefix])
 
   useEffect(() => () => { selectionRequestRef.current += 1 }, [selectionFilters])
 
@@ -414,9 +431,10 @@ export function ProductAdminPage() {
           defaultValue={DEFAULT_BRAND}
           onValueChange={(value) => {
             clearSelection()
-            setAvailableYears([])
             setBrand(value as ProductArchiveBrandKey)
             setYear("")
+            setYearInput("")
+            setYearValues([])
             setPage(1)
           }}
         >
@@ -433,7 +451,7 @@ export function ProductAdminPage() {
                       {["", ...availableYears].map((y) => (
                         <button
                           key={y}
-                          onClick={() => { clearSelection(); setYear(y); setPage(1) }}
+                          onClick={() => { clearSelection(); setYear(y); setYearValues(y ? [y] : []); setYearInput(""); setPage(1) }}
                           className={`cursor-pointer rounded-lg px-3 py-1.5 text-sm font-medium transition-all duration-150 ${year === y
                               ? "bg-primary text-primary-foreground shadow-sm"
                               : "bg-muted text-muted-foreground hover:bg-muted-foreground/20 hover:text-foreground"
@@ -450,6 +468,12 @@ export function ProductAdminPage() {
             <ProductToolbar
                 brand={brand}
                 year={year}
+                attributes={{
+                  yearInput, seasonInput, productNameInput, yearValues, seasonValues, productNameValues, season, productName,
+                  availableYears: attributeOptions.years, availableSeasons: attributeOptions.seasons, availableProductNames: attributeOptions.product_names,
+                  onYearChange: setYearInput, onSeasonChange: setSeasonInput, onProductNameChange: setProductNameInput,
+                  onYearValuesChange: setYearValues, onSeasonValuesChange: setSeasonValues, onProductNameValuesChange: setProductNameValues,
+                }}
                 value={searchInput}
                 query={submittedQuery}
                 prefixValue={skuPrefixInput}
@@ -462,11 +486,23 @@ export function ProductAdminPage() {
                 canRefreshImages={canManageProducts}
                 onValueChange={setSearchInput}
                 onPrefixValueChange={setSkuPrefixInput}
-                onSearch={() => {
+                onSearch={(attributes) => {
                   clearSelection()
                   setPage(1)
                   setSubmittedQuery(searchInput.trim())
                   setSubmittedSkuPrefix(skuPrefixInput.trim())
+                  const nextYear = attributes?.year ?? productAttributeFilter(yearValues, yearInput)
+                  const nextSeason = attributes?.season ?? productAttributeFilter(seasonValues, seasonInput)
+                  const nextProductName = attributes?.productName ?? productAttributeFilter(productNameValues, productNameInput)
+                  setYear(nextYear)
+                  setSeason(nextSeason)
+                  setProductName(nextProductName)
+                  setYearValues(productAttributeValues(nextYear))
+                  setSeasonValues(productAttributeValues(nextSeason))
+                  setProductNameValues(productAttributeValues(nextProductName))
+                  setYearInput("")
+                  setSeasonInput("")
+                  setProductNameInput("")
                 }}
                 onClear={() => {
                   clearSelection()
@@ -475,6 +511,15 @@ export function ProductAdminPage() {
                   setPage(1)
                   setSubmittedQuery("")
                   setSubmittedSkuPrefix("")
+                  setYear("")
+                  setYearInput("")
+                  setSeason("")
+                  setSeasonInput("")
+                  setProductName("")
+                  setProductNameInput("")
+                  setYearValues([])
+                  setSeasonValues([])
+                  setProductNameValues([])
                 }}
                 onRefresh={() => {
                   setReloadToken((current) => current + 1)
@@ -487,11 +532,21 @@ export function ProductAdminPage() {
                 } : undefined}
                 onImportComplete={(skus: string[]) => {
                   clearSelection()
+                  setReloadToken((current) => current + 1)
                   const query = skus.join(",")
                   setSearchInput(query)
                   setSubmittedQuery(query)
                   setSkuPrefixInput("")
                   setSubmittedSkuPrefix("")
+                  setYear("")
+                  setYearInput("")
+                  setSeason("")
+                  setSeasonInput("")
+                  setProductName("")
+                  setProductNameInput("")
+                  setYearValues([])
+                  setSeasonValues([])
+                  setProductNameValues([])
                   setPage(1)
                 }}
                 onCreate={isAllBrand(brand) || !canManageProducts ? undefined : () => {

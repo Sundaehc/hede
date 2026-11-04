@@ -22,6 +22,7 @@ vi.mock("@/lib/api", async () => {
     createProduct: mockCreateProduct,
     listProductArchiveBrands: mockListProductArchiveBrands,
     listProducts: mockListProducts,
+    getProductSearchOptions: async () => ({ years: [], seasons: [], product_names: [] }),
     updateProduct: mockUpdateProduct,
   }
 })

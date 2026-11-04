@@ -223,6 +223,16 @@ export function getProductYears(brand: ProductArchiveBrandKey) {
   return request<{ years: string[] }>(`/products/${brand}/years`)
 }
 
+export type ProductSearchOptions = {
+  years: string[]
+  seasons: string[]
+  product_names: string[]
+}
+
+export function getProductSearchOptions(brand: ProductArchiveBrandKey) {
+  return request<ProductSearchOptions>(`/products/${brand}/search-options`, { cache: "no-store" })
+}
+
 export function listProductColorBarcodes(brand: ProductArchiveRecordBrandKey) {
   const search = new URLSearchParams({ brand })
   return request<ProductColorBarcodeListResponse>(
@@ -263,13 +273,15 @@ export type ProductSelectionFilters = {
   query?: string
   skuPrefix?: string
   year?: string
+  season?: string
+  productName?: string
 }
 
-export function listProductSelectionIds({ skuPrefix, ...filters }: ProductSelectionFilters) {
+export function listProductSelectionIds({ skuPrefix, productName, ...filters }: ProductSelectionFilters) {
   return request<{ items: ProductDeleteTarget[]; total: number }>("/products/selection-ids", {
     method: "POST",
     cache: "no-store",
-    body: JSON.stringify({ ...filters, sku_prefix: skuPrefix }),
+    body: JSON.stringify({ ...filters, sku_prefix: skuPrefix, product_name: productName }),
   })
 }
 
@@ -292,6 +304,8 @@ export function listProducts(params: ProductSelectionFilters & {
   if (params.year) {
     search.set("year", params.year)
   }
+  if (params.season) search.set("season", params.season)
+  if (params.productName) search.set("product_name", params.productName)
   return request<ProductListResponse>(`/products?${search.toString()}`)
 }
 
@@ -515,6 +529,7 @@ export function listProductGoodsFilterOptions(params: {
   filters?: ProductGoodsFilter[]
   query?: string
   search?: string
+  snapshotDate?: string
 }) {
   const requestParams = new URLSearchParams({
     brand: params.brand ?? "cbanner_womens",
@@ -524,6 +539,7 @@ export function listProductGoodsFilterOptions(params: {
     requestParams.set("filters", JSON.stringify(params.filters))
   if (params.query) requestParams.set("query", params.query)
   if (params.search) requestParams.set("search", params.search)
+  if (params.snapshotDate) requestParams.set("snapshot_date", params.snapshotDate)
   return request<ProductGoodsFilterOptionsResponse>(
     `/product-goods/filter-options?${requestParams.toString()}`
   )
@@ -873,7 +889,8 @@ export function buildProductExportUrl(
   activityDateEnd?: string,
   year?: string,
   query?: string,
-  skuPrefix?: string
+  skuPrefix?: string,
+  attributes?: { season?: string; productName?: string },
 ) {
   const params = new URLSearchParams({ brand })
   if (brand !== "all" && ids && ids.length > 0) {
@@ -897,6 +914,8 @@ export function buildProductExportUrl(
   if (skuPrefix?.trim()) {
     params.set("sku_prefix", skuPrefix.trim())
   }
+  if (attributes?.season?.trim()) params.set("season", attributes.season.trim())
+  if (attributes?.productName?.trim()) params.set("product_name", attributes.productName.trim())
   return `${API_PREFIX}/export?${params.toString()}`
 }
 
@@ -945,7 +964,8 @@ export async function downloadProductExport(
   activityDateEnd?: string,
   year?: string,
   query?: string,
-  skuPrefix?: string
+  skuPrefix?: string,
+  attributes?: { season?: string; productName?: string },
 ) {
   onProgress?.({ phase: "preparing", loaded: 0, total: null, percent: null })
   const response = await fetch(
@@ -957,7 +977,8 @@ export async function downloadProductExport(
       activityDateEnd,
       year,
       query,
-      skuPrefix
+      skuPrefix,
+      attributes,
     ),
     {
       credentials: "include",
@@ -1038,7 +1059,8 @@ export async function assertProductExportAllowed(
   activityDateEnd?: string,
   year?: string,
   query?: string,
-  skuPrefix?: string
+  skuPrefix?: string,
+  attributes?: { season?: string; productName?: string },
 ) {
   const response = await fetch(
     buildProductExportUrl(
@@ -1049,7 +1071,8 @@ export async function assertProductExportAllowed(
       activityDateEnd,
       year,
       query,
-      skuPrefix
+      skuPrefix,
+      attributes,
     ),
     {
       credentials: "include",
@@ -1069,7 +1092,8 @@ export function exportProducts(
   activityDateEnd?: string,
   year?: string,
   query?: string,
-  skuPrefix?: string
+  skuPrefix?: string,
+  attributes?: { season?: string; productName?: string },
 ) {
   return fetch(
     buildProductExportUrl(
@@ -1080,7 +1104,8 @@ export function exportProducts(
       activityDateEnd,
       year,
       query,
-      skuPrefix
+      skuPrefix,
+      attributes,
     ),
     {
       credentials: "include",

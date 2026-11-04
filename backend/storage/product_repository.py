@@ -78,7 +78,39 @@ def _sku_search_condition(table, value: str | None, *, prefix: bool = False):
     ))
 
 
-def _product_list_conditions(table, query=None, sku_prefix=None, year=None):
+def _product_attribute_terms(value: str | None) -> list[str]:
+    normalized = str(value or "").strip()
+    if not normalized:
+        return []
+    if normalized.startswith("["):
+        try:
+            values = orjson.loads(normalized)
+        except (ValueError, TypeError):
+            values = None
+        if isinstance(values, list):
+            return list(dict.fromkeys(item.strip() for item in values if isinstance(item, str) and item.strip()))
+    return [normalized]
+
+
+def _product_attribute_conditions(table, *, year=None, season=None, product_name=None):
+    conditions = []
+    prefixes = []
+    for normalized_year in _product_attribute_terms(year):
+        prefixes.append(normalized_year)
+        if normalized_year.isdigit() and len(normalized_year) == 4:
+            prefixes.append(normalized_year[-2:])
+        elif normalized_year.isdigit() and len(normalized_year) == 2:
+            prefixes.append("20" + normalized_year)
+    if prefixes:
+        conditions.append(or_(*(table.c.year.icontains(prefix, autoescape=True) for prefix in dict.fromkeys(prefixes))))
+    for column, value in ((table.c.season_category, season), (table.c.product_name, product_name)):
+        terms = _product_attribute_terms(value)
+        if terms:
+            conditions.append(or_(*(column.icontains(term, autoescape=True) for term in terms)))
+    return conditions
+
+
+def _product_list_conditions(table, query=None, sku_prefix=None, year=None, season=None, product_name=None):
     conditions = [
         table.c.deleted_at.is_(None),
         not_excluded_sku_condition(table.c.sku, table.c.original_sku),
@@ -89,8 +121,7 @@ def _product_list_conditions(table, query=None, sku_prefix=None, year=None):
     prefix_condition = _sku_search_condition(table, sku_prefix, prefix=True)
     if prefix_condition is not None:
         conditions.append(prefix_condition)
-    if year:
-        conditions.append(or_(table.c.year.startswith(year), table.c.year.startswith(year[-2:])))
+    conditions.extend(_product_attribute_conditions(table, year=year, season=season, product_name=product_name))
     return conditions
 
 
@@ -771,12 +802,14 @@ class ProductRepository:
         page_size: int,
         year: str | None = None,
         sku_prefix: str | None = None,
+        season: str | None = None,
+        product_name: str | None = None,
     ) -> dict[str, object]:
         table = self._table_for_brand(brand)
         count_statement = select(func.count()).select_from(table)
         items_statement = select(table)
 
-        conditions = _product_list_conditions(table, query, sku_prefix, year)
+        conditions = _product_list_conditions(table, query, sku_prefix, year, season, product_name)
         if conditions:
             criterion = conditions[0] if len(conditions) == 1 else and_(*conditions)
             count_statement = count_statement.where(criterion)
@@ -801,6 +834,9 @@ class ProductRepository:
         page: int,
         page_size: int,
         sku_prefix: str | None = None,
+        year: str | None = None,
+        season: str | None = None,
+        product_name: str | None = None,
     ) -> dict[str, object]:
         brand_keys = self.product_archive_brands()
 
@@ -812,7 +848,7 @@ class ProductRepository:
                 literal(brand_key).label("brand"),
                 *([c for c in table.columns if c.key not in ("id",)]),
             )
-            sq = sq.where(*_product_list_conditions(table, query, sku_prefix))
+            sq = sq.where(*_product_list_conditions(table, query, sku_prefix, year, season, product_name))
             subqueries.append(sq)
 
         combined = union_all(*subqueries).subquery()
@@ -831,6 +867,29 @@ class ProductRepository:
             "page_size": page_size,
         }
 
+    def list_product_search_options(self, brand: str) -> dict[str, list[str]]:
+        brands = self.product_archive_brands() if brand == "all" else [brand]
+        fields = {"years": "year", "seasons": "season_category", "product_names": "product_name"}
+        statements = []
+        for brand_key in brands:
+            table = self._table_for_brand(brand_key)
+            for key, field in fields.items():
+                value = func.trim(table.c[field])
+                statements.append(
+                    select(literal(key).label("field"), value.label("value"))
+                    .where(*_product_list_conditions(table), value.is_not(None), value != "")
+                    .distinct()
+                )
+        options = {key: [] for key in fields}
+        if not statements:
+            return options
+        combined = union_all(*statements).subquery()
+        statement = select(combined.c.field, combined.c.value).distinct().order_by(combined.c.field, combined.c.value)
+        with self.engine.connect() as connection:
+            for row in connection.execute(statement).mappings():
+                options[row["field"]].append(row["value"])
+        return options
+
     def list_product_targets(
         self,
         *,
@@ -838,6 +897,8 @@ class ProductRepository:
         query: str | None = None,
         sku_prefix: str | None = None,
         year: str | None = None,
+        season: str | None = None,
+        product_name: str | None = None,
     ) -> list[dict[str, object]]:
         brands = self.product_archive_brands() if brand == "all" else [brand]
         statements = []
@@ -845,7 +906,7 @@ class ProductRepository:
             table = self._table_for_brand(brand_key)
             statements.append(
                 select(literal(brand_key).label("brand"), table.c.id)
-                .where(*_product_list_conditions(table, query, sku_prefix, year if brand != "all" else None))
+                .where(*_product_list_conditions(table, query, sku_prefix, year, season, product_name))
             )
         if not statements:
             return []

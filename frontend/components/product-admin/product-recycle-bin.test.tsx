@@ -20,7 +20,7 @@ vi.mock("@/lib/api", async () => ({
   ...(await vi.importActual<typeof import("@/lib/api")>("@/lib/api")),
   listProducts: async () => ({ items: [], total: 0 }),
   listProductArchiveBrands: async () => ({ items: [] }),
-  getProductYears: async () => ({ years: [] }),
+  getProductSearchOptions: async () => ({ years: [], seasons: [], product_names: [] }),
   listProductRecycleBin: mockListRecycleBin,
 }))
 

@@ -16,7 +16,7 @@ from api.product_cost_access import redact_product_cost_item, request_can_view_p
 from api.product_goods_cache import clear_product_goods_cache
 from api.schemas import BatchDeleteRequest, ProductArchiveBrandKey, ProductSelectionFilters, ProductWriteRequest
 
-from sqlalchemy import distinct as sa_distinct, select as sa_select
+from sqlalchemy import distinct as sa_distinct, select as sa_select, union_all
 
 from domain.color_barcode_schema import COLOR_BARCODE_TABLE
 from domain.product_archive_identity_schema import (
@@ -30,6 +30,7 @@ from domain.product_archive_features import has_womens_product_style_fields
 from domain.product_auxiliary_attribute_schema import PRODUCT_AUXILIARY_ATTRIBUTE_FIELDS, PRODUCT_AUXILIARY_ATTRIBUTE_TABLE
 from domain.schema import PRODUCT_ARCHIVE_TABLES
 from domain.size_group_schema import SIZE_GROUPS_TABLE
+from storage.product_repository import _product_list_conditions
 
 PRODUCT_COLOR_BARCODE_BRANDS = {
     "cbanner_mens": "cbanner_mens",
@@ -103,6 +104,8 @@ def list_products(
     query: str | None = None,
     sku_prefix: str | None = None,
     year: str | None = None,
+    season: str | None = None,
+    product_name: str | None = None,
     page: int = 1,
     page_size: int = 20,
 ):
@@ -112,7 +115,7 @@ def list_products(
     include_cost = request_can_view_product_cost(request)
 
     if brand == "all":
-        payload = repository.list_all_products(query=query, sku_prefix=sku_prefix, page=page, page_size=page_size)
+        payload = repository.list_all_products(query=query, sku_prefix=sku_prefix, year=year, season=season, product_name=product_name, page=page, page_size=page_size)
         for item in payload["items"]:
             item["brand"] = str(item.get("brand") or "")
         return {
@@ -127,7 +130,7 @@ def list_products(
         from fastapi import HTTPException
         raise HTTPException(status_code=400, detail=f"Invalid brand: {brand}")
 
-    payload = repository.list_products(brand, query=query, sku_prefix=sku_prefix, year=year, page=page, page_size=page_size)
+    payload = repository.list_products(brand, query=query, sku_prefix=sku_prefix, year=year, season=season, product_name=product_name, page=page, page_size=page_size)
     for item in payload["items"]:
         item["brand"] = brand
     return {
@@ -148,19 +151,31 @@ def list_product_selection_ids(request: Request, body: ProductSelectionFilters):
     return JSONResponse({"items": items, "total": len(items)}, headers={"Cache-Control": "no-store"})
 
 
+@router.get("/products/{brand}/search-options")
+def get_product_search_options(request: Request, brand: str):
+    repository = request.app.state.repository
+    if brand != "all" and not repository.is_product_archive_brand(brand):
+        raise HTTPException(status_code=400, detail=f"Invalid brand: {brand}")
+    return JSONResponse(repository.list_product_search_options(brand), headers={"Cache-Control": "no-store"})
+
+
 @router.get("/products/{brand}/years")
 def get_product_years(request: Request, brand: str):
     repository = request.app.state.repository
-    if brand == "all" or not repository.is_product_archive_brand(brand):
+    if brand != "all" and not repository.is_product_archive_brand(brand):
         return {"years": []}
-    table = repository._table_for_brand(brand)
-    with repository.engine.connect() as connection:
-        result = connection.execute(
+    brands = repository.product_archive_brands() if brand == "all" else [brand]
+    statements = []
+    for brand_key in brands:
+        table = repository._table_for_brand(brand_key)
+        statements.append(
             sa_select(sa_distinct(table.c.year))
-            .where(table.c.year.isnot(None))
-            .where(table.c.year != "")
-            .order_by(table.c.year)
+            .where(*_product_list_conditions(table), table.c.year.is_not(None), table.c.year != "")
         )
+    if not statements:
+        return {"years": []}
+    with repository.engine.connect() as connection:
+        result = connection.execute(union_all(*statements) if len(statements) > 1 else statements[0])
         raw = [row[0] for row in result if row[0]]
 
     # Extract year number prefix: "21年春季款" -> "21", "2025" -> "2025"
@@ -168,7 +183,7 @@ def get_product_years(request: Request, brand: str):
     seen: set[str] = set()
     years: list[str] = []
     for val in raw:
-        m = re.match(r"(\d+)", str(val))
+        m = re.match(r"(\d+)", str(val).strip())
         if m:
             y = m.group(1)
             # Normalize 2-digit to 4-digit

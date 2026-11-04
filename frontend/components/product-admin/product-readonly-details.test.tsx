@@ -38,7 +38,7 @@ vi.mock("@/lib/api", async () => ({
   ...(await vi.importActual<typeof import("@/lib/api")>("@/lib/api")),
   listProducts: mockListProducts,
   listProductArchiveBrands: vi.fn().mockResolvedValue({ items: [] }),
-  getProductYears: vi.fn().mockResolvedValue({ years: [] }),
+  getProductSearchOptions: vi.fn().mockResolvedValue({ years: [], seasons: [], product_names: [] }),
   getProductImageRefreshStatus: vi
     .fn()
     .mockResolvedValue({ in_progress: false }),

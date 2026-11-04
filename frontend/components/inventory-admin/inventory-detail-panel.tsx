@@ -357,6 +357,11 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
         return Number(right.value) - Number(left.value)
       })
   }, [unitPriceOptionSearch, unitPriceOptions])
+  const selectedUnitPriceValues = useMemo(() => {
+    const matchingValues = new Set(visibleUnitPriceOptions.map(unitPriceOptionKey))
+    return unitPriceOptions.map(unitPriceOptionKey)
+      .filter((value) => matchingValues.has(value) && unitPriceDraftValueSet.has(value))
+  }, [unitPriceDraftValueSet, unitPriceOptions, visibleUnitPriceOptions])
   const allVisibleUnitPriceOptionsSelected = visibleUnitPriceOptions.length > 0
     && visibleUnitPriceOptions.every((option) => unitPriceDraftValueSet.has(unitPriceOptionKey(option)))
   const hasUnitPriceFilter = unitPriceValues !== null
@@ -460,18 +465,19 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
   }, [documentId, unitPriceFilterOpen, unitPriceValues])
 
   const applyUnitPriceFilter = () => {
-    if (!unitPriceOptionsLoaded) {
+    if (unitPriceOptionsLoading || !unitPriceOptionsLoaded) {
       if (!unitPriceOptionsLoading) setUnitPriceFilterError("单价选项尚未加载成功，请重试")
       return
     }
     const availableValues = unitPriceOptions.map(unitPriceOptionKey)
-    const selectedValues = availableValues.filter((value) => unitPriceDraftValueSet.has(value))
+    const selectedValues = selectedUnitPriceValues
     if (availableValues.length > 0 && selectedValues.length === 0) {
       setUnitPriceFilterError("请至少选择一个单价")
       return
     }
     setUnitPriceFilterError("")
-    setUnitPriceValues(selectedValues.length === availableValues.length ? null : selectedValues)
+    const allSelected = !unitPriceOptionsTruncated && selectedValues.length === availableValues.length
+    setUnitPriceValues(allSelected ? null : selectedValues)
     setDetailPage(1)
     setUnitPriceFilterOpen(false)
   }
@@ -1273,6 +1279,8 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
                     </div>
                     {unitPriceFilterOpen && (
                       <div
+                        role="dialog"
+                        aria-label="单价筛选"
                         className="absolute right-1 top-[calc(100%+6px)] z-[80] flex w-[340px] flex-col overflow-hidden rounded-lg border border-border bg-popover text-left text-popover-foreground shadow-xl"
                         onClick={(event) => event.stopPropagation()}
                       >
@@ -1300,11 +1308,15 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
                               value={unitPriceOptionSearch}
                               onChange={(event) => setUnitPriceOptionSearch(event.target.value)}
                               onKeyDown={(event) => {
-                                if (event.key === "Enter") applyUnitPriceFilter()
+                                if (event.key === "Enter" && !event.nativeEvent.isComposing) {
+                                  event.preventDefault()
+                                  applyUnitPriceFilter()
+                                }
                                 if (event.key === "Escape") setUnitPriceFilterOpen(false)
                               }}
                               className="h-8 rounded-md pl-8 text-xs"
                               placeholder="搜索单价"
+                              aria-label="搜索单价"
                               autoFocus
                             />
                           </div>
@@ -1330,7 +1342,7 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
                               反选
                             </button>
                           </div>
-                          <span className="text-muted-foreground">已选 {unitPriceDraftValues.length} / {unitPriceOptions.length}</span>
+                          <span className="text-muted-foreground">已选 {selectedUnitPriceValues.length} / {unitPriceOptions.length}</span>
                         </div>
                         <div className="min-h-40 max-h-56 overflow-y-auto px-2 py-1.5 font-normal">
                           {unitPriceOptionsLoading && (
@@ -1351,6 +1363,7 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
                               <label key={value} className="flex h-8 cursor-pointer items-center gap-2 rounded-md px-2 text-xs hover:bg-muted/70">
                                 <input
                                   type="checkbox"
+                                  aria-label={`选择${unitPriceOptionLabel(option)}`}
                                   checked={unitPriceDraftValueSet.has(value)}
                                   onChange={() => toggleUnitPriceOption(value)}
                                   className="h-4 w-4 cursor-pointer rounded border-border"

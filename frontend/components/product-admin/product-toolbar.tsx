@@ -2,12 +2,14 @@
 
 import { useSessionQueryState } from "@/lib/session-query-state"
 
-import { useEffect, useId, useRef, useState } from "react"
+import { useEffect, useId, useMemo, useRef, useState } from "react"
 import { BadgeDollarSign, ChevronDown, FileDown, FileSpreadsheet, History, ImagePlus, Plus, Ruler, Search, Trash2, Upload } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { DateRangeControl } from "@/components/ui/date-range-control"
 import { Label } from "@/components/ui/label"
+import { ProductMultiOptionSelect } from "@/components/product-admin/product-multi-option-select"
+import { productAttributeFilter, productAttributeSummary } from "@/lib/product-attribute-filters"
 import { type ProductArchiveBrandKey } from "@/lib/brands"
 import { assertProductExportAllowed, downloadProductExport, downloadProductImportTemplate, getProductImageRefreshStatus, importProducts, refreshProductImages, type ProductExportMode, type ProductExportProgress } from "@/lib/api"
 import type { ProductImageRefreshStatus } from "@/lib/types"
@@ -15,6 +17,25 @@ import type { ProductImageRefreshStatus } from "@/lib/types"
 type ProductToolbarProps = {
   brand: ProductArchiveBrandKey
   year: string
+  attributes?: {
+    yearInput: string
+    seasonInput: string
+    productNameInput: string
+    yearValues: string[]
+    seasonValues: string[]
+    productNameValues: string[]
+    season: string
+    productName: string
+    availableYears: string[]
+    availableSeasons: string[]
+    availableProductNames: string[]
+    onYearChange: (value: string) => void
+    onSeasonChange: (value: string) => void
+    onProductNameChange: (value: string) => void
+    onYearValuesChange: (values: string[]) => void
+    onSeasonValuesChange: (values: string[]) => void
+    onProductNameValuesChange: (values: string[]) => void
+  }
   value: string
   query: string
   prefixValue: string
@@ -27,7 +48,7 @@ type ProductToolbarProps = {
   canRefreshImages?: boolean
   onValueChange: (value: string) => void
   onPrefixValueChange: (value: string) => void
-  onSearch: () => void
+  onSearch: (attributes?: { year?: string; season?: string; productName?: string }) => void
   onClear: () => void
   onRefresh: () => void
   onImportComplete: (skus: string[]) => void
@@ -51,6 +72,7 @@ function currentShanghaiDateValue() {
 export function ProductToolbar({
   brand,
   year,
+  attributes,
   value,
   query,
   prefixValue,
@@ -75,6 +97,16 @@ export function ProductToolbar({
   const currentDate = currentShanghaiDateValue()
   const toolbarContentId = useId()
   const activityExportDescriptionId = useId()
+  const yearInputId = useId()
+  const seasonInputId = useId()
+  const productNameInputId = useId()
+  const yearOptions = useMemo(() => attributes?.availableYears.map((value) => {
+    const prefix = value.match(/^\d+/)?.[0] ?? ""
+    const keywords = prefix.length === 2 ? `20${prefix}` : prefix.length === 4 ? prefix.slice(-2) : ""
+    return { value, label: value, keywords }
+  }) ?? [], [attributes?.availableYears])
+  const seasonOptions = useMemo(() => attributes?.availableSeasons.map((value) => ({ value, label: value })) ?? [], [attributes?.availableSeasons])
+  const productNameOptions = useMemo(() => attributes?.availableProductNames.map((value) => ({ value, label: value })) ?? [], [attributes?.availableProductNames])
   const fileInputRef = useRef<HTMLInputElement>(null)
   const submittedImageRefreshAtRef = useRef<number | null>(null)
   const [importing, setImporting] = useState(false)
@@ -157,12 +189,15 @@ export function ProductToolbar({
     const exportYear = isActivityExport ? undefined : year || undefined
     const exportQuery = !isActivityExport && !ids ? query || undefined : undefined
     const exportSkuPrefix = !isActivityExport && !ids ? skuPrefix || undefined : undefined
+    const attributeArgs: [attributes?: { season?: string; productName?: string }] = !isActivityExport && !ids && (attributes?.season || attributes?.productName)
+      ? [{ season: attributes.season || undefined, productName: attributes.productName || undefined }]
+      : []
     setExporting(true)
     setExportingMode(isActivityExport ? (mode ? "range_with_sizes" : "range") : (mode ?? "default"))
     setExportProgress({ phase: "preparing", loaded: 0, total: null, percent: null })
     try {
-      await assertProductExportAllowed(brand, ids, mode, exportActivityDateStart, exportActivityDateEnd, exportYear, exportQuery, exportSkuPrefix)
-      await downloadProductExport(brand, ids, mode, setExportProgress, exportActivityDateStart, exportActivityDateEnd, exportYear, exportQuery, exportSkuPrefix)
+      await assertProductExportAllowed(brand, ids, mode, exportActivityDateStart, exportActivityDateEnd, exportYear, exportQuery, exportSkuPrefix, ...attributeArgs)
+      await downloadProductExport(brand, ids, mode, setExportProgress, exportActivityDateStart, exportActivityDateEnd, exportYear, exportQuery, exportSkuPrefix, ...attributeArgs)
     } catch (error) {
       onMessage("导出失败", error instanceof Error ? error.message : "导出 Excel 时发生错误，请重试")
     } finally {
@@ -245,7 +280,7 @@ export function ProductToolbar({
         : null
   const defaultExportLabel = exportingMode === "default" && exportStatusText
     ? exportStatusText
-    : hasSelection ? `导出选中 (${selectedIds!.size})` : query || skuPrefix ? "导出搜索结果" : "导出 Excel"
+    : hasSelection ? `导出选中 (${selectedIds!.size})` : query || skuPrefix || year || attributes?.season || attributes?.productName ? "导出搜索结果" : "导出 Excel"
   const sizeExportLabel = exportingMode === "with_sizes" && exportStatusText ? exportStatusText : "带尺码导出"
   const priceExportLabel = exportingMode === "price" && exportStatusText ? exportStatusText : "物价导出"
   const activityExportLabel = exportingMode === "range" && exportStatusText ? exportStatusText : "导出记录"
@@ -259,6 +294,9 @@ export function ProductToolbar({
   const activeSearchFilters = [
     { label: "包含", value: query.trim().replace(/\s+/g, " ") },
     { label: "前缀", value: skuPrefix.trim() },
+    { label: "年份", value: attributes ? productAttributeSummary(year) : "" },
+    { label: "季节", value: productAttributeSummary(attributes?.season || "") },
+    { label: "品名", value: productAttributeSummary(attributes?.productName || "") },
   ].filter((filter) => filter.value)
   const collapsedSearchSummary = activeSearchFilters.map((filter) => `${filter.label}：${filter.value}`).join("；")
 
@@ -352,10 +390,10 @@ export function ProductToolbar({
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-1.5 lg:justify-end">
-            <Button type="button" size="sm" onClick={onSearch} disabled={isLoading} className="h-8 cursor-pointer rounded-md shadow-none">
+            <Button type="button" size="sm" onClick={() => onSearch()} disabled={isLoading} className="h-8 cursor-pointer rounded-md shadow-none">
               搜索
             </Button>
-            <Button type="button" variant="outline" size="sm" onClick={onClear} disabled={isLoading && value.length === 0 && prefixValue.length === 0} className="h-8 cursor-pointer rounded-md shadow-none">
+            <Button type="button" variant="outline" size="sm" onClick={onClear} disabled={isLoading && !value && !prefixValue && !attributes?.yearInput && !attributes?.seasonInput && !attributes?.productNameInput && !attributes?.yearValues.length && !attributes?.seasonValues.length && !attributes?.productNameValues.length} className="h-8 cursor-pointer rounded-md shadow-none">
               清空
             </Button>
             <Button type="button" variant="outline" size="sm" onClick={onRefresh} disabled={isLoading} className="h-8 cursor-pointer rounded-md shadow-none">
@@ -389,6 +427,23 @@ export function ProductToolbar({
             ) : null}
           </div>
         </div>
+
+        {attributes && (
+          <div role="group" aria-label="商品属性筛选" className="grid min-w-0 gap-2 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1.8fr)]">
+            <div className="min-w-0 space-y-1">
+              <Label htmlFor={yearInputId} className="text-xs text-muted-foreground">年份</Label>
+              <ProductMultiOptionSelect id={yearInputId} label="年份" values={attributes.yearValues} query={attributes.yearInput} options={yearOptions} onValuesChange={attributes.onYearValuesChange} onQueryChange={attributes.onYearChange} onSubmit={(values) => onSearch({ year: productAttributeFilter(values) })} placeholder="搜索或选择年份（可多选）" />
+            </div>
+            <div className="min-w-0 space-y-1">
+              <Label htmlFor={seasonInputId} className="text-xs text-muted-foreground">季节</Label>
+              <ProductMultiOptionSelect id={seasonInputId} label="季节" values={attributes.seasonValues} query={attributes.seasonInput} options={seasonOptions} onValuesChange={attributes.onSeasonValuesChange} onQueryChange={attributes.onSeasonChange} onSubmit={(values) => onSearch({ season: productAttributeFilter(values) })} placeholder="搜索或选择季节（可多选）" />
+            </div>
+            <div className="min-w-0 space-y-1">
+              <Label htmlFor={productNameInputId} className="text-xs text-muted-foreground">品名</Label>
+              <ProductMultiOptionSelect id={productNameInputId} label="品名" values={attributes.productNameValues} query={attributes.productNameInput} options={productNameOptions} onValuesChange={attributes.onProductNameValuesChange} onQueryChange={attributes.onProductNameChange} onSubmit={(values) => onSearch({ productName: productAttributeFilter(values) })} placeholder="搜索或选择品名（可多选）" />
+            </div>
+          </div>
+        )}
 
         {showActions ? (
           <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-2 border-t border-border pt-2">

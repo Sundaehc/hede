@@ -43,6 +43,7 @@ from domain.vip_schema import JST_PRODUCT_PROFILE_TABLE
 from storage.product_repository import (
     PRODUCT_COLOR_BARCODE_SOURCE_BRANDS,
     _color_name_variants,
+    _product_attribute_conditions,
     apply_jst_product_costs,
 )
 from transform.rows import EXCLUDED_EXTRA_FIELD_KEYS, build_admin_record, filter_extra_fields, normalize_admin_field
@@ -220,13 +221,8 @@ def _activity_date_export_condition(
 
 
 def _year_export_condition(table, year: str):
-    normalized_year = year.strip()
-    if not normalized_year:
-        return None
-    return or_(
-        table.c.year.startswith(normalized_year),
-        table.c.year.startswith(normalized_year[-2:]),
-    )
+    conditions = _product_attribute_conditions(table, year=year)
+    return conditions[0] if conditions else None
 
 
 def _product_search_condition(table, query: str | None):
@@ -312,12 +308,15 @@ def _iter_all_export_rows(
     year: str | None = None,
     query: str | None = None,
     sku_prefix: str | None = None,
+    season: str | None = None,
+    product_name: str | None = None,
     include_cost: bool = True,
 ) -> Iterator[tuple[str, list[object]]]:
     export_columns = [column for column in EXPORT_COLUMNS if include_cost or column not in {"cost", "cost_price"}]
     for brand in repository.product_archive_brands():
         table = repository._table_for_brand(brand)
         conditions = _active_product_export_conditions(table)
+        conditions.extend(_product_attribute_conditions(table, season=season, product_name=product_name))
         if activity_date_start:
             conditions.append(_activity_date_export_condition(table, activity_date_start, activity_date_end))
         if year:
@@ -455,6 +454,8 @@ def _export_all_products(
     year: str | None = None,
     query: str | None = None,
     sku_prefix: str | None = None,
+    season: str | None = None,
+    product_name: str | None = None,
 ) -> StreamingResponse:
     include_cost = request_can_view_product_cost(request)
     brand_labels = _product_export_brand_labels(repository)
@@ -487,6 +488,8 @@ def _export_all_products(
         year=year,
         query=query,
         sku_prefix=sku_prefix,
+        season=season,
+        product_name=product_name,
         include_cost=include_cost,
     ):
         row = [_excel_cell_value(brand_labels.get(brand, brand))] + [_excel_cell_value(value) for value in values]
@@ -589,11 +592,14 @@ def _load_size_export_source_items(
     year: str | None = None,
     query: str | None = None,
     sku_prefix: str | None = None,
+    season: str | None = None,
+    product_name: str | None = None,
 ) -> list[dict[str, object]]:
     table = repository._table_for_brand(brand)
     statement = (
         select(table)
         .where(*_active_product_export_conditions(table))
+        .where(*_product_attribute_conditions(table, season=season, product_name=product_name))
     )
     id_list = _parse_id_list(ids)
     if id_list:
@@ -1000,6 +1006,8 @@ def _export_products_with_sizes(
     year: str | None = None,
     query: str | None = None,
     sku_prefix: str | None = None,
+    season: str | None = None,
+    product_name: str | None = None,
 ) -> StreamingResponse:
     _validate_product_export_request(repository, brand, SIZE_EXPORT_MODE)
     include_cost = request_can_view_product_cost(request)
@@ -1012,6 +1020,8 @@ def _export_products_with_sizes(
         year=year,
         query=query,
         sku_prefix=sku_prefix,
+        season=season,
+        product_name=product_name,
     )
     if ids and not source_items:
         raise HTTPException(status_code=404, detail="未找到可导出的选中商品")
@@ -1183,6 +1193,8 @@ def _export_product_prices(
     year: str | None = None,
     query: str | None = None,
     sku_prefix: str | None = None,
+    season: str | None = None,
+    product_name: str | None = None,
 ) -> StreamingResponse:
     workbook = Workbook()
     worksheet = workbook.active
@@ -1194,6 +1206,7 @@ def _export_product_prices(
     for archive_brand in brands:
         table = repository._table_for_brand(archive_brand)
         conditions = _active_product_export_conditions(table)
+        conditions.extend(_product_attribute_conditions(table, season=season, product_name=product_name))
         if selected_ids:
             conditions.append(table.c.id.in_(selected_ids))
         else:
@@ -1272,6 +1285,8 @@ def export_products(
     year: str | None = Query(None),
     query: str | None = Query(None),
     sku_prefix: str | None = Query(None),
+    season: str | None = Query(None),
+    product_name: str | None = Query(None),
     today_only: bool = Query(False),
 ):
     repository = request.app.state.repository
@@ -1289,6 +1304,10 @@ def export_products(
     export_year = year.strip() if year and not export_date_start else None
     export_query = query.strip() if query and not export_date_start else None
     export_sku_prefix = sku_prefix.strip() if sku_prefix and not export_date_start else None
+    export_attributes = {
+        "season": season.strip() if isinstance(season, str) and not export_date_start else None,
+        "product_name": product_name.strip() if isinstance(product_name, str) and not export_date_start else None,
+    }
 
     if mode == PRICE_EXPORT_MODE:
         return _export_product_prices(
@@ -1301,6 +1320,7 @@ def export_products(
             year=export_year,
             query=export_query,
             sku_prefix=export_sku_prefix,
+            **export_attributes,
         )
 
     if mode == SIZE_EXPORT_MODE:
@@ -1314,6 +1334,7 @@ def export_products(
             year=export_year,
             query=export_query,
             sku_prefix=export_sku_prefix,
+            **export_attributes,
         )
 
     if brand == "all":
@@ -1325,6 +1346,7 @@ def export_products(
             year=export_year,
             query=export_query,
             sku_prefix=export_sku_prefix,
+            **export_attributes,
         )
 
     if export_date_start:
@@ -1345,7 +1367,7 @@ def export_products(
         id_list = [int(i.strip()) for i in ids.split(",") if i.strip()]
         items = repository.get_products_by_ids(brand, id_list)
     else:
-        table = repository.list_products(brand, query=export_query, sku_prefix=export_sku_prefix, page=1, page_size=1_000_000, year=export_year)
+        table = repository.list_products(brand, query=export_query, sku_prefix=export_sku_prefix, page=1, page_size=1_000_000, year=export_year, **export_attributes)
         items = table["items"]
 
     wb = Workbook()

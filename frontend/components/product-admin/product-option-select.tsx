@@ -25,6 +25,8 @@ type ProductOptionSelectProps = {
   allowCustomValue?: boolean
   placeholder?: string
   emptyText?: string
+  onSubmit?: (value: string) => void
+  className?: string
 }
 
 const MAX_VISIBLE_OPTIONS = 80
@@ -40,6 +42,8 @@ export function ProductOptionSelect({
   allowCustomValue = false,
   placeholder = "搜索并选择",
   emptyText = "没有匹配的选项",
+  onSubmit,
+  className,
 }: ProductOptionSelectProps) {
   const listId = useId()
   const rootRef = useRef<HTMLDivElement>(null)
@@ -53,8 +57,9 @@ export function ProductOptionSelect({
   const displayValue = selected
     ? [selected.label, selected.description].filter(Boolean).join(" - ")
     : value
+  const searchQuery = onSubmit ? value : query
   const matchingOptions = useMemo(() => {
-    const terms = query.trim().toLocaleLowerCase().split(/\s+/).filter(Boolean)
+    const terms = searchQuery.trim().toLocaleLowerCase().split(/\s+/).filter(Boolean)
     const unique = new Map<string, ProductSelectOption>()
     if (!terms.length && value && selected) unique.set(value, selected)
     for (const option of options) {
@@ -68,7 +73,7 @@ export function ProductOptionSelect({
       }
     }
     return Array.from(unique.values())
-  }, [options, query, selected, value])
+  }, [options, searchQuery, selected, value])
   const visibleOptions = matchingOptions.slice(0, MAX_VISIBLE_OPTIONS)
   const activeIndex = Math.max(
     0,
@@ -87,7 +92,7 @@ export function ProductOptionSelect({
           undefined
       )
       setQuery("")
-      setActiveValue(value)
+      setActiveValue(onSubmit ? null : value)
     }
     setOpen(nextOpen)
   }
@@ -100,7 +105,14 @@ export function ProductOptionSelect({
 
   function navigateOptions(event: KeyboardEvent<HTMLInputElement>) {
     if (event.nativeEvent.isComposing) return
-    if (event.key === "Escape" && open) {
+    if (event.key === "Enter" && onSubmit) {
+      event.preventDefault()
+      event.stopPropagation()
+      const nextValue = open && activeValue !== null && activeOption ? activeOption.value : value
+      if (nextValue !== value) onValueChange(nextValue)
+      setOpen(false)
+      onSubmit(nextValue)
+    } else if (event.key === "Escape" && open) {
       event.preventDefault()
       event.stopPropagation()
       changeOpen(false)
@@ -157,7 +169,7 @@ export function ProductOptionSelect({
             aria-activedescendant={
               open && activeOption ? `${listId}-${activeIndex}` : undefined
             }
-            value={open && !isDisabled ? query : displayValue}
+            value={onSubmit ? value : open && !isDisabled ? query : displayValue}
             placeholder={isLoading ? `${label}加载中...` : placeholder}
             disabled={isDisabled}
             autoComplete="off"
@@ -171,12 +183,13 @@ export function ProductOptionSelect({
               setActiveValue(null)
               setOpen(true)
               listRef.current?.scrollTo?.({ top: 0 })
-              if (allowCustomValue) onValueChange(event.target.value)
+              if (allowCustomValue || onSubmit) onValueChange(event.target.value)
             }}
             onKeyDown={navigateOptions}
             className={cn(
               "min-w-0 pr-14 pl-8",
-              open && "border-ring ring-3 ring-ring/20"
+              open && "border-ring ring-3 ring-ring/20",
+              className
             )}
           />
           <div className="absolute top-1/2 right-1.5 flex -translate-y-1/2 items-center gap-0.5">
@@ -300,7 +313,7 @@ export function ProductOptionSelect({
                 ? `显示前 ${MAX_VISIBLE_OPTIONS} 项，请搜索`
                 : `共 ${matchingOptions.length} 项`}
             </span>
-            <span className="shrink-0">↑↓ 选择 · 回车确认</span>
+            <span className="shrink-0">↑↓ 选择 · 回车{onSubmit ? "搜索" : "确认"}</span>
           </div>
         </Popover.Content>
       </Popover.Portal>

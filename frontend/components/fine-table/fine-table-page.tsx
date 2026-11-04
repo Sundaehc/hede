@@ -1770,18 +1770,19 @@ export function FineTablePage() {
       compareFineTableFilterValues(left.value, right.value, columnFilterSortOrder)
     ))
   ), [columnFilterSortOrder, matchingColumnFilterOptions])
+  const isDateColumnFilter = activeColumnFilter?.field === "first_order_time"
   const visibleColumnFilterOptions = useMemo(
-    () => sortedColumnFilterOptions.slice(0, 300),
-    [sortedColumnFilterOptions],
+    () => isDateColumnFilter ? sortedColumnFilterOptions : sortedColumnFilterOptions.slice(0, 300),
+    [isDateColumnFilter, sortedColumnFilterOptions],
   )
   const hasHiddenColumnFilterOptions = matchingColumnFilterOptions.length > visibleColumnFilterOptions.length
-  const selectedColumnValues = useMemo(
-    () => new Set(draftColumnValues ?? columnFilterData?.options.map((item) => item.value) ?? []),
-    [columnFilterData, draftColumnValues],
-  )
+  const selectedColumnValues = useMemo(() => {
+    const values = new Set(draftColumnValues ?? columnFilterData?.options.map((item) => item.value) ?? [])
+    if (!columnFilterSearch.trim()) return values
+    return new Set(matchingColumnFilterOptions.filter((item) => values.has(item.value)).map((item) => item.value))
+  }, [columnFilterData, columnFilterSearch, draftColumnValues, matchingColumnFilterOptions])
   const allMatchingColumnOptionsSelected = matchingColumnFilterOptions.length > 0
     && matchingColumnFilterOptions.every((item) => selectedColumnValues.has(item.value))
-  const isDateColumnFilter = activeColumnFilter?.field === "first_order_time"
   const dateColumnFilterTree = useMemo(() => {
     if (!isDateColumnFilter) return { years: [] as FineTableDateFilterYear[], otherOptions: [] as FineTableFilterOption[] }
     const years = new Map<number, Map<number, Map<number, FineTableFilterOption[]>>>()
@@ -1918,19 +1919,22 @@ export function FineTablePage() {
   }
 
   function applyFineTableColumnFilter() {
-    if (!activeColumnFilter || !columnFilterData) return
+    if (!activeColumnFilter || !columnFilterData || columnFilterLoading) return
     const allValues = columnFilterData.options.map((item) => item.value)
     const selectedValues = allValues.filter((value) => selectedColumnValues.has(value))
     const selectedValueSet = new Set(selectedValues)
     const excludedValues = allValues.filter((value) => !selectedValueSet.has(value))
-    if (selectedValues.length !== allValues.length && Math.min(selectedValues.length, excludedValues.length) > 5_000) {
+    const hasSearch = Boolean(columnFilterSearch.trim())
+    const useIncludeFilter = hasSearch || selectedValues.length <= excludedValues.length
+    const filterValues = useIncludeFilter ? selectedValues : excludedValues
+    if ((hasSearch || selectedValues.length !== allValues.length) && filterValues.length > 5_000) {
       setColumnFilterError("请先搜索缩小范围，再进行大批量筛选")
       return
     }
     setFilters((current) => {
       const otherFilters = current.filter((item) => item.field !== activeColumnFilter.field)
-      if (selectedValues.length === allValues.length) return otherFilters
-      return [...otherFilters, selectedValues.length <= excludedValues.length ? { field: activeColumnFilter.field, operator: "in", values: selectedValues } : { field: activeColumnFilter.field, operator: "not_in", values: excludedValues }]
+      if (!hasSearch && selectedValues.length === allValues.length) return otherFilters
+      return [...otherFilters, { field: activeColumnFilter.field, operator: useIncludeFilter ? "in" : "not_in", values: filterValues }]
     })
     setPage(1)
     closeFineTableColumnFilter()
@@ -2440,6 +2444,8 @@ export function FineTablePage() {
       </div>
       {activeColumnFilter && (
         <div
+          role="dialog"
+          aria-label={`${activeColumnFilter.label}筛选`}
           className="fixed z-[100] flex w-[min(24rem,calc(100vw-1.5rem))] flex-col overflow-hidden rounded-lg border border-border bg-card shadow-xl"
           style={{ top: activeColumnFilter.top, left: activeColumnFilter.left }}
         >
@@ -2467,7 +2473,7 @@ export function FineTablePage() {
           <div className="border-b border-border px-3 py-2">
             <div className="relative">
               <Search className="absolute top-2.5 left-2.5 h-3.5 w-3.5 text-muted-foreground" />
-              <Input value={columnFilterSearch} onChange={(event) => setColumnFilterSearch(event.target.value)} className="h-8 pl-8 text-xs" placeholder="搜索筛选项" autoFocus />
+              <Input value={columnFilterSearch} onChange={(event) => setColumnFilterSearch(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.nativeEvent.isComposing && !columnFilterLoading) { event.preventDefault(); applyFineTableColumnFilter() } }} aria-label={`搜索${activeColumnFilter.label}筛选项`} className="h-8 pl-8 text-xs" placeholder="搜索筛选项" autoFocus />
             </div>
           </div>
           <div className="flex items-center justify-between border-b border-border bg-muted/20 px-3 py-2 text-xs">
@@ -2475,6 +2481,7 @@ export function FineTablePage() {
             <span className="text-muted-foreground">已选 {selectedColumnValues.size} / {columnFilterData?.options.length ?? 0}</span>
           </div>
           <div className="min-h-[15rem] max-h-[21rem] overflow-y-auto px-3 py-2">
+            {!columnFilterLoading && columnFilterData?.truncated && <p className="mb-2 rounded border border-border bg-muted/40 px-2 py-1.5 text-xs text-muted-foreground">筛选项较多，仅加载前 10000 项；可先通过页面搜索或其他列筛选缩小范围。</p>}
             {columnFilterLoading && <p className="px-1 py-8 text-center text-sm text-muted-foreground">正在加载筛选项...</p>}
             {!columnFilterLoading && columnFilterError && <p className="px-1 py-8 text-center text-sm text-destructive">{columnFilterError}</p>}
             {!columnFilterLoading && !columnFilterError && hasHiddenColumnFilterOptions && <p className="mb-2 rounded border border-border bg-muted/40 px-2 py-1.5 text-xs text-muted-foreground">当前展示前 300 项，可搜索后全选或反选全部匹配项。</p>}

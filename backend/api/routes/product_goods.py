@@ -2475,6 +2475,7 @@ def list_product_goods_filter_options(
     search: str | None = None,
     platform: str | None = None,
     year: str | None = None,
+    snapshot_date: date | None = None,
 ):
     if brand not in PRODUCT_TABLES:
         raise HTTPException(status_code=400, detail=f"Invalid brand: {brand}")
@@ -2498,7 +2499,7 @@ def list_product_goods_filter_options(
         )
     )
     cache_key = (
-        "filter-options-v2",
+        "filter-options-v3",
         brand,
         field,
         normalized_query,
@@ -2506,6 +2507,7 @@ def list_product_goods_filter_options(
         normalized_platform,
         normalized_year,
         normalized_filters,
+        snapshot_date.isoformat() if snapshot_date else "",
     )
     cached = get_product_goods_filter_options_cache(cache_key)
     if cached is not None:
@@ -2514,9 +2516,11 @@ def list_product_goods_filter_options(
     override = PRODUCT_GOODS_OVERRIDES_TABLE
     repository = request.app.state.repository
     with repository.engine.connect() as connection:
+        if snapshot_date is not None and snapshot_date not in _product_goods_snapshot_dates(connection, brand=brand):
+            raise HTTPException(status_code=404, detail=f"未找到 {snapshot_date.isoformat()} 的货品表快照")
         gj_table = None
         latest_gj_product_info_date = None
-        if _uses_gj_product_goods_source(brand, None):
+        if _uses_gj_product_goods_source(brand, snapshot_date):
             latest_gj_product_info_date = connection.execute(
                 select(func.max(GJ_MERGED_PRODUCT_INFO_TABLE.c.source_date_value))
             ).scalar()
