@@ -2853,50 +2853,70 @@ def _purchase_product_lookup_candidates(product_code: object, brand: str) -> tup
     raw_code = _cell_text(product_code)
     if not raw_code:
         return ()
+    # These are database search keys, not a barcode interpretation. Archive
+    # matching below decides the split from the product's rule and size group.
+    # Both supported rules start with the complete goods code. Searching its
+    # possible prefixes also supports custom color/size barcode lengths and
+    # combined sizes without assuming where either component starts.
+    return tuple(raw_code[:length] for length in range(len(raw_code), 0, -1))
+
+
+def _legacy_purchase_product_lookup_candidates(product_code: object, brand: str) -> tuple[str, ...]:
+    raw_code = _cell_text(product_code)
+    if not raw_code:
+        return ()
     stripped_code, _ = _split_purchase_size_code(raw_code, brand)
-    candidates = [raw_code, stripped_code]
-    for suffix_length in (2, 3, 5):
-        if len(raw_code) > suffix_length:
-            candidates.append(raw_code[:-suffix_length])
-    return tuple(dict.fromkeys(candidate for candidate in candidates if candidate))
+    return tuple(dict.fromkeys((raw_code, stripped_code, *(
+        raw_code[:-length] for length in (2, 3, 5, 4) if len(raw_code) > length
+    ))))
 
 
 def _matched_purchase_product_info(
     product_lookup: dict[str, dict[str, object]],
     brand: str,
     *product_codes: object,
+    size_group_items_by_range: dict[str, tuple[tuple[str, str], ...]],
 ) -> dict[str, object]:
+    for product_code in product_codes:
+        raw_code = _cell_text(product_code)
+        archive_matches: dict[tuple[str, str], dict[str, object]] = {}
+        for candidate in _purchase_product_lookup_candidates(raw_code, brand):
+            info = product_lookup.get(candidate) or {}
+            if not info.get("_archive_matched"):
+                continue
+            archive_codes = {
+                _cell_text(info.get("_archive_sku")),
+                _cell_text(info.get("_archive_original_sku")),
+            } - {""}
+            if raw_code in archive_codes:
+                return info
+            if _purchase_product_code_matches_archive(
+                info, raw_code, brand,
+                size_group_items_by_range.get(_cell_text(info.get("size_range")), ()),
+            ):
+                key = (
+                    _cell_text(info.get("_archive_table")),
+                    _first_text(info.get("_archive_product_id"), info.get("_archive_sku")),
+                )
+                archive_matches[key] = info
+        if len(archive_matches) == 1:
+            return next(iter(archive_matches.values()))
+        if archive_matches:
+            # A barcode that identifies multiple products needs archive
+            # maintenance; candidate order must never choose its identity.
+            return {}
+
     fallback: dict[str, object] = {}
     for product_code in product_codes:
-        for candidate in _purchase_product_lookup_candidates(product_code, brand):
+        for candidate in _legacy_purchase_product_lookup_candidates(product_code, brand):
             product_info = product_lookup.get(candidate)
+            if product_info and product_info.get("_archive_matched"):
+                continue
             if product_info and not fallback:
                 fallback = product_info
             if product_info and _cell_text(product_info.get("size_range")):
                 return product_info
     return fallback
-
-
-def _purchase_size_matches_product_group(
-    size: str,
-    size_group_items: tuple[tuple[str, str], ...],
-    brand: str,
-) -> bool:
-    normalized_size = _cell_text(size)
-    if not normalized_size:
-        return False
-    if not size_group_items:
-        return normalized_size in PURCHASE_EXPORT_SIZE_LABELS
-
-    for size_name, size_barcode in size_group_items:
-        if normalized_size in {_cell_text(size_name), _cell_text(size_barcode)}:
-            return True
-        normalized_size_for_brand = _normalize_imported_purchase_size_label(normalized_size, brand)
-        if normalized_size_for_brand in {_cell_text(size_name), _cell_text(size_barcode)}:
-            return True
-        if _combined_size_label_contains(_cell_text(size_name), normalized_size_for_brand):
-            return True
-    return False
 
 
 def _purchase_product_code_matches_archive(
@@ -2905,39 +2925,7 @@ def _purchase_product_code_matches_archive(
     brand: str,
     size_group_items: tuple[tuple[str, str], ...],
 ) -> bool:
-    if not product_info.get("_archive_matched"):
-        return False
-
-    if _purchase_archive_size_from_product_code(product_info, raw_code, size_group_items):
-        return True
-
-    archive_sku = _first_text(product_info.get("_archive_sku"), product_info.get("_archive_original_sku"))
-    archive_original_sku = _first_text(product_info.get("_archive_original_sku"), archive_sku)
-    parsed_sku, parsed_original_sku, _, _, size = _split_purchase_product_code(raw_code, [], brand)
-    parsed_base = _first_text(parsed_original_sku, parsed_sku)
-    if not parsed_base or parsed_base not in {archive_sku, archive_original_sku}:
-        return False
-    if not _purchase_size_matches_product_group(size, size_group_items, brand):
-        return False
-
-    normalized_size = _normalize_imported_purchase_size_label(size, brand)
-    candidate_size_barcodes = {
-        _cell_text(size_barcode)
-        for size_name, size_barcode in size_group_items
-        if normalized_size in {_cell_text(size_name), _cell_text(size_barcode)}
-        or normalized_size == _normalize_imported_purchase_size_label(size_name, brand)
-    }
-    if not candidate_size_barcodes:
-        candidate_size_barcodes.add(normalized_size)
-
-    goods_codes = tuple(dict.fromkeys(code for code in (archive_sku, archive_original_sku) if code))
-    color_code = _first_text(product_info.get("color_code"), product_info.get("color_barcode"))
-    barcode_rule = product_info.get("barcode_build_rule")
-    return any(
-        build_product_size_code(goods_code, color_code, size_barcode, barcode_rule) == raw_code
-        for goods_code in goods_codes
-        for size_barcode in candidate_size_barcodes
-    )
+    return bool(_purchase_archive_size_from_product_code(product_info, raw_code, size_group_items))
 
 
 def _purchase_archive_size_from_product_code(
@@ -2953,12 +2941,20 @@ def _purchase_archive_size_from_product_code(
     goods_codes = tuple(dict.fromkeys(code for code in (archive_sku, archive_original_sku) if code))
     color_code = _first_text(product_info.get("color_code"), product_info.get("color_barcode"))
     barcode_rule = product_info.get("barcode_build_rule")
-    for size_name, size_barcode in size_group_items:
-        for code in dict.fromkeys((_cell_text(size_barcode), _cell_text(size_name))):
-            if code and any(
-                build_product_size_code(goods_code, color_code, code, barcode_rule) == raw_code
-                for goods_code in goods_codes
-            ):
+    size_items = size_group_items
+    if not size_items:
+        size_range = _cell_text(product_info.get("size_range"))
+        size_labels = _parse_purchase_size_range_labels(size_range) if size_range else PURCHASE_EXPORT_SIZE_LABELS
+        size_items = tuple((size, size) for size in size_labels)
+    for goods_code in goods_codes:
+        prefix = build_product_size_code(goods_code, color_code, "", barcode_rule)
+        if not raw_code.startswith(prefix):
+            continue
+        size_code = raw_code[len(prefix):]
+        if not size_code:
+            continue
+        for size_name, size_barcode in size_items:
+            if size_code in {_cell_text(size_barcode), _cell_text(size_name)}:
                 return _first_text(size_name, size_barcode)
     return ""
 
@@ -3219,7 +3215,7 @@ def _load_inventory_detail_size_ranges(
             continue
 
         candidates_by_product_code = {
-            product_code: _purchase_product_lookup_candidates(product_code, brand)
+            product_code: _legacy_purchase_product_lookup_candidates(product_code, brand)
             for product_code in unresolved_codes
         }
         lookup_codes = {
@@ -3449,13 +3445,21 @@ def _build_purchase_detail_lookup_for_brand(connection, product_code: str, quant
     if not raw_code:
         raise HTTPException(status_code=400, detail="货号不能为空")
 
-    stripped_code, size = _split_purchase_size_code(raw_code, brand)
-    lookup_codes = {raw_code}
-    if stripped_code:
-        lookup_codes.add(stripped_code)
-    product_lookup = _load_purchase_product_lookup(connection, brand, lookup_codes)
-
-    product_info = _matched_purchase_product_info(product_lookup, brand, raw_code)
+    product_lookup = _load_purchase_product_lookup(connection, brand, {raw_code})
+    size_groups = _load_purchase_size_group_items(connection, {
+        _cell_text(info.get("size_range")) for info in product_lookup.values()
+        if _cell_text(info.get("size_range"))
+    })
+    product_info = _matched_purchase_product_info(
+        product_lookup, brand, raw_code, size_group_items_by_range=size_groups,
+    )
+    size = _purchase_archive_size_from_product_code(
+        product_info, raw_code, size_groups.get(_cell_text(product_info.get("size_range")), ()),
+    )
+    # Historical sources without an archive still use the legacy fallback.
+    stripped_code = raw_code
+    if not product_info.get("_archive_matched"):
+        stripped_code, size = _split_purchase_size_code(raw_code, brand)
     detail_code = raw_code
     if product_info:
         detail_code = _first_text(
@@ -3468,8 +3472,9 @@ def _build_purchase_detail_lookup_for_brand(connection, product_code: str, quant
             raw_code,
         )
     if not product_info and stripped_code and stripped_code != raw_code:
-        product_info = product_lookup.get(stripped_code) or {}
-        if product_info:
+        legacy_info = product_lookup.get(stripped_code) or {}
+        if legacy_info and not legacy_info.get("_archive_matched"):
+            product_info = legacy_info
             detail_code = stripped_code
 
     if not product_info and stripped_code != raw_code:
@@ -3656,7 +3661,9 @@ def _validate_inventory_import_product_codes(
     unmatched: dict[str, None] = {}
     for row in rows:
         raw_code = _cell_text(row.get("raw_code") or row.get("product_code"))
-        product_info = _matched_purchase_product_info(product_lookup, brand, raw_code)
+        product_info = _matched_purchase_product_info(
+            product_lookup, brand, raw_code, size_group_items_by_range=size_group_items_by_range,
+        )
         archive_codes = {
             _cell_text(product_info.get("_archive_sku")),
             _cell_text(product_info.get("_archive_original_sku")),
@@ -3724,44 +3731,16 @@ def _build_purchase_details_from_rows(
         quantity = _to_decimal(row["quantity"])
         if quantity == 0:
             continue
-        style_color_code, _ = _split_purchase_size_code(raw_code, brand)
         imported_size_quantities = row.get("size_quantities")
-        if isinstance(imported_size_quantities, dict) and imported_size_quantities:
-            sku = raw_code
-            original_sku = raw_code
-            color_barcode = _purchase_color_barcode(raw_code, brand)
-            color_name = next((name for barcode, name in color_barcodes if barcode == color_barcode), "")
-            size = ""
-            normalized_sizes = {
-                _normalize_imported_purchase_size_label(size_key, brand): _to_decimal(size_quantity)
-                for size_key, size_quantity in imported_size_quantities.items()
-                if _to_decimal(size_quantity) != 0
-            }
-        else:
-            sku, original_sku, color_barcode, color_name, size = _split_purchase_product_code(raw_code, color_barcodes, brand)
-            normalized_sizes = {}
         parsed_rows.append({
             "raw_code": raw_code,
             "quantity": quantity,
-            "sku": sku,
-            "original_sku": original_sku,
-            "style_color_code": style_color_code,
-            "color_barcode": color_barcode,
-            "color_name": color_name,
-            "size": size,
             "unit_price": _cell_text(row.get("unit_price")),
             "remark": _cell_text(row.get("remark")),
-            "size_quantities": normalized_sizes,
+            "size_quantities": imported_size_quantities if isinstance(imported_size_quantities, dict) else {},
             "extra_fields": row.get("extra_fields") if isinstance(row.get("extra_fields"), dict) else {},
         })
-        if original_sku:
-            product_codes.add(original_sku)
-        if sku:
-            product_codes.add(sku)
-        if raw_code:
-            product_codes.add(raw_code)
-        if style_color_code:
-            product_codes.add(style_color_code)
+        product_codes.add(raw_code)
 
     with repository.engine.connect() as connection:
         product_lookup = _load_purchase_product_lookup(connection, brand, product_codes)
@@ -3775,11 +3754,20 @@ def _build_purchase_details_from_rows(
     if require_archive_product:
         _validate_inventory_import_product_codes(parsed_rows, brand, product_lookup, size_group_items_by_range)
 
+    matched_info_by_code = {
+        code: _matched_purchase_product_info(
+            product_lookup, brand, code, size_group_items_by_range=size_group_items_by_range,
+        )
+        for code in product_codes
+    }
     use_wholesale_price_history = bool(_cell_text(wholesale_customer))
     wholesale_price_candidates = {
         code
         for code in (
             *product_codes,
+            *(candidate for raw_code in product_codes
+              if not matched_info_by_code[raw_code].get("_archive_matched")
+              for candidate in _legacy_purchase_product_lookup_candidates(raw_code, brand)),
             *(
                 _cell_text(product_info.get(field))
                 for product_info in product_lookup.values()
@@ -3820,22 +3808,29 @@ def _build_purchase_details_from_rows(
     for row in parsed_rows:
         raw_code = row["raw_code"]
         quantity = row["quantity"]
-        original_sku = row["original_sku"]
-        color_barcode = row["color_barcode"]
-        color_name = row["color_name"] or ""
-        product_info = _matched_purchase_product_info(
-            product_lookup,
-            brand,
-            original_sku,
-            row.get("style_color_code"),
-            row.get("sku"),
-            raw_code,
-        )
+        product_info = matched_info_by_code[raw_code]
         archive_size = _purchase_archive_size_from_product_code(
             product_info,
             raw_code,
             size_group_items_by_range.get(_cell_text(product_info.get("size_range")), ()),
         )
+        original_sku = raw_code
+        style_color_code = raw_code
+        color_barcode = ""
+        color_name = ""
+        size = archive_size
+        if not product_info.get("_archive_matched"):
+            # Only historical data without a matching archive uses brand-based
+            # parsing. Archived products derive every component from the rule.
+            style_color_code, _ = _split_purchase_size_code(raw_code, brand)
+            if row.get("size_quantities"):
+                color_barcode = _purchase_color_barcode(raw_code, brand)
+                color_name = next((name for barcode, name in color_barcodes if barcode == color_barcode), "")
+            else:
+                _, original_sku, color_barcode, color_name, size = _split_purchase_product_code(
+                    raw_code, color_barcodes, brand,
+                )
+        parsed_original_sku = original_sku
         if require_archive_product_code and not _purchase_product_code_matches_archive(
             product_info,
             raw_code,
@@ -3858,7 +3853,7 @@ def _build_purchase_details_from_rows(
         recent_cost = next((document_costs[code] for code in (
             original_sku,
             _cell_text(product_info.get("_archive_original_sku")),
-            _cell_text(row.get("original_sku")),
+            parsed_original_sku,
             raw_code,
         ) if code in document_costs), None)
         if (
@@ -3896,14 +3891,19 @@ def _build_purchase_details_from_rows(
             for size_name, size_barcode in size_group_items
             for value in (size_name, size_barcode)
         }
-        size = archive_size or row["size"]
         if size:
             size = size_labels_by_input.get(_cell_text(size), _cell_text(size))
         row_size_quantities = row.get("size_quantities")
         normalized_size_quantities: dict[str, Decimal] = {}
         if isinstance(row_size_quantities, dict) and row_size_quantities:
             for size_key, size_quantity in row_size_quantities.items():
-                normalized_size_key = size_labels_by_input.get(_cell_text(size_key), _cell_text(size_key))
+                size_quantity = _to_decimal(size_quantity)
+                if not size_quantity:
+                    continue
+                size_key_text = _cell_text(size_key)
+                if not product_info.get("_archive_matched"):
+                    size_key_text = _normalize_imported_purchase_size_label(size_key_text, brand)
+                normalized_size_key = size_labels_by_input.get(size_key_text, size_key_text)
                 normalized_size_quantities[normalized_size_key] = (
                     normalized_size_quantities.get(normalized_size_key, Decimal("0")) + size_quantity
                 )
@@ -3924,9 +3924,8 @@ def _build_purchase_details_from_rows(
                 original_sku,
                 _cell_text(product_info.get("_archive_original_sku")),
                 _cell_text(product_info.get("original_goods_code")),
-                _cell_text(row.get("original_sku")),
-                _cell_text(row.get("style_color_code")),
-                _cell_text(row.get("sku")),
+                parsed_original_sku,
+                style_color_code,
                 _cell_text(raw_code),
             ):
                 if candidate in wholesale_price_history:
@@ -4641,38 +4640,58 @@ def export_inventory(
     ws = wb.active
     ws.title = "经营历程"
 
+    # The UI submits the multi-value document_types filter. Selected exports
+    # may further narrow that result, so derive labels from the exported rows
+    # first and use the requested types only when there are no rows.
+    export_document_types = (
+        {normalize_document_type(item.get("document_type")) for item in items}
+        if items
+        else set(normalized_document_types or ([document_type] if document_type else []))
+    )
+    export_document_type = next(iter(export_document_types)) if len(export_document_types) == 1 else None
     has_accounting_documents = any(item.get("document_type") in ACCOUNTING_DOCUMENT_TYPES for item in items)
-    is_accounting_export = document_type in ACCOUNTING_DOCUMENT_TYPES or (
-        bool(items) and all(item.get("document_type") in ACCOUNTING_DOCUMENT_TYPES for item in items)
+    is_accounting_export = bool(export_document_types) and export_document_types.issubset(ACCOUNTING_DOCUMENT_TYPES)
+    has_outbound_warehouse = not is_accounting_export and (
+        not export_document_types or bool(export_document_types.intersection(TRANSFER_DOCUMENT_TYPES))
     )
     counterparty_label = (
         "单位全名"
         if is_accounting_export
         else "收货客户"
-        if document_type in WHOLESALE_DOCUMENT_TYPES
-        else "出货仓库"
-        if document_type in TRANSFER_DOCUMENT_TYPES
+        if export_document_type in WHOLESALE_DOCUMENT_TYPES
+        else "供应商/收货客户"
+        if export_document_type in TRANSFER_DOCUMENT_TYPES
         else "供应商"
-        if document_type
-        else "供应商/收货客户/出货仓库"
+        if export_document_type
+        else "供应商/收货客户"
     )
     warehouse_label = (
         "入货仓库"
-        if document_type in TRANSFER_DOCUMENT_TYPES
+        if export_document_type in TRANSFER_DOCUMENT_TYPES
         else "仓库"
-        if document_type
+        if export_document_type
         else "仓库/入货仓库"
     )
+    export_columns = list(INVENTORY_CANONICAL_COLUMNS)
+    if has_outbound_warehouse:
+        export_columns.insert(export_columns.index("warehouse"), "outbound_warehouse")
     headers = [
         counterparty_label if column == "supplier"
         else warehouse_label if column == "warehouse"
+        else "出货仓库" if column == "outbound_warehouse"
         else INVENTORY_EXPORT_LABELS.get(column, column)
-        for column in INVENTORY_CANONICAL_COLUMNS
+        for column in export_columns
     ]
     ws.append(headers)
 
     for item in items:
-        row = [item.get(c) for c in INVENTORY_CANONICAL_COLUMNS]
+        is_transfer = item.get("document_type") in TRANSFER_DOCUMENT_TYPES
+        row = [
+            (item.get("supplier") if is_transfer else None) if column == "outbound_warehouse"
+            else None if column == "supplier" and is_transfer
+            else item.get(column)
+            for column in export_columns
+        ]
         ws.append(row)
 
     detail_ws = wb.create_sheet("单据明细")
@@ -4682,6 +4701,7 @@ def export_inventory(
         *([] if is_accounting_export else ["交货日期"]),
         "单据类型",
         f"{counterparty_label}",
+        *(["出货仓库"] if has_outbound_warehouse else []),
         warehouse_label,
         "经手人",
         "摘要",
@@ -4714,7 +4734,10 @@ def export_inventory(
             record.get("date") or "",
             *([] if is_accounting_export else [extra_fields.get("delivery_date") or ""]),
             record.get("document_type") or "",
-            record.get("supplier") or "",
+            "" if record.get("document_type") in TRANSFER_DOCUMENT_TYPES else record.get("supplier") or "",
+            *([
+                (record.get("supplier") or "") if record.get("document_type") in TRANSFER_DOCUMENT_TYPES else "",
+            ] if has_outbound_warehouse else []),
             record.get("warehouse") or "",
             record.get("handler") or "",
             record.get("summary") or "",

@@ -209,6 +209,7 @@ type InventoryTableColumnKey =
   | "total_count"
   | "amount"
   | "warehouse"
+  | "outbound_warehouse"
   | "handler"
   | "summary"
   | "updated_at"
@@ -226,6 +227,7 @@ const INVENTORY_TABLE_COLUMN_DEFAULT_WIDTHS: Record<InventorySortKey, number> = 
   total_count: 128,
   amount: 112,
   warehouse: 208,
+  outbound_warehouse: 208,
   handler: 112,
   summary: 260,
   additional_note: 260,
@@ -239,6 +241,7 @@ const INVENTORY_TABLE_COLUMN_ORDER: InventoryTableColumnKey[] = [
   "supplier",
   "total_count",
   "amount",
+  "outbound_warehouse",
   "warehouse",
   "handler",
   "summary",
@@ -253,6 +256,7 @@ const INVENTORY_TABLE_COLUMN_LABELS: Record<InventoryTableColumnKey, string> = {
   total_count: "总数",
   amount: "金额",
   warehouse: "仓库",
+  outbound_warehouse: "出货仓库",
   handler: "经手人",
   summary: "摘要",
   updated_at: "最后修改时间",
@@ -269,6 +273,7 @@ const INVENTORY_COLUMN_MIN_WIDTHS: Record<InventorySortKey, number> = {
   total_count: 96,
   amount: 96,
   warehouse: 104,
+  outbound_warehouse: 104,
   handler: 96,
   summary: 96,
   additional_note: 112,
@@ -295,8 +300,8 @@ function getInventoryColumnOrderStorageKey(userId: number) {
 
 function inventoryCounterpartyLabel(documentType?: string) {
   if (documentType && WHOLESALE_DOCUMENT_TYPES.has(documentType)) return "收货客户"
-  if (documentType && TRANSFER_DOCUMENT_TYPES.has(documentType)) return "出货仓库"
-  return documentType ? "供应商" : "供应商/收货客户/出货仓库"
+  if (documentType && TRANSFER_DOCUMENT_TYPES.has(documentType)) return "供应商/收货客户"
+  return documentType ? "供应商" : "供应商/收货客户"
 }
 
 function inventoryWarehouseLabel(documentType?: string) {
@@ -838,8 +843,13 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
       const normalizedOrder = parsedOrder.filter((value): value is InventoryTableColumnKey => (
         typeof value === "string" && INVENTORY_TABLE_COLUMN_ORDER.includes(value as InventoryTableColumnKey)
       ))
-      if (normalizedOrder.length !== INVENTORY_TABLE_COLUMN_ORDER.length) return
-      if (new Set(normalizedOrder).size !== INVENTORY_TABLE_COLUMN_ORDER.length) return
+      if (!normalizedOrder.length || new Set(normalizedOrder).size !== normalizedOrder.length) return
+      for (const columnKey of INVENTORY_TABLE_COLUMN_ORDER) {
+        if (normalizedOrder.includes(columnKey)) continue
+        const nextColumn = INVENTORY_TABLE_COLUMN_ORDER.slice(INVENTORY_TABLE_COLUMN_ORDER.indexOf(columnKey) + 1)
+          .find((key) => normalizedOrder.includes(key))
+        normalizedOrder.splice(nextColumn ? normalizedOrder.indexOf(nextColumn) : normalizedOrder.length, 0, columnKey)
+      }
       setInventoryColumnOrder(normalizedOrder)
     } catch {
       // Ignore unavailable or malformed browser storage.
@@ -2448,7 +2458,7 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
                         <th aria-sort={getColumnAriaSort("document_number")} className="relative px-4 py-3 pr-7 font-medium"><SortableColumnLabel label="单据编号" sortRule={getSortRule("document_number")} onClick={(event) => handleTableSort("document_number", event.shiftKey)} /><ColumnResizeHandle columnKey="document_number" label="单据编号" onResizeStart={handleInventoryColumnResizeStart} /></th>
                         <th aria-sort={getColumnAriaSort("date")} className="relative px-4 py-3 pr-7 font-medium"><SortableColumnLabel label="订货日期" sortRule={getSortRule("date")} onClick={(event) => handleTableSort("date", event.shiftKey)} /><ColumnResizeHandle columnKey="date" label="订货日期" onResizeStart={handleInventoryColumnResizeStart} /></th>
                         <th aria-sort={getColumnAriaSort("delivery_date")} className="relative px-4 py-3 pr-7 font-medium"><SortableColumnLabel label="交货日期" sortRule={getSortRule("delivery_date")} onClick={(event) => handleTableSort("delivery_date", event.shiftKey)} /><ColumnResizeHandle columnKey="delivery_date" label="交货日期" onResizeStart={handleInventoryColumnResizeStart} /></th>
-                        <th aria-sort={getColumnAriaSort("supplier")} className="relative px-4 py-3 pr-7 font-medium"><SortableColumnLabel label="供应商/收货客户/出货仓库" sortRule={getSortRule("supplier")} onClick={(event) => handleTableSort("supplier", event.shiftKey)} /><ColumnResizeHandle columnKey="supplier" label="供应商/收货客户/出货仓库" onResizeStart={handleInventoryColumnResizeStart} /></th>
+                        <th aria-sort={getColumnAriaSort("supplier")} className="relative px-4 py-3 pr-7 font-medium"><SortableColumnLabel label="供应商" sortRule={getSortRule("supplier")} onClick={(event) => handleTableSort("supplier", event.shiftKey)} /><ColumnResizeHandle columnKey="supplier" label="供应商" onResizeStart={handleInventoryColumnResizeStart} /></th>
                         <th aria-sort={getColumnAriaSort("handler")} className="relative px-4 py-3 pr-7 font-medium"><SortableColumnLabel label="经手人" sortRule={getSortRule("handler")} onClick={(event) => handleTableSort("handler", event.shiftKey)} /><ColumnResizeHandle columnKey="handler" label="经手人" onResizeStart={handleInventoryColumnResizeStart} /></th>
                         <th aria-sort={getColumnAriaSort("summary")} className="relative px-4 py-3 pr-7 font-medium"><SortableColumnLabel label="摘要" sortRule={getSortRule("summary")} onClick={(event) => handleTableSort("summary", event.shiftKey)} /><ColumnResizeHandle columnKey="summary" label="摘要" onResizeStart={handleInventoryColumnResizeStart} /></th>
                         <th aria-sort={getColumnAriaSort("additional_note")} className="relative px-4 py-3 pr-7 font-medium"><SortableColumnLabel label="附加说明" sortRule={getSortRule("additional_note")} onClick={(event) => handleTableSort("additional_note", event.shiftKey)} /><ColumnResizeHandle columnKey="additional_note" label="附加说明" onResizeStart={handleInventoryColumnResizeStart} /></th>
@@ -2494,18 +2504,21 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
                 <tbody className="divide-y divide-border">
                   {isLoading && items.length === 0 && (
                     <tr>
-                      <td colSpan={isPurchaseDetailSearch ? (purchaseDetailView === "size_rows" ? 14 : 13) : isPurchaseOrderTab ? 10 : 12} className="px-4 py-12 text-center text-muted-foreground">加载中...</td>
+                      <td colSpan={isPurchaseDetailSearch ? (purchaseDetailView === "size_rows" ? 14 : 13) : isPurchaseOrderTab ? 10 : inventoryColumnOrder.length + 2} className="px-4 py-12 text-center text-muted-foreground">加载中...</td>
                     </tr>
                   )}
                   {!isLoading && !error && items.length === 0 && (
                     <tr>
-                      <td colSpan={isPurchaseDetailSearch ? (purchaseDetailView === "size_rows" ? 14 : 13) : isPurchaseOrderTab ? 10 : 12} className="px-4 py-12 text-center text-muted-foreground">
+                      <td colSpan={isPurchaseDetailSearch ? (purchaseDetailView === "size_rows" ? 14 : 13) : isPurchaseOrderTab ? 10 : inventoryColumnOrder.length + 2} className="px-4 py-12 text-center text-muted-foreground">
                         {hasFilters ? `没有符合条件的${completionLabel}` : `暂无${completionLabel}`}
                       </td>
                     </tr>
                   )}
                   {!error && items.map((item) => {
                     const isAccountingRow = ACCOUNTING_DOCUMENT_TYPE_SET.has(item.document_type || "")
+                    const isTransferRow = TRANSFER_DOCUMENT_TYPES.has(item.document_type || "")
+                    const counterparty = isTransferRow ? "" : item.supplier || ""
+                    const outboundWarehouse = isTransferRow ? item.supplier || "" : ""
                     return (
                       <tr key={item.row_key || item.id} className="group table-row">
                         <td className="px-4 py-3 align-middle">
@@ -2602,7 +2615,7 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
                             case "supplier":
                               return (
                                 <td key={columnKey} className="px-4 py-3 align-middle">
-                                  <span className="block truncate" title={item.supplier || ""}>{item.supplier || "-"}</span>
+                                  <span className="block truncate" title={counterparty}>{counterparty || "-"}</span>
                                 </td>
                               )
                             case "total_count":
@@ -2613,6 +2626,12 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
                               return (
                                 <td key={columnKey} className="px-4 py-3 align-middle">
                                   <span className="block whitespace-normal break-words leading-5" title={item.warehouse || ""}>{isAccountingRow ? "" : item.warehouse || "-"}</span>
+                                </td>
+                              )
+                            case "outbound_warehouse":
+                              return (
+                                <td key={columnKey} className="px-4 py-3 align-middle">
+                                  <span className="block whitespace-normal break-words leading-5" title={outboundWarehouse}>{outboundWarehouse || "-"}</span>
                                 </td>
                               )
                             case "handler":

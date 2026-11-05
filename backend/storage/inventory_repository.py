@@ -170,10 +170,11 @@ class InventoryRepository:
             "date": table.c.date_value,
             "delivery_date": table.c.extra_fields["delivery_date"].as_string(),
             "document_type": table.c.document_type,
-            "supplier": table.c.supplier,
+            "supplier": case((table.c.document_type == "同价调拨单", None), else_=table.c.supplier),
             "total_count": table.c.total_count,
             "amount": table.c.amount,
             "warehouse": table.c.warehouse,
+            "outbound_warehouse": case((table.c.document_type == "同价调拨单", table.c.supplier), else_=None),
             "handler": table.c.handler,
             "summary": table.c.summary,
             "additional_note": table.c.additional_note,
@@ -321,9 +322,15 @@ class InventoryRepository:
             conditions.append(table.c.supplier.ilike(f"%{supplier.strip()}%"))
         warehouse_values = [str(value).strip() for value in (warehouses or []) if str(value).strip()]
         if warehouse_values:
-            conditions.append(table.c.warehouse.in_(warehouse_values))
+            conditions.append(or_(
+                table.c.warehouse.in_(warehouse_values),
+                and_(table.c.document_type == "同价调拨单", table.c.supplier.in_(warehouse_values)),
+            ))
         elif warehouse:
-            conditions.append(table.c.warehouse == warehouse)
+            conditions.append(or_(
+                table.c.warehouse == warehouse,
+                and_(table.c.document_type == "同价调拨单", table.c.supplier == warehouse),
+            ))
         document_type_values = [str(value).strip() for value in (document_types or []) if str(value).strip()]
         if document_type_values:
             conditions.append(table.c.document_type.in_(document_type_values))

@@ -187,3 +187,48 @@ test("an ordinary click replaces multiple sorting rules with a single column", a
   expect(getSortButton("金额")).toHaveAttribute("aria-pressed", "false")
   expect(within(dateButton).queryByText("1")).not.toBeInTheDocument()
 })
+
+test("shows transfer source in its own sortable warehouse column", async () => {
+  listMock.mockResolvedValue({ items: [
+    { id: 1, document_number: "TRANSFER-1", document_type: "同价调拨单", supplier: "出货甲仓", warehouse: "入货乙仓" },
+    { id: 2, document_number: "PURCHASE-2", document_type: "进货单", supplier: "供应商甲", warehouse: "采购收货仓" },
+  ], total: 2 })
+  const user = userEvent.setup()
+  render(<InventoryPage />)
+  const document = await screen.findByText("TRANSFER-1")
+  const table = document.closest("table")!
+  const headers = Array.from(table.querySelectorAll("thead th"))
+  const sourceIndex = headers.findIndex((header) => header.textContent?.includes("出货仓库"))
+  const destinationIndex = headers.findIndex((header) => header.textContent?.includes("仓库/入货仓库"))
+  const supplierIndex = headers.findIndex((header) => header.textContent?.includes("供应商/收货客户"))
+  const transferCells = within(document.closest("tr")!).getAllByRole("cell")
+  expect(sourceIndex).toBeGreaterThan(-1)
+  expect(sourceIndex).not.toBe(supplierIndex)
+  expect(transferCells[sourceIndex]).toHaveTextContent("出货甲仓")
+  expect(transferCells[destinationIndex]).toHaveTextContent("入货乙仓")
+  expect(transferCells[supplierIndex]).toHaveTextContent("-")
+  const purchaseCells = within(screen.getByText("PURCHASE-2").closest("tr")!).getAllByRole("cell")
+  expect(purchaseCells[sourceIndex]).toHaveTextContent("-")
+  expect(purchaseCells[supplierIndex]).toHaveTextContent("供应商甲")
+  for (const row of table.querySelectorAll("tfoot tr")) {
+    expect(row.querySelectorAll("td")).toHaveLength(headers.length)
+  }
+  await user.click(getSortButton("出货仓库"))
+  await waitFor(() => expect(listMock).toHaveBeenLastCalledWith(expect.objectContaining({
+    sortRules: [{ key: "outbound_warehouse", direction: "desc" }],
+  })))
+})
+
+test("adds the outbound warehouse column while preserving a saved column order", async () => {
+  window.localStorage.setItem("hede.inventory-records.table-column-order.1", JSON.stringify([
+    "amount", "document_number", "date", "document_type", "supplier", "total_count",
+    "warehouse", "handler", "summary", "updated_at",
+  ]))
+  render(<InventoryPage />)
+  await screen.findByText("SORT-1")
+  const labels = screen.getAllByRole("columnheader").map((header) => header.textContent)
+  expect(labels[1]).toContain("金额")
+  const source = labels.findIndex((label) => label?.includes("出货仓库"))
+  expect(labels[source + 1]).toContain("仓库/入货仓库")
+  expect(screen.getByRole("button", { name: "拖拽排序出货仓库" })).toBeInTheDocument()
+})
