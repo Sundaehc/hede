@@ -42,6 +42,7 @@ from api.operation_log_utils import (
 from domain.color_barcode_schema import COLOR_BARCODE_TABLE
 from domain.gj_brand import CBANNER_MENS_BRAND, CBANNER_WOMENS_BRAND, EBLAN_BRAND, EBLAN_WOMENS_SUPPLIER_BRAND, NI_BRAND, SMILEY_BRAND, SUPPLIER_BRANDS, YANDOU_BRAND, infer_supplier_brand_from_name
 from domain.gj_schema import GJ_MERGED_PRODUCT_INFO_TABLE
+from domain.inventory_brands import inventory_brand_groups, inventory_brand_key
 from domain.inventory_schema import SUPPLIER_BRAND_TABLE, SUPPLIER_TABLE
 from domain.inventory_template_import import TEMPLATE_HEADERS, read_template_documents
 from domain.ni_gendered_costs import GENDER_COSTS_FIELD, price_for_sizes, split_sizes_by_gender
@@ -4122,6 +4123,15 @@ def _infer_inventory_template_brand(repository, supplier: object, warehouse: obj
     warehouse_brand = _cell_text(warehouse_record.get("brand") if warehouse_record else "").lower()
     if _is_known_inventory_brand(repository, warehouse_brand):
         return warehouse_brand, "仓库档案"
+    list_brands = getattr(repository, "list_supplier_brands", None)
+    configured_brands = list_brands() if warehouse_brand and callable(list_brands) else []
+    if isinstance(configured_brands, (list, tuple)):
+        groups = inventory_brand_groups(configured_brands)
+        archive_brand = inventory_brand_key(warehouse_brand, groups)
+        if archive_brand in {_cell_text(item.get("code")).lower() for item in configured_brands}:
+            if archive_brand == EBLAN_WOMENS_SUPPLIER_BRAND:
+                archive_brand = EBLAN_BRAND
+            return archive_brand, "仓库档案"
     warehouse_context = f"{warehouse_brand} {warehouse_name}".upper()
     if "NI" in warehouse_context:
         return "ni", "仓库名称"
