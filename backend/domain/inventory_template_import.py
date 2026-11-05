@@ -129,7 +129,7 @@ def _amount(value: object, row_number: int, field: str, *, required: bool = True
     return str(number)
 
 
-def read_template_documents(content: bytes) -> tuple[str, str, list[TemplateDocument]]:
+def read_template_documents(content: bytes, *, default_handler: str = "") -> tuple[str, str, list[TemplateDocument]]:
     workbook = None
     try:
         if content.startswith(b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1"):
@@ -175,7 +175,7 @@ def read_template_documents(content: bytes) -> tuple[str, str, list[TemplateDocu
             else:
                 supplier = _text(data.get("单位全名", data.get("往来单位全名")))
                 warehouse = _text(data.get("仓库全名"))
-            handler = _text(data.get("制单人", data.get("经手人")))
+            handler = _text(data.get("制单人", data.get("经手人"))) or _text(default_handler)
             summary = _text(data.get("摘要"))
             required_fields = {"摘要": summary, "经手人/制单人": handler}
             if kind == "transfer":

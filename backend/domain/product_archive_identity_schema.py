@@ -82,6 +82,7 @@ def _archive_table_specs(connection: Connection) -> list[tuple[str, str]]:
 
 
 def _install_functions(connection: Connection) -> None:
+    install_inventory_purchase_cost_backfill_function(connection)
     connection.execute(text("""
         CREATE OR REPLACE FUNCTION hede_replace_purchase_product_cache(
             payload json,
@@ -264,6 +265,11 @@ def _install_functions(connection: Connection) -> None:
                         AND detail.product_identity_id = identity_id
                   );
                 IF changed_fields ? 'cost' THEN
+                    IF NEW.deleted_at IS NULL THEN
+                        PERFORM hede_fill_missing_inventory_purchase_cost(
+                            identity_id, (new_product ->> 'cost')::numeric
+                        );
+                    END IF;
                     UPDATE inventory_records AS record
                     SET amount = (
                         SELECT COALESCE(sum(detail.amount), 0)
@@ -405,6 +411,112 @@ def _install_functions(connection: Connection) -> None:
         $$
     """))
     install_document_product_link_function(connection)
+
+
+def install_inventory_purchase_cost_backfill_function(connection: Connection) -> None:
+    """Fill missing inbound/return prices when the linked archive cost changes."""
+    connection.execute(text("""
+        CREATE OR REPLACE FUNCTION hede_fill_missing_inventory_purchase_cost(
+            archive_identity_id bigint,
+            new_cost numeric
+        ) RETURNS void
+        LANGUAGE plpgsql
+        AS $$
+        DECLARE
+            archive_brand text;
+            candidate_document_ids bigint[];
+            changed_document_ids bigint[];
+            filled_detail_count bigint;
+        BEGIN
+            IF new_cost IS NULL OR NOT (new_cost > 0 AND new_cost < 'Infinity'::numeric) THEN
+                RETURN;
+            END IF;
+            SELECT brand INTO archive_brand
+            FROM product_archive_identities
+            WHERE id = archive_identity_id AND is_active = true;
+            IF NOT FOUND THEN
+                RETURN;
+            END IF;
+
+            -- Lock document headers before changing details. Concurrent costs
+            -- for different products in one document must not lose its totals.
+            SELECT array_agg(candidate.id) INTO candidate_document_ids
+            FROM (
+                SELECT record.id
+                FROM inventory_records AS record
+                WHERE record.deleted_at IS NULL
+                  AND record.document_type IN ('进货单', '进货退货单')
+                  AND COALESCE(
+                      NULLIF(lower(btrim(record.raw_payload ->> 'brand')), ''),
+                      (
+                          SELECT CASE
+                              WHEN count(DISTINCT lower(btrim(supplier.brand))) = 1
+                              THEN min(lower(btrim(supplier.brand)))
+                          END
+                          FROM suppliers AS supplier
+                          WHERE lower(btrim(supplier.name)) = lower(btrim(record.supplier))
+                      ),
+                      archive_brand
+                  ) = archive_brand
+                  AND EXISTS (
+                      SELECT 1 FROM inventory_details AS detail
+                      WHERE detail.document_id = record.id
+                        AND detail.product_identity_id = archive_identity_id
+                        AND (detail.unit_price IS NULL OR detail.unit_price = 0)
+                  )
+                ORDER BY record.id
+                FOR UPDATE OF record
+            ) AS candidate;
+            IF candidate_document_ids IS NULL THEN
+                RETURN;
+            END IF;
+
+            WITH filled AS (
+                UPDATE inventory_details AS detail
+                SET unit_price = new_cost,
+                    amount = round(COALESCE(detail.quantity, 0) * new_cost, 2),
+                    updated_at = date_trunc('minute', now())
+                WHERE detail.document_id = ANY(candidate_document_ids)
+                  AND detail.product_identity_id = archive_identity_id
+                  AND (detail.unit_price IS NULL OR detail.unit_price = 0)
+                RETURNING detail.document_id
+            )
+            SELECT array_agg(DISTINCT filled.document_id), count(*)
+            INTO changed_document_ids, filled_detail_count
+            FROM filled;
+
+            UPDATE inventory_records AS record
+            SET amount = CASE WHEN record.document_type = '进货退货单'
+                    THEN -abs(totals.amount) ELSE totals.amount END,
+                updated_at = date_trunc('minute', now())
+            FROM (
+                SELECT detail.document_id, sum(detail.amount) AS amount
+                FROM inventory_details AS detail
+                WHERE detail.document_id = ANY(changed_document_ids)
+                GROUP BY detail.document_id
+            ) AS totals
+            WHERE record.id = totals.document_id;
+
+            IF filled_detail_count > 0 AND to_regclass('operation_logs') IS NOT NULL THEN
+                INSERT INTO operation_logs (
+                    module, action, entity_type, entity_id, entity_label,
+                    summary, after_data, display_name
+                ) VALUES (
+                    'inventory', 'auto_fill_purchase_cost', 'product',
+                    archive_identity_id::text, archive_brand,
+                    format('商品成本价更新后自动补齐 %s 条进货/退货明细，涉及 %s 张单据',
+                        filled_detail_count, cardinality(changed_document_ids)),
+                    json_build_object(
+                        'brand', archive_brand, 'product_identity_id', archive_identity_id,
+                        'unit_price', new_cost, 'filled_details', filled_detail_count,
+                        'document_ids', changed_document_ids
+                    ),
+                    '商品成本价自动补齐'
+                );
+            END IF;
+        END;
+        $$
+    """))
 
 
 def install_document_product_link_function(connection: Connection) -> None:

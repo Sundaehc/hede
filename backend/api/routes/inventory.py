@@ -492,6 +492,12 @@ def _current_account_handler(request: Request) -> str:
     return _first_text(actor.get("display_name"), actor.get("username"))
 
 
+def _read_inventory_template_for_account(request: Request, content: bytes):
+    if handler := _current_account_handler(request):
+        return read_template_documents(content, default_handler=handler)
+    return read_template_documents(content)
+
+
 def _document_numbers(records: list[dict[str, object]]) -> list[str]:
     return list(dict.fromkeys(
         document_number
@@ -2219,6 +2225,8 @@ def _append_purchase_production_order_sheet(
         worksheet.merge_cells(start_row=content_last_row, start_column=1, end_row=content_last_row, end_column=max_col)
 
     _style_purchase_production_sheet(worksheet, content_last_row, max_col, size_start_col, tail_start_col)
+    for row_index in range(data_start_row, data_start_row + len(detail_rows)):
+        worksheet.row_dimensions[row_index].height = 60
     if total_row_index is not None:
         _style_purchase_production_total_row(worksheet, total_row_index, max_col)
     requirements = _purchase_order_requirements_for_brand(context["brand"], requirement_templates)
@@ -4847,7 +4855,7 @@ async def preview_inventory_template(request: Request, file: UploadFile = None):
 
 
 def _preview_inventory_template(request: Request, content: bytes):
-    kind, _, documents = read_template_documents(content)
+    kind, _, documents = _read_inventory_template_for_account(request, content)
     repository = request.app.state.inventory_repository
     _validate_inventory_template_master_data(repository, documents)
     preview = repository.preview_template_documents(documents)
@@ -4922,7 +4930,7 @@ def _import_inventory_template(request: Request, filename: str | None, form: Map
     if not isinstance(decisions, dict):
         raise HTTPException(status_code=400, detail="确认信息格式不正确")
     brand = str(form.get("brand") or "").strip().lower()
-    kind, sheet_name, documents = read_template_documents(content)
+    kind, sheet_name, documents = _read_inventory_template_for_account(request, content)
     repository = request.app.state.inventory_repository
     active_documents = [
         document for document in documents
