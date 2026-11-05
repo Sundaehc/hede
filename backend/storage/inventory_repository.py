@@ -3065,8 +3065,10 @@ class InventoryRepository:
         date_start: str | None = None,
         date_end: str | None = None,
         product_code: str | None = None,
+        product_name: str | None = None,
         color_name: str | None = None,
         color_spec: str | None = None,
+        exact_match: bool = False,
         page: int,
         page_size: int,
     ) -> dict[str, object]:
@@ -3078,12 +3080,20 @@ class InventoryRepository:
         start_date = parse_date(date_start) if date_start else None
         end_date = parse_date(date_end) if date_end else None
         if start_date:
-            conditions.append(or_(
+            before_period = or_(
+                record.c.date_value < start_date,
+                and_(record.c.date_value.is_(None), record.c.date < date_start),
+            )
+            in_period = or_(
                 record.c.date_value >= start_date,
                 and_(record.c.date_value.is_(None), record.c.date >= date_start),
-            ))
+            )
         elif date_start:
-            conditions.append(record.c.date >= date_start)
+            before_period = record.c.date < date_start
+            in_period = record.c.date >= date_start
+        else:
+            before_period = False
+            in_period = True
         if end_date:
             conditions.append(or_(
                 record.c.date_value <= end_date,
@@ -3091,16 +3101,26 @@ class InventoryRepository:
             ))
         elif date_end:
             conditions.append(record.c.date <= date_end)
-        if product_code:
-            conditions.append(detail.c.product_code.ilike(f"%{product_code.strip()}%"))
-        if color_name:
-            conditions.append(detail.c.color_name == color_name)
-        if color_spec:
-            conditions.append(detail.c.color_spec == color_spec)
+        if exact_match:
+            # Match all grouping fields, including NULL and empty values, so a
+            # drilldown cannot combine a different product, name or color row.
+            conditions.extend((
+                detail.c.product_code == product_code,
+                detail.c.product_name == product_name,
+                detail.c.color_name == color_name,
+                detail.c.color_spec == color_spec,
+            ))
+        else:
+            if product_code:
+                conditions.append(detail.c.product_code.ilike(f"%{product_code.strip()}%"))
+            if product_name is not None:
+                conditions.append(detail.c.product_name == product_name)
+            if color_name:
+                conditions.append(detail.c.color_name == color_name)
+            if color_spec:
+                conditions.append(detail.c.color_spec == color_spec)
 
-        criterion = and_(*conditions)
-        count_statement = select(func.count()).select_from(joined).where(criterion)
-        items_statement = (
+        scoped = (
             select(
                 detail.c.id.label("detail_id"),
                 record.c.id.label("document_id"),
@@ -3119,30 +3139,66 @@ class InventoryRepository:
                 inbound.label("inbound_qty"),
                 outbound.label("outbound_qty"),
                 (inbound - outbound).label("change_qty"),
+                case((before_period, inbound - outbound), else_=0).label("beginning_change_qty"),
+                case((in_period, True), else_=False).label("in_period"),
             )
             .select_from(joined)
-            .where(criterion)
-            .order_by(record.c.date_value.nulls_last(), record.c.date, record.c.document_number, detail.c.id)
+            .where(and_(*conditions))
+            .cte("warehouse_inventory_movements")
+            .prefix_with("MATERIALIZED", dialect="postgresql")
+        )
+        beginning_qty = func.coalesce(func.sum(scoped.c.beginning_change_qty), 0)
+        inbound_qty = func.coalesce(func.sum(case((scoped.c.in_period, scoped.c.inbound_qty), else_=0)), 0)
+        outbound_qty = func.coalesce(func.sum(case((scoped.c.in_period, scoped.c.outbound_qty), else_=0)), 0)
+        totals = select(
+            func.coalesce(func.sum(case((scoped.c.in_period, 1), else_=0)), 0).label("total"),
+            beginning_qty.label("total_beginning_qty"),
+            inbound_qty.label("total_inbound_qty"),
+            outbound_qty.label("total_outbound_qty"),
+            (beginning_qty + inbound_qty - outbound_qty).label("total_ending_qty"),
+        ).cte("warehouse_inventory_movement_totals")
+        paged = (
+            select(scoped, literal(True).label("has_item"))
+            .where(scoped.c.in_period)
+            .order_by(scoped.c.date_value.nulls_last(), scoped.c.date, scoped.c.document_number, scoped.c.detail_id)
             .offset((page - 1) * page_size)
             .limit(page_size)
+            .cte("warehouse_inventory_movement_page")
+        )
+        # Cards, count and the page share one database snapshot, even if the
+        # source documents change after the summary screen was loaded.
+        statement = (
+            select(totals, paged)
+            .select_from(totals.outerjoin(paged, true()))
+            .order_by(paged.c.date_value.nulls_last(), paged.c.date, paged.c.document_number, paged.c.detail_id)
         )
         with self.engine.connect() as connection:
-            total = connection.execute(count_statement).scalar_one()
-            rows = [dict(row) for row in connection.execute(items_statement).mappings()]
+            rows = connection.execute(statement).mappings().all()
+        aggregate = rows[0]
 
         def format_quantity(value: object) -> str:
             return self._format_decimal(Decimal(str(value or "0")))
 
         return {
             "items": [{
-                **row,
+                **{key: row[key] for key in (
+                    "detail_id", "document_id", "date", "date_value", "document_type", "document_number",
+                    "supplier", "warehouse", "summary", "handler", "product_code", "product_name",
+                    "color_name", "color_spec",
+                )},
                 "inbound_qty": format_quantity(row.get("inbound_qty")),
                 "outbound_qty": format_quantity(row.get("outbound_qty")),
                 "change_qty": format_quantity(row.get("change_qty")),
-            } for row in rows],
-            "total": total,
+            } for row in rows if row["has_item"]],
+            "total": int(aggregate["total"]),
             "page": page,
             "page_size": page_size,
+            "totals": {
+                "beginning_qty": format_quantity(aggregate["total_beginning_qty"]),
+                "inbound_qty": format_quantity(aggregate["total_inbound_qty"]),
+                "outbound_qty": format_quantity(aggregate["total_outbound_qty"]),
+                "ending_qty": format_quantity(aggregate["total_ending_qty"]),
+            },
         }
 
     # ── Inventory Details ───────────────────────────────────────────

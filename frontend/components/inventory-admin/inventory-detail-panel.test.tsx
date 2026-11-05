@@ -7,10 +7,11 @@ import { PageTabs } from "@/components/auth/page-tabs"
 import { ApiError, type InventoryDetail, type InventoryRecord } from "@/lib/api"
 import { SessionQueryProvider } from "@/lib/session-query-state"
 
-const { mockListDetails, mockUpdateDetail, mockCreateDetail } = vi.hoisted(() => ({
+const { mockListDetails, mockUpdateDetail, mockCreateDetail, mockReplaceDetailsFromExcel } = vi.hoisted(() => ({
   mockListDetails: vi.fn(),
   mockUpdateDetail: vi.fn(),
   mockCreateDetail: vi.fn(),
+  mockReplaceDetailsFromExcel: vi.fn(),
 }))
 
 vi.mock("@/lib/api", async () => ({
@@ -18,6 +19,7 @@ vi.mock("@/lib/api", async () => ({
   listDetails: mockListDetails,
   updateDetail: mockUpdateDetail,
   createDetail: mockCreateDetail,
+  replaceDetailsFromExcel: mockReplaceDetailsFromExcel,
   getPinnedPageTabs: vi.fn().mockResolvedValue({ pinned_paths: [] }),
   listInventoryAccountSubjects: vi.fn().mockResolvedValue({
     items: [{ id: 16, name: "大底收入", category: "收入类" }],
@@ -234,4 +236,31 @@ test.each(["进货订单", "进货单", "进货退货单"])("saves a manually ch
   })))
   await waitFor(() => expect(onTotalChanged).toHaveBeenCalledOnce())
   expect(screen.queryByRole("dialog", { name: "编辑明细" })).not.toBeInTheDocument()
+})
+
+test("reimports NS details without overriding the document brand with the size display default", async () => {
+  const user = userEvent.setup()
+  const onTotalChanged = vi.fn()
+  mockListDetails.mockResolvedValue({ items: [{
+    ...detail,
+    product_code: "NAE2645011B01",
+    product_name: "NS黑色单鞋",
+    quantity: "2",
+    size_quantities: { "240": "1", "245": "1" },
+  }], total: 1, page: 1, page_size: 100 })
+  mockReplaceDetailsFromExcel.mockResolvedValue({ updated: 4, details: 4, message: "已重新导入" })
+  const view = render(<InventoryDetailPanel record={{
+    ...record,
+    document_type: "批发销售单",
+    supplier: "NS-总部采购",
+    warehouse: "NS仙岩仓库",
+  }} suppliers={[]} onClose={vi.fn()} onTotalChanged={onTotalChanged} />)
+  await screen.findByText("NS黑色单鞋")
+  const file = new File(["workbook"], "导入工作簿.xls", { type: "application/vnd.ms-excel" })
+  await user.upload(view.container.querySelector<HTMLInputElement>('input[type="file"]')!, file)
+  const dialog = await screen.findByRole("alertdialog", { name: "确认重新导入明细" })
+  await user.click(within(dialog).getByRole("button", { name: "确认导入" }))
+  await waitFor(() => expect(mockReplaceDetailsFromExcel).toHaveBeenCalledWith({ documentId: record.id, file }))
+  await waitFor(() => expect(onTotalChanged).toHaveBeenCalledOnce())
+  expect(await screen.findByRole("alertdialog", { name: "导入完成" })).toHaveTextContent("已重新导入")
 })

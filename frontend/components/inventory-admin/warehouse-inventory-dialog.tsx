@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react"
 import { ArrowLeft, Eye, LoaderCircle, Search, X } from "lucide-react"
 
-import { ApiError, getWarehouseInventory, listWarehouseInventoryMovements, type WarehouseInventoryItem, type WarehouseInventoryMovementItem, type WarehouseItem } from "@/lib/api"
+import { ApiError, getWarehouseInventory, listWarehouseInventoryMovements, type WarehouseInventoryItem, type WarehouseInventoryMovementItem, type WarehouseInventoryMovementResponse, type WarehouseItem } from "@/lib/api"
 import { Button } from "@/components/ui/button"
 import { DateRangeControl } from "@/components/ui/date-range-control"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
@@ -62,11 +62,13 @@ export function WarehouseInventoryDialog({
   const [totals, setTotals] = useState({ beginning_qty: "0", inbound_qty: "0", outbound_qty: "0", ending_qty: "0" })
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(PAGE_SIZES[0])
+  const [inventoryRevision, setInventoryRevision] = useState(0)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState("")
   const [selectedItem, setSelectedItem] = useState<WarehouseInventoryItem | null>(null)
   const [movementItems, setMovementItems] = useState<WarehouseInventoryMovementItem[]>([])
   const [movementTotal, setMovementTotal] = useState(0)
+  const [movementTotals, setMovementTotals] = useState<WarehouseInventoryMovementResponse["totals"] | null>(null)
   const [movementPage, setMovementPage] = useState(1)
   const [movementLoading, setMovementLoading] = useState(false)
   const [movementError, setMovementError] = useState("")
@@ -102,7 +104,7 @@ export function WarehouseInventoryDialog({
     }
     void loadInventory()
     return () => { cancelled = true; controller.abort() }
-  }, [filters, open, page, pageSize, warehouseId])
+  }, [filters, inventoryRevision, open, page, pageSize, warehouseId])
 
   useEffect(() => {
     if (!open || warehouseId === undefined || !selectedItem) return
@@ -113,22 +115,27 @@ export function WarehouseInventoryDialog({
     async function loadMovements() {
       setMovementLoading(true)
       setMovementError("")
+      setMovementTotals(null)
       try {
         const response = await listWarehouseInventoryMovements(requestedWarehouseId, {
           ...filters,
-          product_code: inventoryItem.product_code || undefined,
-          color_name: inventoryItem.color_name || undefined,
-          color_spec: inventoryItem.color_spec || undefined,
+          product_code: inventoryItem.product_code,
+          product_name: inventoryItem.product_name,
+          color_name: inventoryItem.color_name,
+          color_spec: inventoryItem.color_spec,
+          exact_match: true,
           page: movementPage,
           pageSize: 50,
         }, controller.signal)
         if (cancelled) return
         setMovementItems(response.items)
         setMovementTotal(response.total)
+        setMovementTotals(response.totals)
       } catch (loadError) {
         if (cancelled) return
         setMovementItems([])
         setMovementTotal(0)
+        setMovementTotals(null)
         setMovementError(getErrorMessage(loadError))
       } finally {
         if (!cancelled) setMovementLoading(false)
@@ -165,6 +172,12 @@ export function WarehouseInventoryDialog({
     setMovementPage(1)
     setMovementItems([])
     setMovementTotal(0)
+    setMovementTotals(null)
+  }
+
+  const returnToInventory = () => {
+    setSelectedItem(null)
+    setInventoryRevision((value) => value + 1)
   }
 
   const showFilters = !selectedItem
@@ -179,7 +192,7 @@ export function WarehouseInventoryDialog({
               <p className="mt-1 text-sm text-muted-foreground">{warehouse?.name || "-"}{selectedItem?.product_code ? ` · ${selectedItem.product_code}` : ""}</p>
             </div>
             {selectedItem && (
-              <Button variant="outline" size="sm" className="shrink-0 cursor-pointer" onClick={() => setSelectedItem(null)}>
+              <Button variant="outline" size="sm" className="shrink-0 cursor-pointer" onClick={returnToInventory}>
                 <ArrowLeft className="size-4" />
                 <span className="ml-1.5">返回汇总</span>
               </Button>
@@ -219,7 +232,7 @@ export function WarehouseInventoryDialog({
                 ].map(([label, value, className]) => (
                   <div key={label} className="rounded-lg border border-border bg-card px-3 py-2.5">
                     <p className="text-xs text-muted-foreground">{label}</p>
-                    <p className={`mt-1 text-lg font-semibold tabular-nums ${className}`}>{value}</p>
+                    <p className={`mt-1 text-lg font-semibold tabular-nums ${className}`}>{loading || error ? "—" : value}</p>
                   </div>
                 ))}
               </div>
@@ -245,7 +258,7 @@ export function WarehouseInventoryDialog({
           {selectedItem && (
             <>
               <div className="grid gap-2 sm:grid-cols-4">
-                {[["期初", selectedItem.beginning_qty], ["入库", selectedItem.inbound_qty], ["出库", selectedItem.outbound_qty], ["期末", selectedItem.ending_qty]].map(([label, value]) => <div key={label} className="rounded-lg border border-border bg-muted/20 px-3 py-2"><span className="text-xs text-muted-foreground">{label}</span><span className="ml-2 font-semibold tabular-nums">{value}</span></div>)}
+                {[["期初", movementTotals?.beginning_qty], ["入库", movementTotals?.inbound_qty], ["出库", movementTotals?.outbound_qty], ["期末", movementTotals?.ending_qty]].map(([label, value]) => <div key={label} className="rounded-lg border border-border bg-muted/20 px-3 py-2"><span className="text-xs text-muted-foreground">{label}</span><span className="ml-2 font-semibold tabular-nums">{movementLoading ? "—" : value ?? "—"}</span></div>)}
               </div>
               {movementError && <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">{movementError}</div>}
               <div className="flex items-center justify-between text-sm text-muted-foreground"><span>库存流水 {movementTotal} 条</span><span>{filters?.date_start || "最早"} 至 {filters?.date_end || "当前"}</span></div>

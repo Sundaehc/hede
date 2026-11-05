@@ -1519,6 +1519,7 @@ export type WarehouseInventoryMovementResponse = {
   total: number
   page: number
   page_size: number
+  totals: WarehouseInventoryResponse["totals"]
 }
 
 export type AccountSubjectCategory = "收入类" | "支出类"
@@ -2980,7 +2981,7 @@ export function listWarehouseInventorySummary(
   if (params.date_end) search.set("date_end", params.date_end)
   return request<{ items: WarehouseInventorySummaryItem[] }>(
     `/warehouses/inventory-summary?${search.toString()}`,
-    { signal },
+    { signal, cache: "no-store" },
   )
 }
 
@@ -3004,7 +3005,7 @@ export function getWarehouseInventory(
   if (params.product_code) search.set("product_code", params.product_code)
   return request<WarehouseInventoryResponse>(
     `/warehouses/${warehouseId}/inventory?${search.toString()}`,
-    { signal },
+    { signal, cache: "no-store" },
   )
 }
 
@@ -3013,9 +3014,11 @@ export function listWarehouseInventoryMovements(
   params: {
     date_start?: string
     date_end?: string
-    product_code?: string
-    color_name?: string
-    color_spec?: string
+    product_code?: string | null
+    product_name?: string | null
+    color_name?: string | null
+    color_spec?: string | null
+    exact_match?: boolean
     page: number
     pageSize: number
   },
@@ -3027,12 +3030,14 @@ export function listWarehouseInventoryMovements(
   })
   if (params.date_start) search.set("date_start", params.date_start)
   if (params.date_end) search.set("date_end", params.date_end)
-  if (params.product_code) search.set("product_code", params.product_code)
-  if (params.color_name) search.set("color_name", params.color_name)
-  if (params.color_spec) search.set("color_spec", params.color_spec)
+  for (const key of ["product_code", "product_name", "color_name", "color_spec"] as const) {
+    const value = params[key]
+    if (value !== undefined && value !== null) search.set(key, value)
+  }
+  if (params.exact_match) search.set("exact_match", "true")
   return request<WarehouseInventoryMovementResponse>(
     `/warehouses/${warehouseId}/inventory/movements?${search.toString()}`,
-    { signal },
+    { signal, cache: "no-store" },
   )
 }
 

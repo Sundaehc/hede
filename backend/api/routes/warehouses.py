@@ -15,6 +15,11 @@ from api.operation_log_utils import (
 router = APIRouter()
 
 
+def _validate_inventory_date_range(date_start: date | None, date_end: date | None) -> None:
+    if date_start and date_end and date_start > date_end:
+        raise HTTPException(status_code=400, detail="开始日期不能晚于结束日期")
+
+
 def _ordered_ids(payload: dict) -> list[int]:
     raw_ids = payload.get("ids")
     if not isinstance(raw_ids, list) or not raw_ids:
@@ -40,8 +45,7 @@ def list_warehouse_inventory_summary(
     date_start: date | None = None,
     date_end: date | None = None,
 ):
-    if date_start and date_end and date_start > date_end:
-        raise HTTPException(status_code=400, detail="开始日期不能晚于结束日期")
+    _validate_inventory_date_range(date_start, date_end)
     repository = request.app.state.inventory_repository
     return {"items": repository.list_warehouse_inventory_summary(
         date_start=date_start.isoformat() if date_start else None,
@@ -53,20 +57,21 @@ def list_warehouse_inventory_summary(
 def get_warehouse_inventory(
     request: Request,
     warehouse_id: int,
-    date_start: str | None = None,
-    date_end: str | None = None,
+    date_start: date | None = None,
+    date_end: date | None = None,
     product_code: str | None = None,
     page: int = 1,
     page_size: int = 20,
 ):
+    _validate_inventory_date_range(date_start, date_end)
     repository = request.app.state.inventory_repository
     warehouse = repository.get_warehouse(warehouse_id)
     if warehouse is None:
         raise HTTPException(status_code=404, detail="Warehouse not found")
     return repository.get_warehouse_inventory(
         warehouse_name=str(warehouse.get("name") or ""),
-        date_start=date_start,
-        date_end=date_end,
+        date_start=date_start.isoformat() if date_start else None,
+        date_end=date_end.isoformat() if date_end else None,
         product_code=product_code,
         page=max(page, 1),
         page_size=min(max(page_size, 1), 200),
@@ -77,25 +82,30 @@ def get_warehouse_inventory(
 def list_warehouse_inventory_movements(
     request: Request,
     warehouse_id: int,
-    date_start: str | None = None,
-    date_end: str | None = None,
+    date_start: date | None = None,
+    date_end: date | None = None,
     product_code: str | None = None,
+    product_name: str | None = None,
     color_name: str | None = None,
     color_spec: str | None = None,
+    exact_match: bool = False,
     page: int = 1,
     page_size: int = 50,
 ):
+    _validate_inventory_date_range(date_start, date_end)
     repository = request.app.state.inventory_repository
     warehouse = repository.get_warehouse(warehouse_id)
     if warehouse is None:
         raise HTTPException(status_code=404, detail="Warehouse not found")
     return repository.list_warehouse_inventory_movements(
         warehouse_name=str(warehouse.get("name") or ""),
-        date_start=date_start,
-        date_end=date_end,
+        date_start=date_start.isoformat() if date_start else None,
+        date_end=date_end.isoformat() if date_end else None,
         product_code=product_code,
+        product_name=product_name,
         color_name=color_name,
         color_spec=color_spec,
+        exact_match=exact_match,
         page=max(page, 1),
         page_size=min(max(page_size, 1), 200),
     )

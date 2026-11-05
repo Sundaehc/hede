@@ -129,3 +129,19 @@ test("shows an error instead of outdated quantities and supports retry", async (
   expect(await screen.findByText("14.5")).toBeInTheDocument()
   expect(screen.queryByRole("alert")).not.toBeInTheDocument()
 })
+
+test("closing inventory refreshes overview quantities with the submitted date range", async () => {
+  const user = userEvent.setup()
+  render(<WarehousesPage />)
+  await screen.findByText("14.5")
+  await user.click(screen.getByRole("button", { name: "查看仓库 甲仓库 库存" }))
+  await waitFor(() => expect(inventoryMock).toHaveBeenCalledOnce())
+  // Closing the window refreshes the overview for its submitted period.
+  summaryMock.mockResolvedValueOnce(quantities("10.25", "13.5"))
+  await user.keyboard("{Escape}")
+  await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument())
+  await waitFor(() => expect(summaryMock).toHaveBeenCalledTimes(2))
+  expect(summaryMock).toHaveBeenLastCalledWith({ date_start: "2026-11-01", date_end: "2026-11-02" }, expect.any(AbortSignal))
+  expect(screen.getByText("13.5")).toBeInTheDocument()
+  expect(screen.queryByText("14.5")).not.toBeInTheDocument()
+})

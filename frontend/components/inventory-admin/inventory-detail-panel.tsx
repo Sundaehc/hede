@@ -879,7 +879,6 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
       const result = await replaceDetailsFromExcel({
         documentId,
         file: replaceFile,
-        brand: inventorySizeBrand,
       })
       setReplaceFile(null)
       if (replaceInputRef.current) replaceInputRef.current.value = ""

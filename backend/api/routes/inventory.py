@@ -6594,7 +6594,13 @@ def _reimport_inventory_details_from_excel(request: Request, record_id: int, fil
     before_details = repository.list_details(record_id)
 
     document_type = normalize_document_type(record.get("document_type"))
-    brand = str(form.get("brand") or "").strip() or _purchase_import_brand_for_record(repository, record)
+    brand = _purchase_import_brand_for_supplier(
+        repository,
+        _cell_text(record.get("supplier")),
+        document_type,
+        _cell_text(form.get("brand")) or _purchase_record_brand(record),
+        _cell_text(record.get("warehouse")),
+    )
     fallback_unit_price = _to_decimal(form.get("unit_price"))
     details, sheet_name = _build_purchase_details_from_excel(
         repository,
