@@ -306,7 +306,7 @@ function inventoryCounterpartyLabel(documentType?: string) {
 
 function inventoryWarehouseLabel(documentType?: string) {
   if (documentType && TRANSFER_DOCUMENT_TYPES.has(documentType)) return "入货仓库"
-  return documentType ? "仓库" : "仓库/入货仓库"
+  return documentType ? "仓库" : "入货仓库"
 }
 
 function getErrorMessage(error: unknown) {

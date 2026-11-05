@@ -199,7 +199,7 @@ test("shows transfer source in its own sortable warehouse column", async () => {
   const table = document.closest("table")!
   const headers = Array.from(table.querySelectorAll("thead th"))
   const sourceIndex = headers.findIndex((header) => header.textContent?.includes("出货仓库"))
-  const destinationIndex = headers.findIndex((header) => header.textContent?.includes("仓库/入货仓库"))
+  const destinationIndex = headers.findIndex((header) => header.textContent?.includes("入货仓库"))
   const supplierIndex = headers.findIndex((header) => header.textContent?.includes("供应商/收货客户"))
   const transferCells = within(document.closest("tr")!).getAllByRole("cell")
   expect(sourceIndex).toBeGreaterThan(-1)
@@ -229,6 +229,6 @@ test("adds the outbound warehouse column while preserving a saved column order",
   const labels = screen.getAllByRole("columnheader").map((header) => header.textContent)
   expect(labels[1]).toContain("金额")
   const source = labels.findIndex((label) => label?.includes("出货仓库"))
-  expect(labels[source + 1]).toContain("仓库/入货仓库")
+  expect(labels[source + 1]).toContain("入货仓库")
   expect(screen.getByRole("button", { name: "拖拽排序出货仓库" })).toBeInTheDocument()
 })

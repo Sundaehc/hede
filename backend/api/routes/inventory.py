@@ -4670,7 +4670,7 @@ def export_inventory(
         if export_document_type in TRANSFER_DOCUMENT_TYPES
         else "仓库"
         if export_document_type
-        else "仓库/入货仓库"
+        else "入货仓库"
     )
     export_columns = list(INVENTORY_CANONICAL_COLUMNS)
     if has_outbound_warehouse:
