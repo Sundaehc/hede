@@ -78,6 +78,7 @@ GENERAL_CUSTOMER_ROOT_SORT_PARENT_ID = 0
 TEMPLATE_DETAIL_WRITE_BATCH_SIZE = 5000
 TEMPLATE_DETAIL_COPY_MIN_ROWS = 100
 TEMPLATE_TOTALS_BATCH_SIZE = 1000
+SUMMARY_SEARCH_WHITESPACE = " \t\r\n\v\f\u00a0\u3000"
 
 
 def _json_serializer(value: object) -> str:
@@ -368,8 +369,12 @@ class InventoryRepository:
             conditions.append(or_(table.c.document_type.is_(None), table.c.document_type != exclude_document_type))
         if document_number and document_number.strip():
             conditions.append(table.c.document_number.ilike(f"%{document_number.strip()}%"))
-        if summary:
-            conditions.append(table.c.summary.ilike(f"%{summary.strip()}%"))
+        normalized_summary = (summary or "").translate(str.maketrans("", "", SUMMARY_SEARCH_WHITESPACE)).strip()
+        if normalized_summary:
+            summary_column = table.c.summary
+            for whitespace in SUMMARY_SEARCH_WHITESPACE:
+                summary_column = func.replace(summary_column, whitespace, "")
+            conditions.append(summary_column.ilike(f"%{normalized_summary}%"))
         handler_values = list(dict.fromkeys(
             value.strip() for value in re.split(r"[,，;；、\r\n]+", handler or "") if value.strip()
         ))
