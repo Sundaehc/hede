@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import re
+
 from fastapi import Request
 from starlette.concurrency import run_in_threadpool
 from starlette.responses import JSONResponse
@@ -29,6 +31,8 @@ def required_permission_for_request(
     if path.startswith("/product-copywriting"):
         return "product.view"
     if path.startswith("/products"):
+        if method == "PUT" and re.fullmatch(r"/products/[^/]+/[0-9]+", path):
+            return ("product.manage", "product.edit")
         return "product.view" if method == "GET" else "product.manage"
     if path == "/export":
         if method in {"GET", "HEAD"} and export_mode == "price":
@@ -86,8 +90,8 @@ async def auth_middleware(request: Request, call_next):
     if path.startswith("/product-goods") or path.startswith("/factory-channel-dashboard"):
         role_code = str(user.get("role_code") or "").strip()
         department_code = str(user.get("department_code") or "").strip()
-        if role_code != "super_admin" and department_code not in {"商品部", "开发部", "运营部"}:
-            return JSONResponse({"detail": "商品货品表及渠道看板仅限商品部、运营部、开发部和超级管理员访问"}, status_code=403)
+        if role_code != "super_admin" and department_code not in {"商品部", "开发部", "运营部", "财务部"}:
+            return JSONResponse({"detail": "商品货品表及渠道看板仅限商品部、运营部、开发部、财务部和超级管理员访问"}, status_code=403)
         request.state.current_user = user
         return await call_next(request)
 
@@ -105,24 +109,24 @@ async def auth_middleware(request: Request, call_next):
     if path.startswith("/color-barcodes"):
         role_code = str(user.get("role_code") or "").strip()
         department_code = str(user.get("department_code") or "").strip()
-        if role_code != "super_admin" and department_code not in {"商品部", "开发部"}:
-            return JSONResponse({"detail": "颜色管理仅限商品部、开发部和超级管理员访问"}, status_code=403)
+        if role_code != "super_admin" and department_code not in {"商品部", "开发部", "财务部"}:
+            return JSONResponse({"detail": "颜色管理仅限商品部、开发部、财务部和超级管理员访问"}, status_code=403)
         request.state.current_user = user
         return await call_next(request)
 
     if path.startswith("/product-auxiliary-attributes"):
         role_code = str(user.get("role_code") or "").strip()
         department_code = str(user.get("department_code") or "").strip()
-        if role_code != "super_admin" and department_code not in {"商品部", "开发部"}:
-            return JSONResponse({"detail": "辅助属性管理仅限商品部、开发部和超级管理员访问"}, status_code=403)
+        if role_code != "super_admin" and department_code not in {"商品部", "开发部", "财务部"}:
+            return JSONResponse({"detail": "辅助属性管理仅限商品部、开发部、财务部和超级管理员访问"}, status_code=403)
         request.state.current_user = user
         return await call_next(request)
 
     if path.startswith("/product-tags"):
         role_code = str(user.get("role_code") or "").strip()
         department_code = str(user.get("department_code") or "").strip()
-        if role_code != "super_admin" and department_code != "开发部":
-            return JSONResponse({"detail": "商品标签管理仅限开发部和超级管理员访问"}, status_code=403)
+        if role_code != "super_admin" and department_code not in {"开发部", "财务部"}:
+            return JSONResponse({"detail": "商品标签管理仅限开发部、财务部和超级管理员访问"}, status_code=403)
         request.state.current_user = user
         return await call_next(request)
 
@@ -138,8 +142,8 @@ async def auth_middleware(request: Request, call_next):
                 return JSONResponse({"detail": "权限不足"}, status_code=403)
             request.state.current_user = user
             return await call_next(request)
-        if role_code != "super_admin" and department_code not in {"商品部", "开发部"}:
-            return JSONResponse({"detail": "尺码组管理仅限商品部、开发部和超级管理员访问"}, status_code=403)
+        if role_code != "super_admin" and department_code not in {"商品部", "开发部", "财务部"}:
+            return JSONResponse({"detail": "尺码组管理仅限商品部、开发部、财务部和超级管理员访问"}, status_code=403)
         request.state.current_user = user
         return await call_next(request)
 

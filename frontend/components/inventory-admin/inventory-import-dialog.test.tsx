@@ -380,6 +380,59 @@ test("locks changes and closing while prechecking, then displays a recoverable e
   expect(ui.getByRole("button", { name: "关闭" })).toBeEnabled()
 })
 
+test("shows unmatched product codes separately and copies them without submitting an import", async () => {
+  previewTemplateMock.mockRejectedValueOnce(new ApiError(400,
+    "以下商品编码未匹配到商品信息档案：C2153112DF8080255、AS861182D020235。请联系商品部维护商品信息档案后再导入；本次未导入任何数据。"
+  ))
+  const { user, dialog, ui } = await openImport()
+  const writeText = vi.spyOn(navigator.clipboard, "writeText").mockResolvedValue()
+  const file = selectFile(dialog)
+  await user.click(ui.getByRole("button", { name: "预检查" }))
+  const alert = within(await ui.findByRole("alert"))
+  expect(alert.getByText("商品档案未匹配")).toBeInTheDocument()
+  expect(alert.getByText("本次未导入任何数据，请先核对以下商品。")).toBeInTheDocument()
+  expect(within(alert.getByRole("list", { name: "未匹配的商品编码" })).getAllByRole("listitem")).toHaveLength(2)
+  await user.click(alert.getByRole("button", { name: "复制编码" }))
+  expect(writeText).toHaveBeenCalledWith("C2153112DF8080255\nAS861182D020235")
+  expect(alert.getByRole("button", { name: "已复制" })).toHaveFocus()
+  expect(ui.getByText(file.name)).toBeInTheDocument()
+  expect(ui.getByRole("button", { name: "预检查" })).toBeEnabled()
+  expect(importTemplateMock).not.toHaveBeenCalled()
+  selectFile(dialog, "修正后.xlsx")
+  expect(ui.queryByRole("alert")).not.toBeInTheDocument()
+})
+
+test("identifies a truncated code list and does not claim to copy undisplayed codes", async () => {
+  previewTemplateMock.mockRejectedValueOnce(new Error(
+    "以下商品编码未匹配到商品信息档案：SKU-01、SKU-02等 25 个商品编码。请联系商品部维护商品信息档案后再导入；本次未导入任何数据。"
+  ))
+  const { user, dialog, ui } = await openImport()
+  const writeText = vi.spyOn(navigator.clipboard, "writeText").mockResolvedValue()
+  selectFile(dialog)
+  await user.click(ui.getByRole("button", { name: "预检查" }))
+  const alert = within(await ui.findByRole("alert"))
+  expect(alert.getByText("仅显示前 2 个编码，共 25 个未匹配。")).toBeInTheDocument()
+  await user.click(alert.getByRole("button", { name: "复制已显示编码" }))
+  expect(writeText).toHaveBeenCalledWith("SKU-01\nSKU-02")
+})
+
+test("keeps codes readable and offers manual copying when clipboard access fails", async () => {
+  previewTemplateMock.mockRejectedValueOnce(new Error(
+    "以下商品编码未匹配到商品信息档案：C2153112DF8080255。请联系商品部维护商品信息档案后再导入；本次未导入任何数据。"
+  ))
+  const { user, dialog, ui } = await openImport()
+  vi.spyOn(navigator.clipboard, "writeText").mockRejectedValue(new Error("denied"))
+  selectFile(dialog)
+  await user.click(ui.getByRole("button", { name: "预检查" }))
+  const alert = within(await ui.findByRole("alert"))
+  const copy = alert.getByRole("button", { name: "复制编码" })
+  await user.click(copy)
+  expect(alert.getByRole("status")).toHaveTextContent("复制失败，请选中编码手动复制。")
+  expect(alert.getByText("C2153112DF8080255")).toBeInTheDocument()
+  expect(copy).toHaveFocus()
+  expect(alert.queryByRole("button", { name: "已复制" })).not.toBeInTheDocument()
+})
+
 test("keeps purchase order import working with the shared upload", async () => {
   const { user, dialog, ui } = await openImport("purchase-orders")
   expect(ui.queryByRole("group", { name: "导入方式" })).not.toBeInTheDocument()

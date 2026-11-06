@@ -56,7 +56,7 @@ function sortedGroups(items: SizeGroup[]) {
 
 export function SizeGroupsPage() {
   const { user } = useAuth()
-  const canManage = user?.role_code === "super_admin" || ["商品部", "开发部"].includes(user?.department_code ?? "")
+  const canManage = user?.role_code === "super_admin" || ["商品部", "开发部", "财务部"].includes(user?.department_code ?? "")
   const [groups, setGroups] = useState<SizeGroup[]>([])
   const [selectedId, setSelectedId] = useState<number | null>(null)
   const [draft, setDraft] = useState<SizeGroupDraft>(EMPTY_DRAFT)

@@ -1,6 +1,6 @@
 import type { AuthUser } from "@/lib/types"
 
-const PRODUCT_GOODS_DEPARTMENTS = new Set(["商品部", "开发部", "运营部"])
+const PRODUCT_GOODS_DEPARTMENTS = new Set(["商品部", "开发部", "运营部", "财务部"])
 
 export function hasProductGoodsDepartmentAccess(
   user: Pick<AuthUser, "role_code" | "department_code"> | null

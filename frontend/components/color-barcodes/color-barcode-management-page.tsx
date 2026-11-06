@@ -65,7 +65,7 @@ function formatDateTime(value: string | null) {
 
 export function ColorBarcodeManagementPage() {
   const { user } = useAuth()
-  const canManage = user?.role_code === "super_admin" || ["商品部", "开发部"].includes(user?.department_code ?? "")
+  const canManage = user?.role_code === "super_admin" || ["商品部", "开发部", "财务部"].includes(user?.department_code ?? "")
   const [brands, setBrands] = useState<ColorBarcodeBrandSummary[]>([])
   const [selectedBrand, setSelectedBrand] = useSessionQueryState("color-barcodes:selectedBrand", "")
   const [items, setItems] = useState<ManagedColorBarcodeItem[]>([])

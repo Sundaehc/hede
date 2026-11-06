@@ -163,12 +163,12 @@ export function getVisibleNavigation(
   const canAccessProductGoods = hasProductGoodsDepartmentAccess(user)
   const canAccessSizeGroups =
     user?.role_code === "super_admin" ||
-    ["商品部", "开发部"].includes(user?.department_code ?? "")
+    ["商品部", "开发部", "财务部"].includes(user?.department_code ?? "")
   const canAccessColorManagement =
     user?.role_code === "super_admin" ||
-    ["商品部", "开发部"].includes(user?.department_code ?? "")
+    ["商品部", "开发部", "财务部"].includes(user?.department_code ?? "")
   const canAccessAuxiliaryAttributes = canAccessColorManagement
-  const canAccessProductTags = user?.role_code === "super_admin" || user?.department_code === "开发部"
+  const canAccessProductTags = user?.role_code === "super_admin" || ["开发部", "财务部"].includes(user?.department_code ?? "")
   const canAccessScheduledTasks =
     user?.role_code === "super_admin" || user?.department_code === "开发部"
   const isProductDepartment =

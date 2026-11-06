@@ -47,9 +47,9 @@ def _authorized_product(request: Request, brand: str, product_id: int) -> tuple[
     if not user:
         raise HTTPException(status_code=401, detail="未登录")
     if not user_has_permission(user, "product.view") or (
-        user.get("role_code") != "super_admin" and user.get("department_code") != "美工部"
+        user.get("role_code") != "super_admin" and user.get("department_code") not in {"美工部", "财务部"}
     ):
-        raise HTTPException(status_code=403, detail="生图提示词仅限美工部和超级管理员使用")
+        raise HTTPException(status_code=403, detail="生图提示词仅限美工部、财务部和超级管理员使用")
     repository = request.app.state.repository
     if not repository.is_product_archive_brand(brand):
         raise HTTPException(status_code=400, detail="无效品牌")

@@ -59,8 +59,8 @@ DEFAULT_ROLES = [
         "code": "finance_user",
         "name": "财务组",
         "department_code": "财务部",
-        "description": "管理进销存和采购单，只读查看商品信息档案并导出物价",
-        "permissions": "product.view,product.price_export,inventory.view,inventory.manage,inventory.export,purchase.view,purchase.manage,purchase.export",
+        "description": "系统管理之外的全部业务权限",
+        "permissions": "product.view,product.edit,product.manage,product.import,product.export,product.price_export,fine_table.view,fine_table.export,inventory.view,inventory.manage,inventory.export,purchase.view,purchase.manage,purchase.import,purchase.export,supplier.create,supplier.manage",
     },
     {
         "code": "product_user",

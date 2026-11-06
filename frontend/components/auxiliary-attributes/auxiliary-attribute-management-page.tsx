@@ -79,7 +79,7 @@ export function AuxiliaryAttributeManagementPage() {
   const { user } = useAuth()
   const canManage =
     user?.role_code === "super_admin" ||
-    ["商品部", "开发部"].includes(user?.department_code ?? "")
+    ["商品部", "开发部", "财务部"].includes(user?.department_code ?? "")
   const [scopes, setScopes] = useState<ProductAuxiliaryAttributeScope[]>([])
   const [attributeTypes, setAttributeTypes] = useState<
     ProductAuxiliaryAttributeType[]

@@ -24,7 +24,7 @@ function getError(error: unknown) {
 
 export function ProductTagManagementPage() {
   const { user } = useAuth()
-  const canManage = user?.role_code === "super_admin" || user?.department_code === "开发部"
+  const canManage = user?.role_code === "super_admin" || ["开发部", "财务部"].includes(user?.department_code ?? "")
   const [items, setItems] = useState<ProductTagDefinition[]>([])
   const [groups, setGroups] = useState<string[]>([])
   const [group, setGroup] = useState("all")
@@ -119,7 +119,7 @@ export function ProductTagManagementPage() {
         <div className="app-content">
           <section className="surface-panel p-12 text-center">
             <h1 className="page-title">无权访问商品标签</h1>
-            <p className="mt-2 text-sm text-muted-foreground">商品标签管理仅限开发部和超级管理员使用。</p>
+            <p className="mt-2 text-sm text-muted-foreground">商品标签管理仅限开发部、财务部和超级管理员使用。</p>
           </section>
         </div>
       </div>

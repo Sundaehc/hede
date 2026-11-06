@@ -164,7 +164,7 @@ it("design users see the copywriting button immediately after details and open t
 })
 
 it.each([
-  ["财务部", "finance_user", false],
+  ["财务部", "finance_user", true],
   ["客服部", "customer_service_viewer", false],
   ["商品部", "product_user", false],
   ["运营部", "operation_user", false],
@@ -215,6 +215,29 @@ it("finance can select and export prices without product editing or general expo
   expect(mockPreflight).toHaveBeenCalledWith("cbanner_mens", [7], "price", undefined, undefined, undefined, undefined, undefined)
   expect(mockCreateProduct).not.toHaveBeenCalled()
   expect(mockUpdateProduct).not.toHaveBeenCalled()
+})
+
+it("finance can edit existing products with dedicated editing permission", async () => {
+  const user = userEvent.setup()
+  mockAuth.user = { department_code: "财务部", role_code: "finance_user" }
+  mockAuth.hasPermission.mockImplementation((permission) =>
+    ["product.view", "product.edit", "product.price_export"].includes(permission)
+  )
+  render(<ProductAdminPage />)
+  await user.click(screen.getByRole("tab", { name: "千百度男鞋" }))
+  const card = await screen.findByRole("group", { name: "商品信息 READONLY-007" })
+  expect(screen.getByRole("button", { name: "物价导出" })).toBeInTheDocument()
+  expect(screen.queryByRole("button", { name: /^(新增商品|删除|批量删除|回收站|刷新图片|导入 Excel|导出 Excel|带尺码导出)$/ })).not.toBeInTheDocument()
+  await user.click(within(card).getByRole("button", { name: "编辑" }))
+  const dialog = within(screen.getByRole("dialog", { name: "编辑商品" }))
+  const productName = dialog.getByLabelText("品名")
+  await user.clear(productName)
+  await user.type(productName, "财务修改商品")
+  await user.click(dialog.getByRole("button", { name: "保存" }))
+  await waitFor(() => expect(mockUpdateProduct).toHaveBeenCalledWith(
+    "cbanner_mens", 7, expect.objectContaining({ product_name: "财务修改商品" })
+  ))
+  expect(mockCreateProduct).not.toHaveBeenCalled()
 })
 
 describe("ProductDetailDialog", () => {
@@ -565,6 +588,7 @@ describe("ProductAdminPage read-only access", () => {
   })
 
   it.each([
+    ["财务部", "finance_user"],
     ["商品部", "product_user"],
     ["运营部", "operation_user"],
     ["开发部", "developer_user"],

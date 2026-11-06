@@ -403,12 +403,13 @@ export function ProductAdminPage() {
   const showBatchDelete = selectedProducts.size > 0
   const canViewProducts = hasPermission("product.view")
   const canManageProducts = hasPermission("product.manage")
+  const canEditProducts = canManageProducts || hasPermission("product.edit")
   const canExportProducts = hasPermission("product.export")
   const canImportProducts = hasPermission("product.import")
   const canViewProductCost = user?.role_code === "super_admin" || !["客服部", "美工部"].includes(user?.department_code ?? "")
   const canExportPrices = (canExportProducts || hasPermission("product.price_export")) && canViewProductCost
   const canSelectProducts = canManageProducts || canExportProducts || canExportPrices
-  const canGenerateCopywriting = canViewProducts && (user?.department_code === "美工部" || user?.role_code === "super_admin")
+  const canGenerateCopywriting = canViewProducts && (["美工部", "财务部"].includes(user?.department_code ?? "") || user?.role_code === "super_admin")
   const recycleTotalPages = Math.max(1, Math.ceil(recycleTotal / 20))
 
   return (
@@ -580,7 +581,7 @@ export function ProductAdminPage() {
               onBatchDelete={showBatchDelete && canManageProducts ? handleBatchDeleteRequest : undefined}
               onView={canViewProducts ? setDetailItem : undefined}
               onCopywriting={canGenerateCopywriting ? setCopywritingItem : undefined}
-              onEdit={!canManageProducts ? undefined : (item) => {
+              onEdit={!canEditProducts ? undefined : (item) => {
                 setDialogMode("edit")
                 setSelectedItem(item)
                 setIsDialogOpen(true)

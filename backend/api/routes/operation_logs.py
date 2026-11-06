@@ -52,18 +52,18 @@ def list_operation_logs(
     if module == "product_tag":
         role_code = str(user.get("role_code") or "").strip()
         department_code = str(user.get("department_code") or "").strip()
-        if role_code != "super_admin" and department_code != "开发部":
-            raise HTTPException(status_code=403, detail="商品标签操作日志仅限开发部和超级管理员查看")
+        if role_code != "super_admin" and department_code not in {"开发部", "财务部"}:
+            raise HTTPException(status_code=403, detail="商品标签操作日志仅限开发部、财务部和超级管理员查看")
     elif module in {"size_group", "color_barcode", "product_auxiliary_attribute"}:
         role_code = str(user.get("role_code") or "").strip()
         department_code = str(user.get("department_code") or "").strip()
-        if role_code != "super_admin" and department_code not in {"商品部", "开发部"}:
+        if role_code != "super_admin" and department_code not in {"商品部", "开发部", "财务部"}:
             module_label = {
                 "size_group": "尺码组管理",
                 "color_barcode": "颜色管理",
                 "product_auxiliary_attribute": "辅助属性管理",
             }[module]
-            raise HTTPException(status_code=403, detail=f"{module_label}操作日志仅限商品部、开发部和超级管理员查看")
+            raise HTTPException(status_code=403, detail=f"{module_label}操作日志仅限商品部、开发部、财务部和超级管理员查看")
     page = max(1, page)
     page_size = min(max(1, page_size), 100)
     result = request.app.state.operation_log_repository.list_logs(

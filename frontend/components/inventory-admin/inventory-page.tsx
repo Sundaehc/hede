@@ -33,6 +33,7 @@ import { RecycleBinPagination } from "@/components/recycle-bin-page-jump"
 import { InventoryDetailPanel } from "@/components/inventory-admin/inventory-detail-panel"
 import { AccountSubjectSelect } from "@/components/inventory-admin/account-subject-select"
 import { InventoryImportUpload } from "@/components/inventory-admin/inventory-import-upload"
+import { InventoryImportError } from "@/components/inventory-admin/inventory-import-error"
 import { InventoryImportTaskStatus, type InventoryImportTaskNotice } from "@/components/inventory-admin/inventory-import-task-status"
 import { InventoryProductCodeFilter } from "@/components/inventory-admin/product-code-filter"
 import { SortableColumnLabel } from "@/components/inventory-admin/sortable-column-label"
@@ -2941,9 +2942,7 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
             />
           )}
           {importError && (
-            <Alert className="border-destructive/30 bg-destructive/5 text-destructive">
-              <AlertDescription className="text-inherit">{importError}</AlertDescription>
-            </Alert>
+            <InventoryImportError key={importError} message={importError} />
           )}
           {!isPurchaseOrderTab && (
             <div role="group" aria-label="导入方式" className="grid grid-cols-2 gap-1 rounded-xl border border-border/60 bg-muted/50 p-1">
