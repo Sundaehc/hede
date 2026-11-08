@@ -13,7 +13,7 @@ import orjson
 from openpyxl import load_workbook
 from psycopg import Error as PsycopgError, sql
 from psycopg.types.json import Json
-from sqlalchemy import JSON, MetaData, Table, Text, and_, case, create_engine, delete, desc, func, insert, inspect, literal, or_, select, text, true, union_all, update
+from sqlalchemy import JSON, MetaData, Table, Text, and_, case, cast, create_engine, delete, desc, func, insert, inspect, literal, or_, select, text, true, tuple_, union_all, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import DBAPIError
 
@@ -434,9 +434,17 @@ class InventoryRepository:
                 select(INVENTORY_TABLE.c.id).where(*conditions).order_by(INVENTORY_TABLE.c.id)
             ).scalars())
 
-    def list_purchase_inbound_details(
+    def list_purchase_inbound_details(self, **filters) -> dict[str, object]:
+        return self._list_purchase_product_details(document_types=PURCHASE_INBOUND_DETAIL_TYPES, **filters)
+
+    def list_purchase_order_details(self, **filters) -> dict[str, object]:
+        """Flatten active purchase orders without applying receipt completion rules."""
+        return self._list_purchase_product_details(document_types=("进货订单",), **filters)
+
+    def _list_purchase_product_details(
         self,
         *,
+        document_types: tuple[str, ...],
         date_start: str | None = None,
         date_end: str | None = None,
         brands: list[str] | None = None,
@@ -463,7 +471,7 @@ class InventoryRepository:
             date_start=date_start,
             date_end=date_end,
             brands=brands,
-            document_types=list(PURCHASE_INBOUND_DETAIL_TYPES),
+            document_types=list(document_types),
             supplier=supplier,
             warehouses=warehouse_names,
         )
@@ -517,6 +525,7 @@ class InventoryRepository:
                 detail.c.color_spec,
                 detail.c.size_quantities,
                 detail.c.quantity,
+                detail.c.unit_price,
                 detail.c.amount,
                 detail.c.extra_fields,
                 record.c.document_type,
@@ -579,6 +588,7 @@ class InventoryRepository:
                 "date": row.get("date"),
                 "purchase_quantity": self._format_decimal(quantity),
                 "purchase_amount": self._format_decimal(purchase_amount),
+                "unit_price": self._format_decimal(row["unit_price"]) if row.get("unit_price") is not None else None,
                 "retail_amount": "",
                 "factory_code": extra_fields.get("factory_code") or "",
                 "unit_code": supplier_codes.get(supplier_name, ""),
@@ -700,37 +710,57 @@ class InventoryRepository:
             return [dict(row) for row in connection.execute(statement).mappings()]
 
     def preview_template_documents(self, documents: list[object]) -> dict[str, object]:
+        if not documents:
+            return {"total": 0, "conflicts": []}
         record = INVENTORY_TABLE
-        dates = {parse_date(document.date) for document in documents}
+        # Keep the same five-field identity as the write-time conflict check.
+        # A historical workbook must not load every record (and its raw JSON)
+        # on the same dates or compare every imported row to the entire table.
+        def identity(document):
+            return (document.date, document.document_type, document.supplier, document.warehouse, document.summary)
+
+        keys = list(dict.fromkeys(identity(document) for document in documents))
+        existing_numbers: dict[tuple[str, ...], str] = {}
+        effective_date = case(
+            (record.c.date_value.is_not(None), cast(record.c.date_value, Text)),
+            else_=func.coalesce(record.c.date, ""),
+        )
+        match_columns = (
+            effective_date, record.c.document_type, func.coalesce(record.c.supplier, ""),
+            func.coalesce(record.c.warehouse, ""), record.c.summary,
+        )
+        batch_size = 500 if self.engine.dialect.name == "postgresql" else 100
         with self.engine.connect() as connection:
-            existing = [dict(row) for row in connection.execute(
-                select(record.c.id, record.c.date_value, record.c.date, record.c.document_number,
-                       record.c.document_type, record.c.supplier, record.c.warehouse, record.c.summary,
-                       record.c.raw_payload)
-                .where(or_(record.c.date_value.in_(dates), record.c.date.in_([value.isoformat() for value in dates])))
-                .where(record.c.deleted_at.is_(None))
-                .order_by(record.c.id.desc())
-            ).mappings()]
-        seen: list[object] = []
+            for offset in range(0, len(keys), batch_size):
+                batch = keys[offset:offset + batch_size]
+                date_strings = {key[0] for key in batch}
+                dates = {parse_date(value) for value in date_strings}
+                statement = (
+                    select(*match_columns, record.c.document_number)
+                    .where(
+                        record.c.deleted_at.is_(None),
+                        or_(record.c.date_value.in_(dates), record.c.date.in_(date_strings)),
+                        record.c.document_type.in_({key[1] for key in batch}),
+                        record.c.supplier.in_({key[2] for key in batch})
+                        if all(key[2] for key in batch) else true(),
+                        tuple_(*match_columns).in_(batch),
+                    )
+                    .order_by(record.c.id.desc())
+                )
+                for row in connection.execute(statement).yield_per(500):
+                    existing_numbers.setdefault(tuple(row[:5]), str(row[5] or ""))
+        seen: set[tuple[str, ...]] = set()
         conflicts: list[dict[str, object]] = []
         for document in documents:
-            matches = [row for row in existing if
-                       ((row.get("date_value") and row.get("date_value").isoformat()) or str(row.get("date") or "")) == document.date
-                       and row.get("summary") == document.summary
-                       and row.get("document_type") == document.document_type
-                       and str(row.get("supplier") or "") == document.supplier
-                       and str(row.get("warehouse") or "") == document.warehouse]
-            matches.extend(previous for previous in seen if
-                           (previous.date, previous.summary, previous.document_type, previous.supplier, previous.warehouse)
-                           == (document.date, document.summary, document.document_type, document.supplier, document.warehouse))
-            if matches:
+            key = identity(document)
+            if key in existing_numbers or key in seen:
                 conflicts.append({
                     "key": document.key, "date": document.date, "summary": document.summary,
                     "document_type": document.document_type,
-                    "existing_number": str(matches[0].get("document_number") or "") if isinstance(matches[0], dict) else "",
+                    "existing_number": existing_numbers.get(key, ""),
                     "can_merge": True,
                 })
-            seen.append(document)
+            seen.add(key)
         return {"total": len(documents), "conflicts": conflicts}
 
     def import_template_documents(self, plans: list[dict[str, object]], *, task_id: str | None = None) -> dict[str, int]:

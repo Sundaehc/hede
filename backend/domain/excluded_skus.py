@@ -9,6 +9,8 @@ from sqlalchemy.dialects.postgresql import ARRAY
 
 
 EXCLUDED_SKUS_FILE = Path(__file__).with_name("excluded_skus.txt")
+# 暂停使用排除货号清单；保留文件，恢复时将此开关改为 True。
+EXCLUDED_SKUS_ENABLED = False
 
 
 def normalize_sku(value: Any) -> str:
@@ -29,7 +31,7 @@ def _load_excluded_skus() -> frozenset[str]:
     )
 
 
-EXCLUDED_SKUS = _load_excluded_skus()
+EXCLUDED_SKUS = _load_excluded_skus() if EXCLUDED_SKUS_ENABLED else frozenset()
 
 
 def is_excluded_sku(*values: Any) -> bool:

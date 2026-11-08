@@ -26,6 +26,10 @@ def required_permission_for_request(
         return "system.admin"
     if path.startswith("/auth/"):
         return None
+    if path == "/purchase-order-details/export":
+        return "purchase.export"
+    if path == "/purchase-order-details" or path.startswith("/purchase-order-details/"):
+        return "purchase.view"
     if path.startswith("/operation-logs"):
         return ("system.admin", "product.view", "fine_table.view", "inventory.view", "purchase.view")
     if path.startswith("/product-copywriting"):

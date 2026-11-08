@@ -53,6 +53,7 @@ export type OperationLogItem = {
     | "inventory"
     | "purchase"
     | "purchase_inbound_detail"
+    | "purchase_order_detail"
     | "supplier"
     | "supplier_brand"
     | "warehouse"

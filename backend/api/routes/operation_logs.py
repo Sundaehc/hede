@@ -20,6 +20,7 @@ MODULE_PERMISSIONS = {
     "fine_table": "fine_table.view",
     "inventory": "inventory.view",
     "purchase": "purchase.view",
+    "purchase_order_detail": "purchase.view",
     "purchase_inbound_detail": "inventory.view",
     "supplier": "inventory.view",
     "supplier_brand": "inventory.view",

@@ -64,17 +64,30 @@ function validateInventoryImportFile(file: File) {
 }
 
 async function readApiError(response: Response) {
-  const text = await response.text()
-  if (!text) {
-    return `请求失败（${response.status}）`
-  }
+  const text = (await response.text()).trim()
+  const isHtml = (value: string) => /<!doctype\s+html\b|<\/?(?:html|head|body|title)\b/i.test(value)
   try {
     const parsed = JSON.parse(text) as { detail?: unknown }
-    if (typeof parsed.detail === "string") {
+    if (typeof parsed?.detail === "string" && !isHtml(parsed.detail)) {
       return parsed.detail
     }
   } catch {
-    // Fall through to plain text.
+    // Gateways may return HTML or plain text instead of the API's JSON format.
+  }
+  if (response.status === 502) {
+    return "服务连接暂时中断（502），请稍后重试；若刚才正在导入或保存，请先核对结果，避免重复提交。"
+  }
+  if (response.status === 503) {
+    return "服务暂时不可用（503），请稍后重试。"
+  }
+  if (response.status === 504) {
+    return "服务器响应超时（504）；若刚才正在导入或保存，请先核对结果，避免重复提交。"
+  }
+  if (response.status === 500 && (!text || text.toLowerCase() === "internal server error")) {
+    return "服务器处理异常（500），请联系管理员检查后端日志；若刚才正在导入或保存，请先核对结果，避免重复提交。"
+  }
+  if (!text || response.headers.get("Content-Type")?.toLowerCase().includes("text/html") || isHtml(text)) {
+    return `请求失败（${response.status}），请稍后重试或联系管理员。`
   }
   return text
 }
@@ -200,6 +213,7 @@ export function listOperationLogs(params: {
     | "inventory"
     | "purchase"
     | "purchase_inbound_detail"
+    | "purchase_order_detail"
     | "supplier"
     | "supplier_brand"
     | "warehouse"
@@ -2574,6 +2588,8 @@ export type PurchaseInboundDetailItem = {
   unit_name: string | null
   warehouse_name: string | null
   color_name: string | null
+  unit_price?: string | null
+  size_quantities?: Record<string, string | number>
 }
 
 export type PurchaseInboundDetailResponse = {
@@ -2662,6 +2678,47 @@ export function listPurchaseInboundDetails(params: {
   return request<PurchaseInboundDetailResponse>(
     `/inventory-reports/purchase-inbound-details?${search.toString()}`
   )
+}
+
+export type PurchaseOrderDetailFilters = {
+  date_start?: string
+  date_end?: string
+  brands?: string[]
+  supplier?: string
+  warehouse?: string[]
+  product_code?: string
+  product_name?: string
+  color_name?: string
+  size_name?: string
+}
+
+function purchaseOrderDetailSearch(params: PurchaseOrderDetailFilters) {
+  const search = new URLSearchParams()
+  for (const key of ["date_start", "date_end", "supplier", "product_code", "product_name", "color_name", "size_name"] as const) {
+    if (params[key]) search.set(key, params[key])
+  }
+  for (const brand of params.brands ?? []) if (brand) search.append("brands", brand)
+  for (const warehouse of params.warehouse ?? []) if (warehouse) search.append("warehouse", warehouse)
+  return search
+}
+
+export function listPurchaseOrderDetails(params: PurchaseOrderDetailFilters & { page: number; pageSize: number }, signal?: AbortSignal) {
+  const search = purchaseOrderDetailSearch(params)
+  search.set("page", String(params.page))
+  search.set("page_size", String(params.pageSize))
+  return request<PurchaseInboundDetailResponse>(`/purchase-order-details?${search}`, { signal })
+}
+
+export function buildPurchaseOrderDetailExportUrl(params: PurchaseOrderDetailFilters = {}) {
+  return `${API_PREFIX}/purchase-order-details/export?${purchaseOrderDetailSearch(params)}`
+}
+
+export function getPurchaseOrderDetailOptions() {
+  return request<{
+    brands: { value: string; label: string }[]
+    suppliers: Pick<SupplierItem, "name" | "factory_code">[]
+    warehouses: Pick<WarehouseItem, "name" | "brand">[]
+  }>("/purchase-order-details/options")
 }
 
 export function listWarehouseBrands() {

@@ -4874,7 +4874,17 @@ async def preview_inventory_template(request: Request, file: UploadFile = None):
     if file is None:
         raise HTTPException(status_code=400, detail="请选择 Excel 文件")
     content = await file.read()
-    return await run_in_threadpool(_preview_inventory_template, request, content)
+    try:
+        return await run_in_threadpool(_preview_inventory_template, request, content)
+    except HTTPException:
+        raise
+    except Exception as error:
+        reference = uuid4().hex[:12]
+        logging.getLogger(__name__).exception("Inventory template preview failed: reference=%s", reference)
+        raise HTTPException(
+            status_code=500,
+            detail=f"模板预检查失败（错误编号：{reference}），尚未进入导入写入阶段。请联系管理员按编号检查后端日志。",
+        ) from error
 
 
 def _preview_inventory_template(request: Request, content: bytes):

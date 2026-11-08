@@ -32,6 +32,7 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { ApiError, buildPurchaseInboundDetailExportUrl, listInventoryBrands, listInventoryDetailCandidates, listPurchaseInboundDetails, listSuppliers, listWarehouses, type InventoryDetailCandidate, type PurchaseInboundDetailItem, type SupplierItem, type WarehouseItem } from "@/lib/api"
+import { buildPurchaseOrderDetailExportUrl, getPurchaseOrderDetailOptions, listPurchaseOrderDetails } from "@/lib/api"
 import { cn } from "@/lib/utils"
 
 const PAGE_SIZES = [50, 100, 200]
@@ -82,24 +83,30 @@ function numericTone(value: string | null | undefined) {
   return "text-destructive"
 }
 
-export function PurchaseInboundDetailPage() {
-  const [dateStart, setDateStart] = useSessionQueryState("purchase-inbound-details:dateStart", "")
-  const [dateEnd, setDateEnd] = useSessionQueryState("purchase-inbound-details:dateEnd", "")
-  const [brands, setBrands] = useSessionQueryState<string[]>("purchase-inbound-details:brands", [])
+export function PurchaseInboundDetailPage({ mode = "inbound", canExport = true }: { mode?: "inbound" | "orders"; canExport?: boolean }) {
+  const isPurchaseOrder = mode === "orders"
+  const stateKey = isPurchaseOrder ? "purchase-order-details" : "purchase-inbound-details"
+  const pageTitle = isPurchaseOrder ? "采购明细" : "商品进货明细"
+  const quantityLabel = isPurchaseOrder ? "采购数量" : "进货数量"
+  const amountLabel = isPurchaseOrder ? "采购金额" : "进货金额"
+  const [dateStart, setDateStart] = useSessionQueryState(`${stateKey}:dateStart`, "")
+  const [dateEnd, setDateEnd] = useSessionQueryState(`${stateKey}:dateEnd`, "")
+  const [brands, setBrands] = useSessionQueryState<string[]>(`${stateKey}:brands`, [])
   const [brandOptions, setBrandOptions] = useState<SearchableFilterOption[]>([])
-  const [documentType, setDocumentType] = useSessionQueryState("purchase-inbound-details:documentType", "")
-  const [supplier, setSupplier] = useSessionQueryState("purchase-inbound-details:supplier", "")
-  const [supplierOptions, setSupplierOptions] = useState<SupplierItem[]>([])
-  const [warehouse, setWarehouse] = useSessionQueryState<string[]>("purchase-inbound-details:warehouse", [])
-  const [warehouseOptions, setWarehouseOptions] = useState<WarehouseItem[]>([])
-  const [productCode, setProductCode] = useSessionQueryState("purchase-inbound-details:productCode", "")
-  const [productCodeOptions, setProductCodeOptions] = useState<InventoryDetailCandidate[]>([])
-  const [productName, setProductName] = useSessionQueryState("purchase-inbound-details:productName", "")
-  const [colorName, setColorName] = useSessionQueryState("purchase-inbound-details:colorName", "")
-  const [sizeName, setSizeName] = useSessionQueryState("purchase-inbound-details:sizeName", "")
-  const [submittedFilters, setSubmittedFilters] = useSessionQueryState<SubmittedFilters>("purchase-inbound-details:submittedFilters", {})
-  const [page, setPage] = useSessionQueryState("purchase-inbound-details:page", 1)
-  const [pageSize, setPageSize] = useSessionQueryState("purchase-inbound-details:pageSize", PAGE_SIZES[0])
+  const [documentType, setDocumentType] = useSessionQueryState(`${stateKey}:documentType`, "")
+  const [supplier, setSupplier] = useSessionQueryState(`${stateKey}:supplier`, "")
+  const [supplierOptions, setSupplierOptions] = useState<(Pick<SupplierItem, "name" | "factory_code"> & Partial<Pick<SupplierItem, "contact" | "address">>)[]>([])
+  const [warehouse, setWarehouse] = useSessionQueryState<string[]>(`${stateKey}:warehouse`, [])
+  const [warehouseOptions, setWarehouseOptions] = useState<Pick<WarehouseItem, "name" | "brand">[]>([])
+  const [productCode, setProductCode] = useSessionQueryState(`${stateKey}:productCode`, "")
+  const [productCodeCandidates, setProductCodeCandidates] = useState<{ query: string; items: InventoryDetailCandidate[] }>({ query: "", items: [] })
+  const productCodeOptions = !isPurchaseOrder && productCode.trim() === productCodeCandidates.query ? productCodeCandidates.items : []
+  const [productName, setProductName] = useSessionQueryState(`${stateKey}:productName`, "")
+  const [colorName, setColorName] = useSessionQueryState(`${stateKey}:colorName`, "")
+  const [sizeName, setSizeName] = useSessionQueryState(`${stateKey}:sizeName`, "")
+  const [submittedFilters, setSubmittedFilters] = useSessionQueryState<SubmittedFilters>(`${stateKey}:submittedFilters`, {})
+  const [page, setPage] = useSessionQueryState(`${stateKey}:page`, 1)
+  const [pageSize, setPageSize] = useSessionQueryState(`${stateKey}:pageSize`, PAGE_SIZES[0])
   const [items, setItems] = useState<PurchaseInboundDetailItem[]>([])
   const [total, setTotal] = useState(0)
   const [totals, setTotals] = useState({
@@ -118,6 +125,15 @@ export function PurchaseInboundDetailPage() {
 
     async function loadOptions() {
       try {
+        if (isPurchaseOrder) {
+          const response = await getPurchaseOrderDetailOptions()
+          if (!cancelled) {
+            setSupplierOptions(response.suppliers)
+            setWarehouseOptions(response.warehouses)
+            setBrandOptions(response.brands)
+          }
+          return
+        }
         const [suppliersResponse, warehousesResponse, brandsResponse] = await Promise.all([listSuppliers(), listWarehouses(), listInventoryBrands()])
         if (!cancelled) {
           setSupplierOptions(suppliersResponse.items)
@@ -137,41 +153,44 @@ export function PurchaseInboundDetailPage() {
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [isPurchaseOrder])
 
   useEffect(() => {
     const query = productCode.trim()
-    if (query.length < 2) {
-      setProductCodeOptions([])
+    if (isPurchaseOrder || query.length < 2) {
       return
     }
     let cancelled = false
     const timer = window.setTimeout(async () => {
       try {
         const response = await listInventoryDetailCandidates({ query, limit: 30 })
-        if (!cancelled) setProductCodeOptions(response.items)
+        if (!cancelled) setProductCodeCandidates({ query, items: response.items })
       } catch {
-        if (!cancelled) setProductCodeOptions([])
+        if (!cancelled) setProductCodeCandidates({ query, items: [] })
       }
     }, 220)
     return () => {
       cancelled = true
       window.clearTimeout(timer)
     }
-  }, [productCode])
+  }, [isPurchaseOrder, productCode])
 
   useEffect(() => {
     let cancelled = false
+    const controller = new AbortController()
 
     async function load() {
       setIsLoading(true)
       setError(null)
       try {
-        const response = await listPurchaseInboundDetails({
+        const params = {
           ...submittedFilters,
           page,
           pageSize,
-        })
+        }
+        const response = isPurchaseOrder
+          ? await listPurchaseOrderDetails(params, controller.signal)
+          : await listPurchaseInboundDetails(params)
         if (cancelled) return
         setItems(response.items)
         setTotal(response.total)
@@ -197,8 +216,9 @@ export function PurchaseInboundDetailPage() {
 
     return () => {
       cancelled = true
+      controller.abort()
     }
-  }, [page, pageSize, submittedFilters])
+  }, [isPurchaseOrder, page, pageSize, submittedFilters])
 
   const totalPages = Math.max(1, Math.ceil(total / pageSize))
   const pageRange = useMemo(() => buildPageRange(page, totalPages), [page, totalPages])
@@ -219,7 +239,7 @@ export function PurchaseInboundDetailPage() {
       date_start: dateStart || undefined,
       date_end: dateEnd || undefined,
       brands: brands.length ? brands : undefined,
-      document_type: documentType || undefined,
+      document_type: isPurchaseOrder ? undefined : documentType || undefined,
       supplier: supplier || undefined,
       warehouse: warehouse.length ? warehouse : undefined,
       product_code: productCode || undefined,
@@ -249,7 +269,9 @@ export function PurchaseInboundDetailPage() {
 
   const handleExport = () => {
     const link = document.createElement("a")
-    link.href = buildPurchaseInboundDetailExportUrl(submittedFilters)
+    link.href = isPurchaseOrder
+      ? buildPurchaseOrderDetailExportUrl(submittedFilters)
+      : buildPurchaseInboundDetailExportUrl(submittedFilters)
     link.rel = "noopener"
     link.click()
   }
@@ -259,14 +281,14 @@ export function PurchaseInboundDetailPage() {
       <div className="mx-auto flex max-w-[1600px] flex-col gap-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
-            <h1 className="page-title">商品进货明细</h1>
+            <h1 className="page-title">{pageTitle}</h1>
           </div>
           <div className="flex items-center gap-2 text-sm text-muted-foreground">
-            <Button variant="outline" size="sm" onClick={handleExport} disabled={total === 0 || isLoading} className="cursor-pointer">
+            <Button variant="outline" size="sm" aria-label="导出Excel" onClick={handleExport} disabled={!canExport || total === 0 || isLoading} className="cursor-pointer">
               <Download className="h-4 w-4" />
               <span className="ml-1.5 hidden sm:inline">导出Excel</span>
             </Button>
-            <Button variant="outline" size="sm" onClick={() => setOperationLogOpen(true)} className="cursor-pointer">
+            <Button variant="outline" size="sm" aria-label="操作日志" onClick={() => setOperationLogOpen(true)} className="cursor-pointer">
               <History className="h-4 w-4" />
               <span className="ml-1.5 hidden sm:inline">操作日志</span>
             </Button>
@@ -283,9 +305,9 @@ export function PurchaseInboundDetailPage() {
           <div className="grid items-end gap-x-3 gap-y-2.5 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
             <DateRangeControl className="md:col-span-2 lg:col-span-3 xl:col-span-5" start={dateStart} end={dateEnd} onStartChange={setDateStart} onEndChange={setDateEnd} />
             <div className={FILTER_FIELD_CLASS_NAME}>
-              <Label htmlFor="purchase-inbound-brand-filter" className={FILTER_LABEL_CLASS_NAME}>品牌</Label>
+              <Label htmlFor={`${stateKey}-brand-filter`} className={FILTER_LABEL_CLASS_NAME}>品牌</Label>
               <SearchableMultiFilterInput
-                id="purchase-inbound-brand-filter"
+                id={`${stateKey}-brand-filter`}
                 values={brands}
                 options={brandOptions}
                 onChange={setBrands}
@@ -295,16 +317,19 @@ export function PurchaseInboundDetailPage() {
               />
             </div>
             <div className={FILTER_FIELD_CLASS_NAME}>
-              <Label className={FILTER_LABEL_CLASS_NAME}>单据类型</Label>
-              <Select className={FILTER_CONTROL_CLASS_NAME} value={documentType} onChange={(event) => setDocumentType(event.target.value)}>
+              <Label htmlFor={`${stateKey}-type-filter`} className={FILTER_LABEL_CLASS_NAME}>单据类型</Label>
+              <Select id={`${stateKey}-type-filter`} className={FILTER_CONTROL_CLASS_NAME} value={isPurchaseOrder ? "进货订单" : documentType} disabled={isPurchaseOrder} onChange={(event) => setDocumentType(event.target.value)}>
+                {isPurchaseOrder ? <option value="进货订单">进货订单</option> : <>
                 <option value="">全部</option>
                 <option value="进货单">进货单</option>
                 <option value="进货退货单">进货退货单</option>
+                </>}
               </Select>
             </div>
             <div className={FILTER_FIELD_CLASS_NAME}>
-              <Label className={FILTER_LABEL_CLASS_NAME}>仓库全名</Label>
+              <Label htmlFor={`${stateKey}-warehouse-filter`} className={FILTER_LABEL_CLASS_NAME}>仓库全名</Label>
               <SearchableMultiFilterInput
+                id={`${stateKey}-warehouse-filter`}
                 values={warehouse}
                 options={warehouseFilterOptions}
                 onChange={setWarehouse}
@@ -314,12 +339,13 @@ export function PurchaseInboundDetailPage() {
               />
             </div>
             <div className={FILTER_FIELD_CLASS_NAME}>
-              <Label className={FILTER_LABEL_CLASS_NAME}>商品名称</Label>
-              <Input className={FILTER_CONTROL_CLASS_NAME} value={productName} onChange={(event) => setProductName(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") submitSearch() }} />
+              <Label htmlFor={`${stateKey}-name-filter`} className={FILTER_LABEL_CLASS_NAME}>商品名称</Label>
+              <Input id={`${stateKey}-name-filter`} className={FILTER_CONTROL_CLASS_NAME} value={productName} onChange={(event) => setProductName(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") submitSearch() }} />
             </div>
             <div className={FILTER_FIELD_CLASS_NAME}>
-              <Label className={FILTER_LABEL_CLASS_NAME}>单位全名</Label>
+              <Label htmlFor={`${stateKey}-supplier-filter`} className={FILTER_LABEL_CLASS_NAME}>单位全名</Label>
               <SearchableFilterInput
+                id={`${stateKey}-supplier-filter`}
                 value={supplier}
                 options={supplierFilterOptions}
                 onChange={setSupplier}
@@ -329,16 +355,17 @@ export function PurchaseInboundDetailPage() {
               />
             </div>
             <div className={FILTER_FIELD_CLASS_NAME}>
-              <Label className={FILTER_LABEL_CLASS_NAME}>颜色名称</Label>
-              <Input className={FILTER_CONTROL_CLASS_NAME} value={colorName} onChange={(event) => setColorName(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") submitSearch() }} />
+              <Label htmlFor={`${stateKey}-color-filter`} className={FILTER_LABEL_CLASS_NAME}>颜色名称</Label>
+              <Input id={`${stateKey}-color-filter`} className={FILTER_CONTROL_CLASS_NAME} value={colorName} onChange={(event) => setColorName(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") submitSearch() }} />
             </div>
             <div className={FILTER_FIELD_CLASS_NAME}>
-              <Label className={FILTER_LABEL_CLASS_NAME}>尺码名称</Label>
-              <Input className={FILTER_CONTROL_CLASS_NAME} value={sizeName} onChange={(event) => setSizeName(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") submitSearch() }} />
+              <Label htmlFor={`${stateKey}-size-filter`} className={FILTER_LABEL_CLASS_NAME}>尺码名称</Label>
+              <Input id={`${stateKey}-size-filter`} className={FILTER_CONTROL_CLASS_NAME} value={sizeName} onChange={(event) => setSizeName(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") submitSearch() }} />
             </div>
             <div className={FILTER_FIELD_CLASS_NAME}>
-              <Label className={FILTER_LABEL_CLASS_NAME}>货号</Label>
+              <Label htmlFor={`${stateKey}-code-filter`} className={FILTER_LABEL_CLASS_NAME}>货号</Label>
               <SearchableFilterInput
+                id={`${stateKey}-code-filter`}
                 value={productCode}
                 options={productCodeOptions.map((item) => ({
                   value: item.product_code,
@@ -371,19 +398,20 @@ export function PurchaseInboundDetailPage() {
         ) : null}
 
         <div className="overflow-hidden rounded-lg border border-border bg-card">
-          <div data-scroll-restoration-key="purchase-inbound-details-table" className="max-h-[calc(100vh-22rem)] min-h-[26rem] overflow-auto">
-            <Table className="min-w-[1080px] text-xs">
+          <div data-scroll-restoration-key={`${stateKey}-table`} className="max-h-[calc(100vh-22rem)] min-h-[26rem] overflow-auto">
+            <Table className={cn("text-xs", isPurchaseOrder ? "min-w-[1480px] [&_th]:whitespace-nowrap" : "min-w-[1080px]")}>
               <TableHeader className="sticky top-0 z-10 bg-muted">
                 <TableRow className="hover:bg-muted">
                   <TableHead className="w-14 text-center">行号</TableHead>
                   <TableHead className="w-32">货号</TableHead>
                   <TableHead className="w-44">商品全名</TableHead>
+                  {isPurchaseOrder ? <><TableHead className="w-24">颜色名称</TableHead><TableHead className="min-w-40">尺码及数量</TableHead></> : null}
                   <TableHead className="w-24">单据类型</TableHead>
                   <TableHead className="w-40">单据编号</TableHead>
                   <TableHead className="w-28">日期</TableHead>
-                  <TableHead className="w-24 text-right">进货数量</TableHead>
-                  <TableHead className="w-28 text-right">进货金额</TableHead>
-                  <TableHead className="w-28 text-right">零售金额</TableHead>
+                  <TableHead className="w-24 text-right">{quantityLabel}</TableHead>
+                  <TableHead className="w-28 text-right">{amountLabel}</TableHead>
+                  <TableHead className="w-28 text-right">{isPurchaseOrder ? "采购单价" : "零售金额"}</TableHead>
                   <TableHead className="w-24">单位编号</TableHead>
                   <TableHead className="w-48">单位全名</TableHead>
                   <TableHead className="w-48">仓库全名</TableHead>
@@ -392,11 +420,11 @@ export function PurchaseInboundDetailPage() {
               <TableBody>
                 {isLoading ? (
                   <TableRow>
-                    <TableCell colSpan={12} className="h-40 text-center text-muted-foreground">加载中...</TableCell>
+                    <TableCell colSpan={isPurchaseOrder ? 14 : 12} className="h-40 text-center text-muted-foreground">加载中...</TableCell>
                   </TableRow>
                 ) : items.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={12} className="h-40 text-center text-muted-foreground">没有符合条件的进货明细</TableCell>
+                    <TableCell colSpan={isPurchaseOrder ? 14 : 12} className="h-40 text-center text-muted-foreground">{isPurchaseOrder ? "没有符合条件的采购明细" : "没有符合条件的进货明细"}</TableCell>
                   </TableRow>
                 ) : (
                   items.map((item) => (
@@ -404,10 +432,14 @@ export function PurchaseInboundDetailPage() {
                       <TableCell className="text-center text-muted-foreground tabular-nums">{item.row_number}</TableCell>
                       <TableCell className="font-mono text-[11px]">{formatCell(item.product_code)}</TableCell>
                       <TableCell className="max-w-44 truncate" title={item.product_name || ""}>{formatCell(item.product_name)}</TableCell>
+                      {isPurchaseOrder ? <>
+                        <TableCell>{formatCell(item.color_name)}</TableCell>
+                        <TableCell className="max-w-64 whitespace-normal font-mono text-[11px]">{Object.entries(item.size_quantities ?? {}).map(([size, quantity]) => `${size}: ${quantity}`).join("；") || "-"}</TableCell>
+                      </> : null}
                       <TableCell>
                         <span className={cn(
                           "inline-flex rounded-md px-2 py-0.5 text-[11px] font-medium",
-                          item.document_type === "进货退货单" ? "bg-red-100 text-red-700" : "bg-green-100 text-green-700",
+                          isPurchaseOrder ? "bg-primary/10 text-primary" : item.document_type === "进货退货单" ? "bg-red-100 text-red-700" : "bg-green-100 text-green-700",
                         )}>
                           {formatCell(item.document_type)}
                         </span>
@@ -416,7 +448,7 @@ export function PurchaseInboundDetailPage() {
                       <TableCell className="tabular-nums">{formatCell(item.date)}</TableCell>
                       <TableCell className={cn("text-right font-mono tabular-nums", numericTone(item.purchase_quantity))}>{formatCell(item.purchase_quantity)}</TableCell>
                       <TableCell className={cn("text-right font-mono tabular-nums", numericTone(item.purchase_amount))}>{formatCell(item.purchase_amount)}</TableCell>
-                      <TableCell className="text-right font-mono tabular-nums">{formatCell(item.retail_amount)}</TableCell>
+                      <TableCell className="text-right font-mono tabular-nums">{formatCell(isPurchaseOrder ? item.unit_price : item.retail_amount)}</TableCell>
                       <TableCell className="font-mono text-[11px]">{formatCell(item.unit_code)}</TableCell>
                       <TableCell className="max-w-48 truncate" title={item.unit_name || ""}>{formatCell(item.unit_name)}</TableCell>
                       <TableCell className="max-w-48 truncate" title={item.warehouse_name || ""}>{formatCell(item.warehouse_name)}</TableCell>
@@ -426,10 +458,10 @@ export function PurchaseInboundDetailPage() {
               </TableBody>
               <TableFooter className="sticky bottom-0 bg-muted">
                 <TableRow>
-                  <TableCell colSpan={6} className="font-medium">全部合计</TableCell>
+                  <TableCell colSpan={isPurchaseOrder ? 8 : 6} className="font-medium">全部合计</TableCell>
                   <TableCell className={cn("text-right font-mono tabular-nums", numericTone(totals.all.purchase_quantity))}>{formatCell(totals.all.purchase_quantity)}</TableCell>
                   <TableCell className={cn("text-right font-mono tabular-nums", numericTone(totals.all.purchase_amount))}>{formatCell(totals.all.purchase_amount)}</TableCell>
-                  <TableCell className="text-right font-mono tabular-nums">{formatCell(totals.all.retail_amount)}</TableCell>
+                  <TableCell className="text-right font-mono tabular-nums">{isPurchaseOrder ? "-" : formatCell(totals.all.retail_amount)}</TableCell>
                   <TableCell colSpan={3} />
                 </TableRow>
               </TableFooter>
@@ -479,8 +511,8 @@ export function PurchaseInboundDetailPage() {
         </div>
       </div>
       <OperationLogDialog
-        module="purchase_inbound_detail"
-        title="商品进货明细操作日志"
+        module={isPurchaseOrder ? "purchase_order_detail" : "purchase_inbound_detail"}
+        title={`${pageTitle}操作日志`}
         open={operationLogOpen}
         onOpenChange={setOperationLogOpen}
       />

@@ -24,7 +24,7 @@ DepartmentCode = str
 StatusCode = Literal["active", "disabled"]
 PageTabPath = Literal[
     "/products", "/fine-table", "/product-goods", "/factory-channel-dashboard",
-    "/purchase-orders", "/inventory", "/inventory-purchase-details", "/suppliers",
+    "/purchase-orders", "/purchase-order-details", "/inventory", "/inventory-purchase-details", "/suppliers",
     "/supplier-brands", "/warehouses", "/general-customer-shops", "/account-subjects",
     "/size-groups", "/color-barcodes", "/auxiliary-attributes", "/product-tags",
     "/admin", "/scheduled-tasks", "/admin/mcp-tokens",

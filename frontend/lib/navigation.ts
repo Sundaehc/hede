@@ -59,6 +59,12 @@ const NAV_ITEMS = [
         icon: ShoppingCart,
         permission: "purchase.view",
       },
+      {
+        href: "/purchase-order-details",
+        label: "采购明细",
+        icon: Rows3,
+        permission: "purchase.view",
+      },
     ],
   },
   {
