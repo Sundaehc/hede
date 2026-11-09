@@ -8,10 +8,13 @@ import {
   AlignLeft,
   AlignRight,
   Bold,
+  ChevronLeft,
+  ChevronRight,
   Copy,
   GripVertical,
   Move,
   Plus,
+  RefreshCw,
   RotateCcw,
   Star,
   Trash2,
@@ -30,6 +33,7 @@ import {
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select } from "@/components/ui/select"
+import { listInventoryPrintLabels } from "@/lib/api"
 import type {
   InventoryPrintLabel,
   PurchasePrintTemplate,
@@ -86,23 +90,6 @@ export const DEFAULT_PURCHASE_PRINT_TEMPLATE: PurchasePrintTemplateConfig = {
     { id: "barcode-value", kind: "text", field: "barcode", label: "条码文字", text: "", x: 4, y: 54.4, width: 47.3, height: 4.1, font_size: 8.5, bold: true, underline: false, align: "left", show_label: false, border: false, wrap: false },
     { id: "barcode-note", kind: "text", field: null, label: "", text: "（内部使用条码）", x: 51.3, y: 54.4, width: 24.7, height: 4.1, font_size: 6.2, bold: false, underline: false, align: "right", show_label: false, border: false, wrap: false },
   ],
-}
-
-const PREVIEW_LABEL: InventoryPrintLabel = {
-  detail_id: 0,
-  product_code: "RH663189DP5",
-  size_name: "230",
-  size_barcode: "230",
-  barcode: "RH663189DP5P5230",
-  copies: 1,
-  brand: "cbanner_womens",
-  brand_name: "C°BANNER",
-  product_level: "合格品",
-  color_name: "咖色（格利特）",
-  upper_material: "牛皮革+合成革",
-  product_name: "女休闲鞋",
-  execution_standard: "Q/WZHD 002-2022",
-  origin: "中国",
 }
 
 function cloneTemplate(config: PurchasePrintTemplateConfig): PurchasePrintTemplateConfig {
@@ -427,21 +414,10 @@ function nextElementId(prefix: string) {
   return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`
 }
 
-export function PurchasePrintTemplateEditor({
-  open,
-  config,
-  templates,
-  selectedTemplateKey,
-  templateName,
-  onOpenChange,
-  onTemplateChange,
-  onCreateTemplate,
-  onDuplicateTemplate,
-  onSetDefaultTemplate,
-  onDeleteTemplate,
-  onSave,
-}: {
+type PurchasePrintTemplateEditorProps = {
   open: boolean
+  documentId: number
+  documentNumber?: string | null
   config: PurchasePrintTemplateConfig
   templates: PurchasePrintTemplate[]
   selectedTemplateKey: string
@@ -453,7 +429,29 @@ export function PurchasePrintTemplateEditor({
   onSetDefaultTemplate: () => Promise<void>
   onDeleteTemplate: () => Promise<void>
   onSave: (config: PurchasePrintTemplateConfig, templateName: string) => Promise<void>
-}) {
+}
+
+export function PurchasePrintTemplateEditor(props: PurchasePrintTemplateEditorProps) {
+  if (!props.open) return null
+  return <PurchasePrintTemplateEditorDialog key={props.documentId} {...props} />
+}
+
+function PurchasePrintTemplateEditorDialog({
+  open,
+  documentId,
+  documentNumber,
+  config,
+  templates,
+  selectedTemplateKey,
+  templateName,
+  onOpenChange,
+  onTemplateChange,
+  onCreateTemplate,
+  onDuplicateTemplate,
+  onSetDefaultTemplate,
+  onDeleteTemplate,
+  onSave,
+}: PurchasePrintTemplateEditorProps) {
   const [draft, setDraft] = useState(() => cloneTemplate(config))
   const [selectedId, setSelectedId] = useState<string | null>(config.elements[0]?.id ?? null)
   const [fieldToAdd, setFieldToAdd] = useState<PurchasePrintTemplateField>("product_code")
@@ -463,9 +461,39 @@ export function PurchasePrintTemplateEditor({
   const [paperWidthInput, setPaperWidthInput] = useState(formatPaperDimension(config.paper_width_mm))
   const [paperHeightInput, setPaperHeightInput] = useState(formatPaperDimension(config.paper_height_mm))
   const [previewSize, setPreviewSize] = useState({ width: 0, height: 0 })
+  const [preview, setPreview] = useState<{
+    documentId: number | null
+    items: InventoryPrintLabel[]
+    loading: boolean
+    error: string | null
+  }>({ documentId: null, items: [], loading: true, error: null })
+  const [previewIndex, setPreviewIndex] = useState(0)
+  const [previewReloadToken, setPreviewReloadToken] = useState(0)
+  const isPreviewLoading = preview.documentId !== documentId || preview.loading
+  const previewLabels = preview.documentId === documentId ? preview.items : []
+  const previewLabel = previewLabels[previewIndex]
   const previewViewportRef = useRef<HTMLDivElement>(null)
   const canvasRef = useRef<HTMLDivElement>(null)
   const interactionRef = useRef<Interaction | null>(null)
+
+  useEffect(() => {
+    if (!open) return
+    let cancelled = false
+    const controller = new AbortController()
+    void listInventoryPrintLabels(documentId, controller.signal).then((result) => {
+      if (!cancelled) setPreview({ documentId, items: result.items, loading: false, error: null })
+    }).catch((error: unknown) => {
+      if (!cancelled) setPreview({ documentId, items: [], loading: false,
+        error: error instanceof Error ? error.message : "标签预览加载失败，请重试" })
+    })
+    return () => { cancelled = true; controller.abort() }
+  }, [documentId, open, previewReloadToken])
+
+  const reloadPreview = () => {
+    setPreview({ documentId, items: [], loading: true, error: null })
+    setPreviewIndex(0)
+    setPreviewReloadToken((current) => current + 1)
+  }
 
   useEffect(() => {
     if (!open) return
@@ -482,8 +510,9 @@ export function PurchasePrintTemplateEditor({
     const viewport = previewViewportRef.current
     const updatePreviewSize = () => {
       const bounds = viewport.getBoundingClientRect()
-      const availableWidth = Math.max(0, bounds.width - 2)
-      const availableHeight = Math.max(0, bounds.height - 2)
+      const style = getComputedStyle(viewport)
+      const availableWidth = Math.max(0, bounds.width - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight) - 2)
+      const availableHeight = Math.max(0, bounds.height - parseFloat(style.paddingTop) - parseFloat(style.paddingBottom) - 2)
       const scale = Math.min(
         availableWidth / draft.paper_width_mm,
         availableHeight / draft.paper_height_mm,
@@ -741,7 +770,7 @@ export function PurchasePrintTemplateEditor({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="flex h-[min(760px,94vh)] max-w-[1180px] flex-col overflow-hidden p-0">
         <DialogHeader className="border-b border-border px-5 py-4">
-          <div className="flex min-w-0 items-center justify-between gap-3">
+          <div className="flex min-w-0 flex-wrap items-center justify-between gap-3">
             <DialogTitle>鞋盒标签模板</DialogTitle>
             <div className="flex min-w-0 items-center gap-2">
               <Select
@@ -765,8 +794,8 @@ export function PurchasePrintTemplateEditor({
             </div>
           </div>
         </DialogHeader>
-        <div className="grid min-h-0 flex-1 grid-cols-1 grid-rows-[minmax(300px,1fr)_minmax(0,0.85fr)] overflow-hidden lg:grid-cols-[minmax(0,1fr)_330px] lg:grid-rows-1">
-          <div className="flex min-h-0 flex-col bg-muted/30 p-5">
+        <div className="flex min-h-0 flex-1 flex-col overflow-y-auto lg:grid lg:grid-cols-[minmax(0,1fr)_330px] lg:overflow-hidden">
+          <div className="flex h-[480px] shrink-0 flex-col bg-muted/30 p-5 lg:h-auto lg:min-h-0">
             <div className="mb-3 flex items-center justify-between gap-3">
               <div>
                 <p className="text-sm font-medium">{draft.paper_width_mm} × {draft.paper_height_mm} mm</p>
@@ -782,9 +811,51 @@ export function PurchasePrintTemplateEditor({
                 <RotateCcw className="size-3.5" />载入默认
               </Button>
             </div>
+            <div className="mb-3 space-y-2 rounded-lg border border-border bg-background p-3">
+              <div className="flex min-w-0 items-center justify-between gap-2">
+                <p className="min-w-0 truncate text-xs text-muted-foreground" title={documentNumber || String(documentId)}>
+                  当前单据：{documentNumber || documentId}
+                </p>
+                <Button type="button" variant="ghost" size="icon-sm" aria-label="刷新标签预览" title="刷新标签预览"
+                  disabled={isPreviewLoading} onClick={reloadPreview}>
+                  <RefreshCw className={`size-3.5 ${isPreviewLoading ? "animate-spin" : ""}`} />
+                </Button>
+              </div>
+              <div className="flex min-w-0 items-center gap-2">
+                <Label htmlFor="purchase-print-preview-label" className="sr-only">预览商品和尺码</Label>
+                <Select id="purchase-print-preview-label" className="min-w-0 flex-1" value={previewLabel ? String(previewIndex) : ""}
+                  disabled={isPreviewLoading || previewLabels.length === 0} onChange={(event) => setPreviewIndex(Number(event.target.value))}>
+                  {previewLabels.length === 0 && <option value="">{isPreviewLoading ? "正在读取当前单据…" : "暂无可预览标签"}</option>}
+                  {previewLabels.map((label, index) => (
+                    <option key={`${label.detail_id}:${label.barcode}:${index}`} value={index}>
+                      {[label.product_code, label.color_name, `${label.size_name} 码`].filter(Boolean).join(" · ")}
+                    </option>
+                  ))}
+                </Select>
+                <Button type="button" variant="outline" size="icon-sm" aria-label="上一个标签" disabled={isPreviewLoading || previewIndex <= 0}
+                  onClick={() => setPreviewIndex((current) => Math.max(0, current - 1))}><ChevronLeft className="size-4" /></Button>
+                <Button type="button" variant="outline" size="icon-sm" aria-label="下一个标签" disabled={isPreviewLoading || previewIndex >= previewLabels.length - 1}
+                  onClick={() => setPreviewIndex((current) => Math.min(previewLabels.length - 1, current + 1))}><ChevronRight className="size-4" /></Button>
+              </div>
+              {previewLabel && <p className="text-xs text-muted-foreground" role="status">
+                第 {previewIndex + 1} / {previewLabels.length} 项 · 此尺码打印 {previewLabel.copies} 张 · 调整模板即时预览
+              </p>}
+            </div>
             <div ref={previewViewportRef} className="flex min-h-0 flex-1 items-center justify-center overflow-auto rounded-lg border border-border bg-zinc-200/70 p-7 shadow-inner">
+              {isPreviewLoading ? (
+                <p className="text-sm text-muted-foreground" role="status">正在加载当前单据标签…</p>
+              ) : preview.error ? (
+                <div className="max-w-sm space-y-3 text-center">
+                  <p className="text-sm text-destructive" role="alert">{preview.error}</p>
+                  <Button type="button" variant="outline" size="sm" onClick={reloadPreview}>重新加载预览</Button>
+                </div>
+              ) : !previewLabel ? (
+                <p className="max-w-sm text-center text-sm text-muted-foreground" role="status">当前采购单没有数量大于 0 的尺码明细，暂无可预览标签</p>
+              ) : (
               <div
                 ref={canvasRef}
+                role="region"
+                aria-label="当前单据标签预览"
                 className="purchase-template-canvas relative shrink-0 overflow-hidden bg-white text-black shadow-[0_12px_35px_rgba(0,0,0,0.18)]"
                 style={{
                   width: previewSize.width || undefined,
@@ -795,7 +866,7 @@ export function PurchasePrintTemplateEditor({
               >
                 <PurchasePrintTemplateContent
                   config={draft}
-                  data={PREVIEW_LABEL}
+                  data={previewLabel}
                   selectedId={selectedId}
                   interactive
                   onSelect={setSelectedId}
@@ -850,10 +921,11 @@ export function PurchasePrintTemplateEditor({
                   </div>
                 )}
               </div>
+              )}
             </div>
           </div>
 
-          <aside className="min-h-0 overflow-y-auto border-t border-border bg-background p-4 lg:border-t-0 lg:border-l">
+          <aside className="shrink-0 border-t border-border bg-background p-4 lg:min-h-0 lg:overflow-y-auto lg:border-t-0 lg:border-l">
             <div className="space-y-4">
               <div className="space-y-2 border-b border-border pb-4">
                 <Label htmlFor="purchase-print-template-name">模板名称</Label>

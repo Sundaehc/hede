@@ -4,8 +4,8 @@ import { afterEach, beforeEach, expect, test, vi } from "vitest"
 
 import { ProductAdminPage } from "@/components/product-admin/product-admin-page"
 
-const { listMock, selectionMock, exportMock, yearsMock } = vi.hoisted(() => ({
-  listMock: vi.fn(), selectionMock: vi.fn(), exportMock: vi.fn(), yearsMock: vi.fn(),
+const { listMock, selectionMock, exportMock, yearsMock, barcodeMock } = vi.hoisted(() => ({
+  listMock: vi.fn(), selectionMock: vi.fn(), exportMock: vi.fn(), yearsMock: vi.fn(), barcodeMock: vi.fn(),
 }))
 vi.mock("@/components/auth/auth-provider", () => ({
   useAuth: () => ({ user: { role_code: "super_admin" }, hasPermission: () => true }),
@@ -23,6 +23,7 @@ vi.mock("@/lib/api", async () => ({
   getProductImageRefreshStatus: async () => ({ in_progress: false }),
   assertProductExportAllowed: async () => undefined,
   downloadProductExport: exportMock,
+  listProductBarcodes: barcodeMock,
 }))
 
 beforeEach(() => {
@@ -32,6 +33,7 @@ beforeEach(() => {
   yearsMock.mockResolvedValue({ years: ["2025", "26年秋季款"], seasons: ["春秋", "秋冬"], product_names: ["牛皮皮鞋", "羊皮皮鞋", "运动鞋"] })
   selectionMock.mockResolvedValue({ items: [], total: 0 })
   exportMock.mockResolvedValue({ filename: "商品档案.xlsx", size: 100 })
+  barcodeMock.mockResolvedValue({ items: [], total: 0, page: 1, page_size: 50 })
 })
 afterEach(cleanup)
 
@@ -41,6 +43,39 @@ async function openPage() {
   await waitFor(() => expect(screen.getByRole("button", { name: "搜索" })).toBeEnabled())
   return { user, ...rendered }
 }
+
+test("another tab refreshes the current page with submitted filters while preserving search drafts", async () => {
+  const { user } = await openPage()
+  await user.type(screen.getByLabelText("品名"), "皮鞋{Enter}")
+  await user.click(screen.getByLabelText("Go to next page"))
+  await waitFor(() => expect(listMock).toHaveBeenLastCalledWith(expect.objectContaining({ page: 2 })))
+  await user.type(screen.getByLabelText("品名"), "未提交草稿")
+  const draft = (screen.getByLabelText("品名") as HTMLInputElement).value
+  const before = listMock.mock.calls.length
+  act(() => window.dispatchEvent(new StorageEvent("storage", {
+    key: "hede:data-change:v1:products",
+    newValue: JSON.stringify({ version: 1, id: "product-page-sync", source: "other-tab", resources: ["products"] }),
+  })))
+  await waitFor(() => expect(listMock).toHaveBeenCalledTimes(before + 1))
+  expect(listMock).toHaveBeenLastCalledWith(expect.objectContaining({ page: 2, productName: "皮鞋" }))
+  expect(screen.getByLabelText("品名")).toHaveValue(draft)
+})
+
+test("opens barcode search in the current brand using the typed goods code without changing the product query", async () => {
+  const { user } = await openPage()
+  await user.click(screen.getByRole("tab", { name: "千百度女鞋" }))
+  await user.type(screen.getByLabelText("包含搜索"), "QB123")
+  const calls = listMock.mock.calls.length
+  await user.click(screen.getByRole("button", { name: "条码搜索" }))
+  const dialog = await screen.findByRole("dialog", { name: "条码搜索" })
+  expect(within(dialog).getByRole("button", { name: "导出 Excel" })).toBeInTheDocument()
+  await waitFor(() => expect(barcodeMock).toHaveBeenCalledWith(expect.objectContaining({ brand: "cbanner_womens", query: "QB123" }), expect.any(AbortSignal)))
+  expect(within(dialog).getByLabelText("货号 / 原始货号")).toHaveValue("QB123")
+  expect(listMock).toHaveBeenCalledTimes(calls)
+  await user.click(within(dialog).getByRole("button", { name: "关闭条码搜索" }))
+  expect(dialog).not.toBeInTheDocument()
+  expect(screen.getByLabelText("包含搜索")).toHaveValue("QB123")
+})
 
 test("combines submitted year, season and product name in overview, pagination, selection and export", async () => {
   const { user } = await openPage()

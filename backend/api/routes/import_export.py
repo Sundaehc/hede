@@ -899,6 +899,7 @@ def _size_export_profiles_from_size_groups(
                 "id": f"archive-{item.get('id')}-{size_item['size_name']}",
                 "product_code": product_code,
                 "style_code": style_code,
+                "_archive_sku": _cell_text(item.get("sku")),
                 "color_name": _cell_text(item.get("color")),
                 "size_barcode": size_barcode,
                 "raw_payload": _dict_or_empty(item.get("raw_payload")),
@@ -933,6 +934,7 @@ def _size_export_fallback_profiles(
             "id": f"archive-{item.get('id')}",
             "product_code": product_code,
             "style_code": style_code,
+            "_archive_sku": _cell_text(item.get("sku")),
             "color_name": _cell_text(item.get("color")),
             "size_barcode": "",
             "raw_payload": _dict_or_empty(item.get("raw_payload")),
@@ -964,6 +966,7 @@ def _size_export_style_context(
     gj = gj_rows.get(style_code) or gj_rows.get(product_code) or {}
     archive_extra = _dict_or_empty(archive.get("extra_fields"))
     return {
+        "sku": _cell_text(archive.get("sku")),
         "product_name": _first_text(gj.get("goods_full_name"), archive.get("product_name")),
         "category": _first_text(archive.get("category"), archive.get("group_name")),
         "logo": _first_text(gj.get("brand")),
@@ -1110,7 +1113,7 @@ def _export_products_with_sizes(
         row = [
             _first_text(context["supplier_name"], raw_payload.get("供应商名"), raw_payload.get("供应商")),
             product_code,
-            style_code,
+            profile.get("_archive_sku", context["sku"]),
             product_name,
             color_name,
             size_barcode,

@@ -36,6 +36,17 @@ test("importPurchaseInventory extracts FastAPI detail from an error response", a
   })
 })
 
+test("template preview keeps structured full error details on ApiError", async () => {
+  const detail = {
+    code: "product_validation", message: "发现 2 条商品资料错误，请联系商品部", total: 2,
+    errors: [2, 3].map((row) => ({ row_number: row, product_code: "00001", brand: "ni", summary: "单据", reason: "档案不存在" })),
+  }
+  vi.spyOn(global, "fetch").mockResolvedValue(new Response(JSON.stringify({ detail }), { status: 400 }))
+  await expect(previewInventoryTemplate(new File(["test"], "错误.xlsx"))).rejects.toMatchObject({
+    status: 400, message: detail.message, validation: detail,
+  })
+})
+
 const purchaseFields = {
   supplier: "测试供应商", warehouse: "测试仓库", document_type: "进货订单",
   handler: "测试用户", summary: "测试导入",

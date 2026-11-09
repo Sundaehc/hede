@@ -3,7 +3,7 @@
 import { useSessionQueryState } from "@/lib/session-query-state"
 
 import { useEffect, useId, useMemo, useRef, useState } from "react"
-import { BadgeDollarSign, ChevronDown, FileDown, FileSpreadsheet, History, ImagePlus, Plus, Ruler, Search, Trash2, Upload } from "lucide-react"
+import { Barcode, BadgeDollarSign, ChevronDown, FileDown, FileSpreadsheet, History, ImagePlus, Plus, Ruler, Search, Trash2, Upload } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { DateRangeControl } from "@/components/ui/date-range-control"
@@ -55,6 +55,7 @@ type ProductToolbarProps = {
   onCreate?: () => void
   onOpenLogs?: () => void
   onOpenRecycleBin?: () => void
+  onOpenBarcodeSearch?: () => void
   onMessage: (title: string, description: string) => void
 }
 
@@ -92,6 +93,7 @@ export function ProductToolbar({
   onCreate,
   onOpenLogs,
   onOpenRecycleBin,
+  onOpenBarcodeSearch,
   onMessage,
 }: ProductToolbarProps) {
   const currentDate = currentShanghaiDateValue()
@@ -399,6 +401,11 @@ export function ProductToolbar({
             <Button type="button" variant="outline" size="sm" onClick={onRefresh} disabled={isLoading} className="h-8 cursor-pointer rounded-md shadow-none">
               刷新
             </Button>
+            {onOpenBarcodeSearch && (
+              <Button type="button" variant="outline" size="sm" onClick={onOpenBarcodeSearch} className="h-8 cursor-pointer gap-1.5 rounded-md shadow-none">
+                <Barcode className="size-3.5" />条码搜索
+              </Button>
+            )}
             {onOpenLogs ? (
               <Button type="button" variant="outline" size="sm" onClick={onOpenLogs} className="h-8 cursor-pointer rounded-md shadow-none">
                 <History className="h-3.5 w-3.5" />

@@ -7,11 +7,13 @@ from decimal import Decimal
 from typing import Callable
 
 import orjson
-from sqlalchemy import MetaData, Table, and_, bindparam, create_engine, delete, desc, func, insert, literal, or_, select, text, union_all, update
+from sqlalchemy import MetaData, Table, and_, bindparam, case, create_engine, delete, desc, func, insert, literal, or_, select, text, union_all, update
 
 from domain.color_barcode_schema import COLOR_BARCODE_TABLE
 from domain.excluded_skus import not_excluded_sku_condition
 from domain.product_defaults import apply_product_defaults
+from domain.product_size_code import product_size_code_expression
+from domain.size_group_schema import SIZE_GROUPS_TABLE, SIZE_GROUP_ITEMS_TABLE
 from domain.inventory_schema import SUPPLIER_BRAND_TABLE
 from domain.product_archive_identity_schema import PRODUCT_ARCHIVE_IDENTITY_TABLE, ensure_product_archive_identity_schema
 from domain.schema import PRODUCT_ARCHIVE_TABLES, PRODUCT_TABLES, build_product_archive_table
@@ -866,6 +868,65 @@ class ProductRepository:
             "page": page,
             "page_size": page_size,
         }
+
+    def _product_barcodes_statement(self, *, brand: str, query: str):
+        brands = self.product_archive_brands() if brand == "all" else [brand]
+        statements = []
+        for brand_key in brands:
+            table = self._table_for_brand(brand_key)
+            statements.append(select(
+                literal(brand_key).label("brand"), table.c.id,
+                table.c.sku, table.c.original_sku, table.c.product_name,
+                table.c.color, table.c.color_code, table.c.size_range, table.c.barcode_build_rule,
+            ).where(*_product_list_conditions(table, query=query)))
+        if not statements:
+            return None
+        products = union_all(*statements).subquery("barcode_products")
+        groups = SIZE_GROUPS_TABLE
+        sizes = SIZE_GROUP_ITEMS_TABLE
+        source = products.outerjoin(groups, groups.c.name == products.c.size_range).outerjoin(
+            sizes, sizes.c.size_group_id == groups.c.id,
+        )
+        goods = func.coalesce(func.nullif(func.trim(products.c.sku), ""), func.trim(products.c.original_sku))
+        rule = func.trim(func.coalesce(products.c.barcode_build_rule, ""))
+        color = func.trim(func.coalesce(products.c.color_code, ""))
+        issue = case(
+            (func.coalesce(goods, "") == "", "缺少货号"),
+            (rule.not_in(("货号+尺码", "货号+颜色代码+尺码")), "请维护条码构成逻辑"),
+            ((rule == "货号+颜色代码+尺码") & (color == ""), "请维护颜色代码"),
+            (sizes.c.id.is_(None), "请维护尺码组及尺码条码"),
+            (func.trim(func.coalesce(sizes.c.barcode, "")) == "", "请维护尺码条码"),
+            else_="",
+        )
+        barcode = case((issue == "", product_size_code_expression(
+            goods, products.c.color_code, sizes.c.barcode, products.c.barcode_build_rule,
+        )), else_=None).label("barcode")
+        return select(
+            products, sizes.c.size_name, sizes.c.barcode.label("size_barcode"), barcode, issue.label("issue"),
+        ).select_from(source).order_by(
+            products.c.brand, products.c.sku, products.c.id,
+            sizes.c.sort_order, sizes.c.id,
+        )
+
+    def list_product_barcodes(self, *, brand: str, query: str, page: int, page_size: int) -> dict[str, object]:
+        statement = self._product_barcodes_statement(brand=brand, query=query)
+        if statement is None:
+            return {"items": [], "total": 0, "page": page, "page_size": page_size}
+        with self.engine.connect() as connection:
+            total = connection.scalar(select(func.count()).select_from(statement.order_by(None).subquery()))
+            items = [dict(row) for row in connection.execute(
+                statement.offset((page - 1) * page_size).limit(page_size),
+            ).mappings()]
+        return {"items": items, "total": total, "page": page, "page_size": page_size}
+
+    def iter_product_barcodes(self, *, brand: str, query: str):
+        statement = self._product_barcodes_statement(brand=brand, query=query)
+        if statement is None:
+            return
+        with self.engine.connect() as connection:
+            with connection.execute(statement.execution_options(yield_per=1000)) as result:
+                for row in result.mappings():
+                    yield dict(row)
 
     def list_product_search_options(self, brand: str) -> dict[str, list[str]]:
         brands = self.product_archive_brands() if brand == "all" else [brand]

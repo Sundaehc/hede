@@ -142,7 +142,6 @@ class InventoryRepository:
         ).select_from(table)
         items_statement = select(table)
 
-        self.purge_expired_deleted_records()
         conditions = self._record_filter_conditions(
             date_start=date_start,
             date_end=date_end,
@@ -185,6 +184,7 @@ class InventoryRepository:
         if not normalized_sort_rules and sort_by:
             normalized_sort_rules = [(str(sort_by).strip(), str(sort_direction or "desc").lower())]
         order_by = []
+        sort_expressions = []
         seen_sort_keys: set[str] = set()
         for sort_key, direction in normalized_sort_rules:
             normalized_key = str(sort_key or "").strip()
@@ -192,6 +192,7 @@ class InventoryRepository:
             if sort_column is None or normalized_key in seen_sort_keys:
                 continue
             seen_sort_keys.add(normalized_key)
+            sort_expressions.append((sort_column, str(direction or "").lower() == "asc"))
             if str(direction or "").lower() == "asc":
                 order_by.append(sort_column.asc().nulls_last())
             else:
@@ -203,9 +204,60 @@ class InventoryRepository:
         items_statement = items_statement.order_by(*order_by).offset((page - 1) * page_size).limit(page_size)
 
         with self.engine.connect() as connection:
-            all_totals = connection.execute(totals_statement).mappings().one()
-            total = int(all_totals["record_count"])
-            items = [dict(row) for row in connection.execute(items_statement).mappings()]
+            # Selective searches and incomplete documents often need to inspect
+            # every candidate even for the first page. Share that work between
+            # totals and pagination, materializing only IDs and numeric/sort data.
+            share_matches = bool(
+                product_code or original_sku
+                or (summary or "").translate(str.maketrans("", "", SUMMARY_SEARCH_WHITESPACE)).strip()
+                or completion_status == "incomplete"
+            )
+            if share_matches:
+                matches = select(
+                    table.c.id.label("record_id"), table.c.document_type,
+                    table.c.total_count, table.c.amount,
+                    *(column.label(f"sort_{index}") for index, (column, _) in enumerate(sort_expressions)),
+                ).where(*conditions).cte("inventory_record_matches")
+                if connection.dialect.name == "postgresql":
+                    matches = matches.prefix_with("MATERIALIZED")
+                matched_order = [
+                    (matches.c[f"sort_{index}"].asc() if ascending else matches.c[f"sort_{index}"].desc()).nulls_last()
+                    for index, (_, ascending) in enumerate(sort_expressions)
+                ] + [matches.c.record_id.desc()]
+                page_matches = (
+                    select(matches).order_by(*matched_order)
+                    .offset((page - 1) * page_size).limit(page_size).cte("inventory_record_page")
+                )
+                matched_totals = select(
+                    func.count().label("record_count"),
+                    func.coalesce(func.sum(case(
+                        (matches.c.document_type == "进货退货单", func.abs(func.coalesce(matches.c.total_count, 0))),
+                        else_=func.coalesce(matches.c.total_count, 0),
+                    )), 0).label("quantity_total"),
+                    func.coalesce(func.sum(case(
+                        (matches.c.document_type == "进货退货单", func.abs(func.coalesce(matches.c.amount, 0))),
+                        else_=func.coalesce(matches.c.amount, 0),
+                    )), 0).label("amount_total"),
+                ).select_from(matches).subquery("inventory_record_totals")
+                page_order = [
+                    (page_matches.c[f"sort_{index}"].asc() if ascending else page_matches.c[f"sort_{index}"].desc()).nulls_last()
+                    for index, (_, ascending) in enumerate(sort_expressions)
+                ] + [page_matches.c.record_id.desc()]
+                statement = select(
+                    table, matched_totals.c.record_count,
+                    matched_totals.c.quantity_total, matched_totals.c.amount_total,
+                ).select_from(
+                    matched_totals.outerjoin(page_matches, true())
+                    .outerjoin(table, table.c.id == page_matches.c.record_id)
+                ).order_by(*page_order)
+                rows = connection.execute(statement).mappings().all()
+                total = int(rows[0]["record_count"])
+                all_totals = {"total_count": rows[0]["quantity_total"], "amount": rows[0]["amount_total"]}
+                items = [{column.name: row[column.name] for column in table.c} for row in rows if row["id"] is not None]
+            else:
+                all_totals = connection.execute(totals_statement).mappings().one()
+                total = int(all_totals["record_count"])
+                items = [dict(row) for row in connection.execute(items_statement).mappings()] if (page - 1) * page_size < total else []
         for item in items:
             self._clear_accounting_record_summary(item)
             if item.get("document_type") == "进货退货单":
@@ -394,36 +446,40 @@ class InventoryRepository:
             )
         if product_code:
             product_like = f"%{product_code.strip()}%"
-            stock_code_matches = stock.c.product_code.ilike(product_like)
-            stock_candidates = union_all(
-                select(stock.c.product_code.label("candidate"))
-                .where(stock_code_matches),
-                select(func.left(stock.c.product_code, func.length(stock.c.product_code) - 5).label("candidate"))
-                .where(stock_code_matches)
-                .where(func.length(stock.c.product_code) > 5),
-                select(func.left(stock.c.product_code, func.length(stock.c.product_code) - 3).label("candidate"))
-                .where(stock_code_matches)
-                .where(func.length(stock.c.product_code) > 3),
-                select(func.left(stock.c.product_code, func.length(stock.c.product_code) - 2).label("candidate"))
-                .where(stock_code_matches)
-                .where(func.length(stock.c.product_code) > 2),
-            ).subquery()
-            conditions.append(
-                select(detail.c.id)
-                .where(
-                    detail.c.document_id == table.c.id,
-                    or_(
-                        detail.c.product_code.ilike(product_like),
-                        detail.c.product_code.in_(
-                            select(stock_candidates.c.candidate)
-                            .where(stock_candidates.c.candidate.isnot(None))
-                            .where(stock_candidates.c.candidate != "")
-                            .distinct()
-                        ),
-                    ),
-                )
-                .exists()
+            # Read matching snapshot codes once, even when the same SKU occurs
+            # on many stock dates. PostgreSQL materializes this shared CTE.
+            matching_stock_codes = (
+                select(stock.c.product_code)
+                .where(stock.c.product_code.ilike(product_like))
+                .distinct()
+                .cte("inventory_matching_stock_codes")
             )
+            stock_code = matching_stock_codes.c.product_code
+            stock_candidates = union_all(
+                select(stock_code.label("candidate")),
+                select(func.left(stock_code, func.length(stock_code) - 5).label("candidate"))
+                .where(func.length(stock_code) > 5),
+                select(func.left(stock_code, func.length(stock_code) - 3).label("candidate"))
+                .where(func.length(stock_code) > 3),
+                select(func.left(stock_code, func.length(stock_code) - 2).label("candidate"))
+                .where(func.length(stock_code) > 2),
+            ).subquery()
+            candidates = (
+                select(stock_candidates.c.candidate)
+                .where(stock_candidates.c.candidate.is_not(None))
+                .where(stock_candidates.c.candidate != "")
+                .distinct()
+                .subquery()
+            )
+            # Keep substring and exact-code matches in separate indexable
+            # branches. An OR with the stock subquery forced a full detail scan.
+            matching_documents = union_all(
+                select(detail.c.document_id).where(detail.c.product_code.ilike(product_like)),
+                select(detail.c.document_id).select_from(
+                    candidates.join(detail, detail.c.product_code == candidates.c.candidate)
+                ),
+            )
+            conditions.append(table.c.id.in_(matching_documents))
 
         return conditions
 
@@ -496,25 +552,54 @@ class InventoryRepository:
             (record.c.document_type == "进货退货单", -func.coalesce(detail.c.amount, 0)),
             else_=func.coalesce(detail.c.amount, 0),
         )
-        totals_statement = select(
-            func.count().label("detail_count"),
-            func.coalesce(func.sum(signed_quantity), 0).label("quantity_total"),
-            func.coalesce(func.sum(signed_amount), 0).label("purchase_amount_total"),
-        ).select_from(joined).where(criterion)
-        page_details = (
-            select(
+        share_matches = document_types == ("进货订单",)
+        if share_matches:
+            # Reuse the filtered purchase rows for totals and pagination. The
+            # materialization also prevents a LIMIT-driven date index scan over
+            # unrelated document types. Keep JSON and display fields out of it.
+            matches = select(
                 detail.c.id.label("detail_id"),
-                record.c.date_value,
-                record.c.date,
-                record.c.document_number,
+                record.c.date_value, record.c.date, record.c.document_number,
+                signed_quantity.label("quantity"), signed_amount.label("amount"),
+            ).select_from(joined).where(criterion).cte("purchase_order_detail_matches")
+            if self.engine.dialect.name == "postgresql":
+                matches = matches.prefix_with("MATERIALIZED")
+            totals_statement = select(
+                func.count().label("detail_count"),
+                func.coalesce(func.sum(matches.c.quantity), 0).label("quantity_total"),
+                func.coalesce(func.sum(matches.c.amount), 0).label("purchase_amount_total"),
+            ).select_from(matches)
+            page_statement = select(
+                matches.c.detail_id, matches.c.date_value, matches.c.date, matches.c.document_number,
+            ).order_by(matches.c.date_value.nulls_last(), matches.c.date, matches.c.document_number, matches.c.detail_id)
+        else:
+            totals_statement = select(
+                func.count().label("detail_count"),
+                func.coalesce(func.sum(signed_quantity), 0).label("quantity_total"),
+                func.coalesce(func.sum(signed_amount), 0).label("purchase_amount_total"),
+            ).select_from(joined).where(criterion)
+            page_statement = select(
+                detail.c.id.label("detail_id"), record.c.date_value, record.c.date, record.c.document_number,
+            ).select_from(joined).where(criterion).order_by(
+                record.c.date_value.nulls_last(), record.c.date, record.c.document_number, detail.c.id,
             )
-            .select_from(joined)
-            .where(criterion)
-            .order_by(record.c.date_value.nulls_last(), record.c.date, record.c.document_number, detail.c.id)
+        page_details = (
+            page_statement
             .offset((page - 1) * page_size)
             .limit(page_size)
-            .cte("purchase_inbound_page")
+            .cte("purchase_order_detail_page" if share_matches else "purchase_inbound_page")
         )
+        page_source = page_details.join(detail, detail.c.id == page_details.c.detail_id).join(
+            record, record.c.id == detail.c.document_id,
+        )
+        total_columns = []
+        if share_matches:
+            matched_totals = totals_statement.subquery("purchase_order_detail_totals")
+            # An outer join keeps all totals even for empty or out-of-range pages.
+            page_source = matched_totals.outerjoin(page_details, true()).outerjoin(
+                detail, detail.c.id == page_details.c.detail_id,
+            ).outerjoin(record, record.c.id == detail.c.document_id)
+            total_columns = list(matched_totals.c)
         items_statement = (
             select(
                 detail.c.id,
@@ -533,22 +618,25 @@ class InventoryRepository:
                 record.c.date,
                 record.c.supplier,
                 record.c.warehouse,
+                *total_columns,
             )
-            .select_from(
-                page_details
-                .join(detail, detail.c.id == page_details.c.detail_id)
-                .join(record, record.c.id == detail.c.document_id)
-            )
+            .select_from(page_source)
             .order_by(page_details.c.date_value.nulls_last(), page_details.c.date, page_details.c.document_number, page_details.c.detail_id)
         )
 
         with self.engine.connect() as connection:
-            totals = connection.execute(totals_statement).mappings().one()
-            total = int(totals["detail_count"])
-            rows = (
-                [dict(row) for row in connection.execute(items_statement).mappings()]
-                if (page - 1) * page_size < total else []
-            )
+            if share_matches:
+                matched_rows = connection.execute(items_statement).mappings().all()
+                totals = matched_rows[0]
+                total = int(totals["detail_count"])
+                rows = [dict(row) for row in matched_rows if row["id"] is not None]
+            else:
+                totals = connection.execute(totals_statement).mappings().one()
+                total = int(totals["detail_count"])
+                rows = (
+                    [dict(row) for row in connection.execute(items_statement).mappings()]
+                    if (page - 1) * page_size < total else []
+                )
             supplier_names = sorted({
                 str(row.get("supplier") or "").strip()
                 for row in rows
@@ -690,6 +778,124 @@ class InventoryRepository:
         with self.engine.connect() as connection:
             row = connection.execute(statement).mappings().first()
         return None if row is None else dict(row)
+
+    def purchase_import_targets(self, plans, *, connection=None, lock=False):
+        """Find exact import targets in bounded batches without loading source JSON."""
+        table = INVENTORY_TABLE
+        keys = {
+            (parse_date(plan["date"]), plan["document_type"], plan["supplier"] or "",
+             plan["warehouse"] or "", plan["summary"])
+            for plan in plans
+        }
+        if connection is None:
+            with self.engine.connect() as connection:
+                return self.purchase_import_targets(plans, connection=connection)
+        found = {}
+        batch_size = 100 if connection.dialect.name == "sqlite" else 500
+        keys_list = list(keys)
+        fields = (table.c.document_type, func.coalesce(table.c.supplier, ""),
+                  func.coalesce(table.c.warehouse, ""), table.c.summary)
+        for offset in range(0, len(keys_list), batch_size):
+            batch = keys_list[offset:offset + batch_size]
+            statement = select(
+                table.c.id, table.c.document_number, table.c.date_value, table.c.date,
+                table.c.document_type, table.c.supplier, table.c.warehouse, table.c.summary,
+            ).where(
+                table.c.deleted_at.is_(None),
+                or_(table.c.date_value.in_({key[0] for key in batch}),
+                    table.c.date.in_({key[0].isoformat() for key in batch})),
+                table.c.document_type.in_({key[1] for key in batch}),
+                or_(
+                    tuple_(table.c.date_value, *fields).in_(batch),
+                    tuple_(table.c.date, *fields).in_([(key[0].isoformat(), *key[1:]) for key in batch]),
+                ),
+            ).order_by(table.c.id.desc())
+            if lock:
+                statement = statement.with_for_update()
+            batch_keys = set(batch)
+            for row in connection.execute(statement).mappings():
+                tail = (row["document_type"], row["supplier"] or "", row["warehouse"] or "", row["summary"])
+                dates = {row["date_value"]}
+                legacy_date = parse_date(row["date"])
+                if legacy_date and row["date"] == legacy_date.isoformat():
+                    dates.add(legacy_date)
+                for date_value in dates:
+                    key = (date_value, *tail)
+                    if key in batch_keys:
+                        found.setdefault(key, dict(row))
+        return {str(plan["key"]): found.get((
+            parse_date(plan["date"]), plan["document_type"], plan["supplier"] or "",
+            plan["warehouse"] or "", plan["summary"],
+        )) for plan in plans}
+
+    def import_purchase_documents(self, plans, *, skipped=0, task_id):
+        """Commit all purchase headers, batched details and task success together."""
+        for plan in plans:
+            validate_template_document_numbers(plan["details"], f"采购单（摘要：{plan['summary']}）")
+            if not plan["details"]:
+                raise ValueError(f"摘要 {plan['summary']}：没有可导入的明细")
+        record = INVENTORY_TABLE
+        detail = INVENTORY_DETAIL_TABLE
+        created = replaced = detail_count = 0
+        records = []
+        with self.engine.begin() as connection:
+            if connection.dialect.name == "postgresql":
+                connection.execute(text("SET LOCAL lock_timeout = '30s'"))
+                connection.execute(text("SET LOCAL statement_timeout = '10min'"))
+                connection.execute(text("SELECT pg_advisory_xact_lock(42917001)"))
+            supplier_names = {plan["supplier"] for plan in plans}
+            if supplier_names:
+                known = set()
+                names = sorted(supplier_names)
+                for offset in range(0, len(names), 5000):
+                    known.update(connection.execute(select(SUPPLIER_TABLE.c.name).where(
+                        SUPPLIER_TABLE.c.name.in_(names[offset:offset + 5000]),
+                    )).scalars())
+                if unknown := supplier_names - known:
+                    raise ValueError(f"供应商档案已变化：{'、'.join(sorted(unknown))}，请重新预检查；本批次未提交")
+            targets = self.purchase_import_targets(plans, connection=connection, lock=True)
+            sequences = {}
+            pending = []
+            ids = []
+            seen = set()
+            for plan in plans:
+                key = (plan["date"], plan["supplier"], plan["warehouse"], plan["summary"])
+                target = targets[str(plan["key"])]
+                expected = plan.get("existing_record")
+                overwrite_changed = plan["decision"] == "overwrite" and (
+                    not target or not expected or target["id"] != expected["id"]
+                    or parse_date(target.get("date_value") or target.get("date")) != parse_date(plan["date"])
+                )
+                if key in seen or overwrite_changed or (plan["decision"] != "overwrite" and target):
+                    raise ValueError(f"摘要 {plan['summary']} 的冲突或覆盖目标已变化，请重新预检查；本批次未提交")
+                seen.add(key)
+                payload = self._prepare_record(plan["record"])
+                if target:
+                    payload.pop("document_number", None)
+                    document_id = target["id"]
+                    connection.execute(delete(detail).where(detail.c.document_id == document_id))
+                    connection.execute(update(record).where(record.c.id == document_id).values(**payload))
+                    replaced += 1
+                else:
+                    payload["document_number"] = self._generate_document_number(
+                        connection, plan["date"], "进货订单", sequences=sequences,
+                    )
+                    document_id = connection.execute(insert(record).values(**payload).returning(record.c.id)).scalar_one()
+                    created += 1
+                records.append({"id": document_id, "document_number": target["document_number"] if target else payload["document_number"]})
+                ids.append(document_id)
+                for row in plan["details"]:
+                    pending.append(self._filter_table_payload(detail, self._coerce_empty(dict(row, document_id=document_id))))
+                    if len(pending) >= TEMPLATE_DETAIL_WRITE_BATCH_SIZE:
+                        self._insert_template_details(connection, pending)
+                        pending.clear()
+                detail_count += len(plan["details"])
+            if pending:
+                self._insert_template_details(connection, pending)
+            self._update_template_totals(connection, ids, coalesce_empty=True)
+            result = {"created": created, "replaced": replaced, "skipped": skipped, "details": detail_count}
+            complete_inventory_import(connection, task_id, result)
+        return {**result, "records": records}
 
     def get_records_by_date_summary(self, *, date_value: object, summary: object) -> list[dict[str, object]]:
         normalized_date = parse_date(date_value)
@@ -973,7 +1179,7 @@ class InventoryRepository:
                 ) from error
 
     @staticmethod
-    def _update_template_totals(connection, document_ids: list[int]) -> None:
+    def _update_template_totals(connection, document_ids: list[int], *, coalesce_empty: bool = False) -> None:
         record = INVENTORY_TABLE
         detail = INVENTORY_DETAIL_TABLE
         for offset in range(0, len(document_ids), TEMPLATE_TOTALS_BATCH_SIZE):
@@ -987,18 +1193,20 @@ class InventoryRepository:
                 .group_by(detail.c.document_id)
                 .subquery()
             )
+            quantity = func.coalesce(totals.c.quantity, 0) if coalesce_empty else totals.c.quantity
+            amount = func.coalesce(totals.c.amount, 0) if coalesce_empty else totals.c.amount
             connection.execute(
                 update(record)
                 .where(record.c.id == totals.c.document_id)
                 .values(
                     total_count=case(
                         (record.c.document_type.in_(ACCOUNTING_DOCUMENT_TYPES), None),
-                        (record.c.document_type.in_(NEGATIVE_TOTAL_DOCUMENT_TYPES), -func.abs(totals.c.quantity)),
-                        else_=totals.c.quantity,
+                        (record.c.document_type.in_(NEGATIVE_TOTAL_DOCUMENT_TYPES), -func.abs(quantity)),
+                        else_=quantity,
                     ),
                     amount=case(
-                        (record.c.document_type.in_(NEGATIVE_TOTAL_DOCUMENT_TYPES), -func.abs(totals.c.amount)),
-                        else_=totals.c.amount,
+                        (record.c.document_type.in_(NEGATIVE_TOTAL_DOCUMENT_TYPES), -func.abs(amount)),
+                        else_=amount,
                     ),
                 )
             )
@@ -1899,6 +2107,22 @@ class InventoryRepository:
         return None if row is None else dict(row)
 
     def list_general_customer_shops(self, user_id: int | None = None) -> list[dict[str, object]]:
+        # Build the set once rather than scanning business records separately
+        # for every shop and child unit. Deleted records still count as history.
+        history_names = (
+            select(func.trim(INVENTORY_TABLE.c.supplier).label("name"))
+            .where(INVENTORY_TABLE.c.supplier.is_not(None))
+            .distinct()
+            .cte("customer_shop_history_names")
+        )
+        shops_with_unit_history = (
+            select(GENERAL_CUSTOMER_UNIT_TABLE.c.shop_id)
+            .join(history_names, func.trim(GENERAL_CUSTOMER_UNIT_TABLE.c.unit_name) == history_names.c.name)
+        )
+        has_history = func.coalesce(or_(
+            func.trim(GENERAL_CUSTOMER_SHOP_TABLE.c.shop_name).in_(select(history_names.c.name)),
+            GENERAL_CUSTOMER_SHOP_TABLE.c.id.in_(shops_with_unit_history),
+        ), False)
         unit_count = (
             select(
                 GENERAL_CUSTOMER_UNIT_TABLE.c.shop_id,
@@ -1913,7 +2137,7 @@ class InventoryRepository:
                 GENERAL_CUSTOMER_SHOP_TABLE.c.customer_name,
                 GENERAL_CUSTOMER_SHOP_TABLE.c.shop_name,
                 GENERAL_CUSTOMER_SHOP_TABLE.c.is_active,
-                self._general_customer_shop_history_condition().label("has_history"),
+                has_history.label("has_history"),
                 GENERAL_CUSTOMER_SHOP_TABLE.c.sort_order,
                 GENERAL_CUSTOMER_SHOP_TABLE.c.created_at,
                 GENERAL_CUSTOMER_SHOP_TABLE.c.updated_at,
@@ -3522,7 +3746,6 @@ class InventoryRepository:
         conditions = [
             record.c.deleted_at.is_(None),
             record.c.document_type.in_(("进货单", "进货退货单", "进货订单")),
-            detail.c.product_code.in_(codes),
             detail.c.unit_price > 0,
         ]
         parsed_date = parse_date(as_of_date)
@@ -3545,12 +3768,17 @@ class InventoryRepository:
                 detail.c.id.desc(),
             )
         )
+        if self.engine.dialect.name == "postgresql":
+            statement = statement.distinct(detail.c.product_code)
         prices: dict[str, Decimal] = {}
+        ordered_codes = sorted(codes)
         with self.engine.connect() as connection:
-            for row in connection.execute(statement).mappings():
-                code = str(row["product_code"]).strip()
-                if code not in prices:
-                    prices[code] = Decimal(str(row["unit_price"]))
+            for offset in range(0, len(ordered_codes), 5000):
+                batch = statement.where(detail.c.product_code.in_(ordered_codes[offset:offset + 5000]))
+                for row in connection.execute(batch).mappings():
+                    code = str(row["product_code"]).strip()
+                    if code not in prices:
+                        prices[code] = Decimal(str(row["unit_price"]))
         return prices
 
     def create_detail(self, data: Mapping[str, object]) -> dict[str, object]:

@@ -44,16 +44,20 @@ import type {
   ScheduledTaskRunListResponse,
 } from "@/lib/types"
 import { INVENTORY_IMPORT_MAX_FILE_BYTES } from "@/lib/upload-limits.mjs"
+import { notifyBusinessMutation, publishBusinessDataChange } from "@/lib/business-data-sync"
+import { isProductImportValidation, type ProductImportValidation } from "@/lib/product-import-validation"
 
 const API_PREFIX = "/api"
 
 export class ApiError extends Error {
+  public readonly validation: ProductImportValidation | null
   constructor(
     public readonly status: number,
-    message: string
+    message: string | ProductImportValidation
   ) {
-    super(message)
+    super(typeof message === "string" ? message : message.message)
     this.name = "ApiError"
+    this.validation = typeof message === "string" ? null : message
   }
 }
 
@@ -68,6 +72,7 @@ async function readApiError(response: Response) {
   const isHtml = (value: string) => /<!doctype\s+html\b|<\/?(?:html|head|body|title)\b/i.test(value)
   try {
     const parsed = JSON.parse(text) as { detail?: unknown }
+    if (isProductImportValidation(parsed?.detail)) return parsed.detail
     if (typeof parsed?.detail === "string" && !isHtml(parsed.detail)) {
       return parsed.detail
     }
@@ -106,7 +111,9 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
     throw new ApiError(response.status, await readApiError(response))
   }
 
-  return (await response.json()) as T
+  const result = (await response.json()) as T
+  notifyBusinessMutation(path, init.method)
+  return result
 }
 
 export function login(payload: { username: string; password: string }) {
@@ -245,6 +252,47 @@ export type ProductSearchOptions = {
 
 export function getProductSearchOptions(brand: ProductArchiveBrandKey) {
   return request<ProductSearchOptions>(`/products/${brand}/search-options`, { cache: "no-store" })
+}
+
+export type ProductBarcodeItem = {
+  id: number
+  brand: string
+  sku: string | null
+  original_sku: string | null
+  product_name: string | null
+  color: string | null
+  color_code: string | null
+  size_range: string | null
+  barcode_build_rule: string | null
+  size_name: string | null
+  size_barcode: string | null
+  barcode: string | null
+  issue: string
+}
+
+export type ProductBarcodeResponse = {
+  items: ProductBarcodeItem[]
+  total: number
+  page: number
+  page_size: number
+}
+
+export function listProductBarcodes(params: { brand: string; query: string; page: number; pageSize: number }, signal?: AbortSignal) {
+  const search = new URLSearchParams({ brand: params.brand, query: params.query, page: String(params.page), page_size: String(params.pageSize) })
+  return request<ProductBarcodeResponse>(`/products/barcodes?${search.toString()}`, { cache: "no-store", signal })
+}
+
+export async function downloadProductBarcodes(params: { brand: string; query: string }, signal?: AbortSignal) {
+  const search = new URLSearchParams(params)
+  const response = await fetch(`${API_PREFIX}/products/barcodes/export?${search.toString()}`, {
+    credentials: "include", cache: "no-store", signal,
+  })
+  if (!response.ok) throw new ApiError(response.status, await readApiError(response))
+  const blob = await response.blob()
+  signal?.throwIfAborted()
+  const filename = filenameFromContentDisposition(response.headers.get("content-disposition"), "条码搜索.xlsx")
+  downloadBlob(blob, filename)
+  return { filename, size: blob.size }
 }
 
 export function listProductColorBarcodes(brand: ProductArchiveRecordBrandKey) {
@@ -1171,7 +1219,9 @@ export function importProducts(
     if (!response.ok) {
       throw new ApiError(response.status, await readApiError(response))
     }
-    return (await response.json()) as ImportResult
+    const result = (await response.json()) as ImportResult
+    publishBusinessDataChange(["products"])
+    return result
   })
 }
 
@@ -1589,6 +1639,7 @@ export function listInventorySelectionIds(filters: InventorySelectionFilters) {
 }
 
 export function listInventory(params: InventorySelectionFilters & {
+  signal?: AbortSignal
   purchaseDetailMode?: PurchaseDetailView
   sortBy?: string
   sortDirection?: "asc" | "desc"
@@ -1625,7 +1676,7 @@ export function listInventory(params: InventorySelectionFilters & {
   for (const rule of params.sortRules ?? []) {
     search.append("sort", `${rule.key}:${rule.direction}`)
   }
-  return request<InventoryListResponse>(`/inventory?${search.toString()}`)
+  return request<InventoryListResponse>(`/inventory?${search.toString()}`, { signal: params.signal })
 }
 
 export function createInventoryRecord(payload: Record<string, unknown>) {
@@ -1853,7 +1904,9 @@ export function importInventory(file: File) {
     if (!response.ok) {
       throw new ApiError(response.status, await readApiError(response))
     }
-    return (await response.json()) as InventoryImportResult
+    const result = (await response.json()) as InventoryImportResult
+    publishBusinessDataChange(["inventory"])
+    return result
   })
 }
 
@@ -1967,7 +2020,7 @@ export type PurchaseImportPreview = {
   conflicts: InventoryTemplateConflict[]
 }
 
-function submitPurchaseInventory(payload: PurchaseImportPayload): Promise<InventoryImportResult | PurchaseImportPreview> {
+function purchaseImportFormData(payload: PurchaseImportPayload) {
   validateInventoryImportFile(payload.file)
   const formData = new FormData()
   formData.append("file", payload.file)
@@ -1981,6 +2034,11 @@ function submitPurchaseInventory(payload: PurchaseImportPayload): Promise<Invent
   formData.append("brand", payload.brand ?? "")
   if (payload.preview) formData.append("preview", "true")
   if (payload.decisions) formData.append("decisions", JSON.stringify(payload.decisions))
+  return formData
+}
+
+function submitPurchaseInventory(payload: PurchaseImportPayload): Promise<InventoryImportResult | PurchaseImportPreview> {
+  const formData = purchaseImportFormData(payload)
   const controller = new AbortController()
   const timeout = window.setTimeout(() => controller.abort(), 120_000)
   return fetch(`${API_PREFIX}/inventory/import-purchase`, {
@@ -1993,7 +2051,9 @@ function submitPurchaseInventory(payload: PurchaseImportPayload): Promise<Invent
       if (!response.ok) {
         throw new ApiError(response.status, await readApiError(response))
       }
-      return (await response.json()) as InventoryImportResult | PurchaseImportPreview
+      const result = (await response.json()) as InventoryImportResult | PurchaseImportPreview
+      if (!payload.preview) publishBusinessDataChange(["inventory"])
+      return result
     })
     .catch((error) => {
       if (error instanceof DOMException && error.name === "AbortError") {
@@ -2286,7 +2346,9 @@ export async function importInventoryTemplate(payload: {
   formData.append("decisions", JSON.stringify(payload.decisions))
   const response = await fetch(`${API_PREFIX}/inventory/import-template`, { method: "POST", body: formData, credentials: "include" })
   if (!response.ok) throw new ApiError(response.status, await readApiError(response))
-  return response.json()
+  const result = (await response.json()) as InventoryImportResult
+  publishBusinessDataChange(["inventory"])
+  return result
 }
 
 export type InventoryImportTask = {
@@ -2296,6 +2358,37 @@ export type InventoryImportTask = {
   result: InventoryImportResult | null
   error: string | null
   error_status: number | null
+  validation?: ProductImportValidation
+  preview?: PurchaseImportPreview
+}
+
+const notifiedImportTasks = new Set<string>()
+async function readImportTask(response: Response): Promise<InventoryImportTask> {
+  const task = (await response.json()) as InventoryImportTask
+  if (task.status === "succeeded" && task.result && !notifiedImportTasks.has(task.task_id)) {
+    notifiedImportTasks.add(task.task_id)
+    if (notifiedImportTasks.size > 100) notifiedImportTasks.delete(notifiedImportTasks.values().next().value!)
+    publishBusinessDataChange(["inventory"])
+  }
+  return task
+}
+
+export async function submitPurchaseImportTask(payload: PurchaseImportPayload & { taskId: string }): Promise<InventoryImportTask> {
+  const response = await fetch(
+    `${API_PREFIX}/inventory/import-purchase/tasks/${encodeURIComponent(payload.taskId)}`,
+    { method: "POST", body: purchaseImportFormData(payload), credentials: "include", signal: AbortSignal.timeout(120_000) }
+  )
+  if (!response.ok) throw new ApiError(response.status, await readApiError(response))
+  return readImportTask(response)
+}
+
+export async function getPurchaseImportTask(taskId: string, signal?: AbortSignal): Promise<InventoryImportTask> {
+  const response = await fetch(
+    `${API_PREFIX}/inventory/import-purchase/tasks/${encodeURIComponent(taskId)}`,
+    { credentials: "include", cache: "no-store", signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(10_000)]) : AbortSignal.timeout(10_000) }
+  )
+  if (!response.ok) throw new ApiError(response.status, await readApiError(response))
+  return readImportTask(response)
 }
 
 export async function submitInventoryTemplateTask(payload: {
@@ -2314,7 +2407,7 @@ export async function submitInventoryTemplateTask(payload: {
     { method: "POST", body: formData, credentials: "include", signal: AbortSignal.timeout(60_000) }
   )
   if (!response.ok) throw new ApiError(response.status, await readApiError(response))
-  return response.json()
+  return readImportTask(response)
 }
 
 export async function getInventoryTemplateTask(taskId: string, signal?: AbortSignal): Promise<InventoryImportTask> {
@@ -2323,7 +2416,7 @@ export async function getInventoryTemplateTask(taskId: string, signal?: AbortSig
     { credentials: "include", cache: "no-store", signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(10_000)]) : AbortSignal.timeout(10_000) }
   )
   if (!response.ok) throw new ApiError(response.status, await readApiError(response))
-  return response.json()
+  return readImportTask(response)
 }
 
 export type InventoryDetailUnitPriceOption = {
@@ -2346,11 +2439,11 @@ export function listInventoryDetailUnitPriceOptions(
   }>(`/inventory/${documentId}/details/unit-price-options${suffix}`)
 }
 
-export function listInventoryPrintLabels(documentId: number) {
+export function listInventoryPrintLabels(documentId: number, signal?: AbortSignal) {
   return request<{
     items: InventoryPrintLabel[]
     label_count: number
-  }>(`/inventory/${documentId}/print-labels`)
+  }>(`/inventory/${documentId}/print-labels`, { signal, cache: "no-store" })
 }
 
 export function getPurchasePrintTemplate() {
@@ -2460,11 +2553,13 @@ export function replaceDetailsFromExcel(payload: {
       if (!response.ok) {
         throw new ApiError(response.status, await readApiError(response))
       }
-      return (await response.json()) as {
+      const result = (await response.json()) as {
         updated: number
         details: number
         message: string
       }
+      publishBusinessDataChange(["inventory"])
+      return result
     })
     .catch((error) => {
       if (error instanceof DOMException && error.name === "AbortError") {

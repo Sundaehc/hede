@@ -35,10 +35,10 @@ class InventoryImportMonitor:
         if self.thread is not None:
             self.thread.join(timeout=2)
 
-    def fail(self, request, task_id, filename, message, status_code):
+    def fail(self, request, task_id, filename, message, status_code, *, validation=None):
         for attempt in range(3):
             try:
-                changed = self.tasks.fail(task_id, message, status_code)
+                changed = self.tasks.fail(task_id, message, status_code, **({"validation": validation} if validation is not None else {}))
                 with self.lock:
                     self.pending_failures.pop(task_id, None)
                 if changed:
@@ -48,15 +48,18 @@ class InventoryImportMonitor:
             except Exception:
                 logger.exception("Failed to persist inventory import failure %s (attempt %s/3)", task_id, attempt + 1)
         with self.lock:
-            failure_request = SimpleNamespace(app=self.app, state=SimpleNamespace(current_user=dict(actor_from_request(request) or {})))
-            self.pending_failures[task_id] = (failure_request, filename, message, status_code)
+            failure_request = SimpleNamespace(app=self.app, state=SimpleNamespace(
+                current_user=dict(actor_from_request(request) or {}),
+                import_operation=getattr(request.state, "import_operation", None),
+            ))
+            self.pending_failures[task_id] = (failure_request, filename, message, status_code, validation)
         logger.critical("Inventory import task %s failure is awaiting database recovery; do not reimport", task_id)
 
     def reconcile(self):
         with self.lock:
             pending = list(self.pending_failures.items())
-        for task_id, (request, filename, message, status_code) in pending:
-            self.fail(request, task_id, filename, message, status_code)
+        for task_id, (request, filename, message, status_code, validation) in pending:
+            self.fail(request, task_id, filename, message, status_code, validation=validation)
         for row in self.tasks.expire_stale():
             request = SimpleNamespace(app=self.app, state=SimpleNamespace(current_user={"id": row["user_id"]}))
             self._audit_failure(request, row["id"], row["filename"], row["error"])
@@ -64,8 +67,9 @@ class InventoryImportMonitor:
     def _audit_failure(self, request, task_id, filename, message):
         try:
             write_operation_log(
-                request, module="inventory", action="import", entity_type="inventory_record",
-                entity_label=filename or "模板导入", summary=f"模板导入失败：{message}（批次 {task_id}）",
+                request, module="purchase" if getattr(request.state, "import_operation", None) == "purchase" else "inventory",
+                action="import", entity_type="inventory_record",
+                entity_label=filename or "Excel 导入", summary=f"Excel 导入失败：{message}（批次 {task_id}）",
                 after_data={"task_id": task_id, "filename": filename, "status": "failed", "error": message},
             )
         except Exception:
@@ -95,7 +99,13 @@ def task_user_id(request):
 
 def task_response(row):
     result = row.get("result")
-    if result:
+    validation = result.get("validation") if row["status"] == "failed" and result else None
+    if row["status"] == "failed":
+        result = None
+    preview = result.get("preview") if result else None
+    if preview is not None:
+        result = None
+    elif result:
         result = {**result, "message": (
             f"导入完成：新增 {result['created']} 条，覆盖 {result['replaced']} 条，"
             f"取消 {result['skipped']} 条，明细 {result['details']} 条"
@@ -106,18 +116,30 @@ def task_response(row):
     return {
         "task_id": row["id"], "filename": row["filename"], "status": row["status"],
         "result": result, "error": error, "error_status": row.get("error_status"),
+        **({"preview": preview} if preview is not None else {}),
+        **({"validation": validation} if validation is not None else {}),
     }
 
 
-def submit_inventory_import(request, task_id, filename, form, content, run_import):
+def submit_inventory_import(request, task_id, filename, form, content, run_import, *, operation=None):
     tasks = getattr(request.app.state, "inventory_import_tasks", None)
     if tasks is None:
         raise HTTPException(status_code=503, detail="后台导入服务尚未初始化，请联系管理员重启后端")
     user_id = task_user_id(request)
-    request_hash = sha256(content + json.dumps({
+    hash_fields = {
         "filename": filename, "brand": str(form.get("brand") or ""),
         "decisions": str(form.get("decisions") or "{}"),
-    }, sort_keys=True).encode()).hexdigest()
+    }
+    if operation:
+        hash_fields.update(operation=operation, parameters={
+            key: str(form.get(key) or "") for key in (
+                "date", "delivery_date", "supplier", "warehouse", "document_type",
+                "handler", "summary", "unit_price", "preview",
+            )
+        })
+    digest = sha256(content)
+    digest.update(json.dumps(hash_fields, sort_keys=True).encode())
+    request_hash = digest.hexdigest()
     existing = tasks.get(task_id, user_id)
     if existing:
         if existing["request_hash"] != request_hash:
@@ -129,6 +151,13 @@ def submit_inventory_import(request, task_id, filename, form, content, run_impor
     created = False
     submitted = False
     monitor = request.app.state.inventory_import_monitor
+    if operation:
+        # Background processing only needs application services and the actor;
+        # avoid retaining the upload request's multipart buffers after acceptance.
+        request = SimpleNamespace(app=request.app, state=SimpleNamespace(
+            current_user=dict(actor_from_request(request) or {}), import_operation=operation,
+        ))
+        form = {key: value for key, value in form.items() if key != "file"}
     try:
         created = tasks.create(task_id, user_id, filename or "导入.xlsx", request_hash)
         if not created:
@@ -190,7 +219,10 @@ def _run_import(tasks, task_id, run_import, request, filename, form, content):
         else:
             logger.info("Inventory import task %s succeeded: result=%s", task_id, row["result"])
     except HTTPException as error:
-        monitor.fail(request, task_id, filename, str(error.detail), error.status_code)
+        if isinstance(error.detail, dict) and error.detail.get("code") == "product_validation":
+            monitor.fail(request, task_id, filename, error.detail["message"], error.status_code, validation=error.detail)
+        else:
+            monitor.fail(request, task_id, filename, str(error.detail), error.status_code)
     except Exception as error:
         logger.exception("Inventory import task %s failed", task_id)
         if isinstance(error, SQLAlchemyError):

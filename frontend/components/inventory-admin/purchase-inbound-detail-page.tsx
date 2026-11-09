@@ -1,6 +1,7 @@
 "use client"
 
 import { useSessionQueryState } from "@/lib/session-query-state"
+import { useCrossTabRefresh } from "@/lib/use-cross-tab-refresh"
 
 import { useEffect, useMemo, useState } from "react"
 import { Download, History, Search, X } from "lucide-react"
@@ -119,6 +120,10 @@ export function PurchaseInboundDetailPage({ mode = "inbound", canExport = true }
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [operationLogOpen, setOperationLogOpen] = useState(false)
+  const [dataRevision, setDataRevision] = useState(0)
+  const [referenceRevision, setReferenceRevision] = useState(0)
+  useCrossTabRefresh(["inventory", "products"], () => setDataRevision((value) => value + 1))
+  useCrossTabRefresh(["reference-data"], () => setReferenceRevision((value) => value + 1))
 
   useEffect(() => {
     let cancelled = false
@@ -153,7 +158,7 @@ export function PurchaseInboundDetailPage({ mode = "inbound", canExport = true }
     return () => {
       cancelled = true
     }
-  }, [isPurchaseOrder])
+  }, [isPurchaseOrder, referenceRevision])
 
   useEffect(() => {
     const query = productCode.trim()
@@ -218,7 +223,7 @@ export function PurchaseInboundDetailPage({ mode = "inbound", canExport = true }
       cancelled = true
       controller.abort()
     }
-  }, [isPurchaseOrder, page, pageSize, submittedFilters])
+  }, [dataRevision, isPurchaseOrder, page, pageSize, submittedFilters])
 
   const totalPages = Math.max(1, Math.ceil(total / pageSize))
   const pageRange = useMemo(() => buildPageRange(page, totalPages), [page, totalPages])

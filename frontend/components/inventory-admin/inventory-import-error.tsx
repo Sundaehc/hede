@@ -6,6 +6,8 @@ import { Check, CircleAlert, Copy } from "lucide-react"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
 import { copyTextareaText } from "@/lib/copy-textarea"
+import type { ProductImportValidation } from "@/lib/product-import-validation"
+import { ProductImportErrors } from "@/components/inventory-admin/product-import-errors"
 
 function unmatchedProducts(message: string) {
   const match = message.match(
@@ -27,7 +29,15 @@ function unmatchedProducts(message: string) {
   }
 }
 
-export function InventoryImportError({ message }: { message: string }) {
+export function InventoryImportError({ message, validation, brands }: {
+  message: string
+  validation?: ProductImportValidation | null
+  brands?: ReadonlyArray<{ value: string; label: string }>
+}) {
+  return validation ? <ProductImportErrors validation={validation} message={message} brands={brands} /> : <LegacyImportError message={message} />
+}
+
+function LegacyImportError({ message }: { message: string }) {
   const products = unmatchedProducts(message)
   const copyContainerRef = useRef<HTMLDivElement>(null)
   const [copyState, setCopyState] = useState<"idle" | "copying" | "copied" | "failed">("idle")

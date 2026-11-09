@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react"
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { afterEach, beforeEach, expect, test, vi } from "vitest"
 
@@ -21,11 +21,20 @@ vi.mock("@/components/auth/auth-provider", () => ({
 }))
 
 vi.mock("@/components/inventory-admin/inventory-detail-panel", () => ({
-  InventoryDetailPanel: () => null,
+  InventoryDetailPanel: ({ record, onClose }: { record: { document_number?: string }; onClose: () => void }) => (
+    <div role="dialog" aria-label="单据明细">
+      <span>明细：{record.document_number}</span>
+      <button onClick={onClose}>关闭明细</button>
+    </div>
+  ),
 }))
 
 vi.mock("@/components/operation-log-dialog", () => ({
-  OperationLogDialog: () => null,
+  OperationLogDialog: ({ title, onOpenChange }: { title: string; onOpenChange: (open: boolean) => void }) => (
+    <div role="dialog" aria-label={title}>
+      <button onClick={() => onOpenChange(false)}>关闭日志</button>
+    </div>
+  ),
 }))
 
 vi.mock("@/lib/api", async () => ({
@@ -79,6 +88,67 @@ beforeEach(() => {
 afterEach(() => {
   cleanup()
   vi.restoreAllMocks()
+})
+
+test.each(["pending", "failed"])("shows the list and available filters while customer shops are %s", async (shopState) => {
+  if (shopState === "pending") {
+    mockCustomerShops.mockReturnValue(new Promise(() => {}))
+  } else {
+    mockCustomerShops.mockRejectedValue(new Error("店铺暂时不可用"))
+  }
+  mockInventoryBrands.mockResolvedValue({ items: [{ value: "smiley", label: "笑脸" }] })
+  const user = userEvent.setup()
+  render(<InventoryPage />)
+
+  await screen.findByText("EXPORT-0001")
+  expect(screen.getByRole("button", { name: "刷新列表" })).toBeEnabled()
+  await user.click(screen.getByRole("combobox", { name: "品牌" }))
+  await user.click(await screen.findByRole("button", { name: "笑脸" }))
+  await user.click(screen.getByRole("button", { name: "搜索" }))
+  await waitFor(() => expect(mockListInventory).toHaveBeenLastCalledWith(expect.objectContaining({ brands: ["smiley"] })))
+  expect(screen.getByText("EXPORT-0001")).toBeInTheDocument()
+})
+
+test("cancels replaced list requests and ignores their late responses", async () => {
+  let resolveOld!: (response: { items: { id: number; document_number: string }[]; total: number }) => void
+  mockListInventory.mockReturnValueOnce(new Promise((resolve) => { resolveOld = resolve }))
+  const { unmount } = render(<InventoryPage />)
+  await waitFor(() => expect(mockListInventory).toHaveBeenCalledTimes(1))
+  const oldSignal = mockListInventory.mock.calls[0][0].signal as AbortSignal
+  expect(oldSignal.aborted).toBe(false)
+
+  fireEvent.click(screen.getByRole("tab", { name: "未完成单据" }))
+  await screen.findByText("EXPORT-0001")
+  expect(oldSignal.aborted).toBe(true)
+  const currentSignal = mockListInventory.mock.lastCall![0].signal as AbortSignal
+  expect(currentSignal.aborted).toBe(false)
+
+  await act(async () => {
+    resolveOld({ items: [{ id: 99, document_number: "STALE-0001" }], total: 1 })
+  })
+  expect(screen.queryByText("STALE-0001")).not.toBeInTheDocument()
+  expect(screen.getByText("EXPORT-0001")).toBeInTheDocument()
+
+  unmount()
+  expect(currentSignal.aborted).toBe(true)
+})
+
+test("opens and closes the deferred detail and operation log panels", async () => {
+  const user = userEvent.setup()
+  render(<InventoryPage />)
+  await screen.findByText("EXPORT-0001")
+  expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
+
+  await user.click(screen.getByRole("button", { name: "明细" }))
+  const detail = await screen.findByRole("dialog", { name: "单据明细" })
+  expect(within(detail).getByText("明细：EXPORT-0001")).toBeInTheDocument()
+  await user.click(within(detail).getByRole("button", { name: "关闭明细" }))
+  expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
+
+  await user.click(screen.getByRole("button", { name: "操作日志" }))
+  const logs = await screen.findByRole("dialog", { name: "经营历程操作日志" })
+  await user.click(within(logs).getByRole("button", { name: "关闭日志" }))
+  expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
 })
 
 test("keeps all inventory filters accessible and clears unsubmitted changes", async () => {

@@ -72,12 +72,15 @@ class InventoryImportTasks:
                 table.c.id == task_id, table.c.status == "running",
             ).values(heartbeat_at=datetime.now(timezone.utc))).rowcount == 1
 
-    def fail(self, task_id, message, status_code):
+    def fail(self, task_id, message, status_code, *, validation=None):
         table = INVENTORY_IMPORT_TASK_TABLE
+        values = {"status": "failed", "error": message, "error_status": status_code, "finished_at": datetime.now(timezone.utc)}
+        if validation is not None:
+            values["result"] = {"validation": validation}
         with self.engine.begin() as connection:
             return connection.execute(update(table).where(
                 table.c.id == task_id, table.c.status.in_(["queued", "running"]),
-            ).values(status="failed", error=message, error_status=status_code, finished_at=datetime.now(timezone.utc))).rowcount == 1
+            ).values(**values)).rowcount == 1
 
 
 def complete_inventory_import(connection, task_id, result):

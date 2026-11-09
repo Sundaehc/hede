@@ -26,6 +26,8 @@ const {
   getTaskMock,
   previewPurchaseMock,
   importPurchaseMock,
+  purchaseTaskMock,
+  getPurchaseTaskMock,
 } = vi.hoisted(() => ({
   listInventoryMock: vi.fn(),
   previewTemplateMock: vi.fn(),
@@ -33,6 +35,8 @@ const {
   getTaskMock: vi.fn(),
   previewPurchaseMock: vi.fn(),
   importPurchaseMock: vi.fn(),
+  purchaseTaskMock: vi.fn(),
+  getPurchaseTaskMock: vi.fn(),
 }))
 
 vi.mock("@/components/auth/auth-provider", () => ({
@@ -60,6 +64,8 @@ vi.mock("@/lib/api", async () => ({
   getInventoryTemplateTask: getTaskMock,
   previewPurchaseInventory: previewPurchaseMock,
   importPurchaseInventory: importPurchaseMock,
+  submitPurchaseImportTask: purchaseTaskMock,
+  getPurchaseImportTask: getPurchaseTaskMock,
 }))
 
 const templatePreview: InventoryTemplatePreview = {
@@ -107,6 +113,10 @@ beforeEach(() => {
   })
   previewPurchaseMock.mockResolvedValue({ total: 1, conflicts: [] })
   importPurchaseMock.mockResolvedValue({ message: "成功导入采购单" })
+  purchaseTaskMock.mockImplementation(async (payload) => payload.preview
+    ? { ...importTask("succeeded", payload.taskId), filename: payload.file.name, result: null, preview: { total: 1, conflicts: [] } }
+    : { ...importTask("succeeded", payload.taskId), filename: payload.file.name })
+  getPurchaseTaskMock.mockImplementation(getTaskMock)
 })
 
 afterEach(() => {
@@ -402,6 +412,37 @@ test("shows unmatched product codes separately and copies them without submittin
   expect(ui.queryByRole("alert")).not.toBeInTheDocument()
 })
 
+const productValidation = {
+  code: "product_validation" as const, message: "发现 2 条商品资料错误，请联系商品部；本次未导入任何数据。", total: 2,
+  errors: [2, 8].map((row) => ({ row_number: row, product_code: `000SKU${row}`, brand: "ni", summary: `单据${row}`, reason: "未匹配到商品信息档案" })),
+}
+
+test("template precheck shows the complete structured list and changing file clears it", async () => {
+  previewTemplateMock.mockRejectedValueOnce(new ApiError(400, productValidation))
+  const { user, dialog, ui } = await openImport()
+  selectFile(dialog)
+  await user.click(ui.getByRole("button", { name: "预检查" }))
+  expect(await ui.findByRole("region", { name: "商品资料错误明细" })).toBeInTheDocument()
+  expect(ui.getByText("000SKU8")).toBeInTheDocument()
+  expect(importTemplateMock).not.toHaveBeenCalled()
+  selectFile(dialog, "修正.xlsx")
+  expect(ui.queryByRole("region", { name: "商品资料错误明细" })).not.toBeInTheDocument()
+})
+
+test.each(["inventory", "purchase-orders"] as const)("%s failed background task shows all persisted product issues and unlocks retry", async (mode) => {
+  const task = { task_id: "a".repeat(32), filename: "错误.xlsx", status: "failed", result: null,
+    error: productValidation.message + "（批次编号：" + "a".repeat(32) + "）", error_status: 400, validation: productValidation }
+  if (mode === "inventory") importTemplateMock.mockResolvedValueOnce(task)
+  else purchaseTaskMock.mockResolvedValueOnce(task)
+  const { user, dialog, ui } = await openImport(mode)
+  selectFile(dialog)
+  await user.click(ui.getByRole("button", { name: "预检查" }))
+  if (mode === "inventory") await user.click(ui.getByRole("button", { name: "确认导入" }))
+  expect(await ui.findByRole("region", { name: "商品资料错误明细" })).toBeInTheDocument()
+  expect(ui.getByText("000SKU8")).toBeInTheDocument()
+  expect(ui.getByRole("button", { name: "预检查" })).toBeEnabled()
+})
+
 test("identifies a truncated code list and does not claim to copy undisplayed codes", async () => {
   previewTemplateMock.mockRejectedValueOnce(new Error(
     "以下商品编码未匹配到商品信息档案：SKU-01、SKU-02等 25 个商品编码。请联系商品部维护商品信息档案后再导入；本次未导入任何数据。"
@@ -439,14 +480,56 @@ test("keeps purchase order import working with the shared upload", async () => {
   expect(ui.getByRole("button", { name: "模版下载" })).toBeInTheDocument()
   const file = selectFile(dialog, "采购单.xlsx")
   await user.click(ui.getByRole("button", { name: "预检查" }))
-  expect(previewPurchaseMock).toHaveBeenCalledWith(
-    expect.objectContaining({ file, document_type: "进货订单" })
+  expect(purchaseTaskMock).toHaveBeenCalledWith(
+    expect.objectContaining({ file, document_type: "进货订单", preview: true })
   )
-  await waitFor(() =>
-    expect(importPurchaseMock).toHaveBeenCalledWith(
-      expect.objectContaining({ file, document_type: "进货订单" })
-    )
+  expect(purchaseTaskMock).toHaveBeenCalledOnce()
+  await user.click(await ui.findByRole("button", { name: "确认导入" }))
+  expect(purchaseTaskMock).toHaveBeenLastCalledWith(
+    expect.objectContaining({ file, document_type: "进货订单", preview: false })
   )
+  expect(importPurchaseMock).not.toHaveBeenCalled()
+  expect(previewPurchaseMock).not.toHaveBeenCalled()
+})
+
+test("keeps a purchase import running beyond two minutes and only queries after reconnecting", async () => {
+  const { user, dialog, ui } = await openImport("purchase-orders")
+  selectFile(dialog, "大采购单.xlsx")
+  await user.click(ui.getByRole("button", { name: "预检查" }))
+  await ui.findByRole("button", { name: "确认导入" })
+  purchaseTaskMock.mockRejectedValueOnce(new TypeError("Failed to fetch"))
+  getPurchaseTaskMock.mockResolvedValue(importTask("running"))
+  await user.click(ui.getByRole("button", { name: "确认导入" }))
+  await waitFor(() => expect(getPurchaseTaskMock).toHaveBeenCalledOnce())
+  const taskId = purchaseTaskMock.mock.calls[1][0].taskId
+  expect(window.sessionStorage.getItem("purchase-import-task:1")).toBe(taskId)
+  vi.useFakeTimers()
+  await act(async () => { await vi.advanceTimersByTimeAsync(123_000) })
+  expect(ui.getByRole("button", { name: "等待结果" })).toBeDisabled()
+  expect(purchaseTaskMock).toHaveBeenCalledTimes(2)
+  getPurchaseTaskMock.mockResolvedValue(importTask("succeeded", taskId))
+  await act(async () => {
+    window.dispatchEvent(new Event("online"))
+    await vi.advanceTimersByTimeAsync(1)
+  })
+  vi.useRealTimers()
+  expect(await screen.findByRole("alertdialog", { name: "导入完成" })).toBeInTheDocument()
+  expect(window.sessionStorage.getItem("purchase-import-task:1")).toBeNull()
+  expect(purchaseTaskMock).toHaveBeenCalledTimes(2)
+})
+
+test("restores purchase batches independently from inventory batches after refreshing", async () => {
+  const taskId = "c".repeat(32)
+  window.sessionStorage.setItem("purchase-import-task:1", taskId)
+  window.sessionStorage.setItem("inventory-import-task:1", "d".repeat(32))
+  getPurchaseTaskMock.mockResolvedValue(importTask("running", taskId))
+  render(<InventoryPage mode="purchase-orders" />)
+  const dialog = await screen.findByRole("dialog", { name: "导入采购单" })
+  await waitFor(() => expect(getPurchaseTaskMock).toHaveBeenCalledWith(taskId, expect.any(AbortSignal)))
+  expect(within(dialog).getByRole("button", { name: "等待结果" })).toBeDisabled()
+  expect(getTaskMock).not.toHaveBeenCalled()
+  expect(purchaseTaskMock).not.toHaveBeenCalled()
+  expect(window.sessionStorage.getItem("inventory-import-task:1")).toBe("d".repeat(32))
 })
 
 test("opens the upload picker with the keyboard and keeps remove a separate button", async () => {

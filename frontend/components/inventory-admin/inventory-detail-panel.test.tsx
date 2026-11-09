@@ -264,3 +264,24 @@ test("reimports NS details without overriding the document brand with the size d
   await waitFor(() => expect(onTotalChanged).toHaveBeenCalledOnce())
   expect(await screen.findByRole("alertdialog", { name: "导入完成" })).toHaveTextContent("已重新导入")
 })
+
+test("detail reimport displays every structured product error without changing existing details", async () => {
+  const user = userEvent.setup()
+  const changed = vi.fn()
+  const validation = {
+    code: "product_validation" as const, message: "发现 2 条商品资料错误，请联系商品部；本次未导入任何数据。", total: 2,
+    errors: [2, 9].map((row) => ({ row_number: row, product_code: `000SKU${row}`, brand: "ni", summary: "", reason: "未匹配到商品信息档案" })),
+  }
+  mockReplaceDetailsFromExcel.mockRejectedValueOnce(new ApiError(400, validation))
+  const view = render(<InventoryDetailPanel record={{ ...record, document_type: "进货单" }} suppliers={[]} onClose={vi.fn()} onTotalChanged={changed} />)
+  await screen.findByText("大底费用")
+  await user.upload(view.container.querySelector<HTMLInputElement>('input[type="file"]')!, new File(["test"], "错误.xlsx"))
+  await user.click(within(await screen.findByRole("alertdialog", { name: "确认重新导入明细" })).getByRole("button", { name: "确认导入" }))
+  const dialog = within(await screen.findByRole("dialog", { name: "明细导入校验结果" }))
+  expect(dialog.getByText("000SKU2")).toBeInTheDocument()
+  expect(dialog.getByText("000SKU9")).toBeInTheDocument()
+  expect(changed).not.toHaveBeenCalled()
+  expect(screen.queryByRole("alertdialog", { name: "确认重新导入明细" })).not.toBeInTheDocument()
+  await user.click(dialog.getByRole("button", { name: /^关闭$/ }))
+  expect(screen.getByText("大底费用")).toBeInTheDocument()
+})

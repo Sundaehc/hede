@@ -1,8 +1,10 @@
 "use client"
 
 import { useSessionQueryState } from "@/lib/session-query-state"
+import { useCrossTabRefresh } from "@/lib/use-cross-tab-refresh"
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import dynamic from "next/dynamic"
 import { RotateCcw, Trash2, X } from "lucide-react"
 
 import { useAuth } from "@/components/auth/auth-provider"
@@ -27,6 +29,7 @@ import { productAttributeFilter, productAttributeValues } from "@/lib/product-at
 const DEFAULT_BRAND = "all"
 const PAGE_SIZES = [10, 50, 100]
 const EMPTY_SEARCH_OPTIONS: ProductSearchOptions = { years: [], seasons: [], product_names: [] }
+const ProductBarcodeSearchDialog = dynamic(() => import("@/components/product-admin/product-barcode-search-dialog").then((module) => module.ProductBarcodeSearchDialog))
 
 const isAllBrand = (b: ProductArchiveBrandKey) => b === "all"
 
@@ -81,6 +84,7 @@ export function ProductAdminPage() {
   const [copywritingItem, setCopywritingItem] = useState<ProductListItem | null>(null)
   const [previewImage, setPreviewImage] = useState<{ src: string; alt: string } | null>(null)
   const [operationLogOpen, setOperationLogOpen] = useState(false)
+  const [barcodeSearchOpen, setBarcodeSearchOpen] = useState(false)
   const [managedBrands, setManagedBrands] = useState<SupplierBrandItem[]>([])
   const [archiveBrandsReady, setArchiveBrandsReady] = useState(false)
   const productArchiveBrands = resolveProductArchiveBrands(managedBrands)
@@ -130,6 +134,10 @@ export function ProductAdminPage() {
   // MessageDialog state
   const [messageOpen, setMessageOpen] = useState(false)
   const [messageContent, setMessageContent] = useState({ title: "", description: "" })
+
+  useCrossTabRefresh(["products", "reference-data"], () => {
+    setReloadToken((current) => current + 1)
+  }, isDialogOpen || isDeleting || isBatchDeleting || batchDeleteOpen || deleteTarget !== null)
 
   useEffect(() => {
     if (routeContextInitializedRef.current) return
@@ -186,7 +194,7 @@ export function ProductAdminPage() {
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [reloadToken])
 
   useEffect(() => {
     let cancelled = false
@@ -214,6 +222,9 @@ export function ProductAdminPage() {
 
         setItems(response.items)
         setTotal(response.total)
+        setDetailItem((current) => current
+          ? response.items.find((item) => item.brand === current.brand && item.id === current.id) ?? current
+          : null)
       } catch (loadError) {
         if (cancelled) {
           return
@@ -531,6 +542,7 @@ export function ProductAdminPage() {
                   setRecyclePage(1)
                   setRecycleOpen(true)
                 } : undefined}
+                onOpenBarcodeSearch={() => setBarcodeSearchOpen(true)}
                 onImportComplete={(skus: string[]) => {
                   clearSelection()
                   setReloadToken((current) => current + 1)
@@ -603,6 +615,17 @@ export function ProductAdminPage() {
             />
           </TabsContent>
         </Tabs>
+
+        {barcodeSearchOpen && canViewProducts && (
+          <ProductBarcodeSearchDialog
+            key={brand}
+            brand={brand}
+            brands={productArchiveBrands}
+            initialQuery={searchInput}
+            canExport={canExportProducts}
+            onClose={() => setBarcodeSearchOpen(false)}
+          />
+        )}
 
         {detailItem && canViewProducts ? (
           <ProductDetailDialog

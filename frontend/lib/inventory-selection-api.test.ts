@@ -4,6 +4,21 @@ import { batchDeleteInventory, buildInventoryExportUrl, listInventory, listInven
 
 afterEach(() => vi.restoreAllMocks())
 
+test("cancels inventory fetches through the signal without adding it to the query", async () => {
+  const controller = new AbortController()
+  const fetchMock = vi.spyOn(global, "fetch").mockImplementation((_input, init) => new Promise((_resolve, reject) => {
+    init?.signal?.addEventListener("abort", () => reject(new DOMException("Aborted", "AbortError")), { once: true })
+  }))
+  const pending = listInventory({ page: 1, pageSize: 10, completion_status: "completed", signal: controller.signal })
+  const url = new URL(String(fetchMock.mock.calls[0][0]), "http://localhost")
+  expect(url.searchParams.get("completion_status")).toBe("completed")
+  expect(url.searchParams.has("signal")).toBe(false)
+  expect(fetchMock.mock.calls[0][1]?.signal).toBe(controller.signal)
+
+  controller.abort()
+  await expect(pending).rejects.toMatchObject({ name: "AbortError" })
+})
+
 test("requests matching IDs with exactly the applied scope and no pagination", async () => {
   const fetchMock = vi
     .spyOn(global, "fetch")

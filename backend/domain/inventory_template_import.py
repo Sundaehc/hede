@@ -87,7 +87,7 @@ class TemplateDocument:
     warehouse: str
     handler: str
     summary: str
-    rows: list[dict[str, str]]
+    rows: list[dict[str, object]]
 
 
 def _text(value: object) -> str:
@@ -194,9 +194,8 @@ def read_template_documents(content: bytes, *, default_handler: str = "") -> tup
                 detail = {"product_name": subject, "amount": _amount(data["总金额"], row_number, "总金额")}
             else:
                 code = _text(data.get("商品编码", data.get("系统码")))
-                if not code:
-                    raise HTTPException(status_code=400, detail=f"Excel 第 {row_number} 行：商品编码不能为空")
                 detail = {
+                    "source_row_number": row_number,
                     "product_code": code,
                     "quantity": _amount(data.get("销售数量", data.get("数量")), row_number, "数量"),
                     "unit_price": _amount(data.get("单价"), row_number, "单价", required=False),

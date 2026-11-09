@@ -1,7 +1,16 @@
 from __future__ import annotations
 
+from contextlib import closing
+from itertools import chain
+import logging
+from urllib.parse import quote
+
 from fastapi import APIRouter, HTTPException, Query, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
+from starlette.background import BackgroundTask
+
+from api.product_barcode_export import build_product_barcode_export
+from api.routes.import_export import _product_export_brand_labels
 
 from api.routes.images import image_storage_path_for, image_url_for
 from api.operation_log_utils import (
@@ -140,6 +149,69 @@ def list_products(
             for item in payload["items"]
         ],
     }
+
+
+def _barcode_search_query(repository, brand: str, query: str) -> str:
+    if brand != "all" and not repository.is_product_archive_brand(brand):
+        raise HTTPException(status_code=400, detail=f"Invalid brand: {brand}")
+    query = query.strip().replace("，", ",")
+    if not any(part.strip() for part in query.replace("\n", ",").split(",")):
+        raise HTTPException(status_code=400, detail="请输入要查询条码的货号")
+    return query
+
+
+@router.get("/products/barcodes/export")
+def export_product_barcodes(
+    request: Request,
+    brand: str = Query(...),
+    query: str = Query(..., min_length=1, max_length=2000),
+):
+    repository = request.app.state.repository
+    query = _barcode_search_query(repository, brand, query)
+    labels = _product_export_brand_labels(repository)
+    with closing(repository.iter_product_barcodes(brand=brand, query=query)) as rows:
+        first = next(rows, None)
+        if first is None:
+            raise HTTPException(status_code=400, detail="没有可导出的条码查询结果，请重新查询")
+        buffer, count = build_product_barcode_export(chain((first,), rows), labels)
+    try:
+        write_operation_log(
+            request, module="product", action="export", entity_type="product_barcode_export",
+            entity_label="条码搜索", summary=f"导出条码搜索结果 {count} 条",
+            after_data={"brand": brand, "query": query, "exported_rows": count},
+        )
+    except Exception:
+        logging.getLogger(__name__).exception("Barcode export generated but operation log failed")
+
+    def chunks():
+        try:
+            while chunk := buffer.read(64 * 1024):
+                yield chunk
+        finally:
+            buffer.close()
+
+    return StreamingResponse(
+        chunks(), media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={
+            "Content-Disposition": f"attachment; filename*=UTF-8''{quote('条码搜索.xlsx')}",
+            "Cache-Control": "no-store",
+        }, background=BackgroundTask(buffer.close),
+    )
+
+
+@router.get("/products/barcodes")
+def list_product_barcodes(
+    request: Request,
+    brand: str = Query(...),
+    query: str = Query(..., min_length=1, max_length=2000),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(50, ge=1, le=200),
+):
+    repository = request.app.state.repository
+    query = _barcode_search_query(repository, brand, query)
+    return JSONResponse(repository.list_product_barcodes(
+        brand=brand, query=query, page=page, page_size=page_size,
+    ), headers={"Cache-Control": "no-store"})
 
 
 @router.post("/products/selection-ids")

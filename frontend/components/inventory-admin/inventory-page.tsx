@@ -1,6 +1,8 @@
 "use client"
 
 import { useSessionQueryState } from "@/lib/session-query-state"
+import { useCrossTabRefresh } from "@/lib/use-cross-tab-refresh"
+import dynamic from "next/dynamic"
 
 import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent } from "react"
 import { FileSpreadsheet, ClipboardCheck, LoaderCircle, Check, Copy, Plus, Download, Upload, Trash2, Edit, Search, X, RefreshCw, List, BadgeDollarSign, FileText, History, ChevronLeft, ChevronRight, GripVertical, RotateCcw } from "lucide-react"
@@ -30,14 +32,12 @@ import {
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { ConfirmDialog, MessageDialog } from "@/components/confirm-dialog"
 import { RecycleBinPagination } from "@/components/recycle-bin-page-jump"
-import { InventoryDetailPanel } from "@/components/inventory-admin/inventory-detail-panel"
 import { AccountSubjectSelect } from "@/components/inventory-admin/account-subject-select"
 import { InventoryImportUpload } from "@/components/inventory-admin/inventory-import-upload"
 import { InventoryImportError } from "@/components/inventory-admin/inventory-import-error"
 import { InventoryImportTaskStatus, type InventoryImportTaskNotice } from "@/components/inventory-admin/inventory-import-task-status"
 import { InventoryProductCodeFilter } from "@/components/inventory-admin/product-code-filter"
 import { SortableColumnLabel } from "@/components/inventory-admin/sortable-column-label"
-import { OperationLogDialog } from "@/components/operation-log-dialog"
 import { useAuth } from "@/components/auth/auth-provider"
 import { SearchableFilterInput, SearchableMultiFilterInput, type SearchableFilterOption } from "@/components/inventory-admin/searchable-filter-input"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
@@ -56,6 +56,8 @@ import {
   listInventoryCostDocumentOptions,
   batchDeleteInventory,
   importPurchaseInventory,
+  submitPurchaseImportTask,
+  getPurchaseImportTask,
   previewPurchaseInventory,
   previewInventoryTemplate,
   submitInventoryTemplateTask,
@@ -90,6 +92,10 @@ import {
 import type { GeneralCustomerBrandItem, GeneralCustomerShopItem, GeneralCustomerUnitItem } from "@/lib/types"
 import { INVENTORY_IMPORT_MAX_FILE_BYTES } from "@/lib/upload-limits.mjs"
 import { cn } from "@/lib/utils"
+import type { ProductImportValidation } from "@/lib/product-import-validation"
+
+const InventoryDetailPanel = dynamic(() => import("@/components/inventory-admin/inventory-detail-panel").then((module) => module.InventoryDetailPanel))
+const OperationLogDialog = dynamic(() => import("@/components/operation-log-dialog").then((module) => module.OperationLogDialog))
 
 const PAGE_SIZES = [10, 50, 100]
 
@@ -759,6 +765,7 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
   const [sortRules, setSortRules] = useSessionQueryState<InventorySortRule[]>("inventory:" + mode + ":sortRules", [])
   const [inventoryColumnWidths, setInventoryColumnWidths] = useState<Record<InventorySortKey, number>>(INVENTORY_TABLE_COLUMN_DEFAULT_WIDTHS)
   const [reloadToken, setReloadToken] = useState(0)
+  const [referenceRevision, setReferenceRevision] = useState(0)
   const [items, setItems] = useState<InventoryRecord[]>([])
   const [total, setTotal] = useState(0)
   const [inventoryTotals, setInventoryTotals] = useState({
@@ -987,12 +994,17 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
   const [purchaseDecisions, setPurchaseDecisions] = useState<Record<string, { action: "overwrite" | "new" | "skip"; new_summary?: string }>>({})
   const [importFormData, setImportFormData] = useState<Record<string, string>>({ ...EMPTY_IMPORT_FORM })
   const [importFile, setImportFile] = useState<File | null>(null)
-  const [importError, setImportError] = useState("")
+  const [importError, setImportErrorMessage] = useState("")
+  const [importValidation, setImportValidation] = useState<ProductImportValidation | null>(null)
+  const setImportError = useCallback((message: string, validation: ProductImportValidation | null = null) => {
+    setImportErrorMessage(message)
+    setImportValidation(validation)
+  }, [])
   const [importTaskId, setImportTaskId] = useState("")
   const [importTaskNotice, setImportTaskNotice] = useState<InventoryImportTaskNotice | null>(null)
   const [isImportTaskChecking, setIsImportTaskChecking] = useState(false)
   const checkImportTaskRef = useRef<(() => void) | null>(null)
-  const importTaskStorageKey = "inventory-import-task:" + (user?.id ?? "anonymous")
+  const importTaskStorageKey = (isPurchasePage ? "purchase-import-task:" : "inventory-import-task:") + (user?.id ?? "anonymous")
   useEffect(() => {
     setPurchasePreview(null)
     setPurchaseDecisions({})
@@ -1004,32 +1016,6 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
   const [isRequirementsLoading, setIsRequirementsLoading] = useState(false)
   const [isSavingRequirement, setIsSavingRequirement] = useState(false)
   const [operationLogOpen, setOperationLogOpen] = useState(false)
-
-  useEffect(() => {
-    async function loadOptions() {
-      try {
-        const [suppliersRes, warehouseBrandsRes, warehousesRes, customerBrandsRes, customerShopsRes, customerUnitsRes, accountSubjectsRes, inventoryBrandsRes] = await Promise.all([
-          listSuppliers(),
-          listWarehouseBrands(),
-          listWarehouses(),
-          listGeneralCustomerBrands(),
-          listGeneralCustomerShops(),
-          listGeneralCustomerUnits(),
-          listInventoryAccountSubjects(),
-          listInventoryBrands(),
-        ])
-        setSupplierOptions(suppliersRes.items)
-        setWarehouseBrandOptions(warehouseBrandsRes.items)
-        setWarehouseOptions(warehousesRes.items)
-        setCustomerBrandOptions(customerBrandsRes.items)
-        setCustomerShopOptions(customerShopsRes.items)
-        setCustomerUnitOptions(customerUnitsRes.items)
-        setAccountSubjectOptions(accountSubjectsRes.items)
-        setInventoryBrandOptions(inventoryBrandsRes.items)
-      } catch { /* ignore */ }
-    }
-    void loadOptions()
-  }, [])
 
   useEffect(() => {
     if (!costDialogOpen || !costFormData.date_start || !costFormData.date_end) return
@@ -1066,14 +1052,22 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
     keywords: [item.supplier, item.warehouse].filter(Boolean).join(" "),
   })), [costDocumentOptions])
 
+  useCrossTabRefresh(["inventory"], () => setReloadToken((value) => value + 1),
+    formOpen || importDialogOpen || costDialogOpen || detailDocumentId !== null
+    || isSaving || isDeleting || isBatchDeleting || deleteTarget !== null || batchDeleteOpen)
+  useCrossTabRefresh(["reference-data"], () => setReferenceRevision((value) => value + 1),
+    formOpen || importDialogOpen || costDialogOpen)
+
   useEffect(() => {
     let cancelled = false
+    const controller = new AbortController()
     async function load() {
       setIsLoading(true)
       setError(null)
       try {
         const response = await listInventory({
           ...selectionFilters,
+          signal: controller.signal,
           purchaseDetailMode: isPurchaseOrderTab && submittedFilters.product_code
             ? purchaseDetailView
             : undefined,
@@ -1102,8 +1096,31 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
       }
     }
     void load()
-    return () => { cancelled = true }
+    return () => { cancelled = true; controller.abort() }
   }, [isPurchaseOrderTab, page, pageSize, purchaseDetailView, reloadToken, selectionFilters, sortRules, submittedFilters.product_code])
+
+  useEffect(() => {
+    let cancelled = false
+    // Start the list first; publish each option source without waiting for
+    // slower sources so every filter does not share one loading bottleneck.
+    async function loadOption<T>(load: () => Promise<{ items: T[] }>, apply: (items: T[]) => void) {
+      try {
+        const response = await load()
+        if (!cancelled) apply(response.items)
+      } catch { /* keep other option sources available */ }
+    }
+    void Promise.all([
+      loadOption(listSuppliers, setSupplierOptions),
+      loadOption(listWarehouseBrands, setWarehouseBrandOptions),
+      loadOption(listWarehouses, setWarehouseOptions),
+      loadOption(listGeneralCustomerBrands, setCustomerBrandOptions),
+      loadOption(listGeneralCustomerShops, setCustomerShopOptions),
+      loadOption(listGeneralCustomerUnits, setCustomerUnitOptions),
+      loadOption(listInventoryAccountSubjects, setAccountSubjectOptions),
+      loadOption(listInventoryBrands, setInventoryBrandOptions),
+    ])
+    return () => { cancelled = true }
+  }, [referenceRevision])
 
   useEffect(() => {
     selectionRequestRef.current += 1
@@ -1128,7 +1145,7 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
       }
       if (
         task.status !== "failed" &&
-        (task.status !== "succeeded" || !task.result)
+        (task.status !== "succeeded" || (!task.result && !task.preview))
       ) {
         throw new Error("导入结果尚未确认")
       }
@@ -1138,7 +1155,16 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
       setImportTaskId("")
       setImportTaskNotice(null)
       setIsImporting(false)
+      if (task.status === "succeeded" && task.preview) {
+        setPurchasePreview(task.preview)
+        setPurchaseDecisions({})
+        setImportError("")
+        setImportDialogOpen(true)
+        return true
+      }
       setTemplatePreview(null)
+      setPurchasePreview(null)
+      setPurchaseDecisions({})
       setReloadToken((token) => token + 1)
       if (task.status === "succeeded" && task.result) {
         showMessage("导入完成", task.result.message)
@@ -1146,7 +1172,7 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
         setImportFile(null)
         setImportError("")
       } else {
-        setImportError((task.error || "本批次导入失败") + " 请重新预检查后再导入；当前不支持从中断位置继续。")
+        setImportError((task.error || "本批次导入失败") + (task.validation ? "" : " 请重新预检查后再导入；当前不支持从中断位置继续。"), task.validation)
         setImportDialogOpen(true)
       }
       return true
@@ -1162,14 +1188,14 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
       } catch {}
       if (/^[a-f0-9]{32}$/.test(pending)) {
         setImportTaskId(pending)
-        setImportMode("template")
+        setImportMode(isPurchasePage ? "existing" : "template")
         setIsImporting(true)
         setImportTaskNotice({ phase: "restoring" })
         setImportDialogOpen(true)
       }
     }, 0)
     return () => clearTimeout(restore)
-  }, [importTaskStorageKey, setImportDialogOpen])
+  }, [importTaskStorageKey, isPurchasePage, setImportDialogOpen])
 
   useEffect(() => {
     if (!importTaskId) return
@@ -1183,7 +1209,7 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
       checking = true
       setIsImportTaskChecking(true)
       try {
-        const task = await getInventoryTemplateTask(
+        const task = await (isPurchasePage ? getPurchaseImportTask : getInventoryTemplateTask)(
           importTaskId,
           controller.signal
         )
@@ -1219,7 +1245,7 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
       window.removeEventListener("online", check)
       if (checkImportTaskRef.current === check) checkImportTaskRef.current = null
     }
-  }, [importTaskId, applyImportTaskResult])
+  }, [importTaskId, isPurchasePage, applyImportTaskResult])
 
   const handleTableSort = (columnKey: InventorySortKey, append: boolean) => {
     setPage(1)
@@ -1458,7 +1484,30 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
           showMessage("已追加到现有单据", result.message)
         }
       } else if (editingId !== null) {
-        await updateInventoryRecord(editingId, payload)
+        const { item: updated } = await updateInventoryRecord(editingId, payload)
+        if (isPurchasePage) {
+          // Keep the visible purchase rows in place until the user requests a
+          // new list. Requerying here would move edits under summary/time sorts.
+          setItems((current) => current.map((item) => {
+            if (item.id !== updated.id) return item
+            if (!item.purchase_detail_mode) return { ...item, ...updated }
+            // Product/size rows share the header, but their amounts and other
+            // detail values must not be replaced with document-level totals.
+            return {
+              ...item,
+              document_number: updated.document_number,
+              date: updated.date,
+              supplier: updated.supplier,
+              warehouse: updated.warehouse,
+              document_type: updated.document_type,
+              handler: updated.handler,
+              summary: updated.summary,
+              additional_note: updated.additional_note,
+              extra_fields: updated.extra_fields,
+              updated_at: updated.updated_at,
+            }
+          }))
+        }
       }
       if (!isPurchasePage && formMode === "create") {
         setLastInventoryEntryDefaults({
@@ -1469,7 +1518,7 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
         })
       }
       setFormOpen(false)
-      setReloadToken((t) => t + 1)
+      if (!isPurchasePage || formMode === "create") setReloadToken((t) => t + 1)
     } catch (e) {
       showMessage("保存失败", getErrorMessage(e))
     } finally {
@@ -1629,6 +1678,7 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
   }
 
   const handleImport = async () => {
+    if (importTaskId || isImporting) return
     setImportError("")
     if (!importFile) {
       setImportError("请选择 Excel 文件")
@@ -1680,6 +1730,30 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
       }
     }
     setIsImporting(true)
+    if (isPurchasePage) {
+      const taskId = Array.from(crypto.getRandomValues(new Uint8Array(16)), (value) => value.toString(16).padStart(2, "0")).join("")
+      setImportTaskNotice({ phase: "submitting", filename: importFile.name })
+      try { window.sessionStorage.setItem(importTaskStorageKey, taskId) } catch {}
+      try {
+        const task = await submitPurchaseImportTask({
+          ...payload, taskId, preview: !purchasePreview, decisions: purchaseDecisions,
+        })
+        setImportTaskId(taskId)
+        applyImportTaskResult(task)
+      } catch (error) {
+        if (error instanceof ApiError && error.status >= 400 && error.status < 500 && error.status !== 408) {
+          try { window.sessionStorage.removeItem(importTaskStorageKey) } catch {}
+          setImportError(error.status === 404 ? "后台导入接口尚未更新，请联系管理员更新并重启后端后再试；本次未导入。" : getErrorMessage(error), error.validation)
+          setIsImporting(false)
+          setImportTaskNotice(null)
+          if (error.status === 409) setPurchasePreview(null)
+        } else {
+          setImportTaskId(taskId)
+          setImportTaskNotice({ phase: "disconnected", filename: importFile.name })
+        }
+      }
+      return
+    }
     try {
       if (!purchasePreview) {
         const preview = await previewPurchaseInventory(payload)
@@ -1705,7 +1779,7 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
       setPurchaseDecisions({})
       setReloadToken((t) => t + 1)
     } catch (err) {
-      setImportError(getErrorMessage(err))
+      setImportError(getErrorMessage(err), err instanceof ApiError ? err.validation : null)
       if (err instanceof ApiError && err.status === 409) setPurchasePreview(null)
     } finally {
       setIsImporting(false)
@@ -1726,7 +1800,7 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
         setTemplatePreview(preview)
         setTemplateDecisions({})
       } catch (error) {
-        setImportError(getErrorMessage(error))
+        setImportError(getErrorMessage(error), error instanceof ApiError ? error.validation : null)
       } finally {
         setIsImporting(false)
       }
@@ -1764,7 +1838,7 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
     } catch (error) {
       if (error instanceof ApiError && error.status >= 400 && error.status < 500 && error.status !== 408) {
         try { window.sessionStorage.removeItem(importTaskStorageKey) } catch {}
-        setImportError(error.status === 404 ? "后台导入接口尚未更新，请联系管理员更新并重启后端后再试；本次未导入。" : getErrorMessage(error))
+        setImportError(error.status === 404 ? "后台导入接口尚未更新，请联系管理员更新并重启后端后再试；本次未导入。" : getErrorMessage(error), error.validation)
         setIsImporting(false)
         setImportTaskNotice(null)
       } else {
@@ -1812,6 +1886,7 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
 
   const search = () => {
     setPage(1)
+    if (isPurchasePage) setReloadToken((current) => current + 1)
     setSubmittedFilters({
       date_start: searchDateStart,
       date_end: searchDateEnd,
@@ -2660,7 +2735,7 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
                             <Button variant="ghost" size="icon-sm" onClick={() => setDetailDocumentId(item.id)} className="cursor-pointer" title="明细">
                               <List className="h-4 w-4" />
                             </Button>
-                            <Button variant="ghost" size="icon-sm" onClick={() => openEdit(item)} className="cursor-pointer" title="编辑">
+                            <Button variant="ghost" size="icon-sm" onClick={() => openEdit(item)} disabled={isPurchasePage && isLoading} className="cursor-pointer" title="编辑">
                               <Edit className="h-4 w-4" />
                             </Button>
                             <Button variant="ghost" size="icon-sm" onClick={() => setDeleteTarget(item)} className="cursor-pointer" title="删除">
@@ -2922,12 +2997,12 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
           if (!isImporting || importTaskId) setImportDialogOpen(open)
         }}
       >
-        <DialogContent className="flex max-h-[90vh] max-w-2xl flex-col gap-0 overflow-hidden p-0">
+        <DialogContent className={cn("flex max-h-[90vh] flex-col gap-0 overflow-hidden p-0", importValidation ? "max-w-4xl" : "max-w-2xl")}>
           <DialogHeader className="shrink-0 gap-1.5 border-b border-border/70 px-5 py-5 sm:px-6">
             <div className="flex items-start justify-between gap-4">
               <div className="space-y-1.5">
                 <DialogTitle className="text-lg">{isPurchaseOrderTab ? "导入采购单" : "导入单据明细"}</DialogTitle>
-                <DialogDescription className="text-xs leading-5">{isPurchaseOrderTab ? "上传采购单 Excel，系统将识别单据信息并检查重复记录。" : "选择导入方式并上传 Excel，系统将检查单据与重复记录。"}</DialogDescription>
+                <DialogDescription className="text-xs leading-5">{isPurchaseOrderTab ? "上传采购单 Excel，后台预检查完成后，核对结果并确认导入。" : "选择导入方式并上传 Excel，系统将检查单据与重复记录。"}</DialogDescription>
               </div>
               <span className="mt-0.5 flex size-10 shrink-0 items-center justify-center rounded-xl border border-border/70 bg-muted/40 text-muted-foreground"><FileSpreadsheet className="size-5" aria-hidden="true" /></span>
             </div>
@@ -2942,7 +3017,7 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
             />
           )}
           {importError && (
-            <InventoryImportError key={importError} message={importError} />
+            <InventoryImportError key={importError} message={importError} validation={importValidation} brands={inventoryBrandOptions} />
           )}
           {!isPurchaseOrderTab && (
             <div role="group" aria-label="导入方式" className="grid grid-cols-2 gap-1 rounded-xl border border-border/60 bg-muted/50 p-1">
@@ -3099,7 +3174,7 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
                 <InventoryImportUpload file={importFile} disabled={isImporting || Boolean(importTaskId)} onFileChange={handleImportFileSelection} />
                 {purchasePreview && (
                   <div className="col-span-2 space-y-3 rounded-lg border p-3">
-                    <p className="text-sm">共 {purchasePreview.total} 张单据；日期、摘要、类型、往来单位及仓库均相同的 {purchasePreview.conflicts.length} 张需确认。</p>
+                    <p className="text-sm">共 {purchasePreview.total} 张单据；日期、摘要、类型、往来单位及仓库均相同的 {purchasePreview.conflicts.length} 张需确认。{purchasePreview.conflicts.length === 0 ? "预检查通过，请确认导入。" : ""}</p>
                     {purchasePreview.conflicts.map((conflict) => {
                       const decision = purchaseDecisions[conflict.key]
                       return (
@@ -3139,7 +3214,7 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
             {importTaskNotice ? (
               <p className="min-w-0 flex-1 text-xs leading-5 text-muted-foreground">{importTaskId ? "关闭弹窗不影响结果核验，请勿重复提交。" : "文件提交中，请等待接收确认。"}</p>
             ) : (
-              <p role="status" aria-live="polite" className="min-w-0 flex-1 text-xs leading-5 text-muted-foreground">{isImporting ? "正在处理，请勿关闭窗口" : !importFile ? "选择 Excel 文件后开始检查" : importMode === "template" && !isPurchaseOrderTab ? templatePreview ? "预检查完成，请核对结果后确认导入" : "先预检查，确认后再写入数据" : purchasePreview ? "请处理重复单据后确认导入" : "预检查通过后将自动导入"}</p>
+              <p role="status" aria-live="polite" className="min-w-0 flex-1 text-xs leading-5 text-muted-foreground">{isImporting ? "正在处理，请查看任务状态" : !importFile ? "选择 Excel 文件后开始检查" : isPurchasePage ? purchasePreview ? "预检查完成，请核对结果后确认导入" : "后台预检查，确认后再写入数据" : importMode === "template" && !isPurchaseOrderTab ? templatePreview ? "预检查完成，请核对结果后确认导入" : "先预检查，确认后再写入数据" : purchasePreview ? "请处理重复单据后确认导入" : "预检查通过后将自动导入"}</p>
             )}
             <div className="flex items-center gap-2">
               <Button type="button" variant="outline" onClick={() => setImportDialogOpen(false)} disabled={isImporting && !importTaskId} className="h-9 px-4">关闭</Button>
@@ -3502,19 +3577,19 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
         onClose={() => setMessageOpen(false)}
       />
 
-      <OperationLogDialog
+      {operationLogOpen && <OperationLogDialog
         module={isPurchasePage ? "purchase" : "inventory"}
         title={isPurchasePage ? "采购单管理操作日志" : "经营历程操作日志"}
         open={operationLogOpen}
         onOpenChange={setOperationLogOpen}
-      />
+      />}
 
-      <InventoryDetailPanel
+      {detailDocumentId !== null && <InventoryDetailPanel
         record={detailRecord}
         suppliers={supplierOptions}
         onClose={() => setDetailDocumentId(null)}
         onTotalChanged={() => setReloadToken((t) => t + 1)}
-      />
+      />}
     </div>
   )
 }

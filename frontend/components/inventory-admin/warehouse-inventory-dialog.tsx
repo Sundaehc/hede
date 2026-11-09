@@ -10,6 +10,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select } from "@/components/ui/select"
+import { useCrossTabRefresh } from "@/lib/use-cross-tab-refresh"
 
 const PAGE_SIZES = [20, 50, 100]
 
@@ -73,6 +74,8 @@ export function WarehouseInventoryDialog({
   const [movementLoading, setMovementLoading] = useState(false)
   const [movementError, setMovementError] = useState("")
   const warehouseId = warehouse?.id
+
+  useCrossTabRefresh(["inventory", "products", "reference-data"], () => setInventoryRevision((value) => value + 1), !open)
 
   useEffect(() => {
     if (!open || warehouseId === undefined) return
@@ -143,7 +146,7 @@ export function WarehouseInventoryDialog({
     }
     void loadMovements()
     return () => { cancelled = true; controller.abort() }
-  }, [filters, movementPage, open, selectedItem, warehouseId])
+  }, [filters, inventoryRevision, movementPage, open, selectedItem, warehouseId])
 
   const totalPages = Math.max(1, Math.ceil(total / pageSize))
   const movementPages = Math.max(1, Math.ceil(movementTotal / 50))

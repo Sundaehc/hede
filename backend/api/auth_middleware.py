@@ -34,6 +34,8 @@ def required_permission_for_request(
         return ("system.admin", "product.view", "fine_table.view", "inventory.view", "purchase.view")
     if path.startswith("/product-copywriting"):
         return "product.view"
+    if path == "/products/barcodes/export":
+        return "product.export"
     if path.startswith("/products"):
         if method == "PUT" and re.fullmatch(r"/products/[^/]+/[0-9]+", path):
             return ("product.manage", "product.edit")

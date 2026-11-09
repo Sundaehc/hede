@@ -1,6 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { useCrossTabRefresh } from "@/lib/use-cross-tab-refresh"
 import { Plus, Trash2, Edit, X, Upload, Search, Printer, Settings2, ChevronLeft, ChevronRight, Filter, LoaderCircle } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -10,6 +11,7 @@ import { SizeGroupSelect } from "@/components/inventory-admin/size-group-select"
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
@@ -52,6 +54,8 @@ import {
   type InventoryAccountSubject,
 } from "@/lib/api"
 import type { SizeGroup } from "@/lib/types"
+import type { ProductImportValidation } from "@/lib/product-import-validation"
+import { InventoryImportError } from "@/components/inventory-admin/inventory-import-error"
 
 function getErrorMessage(error: unknown) {
   if (error instanceof ApiError) return error.message || `请求失败（${error.status}）`
@@ -315,6 +319,7 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
   const replaceInputRef = useRef<HTMLInputElement>(null)
   const [replaceFile, setReplaceFile] = useState<File | null>(null)
   const [isReplacing, setIsReplacing] = useState(false)
+  const [replaceValidation, setReplaceValidation] = useState<ProductImportValidation | null>(null)
 
   const [formOpen, setFormOpen] = useState(false)
   const [formError, setFormError] = useState("")
@@ -413,8 +418,13 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
     }
   }, [detailPage, documentId, unitPriceValues])
 
+  useCrossTabRefresh(["inventory"], () => { void load(); onTotalChanged() },
+    !documentId || formOpen || isSaving || isReplacing || isDeleting
+    || deleteTarget !== null || batchDeleteOpen || printTemplateOpen || unitPriceFilterOpen)
+
   useEffect(() => {
     setSelectedIds(new Set())
+    setReplaceValidation(null)
     setDetailPage(1)
     setDetailTotal(0)
     setUnitPriceValues(null)
@@ -886,7 +896,13 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
       onTotalChanged()
       showMessage("导入完成", result.message)
     } catch (e) {
-      showMessage("导入失败", getErrorMessage(e))
+      if (e instanceof ApiError && e.validation) {
+        setReplaceValidation(e.validation)
+        setReplaceFile(null)
+        if (replaceInputRef.current) replaceInputRef.current.value = ""
+      } else {
+        showMessage("导入失败", getErrorMessage(e))
+      }
     } finally {
       setIsReplacing(false)
     }
@@ -1491,9 +1507,11 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
         </div>
       </div>
 
-      {isPurchaseOrder && (
+      {isPurchaseOrder && documentId !== null && (
         <PurchasePrintTemplateEditor
           open={printTemplateOpen}
+          documentId={documentId}
+          documentNumber={record?.document_number}
           config={printTemplate}
           templates={printTemplates}
           selectedTemplateKey={selectedPrintTemplateKey}
@@ -1943,6 +1961,17 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
           if (replaceInputRef.current) replaceInputRef.current.value = ""
         }}
       />
+
+      <Dialog open={replaceValidation !== null} onOpenChange={(open) => { if (!open) setReplaceValidation(null) }}>
+        <DialogContent className="max-h-[90dvh] overflow-y-auto sm:max-w-4xl">
+          <DialogHeader>
+            <DialogTitle>明细导入校验结果</DialogTitle>
+            <DialogDescription>请修正商品资料后重新选择文件导入。</DialogDescription>
+          </DialogHeader>
+          {replaceValidation && <InventoryImportError message={replaceValidation.message} validation={replaceValidation} />}
+          <DialogFooter><Button type="button" variant="outline" onClick={() => setReplaceValidation(null)}>关闭</Button></DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <MessageDialog
         open={messageOpen}
