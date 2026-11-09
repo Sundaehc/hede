@@ -2978,6 +2978,120 @@ def _purchase_archive_size_from_product_code(
 PURCHASE_PRODUCT_LOOKUP_BATCH_SIZE = 5000
 
 
+def _load_purchase_order_archive_candidates(connection, product_codes):
+    """Search every active archive in bounded batches, without price-table scans."""
+    keys = sorted({key for code in product_codes for key in _purchase_product_lookup_candidates(code, "")})
+    combined = defaultdict(list)
+    seen_tables = set()
+    for brand in _product_archive_brand_codes(connection):
+        table = _product_archive_table_for_brand(connection, brand)
+        if table is None or table.name in seen_tables:
+            continue
+        seen_tables.add(table.name)
+        for offset in range(0, len(keys), PURCHASE_PRODUCT_LOOKUP_BATCH_SIZE):
+            batch = keys[offset:offset + PURCHASE_PRODUCT_LOOKUP_BATCH_SIZE]
+            batch_keys = set(batch)
+            candidates = defaultdict(list)
+            rows = connection.execute(sa_select(
+                table.c.id, table.c.sku, table.c.original_sku, table.c.color_code,
+                table.c.barcode_build_rule, table.c.size_range,
+            ).where(
+                or_(table.c.sku.in_(batch), table.c.original_sku.in_(batch)),
+                table.c.deleted_at.is_(None),
+            ).order_by(desc(table.c.updated_at), desc(table.c.id))).mappings()
+            for row in rows:
+                info = {
+                    "_archive_matched": True, "_archive_brand": _normalize_product_archive_brand(brand),
+                    "_archive_table": table.name, "_archive_product_id": int(row["id"]),
+                    "_archive_sku": _cell_text(row["sku"]),
+                    "_archive_original_sku": _cell_text(row["original_sku"]),
+                    "color_code": _cell_text(row["color_code"]),
+                    "barcode_build_rule": _cell_text(row["barcode_build_rule"]),
+                    "size_range": _cell_text(row["size_range"]),
+                }
+                for key in {info["_archive_sku"], info["_archive_original_sku"]} & batch_keys:
+                    candidates[key].append(info)
+            for key, infos in candidates.items():
+                # Canonical goods codes take priority over aliases within an
+                # archive. Across archives every valid identity must be checked.
+                exact = [info for info in infos if info["_archive_sku"] == key]
+                combined[key].extend(exact or infos)
+    return combined
+
+
+def _prepare_purchase_order_archive_context(repository, batches, *, require_full_code=True, enrich=True):
+    """Resolve barcodes independently of supplier/warehouse/header brands."""
+    codes = {
+        _cell_text(row.get("product_code")) for rows, _ in batches for row in rows
+        if _to_decimal(row.get("quantity")) != 0
+    }
+    with repository.engine.connect() as connection:
+        candidates = _load_purchase_order_archive_candidates(connection, codes)
+        sizes = _load_purchase_size_group_items(connection, {
+            info["size_range"] for infos in candidates.values() for info in infos if info["size_range"]
+        })
+        resolved = {}
+        reasons = {}
+        for code in codes:
+            infos = {
+                (info["_archive_table"], info["_archive_product_id"]): info
+                for key in _purchase_product_lookup_candidates(code, "") for info in candidates.get(key, ())
+            }
+            matches = [info for info in infos.values() if (
+                not require_full_code and code in {info["_archive_sku"], info["_archive_original_sku"]}
+            ) or _purchase_product_code_matches_archive(
+                info, code, info["_archive_brand"], sizes.get(info["size_range"], ()),
+            )]
+            if len(matches) == 1:
+                resolved[code] = matches[0]
+            elif len(matches) > 1:
+                reasons[code] = "商品编码对应多个商品档案，无法唯一匹配，请联系商品部核对货号、颜色和条码规则"
+            elif not code:
+                reasons[code] = "商品编码不能为空"
+            elif not infos:
+                reasons[code] = "未匹配到商品信息档案（商品不存在或已删除），请联系商品部维护"
+            elif require_full_code and any(code in {
+                info["_archive_sku"], info["_archive_original_sku"],
+            } for info in infos.values()):
+                reasons[code] = "采购单需填写包含尺码的完整商品编码，请按商品档案条码构成逻辑填写"
+            else:
+                reasons[code] = "商品编码不符合档案条码构成逻辑，请联系商品部核对货号、颜色和尺码"
+
+        def validation_errors():
+            return [{
+                "row_number": row.get("source_row_number"), "product_code": code,
+                "brand": "", "summary": summary, "reason": reasons[code],
+            } for rows, summary in batches for row in rows
+                if _to_decimal(row.get("quantity")) != 0
+                if (code := _cell_text(row.get("product_code"))) in reasons]
+
+        raise_product_import_errors(validation_errors())
+        if not enrich:
+            return [], resolved, sizes
+
+        # Enrich only the archives actually matched. GJ/price lookups are not
+        # repeated for unrelated brands, nor queried for each Excel row.
+        codes_by_brand = defaultdict(set)
+        for code, info in resolved.items():
+            codes_by_brand[info["_archive_brand"]].add(code)
+        for brand, brand_codes in codes_by_brand.items():
+            lookup = _load_purchase_product_lookup(connection, brand, brand_codes)
+            for code in brand_codes:
+                info = resolved[code]
+                match = next((candidate
+                    for key in _purchase_product_lookup_candidates(code, brand)
+                    for candidate in _purchase_archive_candidates(lookup.get(key) or {})
+                    if candidate.get("_archive_table") == info["_archive_table"]
+                    and candidate.get("_archive_product_id") == info["_archive_product_id"]
+                ), None)
+                if match is None:
+                    reasons[code] = "商品档案已发生变化，请重新预检查；如仍未匹配请联系商品部"
+                else:
+                    resolved[code] = match
+        raise_product_import_errors(validation_errors())
+        return _load_color_barcodes(connection), resolved, sizes
+
+
 def _load_purchase_product_lookup(connection, brand: str, product_codes: set[str]) -> dict[str, dict[str, object]]:
     expanded_codes = sorted({
         candidate
@@ -3909,7 +4023,7 @@ def _build_purchase_details_from_rows(
         else {}
     )
 
-    grouped: dict[tuple[str, str, str], dict[str, object]] = {}
+    grouped: dict[tuple, dict[str, object]] = {}
     for row in parsed_rows:
         raw_code = row["raw_code"]
         quantity = row["quantity"]
@@ -3959,7 +4073,9 @@ def _build_purchase_details_from_rows(
             # Size-only barcodes append the size directly to the archived SKU.
             # Recover the display color from that SKU after the archive match so
             # NS millimetre sizes such as 235 are not mistaken for EU size 35.
-            archive_color_barcode = _purchase_color_barcode(matched_product_code, brand)
+            archive_color_barcode = _purchase_color_barcode(
+                matched_product_code, _cell_text(product_info.get("_archive_brand")) or brand,
+            )
             if archive_color_barcode:
                 color_barcode = archive_color_barcode
                 color_name = next(
@@ -4073,7 +4189,10 @@ def _build_purchase_details_from_rows(
                 unit_price = imported_unit_price or lookup_price or fallback_unit_price
                 has_unit_price = unit_price != 0
             price_key = _fmt_decimal(_to_decimal(unit_price)) if has_unit_price else "__missing__"
-            key = (original_sku, color_barcode, price_key)
+            key = (
+                _cell_text(product_info.get("_archive_table")), product_info.get("_archive_product_id"),
+                original_sku, color_barcode, price_key,
+            )
             item = grouped.setdefault(
                 key,
                 {
@@ -4167,10 +4286,14 @@ def _build_purchase_details_from_excel(
             [{"supplier": purchase_order_supplier}, *rows],
             carry_supplier=True,
         )
+    archive_context = (
+        _prepare_purchase_order_archive_context(repository, [(rows, "")], require_full_code=False)
+        if purchase_order_supplier is not None else None
+    )
     details = _build_purchase_details_from_rows(
         repository,
         rows,
-        brand=brand,
+        brand="" if purchase_order_supplier is not None else brand,
         fallback_unit_price=fallback_unit_price,
         prefer_lookup_unit_price=prefer_lookup_unit_price,
         require_archive_product=True,
@@ -4180,6 +4303,7 @@ def _build_purchase_details_from_excel(
         wholesale_exclude_document_id=wholesale_exclude_document_id,
         document_date=document_date,
         document_id=document_id,
+        archive_context=archive_context,
     )
     return details, sheet_name
 
@@ -4191,6 +4315,11 @@ def _purchase_import_brand_for_supplier(
     fallback_brand: str,
     warehouse: str = "",
 ) -> str:
+    # Preserve legacy purchase-order header brands when enriching old records.
+    # New purchase imports resolve each detail without using a header brand.
+    if normalize_document_type(document_type) == "进货订单" and fallback_brand:
+        normalized_brand = _normalize_product_archive_brand(fallback_brand)
+        return EBLAN_BRAND if normalized_brand == EBLAN_WOMENS_SUPPLIER_BRAND else normalized_brand
     inferred_brand, _ = _infer_inventory_template_brand(repository, supplier, warehouse)
     return inferred_brand or fallback_brand or _purchase_import_brand(document_type)
 
@@ -4341,8 +4470,8 @@ def _validate_purchase_order_import_suppliers(
             raise HTTPException(status_code=400, detail=f"{label}：供应商不能为空；本次未导入任何数据")
         if supplier_name in validated_names:
             continue
-        supplier_record = repository.get_supplier_by_name(supplier_name)
-        if supplier_record is None or supplier_record.get("name") != supplier_name:
+        supplier_records = repository.list_suppliers_by_exact_name(supplier_name)
+        if not supplier_records:
             raise HTTPException(
                 status_code=400,
                 detail=(
@@ -5271,8 +5400,10 @@ def _import_purchase_inventory(request: Request, filename: str | None, form: Map
         group_rows = group.get("rows") if isinstance(group.get("rows"), list) else []
         brand_key = (group_supplier, group_warehouse)
         if brand_key not in brand_cache:
-            brand_cache[brand_key] = _purchase_import_brand_for_supplier(
-                repository, group_supplier, document_type, brand, group_warehouse,
+            brand_cache[brand_key] = (
+                ""
+                if is_purchase_order_import
+                else _purchase_import_brand_for_supplier(repository, group_supplier, document_type, brand, group_warehouse)
             )
         group_brand = brand_cache[brand_key]
         if group_supplier not in zero_price_cache:
@@ -5325,9 +5456,14 @@ def _import_purchase_inventory(request: Request, filename: str | None, form: Map
             plan["existing_record"] = None
         plan["decision"] = action
     if preview_only:
-        _validate_inventory_import_product_batches(repository, [
-            (plan["brand"], plan["rows"], plan["summary"]) for plan in plans
-        ], require_full_code=is_purchase_order_import)
+        if is_purchase_order_import:
+            _prepare_purchase_order_archive_context(repository, [
+                (plan["rows"], plan["summary"]) for plan in plans
+            ], enrich=False)
+        else:
+            _validate_inventory_import_product_batches(repository, [
+                (plan["brand"], plan["rows"], plan["summary"]) for plan in plans
+            ])
         if task_id:
             with repository.engine.begin() as connection:
                 complete_inventory_import(connection, task_id, {"preview": preview})
@@ -5354,7 +5490,11 @@ def _import_purchase_inventory(request: Request, filename: str | None, form: Map
             raise HTTPException(status_code=409, detail=f"新摘要 {plan['summary']} 已存在，请修改后重试")
 
     archive_contexts = {}
-    if task_id:
+    if is_purchase_order_import:
+        archive_contexts[""] = _prepare_purchase_order_archive_context(repository, [
+            (plan["rows"], plan["summary"]) for plan in plans
+        ])
+    elif task_id:
         codes_by_brand = defaultdict(set)
         for plan in plans:
             codes_by_brand[plan["brand"]].update(
@@ -5366,9 +5506,10 @@ def _import_purchase_inventory(request: Request, filename: str | None, form: Map
                 lookup = _load_purchase_product_lookup(connection, plan_brand, codes)
                 ranges = {_cell_text(info.get("size_range")) for info in _purchase_product_lookup_infos(lookup) if info.get("size_range")}
                 archive_contexts[plan_brand] = (colors, lookup, _load_purchase_size_group_items(connection, ranges))
-    _validate_inventory_import_product_batches(repository, [
-        (plan["brand"], plan["rows"], plan["summary"]) for plan in plans
-    ], require_full_code=is_purchase_order_import, archive_contexts=archive_contexts)
+    if not is_purchase_order_import:
+        _validate_inventory_import_product_batches(repository, [
+            (plan["brand"], plan["rows"], plan["summary"]) for plan in plans
+        ], archive_contexts=archive_contexts)
     for plan in plans:
         is_wholesale_import = document_type in WHOLESALE_DOCUMENT_TYPES
         plan["details"] = _build_purchase_details_from_rows(
@@ -5393,7 +5534,7 @@ def _import_purchase_inventory(request: Request, filename: str | None, form: Map
                 if isinstance(plan.get("existing_record"), dict)
                 else None
             ),
-            **({"archive_context": archive_contexts[plan["brand"]]} if task_id else {}),
+            **({"archive_context": archive_contexts[plan["brand"]]} if archive_contexts else {}),
         )
 
     if task_id:
@@ -5403,7 +5544,9 @@ def _import_purchase_inventory(request: Request, filename: str | None, form: Map
         groups.clear()
         rows.clear()
         archive_contexts.clear()
-        del lookup, codes_by_brand, group, group_rows
+        if not is_purchase_order_import:
+            del lookup, codes_by_brand
+        del group, group_rows
         for plan in plans:
             plan_delivery_date = _cell_text(plan["delivery_date"])
             plan["record"] = {
@@ -6339,14 +6482,15 @@ def get_inventory_record(request: Request, record_id: int):
 @router.post("/inventory")
 def create_inventory_record(request: Request, payload: dict):
     repository = request.app.state.inventory_repository
-    if handler := _current_account_handler(request):
-        payload["handler"] = handler
     if payload.get("date"):
         payload["date"] = _normalize_date(str(payload["date"]))
     else:
         payload["date"] = _today_text()
     if "document_type" in payload:
         payload["document_type"] = normalize_document_type(payload.get("document_type"))
+    if payload.get("document_type") != "进货订单":
+        if handler := _current_account_handler(request):
+            payload["handler"] = handler
     try:
         repository.validate_customer_record(payload)
     except ValueError as error:
@@ -6381,8 +6525,10 @@ def update_inventory_record(request: Request, record_id: int, payload: dict):
         payload["date"] = _normalize_date(str(payload["date"]))
     if "document_type" in payload:
         payload["document_type"] = normalize_document_type(payload.get("document_type"))
-    if handler := _current_account_handler(request):
-        payload["handler"] = handler
+    document_type = normalize_document_type(payload.get("document_type", before.get("document_type")))
+    if document_type != "进货订单":
+        if handler := _current_account_handler(request):
+            payload["handler"] = handler
     try:
         record = repository.update_record(record_id, payload)
     except ValueError as error:

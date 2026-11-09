@@ -75,6 +75,56 @@ async function editSummary(user: ReturnType<typeof userEvent.setup>, summary = "
   await user.click(within(dialog).getByRole("button", { name: "保存" }))
 }
 
+test.each(["原经手人", "", null])("preserves purchase handler %s when another account edits the summary", async (handler) => {
+  const existing = { ...initial[1], handler }
+  listMock.mockResolvedValue({ items: [existing], total: 1 })
+  updateMock.mockImplementation(async (_id: number, payload: Partial<InventoryRecord>) => ({
+    item: { ...existing, ...payload }, message: "更新成功",
+  }))
+  const user = userEvent.setup()
+  render(<InventoryPage mode="purchase-orders" />)
+  await screen.findByText("PO-19")
+  await user.click(within(screen.getByText("PO-19").closest("tr")!).getByTitle("编辑"))
+  const dialog = within(screen.getByRole("dialog", { name: "编辑采购单" }))
+  const handlerInput = dialog.getByRole("textbox", { name: "经手人" })
+  expect(handlerInput).toHaveValue(handler || "")
+  expect(handlerInput).not.toHaveAttribute("readonly")
+  await user.type(dialog.getByRole("textbox", { name: "摘要" }), "补充")
+  await user.click(dialog.getByRole("button", { name: "保存" }))
+  await waitFor(() => expect(updateMock).toHaveBeenCalledWith(19, expect.objectContaining({ handler: handler || "" })))
+  await waitFor(() => expect(screen.queryByRole("dialog", { name: "编辑采购单" })).not.toBeInTheDocument())
+  await user.click(within(screen.getByText("PO-19").closest("tr")!).getByTitle("编辑"))
+  expect(within(screen.getByRole("dialog", { name: "编辑采购单" })).getByRole("textbox", { name: "经手人" })).toHaveValue(handler || "")
+})
+
+test("allows manually changing a purchase handler", async () => {
+  updateMock.mockImplementation(async (_id: number, payload: Partial<InventoryRecord>) => ({
+    item: { ...initial[1], ...payload }, message: "更新成功",
+  }))
+  const user = userEvent.setup()
+  render(<InventoryPage mode="purchase-orders" />)
+  await screen.findByText("PO-19")
+  await user.click(within(screen.getByText("PO-19").closest("tr")!).getByTitle("编辑"))
+  const dialog = within(screen.getByRole("dialog", { name: "编辑采购单" }))
+  const handler = dialog.getByRole("textbox", { name: "经手人" })
+  await user.clear(handler)
+  await user.type(handler, "指定经手人")
+  await user.click(dialog.getByRole("button", { name: "保存" }))
+  await waitFor(() => expect(updateMock).toHaveBeenCalledWith(19, expect.objectContaining({ handler: "指定经手人" })))
+  await waitFor(() => expect(screen.queryByRole("dialog", { name: "编辑采购单" })).not.toBeInTheDocument())
+  expect(within(screen.getByText("PO-19").closest("tr")!).getByText("指定经手人")).toBeInTheDocument()
+})
+
+test("continues to default new inventory handlers to the account", async () => {
+  const user = userEvent.setup()
+  render(<InventoryPage />)
+  await screen.findByText("PO-19")
+  await user.click(screen.getByRole("button", { name: "新增经营历程" }))
+  const handler = within(screen.getByRole("dialog", { name: "新增经营历程" })).getByRole("textbox", { name: "经手人" })
+  expect(handler).toHaveValue("当前用户")
+  expect(handler).toHaveAttribute("readonly")
+})
+
 test("another tab refreshes the saved purchase page and keeps filters, pagination and drafts", async () => {
   const user = userEvent.setup()
   render(<InventoryPage mode="purchase-orders" />)
@@ -215,9 +265,12 @@ test("still reloads the inventory list after editing a non-purchase record", asy
   await screen.findByText("PO-19")
   await user.click(within(screen.getByText("PO-19").closest("tr")!).getByTitle("编辑"))
   const dialog = screen.getByRole("dialog", { name: "编辑经营历程" })
+  expect(within(dialog).getByRole("textbox", { name: "经手人" })).toHaveValue("当前用户")
+  expect(within(dialog).getByRole("textbox", { name: "经手人" })).toHaveAttribute("readonly")
   const beforeCount = listMock.mock.calls.length
   await user.click(within(dialog).getByRole("button", { name: "保存" }))
   await waitFor(() => expect(listMock.mock.calls.length).toBeGreaterThan(beforeCount))
+  expect(updateMock).toHaveBeenCalledWith(19, expect.objectContaining({ handler: "当前用户" }))
 })
 
 test("still reloads purchase orders after creating a new order", async () => {
@@ -226,9 +279,14 @@ test("still reloads purchase orders after creating a new order", async () => {
   await screen.findByText("PO-19")
   await user.click(screen.getByRole("button", { name: "新增采购单" }))
   const dialog = screen.getByRole("dialog", { name: "新增采购单" })
+  const handler = within(dialog).getByRole("textbox", { name: "经手人" })
+  expect(handler).toHaveValue("")
+  expect(handler).not.toHaveAttribute("readonly")
+  await user.type(handler, "新单经手人")
   fireEvent.change(within(dialog).getByLabelText("交货日期"), { target: { value: "2026-11-20" } })
   const beforeCount = listMock.mock.calls.length
   await user.click(within(dialog).getByRole("button", { name: "保存" }))
   await waitFor(() => expect(createMock).toHaveBeenCalled())
+  expect(createMock).toHaveBeenCalledWith(expect.objectContaining({ handler: "新单经手人" }))
   await waitFor(() => expect(listMock.mock.calls.length).toBeGreaterThan(beforeCount))
 })

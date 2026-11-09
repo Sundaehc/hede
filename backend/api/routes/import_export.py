@@ -650,7 +650,8 @@ def _load_product_archive_rows(repository, connection, brand: str, codes: set[st
             item = dict(row)
             for key in ("sku", "original_sku"):
                 code = _cell_text(item.get(key))
-                if code and code in codes and code not in rows_by_code:
+                # A real SKU takes precedence over another product's alias.
+                if code and code in codes and (key == "sku" or code not in rows_by_code):
                     rows_by_code[code] = item
     return rows_by_code
 
@@ -862,8 +863,8 @@ def _build_size_export_product_code(
     )
 
 
-def _size_export_product_name(style_code: str, color_name: str, product_code: str) -> str:
-    name = f"{style_code}{color_name}"
+def _size_export_product_name(sku: str, color_name: str, product_code: str) -> str:
+    name = f"{sku}{color_name}"
     return name or product_code
 
 
@@ -961,9 +962,13 @@ def _size_export_style_context(
     product_code: str,
     archive_rows: dict[str, dict[str, object]],
     gj_rows: dict[str, dict[str, object]],
+    *,
+    archive_sku: str = "",
 ) -> dict[str, str]:
-    archive = archive_rows.get(style_code) or archive_rows.get(product_code) or {}
-    gj = gj_rows.get(style_code) or gj_rows.get(product_code) or {}
+    # Generated size rows belong to a specific archive. Shared original SKUs
+    # must not redirect their supplier, cost or other archive attributes.
+    archive = archive_rows.get(archive_sku) or archive_rows.get(product_code) or archive_rows.get(style_code) or {}
+    gj = gj_rows.get(archive_sku) or gj_rows.get(style_code) or gj_rows.get(product_code) or {}
     archive_extra = _dict_or_empty(archive.get("extra_fields"))
     return {
         "sku": _cell_text(archive.get("sku")),
@@ -1089,20 +1094,24 @@ def _export_products_with_sizes(
         gj_rows = _load_gj_rows(connection, lookup_codes) if brand in PRODUCT_ARCHIVE_TABLES else {}
 
     row_count = 1
-    style_contexts: dict[str, dict[str, str]] = {}
+    style_contexts: dict[tuple[str, str], dict[str, str]] = {}
     for profile in export_profiles:
         raw_payload = _dict_or_empty(profile.get("raw_payload"))
         product_code = _cell_text(profile.get("product_code"))
         style_code = _cell_text(profile.get("style_code"))
         color_name = _cell_text(profile.get("color_name"))
         size_barcode = _cell_text(profile.get("size_barcode"))
-        context_key = style_code or product_code
+        profile_archive_sku = _cell_text(profile.get("_archive_sku"))
+        context_key = (profile_archive_sku, style_code or product_code)
         context = style_contexts.get(context_key)
         if context is None:
-            context = _size_export_style_context(style_code, product_code, archive_rows, gj_rows)
+            context = _size_export_style_context(
+                style_code, product_code, archive_rows, gj_rows, archive_sku=profile_archive_sku,
+            )
             style_contexts[context_key] = context
 
-        product_name = _size_export_product_name(style_code, color_name, product_code)
+        archive_sku = _cell_text(profile.get("_archive_sku", context["sku"]))
+        product_name = _size_export_product_name(archive_sku, color_name, product_code)
         category = _first_text(context["category"], "男鞋" if brand == "cbanner_mens" else None, raw_payload.get("分类"))
         logo = _first_text(context["logo"], raw_payload.get("LOGO"), raw_payload.get("品牌"))
         export_brand = (
@@ -1113,7 +1122,7 @@ def _export_products_with_sizes(
         row = [
             _first_text(context["supplier_name"], raw_payload.get("供应商名"), raw_payload.get("供应商")),
             product_code,
-            profile.get("_archive_sku", context["sku"]),
+            archive_sku,
             product_name,
             color_name,
             size_barcode,

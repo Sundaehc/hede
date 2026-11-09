@@ -1808,6 +1808,11 @@ class InventoryRepository:
             result = connection.execute(statement)
         return result.rowcount > 0
 
+    def list_suppliers_by_exact_name(self, name: str) -> list[dict[str, object]]:
+        statement = select(SUPPLIER_TABLE).where(SUPPLIER_TABLE.c.name == name).order_by(SUPPLIER_TABLE.c.id)
+        with self.engine.connect() as connection:
+            return [dict(row) for row in connection.execute(statement).mappings()]
+
     def get_supplier_by_name(self, name: str, brand: str | None = None) -> dict[str, object] | None:
         statement = select(SUPPLIER_TABLE).where(SUPPLIER_TABLE.c.name == name)
         if brand:
@@ -3880,7 +3885,7 @@ class InventoryRepository:
             payload["document_id"] = document_id
             payloads.append(payload)
 
-        def match_key(row: Mapping[str, object]) -> tuple[str, str]:
+        def match_key(row: Mapping[str, object]) -> tuple[str, str, object]:
             product_code = str(row.get("product_code") or "").strip()
             color_key = str(
                 row.get("color_barcode")
@@ -3888,7 +3893,7 @@ class InventoryRepository:
                 or row.get("color_spec")
                 or ""
             ).strip()
-            return product_code, color_key
+            return product_code, color_key, row.get("product_identity_id")
 
         added = 0
         updated = 0
@@ -3896,22 +3901,31 @@ class InventoryRepository:
             existing_rows = connection.execute(
                 select(table).where(table.c.document_id == document_id).order_by(table.c.id)
             ).mappings()
-            existing_by_key: dict[tuple[str, str], int] = {}
-            existing_by_product: dict[str, list[int]] = {}
+            existing_by_key: dict[tuple[str, str, object], int] = {}
+            existing_by_product: dict[tuple[str, object], list[int]] = {}
             for existing in existing_rows:
                 existing_id = int(existing["id"])
                 key = match_key(existing)
                 existing_by_key.setdefault(key, existing_id)
                 if key[0]:
-                    existing_by_product.setdefault(key[0], []).append(existing_id)
+                    existing_by_product.setdefault((key[0], key[2]), []).append(existing_id)
 
             for payload in payloads:
                 key = match_key(payload)
                 existing_id = existing_by_key.get(key)
+                legacy_key = (key[0], key[1], None)
+                if existing_id is None and key[2] is not None:
+                    # An old unlinked detail may acquire its archive identity;
+                    # details linked to another archive must stay separate.
+                    existing_id = existing_by_key.pop(legacy_key, None)
+                    if existing_id is not None:
+                        existing_by_key[key] = existing_id
+                        existing_by_product[(key[0], None)].remove(existing_id)
+                        existing_by_product.setdefault((key[0], key[2]), []).append(existing_id)
                 # A blank color can safely match only when the document has one
                 # existing row for that product code.
                 if existing_id is None and not key[1]:
-                    candidates = existing_by_product.get(key[0], [])
+                    candidates = existing_by_product.get((key[0], key[2]), [])
                     if len(candidates) == 1:
                         existing_id = candidates[0]
 
@@ -3924,7 +3938,7 @@ class InventoryRepository:
                     added += 1
                     existing_by_key.setdefault(key, existing_id)
                     if key[0]:
-                        existing_by_product.setdefault(key[0], []).append(existing_id)
+                        existing_by_product.setdefault((key[0], key[2]), []).append(existing_id)
                     continue
 
                 update_payload = dict(payload)

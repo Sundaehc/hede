@@ -1368,7 +1368,7 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
       date: isPurchasePage ? todayInputValue() : (lastInventoryEntryDefaults.date || todayInputValue()),
       document_type: isPurchasePage ? PURCHASE_ORDER_DOCUMENT_TYPE : lastInventoryEntryDefaults.document_type,
       warehouse: isPurchasePage ? "" : lastInventoryEntryDefaults.warehouse,
-      handler: accountHandler || lastInventoryEntryDefaults.handler,
+      handler: isPurchasePage ? "" : (accountHandler || lastInventoryEntryDefaults.handler),
     })
     setEditingId(null)
     void listInventoryAccountSubjects()
@@ -1394,7 +1394,7 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
       date: isPurchasePage ? todayInputValue() : (lastInventoryEntryDefaults.date || todayInputValue()),
       document_type: isPurchasePage ? PURCHASE_ORDER_DOCUMENT_TYPE : lastInventoryEntryDefaults.document_type,
       warehouse: isPurchasePage ? "" : lastInventoryEntryDefaults.warehouse,
-      handler: accountHandler || prev.handler || lastInventoryEntryDefaults.handler,
+      handler: isPurchasePage ? "" : (accountHandler || prev.handler || lastInventoryEntryDefaults.handler),
     }))
     setImportDialogOpen(true)
   }
@@ -1444,7 +1444,7 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
       warehouse: item.warehouse || "",
       document_type: item.document_type || "",
       delivery_date: typeof item.extra_fields?.delivery_date === "string" ? item.extra_fields.delivery_date : "",
-      handler: accountHandler || item.handler || "",
+      handler: item.document_type === PURCHASE_ORDER_DOCUMENT_TYPE ? (item.handler || "") : (accountHandler || item.handler || ""),
       summary: item.summary || "",
       additional_note: item.additional_note || "",
     })
@@ -1710,7 +1710,7 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
       document_type: importFormData.document_type,
       handler: importFormData.handler,
       summary: importFormData.summary,
-      brand: inferImportBrand(importFormData.document_type, importFormData.supplier, supplierOptions),
+      brand: isPurchasePage ? undefined : inferImportBrand(importFormData.document_type, importFormData.supplier, supplierOptions),
     }
     if (purchasePreview) {
       for (const conflict of purchasePreview.conflicts) {
@@ -2896,7 +2896,7 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
             )}
             <div className="space-y-1.5">
               <Label htmlFor="form-handler">经手人</Label>
-              <Input id="form-handler" value={formData.handler || ""} onChange={(e) => setFormData((prev) => ({ ...prev, handler: e.target.value }))} placeholder="经手人" readOnly={Boolean(accountHandler)} />
+              <Input id="form-handler" value={formData.handler || ""} onChange={(e) => setFormData((prev) => ({ ...prev, handler: e.target.value }))} placeholder="经手人" readOnly={formData.document_type !== PURCHASE_ORDER_DOCUMENT_TYPE && Boolean(accountHandler)} />
             </div>
             {!isFormStockAdjustment && (
               <div className="space-y-1.5">

@@ -478,15 +478,16 @@ test("keeps purchase order import working with the shared upload", async () => {
   const { user, dialog, ui } = await openImport("purchase-orders")
   expect(ui.queryByRole("group", { name: "导入方式" })).not.toBeInTheDocument()
   expect(ui.getByRole("button", { name: "模版下载" })).toBeInTheDocument()
+  expect(ui.queryByRole("combobox", { name: "导入品牌" })).not.toBeInTheDocument()
   const file = selectFile(dialog, "采购单.xlsx")
   await user.click(ui.getByRole("button", { name: "预检查" }))
   expect(purchaseTaskMock).toHaveBeenCalledWith(
-    expect.objectContaining({ file, document_type: "进货订单", preview: true })
+    expect.objectContaining({ file, document_type: "进货订单", preview: true, brand: undefined })
   )
   expect(purchaseTaskMock).toHaveBeenCalledOnce()
   await user.click(await ui.findByRole("button", { name: "确认导入" }))
   expect(purchaseTaskMock).toHaveBeenLastCalledWith(
-    expect.objectContaining({ file, document_type: "进货订单", preview: false })
+    expect.objectContaining({ file, document_type: "进货订单", preview: false, brand: undefined })
   )
   expect(importPurchaseMock).not.toHaveBeenCalled()
   expect(previewPurchaseMock).not.toHaveBeenCalled()
