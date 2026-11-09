@@ -83,6 +83,12 @@ const NAV_ITEMS = [
         permission: "inventory.view",
       },
       {
+        href: "/inventory-sales-details",
+        label: "商品销售明细",
+        icon: Store,
+        permission: "inventory.view",
+      },
+      {
         href: "/suppliers",
         label: "供应商管理",
         icon: Truck,
@@ -200,6 +206,7 @@ export function getVisibleNavigation(
           ![
             "/inventory",
             "/inventory-purchase-details",
+            "/inventory-sales-details",
             "/warehouses",
             "/general-customer-shops",
             "/account-subjects",

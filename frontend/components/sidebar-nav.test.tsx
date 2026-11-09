@@ -74,7 +74,7 @@ describe("SidebarNav management groups", () => {
     mockAuth.hasPermission.mockImplementation((permission) => permissions.has(permission))
     render(<SidebarNav />)
     for (const label of ["商品信息档案", "商品精细表", "商品货品表", "工厂渠道看板", "采购单管理", "采购明细",
-      "经营历程", "商品进货明细", "供应商管理", "品牌管理", "仓库管理", "一般客户", "科目管理",
+      "经营历程", "商品进货明细", "商品销售明细", "供应商管理", "品牌管理", "仓库管理", "一般客户", "科目管理",
       "尺码组管理", "颜色管理", "辅助属性管理", "商品标签"]) {
       expect(screen.getByRole("link", { name: label })).toBeInTheDocument()
     }

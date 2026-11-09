@@ -22,6 +22,7 @@ MODULE_PERMISSIONS = {
     "purchase": "purchase.view",
     "purchase_order_detail": "purchase.view",
     "purchase_inbound_detail": "inventory.view",
+    "sales_detail": "inventory.view",
     "supplier": "inventory.view",
     "supplier_brand": "inventory.view",
     "warehouse": "inventory.view",

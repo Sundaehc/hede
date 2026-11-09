@@ -36,6 +36,7 @@ from domain.product_archive_identity_schema import PRODUCT_ARCHIVE_IDENTITY_TABL
 from domain.schema import PRODUCT_ARCHIVE_TABLES
 from domain.size_group_schema import SIZE_GROUP_ITEMS_TABLE, SIZE_GROUPS_TABLE
 from storage.date_normalization import parse_date, parse_month_day
+from storage.schema_compat import ensure_columns, ensure_not_null
 from storage.inventory_import_tasks import complete_inventory_import
 from domain.inventory_import_task_schema import INVENTORY_IMPORT_TASK_TABLE
 
@@ -497,10 +498,18 @@ class InventoryRepository:
         """Flatten active purchase orders without applying receipt completion rules."""
         return self._list_purchase_product_details(document_types=("进货订单",), **filters)
 
+    def list_sales_details(self, **filters) -> dict[str, object]:
+        return self._list_purchase_product_details(
+            document_types=WHOLESALE_DOCUMENT_TYPES,
+            quantity_field="sales_quantity", amount_field="sales_amount", **filters,
+        )
+
     def _list_purchase_product_details(
         self,
         *,
         document_types: tuple[str, ...],
+        quantity_field: str = "purchase_quantity",
+        amount_field: str = "purchase_amount",
         date_start: str | None = None,
         date_end: str | None = None,
         brands: list[str] | None = None,
@@ -544,12 +553,20 @@ class InventoryRepository:
             conditions.append(detail.c.size_quantities.cast(Text).ilike(f"%\"{size_name.strip()}\"%"))
 
         criterion = and_(*conditions)
+        is_sales = document_types == WHOLESALE_DOCUMENT_TYPES
+        return_type = "批发销售退货单" if is_sales else "进货退货单"
+        return_quantity = func.coalesce(detail.c.quantity, 0)
+        return_amount = func.coalesce(detail.c.amount, 0)
+        if is_sales:
+            # Imported returns may already be negative; deduct them once.
+            return_quantity = func.abs(return_quantity)
+            return_amount = func.abs(return_amount)
         signed_quantity = case(
-            (record.c.document_type == "进货退货单", -func.coalesce(detail.c.quantity, 0)),
+            (record.c.document_type == return_type, -return_quantity),
             else_=func.coalesce(detail.c.quantity, 0),
         )
         signed_amount = case(
-            (record.c.document_type == "进货退货单", -func.coalesce(detail.c.amount, 0)),
+            (record.c.document_type == return_type, -return_amount),
             else_=func.coalesce(detail.c.amount, 0),
         )
         share_matches = document_types == ("进货订单",)
@@ -643,7 +660,7 @@ class InventoryRepository:
                 if str(row.get("supplier") or "").strip()
             })
             supplier_codes: dict[str, str] = {}
-            if supplier_names:
+            if supplier_names and not is_sales:
                 supplier_rows = connection.execute(
                     select(SUPPLIER_TABLE.c.name, SUPPLIER_TABLE.c.factory_code)
                     .where(SUPPLIER_TABLE.c.name.in_(supplier_names))
@@ -660,9 +677,11 @@ class InventoryRepository:
         offset = (page - 1) * page_size
         for index, row in enumerate(rows, start=1):
             document_type_text = str(row.get("document_type") or "")
-            multiplier = Decimal("-1") if document_type_text == "进货退货单" else Decimal("1")
-            quantity = Decimal(str(row.get("quantity") or "0")) * multiplier
-            purchase_amount = Decimal(str(row.get("amount") or "0")) * multiplier
+            quantity = Decimal(str(row.get("quantity") or "0"))
+            purchase_amount = Decimal(str(row.get("amount") or "0"))
+            if document_type_text == return_type:
+                quantity = -abs(quantity) if is_sales else -quantity
+                purchase_amount = -abs(purchase_amount) if is_sales else -purchase_amount
             extra_fields = row.get("extra_fields") if isinstance(row.get("extra_fields"), dict) else {}
             supplier_name = str(row.get("supplier") or "").strip()
             items.append({
@@ -674,8 +693,8 @@ class InventoryRepository:
                 "document_type": row.get("document_type"),
                 "document_number": row.get("document_number"),
                 "date": row.get("date"),
-                "purchase_quantity": self._format_decimal(quantity),
-                "purchase_amount": self._format_decimal(purchase_amount),
+                quantity_field: self._format_decimal(quantity),
+                amount_field: self._format_decimal(purchase_amount),
                 "unit_price": self._format_decimal(row["unit_price"]) if row.get("unit_price") is not None else None,
                 "retail_amount": "",
                 "factory_code": extra_fields.get("factory_code") or "",
@@ -689,11 +708,11 @@ class InventoryRepository:
         quantity_total = Decimal(str(totals.get("quantity_total") or "0"))
         purchase_amount_total = Decimal(str(totals.get("purchase_amount_total") or "0"))
         page_quantity_total = sum(
-            (Decimal(str(item.get("purchase_quantity") or "0")) for item in items),
+            (Decimal(str(item.get(quantity_field) or "0")) for item in items),
             Decimal("0"),
         )
         page_purchase_amount_total = sum(
-            (Decimal(str(item.get("purchase_amount") or "0")) for item in items),
+            (Decimal(str(item.get(amount_field) or "0")) for item in items),
             Decimal("0"),
         )
         return {
@@ -702,17 +721,17 @@ class InventoryRepository:
             "page": page,
             "page_size": page_size,
             "totals": {
-                "purchase_quantity": self._format_decimal(quantity_total),
-                "purchase_amount": self._format_decimal(purchase_amount_total),
+                quantity_field: self._format_decimal(quantity_total),
+                amount_field: self._format_decimal(purchase_amount_total),
                 "retail_amount": "",
                 "current_page": {
-                    "purchase_quantity": self._format_decimal(page_quantity_total),
-                    "purchase_amount": self._format_decimal(page_purchase_amount_total),
+                    quantity_field: self._format_decimal(page_quantity_total),
+                    amount_field: self._format_decimal(page_purchase_amount_total),
                     "retail_amount": "",
                 },
                 "all": {
-                    "purchase_quantity": self._format_decimal(quantity_total),
-                    "purchase_amount": self._format_decimal(purchase_amount_total),
+                    quantity_field: self._format_decimal(quantity_total),
+                    amount_field: self._format_decimal(purchase_amount_total),
                     "retail_amount": "",
                 },
             },
@@ -4467,14 +4486,13 @@ class InventoryRepository:
                     """
                 )
             )
-            connection.execute(text("ALTER TABLE IF EXISTS inventory_records ADD COLUMN IF NOT EXISTS document_number TEXT"))
+            ensure_columns(connection, "inventory_records", {
+                "document_number": "TEXT", "handler": "TEXT", "additional_note": "TEXT", "deleted_at": "TIMESTAMPTZ",
+            })
             self._backfill_document_numbers(connection)
             connection.execute(text("CREATE INDEX IF NOT EXISTS idx_inventory_records_document_number ON inventory_records (document_number)"))
             connection.execute(text("CREATE INDEX IF NOT EXISTS idx_inventory_records_warehouse_date ON inventory_records (warehouse, date_value)"))
             connection.execute(text("CREATE INDEX IF NOT EXISTS idx_inventory_records_supplier_date ON inventory_records (supplier, date_value)"))
-            connection.execute(text("ALTER TABLE IF EXISTS inventory_records ADD COLUMN IF NOT EXISTS handler TEXT"))
-            connection.execute(text("ALTER TABLE IF EXISTS inventory_records ADD COLUMN IF NOT EXISTS additional_note TEXT"))
-            connection.execute(text("ALTER TABLE IF EXISTS inventory_records ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ"))
             connection.execute(text("CREATE INDEX IF NOT EXISTS idx_inventory_records_deleted_at ON inventory_records (deleted_at)"))
             connection.execute(
                 text(
@@ -4505,32 +4523,27 @@ class InventoryRepository:
                     """
                 )
             )
-            connection.execute(text("ALTER TABLE IF EXISTS inventory_details ADD COLUMN IF NOT EXISTS color_barcode TEXT"))
-            connection.execute(text("ALTER TABLE IF EXISTS inventory_details ADD COLUMN IF NOT EXISTS color_name TEXT"))
-            connection.execute(text("ALTER TABLE IF EXISTS inventory_details ADD COLUMN IF NOT EXISTS size_quantities JSON"))
-            connection.execute(text("ALTER TABLE IF EXISTS inventory_details ADD COLUMN IF NOT EXISTS remark TEXT"))
-            connection.execute(text("ALTER TABLE IF EXISTS inventory_details ADD COLUMN IF NOT EXISTS extra_fields JSON"))
+            ensure_columns(connection, "inventory_details", {
+                "color_barcode": "TEXT", "color_name": "TEXT", "size_quantities": "JSON", "remark": "TEXT", "extra_fields": "JSON",
+            })
             connection.execute(text("CREATE EXTENSION IF NOT EXISTS pg_trgm"))
             connection.execute(text("CREATE INDEX IF NOT EXISTS idx_inventory_details_product_code ON inventory_details (product_code)"))
             connection.execute(text("CREATE INDEX IF NOT EXISTS idx_jst_stock_product_code ON jst_daily_stock (product_code)"))
             connection.execute(text("CREATE INDEX IF NOT EXISTS idx_inventory_details_product_code_trgm ON inventory_details USING GIN (product_code gin_trgm_ops)"))
             connection.execute(text("CREATE INDEX IF NOT EXISTS idx_jst_stock_product_code_trgm ON jst_daily_stock USING GIN (product_code gin_trgm_ops)"))
             INVENTORY_ACCOUNT_SUBJECT_TABLE.create(connection, checkfirst=True)
-            connection.execute(text("ALTER TABLE IF EXISTS inventory_account_subjects ADD COLUMN IF NOT EXISTS category TEXT"))
-            connection.execute(text("ALTER TABLE IF EXISTS inventory_account_subjects ALTER COLUMN category SET DEFAULT '收入类'"))
+            subject_columns = ensure_columns(connection, "inventory_account_subjects", {"category": "TEXT"})
+            category_default = str(subject_columns.get("category", {}).get("default") or "").strip("()")
+            if category_default not in {"'收入类'", "'收入类'::text"}:
+                connection.execute(text("ALTER TABLE inventory_account_subjects ALTER COLUMN category SET DEFAULT '收入类'"))
             connection.execute(text("UPDATE inventory_account_subjects SET category = '收入类' WHERE category IS NULL OR BTRIM(category) = ''"))
-            connection.execute(text("ALTER TABLE IF EXISTS inventory_account_subjects ALTER COLUMN category SET NOT NULL"))
+            ensure_not_null(connection, "inventory_account_subjects", "category")
             self._seed_account_subjects(connection)
             PURCHASE_ORDER_REQUIREMENT_TABLE.create(connection, checkfirst=True)
             PURCHASE_PRINT_TEMPLATE_TABLE.create(connection, checkfirst=True)
-            connection.execute(text(
-                "ALTER TABLE IF EXISTS purchase_print_templates "
-                "ADD COLUMN IF NOT EXISTS template_name TEXT NOT NULL DEFAULT '默认模板'"
-            ))
-            connection.execute(text(
-                "ALTER TABLE IF EXISTS purchase_print_templates "
-                "ADD COLUMN IF NOT EXISTS is_default BOOLEAN NOT NULL DEFAULT FALSE"
-            ))
+            ensure_columns(connection, "purchase_print_templates", {
+                "template_name": "TEXT NOT NULL DEFAULT '默认模板'", "is_default": "BOOLEAN NOT NULL DEFAULT FALSE",
+            })
             connection.execute(text(
                 "UPDATE purchase_print_templates AS current_template "
                 "SET is_default = TRUE "
@@ -4633,11 +4646,10 @@ class InventoryRepository:
 
     @staticmethod
     def _ensure_supplier_brand_schema(connection) -> None:
-        connection.execute(text("ALTER TABLE IF EXISTS supplier_brands ADD COLUMN IF NOT EXISTS code TEXT"))
-        connection.execute(text("ALTER TABLE IF EXISTS supplier_brands ADD COLUMN IF NOT EXISTS name TEXT"))
-        connection.execute(text("ALTER TABLE IF EXISTS supplier_brands ADD COLUMN IF NOT EXISTS product_archive_enabled BOOLEAN NOT NULL DEFAULT TRUE"))
-        connection.execute(text("ALTER TABLE IF EXISTS supplier_brands ADD COLUMN IF NOT EXISTS product_table_name TEXT"))
-        connection.execute(text("ALTER TABLE IF EXISTS supplier_brands ADD COLUMN IF NOT EXISTS sort_order INTEGER NOT NULL DEFAULT 0"))
+        ensure_columns(connection, "supplier_brands", {
+            "code": "TEXT", "name": "TEXT", "product_archive_enabled": "BOOLEAN NOT NULL DEFAULT TRUE",
+            "product_table_name": "TEXT", "sort_order": "INTEGER NOT NULL DEFAULT 0",
+        })
         default_brands = (
             ("cbanner_mens", "千百度男鞋"),
             ("cbanner_womens", "千百度女鞋"),
@@ -4676,17 +4688,15 @@ class InventoryRepository:
                 text("UPDATE supplier_brands SET product_table_name = :table_name WHERE id = :id"),
                 {"id": brand_id, "table_name": f"manual_product_archive_{brand_id}"},
             )
-        connection.execute(text("ALTER TABLE IF EXISTS supplier_brands ALTER COLUMN code SET NOT NULL"))
-        connection.execute(text("ALTER TABLE IF EXISTS supplier_brands ALTER COLUMN name SET NOT NULL"))
+        ensure_not_null(connection, "supplier_brands", "code", "name")
         connection.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uq_supplier_brands_code ON supplier_brands (code)"))
         connection.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uq_supplier_brands_name ON supplier_brands (name)"))
         connection.execute(text("CREATE INDEX IF NOT EXISTS idx_supplier_brands_sort ON supplier_brands (sort_order)"))
 
     @staticmethod
     def _ensure_warehouse_schema(connection) -> None:
-        connection.execute(text("ALTER TABLE IF EXISTS warehouses ADD COLUMN IF NOT EXISTS brand TEXT"))
-        connection.execute(text("ALTER TABLE IF EXISTS warehouses ADD COLUMN IF NOT EXISTS sort_order INTEGER NOT NULL DEFAULT 0"))
-        connection.execute(text("ALTER TABLE IF EXISTS warehouse_brands ADD COLUMN IF NOT EXISTS sort_order INTEGER NOT NULL DEFAULT 0"))
+        ensure_columns(connection, "warehouses", {"brand": "TEXT", "sort_order": "INTEGER NOT NULL DEFAULT 0"})
+        ensure_columns(connection, "warehouse_brands", {"sort_order": "INTEGER NOT NULL DEFAULT 0"})
         connection.execute(text("CREATE INDEX IF NOT EXISTS idx_warehouses_brand_sort ON warehouses (brand, sort_order)"))
         connection.execute(text("CREATE INDEX IF NOT EXISTS idx_warehouse_brands_sort ON warehouse_brands (sort_order)"))
         connection.execute(
@@ -4720,9 +4730,7 @@ class InventoryRepository:
 
     @staticmethod
     def _ensure_supplier_schema(connection) -> None:
-        connection.execute(text("ALTER TABLE IF EXISTS suppliers ADD COLUMN IF NOT EXISTS brand TEXT"))
-        connection.execute(text("ALTER TABLE IF EXISTS suppliers ADD COLUMN IF NOT EXISTS wechat TEXT"))
-        connection.execute(text("ALTER TABLE IF EXISTS suppliers ADD COLUMN IF NOT EXISTS cooperation_status TEXT"))
+        ensure_columns(connection, "suppliers", {"brand": "TEXT", "wechat": "TEXT", "cooperation_status": "TEXT"})
         connection.execute(
             text(
                 """
@@ -4824,7 +4832,7 @@ class InventoryRepository:
             ),
             {"default_brand": CBANNER_MENS_BRAND},
         )
-        connection.execute(text("ALTER TABLE IF EXISTS suppliers ALTER COLUMN brand SET NOT NULL"))
+        ensure_not_null(connection, "suppliers", "brand")
         connection.execute(text("DROP INDEX IF EXISTS idx_suppliers_brand"))
         connection.execute(text("CREATE INDEX IF NOT EXISTS idx_suppliers_brand ON suppliers (brand)"))
         connection.execute(
@@ -4924,10 +4932,11 @@ class InventoryRepository:
 
     @staticmethod
     def _ensure_general_customer_schema(connection) -> None:
-        connection.execute(text("ALTER TABLE IF EXISTS general_customer_shops ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT TRUE"))
-        connection.execute(text("ALTER TABLE IF EXISTS general_customer_brands ADD COLUMN IF NOT EXISTS sort_order INTEGER NOT NULL DEFAULT 0"))
-        connection.execute(text("ALTER TABLE IF EXISTS general_customer_shops ADD COLUMN IF NOT EXISTS sort_order INTEGER NOT NULL DEFAULT 0"))
-        connection.execute(text("ALTER TABLE IF EXISTS general_customer_units ADD COLUMN IF NOT EXISTS sort_order INTEGER NOT NULL DEFAULT 0"))
+        ensure_columns(connection, "general_customer_shops", {
+            "is_active": "BOOLEAN NOT NULL DEFAULT TRUE", "sort_order": "INTEGER NOT NULL DEFAULT 0",
+        })
+        ensure_columns(connection, "general_customer_brands", {"sort_order": "INTEGER NOT NULL DEFAULT 0"})
+        ensure_columns(connection, "general_customer_units", {"sort_order": "INTEGER NOT NULL DEFAULT 0"})
         connection.execute(text("CREATE INDEX IF NOT EXISTS idx_general_customer_brands_sort ON general_customer_brands (sort_order)"))
         connection.execute(text("CREATE INDEX IF NOT EXISTS idx_general_customer_shops_customer_sort ON general_customer_shops (customer_name, sort_order)"))
         connection.execute(text("CREATE INDEX IF NOT EXISTS idx_general_customer_units_shop_sort ON general_customer_units (shop_id, sort_order)"))

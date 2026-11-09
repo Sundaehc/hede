@@ -220,6 +220,7 @@ export function listOperationLogs(params: {
     | "inventory"
     | "purchase"
     | "purchase_inbound_detail"
+    | "sales_detail"
     | "purchase_order_detail"
     | "supplier"
     | "supplier_brand"
@@ -2795,6 +2796,42 @@ function purchaseOrderDetailSearch(params: PurchaseOrderDetailFilters) {
   for (const brand of params.brands ?? []) if (brand) search.append("brands", brand)
   for (const warehouse of params.warehouse ?? []) if (warehouse) search.append("warehouse", warehouse)
   return search
+}
+
+export type SalesDetailFilters = PurchaseOrderDetailFilters & { document_type?: string }
+export type SalesDetailItem = Omit<PurchaseInboundDetailItem, "purchase_quantity" | "purchase_amount"> & {
+  sales_quantity: string | null
+  sales_amount: string | null
+}
+type SalesDetailTotals = { sales_quantity: string; sales_amount: string; retail_amount: string }
+export type SalesDetailResponse = Omit<PurchaseInboundDetailResponse, "items" | "totals"> & {
+  items: SalesDetailItem[]
+  totals: SalesDetailTotals & { current_page: SalesDetailTotals; all: SalesDetailTotals }
+}
+
+function salesDetailSearch(params: SalesDetailFilters) {
+  const search = purchaseOrderDetailSearch(params)
+  if (params.document_type) search.set("document_type", params.document_type)
+  return search
+}
+
+export function listSalesDetails(params: SalesDetailFilters & { page: number; pageSize: number }, signal?: AbortSignal) {
+  const search = salesDetailSearch(params)
+  search.set("page", String(params.page))
+  search.set("page_size", String(params.pageSize))
+  return request<SalesDetailResponse>(`/inventory-reports/sales-details?${search}`, { signal })
+}
+
+export function buildSalesDetailExportUrl(params: SalesDetailFilters = {}) {
+  return `${API_PREFIX}/inventory-reports/sales-details/export?${salesDetailSearch(params)}`
+}
+
+export function getSalesDetailOptions() {
+  return request<{
+    brands: { value: string; label: string }[]
+    customers: { name: string }[]
+    warehouses: Pick<WarehouseItem, "name" | "brand">[]
+  }>("/inventory-reports/sales-details/options")
 }
 
 export function listPurchaseOrderDetails(params: PurchaseOrderDetailFilters & { page: number; pageSize: number }, signal?: AbortSignal) {

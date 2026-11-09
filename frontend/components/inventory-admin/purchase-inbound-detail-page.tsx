@@ -34,6 +34,7 @@ import {
 } from "@/components/ui/table"
 import { ApiError, buildPurchaseInboundDetailExportUrl, listInventoryBrands, listInventoryDetailCandidates, listPurchaseInboundDetails, listSuppliers, listWarehouses, type InventoryDetailCandidate, type PurchaseInboundDetailItem, type SupplierItem, type WarehouseItem } from "@/lib/api"
 import { buildPurchaseOrderDetailExportUrl, getPurchaseOrderDetailOptions, listPurchaseOrderDetails } from "@/lib/api"
+import { buildSalesDetailExportUrl, getSalesDetailOptions, listSalesDetails, type SalesDetailResponse } from "@/lib/api"
 import { cn } from "@/lib/utils"
 
 const PAGE_SIZES = [50, 100, 200]
@@ -84,19 +85,32 @@ function numericTone(value: string | null | undefined) {
   return "text-destructive"
 }
 
-export function PurchaseInboundDetailPage({ mode = "inbound", canExport = true }: { mode?: "inbound" | "orders"; canExport?: boolean }) {
+function salesDisplayResponse(response: SalesDetailResponse) {
+  const totals = (value: SalesDetailResponse["totals"]["all"]) => ({
+    purchase_quantity: value.sales_quantity, purchase_amount: value.sales_amount, retail_amount: value.retail_amount,
+  })
+  return {
+    ...response,
+    items: response.items.map((item) => ({ ...item, purchase_quantity: item.sales_quantity, purchase_amount: item.sales_amount })),
+    totals: { ...totals(response.totals), all: totals(response.totals.all), current_page: totals(response.totals.current_page) },
+  }
+}
+
+export function PurchaseInboundDetailPage({ mode = "inbound", canExport = true }: { mode?: "inbound" | "orders" | "sales"; canExport?: boolean }) {
   const isPurchaseOrder = mode === "orders"
-  const stateKey = isPurchaseOrder ? "purchase-order-details" : "purchase-inbound-details"
-  const pageTitle = isPurchaseOrder ? "采购明细" : "商品进货明细"
-  const quantityLabel = isPurchaseOrder ? "采购数量" : "进货数量"
-  const amountLabel = isPurchaseOrder ? "采购金额" : "进货金额"
+  const isSales = mode === "sales"
+  const stateKey = isSales ? "sales-details" : isPurchaseOrder ? "purchase-order-details" : "purchase-inbound-details"
+  const pageTitle = isSales ? "商品销售明细" : isPurchaseOrder ? "采购明细" : "商品进货明细"
+  const quantityLabel = isSales ? "销售数量" : isPurchaseOrder ? "采购数量" : "进货数量"
+  const amountLabel = isSales ? "销售金额" : isPurchaseOrder ? "采购金额" : "进货金额"
+  const documentTypes = isSales ? ["批发销售单", "批发销售退货单"] : ["进货单", "进货退货单"]
   const [dateStart, setDateStart] = useSessionQueryState(`${stateKey}:dateStart`, "")
   const [dateEnd, setDateEnd] = useSessionQueryState(`${stateKey}:dateEnd`, "")
   const [brands, setBrands] = useSessionQueryState<string[]>(`${stateKey}:brands`, [])
   const [brandOptions, setBrandOptions] = useState<SearchableFilterOption[]>([])
   const [documentType, setDocumentType] = useSessionQueryState(`${stateKey}:documentType`, "")
   const [supplier, setSupplier] = useSessionQueryState(`${stateKey}:supplier`, "")
-  const [supplierOptions, setSupplierOptions] = useState<(Pick<SupplierItem, "name" | "factory_code"> & Partial<Pick<SupplierItem, "contact" | "address">>)[]>([])
+  const [supplierOptions, setSupplierOptions] = useState<(Pick<SupplierItem, "name"> & Partial<Pick<SupplierItem, "factory_code" | "contact" | "address">>)[]>([])
   const [warehouse, setWarehouse] = useSessionQueryState<string[]>(`${stateKey}:warehouse`, [])
   const [warehouseOptions, setWarehouseOptions] = useState<Pick<WarehouseItem, "name" | "brand">[]>([])
   const [productCode, setProductCode] = useSessionQueryState(`${stateKey}:productCode`, "")
@@ -124,12 +138,22 @@ export function PurchaseInboundDetailPage({ mode = "inbound", canExport = true }
   const [referenceRevision, setReferenceRevision] = useState(0)
   useCrossTabRefresh(["inventory", "products"], () => setDataRevision((value) => value + 1))
   useCrossTabRefresh(["reference-data"], () => setReferenceRevision((value) => value + 1))
+  const salesOptionsRevision = isSales ? dataRevision : 0
 
   useEffect(() => {
     let cancelled = false
 
     async function loadOptions() {
       try {
+        if (isSales) {
+          const response = await getSalesDetailOptions()
+          if (!cancelled) {
+            setSupplierOptions(response.customers)
+            setWarehouseOptions(response.warehouses)
+            setBrandOptions(response.brands)
+          }
+          return
+        }
         if (isPurchaseOrder) {
           const response = await getPurchaseOrderDetailOptions()
           if (!cancelled) {
@@ -158,7 +182,7 @@ export function PurchaseInboundDetailPage({ mode = "inbound", canExport = true }
     return () => {
       cancelled = true
     }
-  }, [isPurchaseOrder, referenceRevision])
+  }, [isPurchaseOrder, isSales, referenceRevision, salesOptionsRevision])
 
   useEffect(() => {
     const query = productCode.trim()
@@ -193,9 +217,11 @@ export function PurchaseInboundDetailPage({ mode = "inbound", canExport = true }
           page,
           pageSize,
         }
-        const response = isPurchaseOrder
-          ? await listPurchaseOrderDetails(params, controller.signal)
-          : await listPurchaseInboundDetails(params)
+        const response = isSales
+          ? salesDisplayResponse(await listSalesDetails(params, controller.signal))
+          : isPurchaseOrder
+            ? await listPurchaseOrderDetails(params, controller.signal)
+            : await listPurchaseInboundDetails(params)
         if (cancelled) return
         setItems(response.items)
         setTotal(response.total)
@@ -223,7 +249,7 @@ export function PurchaseInboundDetailPage({ mode = "inbound", canExport = true }
       cancelled = true
       controller.abort()
     }
-  }, [dataRevision, isPurchaseOrder, page, pageSize, submittedFilters])
+  }, [dataRevision, isPurchaseOrder, isSales, page, pageSize, submittedFilters])
 
   const totalPages = Math.max(1, Math.ceil(total / pageSize))
   const pageRange = useMemo(() => buildPageRange(page, totalPages), [page, totalPages])
@@ -274,9 +300,11 @@ export function PurchaseInboundDetailPage({ mode = "inbound", canExport = true }
 
   const handleExport = () => {
     const link = document.createElement("a")
-    link.href = isPurchaseOrder
-      ? buildPurchaseOrderDetailExportUrl(submittedFilters)
-      : buildPurchaseInboundDetailExportUrl(submittedFilters)
+    link.href = isSales
+      ? buildSalesDetailExportUrl(submittedFilters)
+      : isPurchaseOrder
+        ? buildPurchaseOrderDetailExportUrl(submittedFilters)
+        : buildPurchaseInboundDetailExportUrl(submittedFilters)
     link.rel = "noopener"
     link.click()
   }
@@ -326,8 +354,7 @@ export function PurchaseInboundDetailPage({ mode = "inbound", canExport = true }
               <Select id={`${stateKey}-type-filter`} className={FILTER_CONTROL_CLASS_NAME} value={isPurchaseOrder ? "进货订单" : documentType} disabled={isPurchaseOrder} onChange={(event) => setDocumentType(event.target.value)}>
                 {isPurchaseOrder ? <option value="进货订单">进货订单</option> : <>
                 <option value="">全部</option>
-                <option value="进货单">进货单</option>
-                <option value="进货退货单">进货退货单</option>
+                {documentTypes.map((type) => <option key={type} value={type}>{type}</option>)}
                 </>}
               </Select>
             </div>
@@ -355,7 +382,7 @@ export function PurchaseInboundDetailPage({ mode = "inbound", canExport = true }
                 options={supplierFilterOptions}
                 onChange={setSupplier}
                 onSubmit={submitSearch}
-                placeholder="输入供应商"
+                placeholder={isSales ? "输入客户名称" : "输入供应商"}
                 className={FILTER_CONTROL_CLASS_NAME}
               />
             </div>
@@ -429,7 +456,7 @@ export function PurchaseInboundDetailPage({ mode = "inbound", canExport = true }
                   </TableRow>
                 ) : items.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={isPurchaseOrder ? 14 : 12} className="h-40 text-center text-muted-foreground">{isPurchaseOrder ? "没有符合条件的采购明细" : "没有符合条件的进货明细"}</TableCell>
+                    <TableCell colSpan={isPurchaseOrder ? 14 : 12} className="h-40 text-center text-muted-foreground">{isSales ? "没有符合条件的销售明细" : isPurchaseOrder ? "没有符合条件的采购明细" : "没有符合条件的进货明细"}</TableCell>
                   </TableRow>
                 ) : (
                   items.map((item) => (
@@ -444,7 +471,7 @@ export function PurchaseInboundDetailPage({ mode = "inbound", canExport = true }
                       <TableCell>
                         <span className={cn(
                           "inline-flex rounded-md px-2 py-0.5 text-[11px] font-medium",
-                          isPurchaseOrder ? "bg-primary/10 text-primary" : item.document_type === "进货退货单" ? "bg-red-100 text-red-700" : "bg-green-100 text-green-700",
+                          isPurchaseOrder ? "bg-primary/10 text-primary" : item.document_type === documentTypes[1] ? "bg-red-100 text-red-700" : "bg-green-100 text-green-700",
                         )}>
                           {formatCell(item.document_type)}
                         </span>
@@ -516,7 +543,7 @@ export function PurchaseInboundDetailPage({ mode = "inbound", canExport = true }
         </div>
       </div>
       <OperationLogDialog
-        module={isPurchaseOrder ? "purchase_order_detail" : "purchase_inbound_detail"}
+        module={isSales ? "sales_detail" : isPurchaseOrder ? "purchase_order_detail" : "purchase_inbound_detail"}
         title={`${pageTitle}操作日志`}
         open={operationLogOpen}
         onOpenChange={setOperationLogOpen}

@@ -22,6 +22,7 @@ from api.routes.fine_table import router as fine_table_router
 from api.routes.import_export import router as import_export_router
 from api.routes.inventory import router as inventory_router
 from api.routes.purchase_order_details import router as purchase_order_details_router
+from api.routes.inventory_sales_details import router as inventory_sales_details_router
 from api.routes.operation_logs import router as operation_logs_router
 from api.routes.products import router as products_router
 from api.routes.product_copywriting import router as product_copywriting_router
@@ -231,6 +232,7 @@ def create_app(*, settings, repository=None, image_matchers=None, inventory_repo
     app.include_router(import_export_router)
     app.include_router(inventory_router)
     app.include_router(purchase_order_details_router)
+    app.include_router(inventory_sales_details_router)
     app.include_router(operation_logs_router)
     app.include_router(suppliers_router)
     app.include_router(warehouses_router)
