@@ -66,6 +66,8 @@ def required_permission_for_request(
         if method == "POST":
             return ("supplier.create", "inventory.manage")
         return ("supplier.manage", "inventory.manage")
+    if re.fullmatch(r"/warehouses/[0-9]+/inventory/export", path):
+        return "inventory.export"
     if path.startswith("/warehouses"):
         return "inventory.view" if method == "GET" else "inventory.manage"
     if path.startswith("/purchase-print-template") or path.startswith("/purchase-print-templates"):

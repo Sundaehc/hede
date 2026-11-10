@@ -1,8 +1,8 @@
 import { afterEach, expect, test, vi } from "vitest"
 
-import { getWarehouseInventory, listWarehouseInventoryMovements, listWarehouseInventorySummary } from "@/lib/api"
+import { downloadWarehouseEndingInventory, getWarehouseInventory, listWarehouseInventoryMovements, listWarehouseInventorySummary } from "@/lib/api"
 
-afterEach(() => vi.restoreAllMocks())
+afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); vi.useRealTimers() })
 
 test("inventory drilldown preserves empty grouping fields and omits null fields", async () => {
   const fetchMock = vi.spyOn(global, "fetch").mockResolvedValue(new Response(JSON.stringify({ items: [], total: 0 })))
@@ -31,4 +31,55 @@ test("warehouse statistics always request fresh data without browser caching", a
   for (const [, options] of fetchMock.mock.calls) {
     expect(options?.cache).toBe("no-store")
   }
+})
+
+test("ending inventory filters on the server with the submitted dates and product", async () => {
+  const fetchMock = vi.spyOn(global, "fetch").mockImplementation(async () => new Response(JSON.stringify({ items: [], total: 0 })))
+  await getWarehouseInventory(22, {
+    date_start: "2026-10-01", date_end: "2026-10-31", product_code: "001",
+    ending_nonzero: true, page: 2, pageSize: 50,
+  })
+  const url = new URL(String(fetchMock.mock.calls[0][0]), "http://localhost")
+  expect(url.pathname).toBe("/api/warehouses/22/inventory")
+  expect(Object.fromEntries(url.searchParams)).toEqual({
+    date_start: "2026-10-01", date_end: "2026-10-31", product_code: "001",
+    ending_nonzero: "true", page: "2", page_size: "50",
+  })
+  await getWarehouseInventory(22, { ending_nonzero: false, page: 1, pageSize: 20 })
+  expect(String(fetchMock.mock.calls[1][0])).not.toContain("ending_nonzero")
+})
+
+test("ending inventory downloads every page with submitted filters and server filename", async () => {
+  vi.useFakeTimers()
+  const fetchMock = vi.spyOn(global, "fetch").mockResolvedValue(new Response("xlsx", { headers: {
+    "Content-Disposition": "attachment; filename*=UTF-8''" + encodeURIComponent("期末库存_主仓_2026-10-31.xlsx"),
+  } }))
+  const create = vi.fn(() => "blob:inventory")
+  const revoke = vi.fn()
+  vi.stubGlobal("URL", class extends URL { static createObjectURL = create; static revokeObjectURL = revoke })
+  const click = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(function (this: HTMLAnchorElement) {
+    expect(this.download).toBe("期末库存_主仓_2026-10-31.xlsx")
+  })
+  const controller = new AbortController()
+  expect(await downloadWarehouseEndingInventory(22, { date_start: "2026-10-01", date_end: "2026-10-31", product_code: "001" }, controller.signal)).toEqual({ filename: "期末库存_主仓_2026-10-31.xlsx", size: 4 })
+  const [url, init] = fetchMock.mock.calls[0]
+  const parsed = new URL(String(url), "http://local")
+  expect(parsed.pathname).toBe("/api/warehouses/22/inventory/export")
+  expect(Object.fromEntries(parsed.searchParams)).toEqual({ date_start: "2026-10-01", date_end: "2026-10-31", product_code: "001" })
+  expect(init).toMatchObject({ credentials: "include", cache: "no-store", signal: controller.signal })
+  expect(click).toHaveBeenCalledOnce()
+  expect(create).toHaveBeenCalledOnce()
+  vi.runAllTimers()
+  expect(revoke).toHaveBeenCalledWith("blob:inventory")
+})
+
+test("ending export surfaces failures and avoids downloading a cancelled request", async () => {
+  const click = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => undefined)
+  vi.spyOn(global, "fetch").mockResolvedValueOnce(new Response(JSON.stringify({ detail: "权限不足" }), { status: 403 }))
+  await expect(downloadWarehouseEndingInventory(1, {})).rejects.toMatchObject({ status: 403, message: "权限不足" })
+  vi.mocked(fetch).mockResolvedValueOnce(new Response("xlsx"))
+  const controller = new AbortController()
+  controller.abort()
+  await expect(downloadWarehouseEndingInventory(1, {}, controller.signal)).rejects.toMatchObject({ name: "AbortError" })
+  expect(click).not.toHaveBeenCalled()
 })

@@ -11,10 +11,11 @@ import { PRODUCT_ARCHIVE_BRANDS } from "@/lib/brands"
 
 const PAGE_SIZE = 50
 
-export function ProductImportErrors({ validation, message, brands }: {
+export function ProductImportErrors({ validation, message, brands, context = "document" }: {
   validation: ProductImportValidation
   message: string
   brands?: ReadonlyArray<{ value: string; label: string }>
+  context?: "document" | "archive"
 }) {
   const [page, setPage] = useState(1)
   const [copyState, setCopyState] = useState<"idle" | "copying" | "copied" | "failed">("idle")
@@ -22,6 +23,7 @@ export function ProductImportErrors({ validation, message, brands }: {
   const pages = Math.max(1, Math.ceil(validation.errors.length / PAGE_SIZE))
   const currentPage = Math.min(page, pages)
   const start = (currentPage - 1) * PAGE_SIZE
+  const headers = ["Excel 行号", context === "archive" ? "货号" : "商品编码", "品牌", context === "archive" ? "工作表" : "单据摘要", "错误原因"]
   const brandLabels = new Map<string, string>(PRODUCT_ARCHIVE_BRANDS.map((item) => [item.key, item.label]))
   brandLabels.set("ns", "NS")
   brandLabels.set("eblan_womens", "伊伴女鞋")
@@ -35,7 +37,7 @@ export function ProductImportErrors({ validation, message, brands }: {
     const textarea = document.createElement("textarea")
     const cell = (value: unknown) => String(value ?? "").replace(/[\t\r\n]+/g, " ")
     textarea.value = [
-      ["Excel 行号", "商品编码", "品牌", "单据摘要", "错误原因"].join("\t"),
+      headers.join("\t"),
       ...validation.errors.map((row) => [row.row_number, row.product_code, brandLabel(row.brand), row.summary, row.reason].map(cell).join("\t")),
     ].join("\n")
     textarea.readOnly = true
@@ -72,7 +74,7 @@ export function ProductImportErrors({ validation, message, brands }: {
         <div role="region" aria-label="商品资料错误明细" tabIndex={0} className="max-h-64 overflow-auto overscroll-contain rounded-lg border border-destructive/15 bg-background">
           <table className="w-full min-w-[620px] text-left text-xs leading-5">
             <thead className="sticky top-0 bg-muted text-muted-foreground">
-              <tr>{["Excel 行号", "商品编码", "品牌", "单据摘要", "错误原因"].map((label) => <th key={label} scope="col" className="px-3 py-2 font-medium whitespace-nowrap">{label}</th>)}</tr>
+              <tr>{headers.map((label) => <th key={label} scope="col" className="px-3 py-2 font-medium whitespace-nowrap">{label}</th>)}</tr>
             </thead>
             <tbody>
               {validation.errors.slice(start, start + PAGE_SIZE).map((row, index) => (

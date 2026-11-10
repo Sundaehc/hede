@@ -19,6 +19,7 @@ import {
 import { ConfirmDialog, MessageDialog } from "@/components/confirm-dialog"
 import { OperationLogDialog } from "@/components/operation-log-dialog"
 import { WarehouseInventoryDialog } from "@/components/inventory-admin/warehouse-inventory-dialog"
+import { useAuth } from "@/components/auth/auth-provider"
 import {
   ApiError,
   createWarehouse,
@@ -77,6 +78,7 @@ function moveById<T extends { id: number }>(items: T[], sourceId: number, target
 }
 
 export default function WarehousesPage() {
+  const { hasPermission } = useAuth()
   const [brands, setBrands] = useState<WarehouseBrandItem[]>([])
   const [warehouses, setWarehouses] = useState<WarehouseItem[]>([])
   const [isLoading, setIsLoading] = useState(true)
@@ -484,7 +486,7 @@ export default function WarehousesPage() {
 
       <ConfirmDialog open={deleteBrandTarget !== null} title="确认删除" description={`确定删除品牌 ${deleteBrandTarget?.name}？该品牌下的仓库需要先调整或删除。`} confirmLabel={isDeletingBrand ? "删除中..." : "删除"} variant="destructive" onConfirm={handleDeleteBrand} onCancel={() => setDeleteBrandTarget(null)} />
       <ConfirmDialog open={deleteWarehouseTarget !== null} title="确认删除" description={`确定删除仓库 ${deleteWarehouseTarget?.name}？此操作不可撤销。`} confirmLabel={isDeletingWarehouse ? "删除中..." : "删除"} variant="destructive" onConfirm={handleDeleteWarehouse} onCancel={() => setDeleteWarehouseTarget(null)} />
-      {inventoryWarehouse && <WarehouseInventoryDialog key={`${inventoryWarehouse.id}:${dateRange.start}:${dateRange.end}`} warehouse={inventoryWarehouse} open initialDateRange={dateRange} onOpenChange={(nextOpen) => { if (!nextOpen) { setInventoryWarehouse(null); setSummaryRevision((value) => value + 1) } }} />}
+      {inventoryWarehouse && <WarehouseInventoryDialog key={`${inventoryWarehouse.id}:${dateRange.start}:${dateRange.end}`} warehouse={inventoryWarehouse} open initialDateRange={dateRange} canExport={hasPermission("inventory.export")} onOpenChange={(nextOpen) => { if (!nextOpen) { setInventoryWarehouse(null); setSummaryRevision((value) => value + 1) } }} />}
       <MessageDialog open={messageOpen} title={messageContent.title} description={messageContent.description} onClose={() => setMessageOpen(false)} />
       <OperationLogDialog module="warehouse" title="仓库管理操作日志" open={operationLogOpen} onOpenChange={setOperationLogOpen} />
     </div>

@@ -3233,6 +3233,7 @@ class InventoryRepository:
         date_start: str | None = None,
         date_end: str | None = None,
         product_code: str | None = None,
+        ending_nonzero: bool = False,
         page: int,
         page_size: int,
     ) -> dict[str, object]:
@@ -3295,8 +3296,9 @@ class InventoryRepository:
             .prefix_with("MATERIALIZED", dialect="postgresql")
         )
         ending_qty = (grouped.c.beginning_qty + grouped.c.inbound_qty - grouped.c.outbound_qty).label("ending_qty")
+        item_count = func.count(case((ending_qty != 0, 1))) if ending_nonzero else func.count()
         totals = select(
-            func.count().label("total"),
+            item_count.label("total"),
             func.coalesce(func.sum(grouped.c.beginning_qty), 0).label("total_beginning_qty"),
             func.coalesce(func.sum(grouped.c.inbound_qty), 0).label("total_inbound_qty"),
             func.coalesce(func.sum(grouped.c.outbound_qty), 0).label("total_outbound_qty"),
@@ -3304,13 +3306,15 @@ class InventoryRepository:
         ).cte("warehouse_inventory_totals")
         paged = (
             select(grouped, ending_qty, literal(True).label("has_item"))
+            .where(ending_qty != 0 if ending_nonzero else true())
             .order_by(grouped.c.product_code, grouped.c.color_name, grouped.c.color_spec, grouped.c.product_name)
             .offset((page - 1) * page_size)
             .limit(page_size)
             .cte("warehouse_inventory_page")
         )
-        # Reuse one aggregation for count, totals and the requested page. The
-        # outer join preserves totals for an empty or out-of-range page.
+        # Filter ending stock before counting/paging, keeping negative balances.
+        # Cards retain all movements, including products with zero ending stock.
+        # One aggregation and outer join preserve totals even for an empty page.
         statement = (
             select(totals, paged)
             .select_from(totals.outerjoin(paged, true()))

@@ -35,6 +35,7 @@ import { RecycleBinPagination } from "@/components/recycle-bin-page-jump"
 import { AccountSubjectSelect } from "@/components/inventory-admin/account-subject-select"
 import { InventoryImportUpload } from "@/components/inventory-admin/inventory-import-upload"
 import { InventoryImportError } from "@/components/inventory-admin/inventory-import-error"
+import { PurchaseImportConflicts } from "@/components/inventory-admin/purchase-import-conflicts"
 import { InventoryImportTaskStatus, type InventoryImportTaskNotice } from "@/components/inventory-admin/inventory-import-task-status"
 import { InventoryProductCodeFilter } from "@/components/inventory-admin/product-code-filter"
 import { SortableColumnLabel } from "@/components/inventory-admin/sortable-column-label"
@@ -3175,35 +3176,17 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
                 {purchasePreview && (
                   <div className="col-span-2 space-y-3 rounded-lg border p-3">
                     <p className="text-sm">共 {purchasePreview.total} 张单据；日期、摘要、类型、往来单位及仓库均相同的 {purchasePreview.conflicts.length} 张需确认。{purchasePreview.conflicts.length === 0 ? "预检查通过，请确认导入。" : ""}</p>
-                    {purchasePreview.conflicts.map((conflict) => {
-                      const decision = purchaseDecisions[conflict.key]
-                      return (
-                        <div key={conflict.key} className="space-y-2 border-t pt-3 text-sm">
-                          <p>{conflict.date} · {conflict.document_type}</p>
-                          <p className="text-muted-foreground">摘要：{conflict.summary}；{conflict.existing_number ? `已有单据：${conflict.existing_number}` : "与本次导入的其他单据匹配字段相同"}</p>
-                          <Select value={decision?.action ?? ""} onChange={(event) => {
-                            const action = event.target.value as "overwrite" | "new" | "skip" | ""
-                            setPurchaseDecisions((previous) => {
-                              if (!action) {
-                                const updated = { ...previous }
-                                delete updated[conflict.key]
-                                return updated
-                              }
-                              return { ...previous, [conflict.key]: { action, new_summary: previous[conflict.key]?.new_summary ?? "" } }
-                            })
-                            setImportError("")
-                          }}>
-                            <option value="">请选择处理方式</option>
-                            {conflict.can_merge && <option value="overwrite">覆盖已有单据（替换原明细，保留编号）</option>}
-                            <option value="new">另增一张单据（修改摘要）</option>
-                            <option value="skip">取消该单据（其他单据继续导入）</option>
-                          </Select>
-                          {decision?.action === "new" && (
-                            <Input value={decision.new_summary ?? ""} placeholder="请输入不同于原摘要的新摘要" onChange={(event) => setPurchaseDecisions((previous) => ({ ...previous, [conflict.key]: { action: "new", new_summary: event.target.value } }))} />
-                          )}
-                        </div>
-                      )
-                    })}
+                    {purchasePreview.conflicts.length > 0 && (
+                      <PurchaseImportConflicts
+                        conflicts={purchasePreview.conflicts}
+                        decisions={purchaseDecisions}
+                        disabled={isImporting || Boolean(importTaskId)}
+                        onDecisionsChange={(update) => {
+                          setPurchaseDecisions(update)
+                          setImportError("")
+                        }}
+                      />
+                    )}
                   </div>
                 )}
               </div>

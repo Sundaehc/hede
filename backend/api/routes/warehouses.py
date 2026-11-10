@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from datetime import date
+import logging
+import re
 
 from fastapi import APIRouter, HTTPException, Request
 
@@ -11,8 +13,11 @@ from api.operation_log_utils import (
     summarize_changes,
     write_operation_log,
 )
+from api.routes.inventory import _stream_excel_workbook
+from api.warehouse_inventory_export import build_ending_inventory_workbook
 
 router = APIRouter()
+ENDING_INVENTORY_EXPORT_LIMIT = 100_000
 
 
 def _validate_inventory_date_range(date_start: date | None, date_end: date | None) -> None:
@@ -60,6 +65,7 @@ def get_warehouse_inventory(
     date_start: date | None = None,
     date_end: date | None = None,
     product_code: str | None = None,
+    ending_nonzero: bool = False,
     page: int = 1,
     page_size: int = 20,
 ):
@@ -73,9 +79,49 @@ def get_warehouse_inventory(
         date_start=date_start.isoformat() if date_start else None,
         date_end=date_end.isoformat() if date_end else None,
         product_code=product_code,
+        ending_nonzero=ending_nonzero,
         page=max(page, 1),
         page_size=min(max(page_size, 1), 200),
     )
+
+
+@router.get("/warehouses/{warehouse_id}/inventory/export")
+def export_warehouse_ending_inventory(
+    request: Request, warehouse_id: int,
+    date_start: date | None = None, date_end: date | None = None, product_code: str | None = None,
+):
+    _validate_inventory_date_range(date_start, date_end)
+    repository = request.app.state.inventory_repository
+    warehouse = repository.get_warehouse(warehouse_id)
+    if warehouse is None:
+        raise HTTPException(status_code=404, detail="Warehouse not found")
+    warehouse_name = str(warehouse.get("name") or "")
+    filters = {
+        "date_start": date_start.isoformat() if date_start else None,
+        "date_end": date_end.isoformat() if date_end else None,
+        "product_code": product_code,
+    }
+    result = repository.get_warehouse_inventory(
+        warehouse_name=warehouse_name, **filters, ending_nonzero=True,
+        page=1, page_size=ENDING_INVENTORY_EXPORT_LIMIT,
+    )
+    if result["total"] > ENDING_INVENTORY_EXPORT_LIMIT:
+        raise HTTPException(status_code=400, detail="期末库存商品超过 100000 条，请缩小日期或货号筛选范围后导出")
+    workbook = build_ending_inventory_workbook(result)
+    # Generate the file before recording success; log failures must not block a download.
+    filename_warehouse = re.sub(r'[\\/:*?"<>|\x00-\x1f]', "_", warehouse_name)[:80]
+    filename = f"期末库存_{filename_warehouse}_{filters['date_end'] or '全部日期'}.xlsx"
+    response = _stream_excel_workbook(workbook, filename)
+    try:
+        write_operation_log(
+            request, module="warehouse", action="export", entity_type="warehouse_inventory",
+            entity_id=warehouse_id, entity_label=warehouse_name,
+            summary=f"导出仓库 {warehouse_name} 期末库存商品 {result['total']} 条",
+            after_data={"exported_rows": result["total"], "filters": filters, "ending_qty": result["totals"]["ending_qty"]},
+        )
+    except Exception:
+        logging.getLogger(__name__).exception("Failed to record warehouse inventory export log")
+    return response
 
 
 @router.get("/warehouses/{warehouse_id}/inventory/movements")

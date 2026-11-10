@@ -8,10 +8,13 @@ import { Barcode, BadgeDollarSign, ChevronDown, FileDown, FileSpreadsheet, Histo
 import { Button } from "@/components/ui/button"
 import { DateRangeControl } from "@/components/ui/date-range-control"
 import { Label } from "@/components/ui/label"
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { ProductImportErrors } from "@/components/inventory-admin/product-import-errors"
+import type { ProductImportValidation } from "@/lib/product-import-validation"
 import { ProductMultiOptionSelect } from "@/components/product-admin/product-multi-option-select"
 import { productAttributeFilter, productAttributeSummary } from "@/lib/product-attribute-filters"
 import { type ProductArchiveBrandKey } from "@/lib/brands"
-import { assertProductExportAllowed, downloadProductExport, downloadProductImportTemplate, getProductImageRefreshStatus, importProducts, refreshProductImages, type ProductExportMode, type ProductExportProgress } from "@/lib/api"
+import { ApiError, assertProductExportAllowed, downloadProductExport, downloadProductImportTemplate, getProductImageRefreshStatus, importProducts, refreshProductImages, type ProductExportMode, type ProductExportProgress } from "@/lib/api"
 import type { ProductImageRefreshStatus } from "@/lib/types"
 
 type ProductToolbarProps = {
@@ -112,6 +115,7 @@ export function ProductToolbar({
   const fileInputRef = useRef<HTMLInputElement>(null)
   const submittedImageRefreshAtRef = useRef<number | null>(null)
   const [importing, setImporting] = useState(false)
+  const [importValidation, setImportValidation] = useState<ProductImportValidation | null>(null)
   const [downloadingTemplate, setDownloadingTemplate] = useState(false)
   const [refreshingImages, setRefreshingImages] = useState(false)
   const [exporting, setExporting] = useState(false)
@@ -218,13 +222,15 @@ export function ProductToolbar({
     }
 
     setImporting(true)
+    setImportValidation(null)
     let importedSkus: string[] = []
     try {
       const result = await importProducts(brand, file)
       importedSkus = result.skus
       onMessage("导入完成", result.message)
     } catch (error) {
-      onMessage("导入失败", error instanceof Error ? error.message : "导入时发生未知错误，请重试")
+      if (error instanceof ApiError && error.validation) setImportValidation(error.validation)
+      else onMessage("导入失败", error instanceof Error ? error.message : "导入时发生未知错误，请重试")
       return
     } finally {
       setImporting(false)
@@ -525,6 +531,18 @@ export function ProductToolbar({
           </div>
         ) : null}
       </div>
+      <Dialog open={Boolean(importValidation)} onOpenChange={(open) => { if (!open) setImportValidation(null) }}>
+        <DialogContent className="flex max-h-[90vh] max-w-4xl flex-col overflow-hidden">
+          <DialogHeader>
+            <DialogTitle>商品档案导入未完成</DialogTitle>
+            <DialogDescription>请补齐文件中各行的颜色和颜色代码，再重新导入。</DialogDescription>
+          </DialogHeader>
+          <div className="min-h-0 overflow-y-auto">
+            {importValidation && <ProductImportErrors validation={importValidation} message={importValidation.message} context="archive" />}
+          </div>
+          <DialogFooter><Button type="button" onClick={() => setImportValidation(null)}>关闭</Button></DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

@@ -3180,6 +3180,7 @@ export function getWarehouseInventory(
     date_start?: string
     date_end?: string
     product_code?: string
+    ending_nonzero?: boolean
     page: number
     pageSize: number
   },
@@ -3192,10 +3193,31 @@ export function getWarehouseInventory(
   if (params.date_start) search.set("date_start", params.date_start)
   if (params.date_end) search.set("date_end", params.date_end)
   if (params.product_code) search.set("product_code", params.product_code)
+  if (params.ending_nonzero) search.set("ending_nonzero", "true")
   return request<WarehouseInventoryResponse>(
     `/warehouses/${warehouseId}/inventory?${search.toString()}`,
     { signal, cache: "no-store" },
   )
+}
+
+export async function downloadWarehouseEndingInventory(
+  warehouseId: number,
+  params: { date_start?: string; date_end?: string; product_code?: string },
+  signal?: AbortSignal,
+) {
+  const search = new URLSearchParams()
+  if (params.date_start) search.set("date_start", params.date_start)
+  if (params.date_end) search.set("date_end", params.date_end)
+  if (params.product_code) search.set("product_code", params.product_code)
+  const response = await fetch(`${API_PREFIX}/warehouses/${warehouseId}/inventory/export?${search.toString()}`, {
+    credentials: "include", cache: "no-store", signal,
+  })
+  if (!response.ok) throw new ApiError(response.status, await readApiError(response))
+  const blob = await response.blob()
+  signal?.throwIfAborted()
+  const filename = filenameFromContentDisposition(response.headers.get("content-disposition"), "期末库存.xlsx")
+  downloadBlob(blob, filename)
+  return { filename, size: blob.size }
 }
 
 export function listWarehouseInventoryMovements(

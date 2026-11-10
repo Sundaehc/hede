@@ -34,6 +34,7 @@ from domain.inventory_schema import SUPPLIER_BRAND_TABLE
 from domain.product_archive_features import has_womens_product_style_fields
 from domain.schema import PRODUCT_ARCHIVE_TABLES
 from domain.product_defaults import apply_product_defaults
+from domain.product_import_validation import raise_product_import_errors
 from domain.product_archive_identity_schema import PURCHASE_PRODUCT_SYNC_FIELDS, product_sync_fields_changed
 from domain.product_size_code import build_product_size_code
 from domain.sources import CANONICAL_COLUMNS, COLUMN_ALIASES
@@ -402,6 +403,8 @@ def _build_product_import_template() -> io.BytesIO:
     required_fill = PatternFill("solid", fgColor="FCE8E6")
     for header in ("货号", "原始货号"):
         worksheet.cell(row=1, column=headers.index(header) + 1).fill = choice_fill
+    for header in ("颜色", "颜色代码"):
+        worksheet.cell(row=1, column=headers.index(header) + 1).fill = required_fill
 
     barcode_column = headers.index("条码构成逻辑") + 1
     worksheet.cell(row=1, column=barcode_column).fill = required_fill
@@ -426,10 +429,11 @@ def _build_product_import_template() -> io.BytesIO:
     instructions.append(["适用品牌", "全部品牌", "本模板可用于所有商品信息档案品牌，实际导入品牌由页面当前选中的Tab决定", "千百度男鞋"])
     instructions.append(["货号/原始货号", "至少填写一项", "黄色表头的两列至少填写一项；同时填写时优先按货号匹配", "QC153883D54"])
     instructions.append(["条码构成逻辑", "下拉选择", "千百度男鞋、千百度女鞋、伊伴固定为货号+颜色代码+尺码；笑脸、NI及KT开头货号固定为货号+尺码；其他品牌按填写值", "货号+颜色代码+尺码"])
+    instructions.append(["颜色/颜色代码", "两项均必填", "新增或更新商品均须在文件中填写；任一为空或缺少对应列时拒绝整批导入，提示全部错误行", "黑色 / 01"])
     instructions.append(["供应商名", "按需填写", "更新已有商品时，导入供应商必须与档案中的现有供应商一致", "温州示例鞋业"])
     instructions.append(["尺码段", "按需填写", "填写的尺码段名称必须已存在于尺码组管理中", "女鞋34-40"])
     instructions.append(["跟高/后跟高", "分别填写", "跟高与后跟高是两个独立字段；后跟高仅在千百度女鞋档案中展示和导出", "中跟 / 5cm"])
-    instructions.append(["空白单元格", "无需填写", "更新已有商品时，空白单元格不会清空档案中的原值", ""])
+    instructions.append(["其他空白单元格", "按需填写", "除颜色和颜色代码外，更新已有商品时空白单元格不会清空档案中的原值", ""])
     instructions.append(["图片", "无需填写", "图片不通过模板导入，系统按货号或原始货号从品牌图片目录自动匹配", ""])
     instructions.append(["导入结果", "整批校验", "任意一行校验失败时整份文件不写入，请根据错误行修正后重新导入", ""])
     style_excel_worksheet(
@@ -438,6 +442,9 @@ def _build_product_import_template() -> io.BytesIO:
         auto_filter=False,
     )
     instructions.column_dimensions["C"].width = 64
+    for row in instructions.iter_rows(min_row=2):
+        row[2].alignment = Alignment(horizontal="left", vertical="center", wrap_text=True)
+        instructions.row_dimensions[row[0].row].height = 42
 
     buffer = io.BytesIO()
     workbook.save(buffer)
@@ -1523,6 +1530,37 @@ def _finish_product_import(
         logger.exception("Failed to write product import operation log")
 
 
+def _product_import_code(value: object) -> str:
+    if value is None:
+        return ""
+    return str(int(value)) if isinstance(value, float) and value.is_integer() else str(value).strip()
+
+
+def _product_import_color_errors(iterator, headers: list[str], aliases: dict[str, str], *, brand: str, sheet_name: str) -> list[dict[str, object]]:
+    """Validate uploaded cells before defaults, existing records or any writes."""
+    errors = []
+    for row_number, row in enumerate(iterator, start=2):
+        fields = {
+            aliases[header]: value
+            for header, value in zip(headers, row)
+            if aliases.get(header) in {"sku", "original_sku", "color", "color_code"}
+        }
+        sku = _product_import_code(fields.get("sku"))
+        original_sku = _product_import_code(fields.get("original_sku"))
+        if (not sku and not original_sku) or is_excluded_sku(sku or original_sku, original_sku):
+            continue
+        missing = [
+            label for field, label in (("color", "颜色"), ("color_code", "颜色代码"))
+            if normalize_admin_field(field, fields.get(field)) is None
+        ]
+        if missing:
+            errors.append({
+                "row_number": row_number, "product_code": sku or original_sku, "brand": brand,
+                "summary": sheet_name, "reason": f"{'、'.join(missing)}不能为空",
+            })
+    return errors
+
+
 @router.post("/import")
 async def import_products(
     request: Request,
@@ -1557,6 +1595,19 @@ async def import_products(
     for cn_label, en_field in CN_TO_FIELD.items():
         reverse_aliases[cn_label] = en_field
         reverse_aliases[en_field] = en_field
+
+    try:
+        color_errors = _product_import_color_errors(iterator, headers, reverse_aliases, brand=brand, sheet_name=ws.title)
+    except Exception:
+        wb.close()
+        raise
+    if color_errors:
+        wb.close()
+        raise_product_import_errors(color_errors, message=(
+            f"发现 {len(color_errors)} 行商品的颜色或颜色代码为空，请补齐后重新导入；本次未导入任何数据。"
+        ))
+    # A fresh read-only iterator avoids buffering the entire workbook in memory.
+    iterator = ws.iter_rows(min_row=2, values_only=True)
 
     repository = request.app.state.repository
     image_matcher = get_image_matcher(request, brand)
@@ -1602,12 +1653,12 @@ async def import_products(
 
                 raw_sku = payload.get("sku")
                 if raw_sku is not None:
-                    payload["sku"] = str(int(raw_sku)) if isinstance(raw_sku, float) and raw_sku.is_integer() else str(raw_sku).strip()
+                    payload["sku"] = _product_import_code(raw_sku)
                 has_explicit_sku = bool(str(payload.get("sku") or "").strip())
 
                 raw_orig = payload.get("original_sku")
                 if raw_orig is not None:
-                    payload["original_sku"] = str(int(raw_orig)) if isinstance(raw_orig, float) and raw_orig.is_integer() else str(raw_orig).strip()
+                    payload["original_sku"] = _product_import_code(raw_orig)
 
                 if not payload.get("original_sku") and not payload.get("sku"):
                     continue

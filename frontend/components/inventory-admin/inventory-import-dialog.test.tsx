@@ -17,6 +17,7 @@ import {
   ApiError,
   type InventoryImportTask,
   type InventoryTemplatePreview,
+  type PurchaseImportPreview,
 } from "@/lib/api"
 
 const {
@@ -491,6 +492,140 @@ test("keeps purchase order import working with the shared upload", async () => {
   )
   expect(importPurchaseMock).not.toHaveBeenCalled()
   expect(previewPurchaseMock).not.toHaveBeenCalled()
+})
+
+const purchaseConflictPreview: PurchaseImportPreview = {
+  total: 4,
+  conflicts: [
+    { key: "first", date: "2026-10-01", summary: "采购甲", document_type: "进货订单", existing_number: "JHDD-001", can_merge: true },
+    { key: "second", date: "2026-10-02", summary: "采购乙", document_type: "进货订单", existing_number: "JHDD-002", can_merge: true },
+    { key: "third", date: "2026-10-03", summary: "采购丙", document_type: "进货订单", existing_number: "", can_merge: false },
+  ],
+}
+
+async function openPurchaseConflictPreview() {
+  purchaseTaskMock.mockImplementationOnce(async (payload) => ({
+    ...importTask("succeeded", payload.taskId), result: null, preview: purchaseConflictPreview,
+  }))
+  const opened = await openImport("purchase-orders")
+  const file = selectFile(opened.dialog, "重复采购单.xlsx")
+  await opened.user.click(opened.ui.getByRole("button", { name: "预检查" }))
+  await opened.ui.findByRole("region", { name: "采购单重复处理" })
+  return { ...opened, file }
+}
+
+test("applies a batch decision only to selected purchase conflicts and submits all choices after confirmation", async () => {
+  const { user, ui, file } = await openPurchaseConflictPreview()
+  const rows = within(ui.getByRole("list", { name: "重复采购单" })).getAllByRole("listitem")
+  expect(ui.getByRole("button", { name: "应用到已选" })).toBeDisabled()
+  await user.selectOptions(within(rows[0]).getByRole("combobox"), "new")
+  await user.type(ui.getByRole("textbox", { name: "第 1 张单据的新摘要" }), "采购甲补单")
+  await user.click(ui.getByRole("checkbox", { name: "选择第 2 张重复单据" }))
+  await user.click(ui.getByRole("checkbox", { name: "选择第 3 张重复单据" }))
+  expect(ui.getByRole("checkbox", { name: "全选重复单据" })).toBePartiallyChecked()
+  await user.selectOptions(ui.getByRole("combobox", { name: "批量处理方式" }), "skip")
+  await user.click(ui.getByRole("button", { name: "应用到已选" }))
+  expect(within(rows[0]).getByRole("combobox")).toHaveValue("new")
+  expect(ui.getByRole("textbox", { name: "第 1 张单据的新摘要" })).toHaveValue("采购甲补单")
+  expect(within(rows[1]).getByRole("combobox")).toHaveValue("skip")
+  expect(within(rows[2]).getByRole("combobox")).toHaveValue("skip")
+  expect(ui.getByText("待选择 0 张")).toBeInTheDocument()
+  expect(purchaseTaskMock).toHaveBeenCalledOnce()
+  await user.click(ui.getByRole("button", { name: "确认导入" }))
+  expect(purchaseTaskMock).toHaveBeenLastCalledWith(expect.objectContaining({
+    file, preview: false,
+    decisions: {
+      first: { action: "new", new_summary: "采购甲补单" },
+      second: { action: "skip", new_summary: "" },
+      third: { action: "skip", new_summary: "" },
+    },
+  }))
+  expect(purchaseTaskMock).toHaveBeenCalledTimes(2)
+})
+
+test("bulk overwrite preserves ineligible conflicts and still allows individual adjustments", async () => {
+  const { user, ui } = await openPurchaseConflictPreview()
+  const rows = within(ui.getByRole("list", { name: "重复采购单" })).getAllByRole("listitem")
+  await user.selectOptions(within(rows[2]).getByRole("combobox"), "skip")
+  await user.click(ui.getByRole("checkbox", { name: "全选重复单据" }))
+  await user.selectOptions(ui.getByRole("combobox", { name: "批量处理方式" }), "overwrite")
+  await user.click(ui.getByRole("button", { name: "应用到已选" }))
+  expect(within(rows[0]).getByRole("combobox")).toHaveValue("overwrite")
+  expect(within(rows[1]).getByRole("combobox")).toHaveValue("overwrite")
+  expect(within(rows[2]).getByRole("combobox")).toHaveValue("skip")
+  expect(ui.getByText(/2 张单据设置“覆盖已有单据”。1 张不支持覆盖/)).toBeInTheDocument()
+  await user.selectOptions(within(rows[0]).getByRole("combobox"), "skip")
+  await user.click(ui.getByRole("button", { name: "确认导入" }))
+  expect(purchaseTaskMock).toHaveBeenLastCalledWith(expect.objectContaining({
+    preview: false, decisions: {
+      first: { action: "skip", new_summary: "" },
+      second: { action: "overwrite", new_summary: "" },
+      third: { action: "skip", new_summary: "" },
+    },
+  }))
+})
+
+test("selects only pending conflicts, validates new summaries and clears only selected decisions", async () => {
+  const { user, ui, dialog } = await openPurchaseConflictPreview()
+  const rows = within(ui.getByRole("list", { name: "重复采购单" })).getAllByRole("listitem")
+  await user.selectOptions(within(rows[0]).getByRole("combobox"), "skip")
+  await user.click(ui.getByRole("button", { name: "仅选未处理" }))
+  expect(ui.getByRole("checkbox", { name: "选择第 1 张重复单据" })).not.toBeChecked()
+  expect(ui.getByRole("checkbox", { name: "选择第 2 张重复单据" })).toBeChecked()
+  expect(ui.getByRole("checkbox", { name: "选择第 3 张重复单据" })).toBeChecked()
+  await user.selectOptions(ui.getByRole("combobox", { name: "批量处理方式" }), "new")
+  await user.click(ui.getByRole("button", { name: "应用到已选" }))
+  expect(ui.getByText("待选择 0 张 · 待补摘要 2 张")).toBeInTheDocument()
+  await user.click(ui.getByRole("button", { name: "确认导入" }))
+  expect(ui.getByRole("alert")).toHaveTextContent("新建时必须填写不同的摘要")
+  expect(purchaseTaskMock).toHaveBeenCalledOnce()
+  await user.type(ui.getByRole("textbox", { name: "第 2 张单据的新摘要" }), "采购乙")
+  await user.click(ui.getByRole("button", { name: "确认导入" }))
+  expect(ui.getByRole("alert")).toHaveTextContent("新建时必须填写不同的摘要")
+  await user.selectOptions(ui.getByRole("combobox", { name: "批量处理方式" }), "clear")
+  await user.click(ui.getByRole("button", { name: "应用到已选" }))
+  expect(ui.queryByRole("alert")).not.toBeInTheDocument()
+  expect(within(rows[0]).getByRole("combobox")).toHaveValue("skip")
+  expect(within(rows[1]).getByRole("combobox")).toHaveValue("")
+  expect(within(rows[2]).getByRole("combobox")).toHaveValue("")
+  await user.click(ui.getByRole("button", { name: "确认导入" }))
+  expect(ui.getByRole("alert")).toHaveTextContent("选择覆盖、新增或取消该单据")
+  selectFile(dialog, "另一批.xlsx")
+  expect(ui.queryByRole("region", { name: "采购单重复处理" })).not.toBeInTheDocument()
+  purchaseTaskMock.mockImplementationOnce(async (payload) => ({
+    ...importTask("succeeded", payload.taskId), result: null, preview: purchaseConflictPreview,
+  }))
+  await user.click(ui.getByRole("button", { name: "预检查" }))
+  await ui.findByRole("region", { name: "采购单重复处理" })
+  expect(ui.getByRole("checkbox", { name: "全选重复单据" })).not.toBeChecked()
+  expect(ui.getByRole("combobox", { name: "批量处理方式" })).toHaveValue("")
+  expect(ui.getByText("待选择 3 张")).toBeInTheDocument()
+})
+
+test("locks bulk and individual purchase decisions while the confirmed import runs", async () => {
+  const { user, ui } = await openPurchaseConflictPreview()
+  await user.click(ui.getByRole("checkbox", { name: "全选重复单据" }))
+  await user.selectOptions(ui.getByRole("combobox", { name: "批量处理方式" }), "new")
+  await user.click(ui.getByRole("button", { name: "应用到已选" }))
+  for (let index = 1; index <= 3; index++) {
+    await user.type(ui.getByRole("textbox", { name: `第 ${index} 张单据的新摘要` }), `补单${index}`)
+  }
+  purchaseTaskMock.mockImplementationOnce(async (payload) => importTask("running", payload.taskId))
+  getPurchaseTaskMock.mockResolvedValue(importTask("running"))
+  await user.click(ui.getByRole("button", { name: "确认导入" }))
+  expect(await ui.findByRole("button", { name: "等待结果" })).toBeDisabled()
+  const section = within(ui.getByRole("region", { name: "采购单重复处理" }))
+  for (const control of [...section.getAllByRole("checkbox"), ...section.getAllByRole("combobox"), ...section.getAllByRole("textbox"), ...section.getAllByRole("button")]) {
+    expect(control).toBeDisabled()
+  }
+  expect(purchaseTaskMock).toHaveBeenCalledTimes(2)
+  expect(purchaseTaskMock).toHaveBeenLastCalledWith(expect.objectContaining({
+    preview: false, decisions: {
+      first: { action: "new", new_summary: "补单1" },
+      second: { action: "new", new_summary: "补单2" },
+      third: { action: "new", new_summary: "补单3" },
+    },
+  }))
 })
 
 test("keeps a purchase import running beyond two minutes and only queries after reconnecting", async () => {
