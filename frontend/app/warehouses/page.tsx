@@ -1,8 +1,10 @@
 "use client"
 
 import { useSessionQueryState } from "@/lib/session-query-state"
+import { getBusinessDataChangeToken } from "@/lib/business-data-sync"
+import { useCrossTabRefresh } from "@/lib/use-cross-tab-refresh"
 
-import { type DragEvent, useCallback, useEffect, useMemo, useState } from "react"
+import { type DragEvent, useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { ChevronRight, Edit, Eye, GripVertical, History, Plus, Search, Trash2, X } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
@@ -48,6 +50,14 @@ type WarehouseForm = {
 type DropPlacement = "before" | "after"
 type DropTarget = { id: number; placement: DropPlacement }
 type DateRange = { start: string; end: string }
+type InventorySummaryCache = {
+  key: string
+  items: WarehouseInventorySummaryItem[]
+  savedAt: number
+}
+const SUMMARY_MAX_AGE_MS = 5 * 60 * 1000
+const SUMMARY_RESOURCES = ["inventory", "products", "reference-data"] as const
+const EMPTY_SUMMARY: InventorySummaryCache = { key: "", items: [], savedAt: 0 }
 
 function defaultDateRange(): DateRange {
   const now = new Date()
@@ -79,9 +89,11 @@ function moveById<T extends { id: number }>(items: T[], sourceId: number, target
 
 export default function WarehousesPage() {
   const { hasPermission } = useAuth()
-  const [brands, setBrands] = useState<WarehouseBrandItem[]>([])
-  const [warehouses, setWarehouses] = useState<WarehouseItem[]>([])
-  const [isLoading, setIsLoading] = useState(true)
+  const [brands, setBrands] = useSessionQueryState<WarehouseBrandItem[]>("warehouses:brands:v1", [])
+  const [warehouses, setWarehouses] = useSessionQueryState<WarehouseItem[]>("warehouses:items:v1", [])
+  const [directoryLoaded, setDirectoryLoaded] = useSessionQueryState("warehouses:directoryLoaded:v1", false)
+  const [isLoading, setIsLoading] = useState(!directoryLoaded)
+  const directoryRequest = useRef(0)
   const [queryInput, setQueryInput] = useSessionQueryState("warehouses:queryInput", "")
   const [query, setQuery] = useSessionQueryState("warehouses:query", "")
   const [selectedBrandId, setSelectedBrandId] = useSessionQueryState<number | null>("warehouses:selectedBrandId", null)
@@ -89,17 +101,24 @@ export default function WarehousesPage() {
   const [dateStart, setDateStart] = useSessionQueryState("warehouses:dateStart", dateRange.start)
   const [dateEnd, setDateEnd] = useSessionQueryState("warehouses:dateEnd", dateRange.end)
   const [summaryRevision, setSummaryRevision] = useState(0)
-  const [summary, setSummary] = useState<{
+  const [cacheCheckedAt] = useState(() => Date.now())
+  const [summary, setSummary] = useSessionQueryState<InventorySummaryCache>("warehouses:inventorySummary:v1", EMPTY_SUMMARY)
+  const [summaryFailure, setSummaryFailure] = useState<{
     key: string
-    items: WarehouseInventorySummaryItem[]
     error: string
-  }>({ key: "", items: [], error: "" })
-  const summaryKey = `${dateRange.start}:${dateRange.end}:${summaryRevision}`
-  const summaryLoading = summary.key !== summaryKey
-  const summaryError = summary.key === summaryKey ? summary.error : ""
+  }>({ key: "", error: "" })
+  const summaryKey = JSON.stringify([dateRange.start, dateRange.end, getBusinessDataChangeToken(SUMMARY_RESOURCES)])
+  const requestKey = `${summaryKey}:${summaryRevision}`
+  const summaryFresh = summary.key === summaryKey && summary.savedAt + SUMMARY_MAX_AGE_MS > cacheCheckedAt
+  const summaryLoading = !summaryFresh && summaryFailure.key !== requestKey
+  const summaryError = summaryFailure.key === requestKey ? summaryFailure.error : ""
   const inventoryByWarehouse = useMemo(() => new Map(
-    summary.key === summaryKey ? summary.items.map((item) => [item.warehouse_id, item]) : [],
-  ), [summary, summaryKey])
+    summaryFresh ? summary.items.map((item) => [item.warehouse_id, item]) : [],
+  ), [summary, summaryFresh])
+  const refreshSummary = useCallback(() => {
+    setSummary(EMPTY_SUMMARY)
+    setSummaryRevision((value) => value + 1)
+  }, [setSummary])
 
   const [brandFormOpen, setBrandFormOpen] = useState(false)
   const [brandFormMode, setBrandFormMode] = useState<"create" | "edit">("create")
@@ -127,49 +146,66 @@ export default function WarehousesPage() {
   const [messageOpen, setMessageOpen] = useState(false)
   const [messageContent, setMessageContent] = useState({ title: "", description: "" })
 
-  const load = useCallback((refreshSummary = true) => (
-    Promise.all([listWarehouseBrands(), listWarehouses()]).then(([brandResponse, warehouseResponse]) => {
+  const load = useCallback((refreshInventory = true) => {
+    const requestId = ++directoryRequest.current
+    return Promise.all([listWarehouseBrands(), listWarehouses()]).then(([brandResponse, warehouseResponse]) => {
+      if (directoryRequest.current !== requestId) return
       setBrands(brandResponse.items)
       setWarehouses(warehouseResponse.items)
-      if (refreshSummary) setSummaryRevision((value) => value + 1)
+      setDirectoryLoaded(true)
+      if (refreshInventory) {
+        setSummary(EMPTY_SUMMARY)
+        setSummaryRevision((value) => value + 1)
+      }
     }).catch((error: unknown) => {
+      if (directoryRequest.current !== requestId) return
       setBrands([])
       setWarehouses([])
       setMessageContent({ title: "加载失败", description: getErrorMessage(error) })
       setMessageOpen(true)
     }).finally(() => {
-      setIsLoading(false)
+      if (directoryRequest.current === requestId) setIsLoading(false)
     })
-  ), [])
+  }, [setBrands, setDirectoryLoaded, setSummary, setWarehouses])
+
+  useCrossTabRefresh(SUMMARY_RESOURCES, () => {
+    refreshSummary()
+    void load(false)
+  }, brandFormOpen || warehouseFormOpen || deleteBrandTarget !== null || deleteWarehouseTarget !== null || inventoryWarehouse !== null)
 
   useEffect(() => {
     void load(false)
+    return () => { directoryRequest.current += 1 }
   }, [load])
 
   useEffect(() => {
+    if (summaryFresh) return
     const controller = new AbortController()
     let cancelled = false
     void listWarehouseInventorySummary({
       date_start: dateRange.start || undefined,
       date_end: dateRange.end || undefined,
     }, controller.signal).then((response) => {
-      if (!cancelled) setSummary({ key: summaryKey, items: response.items, error: "" })
+      if (!cancelled) {
+        setSummary({ key: summaryKey, items: response.items, savedAt: Date.now() })
+        setSummaryFailure({ key: "", error: "" })
+      }
     }).catch((error: unknown) => {
-      if (!cancelled) setSummary({ key: summaryKey, items: [], error: getErrorMessage(error) })
+      if (!cancelled) setSummaryFailure({ key: requestKey, error: getErrorMessage(error) })
     })
     return () => { cancelled = true; controller.abort() }
-  }, [dateRange.start, dateRange.end, summaryKey])
+  }, [dateRange.start, dateRange.end, requestKey, setSummary, summaryFresh, summaryKey])
 
   const submitDates = () => {
     setDateRange({ start: dateStart, end: dateEnd })
-    setSummaryRevision((value) => value + 1)
+    refreshSummary()
   }
 
   const clearDates = () => {
     setDateStart("")
     setDateEnd("")
     setDateRange({ start: "", end: "" })
-    setSummaryRevision((value) => value + 1)
+    refreshSummary()
   }
 
   const filteredBrands = useMemo(() => {
@@ -486,7 +522,7 @@ export default function WarehousesPage() {
 
       <ConfirmDialog open={deleteBrandTarget !== null} title="确认删除" description={`确定删除品牌 ${deleteBrandTarget?.name}？该品牌下的仓库需要先调整或删除。`} confirmLabel={isDeletingBrand ? "删除中..." : "删除"} variant="destructive" onConfirm={handleDeleteBrand} onCancel={() => setDeleteBrandTarget(null)} />
       <ConfirmDialog open={deleteWarehouseTarget !== null} title="确认删除" description={`确定删除仓库 ${deleteWarehouseTarget?.name}？此操作不可撤销。`} confirmLabel={isDeletingWarehouse ? "删除中..." : "删除"} variant="destructive" onConfirm={handleDeleteWarehouse} onCancel={() => setDeleteWarehouseTarget(null)} />
-      {inventoryWarehouse && <WarehouseInventoryDialog key={`${inventoryWarehouse.id}:${dateRange.start}:${dateRange.end}`} warehouse={inventoryWarehouse} open initialDateRange={dateRange} canExport={hasPermission("inventory.export")} onOpenChange={(nextOpen) => { if (!nextOpen) { setInventoryWarehouse(null); setSummaryRevision((value) => value + 1) } }} />}
+      {inventoryWarehouse && <WarehouseInventoryDialog key={`${inventoryWarehouse.id}:${dateRange.start}:${dateRange.end}`} warehouse={inventoryWarehouse} open initialDateRange={dateRange} canExport={hasPermission("inventory.export")} onOpenChange={(nextOpen) => { if (!nextOpen) { setInventoryWarehouse(null); refreshSummary() } }} />}
       <MessageDialog open={messageOpen} title={messageContent.title} description={messageContent.description} onClose={() => setMessageOpen(false)} />
       <OperationLogDialog module="warehouse" title="仓库管理操作日志" open={operationLogOpen} onOpenChange={setOperationLogOpen} />
     </div>

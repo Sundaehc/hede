@@ -31,6 +31,60 @@ beforeEach(() => {
 })
 afterEach(cleanup)
 
+test("barcode mode resets pagination, uses submitted filters and drills into the exact size", async () => {
+  const user = userEvent.setup()
+  render(<WarehouseInventoryDialog warehouse={warehouse} open canExport initialDateRange={range} onOpenChange={() => undefined} />)
+  await screen.findByText("P001")
+  expect(screen.getByRole("button", { name: "按货号" })).toHaveAttribute("aria-pressed", "true")
+  expect(screen.queryByRole("columnheader", { name: "商品编码" })).not.toBeInTheDocument()
+  await user.type(screen.getByPlaceholderText("输入商品货号"), "P{Enter}")
+  await user.click(screen.getByRole("button", { name: "下一页" }))
+  await user.type(screen.getByPlaceholderText("输入商品货号"), "DRAFT")
+  const barcode = response()
+  barcode.items[0] = { ...barcode.items[0], product_identity_id: 123, inventory_size_key: "35", unallocated: false,
+    barcode: "000P01035", color_barcode: "01", size_name: "35", size_barcode: "035" }
+  inventoryMock.mockResolvedValue(barcode)
+  await user.click(screen.getByRole("button", { name: "按编码" }))
+  await screen.findByText("000P01035")
+  expect(inventoryMock).toHaveBeenLastCalledWith(1, expect.objectContaining({ display_mode: "barcode", product_code: "P", page: 1 }), expect.any(AbortSignal))
+  for (const label of ["商品编码", "颜色条码", "尺码名称", "尺码条码"]) expect(screen.getByRole("columnheader", { name: label })).toBeInTheDocument()
+  expect(screen.getByRole("button", { name: "按编码" })).toHaveAttribute("aria-pressed", "true")
+  await user.click(screen.getByRole("button", { name: "查看库存明细" }))
+  await waitFor(() => expect(movementsMock).toHaveBeenLastCalledWith(1, expect.objectContaining({
+    display_mode: "barcode", product_identity_id: 123, inventory_size_key: "35", unallocated: false, exact_match: true,
+  }), expect.any(AbortSignal)))
+  expect(screen.getByText(/商品编码：000P01035/)).toHaveTextContent("尺码：35")
+  await user.click(screen.getByRole("button", { name: "返回汇总" }))
+  await screen.findByText("000P01035")
+  await user.click(screen.getByRole("button", { name: "查看期末库存商品" }))
+  await screen.findByText("期末库存商品清单")
+  await user.click(screen.getByRole("button", { name: "导出 Excel" }))
+  await waitFor(() => expect(exportMock).toHaveBeenLastCalledWith(1, {
+    date_start: range.start, date_end: range.end, product_code: "P", display_mode: "barcode",
+  }, expect.any(AbortSignal)))
+  await user.click(screen.getByRole("button", { name: "按货号" }))
+  await waitFor(() => expect(inventoryMock).toHaveBeenLastCalledWith(1, expect.objectContaining({ page: 1, ending_nonzero: true }), expect.any(AbortSignal)))
+  expect(inventoryMock.mock.lastCall?.[1].display_mode).toBeUndefined()
+  expect(screen.queryByRole("columnheader", { name: "商品编码" })).not.toBeInTheDocument()
+})
+
+test("unallocated barcode rows retain warnings and empty size keys when opening movements", async () => {
+  const value = response()
+  value.items[0] = { ...value.items[0], product_identity_id: null, inventory_size_key: "", unallocated: true,
+    barcode: "", barcode_issue: "尺码数量缺失或与明细数量不一致，请核对单据" }
+  inventoryMock.mockResolvedValue(value)
+  const user = userEvent.setup()
+  render(<WarehouseInventoryDialog warehouse={warehouse} open initialDateRange={range} onOpenChange={() => undefined} />)
+  await screen.findByText("P001")
+  await user.click(screen.getByRole("button", { name: "按编码" }))
+  await screen.findByText(value.items[0].barcode_issue!)
+  expect(screen.getByText("未分配")).toBeInTheDocument()
+  await user.click(screen.getByRole("button", { name: "查看库存明细" }))
+  await waitFor(() => expect(movementsMock).toHaveBeenLastCalledWith(1, expect.objectContaining({
+    display_mode: "barcode", product_identity_id: null, inventory_size_key: "", unallocated: true,
+  }), expect.any(AbortSignal)))
+})
+
 test("returning from movements refreshes the inventory page after source data changes", async () => {
   const user = userEvent.setup()
   render(<WarehouseInventoryDialog warehouse={warehouse} open initialDateRange={range} onOpenChange={() => undefined} />)

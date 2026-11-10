@@ -9,10 +9,11 @@ from collections import defaultdict
 from collections.abc import Iterator, Mapping
 from decimal import Decimal, InvalidOperation
 from datetime import date, datetime, timedelta
+from typing import Annotated, Literal
 from uuid import uuid4
 
 import xlrd
-from fastapi import APIRouter, HTTPException, Query, Request, UploadFile
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, UploadFile
 from fastapi.responses import JSONResponse, StreamingResponse
 from openpyxl import Workbook, load_workbook
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
@@ -21,6 +22,8 @@ from sqlalchemy import MetaData, desc, or_, select as sa_select
 from starlette.concurrency import run_in_threadpool
 
 from api.excel_export import style_excel_workbook, style_excel_worksheet
+from api.detail_export_selection import DetailExportSelection, ensure_selection_complete
+from api.detail_report_filters import purchase_detail_filters
 from api.inventory_import_tasks import submit_inventory_import, task_response, task_user_id
 from api.inventory_selection import InventorySelectionFilters
 from storage.inventory_import_tasks import complete_inventory_import
@@ -63,6 +66,7 @@ from domain.inventory_sources import (
     INVENTORY_EXPORT_LABELS,
 )
 from domain.schema import PRODUCT_ARCHIVE_TABLES, PRODUCT_TABLES, build_product_archive_table
+from domain.product_archive_naming import manual_product_table_name
 from domain.size_group_schema import SIZE_GROUP_ITEMS_TABLE, SIZE_GROUPS_TABLE
 from domain.vip_schema import JST_PRICE_TABLE
 
@@ -95,9 +99,8 @@ def _product_archive_table_for_brand(connection, brand: object):
         .where(SUPPLIER_BRAND_TABLE.c.code == normalized_brand)
         .where(SUPPLIER_BRAND_TABLE.c.product_archive_enabled.is_(True))
     ).scalar()
-    table_name = _cell_text(configured_brand)
-    prefix = "manual_product_archive_"
-    if not table_name.startswith(prefix) or not table_name.removeprefix(prefix).isdigit():
+    table_name = manual_product_table_name(configured_brand)
+    if table_name is None:
         return None
     return build_product_archive_table(table_name, metadata=MetaData())
 
@@ -1660,7 +1663,9 @@ def _append_purchase_summary_export(
             groups[key] = {
                 "record_context": _purchase_record_export_context(record, supplier_lookup),
                 "product_code": product_code,
-                "original_code": _first_text(detail_extra_fields.get("image_code"), product_code),
+                # Image/style codes serve printing and are often the current
+                # SKU. Export the original SKU of the linked archive instead.
+                "original_code": _cell_text(detail.get("original_sku")),
                 "factory_code": _cell_text(detail_extra_fields.get("factory_code")),
                 "product_name": _first_text(detail.get("product_name"), product_code),
                 "size_quantities": defaultdict(Decimal),
@@ -4614,6 +4619,8 @@ def list_purchase_inbound_details(
     product_name: str | None = None,
     color_name: str | None = None,
     size_name: str | None = None,
+    sort_direction: Literal["asc", "desc"] = "asc",
+    display_mode: Literal["goods", "barcode"] = "goods",
     page: int = 1,
     page_size: int = 50,
 ):
@@ -4632,6 +4639,8 @@ def list_purchase_inbound_details(
         product_name=product_name,
         color_name=color_name,
         size_name=size_name,
+        sort_direction=sort_direction,
+        display_mode=display_mode,
         page=page,
         page_size=page_size,
     )
@@ -4650,6 +4659,34 @@ def export_purchase_inbound_details(
     product_name: str | None = None,
     color_name: str | None = None,
     size_name: str | None = None,
+    sort_direction: Literal["asc", "desc"] = "asc",
+    display_mode: Literal["goods", "barcode"] = "goods",
+):
+    return _export_purchase_inbound_details(
+        request, date_start=date_start, date_end=date_end, brands=brands, document_type=document_type,
+        supplier=supplier, warehouse=warehouse, product_code=product_code, product_name=product_name,
+        color_name=color_name, size_name=size_name, sort_direction=sort_direction, display_mode=display_mode,
+    )
+
+
+@router.post("/inventory-reports/purchase-inbound-details/export")
+def export_selected_purchase_inbound_details(
+    request: Request,
+    selection: DetailExportSelection,
+    filters: Annotated[dict[str, object], Depends(purchase_detail_filters)],
+    document_type: str | None = None,
+    display_mode: Literal["goods", "barcode"] = "goods",
+):
+    return _export_purchase_inbound_details(
+        request, **filters, document_type=document_type, display_mode=display_mode,
+        selected_rows=selection.selected_rows(display_mode),
+    )
+
+
+def _export_purchase_inbound_details(
+    request, *, date_start=None, date_end=None, brands=None, document_type=None,
+    supplier=None, warehouse=None, product_code=None, product_name=None, color_name=None,
+    size_name=None, sort_direction="asc", display_mode="goods", selected_rows=None,
 ):
     repository = request.app.state.inventory_repository
     normalized_document_type = normalize_document_type(document_type) if document_type else None
@@ -4666,18 +4703,27 @@ def export_purchase_inbound_details(
         product_name=product_name,
         color_name=color_name,
         size_name=size_name,
+        sort_direction=sort_direction,
+        display_mode=display_mode,
         page=1,
-        page_size=100_000,
+        page_size=100_001,
+        **({"selected_rows": selected_rows} if selected_rows is not None else {}),
     )
+    if selected_rows is not None:
+        ensure_selection_complete(selected_rows, result)
+    if result["total"] > 100_000:
+        raise HTTPException(status_code=400, detail="商品进货明细超过 100000 条，请缩小日期或商品筛选范围后导出")
     items = result["items"]
     workbook = Workbook()
     worksheet = workbook.active
     worksheet.title = "商品进货明细"
+    barcode_headers = ["商品编码", "颜色条码", "尺码名称", "尺码条码", "编码提示"] if display_mode == "barcode" else []
     worksheet.append([
         "行号",
         "货号",
         "商品全名",
         "颜色名称",
+        *barcode_headers,
         "单据类型",
         "单据编号",
         "日期",
@@ -4689,11 +4735,13 @@ def export_purchase_inbound_details(
         "仓库全名",
     ])
     for item in items:
+        barcode_values = [item.get(key) or "" for key in ("barcode", "color_barcode", "size_name", "size_barcode", "barcode_issue")] if display_mode == "barcode" else []
         worksheet.append([
             item.get("row_number"),
             item.get("product_code") or "",
             item.get("product_name") or "",
             item.get("color_name") or "",
+            *barcode_values,
             item.get("document_type") or "",
             item.get("document_number") or "",
             item.get("date") or "",
@@ -4704,9 +4752,14 @@ def export_purchase_inbound_details(
             item.get("unit_name") or "",
             item.get("warehouse_name") or "",
         ])
+        if display_mode == "barcode":
+            for column in range(5, 10):
+                worksheet.cell(row=worksheet.max_row, column=column).data_type = "s"
     style_excel_workbook(workbook)
     filters = [
         f"日期 {date_start or '不限'} 至 {date_end or '不限'}",
+        f"日期排序 {'升序' if sort_direction == 'asc' else '降序'}",
+        f"展示方式 {'按编码' if display_mode == 'barcode' else '按货号'}",
         f"品牌 {', '.join(_query_values(brands)) or '全部'}",
         f"单据类型 {normalized_document_type or '全部'}",
         f"供应商 {supplier or '全部'}",
@@ -4719,8 +4772,10 @@ def export_purchase_inbound_details(
         action="export",
         entity_type="purchase_inbound_detail",
         entity_label="商品进货明细",
-        summary=f"导出商品进货明细 {len(items)} 条（{'；'.join(filters)}）",
-        after_data={"exported_rows": len(items), "filters": filters},
+        summary=f"导出{'所选' if selected_rows is not None else ''}商品进货明细 {len(items)} 条（{'；'.join(filters)}）",
+        after_data={"exported_rows": len(items), "filters": filters,
+                    "selection": "selected" if selected_rows is not None else "all",
+                    "selected_count": len(selected_rows) if selected_rows is not None else None},
     )
     return _stream_excel_workbook(workbook, "商品进货明细.xlsx")
 

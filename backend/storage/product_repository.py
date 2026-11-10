@@ -12,6 +12,7 @@ from sqlalchemy import MetaData, Table, and_, bindparam, case, create_engine, de
 from domain.color_barcode_schema import COLOR_BARCODE_TABLE
 from domain.excluded_skus import not_excluded_sku_condition
 from domain.product_defaults import apply_product_defaults
+from domain.product_archive_naming import manual_product_table_name
 from domain.product_size_code import product_size_code_expression
 from domain.size_group_schema import SIZE_GROUPS_TABLE, SIZE_GROUP_ITEMS_TABLE
 from domain.inventory_schema import SUPPLIER_BRAND_TABLE
@@ -278,11 +279,7 @@ class ProductRepository:
 
     @staticmethod
     def _manual_table_name(value: object) -> str | None:
-        table_name = str(value or "").strip()
-        if not table_name.startswith("manual_product_archive_"):
-            return None
-        suffix = table_name.removeprefix("manual_product_archive_")
-        return table_name if suffix.isdigit() else None
+        return manual_product_table_name(value)
 
     def _manual_brand(self, brand: str) -> dict[str, object] | None:
         statement = (
@@ -322,7 +319,7 @@ class ProductRepository:
         if table_name is None:
             raise KeyError(f"Unknown product archive brand: {brand}")
         table = self._manual_product_tables.get(brand)
-        if table is None:
+        if table is None or table.name != table_name:
             table = build_product_archive_table(table_name, metadata=MetaData())
             self._manual_product_tables[brand] = table
         return table

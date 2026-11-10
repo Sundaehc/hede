@@ -4,6 +4,21 @@ import { downloadWarehouseEndingInventory, getWarehouseInventory, listWarehouseI
 
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); vi.useRealTimers() })
 
+test("barcode inventory and movements preserve mode, identity and the empty unallocated key", async () => {
+  const fetchMock = vi.spyOn(global, "fetch").mockImplementation(async () => new Response(JSON.stringify({ items: [], total: 0 })))
+  await getWarehouseInventory(22, { display_mode: "barcode", page: 1, pageSize: 20 })
+  await listWarehouseInventoryMovements(22, { display_mode: "barcode", product_identity_id: 456, inventory_size_key: "35", unallocated: false, exact_match: true, page: 1, pageSize: 50 })
+  await listWarehouseInventoryMovements(22, { display_mode: "barcode", product_identity_id: null, inventory_size_key: "", unallocated: true, exact_match: true, page: 1, pageSize: 50 })
+  const urls = fetchMock.mock.calls.map(([url]) => new URL(String(url), "http://local"))
+  expect(urls[0].searchParams.get("display_mode")).toBe("barcode")
+  expect(urls[1].searchParams.get("product_identity_id")).toBe("456")
+  expect(urls[1].searchParams.get("inventory_size_key")).toBe("35")
+  expect(urls[1].searchParams.get("unallocated")).toBe("false")
+  expect(urls[2].searchParams.has("product_identity_id")).toBe(false)
+  expect(urls[2].searchParams.get("inventory_size_key")).toBe("")
+  expect(urls[2].searchParams.get("unallocated")).toBe("true")
+})
+
 test("inventory drilldown preserves empty grouping fields and omits null fields", async () => {
   const fetchMock = vi.spyOn(global, "fetch").mockResolvedValue(new Response(JSON.stringify({ items: [], total: 0 })))
   await listWarehouseInventoryMovements(22, {

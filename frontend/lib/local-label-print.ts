@@ -1,14 +1,16 @@
-import JsBarcode from "jsbarcode"
-
 import { resolvePurchasePrintElementText } from "@/components/inventory-admin/purchase-print-template-editor"
 import type {
   InventoryPrintLabel,
   PurchasePrintTemplateConfig,
   PurchasePrintTemplateElement,
 } from "@/lib/api"
+import {
+  createPurchaseBarcodeLayout,
+  getLocalLabelElementBounds,
+  LOCAL_LABEL_HEIGHT_PX as LABEL_HEIGHT_PX,
+  LOCAL_LABEL_WIDTH_PX as LABEL_WIDTH_PX,
+} from "@/lib/purchase-label-barcode"
 
-const LABEL_WIDTH_PX = 640
-const LABEL_HEIGHT_PX = 480
 const LABEL_WIDTH_MM = 80
 const LABEL_HEIGHT_MM = 60
 const PRINTER_DPI = 203
@@ -183,22 +185,16 @@ function drawBarcodeElement(
   y: number,
   width: number,
   height: number,
+  border: boolean,
 ) {
   if (!value) return
-  const barcodeCanvas = document.createElement("canvas")
-  JsBarcode(barcodeCanvas, value, {
-    format: "CODE128",
-    displayValue: false,
-    width: 2,
-    height: Math.max(1, Math.round(height)),
-    margin: 0,
-    background: "#ffffff",
-    lineColor: "#000000",
-  })
-  context.save()
-  context.imageSmoothingEnabled = false
-  context.drawImage(barcodeCanvas, x, y, width, height)
-  context.restore()
+  const layout = createPurchaseBarcodeLayout(value, width, height, border)
+  context.fillStyle = "#fff"
+  context.fillRect(x, y, width, height)
+  context.fillStyle = "#000"
+  for (const bar of layout.bars) {
+    context.fillRect(x + bar.x, y + layout.y, bar.width, layout.barHeight)
+  }
 }
 
 function drawTemplateElement(
@@ -207,17 +203,14 @@ function drawTemplateElement(
   element: PurchasePrintTemplateElement,
   data: InventoryPrintLabel,
 ) {
-  const x = Math.round(element.x / config.paper_width_mm * LABEL_WIDTH_PX)
-  const y = Math.round(element.y / config.paper_height_mm * LABEL_HEIGHT_PX)
-  const width = Math.max(1, Math.round(element.width / config.paper_width_mm * LABEL_WIDTH_PX))
-  const height = Math.max(1, Math.round(element.height / config.paper_height_mm * LABEL_HEIGHT_PX))
+  const { x, y, width, height } = getLocalLabelElementBounds(config, element)
 
   context.save()
   context.beginPath()
   context.rect(x, y, width, height)
   context.clip()
   if (element.kind === "barcode") {
-    drawBarcodeElement(context, data.barcode, x, y, width, height)
+    drawBarcodeElement(context, data.barcode, x, y, width, height, element.border)
   } else {
     drawTextElement(context, element, data, x, y, width, height)
   }

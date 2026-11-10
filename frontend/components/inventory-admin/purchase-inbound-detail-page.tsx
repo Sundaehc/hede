@@ -3,8 +3,8 @@
 import { useSessionQueryState } from "@/lib/session-query-state"
 import { useCrossTabRefresh } from "@/lib/use-cross-tab-refresh"
 
-import { useEffect, useMemo, useState } from "react"
-import { Download, History, Search, X } from "lucide-react"
+import { useEffect, useMemo, useRef, useState } from "react"
+import { ArrowDown, ArrowUp, Download, History, Search, X } from "lucide-react"
 
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
@@ -33,7 +33,7 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { ApiError, buildPurchaseInboundDetailExportUrl, listInventoryBrands, listInventoryDetailCandidates, listPurchaseInboundDetails, listSuppliers, listWarehouses, type InventoryDetailCandidate, type PurchaseInboundDetailItem, type SupplierItem, type WarehouseItem } from "@/lib/api"
-import { buildPurchaseOrderDetailExportUrl, getPurchaseOrderDetailOptions, listPurchaseOrderDetails } from "@/lib/api"
+import { buildPurchaseOrderDetailExportUrl, downloadSelectedDetailExport, getPurchaseOrderDetailOptions, listPurchaseOrderDetails } from "@/lib/api"
 import { buildSalesDetailExportUrl, getSalesDetailOptions, listSalesDetails, type SalesDetailResponse } from "@/lib/api"
 import { cn } from "@/lib/utils"
 
@@ -63,14 +63,9 @@ function getErrorMessage(error: unknown) {
 
 function buildPageRange(current: number, total: number): (number | "ellipsis")[] {
   if (total <= 7) return Array.from({ length: total }, (_, index) => index + 1)
-  const pages: (number | "ellipsis")[] = [1]
-  if (current > 3) pages.push("ellipsis")
-  const start = Math.max(2, current - 1)
-  const end = Math.min(total - 1, current + 1)
-  for (let page = start; page <= end; page += 1) pages.push(page)
-  if (current < total - 2) pages.push("ellipsis")
-  pages.push(total)
-  return pages
+  if (current <= 4) return [1, 2, 3, 4, 5, "ellipsis", total]
+  if (current >= total - 3) return [1, "ellipsis", total - 4, total - 3, total - 2, total - 1, total]
+  return [1, "ellipsis", current - 1, current, current + 1, "ellipsis", total]
 }
 
 function formatCell(value: string | number | null | undefined) {
@@ -83,6 +78,10 @@ function numericTone(value: string | null | undefined) {
   const numeric = Number(value)
   if (!Number.isFinite(numeric) || numeric >= 0) return ""
   return "text-destructive"
+}
+
+function selectionKey(item: PurchaseInboundDetailItem, byBarcode: boolean) {
+  return byBarcode ? item.row_key ?? "" : String(item.detail_id)
 }
 
 function salesDisplayResponse(response: SalesDetailResponse) {
@@ -120,6 +119,16 @@ export function PurchaseInboundDetailPage({ mode = "inbound", canExport = true }
   const [colorName, setColorName] = useSessionQueryState(`${stateKey}:colorName`, "")
   const [sizeName, setSizeName] = useSessionQueryState(`${stateKey}:sizeName`, "")
   const [submittedFilters, setSubmittedFilters] = useSessionQueryState<SubmittedFilters>(`${stateKey}:submittedFilters`, {})
+  const [dateSort, setDateSort] = useSessionQueryState<"asc" | "desc">(`${stateKey}:dateSort`, "asc")
+  const [displayMode, setDisplayMode] = useSessionQueryState<"goods" | "barcode">(`${stateKey}:displayMode`, "goods")
+  const byBarcode = !isPurchaseOrder && displayMode === "barcode"
+  const columnCount = (isPurchaseOrder ? 14 : byBarcode ? 17 : 12) + 1
+  const [selection, setSelection] = useSessionQueryState<{ scope: string; rows: string[] }>(`${stateKey}:exportSelection`, { scope: "", rows: [] })
+  const selectionScope = JSON.stringify([submittedFilters, byBarcode])
+  const selectedRows = useMemo(() => new Set(selection.scope === selectionScope ? selection.rows : []), [selection, selectionScope])
+  const [isExporting, setIsExporting] = useState(false)
+  const exportController = useRef<AbortController | null>(null)
+  useEffect(() => () => exportController.current?.abort(), [])
   const [page, setPage] = useSessionQueryState(`${stateKey}:page`, 1)
   const [pageSize, setPageSize] = useSessionQueryState(`${stateKey}:pageSize`, PAGE_SIZES[0])
   const [items, setItems] = useState<PurchaseInboundDetailItem[]>([])
@@ -136,7 +145,7 @@ export function PurchaseInboundDetailPage({ mode = "inbound", canExport = true }
   const [operationLogOpen, setOperationLogOpen] = useState(false)
   const [dataRevision, setDataRevision] = useState(0)
   const [referenceRevision, setReferenceRevision] = useState(0)
-  useCrossTabRefresh(["inventory", "products"], () => setDataRevision((value) => value + 1))
+  useCrossTabRefresh(["inventory", "products"], () => { exportController.current?.abort(); setDataRevision((value) => value + 1) })
   useCrossTabRefresh(["reference-data"], () => setReferenceRevision((value) => value + 1))
   const salesOptionsRevision = isSales ? dataRevision : 0
 
@@ -214,6 +223,8 @@ export function PurchaseInboundDetailPage({ mode = "inbound", canExport = true }
       try {
         const params = {
           ...submittedFilters,
+          sort_direction: dateSort,
+          ...(!isPurchaseOrder && displayMode === "barcode" ? { display_mode: displayMode } : {}),
           page,
           pageSize,
         }
@@ -249,10 +260,11 @@ export function PurchaseInboundDetailPage({ mode = "inbound", canExport = true }
       cancelled = true
       controller.abort()
     }
-  }, [dataRevision, isPurchaseOrder, isSales, page, pageSize, submittedFilters])
+  }, [dataRevision, dateSort, displayMode, isPurchaseOrder, isSales, page, pageSize, submittedFilters])
 
   const totalPages = Math.max(1, Math.ceil(total / pageSize))
   const pageRange = useMemo(() => buildPageRange(page, totalPages), [page, totalPages])
+  const pageSlotWidth = `${Math.max(2, String(totalPages).length) + 3}ch`
   const supplierFilterOptions = useMemo<SearchableFilterOption[]>(() => (
     supplierOptions.map((item) => ({
       value: item.name,
@@ -265,6 +277,8 @@ export function PurchaseInboundDetailPage({ mode = "inbound", canExport = true }
   ), [warehouseOptions])
 
   const submitSearch = () => {
+    exportController.current?.abort()
+    setSelection({ scope: "", rows: [] })
     setPage(1)
     setSubmittedFilters({
       date_start: dateStart || undefined,
@@ -281,6 +295,8 @@ export function PurchaseInboundDetailPage({ mode = "inbound", canExport = true }
   }
 
   const clearSearch = () => {
+    exportController.current?.abort()
+    setSelection({ scope: "", rows: [] })
     setDateStart("")
     setDateEnd("")
     setBrands([])
@@ -297,16 +313,53 @@ export function PurchaseInboundDetailPage({ mode = "inbound", canExport = true }
 
   const firstRow = total === 0 ? 0 : (page - 1) * pageSize + 1
   const lastRow = Math.min(page * pageSize, total)
+  const changePage = (nextPage: number) => {
+    if (isLoading || nextPage === page || nextPage < 1 || nextPage > totalPages) return
+    setPage(nextPage)
+  }
 
   const handleExport = () => {
+    const filters = { ...submittedFilters, sort_direction: dateSort, ...(!isPurchaseOrder && byBarcode ? { display_mode: displayMode } : {}) }
     const link = document.createElement("a")
     link.href = isSales
-      ? buildSalesDetailExportUrl(submittedFilters)
+      ? buildSalesDetailExportUrl(filters)
       : isPurchaseOrder
-        ? buildPurchaseOrderDetailExportUrl(submittedFilters)
-        : buildPurchaseInboundDetailExportUrl(submittedFilters)
+        ? buildPurchaseOrderDetailExportUrl(filters)
+        : buildPurchaseInboundDetailExportUrl(filters)
     link.rel = "noopener"
     link.click()
+  }
+
+  const toggleSelection = (keys: string[], checked: boolean) => {
+    setSelection(current => {
+      const next = new Set(current.scope === selectionScope ? current.rows : [])
+      for (const key of keys) { if (checked) next.add(key); else next.delete(key) }
+      return { scope: selectionScope, rows: Array.from(next) }
+    })
+  }
+  const pageKeys = items.map(item => selectionKey(item, byBarcode)).filter(Boolean)
+  const allPageSelected = pageKeys.length > 0 && pageKeys.every(key => selectedRows.has(key))
+  const somePageSelected = pageKeys.some(key => selectedRows.has(key))
+
+  const handleSelectedExport = async () => {
+    if (!canExport || isExporting || exportController.current || selectedRows.size === 0) return
+    const controller = new AbortController()
+    exportController.current = controller
+    setIsExporting(true)
+    setError(null)
+    try {
+      await downloadSelectedDetailExport(mode, {
+        ...submittedFilters, sort_direction: dateSort,
+        ...(!isPurchaseOrder && byBarcode ? { display_mode: displayMode } : {}),
+      }, Array.from(selectedRows), controller.signal)
+    } catch (exportError) {
+      if (!controller.signal.aborted) setError(getErrorMessage(exportError))
+    } finally {
+      if (exportController.current === controller) {
+        exportController.current = null
+        setIsExporting(false)
+      }
+    }
   }
 
   return (
@@ -316,8 +369,12 @@ export function PurchaseInboundDetailPage({ mode = "inbound", canExport = true }
           <div>
             <h1 className="page-title">{pageTitle}</h1>
           </div>
-          <div className="flex items-center gap-2 text-sm text-muted-foreground">
-            <Button variant="outline" size="sm" aria-label="导出Excel" onClick={handleExport} disabled={!canExport || total === 0 || isLoading} className="cursor-pointer">
+          <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
+            <Button variant="outline" size="sm" aria-label="导出所选" onClick={() => void handleSelectedExport()} disabled={!canExport || selectedRows.size === 0 || isLoading || isExporting} className="cursor-pointer">
+              <Download className="h-4 w-4" />
+              <span className="ml-1.5">{isExporting ? "导出中…" : `导出所选${selectedRows.size ? ` (${selectedRows.size})` : ""}`}</span>
+            </Button>
+            <Button variant="outline" size="sm" aria-label="导出Excel" title="导出全部符合当前筛选的明细" onClick={handleExport} disabled={!canExport || total === 0 || isLoading || isExporting} className="cursor-pointer">
               <Download className="h-4 w-4" />
               <span className="ml-1.5 hidden sm:inline">导出Excel</span>
             </Button>
@@ -326,7 +383,7 @@ export function PurchaseInboundDetailPage({ mode = "inbound", canExport = true }
               <span className="ml-1.5 hidden sm:inline">操作日志</span>
             </Button>
             <span>共 {total} 条</span>
-            <Select value={String(pageSize)} onChange={(event) => { setPageSize(Number(event.target.value)); setPage(1) }} className="w-24">
+            <Select aria-label="每页条数" disabled={isLoading} value={String(pageSize)} onChange={(event) => { setPageSize(Number(event.target.value)); setPage(1) }} className="w-24">
               {PAGE_SIZES.map((size) => (
                 <option key={size} value={String(size)}>{size} 条</option>
               ))}
@@ -429,18 +486,80 @@ export function PurchaseInboundDetailPage({ mode = "inbound", canExport = true }
           </Alert>
         ) : null}
 
+        <div className="flex min-h-8 flex-wrap items-center gap-3 text-sm">
+          <span aria-live="polite" className="text-muted-foreground">已选 {selectedRows.size} 条（跨页保留）</span>
+          <Button variant="ghost" size="sm" onClick={() => setSelection({ scope: selectionScope, rows: [] })} disabled={selectedRows.size === 0 || isExporting} className="h-8 cursor-pointer px-2">清空选择</Button>
+          {!isPurchaseOrder ? (
+            <div role="group" aria-label="明细展示方式" className="flex w-fit gap-1 rounded-lg border border-border bg-muted/50 p-1">
+              {(["goods", "barcode"] as const).map(value => (
+                <Button
+                  key={value}
+                  size="sm"
+                  variant={displayMode === value ? "secondary" : "ghost"}
+                  aria-pressed={displayMode === value}
+                  disabled={isLoading || isExporting}
+                  onClick={() => { if (displayMode !== value) { setSelection({ scope: "", rows: [] }); setPage(1); setDisplayMode(value) } }}
+                  className={cn("h-8 cursor-pointer", displayMode === value && "bg-background shadow-xs")}
+                >
+                  {value === "goods" ? "按货号" : "按编码"}
+                </Button>
+              ))}
+            </div>
+          ) : null}
+        </div>
+
         <div className="overflow-hidden rounded-lg border border-border bg-card">
-          <div data-scroll-restoration-key={`${stateKey}-table`} className="max-h-[calc(100vh-22rem)] min-h-[26rem] overflow-auto">
-            <Table className={cn("text-xs", isPurchaseOrder ? "min-w-[1480px] [&_th]:whitespace-nowrap" : "min-w-[1080px]")}>
+          <div
+            role="region"
+            aria-label={`${pageTitle}表格`}
+            aria-busy={isLoading}
+            data-scroll-restoration-key={`${stateKey}-table`}
+            className="h-[max(26rem,calc(100dvh-22rem))] overflow-auto [overflow-anchor:none] [scrollbar-gutter:stable]"
+          >
+            <Table containerClassName="overflow-visible" className={cn("table-fixed text-xs [&_th]:whitespace-nowrap", byBarcode ? "min-w-[1800px]" : isPurchaseOrder ? "min-w-[1480px]" : "min-w-[1080px]")}>
+              <colgroup>
+                <col className="w-11" />
+                <col className="w-14" /><col className="w-32" /><col className="w-44" />
+                {isPurchaseOrder ? <><col className="w-24" /><col className="w-40" /></> : null}
+                {byBarcode ? <><col className="w-56" /><col className="w-24" /><col className="w-24" /><col className="w-24" /><col className="w-24" /></> : null}
+                <col className="w-24" /><col className="w-40" /><col className="w-28" />
+                <col className="w-24" /><col className="w-28" /><col className="w-28" />
+                <col className="w-24" /><col className="w-48" /><col className="w-48" />
+              </colgroup>
               <TableHeader className="sticky top-0 z-10 bg-muted">
                 <TableRow className="hover:bg-muted">
+                  <TableHead className="text-center">
+                    <input type="checkbox" aria-label="全选本页明细" checked={allPageSelected}
+                      ref={element => { if (element) element.indeterminate = somePageSelected && !allPageSelected }}
+                      onChange={event => toggleSelection(pageKeys, event.target.checked)} disabled={isLoading || isExporting || pageKeys.length === 0 || !canExport}
+                      className="h-4 w-4 cursor-pointer rounded border border-input accent-primary disabled:cursor-not-allowed disabled:opacity-50" />
+                  </TableHead>
                   <TableHead className="w-14 text-center">行号</TableHead>
                   <TableHead className="w-32">货号</TableHead>
                   <TableHead className="w-44">商品全名</TableHead>
                   {isPurchaseOrder ? <><TableHead className="w-24">颜色名称</TableHead><TableHead className="min-w-40">尺码及数量</TableHead></> : null}
+                  {byBarcode ? <>
+                    <TableHead className="w-56">商品编码</TableHead>
+                    <TableHead className="w-24">颜色名称</TableHead>
+                    <TableHead className="w-24">颜色条码</TableHead>
+                    <TableHead className="w-24">尺码名称</TableHead>
+                    <TableHead className="w-24">尺码条码</TableHead>
+                  </> : null}
                   <TableHead className="w-24">单据类型</TableHead>
                   <TableHead className="w-40">单据编号</TableHead>
-                  <TableHead className="w-28">日期</TableHead>
+                  <TableHead className="w-28" aria-sort={dateSort === "asc" ? "ascending" : "descending"}>
+                    <button
+                      type="button"
+                      disabled={isLoading}
+                      aria-label={dateSort === "asc" ? "日期升序，点击切换为降序" : "日期降序，点击切换为升序"}
+                      title={dateSort === "asc" ? "日期升序，点击切换为降序" : "日期降序，点击切换为升序"}
+                      onClick={() => { setPage(1); setDateSort(dateSort === "asc" ? "desc" : "asc") }}
+                      className="-ml-2 inline-flex h-8 cursor-pointer items-center gap-1 rounded-md px-2 hover:bg-muted-foreground/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-wait disabled:opacity-50"
+                    >
+                      日期
+                      {dateSort === "asc" ? <ArrowUp aria-hidden="true" className="h-3.5 w-3.5" /> : <ArrowDown aria-hidden="true" className="h-3.5 w-3.5" />}
+                    </button>
+                  </TableHead>
                   <TableHead className="w-24 text-right">{quantityLabel}</TableHead>
                   <TableHead className="w-28 text-right">{amountLabel}</TableHead>
                   <TableHead className="w-28 text-right">{isPurchaseOrder ? "采购单价" : "零售金额"}</TableHead>
@@ -452,36 +571,52 @@ export function PurchaseInboundDetailPage({ mode = "inbound", canExport = true }
               <TableBody>
                 {isLoading ? (
                   <TableRow>
-                    <TableCell colSpan={isPurchaseOrder ? 14 : 12} className="h-40 text-center text-muted-foreground">加载中...</TableCell>
+                    <TableCell colSpan={columnCount} className="h-40 text-center text-muted-foreground">加载中...</TableCell>
                   </TableRow>
                 ) : items.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={isPurchaseOrder ? 14 : 12} className="h-40 text-center text-muted-foreground">{isSales ? "没有符合条件的销售明细" : isPurchaseOrder ? "没有符合条件的采购明细" : "没有符合条件的进货明细"}</TableCell>
+                    <TableCell colSpan={columnCount} className="h-40 text-center text-muted-foreground">{isSales ? "没有符合条件的销售明细" : isPurchaseOrder ? "没有符合条件的采购明细" : "没有符合条件的进货明细"}</TableCell>
                   </TableRow>
                 ) : (
                   items.map((item) => (
-                    <TableRow key={`${item.document_id}-${item.detail_id}`} className="odd:bg-muted/25">
+                    <TableRow key={item.row_key ?? `${item.document_id}-${item.detail_id}`} data-state={selectedRows.has(selectionKey(item, byBarcode)) ? "selected" : undefined} className="odd:bg-muted/25">
+                      <TableCell className="text-center">
+                        <input type="checkbox" aria-label={`选择明细 ${item.document_number || item.document_id} ${item.product_code || item.detail_id}${byBarcode ? ` ${item.size_name || "未分配尺码"}` : ""}`}
+                          checked={selectedRows.has(selectionKey(item, byBarcode))} onChange={event => toggleSelection([selectionKey(item, byBarcode)], event.target.checked)}
+                          disabled={isLoading || isExporting || !canExport || !selectionKey(item, byBarcode)}
+                          className="h-4 w-4 cursor-pointer rounded border border-input accent-primary disabled:cursor-not-allowed disabled:opacity-50" />
+                      </TableCell>
                       <TableCell className="text-center text-muted-foreground tabular-nums">{item.row_number}</TableCell>
-                      <TableCell className="font-mono text-[11px]">{formatCell(item.product_code)}</TableCell>
+                      <TableCell className="truncate font-mono text-[11px]" title={item.product_code || ""}>{formatCell(item.product_code)}</TableCell>
                       <TableCell className="max-w-44 truncate" title={item.product_name || ""}>{formatCell(item.product_name)}</TableCell>
                       {isPurchaseOrder ? <>
-                        <TableCell>{formatCell(item.color_name)}</TableCell>
-                        <TableCell className="max-w-64 whitespace-normal font-mono text-[11px]">{Object.entries(item.size_quantities ?? {}).map(([size, quantity]) => `${size}: ${quantity}`).join("；") || "-"}</TableCell>
+                        <TableCell className="truncate" title={item.color_name || ""}>{formatCell(item.color_name)}</TableCell>
+                        <TableCell className="whitespace-normal break-words font-mono text-[11px]">{Object.entries(item.size_quantities ?? {}).map(([size, quantity]) => `${size}: ${quantity}`).join("；") || "-"}</TableCell>
+                      </> : null}
+                      {byBarcode ? <>
+                        <TableCell>
+                          <div className="truncate font-mono text-[11px]" title={item.barcode || ""}>{formatCell(item.barcode)}</div>
+                          {item.barcode_issue ? <p className="mt-1 whitespace-normal break-words text-[11px] text-amber-700 dark:text-amber-400">{item.barcode_issue}</p> : null}
+                        </TableCell>
+                        <TableCell className="truncate" title={item.color_name || ""}>{formatCell(item.color_name)}</TableCell>
+                        <TableCell className="truncate font-mono" title={item.color_barcode || ""}>{formatCell(item.color_barcode)}</TableCell>
+                        <TableCell className="truncate" title={item.size_name || ""}>{formatCell(item.size_name)}</TableCell>
+                        <TableCell className="truncate font-mono" title={item.size_barcode || ""}>{formatCell(item.size_barcode)}</TableCell>
                       </> : null}
                       <TableCell>
                         <span className={cn(
-                          "inline-flex rounded-md px-2 py-0.5 text-[11px] font-medium",
+                          "inline-flex whitespace-nowrap rounded-md px-2 py-0.5 text-[11px] font-medium",
                           isPurchaseOrder ? "bg-primary/10 text-primary" : item.document_type === documentTypes[1] ? "bg-red-100 text-red-700" : "bg-green-100 text-green-700",
                         )}>
                           {formatCell(item.document_type)}
                         </span>
                       </TableCell>
-                      <TableCell className="font-mono text-[11px]">{formatCell(item.document_number)}</TableCell>
-                      <TableCell className="tabular-nums">{formatCell(item.date)}</TableCell>
+                      <TableCell className="truncate font-mono text-[11px]" title={item.document_number || ""}>{formatCell(item.document_number)}</TableCell>
+                      <TableCell className="whitespace-nowrap tabular-nums">{formatCell(item.date)}</TableCell>
                       <TableCell className={cn("text-right font-mono tabular-nums", numericTone(item.purchase_quantity))}>{formatCell(item.purchase_quantity)}</TableCell>
                       <TableCell className={cn("text-right font-mono tabular-nums", numericTone(item.purchase_amount))}>{formatCell(item.purchase_amount)}</TableCell>
                       <TableCell className="text-right font-mono tabular-nums">{formatCell(isPurchaseOrder ? item.unit_price : item.retail_amount)}</TableCell>
-                      <TableCell className="font-mono text-[11px]">{formatCell(item.unit_code)}</TableCell>
+                      <TableCell className="truncate font-mono text-[11px]" title={item.unit_code || ""}>{formatCell(item.unit_code)}</TableCell>
                       <TableCell className="max-w-48 truncate" title={item.unit_name || ""}>{formatCell(item.unit_name)}</TableCell>
                       <TableCell className="max-w-48 truncate" title={item.warehouse_name || ""}>{formatCell(item.warehouse_name)}</TableCell>
                     </TableRow>
@@ -490,10 +625,10 @@ export function PurchaseInboundDetailPage({ mode = "inbound", canExport = true }
               </TableBody>
               <TableFooter className="sticky bottom-0 bg-muted">
                 <TableRow>
-                  <TableCell colSpan={isPurchaseOrder ? 8 : 6} className="font-medium">全部合计</TableCell>
-                  <TableCell className={cn("text-right font-mono tabular-nums", numericTone(totals.all.purchase_quantity))}>{formatCell(totals.all.purchase_quantity)}</TableCell>
-                  <TableCell className={cn("text-right font-mono tabular-nums", numericTone(totals.all.purchase_amount))}>{formatCell(totals.all.purchase_amount)}</TableCell>
-                  <TableCell className="text-right font-mono tabular-nums">{isPurchaseOrder ? "-" : formatCell(totals.all.retail_amount)}</TableCell>
+                  <TableCell colSpan={(isPurchaseOrder ? 8 : byBarcode ? 11 : 6) + 1} className="font-medium">全部合计</TableCell>
+                  <TableCell className={cn("text-right font-mono tabular-nums", numericTone(totals.all.purchase_quantity))}>{isLoading ? "—" : formatCell(totals.all.purchase_quantity)}</TableCell>
+                  <TableCell className={cn("text-right font-mono tabular-nums", numericTone(totals.all.purchase_amount))}>{isLoading ? "—" : formatCell(totals.all.purchase_amount)}</TableCell>
+                  <TableCell className="text-right font-mono tabular-nums">{isLoading ? "—" : isPurchaseOrder ? "-" : formatCell(totals.all.retail_amount)}</TableCell>
                   <TableCell colSpan={3} />
                 </TableRow>
               </TableFooter>
@@ -501,29 +636,38 @@ export function PurchaseInboundDetailPage({ mode = "inbound", canExport = true }
           </div>
         </div>
 
-        <div className="flex flex-wrap items-center justify-between gap-3 text-sm text-muted-foreground">
-          <span>第 {firstRow}-{lastRow} 条 / 共 {total} 条</span>
+        <div className="flex flex-wrap items-center justify-between gap-3 text-sm text-muted-foreground tabular-nums">
+          <span>{isLoading ? "查询中…" : `第 ${firstRow}-${lastRow} 条 / 共 ${total} 条`}</span>
           {totalPages > 1 ? (
             <Pagination>
-              <PaginationContent>
+              <PaginationContent className="flex-nowrap">
                 <PaginationItem>
                   <PaginationPrevious
                     text="上一页"
-                    onClick={() => setPage((current) => Math.max(1, current - 1))}
-                    className={page <= 1 ? "pointer-events-none opacity-50" : "cursor-pointer"}
+                    aria-disabled={isLoading || page <= 1}
+                    tabIndex={isLoading || page <= 1 ? -1 : 0}
+                    onClick={() => changePage(page - 1)}
+                    onKeyDown={(event) => { if (event.key === "Enter") changePage(page - 1) }}
+                    className={isLoading || page <= 1 ? "pointer-events-none opacity-50" : "cursor-pointer"}
                   />
+                </PaginationItem>
+                <PaginationItem className="sm:hidden">
+                  <span className="px-2" aria-live="polite">{page} / {totalPages}</span>
                 </PaginationItem>
                 {pageRange.map((pageItem, index) =>
                   pageItem === "ellipsis" ? (
-                    <PaginationItem key={`ellipsis-${index}`}>
+                    <PaginationItem key={`ellipsis-${index}`} className="hidden justify-center sm:flex" style={{ width: pageSlotWidth }}>
                       <PaginationEllipsis />
                     </PaginationItem>
                   ) : (
-                    <PaginationItem key={pageItem}>
+                    <PaginationItem key={pageItem} className="hidden justify-center sm:flex" style={{ width: pageSlotWidth }}>
                       <PaginationLink
                         isActive={pageItem === page}
-                        onClick={() => pageItem !== page && setPage(pageItem)}
-                        className={pageItem === page ? "cursor-default" : "cursor-pointer"}
+                        aria-disabled={isLoading || pageItem === page}
+                        tabIndex={isLoading || pageItem === page ? -1 : 0}
+                        onClick={() => changePage(pageItem)}
+                        onKeyDown={(event) => { if (event.key === "Enter") changePage(pageItem) }}
+                        className={isLoading ? "pointer-events-none opacity-50" : pageItem === page ? "cursor-default" : "cursor-pointer"}
                       >
                         {pageItem}
                       </PaginationLink>
@@ -533,8 +677,11 @@ export function PurchaseInboundDetailPage({ mode = "inbound", canExport = true }
                 <PaginationItem>
                   <PaginationNext
                     text="下一页"
-                    onClick={() => setPage((current) => Math.min(totalPages, current + 1))}
-                    className={page >= totalPages ? "pointer-events-none opacity-50" : "cursor-pointer"}
+                    aria-disabled={isLoading || page >= totalPages}
+                    tabIndex={isLoading || page >= totalPages ? -1 : 0}
+                    onClick={() => changePage(page + 1)}
+                    onKeyDown={(event) => { if (event.key === "Enter") changePage(page + 1) }}
+                    className={isLoading || page >= totalPages ? "pointer-events-none opacity-50" : "cursor-pointer"}
                   />
                 </PaginationItem>
               </PaginationContent>

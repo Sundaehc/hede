@@ -30,6 +30,10 @@ backend/.us3_image_sync_manifest.json
 # Generated outputs
 /outputs/
 scripts/
+!backend/scripts/
+backend/scripts/*
+!backend/scripts/prepare_warehouse_inventory_queries.py
+!backend/scripts/rename_product_archives.py
 tests/
 !backend/tests/
 backend/tests/*

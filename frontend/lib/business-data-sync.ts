@@ -10,6 +10,7 @@ type Notice = { version: 1; id: string; source: string; resources: BusinessDataR
 type Listener = (resources: readonly BusinessDataResource[]) => void
 const listeners = new Set<Listener>()
 const seen = new Set<string>()
+const revisions = new Map<BusinessDataResource, string>()
 let channel: BroadcastChannel | null = null
 
 function remember(id: string) {
@@ -25,7 +26,23 @@ function receive(value: unknown, notify = true) {
     || !notice.resources.every((resource) => RESOURCES.includes(resource))) return
   if (notice.source === source || seen.has(notice.id)) return
   remember(notice.id)
-  if (notify) listeners.forEach((listener) => listener(notice.resources!))
+  if (notify) {
+    notice.resources.forEach((resource) => revisions.set(resource, notice.id!))
+    listeners.forEach((listener) => listener(notice.resources!))
+  }
+}
+
+// Consumers that retain results across navigation must also detect changes
+// made while unmounted, including successful writes from this same tab.
+export function getBusinessDataChangeToken(resources: readonly BusinessDataResource[]) {
+  return JSON.stringify(resources.map((resource) => {
+    let storedId = ""
+    try {
+      const stored: unknown = JSON.parse(window.localStorage.getItem(PREFIX + resource) ?? "null")
+      if (stored && typeof stored === "object" && "id" in stored && typeof stored.id === "string") storedId = stored.id
+    } catch { /* The in-memory revision still detects writes when storage is blocked. */ }
+    return [resource, revisions.get(resource) ?? "", storedId]
+  }))
 }
 
 function readStoredNotices(notify: boolean) {
@@ -80,6 +97,7 @@ export function publishBusinessDataChange(resources: BusinessDataResource[]) {
     version: 1, source, id: `${source}:${Date.now()}:${Math.random()}`, resources,
   }
   for (const resource of resources) {
+    revisions.set(resource, notice.id)
     try { window.localStorage.setItem(PREFIX + resource, JSON.stringify(notice)) } catch { /* Use the channel below. */ }
   }
   // Do not notify this tab: its save handlers already update the current rows.

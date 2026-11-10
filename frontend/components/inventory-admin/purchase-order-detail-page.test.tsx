@@ -1,4 +1,4 @@
-import { act, cleanup, render, screen, waitFor } from "@testing-library/react"
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { afterEach, beforeEach, expect, test, vi } from "vitest"
 
@@ -99,7 +99,7 @@ test("submits multiple brands and warehouses, then reuses the submitted scope fo
   expect(url.searchParams.getAll("warehouse")).toEqual(scope.warehouse)
   expect(url.searchParams.get("product_name")).toBe("休闲")
   await user.click(screen.getByRole("button", { name: "清空" }))
-  await waitFor(() => expect(mocks.list).toHaveBeenLastCalledWith({ page: 1, pageSize: 50 }, expect.any(AbortSignal)))
+  await waitFor(() => expect(mocks.list).toHaveBeenLastCalledWith({ page: 1, pageSize: 50, sort_direction: "asc" }, expect.any(AbortSignal)))
 })
 
 test("purchase filters are isolated from inbound filters and restored after returning", async () => {
@@ -111,7 +111,7 @@ test("purchase filters are isolated from inbound filters and restored after retu
   const inbound = render(<PurchaseInboundDetailPage />)
   await waitFor(() => expect(screen.getByRole("button", { name: "查询" })).toBeEnabled())
   expect(screen.getByRole("textbox", { name: "商品名称" })).toHaveValue("")
-  expect(mocks.inbound).toHaveBeenLastCalledWith({ page: 1, pageSize: 50 })
+  expect(mocks.inbound).toHaveBeenLastCalledWith({ page: 1, pageSize: 50, sort_direction: "asc" })
   inbound.unmount()
   render(<PurchaseOrderDetailPage />)
   expect(screen.getByRole("textbox", { name: "商品名称" })).toHaveValue("采购筛选")
@@ -142,4 +142,46 @@ test("aborts obsolete requests and ignores their late results", async () => {
   await act(async () => { resolveOld(response("STALE-SKU")) })
   expect(screen.queryByText("STALE-SKU")).not.toBeInTheDocument()
   expect(screen.getByText("SKU-A")).toBeInTheDocument()
+})
+
+test("keeps paging controls mounted, hides old results and blocks duplicate page requests while loading", async () => {
+  const full = response()
+  full.total = 51
+  full.items = Array.from({ length: 50 }, (_, index) => ({
+    ...full.items[0], detail_id: index + 1, row_number: index + 1, product_code: `SKU-${index + 1}`,
+  }))
+  mocks.list.mockResolvedValueOnce(full)
+  const { user } = await openPage()
+  const region = screen.getByRole("region", { name: "采购明细表格" })
+  const next = screen.getByLabelText("Go to next page")
+  const previous = screen.getByLabelText("Go to previous page")
+  let resolveNext!: (value: ReturnType<typeof response>) => void
+  mocks.list.mockReturnValueOnce(new Promise(resolve => { resolveNext = resolve }))
+  await user.click(next)
+  expect(region).toHaveAttribute("aria-busy", "true")
+  expect(within(region).getByText("加载中...")).toBeInTheDocument()
+  expect(screen.queryByText("SKU-1")).not.toBeInTheDocument()
+  expect(within(screen.getByRole("row", { name: /全部合计/ })).queryByText("51.25")).not.toBeInTheDocument()
+  expect(screen.getByLabelText("Go to next page")).toBe(next)
+  expect(screen.getByLabelText("Go to previous page")).toBe(previous)
+  expect(next).toHaveAttribute("aria-disabled", "true")
+  expect(previous).toHaveAttribute("aria-disabled", "true")
+  fireEvent.click(next)
+  fireEvent.click(previous)
+  fireEvent.keyDown(previous, { key: "Enter" })
+  expect(mocks.list).toHaveBeenCalledTimes(2)
+  const last = response("LAST-SKU")
+  last.total = 51
+  last.items[0] = { ...last.items[0], detail_id: 51, row_number: 51, product_name: "很长的商品名称".repeat(20) }
+  await act(async () => { resolveNext(last) })
+  expect(region).toHaveAttribute("aria-busy", "false")
+  expect(within(region).getByText("LAST-SKU")).toBeInTheDocument()
+  expect(previous).toHaveAttribute("aria-disabled", "false")
+  expect(next).toHaveAttribute("aria-disabled", "true")
+  mocks.list.mockResolvedValueOnce(full)
+  previous.focus()
+  await user.keyboard("{Enter}")
+  await screen.findByText("SKU-1")
+  expect(mocks.list).toHaveBeenLastCalledWith(expect.objectContaining({ page: 1 }), expect.any(AbortSignal))
+  expect(screen.getByLabelText("Go to previous page")).toBe(previous)
 })

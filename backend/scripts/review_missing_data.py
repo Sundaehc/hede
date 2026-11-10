@@ -44,6 +44,8 @@ if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
 
 from config import load_settings  # noqa: E402
+from domain.product_archive_naming import manual_product_table_name  # noqa: E402
+from domain.schema import PRODUCT_ARCHIVE_TABLES  # noqa: E402
 
 RED, YELLOW, GRAY, OK = "red", "yellow", "gray", "ok"
 ICON = {RED: "🔴", YELLOW: "🟡", GRAY: "⚪", OK: "✅"}
@@ -57,7 +59,7 @@ ROWCOUNT_TABLES = (
     # 核心业务表：数据丢失最敏感
     "inventory_records", "inventory_details", "suppliers", "warehouses",
     "cbanner_mens_products", "cbanner_womens_products", "yandou_products",
-    "eblan_products", "smiley_products", "ni_products", "manual_product_archive_31",
+    "eblan_products", "smiley_products", "ni_products",
     "product_archive_identities", "product_size_group_mappings", "product_goods_overrides",
     # 分析/快照大表
     "jst_monthly_orders", "jst_product_price", "jst_daily_stock", "jst_size_stock_snapshots",
@@ -83,9 +85,17 @@ DAILY_SERIES = (
     ("vip_product_daily_snapshots", "snapshot_date", "唯品会商品日快照", YELLOW, False),
 )
 
-ARCHIVE_TABLES = ("cbanner_mens_products", "cbanner_womens_products", "yandou_products",
-                  "eblan_products", "smiley_products", "ni_products",
-                  "manual_product_archive_31")
+ARCHIVE_TABLES = tuple(table.name for table in PRODUCT_ARCHIVE_TABLES.values())
+ARCHIVE_NULL_CHECK_FIELDS = (
+    ("sku", "required", dict(threshold=0.1)),
+    ("product_name", "required", dict(threshold=2)),
+    ("cost", "required", dict(threshold=5)),
+    ("image_path", "known", dict(delta=3)),
+    ("product_level", "known", dict(delta=3)),
+    ("group_name", "known", dict(delta=3)),
+    ("category", "known", dict(delta=3)),
+    ("last_imported_at", "known", dict(delta=5)),
+)
 
 # mode="required": alert when missing% > threshold
 # mode="known":    only alert when it worsens by more than `delta` percentage points
@@ -105,16 +115,7 @@ NULL_CHECKS: tuple[dict[str, Any], ...] = (
     *(
         dict(area="商品档案", table=t, column=c, mode=m, **kw)
         for t in ARCHIVE_TABLES
-        for c, m, kw in (
-            ("sku", "required", dict(threshold=0.1)),
-            ("product_name", "required", dict(threshold=2)),
-            ("cost", "required", dict(threshold=5)),
-            ("image_path", "known", dict(delta=3)),
-            ("product_level", "known", dict(delta=3)),
-            ("group_name", "known", dict(delta=3)),
-            ("category", "known", dict(delta=3)),
-            ("last_imported_at", "known", dict(delta=5)),
-        )
+        for c, m, kw in ARCHIVE_NULL_CHECK_FIELDS
     ),
     dict(area="聚水潭订单", table="jst_monthly_orders_2026", column="order_time_at",
          mode="required", threshold=0.1),
@@ -170,6 +171,20 @@ class Review:
         self.failures: list[str] = []
         self.rowcount_mode: dict[str, str] = {}
         self.year = date.today().year
+        configured = self.rows_of(
+            "SELECT product_table_name FROM public.supplier_brands "
+            "WHERE product_archive_enabled = TRUE AND product_table_name IS NOT NULL ORDER BY id"
+        ) if self.table_exists("supplier_brands") else []
+        self.archive_tables = tuple(dict.fromkeys(
+            table for table in (*ARCHIVE_TABLES, *(row[0] for row in configured))
+            if manual_product_table_name(table) and self.table_exists(table)
+        ))
+        self.rowcount_tables = tuple(dict.fromkeys((*ROWCOUNT_TABLES, *self.archive_tables)))
+        self.null_checks = (*NULL_CHECKS, *(
+            dict(area="商品档案", table=table, column=column, mode=mode, **options)
+            for table in self.archive_tables if table not in ARCHIVE_TABLES
+            for column, mode, options in ARCHIVE_NULL_CHECK_FIELDS
+        ))
 
     # ---- primitives -------------------------------------------------------
     def scalar(self, sql: str) -> Any:
@@ -249,7 +264,7 @@ class Review:
                        "child_rt": int(r[4] or 0), "child_bytes": int(r[5] or 0),
                        "live": int(r[6] or 0)} for r in catalog}
 
-        for base in ROWCOUNT_TABLES:
+        for base in self.rowcount_tables:
             table = self.resolve(base)
             if table is None:
                 continue
@@ -330,7 +345,7 @@ class Review:
                      note="；".join(notes) + ("" if mode == "精确" else "；行数为目录估算值"))
 
     def check_null_columns(self) -> None:
-        for spec in NULL_CHECKS:
+        for spec in self.null_checks:
             table, column, area = spec["table"], spec["column"], spec["area"]
             if not self.table_exists(table):
                 continue
@@ -574,7 +589,7 @@ class Review:
             union = " UNION ".join(
                 f"SELECT sku AS s FROM public.{t} WHERE sku IS NOT NULL "
                 f"UNION ALL SELECT original_sku FROM public.{t} WHERE original_sku IS NOT NULL"
-                for t in ARCHIVE_TABLES)
+                for t in self.archive_tables)
             matchable = int(self.scalar(
                 f"SELECT count(*) FROM public.inventory_details d "
                 f"WHERE d.product_identity_id IS NULL AND d.product_code IS NOT NULL "
@@ -601,7 +616,7 @@ class Review:
         area = "商品档案"
         try:
             union = " UNION ALL ".join(
-                f"SELECT sku FROM public.{t} WHERE sku IS NOT NULL" for t in ARCHIVE_TABLES)
+                f"SELECT sku FROM public.{t} WHERE sku IS NOT NULL" for t in self.archive_tables)
             info = self.one(f"SELECT count(*) AS total, count(DISTINCT sku) AS distinct_sku "
                             f"FROM ({union}) x")
             dup = int(info["total"]) - int(info["distinct_sku"])
@@ -613,7 +628,7 @@ class Review:
 
         try:
             union = " UNION ".join(
-                f"SELECT sku FROM public.{t} WHERE sku IS NOT NULL" for t in ARCHIVE_TABLES)
+                f"SELECT sku FROM public.{t} WHERE sku IS NOT NULL" for t in self.archive_tables)
             missing = int(self.scalar(
                 f"SELECT count(*) FROM ({union}) a WHERE NOT EXISTS "
                 f"(SELECT 1 FROM public.product_archive_identities i WHERE i.sku = a.sku)") or 0)
@@ -623,7 +638,7 @@ class Review:
         except Exception as exc:  # noqa: BLE001
             self.failures.append(f"archive identity: {type(exc).__name__}: {exc}")
 
-        for table in ARCHIVE_TABLES:
+        for table in self.archive_tables:
             if not self.table_exists(table):
                 continue
             try:

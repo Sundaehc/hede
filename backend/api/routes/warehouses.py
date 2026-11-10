@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import date
 import logging
 import re
+from typing import Literal
 
 from fastapi import APIRouter, HTTPException, Request
 
@@ -66,6 +67,7 @@ def get_warehouse_inventory(
     date_end: date | None = None,
     product_code: str | None = None,
     ending_nonzero: bool = False,
+    display_mode: Literal["goods", "barcode"] = "goods",
     page: int = 1,
     page_size: int = 20,
 ):
@@ -80,6 +82,7 @@ def get_warehouse_inventory(
         date_end=date_end.isoformat() if date_end else None,
         product_code=product_code,
         ending_nonzero=ending_nonzero,
+        display_mode=display_mode,
         page=max(page, 1),
         page_size=min(max(page_size, 1), 200),
     )
@@ -89,6 +92,7 @@ def get_warehouse_inventory(
 def export_warehouse_ending_inventory(
     request: Request, warehouse_id: int,
     date_start: date | None = None, date_end: date | None = None, product_code: str | None = None,
+    display_mode: Literal["goods", "barcode"] = "goods",
 ):
     _validate_inventory_date_range(date_start, date_end)
     repository = request.app.state.inventory_repository
@@ -100,6 +104,7 @@ def export_warehouse_ending_inventory(
         "date_start": date_start.isoformat() if date_start else None,
         "date_end": date_end.isoformat() if date_end else None,
         "product_code": product_code,
+        "display_mode": display_mode,
     }
     result = repository.get_warehouse_inventory(
         warehouse_name=warehouse_name, **filters, ending_nonzero=True,
@@ -107,7 +112,7 @@ def export_warehouse_ending_inventory(
     )
     if result["total"] > ENDING_INVENTORY_EXPORT_LIMIT:
         raise HTTPException(status_code=400, detail="期末库存商品超过 100000 条，请缩小日期或货号筛选范围后导出")
-    workbook = build_ending_inventory_workbook(result)
+    workbook = build_ending_inventory_workbook(result, display_mode=display_mode)
     # Generate the file before recording success; log failures must not block a download.
     filename_warehouse = re.sub(r'[\\/:*?"<>|\x00-\x1f]', "_", warehouse_name)[:80]
     filename = f"期末库存_{filename_warehouse}_{filters['date_end'] or '全部日期'}.xlsx"
@@ -135,10 +140,16 @@ def list_warehouse_inventory_movements(
     color_name: str | None = None,
     color_spec: str | None = None,
     exact_match: bool = False,
+    display_mode: Literal["goods", "barcode"] = "goods",
+    product_identity_id: int | None = None,
+    inventory_size_key: str | None = None,
+    unallocated: bool = False,
     page: int = 1,
     page_size: int = 50,
 ):
     _validate_inventory_date_range(date_start, date_end)
+    if display_mode == "barcode" and (not exact_match or inventory_size_key is None):
+        raise HTTPException(status_code=400, detail="请从编码库存行查看对应尺码的明细")
     repository = request.app.state.inventory_repository
     warehouse = repository.get_warehouse(warehouse_id)
     if warehouse is None:
@@ -152,6 +163,10 @@ def list_warehouse_inventory_movements(
         color_name=color_name,
         color_spec=color_spec,
         exact_match=exact_match,
+        display_mode=display_mode,
+        product_identity_id=product_identity_id,
+        inventory_size_key=inventory_size_key,
+        unallocated=unallocated,
         page=max(page, 1),
         page_size=min(max(page_size, 1), 200),
     )

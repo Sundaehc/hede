@@ -7,7 +7,7 @@ import {
 
 afterEach(() => vi.restoreAllMocks())
 
-test("passes every selected brand to the inbound detail list and export", async () => {
+test.each(["asc", "desc"] as const)("passes brands and %s date ordering to the inbound detail list and export", async sort_direction => {
   const fetchMock = vi
     .spyOn(global, "fetch")
     .mockResolvedValue(new Response(JSON.stringify({ items: [], total: 0 })))
@@ -16,6 +16,8 @@ test("passes every selected brand to the inbound detail list and export", async 
     warehouse: ["总仓"],
     supplier: "供应商",
     product_code: "SKU",
+    sort_direction,
+    display_mode: "barcode" as const,
   }
   await listPurchaseInboundDetails({ ...filters, page: 2, pageSize: 50 })
   const listUrl = new URL(
@@ -31,6 +33,8 @@ test("passes every selected brand to the inbound detail list and export", async 
     expect(url.searchParams.getAll("warehouse")).toEqual(filters.warehouse)
     expect(url.searchParams.get("supplier")).toBe("供应商")
     expect(url.searchParams.get("product_code")).toBe("SKU")
+    expect(url.searchParams.get("sort_direction")).toBe(sort_direction)
+    expect(url.searchParams.get("display_mode")).toBe("barcode")
   }
   expect(listUrl.searchParams.get("page")).toBe("2")
   expect(exportUrl.searchParams.has("page")).toBe(false)

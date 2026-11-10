@@ -31,6 +31,9 @@
 ### 1.2 命名规范
 
 - 表名统一使用小写下划线命名：`inventory_records`、`gj_merged_product_info`。
+- 页面新增品牌的商品档案表使用 `品牌英文或拼音_products`，例如 `ns_products`、`cbanner_hejin_products`；千百度／伊伴／烟斗／笑脸分别沿用 `cbanner`／`eblan`／`yandou`／`smiley` 前缀。名称转小写、标点规范为下划线，表名不超过 40 个 ASCII 字符，为索引和约束保留空间；名称冲突时在 `_products` 前添加稳定品牌 ID，继续冲突再加序号，不覆盖已有表、视图或配置。
+- 表名只在新增品牌时生成，编辑品牌名称保持原表映射。运行时以 `supplier_brands.product_table_name` 为准，并统一校验表名；兼容旧式 `manual_product_archive_<ID>`，不得从品牌 ID 或名称临时推算读写表。
+- `20261110_0084` 将已配置的旧式档案表原地改名，同事务更新 `supplier_brands.product_table_name`、`product_archive_identities.source_table` 和质量问题表名，同时改名关联索引、约束及 ID 序列。商品 ID、身份 ID、单据关联保持原值，视图和触发器随原表保留。已改名表再次升级跳过，不复制商品、不重建身份。
 - 字段名统一使用小写下划线命名：`goods_code`、`original_goods_code`、`factory_grade`。
 - 主键字段统一为 `id`。
 - 时间字段统一使用：

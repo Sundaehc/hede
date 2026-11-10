@@ -7,6 +7,7 @@ from sqlalchemy import BigInteger, Boolean, Column, DateTime, ForeignKey, Identi
 from sqlalchemy.engine import Connection
 
 from domain.schema import METADATA, PRODUCT_ARCHIVE_TABLES
+from domain.product_archive_naming import manual_product_table_name
 
 
 PRODUCT_ARCHIVE_IDENTITY_TABLE = Table(
@@ -75,9 +76,12 @@ def _archive_table_specs(connection: Connection) -> list[tuple[str, str]]:
             SELECT lower(btrim(code)) AS brand, btrim(product_table_name) AS table_name
             FROM supplier_brands
             WHERE product_archive_enabled = TRUE
-              AND product_table_name ~ '^manual_product_archive_[0-9]+$'
+              AND product_table_name IS NOT NULL
         """)).mappings()
-        specs.extend((str(row["table_name"]), str(row["brand"])) for row in rows)
+        specs.extend(
+            (str(row["table_name"]), str(row["brand"]))
+            for row in rows if manual_product_table_name(row["table_name"])
+        )
     return list(dict.fromkeys(specs))
 
 

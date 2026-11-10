@@ -4,12 +4,12 @@ import { buildPurchaseOrderDetailExportUrl, getPurchaseOrderDetailOptions, listP
 
 afterEach(() => vi.restoreAllMocks())
 
-test("purchase list and export preserve all applied filters and multiple brands and warehouses", async () => {
+test.each(["asc", "desc"] as const)("purchase list and export preserve all applied filters and %s date ordering", async sort_direction => {
   const fetchMock = vi.spyOn(global, "fetch").mockResolvedValue(new Response(JSON.stringify({ items: [], total: 0 })))
   const filters = {
     date_start: "2026-11-01", date_end: "2026-11-06", brands: ["cbanner_womens", "custom"],
     supplier: "女鞋厂", warehouse: ["仙岩仓", "总仓"], product_code: "SKU-A", product_name: "休闲",
-    color_name: "黑", size_name: "230",
+    color_name: "黑", size_name: "230", sort_direction,
   }
   const controller = new AbortController()
   await listPurchaseOrderDetails({ ...filters, page: 2, pageSize: 100 }, controller.signal)
@@ -20,7 +20,7 @@ test("purchase list and export preserve all applied filters and multiple brands 
   for (const url of [listUrl, exportUrl]) {
     expect(url.searchParams.getAll("brands")).toEqual(filters.brands)
     expect(url.searchParams.getAll("warehouse")).toEqual(filters.warehouse)
-    for (const key of ["date_start", "date_end", "supplier", "product_code", "product_name", "color_name", "size_name"] as const) {
+    for (const key of ["date_start", "date_end", "supplier", "product_code", "product_name", "color_name", "size_name", "sort_direction"] as const) {
       expect(url.searchParams.get(key)).toBe(filters[key])
     }
   }

@@ -99,7 +99,7 @@ test("applies customer, type, brand and warehouse filters on search and preserve
   expect(url.searchParams.getAll("warehouse")).toEqual(["总仓"])
   expect(url.searchParams.has("page")).toBe(false)
   await user.click(screen.getAllByRole("button", { name: "清空" }).find((button) => button.textContent?.includes("清空"))!)
-  await waitFor(() => expect(mocks.list).toHaveBeenLastCalledWith({ page: 1, pageSize: 50 }, expect.any(AbortSignal)))
+  await waitFor(() => expect(mocks.list).toHaveBeenLastCalledWith({ page: 1, pageSize: 50, sort_direction: "asc" }, expect.any(AbortSignal)))
 })
 
 test("keeps sales filters separate from inbound and restores them when returning", async () => {

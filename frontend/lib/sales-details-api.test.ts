@@ -4,13 +4,14 @@ import { buildSalesDetailExportUrl, getSalesDetailOptions, listSalesDetails } fr
 
 afterEach(() => vi.unstubAllGlobals())
 
-test("sales list and export serialize the same applied filters with multiple brands and warehouses", async () => {
+test.each(["asc", "desc"] as const)("sales list and export serialize the same applied filters and %s date ordering", async sort_direction => {
   const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ items: [] }), { status: 200 }))
   vi.stubGlobal("fetch", fetchMock)
   const filters = {
     date_start: "2026-11-01", date_end: "2026-11-09", document_type: "批发销售退货单",
     brands: ["yandou", "ni"], warehouse: ["总仓", "仙岩仓"], supplier: "杭州客户",
-    product_code: "000SKU", product_name: "鞋", color_name: "黑", size_name: "240",
+    product_code: "000SKU", product_name: "鞋", color_name: "黑", size_name: "240", sort_direction,
+    display_mode: "barcode" as const,
   }
   const controller = new AbortController()
   await listSalesDetails({ ...filters, page: 2, pageSize: 100 }, controller.signal)
@@ -28,6 +29,8 @@ test("sales list and export serialize the same applied filters with multiple bra
   expect(exported.pathname).toBe("/api/inventory-reports/sales-details/export")
   expect(exported.searchParams.toString()).toBe(listUrl.searchParams.toString())
   expect(exported.searchParams.get("product_code")).toBe("000SKU")
+  expect(exported.searchParams.get("sort_direction")).toBe(sort_direction)
+  expect(exported.searchParams.get("display_mode")).toBe("barcode")
 })
 
 test("loads sales customer options from the sales report endpoint", async () => {

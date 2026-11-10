@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from datetime import date
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
@@ -8,38 +7,14 @@ from openpyxl import Workbook
 from sqlalchemy import select
 
 from api.excel_export import style_excel_workbook
+from api.detail_export_selection import DetailExportSelection, ensure_selection_complete
+from api.detail_report_filters import purchase_detail_filters
 from api.operation_log_utils import write_operation_log
 from api.routes.inventory import _excel_number, _stream_excel_workbook
 from domain.inventory_schema import SUPPLIER_TABLE, WAREHOUSE_TABLE
 
 
 router = APIRouter(prefix="/purchase-order-details", tags=["purchase"])
-
-
-def purchase_detail_filters(
-    date_start: date | None = None,
-    date_end: date | None = None,
-    brands: list[str] | None = Query(None),
-    supplier: str | None = None,
-    warehouse: list[str] | None = Query(None),
-    product_code: str | None = None,
-    product_name: str | None = None,
-    color_name: str | None = None,
-    size_name: str | None = None,
-) -> dict[str, object]:
-    if date_start and date_end and date_start > date_end:
-        raise HTTPException(status_code=400, detail="开始日期不能晚于结束日期")
-    return {
-        "date_start": date_start.isoformat() if date_start else None,
-        "date_end": date_end.isoformat() if date_end else None,
-        "brands": brands,
-        "supplier": supplier,
-        "warehouse": warehouse,
-        "product_code": product_code,
-        "product_name": product_name,
-        "color_name": color_name,
-        "size_name": size_name,
-    }
 
 
 DetailFilters = Annotated[dict[str, object], Depends(purchase_detail_filters)]
@@ -77,8 +52,20 @@ def purchase_order_detail_options(request: Request):
 
 @router.get("/export")
 def export_purchase_order_details(request: Request, filters: DetailFilters):
+    return _export_purchase_order_details(request, filters)
+
+
+@router.post("/export")
+def export_selected_purchase_order_details(request: Request, filters: DetailFilters, selection: DetailExportSelection):
+    return _export_purchase_order_details(request, filters, selection.selected_rows())
+
+
+def _export_purchase_order_details(request: Request, filters: dict, selected_rows: list[str] | None = None):
     repository = request.app.state.inventory_repository
-    result = repository.list_purchase_order_details(**filters, page=1, page_size=100_001)
+    result = repository.list_purchase_order_details(**filters, page=1, page_size=100_001,
+                                                   **({"selected_rows": selected_rows} if selected_rows is not None else {}))
+    if selected_rows is not None:
+        ensure_selection_complete(selected_rows, result)
     # Refuse an oversized export explicitly rather than silently truncating it.
     if result["total"] > 100_000:
         raise HTTPException(status_code=400, detail="采购明细超过 100000 条，请缩小日期或商品筛选范围后导出")
@@ -103,7 +90,9 @@ def export_purchase_order_details(request: Request, filters: DetailFilters):
     style_excel_workbook(workbook)
     write_operation_log(
         request, module="purchase_order_detail", action="export", entity_type="purchase_order_detail",
-        entity_label="采购明细", summary=f"导出采购明细 {exported} 条",
-        after_data={"exported_rows": exported, "filters": filters},
+        entity_label="采购明细", summary=f"导出{'所选' if selected_rows is not None else ''}采购明细 {exported} 条",
+        after_data={"exported_rows": exported, "filters": filters,
+                    "selection": "selected" if selected_rows is not None else "all",
+                    "selected_count": len(selected_rows) if selected_rows is not None else None},
     )
     return _stream_excel_workbook(workbook, "采购明细.xlsx")

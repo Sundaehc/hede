@@ -2038,6 +2038,7 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
   const supplierSelectOptions = supplierOptions.map((supplier) => ({
     value: supplier.name,
     label: supplier.name,
+    trailingLabel: isPurchaseOrderTab ? supplier.factory_code?.trim() || undefined : undefined,
     keywords: [supplier.factory_code, supplier.contact, supplier.address].filter(Boolean).join(" "),
   }))
   const warehouseSelectOptions = warehouseOptions.map((warehouse) => ({
@@ -2348,7 +2349,7 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
                     options={counterpartySearchOptions}
                     onChange={setSearchSuppliers}
                     onSubmit={search}
-                    placeholder="选择客户/供应商"
+                    placeholder={isPurchaseOrderTab ? "供应商名称或工厂货号" : "选择客户/供应商"}
                   />
                 </div>
                 <div className="min-w-0 space-y-1.5">

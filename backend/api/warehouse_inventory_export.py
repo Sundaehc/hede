@@ -8,16 +8,22 @@ from openpyxl import Workbook
 from openpyxl.cell import WriteOnlyCell
 from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.worksheet.worksheet import Worksheet
+from openpyxl.utils import get_column_letter
 
 
-def build_ending_inventory_workbook(result: Mapping[str, object]) -> Workbook:
+def build_ending_inventory_workbook(result: Mapping[str, object], *, display_mode: str = "goods") -> Workbook:
     """Write the bounded query result without retaining an Excel cell grid."""
     workbook = Workbook(write_only=True)
     sheet = workbook.create_sheet("期末库存商品")
     sheet.sheet_view.showGridLines = False
-    sheet.freeze_panes = "D2"
-    for letter, width in zip("ABCDEFG", (36, 32, 18, 16, 16, 16, 16)):
-        sheet.column_dimensions[letter].width = width
+    barcode = display_mode == "barcode"
+    text_headers = ["商品货号", "商品名称", "颜色"]
+    if barcode:
+        text_headers += ["商品编码", "颜色条码", "尺码名称", "尺码条码", "编码提示"]
+    sheet.freeze_panes = f"{get_column_letter(len(text_headers) + 1)}2"
+    widths = [36, 32, 18] + ([36, 16, 16, 16, 48] if barcode else []) + [16] * 4
+    for index, width in enumerate(widths, 1):
+        sheet.column_dimensions[get_column_letter(index)].width = width
     sheet.sheet_properties.pageSetUpPr.fitToPage = True
     sheet.page_setup.orientation = "landscape"
     sheet.page_setup.paperSize = Worksheet.PAPERSIZE_A4
@@ -54,7 +60,7 @@ def build_ending_inventory_workbook(result: Mapping[str, object]) -> Workbook:
         return int(quantity) if quantity == quantity.to_integral_value() else float(quantity)
 
     sheet.row_dimensions[1].height = 24
-    sheet.append(cells(["商品货号", "商品名称", "颜色", "期初库存", "本期入库", "本期出库", "期末库存"], header=True))
+    sheet.append(cells([*text_headers, "期初库存", "本期入库", "本期出库", "期末库存"], header=True))
     fields = ("beginning_qty", "inbound_qty", "outbound_qty", "ending_qty")
     sums = [Decimal(0)] * 4
     for row_number, item in enumerate(result["items"], start=2):
@@ -62,11 +68,12 @@ def build_ending_inventory_workbook(result: Mapping[str, object]) -> Workbook:
         sums = [total + qty for total, qty in zip(sums, quantities)]
         row_values = [
             item["product_code"] or "", item["product_name"] or "", item["color_name"] or item["color_spec"] or "",
+            *([item.get(key) or "" for key in ("barcode", "color_barcode", "size_name", "size_barcode", "barcode_issue")] if barcode else []),
             *(number(qty) for qty in quantities),
         ]
         row_cells = cells(row_values)
         line_count = 1
-        for index, capacity in enumerate((32, 28, 14)):
+        for index, capacity in enumerate([width - 4 for width in widths[:len(text_headers)]]):
             text = row_values[index]
             width = sum(2 if unicodedata.east_asian_width(char) in {"W", "F"} else 1 for char in text)
             line_count = max(line_count, (width + capacity - 1) // capacity, len(text.splitlines()))
@@ -74,6 +81,6 @@ def build_ending_inventory_workbook(result: Mapping[str, object]) -> Workbook:
         sheet.row_dimensions[row_number].height = min(409, max(22, line_count * 15))
         sheet.append(row_cells)
     last_data_row = 1 + len(result["items"])
-    sheet.auto_filter.ref = f"A1:G{last_data_row}"
-    sheet.append(cells(["清单合计", "", "", *(number(qty) for qty in sums)], bold=True))
+    sheet.auto_filter.ref = f"A1:{get_column_letter(len(widths))}{last_data_row}"
+    sheet.append(cells(["清单合计", *([""] * (len(text_headers) - 1)), *(number(qty) for qty in sums)], bold=True))
     return workbook

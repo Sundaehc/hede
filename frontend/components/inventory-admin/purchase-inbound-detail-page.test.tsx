@@ -119,7 +119,7 @@ test("exports applied brand filters rather than an unsubmitted brand draft", asy
   expect(new URL(downloads[0]).searchParams.has("page")).toBe(false)
   await user.click(screen.getByRole("button", { name: "清空" }))
   await waitFor(() =>
-    expect(listMock).toHaveBeenLastCalledWith({ page: 1, pageSize: 50 })
+    expect(listMock).toHaveBeenLastCalledWith({ page: 1, pageSize: 50, sort_direction: "asc" })
   )
   expect(
     screen.queryByRole("button", { name: "移除 烟斗" })

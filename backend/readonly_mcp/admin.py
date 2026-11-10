@@ -10,6 +10,7 @@ from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.engine import make_url
 
 from domain.excluded_skus import EXCLUDED_SKUS
+from domain.product_archive_naming import manual_product_table_name
 from domain.sources import TABLE_NAMES
 from readonly_mcp.catalog import COST_VISIBLE_PROFILES, PRODUCT_COLUMNS, BUSINESS_TABLE_PERMISSIONS, DATASETS, PROFILE_PERMISSIONS, dataset_allowed_for_profile, profile_permissions
 from readonly_mcp.settings import BACKEND_ROOT
@@ -133,7 +134,7 @@ def refresh_views(connection) -> int:
     inspector = inspect(connection)
     if inspector.has_table("supplier_brands", schema="public"):
         for row in connection.execute(text("SELECT code, product_table_name FROM public.supplier_brands WHERE product_archive_enabled=true")).mappings():
-            if row["code"] not in sources and re.fullmatch(r"manual_product_archive_[0-9]+", row["product_table_name"] or ""):
+            if row["code"] not in sources and manual_product_table_name(row["product_table_name"]):
                 sources[row["code"]] = row["product_table_name"]
     selections = []
     for brand, table_name in sources.items():
@@ -232,7 +233,7 @@ def upgrade_department_scope(engine, finalize=None) -> dict:
         sources = {**TABLE_NAMES, "smiley": "smiley_products", "ni": "ni_products"}
         if inspector.has_table("supplier_brands", schema="public"):
             for row in connection.execute(text("SELECT code, product_table_name FROM public.supplier_brands WHERE product_archive_enabled=true")).mappings():
-                if row["code"] not in sources and re.fullmatch(r"manual_product_archive_[0-9]+", row["product_table_name"] or ""):
+                if row["code"] not in sources and manual_product_table_name(row["product_table_name"]):
                     sources[row["code"]] = row["product_table_name"]
         price_views = []
         exclusions = ",".join(literal(sku) for sku in sorted(EXCLUDED_SKUS))

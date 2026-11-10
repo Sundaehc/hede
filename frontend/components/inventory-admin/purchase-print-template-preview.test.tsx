@@ -6,10 +6,9 @@ import { DEFAULT_PURCHASE_PRINT_TEMPLATE, PurchasePrintTemplateEditor } from "@/
 import { InventoryDetailPanel } from "@/components/inventory-admin/inventory-detail-panel"
 import type { InventoryPrintLabel, InventoryRecord } from "@/lib/api"
 
-const { labelsMock, barcodeMock, currentTemplateMock } = vi.hoisted(() => ({
-  labelsMock: vi.fn(), barcodeMock: vi.fn(), currentTemplateMock: vi.fn(),
+const { labelsMock, currentTemplateMock } = vi.hoisted(() => ({
+  labelsMock: vi.fn(), currentTemplateMock: vi.fn(),
 }))
-vi.mock("jsbarcode", () => ({ default: barcodeMock }))
 vi.mock("@/lib/api", async () => ({
   ...(await vi.importActual<typeof import("@/lib/api")>("@/lib/api")),
   listInventoryPrintLabels: labelsMock,
@@ -69,7 +68,12 @@ test("renders actual print data and barcodes, and switches product and size with
   expect(screen.getByRole("button", { name: "下一个标签" })).toBeDisabled()
   await user.click(screen.getByRole("button", { name: "上一个标签" }))
   expect(within(preview).getByText("尺码：36")).toBeInTheDocument()
-  expect(barcodeMock).toHaveBeenLastCalledWith(expect.any(SVGElement), second.barcode, expect.objectContaining({ format: "CODE128" }))
+  const barcode = within(preview).getByRole("img", { name: `条码 ${second.barcode}` })
+  expect(barcode).toHaveAttribute("viewBox", "0 0 576 81")
+  const bars = Array.from(barcode.querySelectorAll("g rect"))
+  expect(bars.length).toBeGreaterThan(0)
+  expect(Number(bars[0].getAttribute("x"))).toBeGreaterThanOrEqual(20)
+  for (const bar of bars) expect(Number(bar.getAttribute("width")) % 2).toBe(0)
 })
 
 test("updates the current label immediately as the template changes and preserves the draft while switching labels", async () => {

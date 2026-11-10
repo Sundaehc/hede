@@ -3,12 +3,15 @@ import userEvent from "@testing-library/user-event"
 import { afterEach, beforeEach, expect, test, vi } from "vitest"
 
 import WarehousesPage from "@/app/warehouses/page"
+import { clearSessionQueryStates, SessionQueryProvider } from "@/lib/session-query-state"
+import { publishBusinessDataChange } from "@/lib/business-data-sync"
 
 const { brandsMock, warehousesMock, summaryMock, inventoryMock } = vi.hoisted(() => ({
   brandsMock: vi.fn(), warehousesMock: vi.fn(), summaryMock: vi.fn(), inventoryMock: vi.fn(),
 }))
 
 vi.mock("@/components/operation-log-dialog", () => ({ OperationLogDialog: () => null }))
+vi.mock("@/components/auth/auth-provider", () => ({ useAuth: () => ({ hasPermission: () => true }) }))
 vi.mock("@/lib/api", async () => ({
   ...(await vi.importActual<typeof import("@/lib/api")>("@/lib/api")),
   listWarehouseBrands: brandsMock,
@@ -24,6 +27,8 @@ const quantities = (beginning = "10.25", ending = "14.5") => ({ items: [
 
 beforeEach(() => {
   vi.resetAllMocks()
+  clearSessionQueryStates()
+  window.localStorage.clear()
   vi.useFakeTimers({ toFake: ["Date"] })
   vi.setSystemTime(new Date(2026, 10, 2, 12))
   brandsMock.mockResolvedValue({ items: [
@@ -41,7 +46,7 @@ beforeEach(() => {
   })
 })
 
-afterEach(() => { cleanup(); vi.useRealTimers() })
+afterEach(() => { cleanup(); vi.useRealTimers(); vi.restoreAllMocks() })
 
 test("shows period inventory and switches brands without another inventory request", async () => {
   const user = userEvent.setup()
@@ -144,4 +149,146 @@ test("closing inventory refreshes overview quantities with the submitted date ra
   expect(summaryMock).toHaveBeenLastCalledWith({ date_start: "2026-11-01", date_end: "2026-11-02" }, expect.any(AbortSignal))
   expect(screen.getByText("13.5")).toBeInTheDocument()
   expect(screen.queryByText("14.5")).not.toBeInTheDocument()
+})
+
+test("returning to the page immediately restores quantities without another summary request", async () => {
+  const first = render(<WarehousesPage />)
+  await screen.findByText("14.5")
+  first.unmount()
+  render(<WarehousesPage />)
+  expect(screen.getByText("14.5")).toBeInTheDocument()
+  expect(screen.getByText("10.25")).toBeInTheDocument()
+  expect(screen.queryByText("加载中…")).not.toBeInTheDocument()
+  await waitFor(() => expect(brandsMock).toHaveBeenCalledTimes(2))
+  expect(summaryMock).toHaveBeenCalledOnce()
+})
+
+test.each(["inventory", "products", "reference-data"] as const)("invalidates retained quantities after %s changes while away", async (resource) => {
+  const first = render(<WarehousesPage />)
+  await screen.findByText("14.5")
+  first.unmount()
+  publishBusinessDataChange([resource])
+  summaryMock.mockResolvedValueOnce(quantities("25", "35"))
+  render(<WarehousesPage />)
+  expect(screen.queryByText("14.5")).not.toBeInTheDocument()
+  expect(await screen.findByText("35")).toBeInTheDocument()
+  expect(summaryMock).toHaveBeenCalledTimes(2)
+})
+
+test("cross-tab changes while away invalidate the cached result", async () => {
+  const first = render(<WarehousesPage />)
+  await screen.findByText("14.5")
+  first.unmount()
+  window.localStorage.setItem("hede:data-change:v1:inventory", JSON.stringify({
+    version: 1, id: "changed-while-away", source: "other-tab", resources: ["inventory"],
+  }))
+  summaryMock.mockResolvedValueOnce(quantities("40", "50"))
+  render(<WarehousesPage />)
+  expect(screen.queryByText("14.5")).not.toBeInTheDocument()
+  expect(await screen.findByText("50")).toBeInTheDocument()
+  expect(summaryMock).toHaveBeenCalledTimes(2)
+})
+
+test("expires cached inventory after five minutes and query forces a refresh", async () => {
+  const user = userEvent.setup()
+  const first = render(<WarehousesPage />)
+  await screen.findByText("14.5")
+  first.unmount()
+  vi.setSystemTime(new Date(2026, 10, 2, 12, 5, 1))
+  summaryMock.mockResolvedValueOnce(quantities("10.25", "16.5"))
+  render(<WarehousesPage />)
+  expect(screen.queryByText("14.5")).not.toBeInTheDocument()
+  expect(await screen.findByText("16.5")).toBeInTheDocument()
+  expect(summaryMock).toHaveBeenCalledTimes(2)
+  await user.click(screen.getByRole("button", { name: "查询" }))
+  expect(await screen.findByText("14.5")).toBeInTheDocument()
+  expect(summaryMock).toHaveBeenCalledTimes(3)
+})
+
+test("isolates cached inventory by account and clears it with page session state", async () => {
+  const first = render(<SessionQueryProvider userId={1}><WarehousesPage /></SessionQueryProvider>)
+  await screen.findByText("14.5")
+  first.unmount()
+  summaryMock.mockResolvedValueOnce(quantities("80", "90"))
+  const second = render(<SessionQueryProvider userId={2}><WarehousesPage /></SessionQueryProvider>)
+  expect(screen.queryByText("14.5")).not.toBeInTheDocument()
+  expect(await screen.findByText("90")).toBeInTheDocument()
+  second.unmount()
+  const third = render(<SessionQueryProvider userId={1}><WarehousesPage /></SessionQueryProvider>)
+  expect(screen.getByText("14.5")).toBeInTheDocument()
+  expect(summaryMock).toHaveBeenCalledTimes(2)
+  third.unmount()
+  clearSessionQueryStates()
+  render(<SessionQueryProvider userId={1}><WarehousesPage /></SessionQueryProvider>)
+  expect(screen.queryByText("14.5")).not.toBeInTheDocument()
+  expect(await screen.findByText("14.5")).toBeInTheDocument()
+  expect(summaryMock).toHaveBeenCalledTimes(3)
+})
+
+test("does not restore a request that completed after leaving the page", async () => {
+  let resolveOld!: (value: ReturnType<typeof quantities>) => void
+  summaryMock.mockReturnValueOnce(new Promise((resolve) => { resolveOld = resolve }))
+  const first = render(<WarehousesPage />)
+  await screen.findByText("甲仓库")
+  first.unmount()
+  await act(async () => resolveOld(quantities("900", "999")))
+  render(<WarehousesPage />)
+  expect(await screen.findByText("14.5")).toBeInTheDocument()
+  expect(screen.queryByText("999")).not.toBeInTheDocument()
+  expect(summaryMock).toHaveBeenCalledTimes(2)
+})
+
+test("refreshes a mounted overview after changes from another tab", async () => {
+  render(<WarehousesPage />)
+  await screen.findByText("14.5")
+  summaryMock.mockResolvedValueOnce(quantities("25", "35"))
+  act(() => window.dispatchEvent(new StorageEvent("storage", {
+    key: "hede:data-change:v1:inventory",
+    newValue: JSON.stringify({ version: 1, id: "mounted-change", source: "other-tab", resources: ["inventory"] }),
+  })))
+  expect(await screen.findByText("35")).toBeInTheDocument()
+  expect(summaryMock).toHaveBeenCalledTimes(2)
+})
+
+test("same-tab mutations invalidate inventory even when local storage is blocked", async () => {
+  const first = render(<WarehousesPage />)
+  await screen.findByText("14.5")
+  first.unmount()
+  vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => { throw new Error("blocked") })
+  publishBusinessDataChange(["inventory"])
+  summaryMock.mockResolvedValueOnce(quantities("60", "70"))
+  render(<WarehousesPage />)
+  expect(screen.queryByText("14.5")).not.toBeInTheDocument()
+  expect(await screen.findByText("70")).toBeInTheDocument()
+  expect(summaryMock).toHaveBeenCalledTimes(2)
+})
+
+test("failed refresh cannot restore the previous result on return", async () => {
+  const user = userEvent.setup()
+  const first = render(<WarehousesPage />)
+  await screen.findByText("14.5")
+  summaryMock.mockRejectedValueOnce(new Error("连接失败"))
+  await user.click(screen.getByRole("button", { name: "查询" }))
+  expect(await screen.findByRole("alert")).toHaveTextContent("连接失败")
+  first.unmount()
+  summaryMock.mockResolvedValueOnce(quantities("60", "70"))
+  render(<WarehousesPage />)
+  expect(screen.queryByText("14.5")).not.toBeInTheDocument()
+  expect(await screen.findByText("70")).toBeInTheDocument()
+  expect(screen.queryByRole("alert")).not.toBeInTheDocument()
+  expect(summaryMock).toHaveBeenCalledTimes(3)
+})
+
+test("late directory responses cannot repopulate cleared account state", async () => {
+  let resolveOld!: (value: { items: { id: number; name: string; brand: string }[] }) => void
+  warehousesMock.mockReturnValueOnce(new Promise((resolve) => { resolveOld = resolve }))
+  const first = render(<WarehousesPage />)
+  await waitFor(() => expect(warehousesMock).toHaveBeenCalledOnce())
+  first.unmount()
+  clearSessionQueryStates()
+  await act(async () => resolveOld({ items: [{ id: 999, name: "旧账户仓库", brand: "甲品牌" }] }))
+  render(<WarehousesPage />)
+  expect(screen.queryByText("旧账户仓库")).not.toBeInTheDocument()
+  expect(await screen.findByText("甲仓库")).toBeInTheDocument()
+  expect(screen.queryByText("旧账户仓库")).not.toBeInTheDocument()
 })

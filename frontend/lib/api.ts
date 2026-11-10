@@ -1530,6 +1530,15 @@ export type WarehouseBrandItem = {
 }
 
 export type WarehouseInventoryItem = {
+  id?: number
+  product_identity_id?: number | null
+  inventory_size_key?: string
+  unallocated?: boolean
+  barcode?: string
+  color_barcode?: string
+  size_name?: string
+  size_barcode?: string
+  barcode_issue?: string
   product_code: string | null
   product_name: string | null
   color_name: string | null
@@ -2686,6 +2695,12 @@ export type PurchaseInboundDetailItem = {
   color_name: string | null
   unit_price?: string | null
   size_quantities?: Record<string, string | number>
+  row_key?: string
+  barcode?: string | null
+  color_barcode?: string | null
+  size_name?: string | null
+  size_barcode?: string | null
+  barcode_issue?: string | null
 }
 
 export type PurchaseInboundDetailResponse = {
@@ -2752,6 +2767,8 @@ export function listPurchaseInboundDetails(params: {
   product_name?: string
   color_name?: string
   size_name?: string
+  sort_direction?: "asc" | "desc"
+  display_mode?: "goods" | "barcode"
   page: number
   pageSize: number
 }) {
@@ -2771,6 +2788,8 @@ export function listPurchaseInboundDetails(params: {
   if (params.product_name) search.set("product_name", params.product_name)
   if (params.color_name) search.set("color_name", params.color_name)
   if (params.size_name) search.set("size_name", params.size_name)
+  if (params.sort_direction) search.set("sort_direction", params.sort_direction)
+  if (params.display_mode) search.set("display_mode", params.display_mode)
   return request<PurchaseInboundDetailResponse>(
     `/inventory-reports/purchase-inbound-details?${search.toString()}`
   )
@@ -2786,11 +2805,12 @@ export type PurchaseOrderDetailFilters = {
   product_name?: string
   color_name?: string
   size_name?: string
+  sort_direction?: "asc" | "desc"
 }
 
 function purchaseOrderDetailSearch(params: PurchaseOrderDetailFilters) {
   const search = new URLSearchParams()
-  for (const key of ["date_start", "date_end", "supplier", "product_code", "product_name", "color_name", "size_name"] as const) {
+  for (const key of ["date_start", "date_end", "supplier", "product_code", "product_name", "color_name", "size_name", "sort_direction"] as const) {
     if (params[key]) search.set(key, params[key])
   }
   for (const brand of params.brands ?? []) if (brand) search.append("brands", brand)
@@ -2798,7 +2818,7 @@ function purchaseOrderDetailSearch(params: PurchaseOrderDetailFilters) {
   return search
 }
 
-export type SalesDetailFilters = PurchaseOrderDetailFilters & { document_type?: string }
+export type SalesDetailFilters = PurchaseOrderDetailFilters & { document_type?: string; display_mode?: "goods" | "barcode" }
 export type SalesDetailItem = Omit<PurchaseInboundDetailItem, "purchase_quantity" | "purchase_amount"> & {
   sales_quantity: string | null
   sales_amount: string | null
@@ -2812,6 +2832,7 @@ export type SalesDetailResponse = Omit<PurchaseInboundDetailResponse, "items" | 
 function salesDetailSearch(params: SalesDetailFilters) {
   const search = purchaseOrderDetailSearch(params)
   if (params.document_type) search.set("document_type", params.document_type)
+  if (params.display_mode) search.set("display_mode", params.display_mode)
   return search
 }
 
@@ -2843,6 +2864,29 @@ export function listPurchaseOrderDetails(params: PurchaseOrderDetailFilters & { 
 
 export function buildPurchaseOrderDetailExportUrl(params: PurchaseOrderDetailFilters = {}) {
   return `${API_PREFIX}/purchase-order-details/export?${purchaseOrderDetailSearch(params)}`
+}
+
+export async function downloadSelectedDetailExport(
+  mode: "inbound" | "orders" | "sales",
+  filters: SalesDetailFilters,
+  rows: string[],
+  signal?: AbortSignal,
+) {
+  if (rows.length === 0) throw new Error("请先选择需要导出的明细")
+  if (rows.length > 100_000) throw new Error("单次最多选择 100000 条明细")
+  const url = mode === "orders" ? buildPurchaseOrderDetailExportUrl(filters)
+    : mode === "sales" ? buildSalesDetailExportUrl(filters) : buildPurchaseInboundDetailExportUrl(filters)
+  const response = await fetch(url, {
+    method: "POST", credentials: "include", cache: "no-store", signal,
+    headers: { "Content-Type": "application/json" }, body: JSON.stringify({ rows }),
+  })
+  if (!response.ok) throw new ApiError(response.status, await readApiError(response))
+  const blob = await response.blob()
+  signal?.throwIfAborted()
+  const fallback = mode === "orders" ? "采购明细.xlsx" : mode === "sales" ? "商品销售明细.xlsx" : "商品进货明细.xlsx"
+  const filename = filenameFromContentDisposition(response.headers.get("content-disposition"), fallback)
+  downloadBlob(blob, filename)
+  return { filename, size: blob.size }
 }
 
 export function getPurchaseOrderDetailOptions() {
@@ -2902,6 +2946,8 @@ export function buildPurchaseInboundDetailExportUrl(
     product_name?: string
     color_name?: string
     size_name?: string
+    sort_direction?: "asc" | "desc"
+    display_mode?: "goods" | "barcode"
   } = {}
 ) {
   const search = new URLSearchParams()
@@ -2917,6 +2963,8 @@ export function buildPurchaseInboundDetailExportUrl(
   if (params.product_name) search.set("product_name", params.product_name)
   if (params.color_name) search.set("color_name", params.color_name)
   if (params.size_name) search.set("size_name", params.size_name)
+  if (params.sort_direction) search.set("sort_direction", params.sort_direction)
+  if (params.display_mode) search.set("display_mode", params.display_mode)
   const suffix = search.toString() ? `?${search.toString()}` : ""
   return `${API_PREFIX}/inventory-reports/purchase-inbound-details/export${suffix}`
 }
@@ -3181,6 +3229,7 @@ export function getWarehouseInventory(
     date_end?: string
     product_code?: string
     ending_nonzero?: boolean
+    display_mode?: "goods" | "barcode"
     page: number
     pageSize: number
   },
@@ -3194,6 +3243,7 @@ export function getWarehouseInventory(
   if (params.date_end) search.set("date_end", params.date_end)
   if (params.product_code) search.set("product_code", params.product_code)
   if (params.ending_nonzero) search.set("ending_nonzero", "true")
+  if (params.display_mode) search.set("display_mode", params.display_mode)
   return request<WarehouseInventoryResponse>(
     `/warehouses/${warehouseId}/inventory?${search.toString()}`,
     { signal, cache: "no-store" },
@@ -3202,10 +3252,11 @@ export function getWarehouseInventory(
 
 export async function downloadWarehouseEndingInventory(
   warehouseId: number,
-  params: { date_start?: string; date_end?: string; product_code?: string },
+  params: { date_start?: string; date_end?: string; product_code?: string; display_mode?: "goods" | "barcode" },
   signal?: AbortSignal,
 ) {
   const search = new URLSearchParams()
+  if (params.display_mode) search.set("display_mode", params.display_mode)
   if (params.date_start) search.set("date_start", params.date_start)
   if (params.date_end) search.set("date_end", params.date_end)
   if (params.product_code) search.set("product_code", params.product_code)
@@ -3230,6 +3281,10 @@ export function listWarehouseInventoryMovements(
     color_name?: string | null
     color_spec?: string | null
     exact_match?: boolean
+    display_mode?: "goods" | "barcode"
+    product_identity_id?: number | null
+    inventory_size_key?: string
+    unallocated?: boolean
     page: number
     pageSize: number
   },
@@ -3246,6 +3301,10 @@ export function listWarehouseInventoryMovements(
     if (value !== undefined && value !== null) search.set(key, value)
   }
   if (params.exact_match) search.set("exact_match", "true")
+  if (params.display_mode) search.set("display_mode", params.display_mode)
+  if (params.product_identity_id != null) search.set("product_identity_id", String(params.product_identity_id))
+  if (params.inventory_size_key !== undefined) search.set("inventory_size_key", params.inventory_size_key)
+  if (params.unallocated !== undefined) search.set("unallocated", String(params.unallocated))
   return request<WarehouseInventoryMovementResponse>(
     `/warehouses/${warehouseId}/inventory/movements?${search.toString()}`,
     { signal, cache: "no-store" },

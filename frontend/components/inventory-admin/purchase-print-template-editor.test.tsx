@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest"
+import { cleanup, render, screen } from "@testing-library/react"
 
 import {
   applyOuterBorderDrag,
+  DEFAULT_PURCHASE_PRINT_TEMPLATE,
+  PurchasePrintTemplateContent,
   resolvePurchasePrintElementText,
 } from "@/components/inventory-admin/purchase-print-template-editor"
 import type {
@@ -57,6 +60,24 @@ describe("resolvePurchasePrintElementText", () => {
 
   it("falls back to the label data when the custom level is empty", () => {
     expect(resolvePurchasePrintElementText(levelElement, label)).toBe("等级：合格品")
+  })
+})
+
+describe("purchase barcode preview", () => {
+  it("shows an actionable error when the barcode area is too narrow", () => {
+    const config = {
+      ...DEFAULT_PURCHASE_PRINT_TEMPLATE,
+      elements: DEFAULT_PURCHASE_PRINT_TEMPLATE.elements
+        .filter((element) => element.kind === "barcode")
+        .map((element) => ({ ...element, width: 10 })),
+    }
+    try {
+      render(<PurchasePrintTemplateContent config={config} data={label} />)
+      expect(screen.getByRole("alert")).toHaveTextContent("打印区域不足")
+      expect(screen.queryByRole("img")).not.toBeInTheDocument()
+    } finally {
+      cleanup()
+    }
   })
 })
 

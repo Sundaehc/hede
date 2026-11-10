@@ -90,6 +90,33 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 
+test("purchase supplier search displays factory codes, matches them and submits supplier names", async () => {
+  mockSuppliers.mockResolvedValue({ items: [
+    { id: 1, name: "甲鞋厂", factory_code: "  001AbC  " },
+    { id: 2, name: "乙鞋厂", factory_code: "001ABD" },
+    { id: 3, name: "无编号鞋厂", factory_code: null },
+  ] })
+  const user = userEvent.setup()
+  render(<InventoryPage mode="purchase-orders" />)
+  await screen.findByText("EXPORT-0001")
+  const input = screen.getByRole("combobox", { name: "客户/供应商" })
+  expect(input).toHaveAttribute("placeholder", "供应商名称或工厂货号")
+  await user.click(input)
+  expect(await screen.findByRole("button", { name: /甲鞋厂\s*001AbC/ })).toHaveAttribute("title", "甲鞋厂（001AbC）")
+  expect(screen.getByRole("button", { name: "无编号鞋厂" })).toBeInTheDocument()
+  await user.type(input, "abc")
+  expect(screen.getByRole("button", { name: /甲鞋厂\s*001AbC/ })).toBeInTheDocument()
+  expect(screen.queryByRole("button", { name: /乙鞋厂\s*001ABD/ })).not.toBeInTheDocument()
+  await user.keyboard("{Enter}")
+  expect(screen.getByRole("button", { name: "移除 甲鞋厂" })).toBeInTheDocument()
+  await user.type(input, "001abd{Enter}")
+  expect(screen.getByRole("button", { name: "移除 乙鞋厂" })).toBeInTheDocument()
+  await user.click(screen.getByRole("button", { name: "搜索" }))
+  await waitFor(() => expect(mockListInventory).toHaveBeenLastCalledWith(expect.objectContaining({
+    suppliers: ["甲鞋厂", "乙鞋厂"], document_type: "进货订单", page: 1,
+  })))
+})
+
 test.each(["pending", "failed"])("shows the list and available filters while customer shops are %s", async (shopState) => {
   if (shopState === "pending") {
     mockCustomerShops.mockReturnValue(new Promise(() => {}))

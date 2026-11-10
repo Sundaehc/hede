@@ -2,7 +2,6 @@
 
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 import type { ReactNode } from "react"
-import JsBarcode from "jsbarcode"
 import {
   AlignCenter,
   AlignLeft,
@@ -34,6 +33,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select } from "@/components/ui/select"
 import { listInventoryPrintLabels } from "@/lib/api"
+import { createPurchaseBarcodeLayout, getLocalLabelElementBounds } from "@/lib/purchase-label-barcode"
 import type {
   InventoryPrintLabel,
   PurchasePrintTemplate,
@@ -126,23 +126,35 @@ export function resolvePurchasePrintElementText(
   return `${element.label || FIELD_LABELS[element.field]}：${value || "-"}`
 }
 
-function Barcode({ value, className = "" }: { value: string; className?: string }) {
-  const ref = useRef<SVGSVGElement>(null)
+function Barcode({ value, width, height, border }: {
+  value: string
+  width: number
+  height: number
+  border: boolean
+}) {
+  const result = useMemo(() => {
+    if (!value) return {}
+    try {
+      return { layout: createPurchaseBarcodeLayout(value, width, height, border) }
+    } catch (error) {
+      return { error: error instanceof Error ? error.message : "条码无法生成，请检查商品编码。" }
+    }
+  }, [value, width, height, border])
 
-  useEffect(() => {
-    if (!ref.current || !value) return
-    JsBarcode(ref.current, value, {
-      format: "CODE128",
-      displayValue: false,
-      width: 1.35,
-      height: 42,
-      margin: 0,
-      background: "transparent",
-      lineColor: "#000000",
-    })
-  }, [value])
-
-  return <svg ref={ref} className={className} aria-label={`条码 ${value}`} />
+  if (result.error) {
+    return <div role="alert" className="whitespace-normal bg-white text-xs text-red-700" title={result.error}>{result.error}</div>
+  }
+  const layout = result.layout
+  if (!layout) return null
+  return (
+    <svg className="purchase-print-barcode" viewBox={`0 0 ${width} ${height}`} role="img" aria-label={`条码 ${value}`}>
+      <rect width={width} height={height} fill="#fff" />
+      <g fill="#000" shapeRendering="crispEdges">
+        {layout.bars.map((bar) => <rect key={bar.x} x={bar.x} y={layout.y} width={bar.width} height={layout.barHeight} />)}
+      </g>
+      {border && <rect x={0.5} y={0.5} width={width - 1} height={height - 1} fill="none" stroke="#000" />}
+    </svg>
+  )
 }
 
 function AutoFitText({
@@ -281,7 +293,7 @@ export function PurchasePrintTemplateContent({
           fontWeight: element.bold ? 700 : 400,
           textDecorationLine: element.kind === "text" && element.underline ? "underline" : undefined,
           textAlign: element.align,
-          border: element.border ? "1px solid #000" : undefined,
+          border: element.border && element.kind !== "barcode" ? "1px solid #000" : undefined,
           whiteSpace: element.wrap ? "normal" : "nowrap",
         }
         const isSelected = interactive && selectedId === element.id
@@ -298,7 +310,7 @@ export function PurchasePrintTemplateContent({
             onPointerDown={(event) => interactive && onPointerStart?.(event, element, "move")}
           >
             {element.kind === "barcode" ? (
-              <Barcode value={data.barcode} className="purchase-print-barcode" />
+              <Barcode value={data.barcode} {...getLocalLabelElementBounds(config, element)} border={element.border} />
             ) : (
               <AutoFitText
                 fitKey={[

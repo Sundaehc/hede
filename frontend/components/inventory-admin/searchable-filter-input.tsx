@@ -8,6 +8,7 @@ export type SearchableFilterOption = {
   value: string
   label: string
   keywords?: string
+  trailingLabel?: string
 }
 
 type SearchableFilterInputProps = {
@@ -208,7 +209,7 @@ export function SearchableMultiFilterInput({
   ), [options, values])
   const visibleOptions = useMemo(() => (
     (normalizedSearchTerm
-      ? options.filter((option) => `${option.label} ${option.value} ${option.keywords || ""}`.toLowerCase().includes(normalizedSearchTerm))
+      ? options.filter((option) => `${option.label} ${option.value} ${option.keywords || ""} ${option.trailingLabel || ""}`.toLowerCase().includes(normalizedSearchTerm))
       : options
     ).filter((option) => !selectedValues.has(option.value)).slice(0, 80)
   ), [normalizedSearchTerm, options, selectedValues])
@@ -286,9 +287,11 @@ export function SearchableMultiFilterInput({
               type="button"
               onMouseDown={(event) => event.preventDefault()}
               onClick={() => addValue(option.value)}
-              className="flex w-full cursor-pointer items-center rounded-md px-3 py-2 text-left text-foreground hover:bg-muted"
+              title={option.trailingLabel ? `${option.label}（${option.trailingLabel}）` : option.label}
+              className="flex w-full cursor-pointer items-center gap-2 rounded-md px-3 py-2 text-left text-foreground hover:bg-muted"
             >
-              <span className="min-w-0 truncate">{option.label}</span>
+              <span className="min-w-0 flex-1 truncate">{option.label}</span>
+              {option.trailingLabel && <span className="max-w-[50%] shrink-0 truncate font-mono text-xs text-muted-foreground">{option.trailingLabel}</span>}
             </button>
           ))}
           {visibleOptions.length === 80 ? (

@@ -33,11 +33,16 @@ from domain.product_goods_schema import PRODUCT_GOODS_OVERRIDES_TABLE
 from domain.product_goods_historical_sales_schema import HISTORICAL_SALES_YEARS, ensure_product_goods_historical_sales_table
 from domain.product_size_group_mapping_schema import PRODUCT_SIZE_GROUP_MAPPINGS_TABLE
 from domain.product_archive_identity_schema import PRODUCT_ARCHIVE_IDENTITY_TABLE, ensure_product_archive_identity_schema
+from domain.product_archive_naming import manual_product_table_name
 from domain.schema import PRODUCT_ARCHIVE_TABLES
 from domain.size_group_schema import SIZE_GROUP_ITEMS_TABLE, SIZE_GROUPS_TABLE
 from storage.date_normalization import parse_date, parse_month_day
 from storage.schema_compat import ensure_columns, ensure_not_null
+from storage.product_archive_table_names import allocate_product_table_name
+from storage.detail_selection import selected_detail_values
 from storage.inventory_import_tasks import complete_inventory_import
+from storage.warehouse_inventory_cache import MAX_GROUPS, MAX_BARCODE_GROUPS, CompressedInventoryGroups, InventoryGroups, WarehouseInventoryCache
+from domain.warehouse_inventory_revision_schema import CAPABILITIES_SQL, VERSION_SQL
 from domain.inventory_import_task_schema import INVENTORY_IMPORT_TASK_TABLE
 
 
@@ -94,6 +99,7 @@ class InventoryRepository:
             json_serializer=_json_serializer,
         )
         self._product_identity_schema_ready = False
+        self._warehouse_inventory_cache = WarehouseInventoryCache()
         self.create_tables()
 
     # ── Inventory Records ──────────────────────────────────────────
@@ -520,9 +526,24 @@ class InventoryRepository:
         product_name: str | None = None,
         color_name: str | None = None,
         size_name: str | None = None,
+        sort_direction: str = "asc",
+        display_mode: str = "goods",
+        selected_rows: list[str] | None = None,
         page: int,
         page_size: int,
     ) -> dict[str, object]:
+        if sort_direction not in {"asc", "desc"}:
+            raise ValueError("日期排序仅支持 asc 或 desc")
+        if display_mode not in {"goods", "barcode"}:
+            raise ValueError("明细展示仅支持按货号或按编码")
+
+        def date_order(columns, detail_id):
+            # Use the same stable order before LIMIT and after joining display
+            # fields, so equal dates cannot move between pages.
+            date_value = columns.date_value.desc() if sort_direction == "desc" else columns.date_value.asc()
+            legacy_date = columns.date.desc() if sort_direction == "desc" else columns.date.asc()
+            return date_value.nulls_last(), legacy_date.nulls_last(), columns.document_number, detail_id
+
         record = INVENTORY_TABLE
         detail = INVENTORY_DETAIL_TABLE
         joined = detail.join(record, detail.c.document_id == record.c.id)
@@ -549,8 +570,10 @@ class InventoryRepository:
         if color_name:
             color_like = f"%{color_name.strip()}%"
             conditions.append(or_(detail.c.color_name.ilike(color_like), detail.c.color_spec.ilike(color_like)))
-        if size_name:
+        if size_name and display_mode == "goods":
             conditions.append(detail.c.size_quantities.cast(Text).ilike(f"%\"{size_name.strip()}\"%"))
+        if selected_rows is not None:
+            conditions.append(detail.c.id.in_(selected_detail_values(selected_rows, self.engine.dialect.name, ids=True)))
 
         criterion = and_(*conditions)
         is_sales = document_types == WHOLESALE_DOCUMENT_TYPES
@@ -569,6 +592,15 @@ class InventoryRepository:
             (record.c.document_type == return_type, -return_amount),
             else_=func.coalesce(detail.c.amount, 0),
         )
+        if display_mode == "barcode":
+            from storage.inventory_detail_barcodes import list_detail_barcodes
+            return list_detail_barcodes(
+                self, criterion=criterion, signed_quantity=signed_quantity, signed_amount=signed_amount,
+                return_type=return_type, is_sales=is_sales, sort_direction=sort_direction,
+                page=page, page_size=page_size, size_name=size_name,
+                quantity_field=quantity_field, amount_field=amount_field,
+                selected_rows=selected_rows,
+            )
         share_matches = document_types == ("进货订单",)
         if share_matches:
             # Reuse the filtered purchase rows for totals and pagination. The
@@ -588,7 +620,7 @@ class InventoryRepository:
             ).select_from(matches)
             page_statement = select(
                 matches.c.detail_id, matches.c.date_value, matches.c.date, matches.c.document_number,
-            ).order_by(matches.c.date_value.nulls_last(), matches.c.date, matches.c.document_number, matches.c.detail_id)
+            ).order_by(*date_order(matches.c, matches.c.detail_id))
         else:
             totals_statement = select(
                 func.count().label("detail_count"),
@@ -598,7 +630,7 @@ class InventoryRepository:
             page_statement = select(
                 detail.c.id.label("detail_id"), record.c.date_value, record.c.date, record.c.document_number,
             ).select_from(joined).where(criterion).order_by(
-                record.c.date_value.nulls_last(), record.c.date, record.c.document_number, detail.c.id,
+                *date_order(record.c, detail.c.id),
             )
         page_details = (
             page_statement
@@ -638,7 +670,7 @@ class InventoryRepository:
                 *total_columns,
             )
             .select_from(page_source)
-            .order_by(page_details.c.date_value.nulls_last(), page_details.c.date, page_details.c.document_number, page_details.c.detail_id)
+            .order_by(*date_order(page_details.c, page_details.c.detail_id))
         )
 
         with self.engine.connect() as connection:
@@ -1556,7 +1588,7 @@ class InventoryRepository:
             row = connection.execute(
                 update(SUPPLIER_BRAND_TABLE)
                 .where(SUPPLIER_BRAND_TABLE.c.id == item["id"])
-                .values(product_table_name=f"manual_product_archive_{item['id']}")
+                .values(product_table_name=allocate_product_table_name(connection, name, item["id"]))
                 .returning(SUPPLIER_BRAND_TABLE)
             ).mappings().one()
         return dict(row)
@@ -1774,11 +1806,8 @@ class InventoryRepository:
                 .where(SUPPLIER_BRAND_TABLE.c.code == brand)
                 .where(SUPPLIER_BRAND_TABLE.c.product_archive_enabled.is_(True))
             ).scalar_one_or_none()
-            normalized_table_name = str(table_name or "").strip()
-            if not normalized_table_name.startswith("manual_product_archive_"):
-                return 0
-            suffix = normalized_table_name.removeprefix("manual_product_archive_")
-            if not suffix.isdigit() or not inspect(connection).has_table(normalized_table_name):
+            normalized_table_name = manual_product_table_name(table_name)
+            if normalized_table_name is None or not inspect(connection).has_table(normalized_table_name):
                 return 0
             product_table = Table(normalized_table_name, MetaData(), autoload_with=connection)
 
@@ -3109,11 +3138,12 @@ class InventoryRepository:
     # ── Warehouse inventory ───────────────────────────────────────
 
     @staticmethod
-    def _warehouse_inventory_expressions(warehouse_name: str):
+    def _warehouse_inventory_expressions(warehouse_name: str, *, quantity=None):
         """Return inbound, outbound and scope expressions for one warehouse."""
         record = INVENTORY_TABLE
         detail = INVENTORY_DETAIL_TABLE
-        quantity = func.coalesce(detail.c.quantity, 0)
+        if quantity is None:
+            quantity = func.coalesce(detail.c.quantity, 0)
         inbound_types = WAREHOUSE_INBOUND_TYPES
         outbound_types = WAREHOUSE_OUTBOUND_TYPES
 
@@ -3152,14 +3182,44 @@ class InventoryRepository:
         date_start: str | None = None,
         date_end: str | None = None,
     ) -> list[dict[str, object]]:
-        """Aggregate all warehouses without loading document details into memory."""
+        cache = getattr(self, "_warehouse_inventory_cache", None)
+        version = self._warehouse_inventory_version() if cache is not None else None
+        if version is not None:
+            def load_summary():
+                items = self._query_warehouse_inventory_summary(date_start=date_start, date_end=date_end)
+                if self._warehouse_inventory_version() != version:
+                    return None
+                return InventoryGroups.from_result({"items": items, "total": len(items), "totals": {}})
+
+            groups = cache.get_or_load(("summary", version, date_start, date_end), load_summary)
+            if groups is not None:
+                return groups.page(1, MAX_GROUPS, False)["items"]
+        return self._query_warehouse_inventory_summary(date_start=date_start, date_end=date_end)
+
+    def _warehouse_inventory_version(self) -> str | None:
+        if self.engine.dialect.name != "postgresql":
+            return None
+        with self.engine.connect() as connection:
+            capabilities = connection.execute(CAPABILITIES_SQL).mappings().one()
+            self._warehouse_stock_index_ready = capabilities["stock_index_ready"]
+            return connection.execute(VERSION_SQL).scalar_one() if capabilities["revisions_ready"] else None
+
+    def _query_warehouse_inventory_summary(
+        self,
+        *,
+        date_start: str | None = None,
+        date_end: str | None = None,
+    ) -> list[dict[str, object]]:
+        """Aggregate all warehouses with one reusable quantity total per document."""
         record = INVENTORY_TABLE
         detail = INVENTORY_DETAIL_TABLE
-        joined = detail.join(record, detail.c.document_id == record.c.id)
-        quantity = func.coalesce(detail.c.quantity, 0)
         start_date = parse_date(date_start) if date_start else None
         end_date = parse_date(date_end) if date_end else None
-        conditions = [record.c.deleted_at.is_(None), self._record_completion_condition("completed")]
+        conditions = [
+            record.c.deleted_at.is_(None),
+            record.c.document_type.in_((*WAREHOUSE_INBOUND_TYPES, *WAREHOUSE_OUTBOUND_TYPES, "同价调拨单")),
+            self._record_completion_condition("completed"),
+        ]
         if end_date:
             conditions.append(or_(
                 record.c.date_value <= end_date,
@@ -3176,29 +3236,63 @@ class InventoryRepository:
                 and_(record.c.date_value.is_(None), record.c.date >= date_start),
             )
         else:
-            before_period = False
-            in_period = True
+            before_period = literal(False)
+            in_period = literal(True)
 
-        def movements(warehouse_name, change, scope):
-            return (
-                select(
-                    warehouse_name.label("warehouse_name"),
-                    func.sum(case((before_period, change), else_=0)).label("beginning_qty"),
-                    # Match detail totals even for legacy records with no date.
-                    func.sum(case((or_(before_period, in_period), change), else_=0)).label("ending_qty"),
-                )
-                .select_from(joined)
-                .where(*conditions, scope)
-                .group_by(warehouse_name)
+        # Check completion once per document before joining millions of details.
+        # The PostgreSQL fence also prevents a detail-first plan with repeated
+        # document lookups and completion subqueries for each detail row.
+        documents = (
+            select(
+                record.c.id,
+                record.c.warehouse,
+                case((record.c.document_type == "同价调拨单", record.c.supplier)).label("outgoing_warehouse"),
+                case((record.c.document_type.in_((*WAREHOUSE_INBOUND_TYPES, "同价调拨单")), 1), else_=-1).label("direction"),
+                before_period.label("before_period"),
+                or_(before_period, in_period).label("through_period"),
             )
+            .where(*conditions)
+            .cte("warehouse_summary_documents")
+            .prefix_with("MATERIALIZED", dialect="postgresql")
+        )
+        # Aggregate via the covering document index before joining the wider
+        # document data; carrying every detail into that join is much costlier.
+        quantities = (
+            select(
+                detail.c.document_id,
+                func.sum(func.coalesce(detail.c.quantity, 0)).label("quantity"),
+            )
+            .group_by(detail.c.document_id)
+            .subquery("warehouse_document_quantities")
+        )
+        change = quantities.c.quantity * documents.c.direction
+        # Compact to warehouse pairs first, then reuse these small totals for
+        # both transfer ends. Never substitute the document's total_count.
+        balances = (
+            select(
+                documents.c.warehouse,
+                documents.c.outgoing_warehouse,
+                func.sum(case((documents.c.before_period, change), else_=0)).label("beginning_qty"),
+                # Match detail totals even for legacy records with no date.
+                func.sum(case((documents.c.through_period, change), else_=0)).label("ending_qty"),
+            )
+            .select_from(documents.join(quantities, quantities.c.document_id == documents.c.id))
+            .group_by(documents.c.warehouse, documents.c.outgoing_warehouse)
+            .cte("warehouse_summary_balances")
+            .prefix_with("MATERIALIZED", dialect="postgresql")
+        )
 
         warehouse_movements = union_all(
-            movements(
-                record.c.warehouse,
-                case((record.c.document_type.in_((*WAREHOUSE_INBOUND_TYPES, "同价调拨单")), quantity), else_=-quantity),
-                record.c.document_type.in_((*WAREHOUSE_INBOUND_TYPES, *WAREHOUSE_OUTBOUND_TYPES, "同价调拨单")),
+            select(
+                balances.c.warehouse.label("warehouse_name"),
+                balances.c.beginning_qty,
+                balances.c.ending_qty,
             ),
-            movements(record.c.supplier, -quantity, record.c.document_type == "同价调拨单"),
+            select(
+                balances.c.outgoing_warehouse.label("warehouse_name"),
+                -balances.c.beginning_qty,
+                -balances.c.ending_qty,
+            ).where(balances.c.outgoing_warehouse.is_not(None)),
         ).subquery()
         totals = (
             select(
@@ -3234,13 +3328,56 @@ class InventoryRepository:
         date_end: str | None = None,
         product_code: str | None = None,
         ending_nonzero: bool = False,
+        display_mode: str = "goods",
         page: int,
         page_size: int,
     ) -> dict[str, object]:
+        from storage.warehouse_inventory_barcodes import enrich_stock_barcodes
+        filters = dict(warehouse_name=warehouse_name, date_start=date_start, date_end=date_end, product_code=product_code)
+        if display_mode == "barcode":
+            filters["display_mode"] = "barcode"
+        cache = getattr(self, "_warehouse_inventory_cache", None)
+        version = self._warehouse_inventory_version() if cache is not None else None
+        if version is not None:
+            def load_groups():
+                if display_mode == "barcode":
+                    groups = self._query_warehouse_inventory(**filters, ending_nonzero=False, page=1,
+                        page_size=MAX_BARCODE_GROUPS + 1, _cache_groups=True)
+                else:
+                    result = self._query_warehouse_inventory(**filters, ending_nonzero=False, page=1, page_size=MAX_GROUPS + 1)
+                    groups = InventoryGroups.from_result(result)
+                # Do not retain a result if source data committed while the
+                # aggregation was in progress. Fall back to a fresh SQL query.
+                if self._warehouse_inventory_version() != version:
+                    return None
+                return groups
+
+            key = ("detail", version, warehouse_name, date_start, date_end, product_code.strip() if product_code else None, display_mode)
+            groups = cache.get_or_load(key, load_groups)
+            if groups is not None:
+                result = groups.page(page, page_size, ending_nonzero)
+                return enrich_stock_barcodes(self, result) if display_mode == "barcode" else result
+        result = self._query_warehouse_inventory(**filters, ending_nonzero=ending_nonzero, page=page, page_size=page_size)
+        return enrich_stock_barcodes(self, result) if display_mode == "barcode" else result
+
+    def _query_warehouse_inventory(
+        self,
+        *,
+        warehouse_name: str,
+        date_start: str | None = None,
+        date_end: str | None = None,
+        product_code: str | None = None,
+        ending_nonzero: bool = False,
+        display_mode: str = "goods",
+        page: int,
+        page_size: int,
+        _cache_groups: bool = False,
+    ) -> dict[str, object] | CompressedInventoryGroups | None:
         record = INVENTORY_TABLE
         detail = INVENTORY_DETAIL_TABLE
-        joined = detail.join(record, detail.c.document_id == record.c.id)
-        inbound, outbound, affected = self._warehouse_inventory_expressions(warehouse_name)
+        inbound_direction, outbound_direction, affected = self._warehouse_inventory_expressions(
+            warehouse_name, quantity=literal(1),
+        )
         start_date = parse_date(date_start) if date_start else None
         end_date = parse_date(date_end) if date_end else None
 
@@ -3252,9 +3389,6 @@ class InventoryRepository:
             ))
         elif date_end:
             conditions.append(record.c.date <= date_end)
-        if product_code:
-            conditions.append(detail.c.product_code.ilike(f"%{product_code.strip()}%"))
-
         if start_date:
             before_period = or_(
                 record.c.date_value < start_date,
@@ -3271,26 +3405,79 @@ class InventoryRepository:
             before_period = False
             in_period = True
 
-        beginning_qty = func.coalesce(func.sum(case((before_period, inbound - outbound), else_=0)), 0).label("beginning_qty")
-        inbound_qty = func.coalesce(func.sum(case((in_period, inbound), else_=0)), 0).label("inbound_qty")
-        outbound_qty = func.coalesce(func.sum(case((in_period, outbound), else_=0)), 0).label("outbound_qty")
+        # Resolve document-wide rules and period/direction flags once before
+        # joining details; a product filter must not hide missing-price lines
+        # when checking whether the entire document is completed.
+        documents = (
+            select(
+                record.c.id,
+                case((before_period, inbound_direction - outbound_direction), else_=0).label("beginning_direction"),
+                case((in_period, inbound_direction), else_=0).label("inbound_direction"),
+                case((in_period, outbound_direction), else_=0).label("outbound_direction"),
+            )
+            .where(*conditions)
+            .cte("warehouse_inventory_documents")
+        )
+        # Full inventory benefits from checking each document once. A product
+        # search must allow PostgreSQL to start with its selective detail index.
+        if not product_code:
+            documents = documents.prefix_with("MATERIALIZED", dialect="postgresql")
+        if not product_code and (getattr(self, "_warehouse_stock_index_ready", False) or (display_mode == "barcode" and self.engine.dialect.name == "postgresql")):
+            # Goods use the covering index; barcode mode additionally needs
+            # recorded sizes from the heap. In both cases avoid scanning other
+            # warehouses. OFFSET 0 retains the per-document index lookup.
+            detail = (
+                select(detail.c.product_code, detail.c.product_name, detail.c.color_name,
+                       detail.c.color_spec, detail.c.quantity,
+                       *([detail.c.id, detail.c.product_identity_id, detail.c.size_quantities] if display_mode == "barcode" else []))
+                .where(detail.c.document_id == documents.c.id)
+                .correlate(documents)
+                .offset(0)
+                .lateral("warehouse_stock_lines")
+            )
+            joined = documents.join(detail, true())
+        else:
+            joined = documents.join(detail, detail.c.document_id == documents.c.id)
+        if display_mode == "barcode":
+            from storage.warehouse_inventory_barcodes import expand_stock_sizes
+            size_source = select(
+                detail.c.id, detail.c.product_identity_id, detail.c.product_code, detail.c.product_name,
+                detail.c.color_name, detail.c.color_spec, detail.c.size_quantities,
+                func.coalesce(detail.c.quantity, 0).label("quantity"),
+                documents.c.beginning_direction, documents.c.inbound_direction, documents.c.outbound_direction,
+            ).select_from(joined).where(detail.c.product_code.ilike(f"%{product_code.strip()}%") if product_code else true())
+            detail = expand_stock_sizes(size_source, self.engine.dialect.name)
+            joined = detail
+            documents = detail
+        extra_groups = [detail.c.product_identity_id, detail.c.inventory_size_key, detail.c.unallocated] if display_mode == "barcode" else []
+        quantity = func.coalesce(detail.c.quantity, 0)
+        # Most historical groups have no movements this period; FILTER avoids
+        # creating numeric aggregate states just to add zero for every old row.
+        beginning_qty = func.coalesce(func.sum(quantity * documents.c.beginning_direction).filter(
+            documents.c.beginning_direction != 0,
+        ), 0).label("beginning_qty")
+        inbound_qty = func.coalesce(func.sum(quantity).filter(documents.c.inbound_direction != 0), 0).label("inbound_qty")
+        outbound_qty = func.coalesce(func.sum(quantity).filter(documents.c.outbound_direction != 0), 0).label("outbound_qty")
         grouped = (
             select(
                 detail.c.product_code,
                 detail.c.product_name,
                 detail.c.color_name,
                 detail.c.color_spec,
+                *extra_groups,
+                *([func.min(detail.c.id).label("id")] if display_mode == "barcode" else []),
                 beginning_qty,
                 inbound_qty,
                 outbound_qty,
             )
             .select_from(joined)
-            .where(and_(*conditions))
+            .where(detail.c.product_code.ilike(f"%{product_code.strip()}%") if product_code else true())
             .group_by(
                 detail.c.product_code,
                 detail.c.product_name,
                 detail.c.color_name,
                 detail.c.color_spec,
+                *extra_groups,
             )
             .cte("warehouse_inventory_grouped")
             .prefix_with("MATERIALIZED", dialect="postgresql")
@@ -3304,10 +3491,36 @@ class InventoryRepository:
             func.coalesce(func.sum(grouped.c.outbound_qty), 0).label("total_outbound_qty"),
             func.coalesce(func.sum(ending_qty), 0).label("total_ending_qty"),
         ).cte("warehouse_inventory_totals")
+        sort_columns = [grouped.c.product_code, grouped.c.color_name, grouped.c.color_spec, grouped.c.product_name]
+        if display_mode == "barcode":
+            sort_columns.extend((grouped.c.product_identity_id, grouped.c.unallocated, grouped.c.inventory_size_key))
+        if _cache_groups:
+            # Stream already aggregated rows into small compressed blocks.
+            # Do not build a list of all barcode rows or count/scan the CTE
+            # again; the same pass supplies totals and the nonzero index.
+            statement = select(grouped, ending_qty).order_by(*sort_columns).limit(MAX_BARCODE_GROUPS + 1)
+            fields = ("beginning_qty", "inbound_qty", "outbound_qty", "ending_qty")
+            sums = {field: Decimal(0) for field in fields}
+            cache_totals = {}
+            def stock_rows(cursor):
+                for row in cursor.mappings():
+                    item = {key: row[key] for key in (
+                        "id", "product_identity_id", "product_code", "product_name", "color_name", "color_spec",
+                        "inventory_size_key", "unallocated",
+                    )}
+                    for field in fields:
+                        value = Decimal(str(row[field] or 0))
+                        sums[field] += value
+                        item[field] = self._format_decimal(value)
+                    yield item
+                cache_totals.update({field: self._format_decimal(value) for field, value in sums.items()})
+            with self.engine.connect() as connection:
+                with connection.execute(statement.execution_options(yield_per=256)) as cursor:
+                    return CompressedInventoryGroups.from_rows(stock_rows(cursor), cache_totals)
         paged = (
             select(grouped, ending_qty, literal(True).label("has_item"))
             .where(ending_qty != 0 if ending_nonzero else true())
-            .order_by(grouped.c.product_code, grouped.c.color_name, grouped.c.color_spec, grouped.c.product_name)
+            .order_by(*sort_columns)
             .offset((page - 1) * page_size)
             .limit(page_size)
             .cte("warehouse_inventory_page")
@@ -3318,7 +3531,7 @@ class InventoryRepository:
         statement = (
             select(totals, paged)
             .select_from(totals.outerjoin(paged, true()))
-            .order_by(paged.c.product_code, paged.c.color_name, paged.c.color_spec, paged.c.product_name)
+            .order_by(*(paged.c[column.key] for column in sort_columns))
         )
 
         with self.engine.connect() as connection:
@@ -3330,6 +3543,7 @@ class InventoryRepository:
             return self._format_decimal(Decimal(str(value or "0")))
 
         items = [{
+            **({key: row[key] for key in ("id", "product_identity_id", "inventory_size_key", "unallocated")} if display_mode == "barcode" else {}),
             "product_code": row.get("product_code"),
             "product_name": row.get("product_name"),
             "color_name": row.get("color_name"),
@@ -3363,6 +3577,10 @@ class InventoryRepository:
         color_name: str | None = None,
         color_spec: str | None = None,
         exact_match: bool = False,
+        display_mode: str = "goods",
+        product_identity_id: int | None = None,
+        inventory_size_key: str | None = None,
+        unallocated: bool = False,
         page: int,
         page_size: int,
     ) -> dict[str, object]:
@@ -3414,10 +3632,29 @@ class InventoryRepository:
             if color_spec:
                 conditions.append(detail.c.color_spec == color_spec)
 
+        if display_mode == "barcode":
+            from storage.warehouse_inventory_barcodes import expand_stock_sizes
+            direction_in, direction_out, _ = self._warehouse_inventory_expressions(warehouse_name, quantity=literal(1))
+            expanded = expand_stock_sizes(select(
+                detail.c.id, detail.c.product_identity_id, detail.c.product_code, detail.c.product_name,
+                detail.c.color_name, detail.c.color_spec, detail.c.size_quantities,
+                func.coalesce(detail.c.quantity, 0).label("quantity"),
+                record.c.id.label("document_id"), record.c.date, record.c.date_value, record.c.document_type,
+                record.c.document_number, record.c.supplier, record.c.warehouse, record.c.summary, record.c.handler,
+                direction_in.label("inbound_direction"), direction_out.label("outbound_direction"),
+                case((before_period, True), else_=False).label("before_period"),
+                case((in_period, True), else_=False).label("in_period"),
+            ).select_from(joined).where(*conditions, detail.c.product_identity_id == product_identity_id), self.engine.dialect.name)
+            detail = record = expanded
+            joined = expanded
+            conditions = [expanded.c.inventory_size_key == inventory_size_key, expanded.c.unallocated == unallocated]
+            inbound = expanded.c.quantity * expanded.c.inbound_direction
+            outbound = expanded.c.quantity * expanded.c.outbound_direction
+            before_period, in_period = expanded.c.before_period, expanded.c.in_period
         scoped = (
             select(
                 detail.c.id.label("detail_id"),
-                record.c.id.label("document_id"),
+                (record.c.document_id if display_mode == "barcode" else record.c.id).label("document_id"),
                 record.c.date,
                 record.c.date_value,
                 record.c.document_type,
@@ -3603,8 +3840,10 @@ class InventoryRepository:
         if not document_ids:
             return []
         table = INVENTORY_DETAIL_TABLE
+        identity = PRODUCT_ARCHIVE_IDENTITY_TABLE
         statement = (
-            select(table)
+            select(table, identity.c.original_sku.label("original_sku"))
+            .select_from(table.outerjoin(identity, identity.c.id == table.c.product_identity_id))
             .where(table.c.document_id.in_(document_ids))
             .order_by(table.c.document_id, table.c.id)
         )
@@ -3661,6 +3900,7 @@ class InventoryRepository:
             return []
 
         detail = INVENTORY_DETAIL_TABLE
+        identity = PRODUCT_ARCHIVE_IDENTITY_TABLE
         stock = JST_STOCK_TABLE
         product_like = f"%{normalized_product_code}%"
         stock_code_matches = stock.c.product_code.ilike(product_like)
@@ -3678,7 +3918,8 @@ class InventoryRepository:
             .where(func.length(stock.c.product_code) > 2),
         ).subquery()
         statement = (
-            select(detail)
+            select(detail, identity.c.original_sku.label("original_sku"))
+            .select_from(detail.outerjoin(identity, identity.c.id == detail.c.product_identity_id))
             .where(
                 detail.c.document_id.in_(document_ids),
                 or_(
@@ -4680,17 +4921,22 @@ class InventoryRepository:
             UPDATE supplier_brands SET name = '伊伴男鞋'
             WHERE code = 'eblan' AND name = '伊伴'
         """))
-        manual_brand_ids = connection.execute(text("""
-            SELECT id
+        manual_brands = connection.execute(text("""
+            SELECT id, name
             FROM supplier_brands
             WHERE product_archive_enabled = TRUE
               AND product_table_name IS NULL
               AND code NOT IN ('cbanner_mens', 'cbanner_womens', 'yandou', 'eblan', 'eblan_womens', 'smiley', 'ni')
-        """)).scalars()
-        for brand_id in manual_brand_ids:
+        """)).mappings().all()
+        for brand in manual_brands:
+            brand_id = brand["id"]
+            legacy_name = f"manual_product_archive_{brand_id}"
+            table_name = legacy_name if inspect(connection).has_table(legacy_name) else allocate_product_table_name(
+                connection, brand["name"], brand_id,
+            )
             connection.execute(
                 text("UPDATE supplier_brands SET product_table_name = :table_name WHERE id = :id"),
-                {"id": brand_id, "table_name": f"manual_product_archive_{brand_id}"},
+                {"id": brand_id, "table_name": table_name},
             )
         ensure_not_null(connection, "supplier_brands", "code", "name")
         connection.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uq_supplier_brands_code ON supplier_brands (code)"))

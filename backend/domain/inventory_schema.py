@@ -111,6 +111,11 @@ def build_inventory_detail_table() -> Table:
     Index("idx_inventory_details_product_code", table.c.product_code)
     Index("idx_inventory_details_product_identity", table.c.product_identity_id)
     Index(
+        "idx_inventory_details_warehouse_stock",
+        table.c.document_id,
+        postgresql_include=["product_code", "product_name", "color_name", "color_spec", "quantity"],
+    )
+    Index(
         "idx_inventory_details_missing_amount_document", table.c.document_id,
         postgresql_where=(table.c.amount.is_(None) | (table.c.amount == 0)),
         sqlite_where=(table.c.amount.is_(None) | (table.c.amount == 0)),
