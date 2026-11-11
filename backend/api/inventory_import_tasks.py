@@ -85,10 +85,13 @@ class InventoryImportMonitor:
                 break
 
 
-def configure_inventory_import_tasks(app, engine):
+def configure_inventory_import_tasks(app, engine, *, max_workers=2):
+    # Bound parsed workbooks and archive lookups held in memory at the same time.
+    max_workers = max(1, min(2, int(max_workers)))
     app.state.inventory_import_tasks = InventoryImportTasks(engine)
-    app.state.inventory_import_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="inventory-import")
-    app.state.inventory_import_slots = BoundedSemaphore(1)
+    app.state.inventory_import_max_workers = max_workers
+    app.state.inventory_import_executor = ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix="inventory-import")
+    app.state.inventory_import_slots = BoundedSemaphore(max_workers)
     app.state.inventory_import_monitor = InventoryImportMonitor(app, app.state.inventory_import_tasks)
 
 
@@ -147,18 +150,18 @@ def submit_inventory_import(request, task_id, filename, form, content, run_impor
         return task_response(existing)
     slots = request.app.state.inventory_import_slots
     if not slots.acquire(blocking=False):
-        raise HTTPException(status_code=429, detail="已有导入任务正在处理，请等待完成后再提交")
+        limit = request.app.state.inventory_import_max_workers
+        raise HTTPException(status_code=429, detail=f"后台导入处理名额已满（最多同时 {limit} 个任务），请等待现有任务完成后再提交")
     created = False
     submitted = False
     monitor = request.app.state.inventory_import_monitor
-    if operation:
-        # Background processing only needs application services and the actor;
-        # avoid retaining the upload request's multipart buffers after acceptance.
+    try:
+        # Both import paths only need application services and the actor. Do not
+        # retain multipart buffers or unrelated request state in background workers.
         request = SimpleNamespace(app=request.app, state=SimpleNamespace(
-            current_user=dict(actor_from_request(request) or {}), import_operation=operation,
+            current_user=dict(actor_from_request(request) or {}), import_operation=operation or "inventory",
         ))
         form = {key: value for key, value in form.items() if key != "file"}
-    try:
         created = tasks.create(task_id, user_id, filename or "导入.xlsx", request_hash)
         if not created:
             return task_response(tasks.get(task_id, user_id))

@@ -1,7 +1,21 @@
 import { afterEach, expect, test, vi } from "vitest"
-import { getPurchaseImportTask, submitPurchaseImportTask } from "@/lib/api"
+import { getPurchaseImportTask, resolveMissingImportTask, submitPurchaseImportTask } from "@/lib/api"
 
 afterEach(() => vi.restoreAllMocks())
+
+test.each(["purchase", "inventory"] as const)("resolves an unreceived %s batch without sending any file", async (operation) => {
+  const result = { closed: true, task: { task_id: "a".repeat(32), status: "failed" } }
+  const fetchMock = vi.spyOn(global, "fetch").mockResolvedValue(new Response(JSON.stringify(result)))
+  const controller = new AbortController()
+  expect(await resolveMissingImportTask("a".repeat(32), operation, controller.signal)).toEqual(result)
+  expect(fetchMock).toHaveBeenCalledExactlyOnceWith(
+    `/api/inventory/${operation === "purchase" ? "import-purchase" : "import-template"}/tasks/${"a".repeat(32)}/resolve-missing`,
+    expect.objectContaining({ method: "POST", credentials: "include", cache: "no-store", signal: expect.any(AbortSignal) }),
+  )
+  expect(fetchMock.mock.calls[0][1]?.body).toBeUndefined()
+  controller.abort()
+  expect(fetchMock.mock.calls[0][1]?.signal?.aborted).toBe(true)
+})
 
 test("submits purchase parameters once and returns an accepted task without waiting for import", async () => {
   const fetchMock = vi.spyOn(global, "fetch").mockResolvedValue(new Response(JSON.stringify({

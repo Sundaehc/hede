@@ -82,6 +82,7 @@ class Settings:
     ucloud_us3_signed_url_expires: int = 3600
     ucloud_us3_timeout_seconds: int = 60
     ucloud_us3_sync_workers: int = 4
+    inventory_import_max_workers: int = 2
     request_rate_limit_enabled: bool = True
     request_rate_limit_requests: int = 120
     request_rate_limit_window_seconds: int = 60
@@ -305,6 +306,9 @@ def load_settings(require_database: bool = True) -> Settings:
         ),
         ucloud_us3_sync_workers=_int_from_env(
             "UCLOUD_US3_SYNC_WORKERS", 4, minimum=1, maximum=16
+        ),
+        inventory_import_max_workers=_int_from_env(
+            "INVENTORY_IMPORT_MAX_WORKERS", 2, minimum=1, maximum=2
         ),
         request_rate_limit_enabled=_bool_from_env("REQUEST_RATE_LIMIT_ENABLED", True),
         ark_api_key=os.getenv("ARK_API_KEY", "").strip() or None,

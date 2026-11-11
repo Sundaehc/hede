@@ -29,6 +29,7 @@ const {
   importPurchaseMock,
   purchaseTaskMock,
   getPurchaseTaskMock,
+  resolveMissingTaskMock,
 } = vi.hoisted(() => ({
   listInventoryMock: vi.fn(),
   previewTemplateMock: vi.fn(),
@@ -38,6 +39,7 @@ const {
   importPurchaseMock: vi.fn(),
   purchaseTaskMock: vi.fn(),
   getPurchaseTaskMock: vi.fn(),
+  resolveMissingTaskMock: vi.fn(),
 }))
 
 vi.mock("@/components/auth/auth-provider", () => ({
@@ -67,6 +69,7 @@ vi.mock("@/lib/api", async () => ({
   importPurchaseInventory: importPurchaseMock,
   submitPurchaseImportTask: purchaseTaskMock,
   getPurchaseImportTask: getPurchaseTaskMock,
+  resolveMissingImportTask: resolveMissingTaskMock,
 }))
 
 const templatePreview: InventoryTemplatePreview = {
@@ -666,6 +669,71 @@ test("restores purchase batches independently from inventory batches after refre
   expect(getTaskMock).not.toHaveBeenCalled()
   expect(purchaseTaskMock).not.toHaveBeenCalled()
   expect(window.sessionStorage.getItem("inventory-import-task:1")).toBe("d".repeat(32))
+})
+
+test.each(["purchase-orders", "inventory"] as const)("recovers a missing %s batch only after server confirmation, without uploading again", async (mode) => {
+  const user = userEvent.setup()
+  const taskId = "c".repeat(32)
+  const key = (mode === "purchase-orders" ? "purchase-import-task:" : "inventory-import-task:") + "1"
+  window.sessionStorage.setItem(key, taskId)
+  getTaskMock.mockRejectedValue(new ApiError(404, "未找到该导入批次"))
+  getPurchaseTaskMock.mockRejectedValue(new ApiError(404, "未找到该导入批次"))
+  let resolve!: (result: { closed: boolean; task: InventoryImportTask }) => void
+  resolveMissingTaskMock.mockImplementationOnce(() => new Promise((done) => { resolve = done }))
+  render(<InventoryPage mode={mode} />)
+  const dialog = await screen.findByRole("dialog", { name: mode === "purchase-orders" ? "导入采购单" : "导入单据明细" })
+  const ui = within(dialog)
+  const recover = await ui.findByRole("button", { name: "核验并重新预检查" })
+  await waitFor(() => expect(recover).toBeEnabled())
+  await user.click(recover)
+  expect(resolveMissingTaskMock).toHaveBeenCalledExactlyOnceWith(taskId, mode === "purchase-orders" ? "purchase" : "inventory", expect.any(AbortSignal))
+  expect(ui.getByRole("button", { name: "等待结果" })).toBeDisabled()
+  expect(recover).toBeDisabled()
+  expect(window.sessionStorage.getItem(key)).toBe(taskId)
+  await act(async () => resolve({ closed: true, task: { ...importTask("failed", taskId), result: null } }))
+  expect(window.sessionStorage.getItem(key)).toBeNull()
+  expect(ui.getByText(/服务器确认未接收此批次/)).toBeInTheDocument()
+  expect(ui.queryByRole("button", { name: "等待结果" })).not.toBeInTheDocument()
+  expect(ui.getByLabelText("Excel 文件")).toBeEnabled()
+  expect(purchaseTaskMock).not.toHaveBeenCalled()
+  expect(importTemplateMock).not.toHaveBeenCalled()
+})
+
+test("keeps a missing batch locked when recovery cannot contact the server", async () => {
+  const user = userEvent.setup()
+  const taskId = "c".repeat(32)
+  window.sessionStorage.setItem("purchase-import-task:1", taskId)
+  getPurchaseTaskMock.mockRejectedValue(new ApiError(404, "未找到该导入批次"))
+  resolveMissingTaskMock.mockRejectedValueOnce(new TypeError("Offline"))
+  render(<InventoryPage mode="purchase-orders" />)
+  const dialog = await screen.findByRole("dialog", { name: "导入采购单" })
+  const ui = within(dialog)
+  const recover = await ui.findByRole("button", { name: "核验并重新预检查" })
+  await waitFor(() => expect(recover).toBeEnabled())
+  await user.click(recover)
+  expect(await screen.findByRole("alertdialog", { name: "暂时无法恢复导入" })).toHaveTextContent("旧批次仍保留")
+  await user.click(screen.getByRole("button", { name: "确定" }))
+  expect(window.sessionStorage.getItem("purchase-import-task:1")).toBe(taskId)
+  expect(ui.getByRole("button", { name: "等待结果" })).toBeDisabled()
+  expect(purchaseTaskMock).not.toHaveBeenCalled()
+})
+
+test("continues checking when a delayed submission was received before recovery", async () => {
+  const user = userEvent.setup()
+  const taskId = "c".repeat(32)
+  window.sessionStorage.setItem("purchase-import-task:1", taskId)
+  getPurchaseTaskMock.mockRejectedValue(new ApiError(404, "未找到该导入批次"))
+  resolveMissingTaskMock.mockResolvedValueOnce({ closed: false, task: importTask("running", taskId) })
+  render(<InventoryPage mode="purchase-orders" />)
+  const dialog = await screen.findByRole("dialog", { name: "导入采购单" })
+  const ui = within(dialog)
+  const recover = await ui.findByRole("button", { name: "核验并重新预检查" })
+  await waitFor(() => expect(recover).toBeEnabled())
+  await user.click(recover)
+  expect(ui.getByRole("status")).toHaveTextContent("正在导入")
+  expect(ui.getByRole("button", { name: "等待结果" })).toBeDisabled()
+  expect(window.sessionStorage.getItem("purchase-import-task:1")).toBe(taskId)
+  expect(purchaseTaskMock).not.toHaveBeenCalled()
 })
 
 test("opens the upload picker with the keyboard and keeps remove a separate button", async () => {

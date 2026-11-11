@@ -5224,6 +5224,21 @@ async def submit_inventory_template_task(request: Request, task_id: str, file: U
     return JSONResponse(result, status_code=202, headers={"Cache-Control": "no-store"})
 
 
+@router.post("/inventory/import-template/tasks/{task_id}/resolve-missing")
+@router.post("/inventory/import-purchase/tasks/{task_id}/resolve-missing")
+def resolve_missing_import_task(request: Request, task_id: str):
+    if not re.fullmatch(r"[a-f0-9]{32}", task_id):
+        raise HTTPException(status_code=400, detail="导入批次编号格式不正确")
+    tasks = getattr(request.app.state, "inventory_import_tasks", None)
+    if tasks is None:
+        raise HTTPException(status_code=503, detail="后台导入服务尚未初始化，请联系管理员重启后端")
+    try:
+        row, closed = tasks.close_unreceived(task_id, task_user_id(request))
+    except ValueError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
+    return JSONResponse({"closed": closed, "task": task_response(row)}, headers={"Cache-Control": "no-store"})
+
+
 @router.post("/inventory/import-template")
 async def import_inventory_template(request: Request, file: UploadFile = None):
     if file is None:

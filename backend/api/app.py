@@ -210,7 +210,9 @@ def create_app(*, settings, repository=None, image_matchers=None, inventory_repo
     app.state.inventory_repository = resolved_inventory_repository
     inventory_engine = getattr(resolved_inventory_repository, "engine", None)
     if inventory_engine is not None:
-        configure_inventory_import_tasks(app, inventory_engine)
+        configure_inventory_import_tasks(
+            app, inventory_engine, max_workers=getattr(settings, "inventory_import_max_workers", 2),
+        )
     app.state.auth_repository = resolved_auth_repository
     app.state.operation_log_repository = resolved_operation_log_repository
     resolved_auth_repository.create_tables()

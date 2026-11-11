@@ -63,6 +63,7 @@ import {
   previewInventoryTemplate,
   submitInventoryTemplateTask,
   getInventoryTemplateTask,
+  resolveMissingImportTask,
   type InventoryImportTask,
   buildInventoryTemplateUrl,
   type InventoryTemplateKind,
@@ -1005,6 +1006,7 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
   const [importTaskNotice, setImportTaskNotice] = useState<InventoryImportTaskNotice | null>(null)
   const [isImportTaskChecking, setIsImportTaskChecking] = useState(false)
   const checkImportTaskRef = useRef<(() => void) | null>(null)
+  const resolveImportTaskRef = useRef<(() => void) | null>(null)
   const importTaskStorageKey = (isPurchasePage ? "purchase-import-task:" : "inventory-import-task:") + (user?.id ?? "anonymous")
   useEffect(() => {
     setPurchasePreview(null)
@@ -1205,22 +1207,46 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
     const started = Date.now()
     let refreshedAfterDisconnect = false
     let checking = false
-    const poll = async () => {
+    const poll = async (resolveMissing = false) => {
       if (checking || controller.signal.aborted) return
       checking = true
       setIsImportTaskChecking(true)
       try {
-        const task = await (isPurchasePage ? getPurchaseImportTask : getInventoryTemplateTask)(
-          importTaskId,
-          controller.signal
-        )
-        if (controller.signal.aborted || applyImportTaskResult(task)) return
+        if (resolveMissing) {
+          const resolution = await resolveMissingImportTask(importTaskId, isPurchasePage ? "purchase" : "inventory", controller.signal)
+          if (controller.signal.aborted) return
+          if (resolution.task.task_id !== importTaskId) throw new Error("服务器返回的批次编号不一致，请联系管理员核对。")
+          if (resolution.closed && resolution.task.status === "failed") {
+            try { window.sessionStorage.removeItem(importTaskStorageKey) } catch {}
+            setImportTaskId("")
+            setImportTaskNotice(null)
+            setIsImporting(false)
+            setTemplatePreview(null)
+            setTemplateDecisions({})
+            setPurchasePreview(null)
+            setPurchaseDecisions({})
+            setImportError("服务器确认未接收此批次，旧批次已关闭。请选择或核对 Excel 文件后重新预检查。")
+            setImportDialogOpen(true)
+            return
+          }
+          if (applyImportTaskResult(resolution.task)) return
+        } else {
+          const task = await (isPurchasePage ? getPurchaseImportTask : getInventoryTemplateTask)(
+            importTaskId,
+            controller.signal
+          )
+          if (controller.signal.aborted || applyImportTaskResult(task)) return
+        }
       } catch (error) {
         if (controller.signal.aborted) return
-        setImportTaskNotice((notice) => ({
-          ...notice,
-          phase: error instanceof ApiError && error.status === 404 ? "not-found" : "disconnected",
-        }))
+        if (resolveMissing) {
+          showMessage("暂时无法恢复导入", getErrorMessage(error) + " 旧批次仍保留，请稍后核验或联系管理员。")
+        } else {
+          setImportTaskNotice((notice) => ({
+            ...notice,
+            phase: error instanceof ApiError && error.status === 404 ? "not-found" : "disconnected",
+          }))
+        }
         if (!refreshedAfterDisconnect && Date.now() - started >= 120_000) {
           refreshedAfterDisconnect = true
           setIsImporting(false)
@@ -1230,14 +1256,20 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
         checking = false
         if (!controller.signal.aborted) setIsImportTaskChecking(false)
       }
-      timer = setTimeout(poll, 3000)
+      timer = setTimeout(() => void poll(), 3000)
     }
     const check = () => {
       if (checking || controller.signal.aborted) return
       if (timer) clearTimeout(timer)
       void poll()
     }
+    const resolveMissing = () => {
+      if (checking || controller.signal.aborted) return
+      if (timer) clearTimeout(timer)
+      void poll(true)
+    }
     checkImportTaskRef.current = check
+    resolveImportTaskRef.current = resolveMissing
     window.addEventListener("online", check)
     timer = setTimeout(poll, 0)
     return () => {
@@ -1245,8 +1277,9 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
       if (timer) clearTimeout(timer)
       window.removeEventListener("online", check)
       if (checkImportTaskRef.current === check) checkImportTaskRef.current = null
+      if (resolveImportTaskRef.current === resolveMissing) resolveImportTaskRef.current = null
     }
-  }, [importTaskId, isPurchasePage, applyImportTaskResult])
+  }, [importTaskId, importTaskStorageKey, isPurchasePage, applyImportTaskResult, setImportDialogOpen, setImportError, showMessage])
 
   const handleTableSort = (columnKey: InventorySortKey, append: boolean) => {
     setPage(1)
@@ -2242,6 +2275,7 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
             isChecking={isImportTaskChecking}
             onCheck={() => checkImportTaskRef.current?.()}
             onViewDetails={() => setImportDialogOpen(true)}
+            onResolveMissing={() => resolveImportTaskRef.current?.()}
           />
         )}
 
@@ -3016,6 +3050,7 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
               taskId={importTaskId}
               isChecking={isImportTaskChecking}
               onCheck={() => checkImportTaskRef.current?.()}
+              onResolveMissing={() => resolveImportTaskRef.current?.()}
             />
           )}
           {importError && (

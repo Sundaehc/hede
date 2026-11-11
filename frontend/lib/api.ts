@@ -2429,6 +2429,23 @@ export async function getInventoryTemplateTask(taskId: string, signal?: AbortSig
   return readImportTask(response)
 }
 
+export async function resolveMissingImportTask(
+  taskId: string,
+  operation: "purchase" | "inventory",
+  signal?: AbortSignal,
+): Promise<{ closed: boolean; task: InventoryImportTask }> {
+  const path = operation === "purchase" ? "import-purchase" : "import-template"
+  const response = await fetch(
+    `${API_PREFIX}/inventory/${path}/tasks/${encodeURIComponent(taskId)}/resolve-missing`,
+    {
+      method: "POST", credentials: "include", cache: "no-store",
+      signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(10_000)]) : AbortSignal.timeout(10_000),
+    },
+  )
+  if (!response.ok) throw new ApiError(response.status, await readApiError(response))
+  return response.json()
+}
+
 export type InventoryDetailUnitPriceOption = {
   value: string | null
   count: number

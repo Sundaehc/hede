@@ -9,6 +9,8 @@ from domain.inventory_import_task_schema import INVENTORY_IMPORT_TASK_TABLE
 
 logger = logging.getLogger(__name__)
 INTERRUPTED_IMPORT_ERROR = "导入任务已失联或中断，本批次未提交，请重新预检查后导入。"
+UNRECEIVED_REQUEST_HASH = "closed-before-receipt"
+UNRECEIVED_IMPORT_ERROR = "服务器确认未接收此批次，旧批次已关闭。请重新选择文件并预检查；迟到的旧提交不会执行。"
 
 
 class InventoryImportTasks:
@@ -57,6 +59,33 @@ class InventoryImportTasks:
             if existing is None or existing["request_hash"] != request_hash:
                 raise ValueError("导入批次编号已被使用，请重新选择文件后导入") from None
             return False
+
+    def close_unreceived(self, task_id, user_id):
+        """Reserve an absent batch ID so a delayed upload can never execute it.
+
+        A concurrent submission and this insert compete on the same primary key.
+        If submission wins, leave its task untouched and return its actual state.
+        """
+        table = INVENTORY_IMPORT_TASK_TABLE
+        existing = self.get(task_id, user_id)
+        if existing is None:
+            now = datetime.now(timezone.utc)
+            try:
+                with self.engine.begin() as connection:
+                    connection.execute(insert(table).values(
+                        id=task_id, user_id=user_id, filename="未接收的导入文件",
+                        request_hash=UNRECEIVED_REQUEST_HASH, status="failed",
+                        heartbeat_at=now, finished_at=now,
+                        error=UNRECEIVED_IMPORT_ERROR, error_status=409,
+                    ))
+            except IntegrityError:
+                # A real task or another recovery request reserved this ID first.
+                pass
+            existing = self.get(task_id, user_id)
+        if existing is None:
+            # Do not expose tasks belonging to another account or close them.
+            raise ValueError("无法在当前账户下核验此批次，请联系管理员核对。")
+        return existing, existing["request_hash"] == UNRECEIVED_REQUEST_HASH
 
     def start(self, task_id):
         table = INVENTORY_IMPORT_TASK_TABLE

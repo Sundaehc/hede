@@ -5,6 +5,7 @@ from collections.abc import Mapping
 from datetime import date
 from decimal import Decimal
 from itertools import groupby
+from threading import Lock
 from uuid import uuid4
 
 from pathlib import Path
@@ -85,6 +86,10 @@ TEMPLATE_DETAIL_WRITE_BATCH_SIZE = 5000
 TEMPLATE_DETAIL_COPY_MIN_ROWS = 100
 TEMPLATE_TOTALS_BATCH_SIZE = 1000
 SUMMARY_SEARCH_WHITESPACE = " \t\r\n\v\f\u00a0\u3000"
+
+# Parse and validate concurrently, but wait for the local writer before opening
+# a transaction. The PostgreSQL advisory lock below still protects other processes.
+_INVENTORY_IMPORT_WRITE_LOCK = Lock()
 
 
 def _json_serializer(value: object) -> str:
@@ -889,7 +894,7 @@ class InventoryRepository:
         detail = INVENTORY_DETAIL_TABLE
         created = replaced = detail_count = 0
         records = []
-        with self.engine.begin() as connection:
+        with _INVENTORY_IMPORT_WRITE_LOCK, self.engine.begin() as connection:
             if connection.dialect.name == "postgresql":
                 connection.execute(text("SET LOCAL lock_timeout = '30s'"))
                 connection.execute(text("SET LOCAL statement_timeout = '10min'"))
@@ -1028,7 +1033,7 @@ class InventoryRepository:
         record_table = INVENTORY_TABLE
         detail_table = INVENTORY_DETAIL_TABLE
         created = replaced = skipped = detail_count = 0
-        with self.engine.begin() as connection:
+        with _INVENTORY_IMPORT_WRITE_LOCK, self.engine.begin() as connection:
             if connection.dialect.name == "postgresql":
                 if task_id is not None:
                     connection.execute(text("SET LOCAL lock_timeout = '30s'"))

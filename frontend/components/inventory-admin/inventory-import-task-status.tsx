@@ -29,12 +29,14 @@ export function InventoryImportTaskStatus({
   isChecking,
   onCheck,
   onViewDetails,
+  onResolveMissing,
 }: {
   notice: InventoryImportTaskNotice
   taskId: string
   isChecking: boolean
   onCheck: () => void
   onViewDetails?: () => void
+  onResolveMissing?: () => void
 }) {
   const uncertain =
     notice.phase === "disconnected" || notice.phase === "not-found"
@@ -49,7 +51,7 @@ export function InventoryImportTaskStatus({
     disconnected:
       "连接暂时中断，正在自动核验导入结果；这不代表导入失败，请勿重复提交。",
     "not-found":
-      "暂未查到该批次，仍在核验提交结果；请先恢复连接或联系管理员核对，不要重新上传。",
+      "暂未查到该批次，仍在核验提交结果。可点击“核验并重新预检查”，由服务器确认旧批次能否关闭；确认前请勿重新上传。",
   }[notice.phase]
 
   return (
@@ -96,7 +98,7 @@ export function InventoryImportTaskStatus({
           </div>
         </div>
         {taskId && (
-          <div className="flex shrink-0 items-center gap-2 pl-12 sm:pl-0">
+          <div className="flex shrink-0 flex-wrap items-center gap-2 pl-12 sm:pl-0">
             <Button
               type="button"
               variant="outline"
@@ -124,6 +126,18 @@ export function InventoryImportTaskStatus({
                 className="h-8 text-xs"
               >
                 查看详情
+              </Button>
+            )}
+            {notice.phase === "not-found" && onResolveMissing && (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={isChecking}
+                onClick={onResolveMissing}
+                className="h-8 bg-background text-xs"
+              >
+                核验并重新预检查
               </Button>
             )}
           </div>
