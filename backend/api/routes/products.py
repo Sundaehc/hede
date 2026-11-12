@@ -471,6 +471,8 @@ def update_product(request: Request, brand: ProductArchiveBrandKey, product_id: 
             "source_row_number": existing["source_row_number"],
         },
     )
+    if "international_code" not in body.payload.model_fields_set:
+        record["international_code"] = existing.get("international_code")
     _validate_size_group(request, record.get("size_range"))
     record["extra_fields"] = filter_extra_fields(existing.get("extra_fields"))
     if is_excluded_sku(record.get("sku"), record.get("original_sku")):

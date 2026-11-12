@@ -16,6 +16,7 @@ DEFAULT_TEXT_HEADER_KEYWORDS = (
     "条码",
     "款号",
     "代码",
+    "国际码",
     "单据编号",
 )
 DEFAULT_NUMERIC_HEADER_KEYWORDS = (
@@ -43,6 +44,7 @@ DEFAULT_WIDTH_BY_HEADER = {
     "商品编号": 20,
     "货号": 20,
     "原始货号": 20,
+    "国际码": 22,
     "款式编码": 20,
     "款号": 20,
     "工厂货号": 18,

@@ -180,6 +180,7 @@ ADMIN_EDITABLE_COLUMNS = (
     "image_path",
     "sku",
     "original_sku",
+    "international_code",
     "product_name",
     "group_name",
     "category",

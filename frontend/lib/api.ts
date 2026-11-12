@@ -2473,11 +2473,11 @@ export function listInventoryPrintLabels(documentId: number, signal?: AbortSigna
   }>(`/inventory/${documentId}/print-labels`, { signal, cache: "no-store" })
 }
 
-export function getPurchasePrintTemplate() {
+export function getPurchasePrintTemplate(signal?: AbortSignal) {
   return request<{
     template: PurchasePrintTemplate | null
     config: PurchasePrintTemplateConfig | null
-  }>("/purchase-print-template/current")
+  }>("/purchase-print-template/current", { signal })
 }
 
 export function listPurchasePrintTemplates() {
@@ -2788,7 +2788,7 @@ export function listPurchaseInboundDetails(params: {
   display_mode?: "goods" | "barcode"
   page: number
   pageSize: number
-}) {
+}, signal?: AbortSignal) {
   const search = new URLSearchParams({
     page: String(params.page),
     page_size: String(params.pageSize),
@@ -2808,7 +2808,8 @@ export function listPurchaseInboundDetails(params: {
   if (params.sort_direction) search.set("sort_direction", params.sort_direction)
   if (params.display_mode) search.set("display_mode", params.display_mode)
   return request<PurchaseInboundDetailResponse>(
-    `/inventory-reports/purchase-inbound-details?${search.toString()}`
+    `/inventory-reports/purchase-inbound-details?${search.toString()}`,
+    { signal }
   )
 }
 

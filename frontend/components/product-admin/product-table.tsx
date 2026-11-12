@@ -401,7 +401,7 @@ export function ProductTable({
           <p>
             共 {total} 条，当前显示 {start}-{end}
             {isLoading && items.length > 0 ? <span className="ml-2">加载中...</span> : null}
-            {selectedKeys.size > 0 ? <span className="ml-2 text-foreground">已选 {selectedKeys.size} 项{isAllMatchingSelected ? "（全部筛选结果）" : "（跨页保留）"}</span> : null}
+            {selectedKeys.size > 0 ? <span className="ml-2 text-foreground">已选 {selectedKeys.size} 项{isAllMatchingSelected ? "（全部筛选结果）" : ""}</span> : null}
           </p>
           {selectable && onSelectAllMatching ? (
             <Button type="button" variant="outline" size="sm" onClick={onSelectAllMatching} disabled={selectionDisabled || total === 0 || isAllMatchingSelected} className="h-7 px-2 text-xs">

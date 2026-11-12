@@ -125,9 +125,6 @@ def main() -> int:
             products.engine.dispose()
     statuses = ScheduledTaskStatusRepository(settings.database_url)
     try:
-        if not statuses.is_success("sync_products_daily", business_date):
-            print("[SKIP] 当天商品档案尚未同步成功，不生成提示词")
-            return 1
         if not statuses.is_success(IMAGE_TASK_NAME, business_date):
             print("[SKIP] 当天商品图片尚未同步成功，不生成提示词")
             return 1

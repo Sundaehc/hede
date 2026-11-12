@@ -144,7 +144,7 @@ test("aborts obsolete requests and ignores their late results", async () => {
   expect(screen.getByText("SKU-A")).toBeInTheDocument()
 })
 
-test("keeps paging controls mounted, hides old results and blocks duplicate page requests while loading", async () => {
+test("keeps paging controls and marked previous rows mounted, hides old totals and blocks duplicate requests while loading", async () => {
   const full = response()
   full.total = 51
   full.items = Array.from({ length: 50 }, (_, index) => ({
@@ -153,14 +153,18 @@ test("keeps paging controls mounted, hides old results and blocks duplicate page
   mocks.list.mockResolvedValueOnce(full)
   const { user } = await openPage()
   const region = screen.getByRole("region", { name: "采购明细表格" })
+  const firstRow = screen.getByRole("row", { name: /SKU-1 女休闲鞋/ })
   const next = screen.getByLabelText("Go to next page")
   const previous = screen.getByLabelText("Go to previous page")
   let resolveNext!: (value: ReturnType<typeof response>) => void
   mocks.list.mockReturnValueOnce(new Promise(resolve => { resolveNext = resolve }))
   await user.click(next)
   expect(region).toHaveAttribute("aria-busy", "true")
-  expect(within(region).getByText("加载中...")).toBeInTheDocument()
-  expect(screen.queryByText("SKU-1")).not.toBeInTheDocument()
+  expect(screen.getByRole("status")).toHaveTextContent("正在更新，暂时显示上次结果")
+  expect(screen.getByRole("row", { name: /SKU-1 女休闲鞋/ })).toBe(firstRow)
+  expect(screen.getByText("上次结果：第 1-50 条 / 共 51 条")).toBeInTheDocument()
+  expect(within(firstRow).getByRole("checkbox")).toBeDisabled()
+  expect(screen.getByRole("button", { name: "导出Excel" })).toBeDisabled()
   expect(within(screen.getByRole("row", { name: /全部合计/ })).queryByText("51.25")).not.toBeInTheDocument()
   expect(screen.getByLabelText("Go to next page")).toBe(next)
   expect(screen.getByLabelText("Go to previous page")).toBe(previous)
@@ -175,6 +179,8 @@ test("keeps paging controls mounted, hides old results and blocks duplicate page
   last.items[0] = { ...last.items[0], detail_id: 51, row_number: 51, product_name: "很长的商品名称".repeat(20) }
   await act(async () => { resolveNext(last) })
   expect(region).toHaveAttribute("aria-busy", "false")
+  expect(screen.queryByRole("status")).not.toBeInTheDocument()
+  expect(screen.queryByText("SKU-1")).not.toBeInTheDocument()
   expect(within(region).getByText("LAST-SKU")).toBeInTheDocument()
   expect(previous).toHaveAttribute("aria-disabled", "false")
   expect(next).toHaveAttribute("aria-disabled", "true")
@@ -184,4 +190,18 @@ test("keeps paging controls mounted, hides old results and blocks duplicate page
   await screen.findByText("SKU-1")
   expect(mocks.list).toHaveBeenLastCalledWith(expect.objectContaining({ page: 1 }), expect.any(AbortSignal))
   expect(screen.getByLabelText("Go to previous page")).toBe(previous)
+})
+
+test("shows a loading state before the first result without flashing empty data or zero totals", async () => {
+  let resolveFirst!: (value: ReturnType<typeof response>) => void
+  mocks.list.mockReturnValueOnce(new Promise(resolve => { resolveFirst = resolve }))
+  render(<PurchaseOrderDetailPage />)
+  expect(screen.getByRole("region", { name: "采购明细表格" })).toHaveAttribute("aria-busy", "true")
+  expect(screen.getByRole("status")).toHaveTextContent("正在加载明细…")
+  expect(screen.queryByText("没有符合条件的采购明细")).not.toBeInTheDocument()
+  expect(screen.queryByText("共 0 条")).not.toBeInTheDocument()
+  expect(screen.getByRole("checkbox", { name: "全选本页明细" })).toBeDisabled()
+  await act(async () => { resolveFirst(response()) })
+  expect(screen.queryByRole("status")).not.toBeInTheDocument()
+  expect(screen.getByText("SKU-A")).toBeInTheDocument()
 })

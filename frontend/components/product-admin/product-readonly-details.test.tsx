@@ -63,6 +63,7 @@ const sampleItem = {
   image_storage_path: "us3://products/cbanner_mens/read-only.jpg",
   sku: "READONLY-007",
   original_sku: "ORIGINAL-007",
+  international_code: "0012345678905",
   product_name: "只读测试商品",
   cost: "123.45",
   cost_price: "155.55",
@@ -252,6 +253,8 @@ describe("ProductDetailDialog", () => {
       within(dialog).getByText("完整卖点第一行 完整卖点第二行，不应截断")
     ).toBeInTheDocument()
     expect(within(dialog).getByText("测试供应商")).toBeInTheDocument()
+    expect(within(dialog).getByText("国际码")).toBeInTheDocument()
+    expect(within(dialog).getByText("0012345678905")).toBeInTheDocument()
     expect(
       within(dialog).getByText(sampleItem.image_storage_path!)
     ).toBeInTheDocument()

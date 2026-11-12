@@ -7,7 +7,9 @@ from domain.product_size_code import build_product_size_code
 from storage.inventory_detail_barcodes import _load_profiles, _text
 
 
-def expand_stock_sizes(statement, dialect):
+def expand_stock_sizes(statement, dialect, *, aggregate=False):
+    if dialect == "postgresql" and aggregate:
+        return _expand_postgres_stock_distributions(statement)
     if dialect == "postgresql":
         return _expand_postgres_stock_sizes(statement)
     matches = statement.cte("warehouse_size_matches").prefix_with("MATERIALIZED", dialect="postgresql")
@@ -64,6 +66,43 @@ def _expand_postgres_stock_sizes(statement):
         *(column for column in matches.c if column.key not in {"quantity", "size_quantities"}),
         sizes.c.inventory_size_key, sizes.c.unallocated, sizes.c.quantity,
     ).select_from(matches.join(sizes, true())).cte("warehouse_expanded_stock")
+
+
+def _expand_postgres_stock_distributions(statement):
+    """Parse repeated size objects once, then hash-join their small size maps."""
+    source = statement.subquery("warehouse_stock_source")
+    raw_matches = select(
+        *(column for column in source.c if column.key != "size_quantities"),
+        func.coalesce(cast(source.c.size_quantities, Text), literal("null")).label("size_text"),
+    ).subquery("warehouse_raw_sizes")
+    keys = [raw_matches.c[key] for key in (
+        "product_identity_id", "product_code", "product_name", "color_name", "color_spec", "size_text", "quantity",
+    )]
+    matches = select(
+        *keys, func.min(raw_matches.c.id).label("id"),
+        *(func.sum(raw_matches.c[key]).label(key) for key in ("beginning_direction", "inbound_direction", "outbound_direction")),
+    ).group_by(*keys).cte("warehouse_size_matches").prefix_with("MATERIALIZED")
+    distributions = select(matches.c.size_text).distinct().cte("warehouse_size_distributions").prefix_with("MATERIALIZED")
+    size_json = cast(distributions.c.size_text, JSON)
+    obj = case((func.json_typeof(size_json) == "object", size_json), else_=cast(literal("{}"), JSON))
+    entries = func.json_each_text(obj).table_valued("key", "value").alias("warehouse_distribution_entries")
+    value = func.trim(cast(entries.c.value, Text))
+    quantity = case((value.op("~")(r"^[+-]?([0-9]+(\.[0-9]*)?|\.[0-9]+)$"), cast(value, Numeric(18, 2))), else_=0)
+    raw = union_all(
+        select(cast(entries.c.key, Text).label("inventory_size_key"), quantity.label("quantity"), literal(False).label("unallocated"))
+        .select_from(entries).where(quantity != 0).correlate(distributions),
+        select(literal(""), literal(0), literal(True)),
+    ).subquery("warehouse_distribution_units")
+    local = select(raw, func.sum(raw.c.quantity).over().label("allocated_quantity"),
+                   func.count().over().label("unit_count")).correlate(distributions).lateral("warehouse_distribution_sizes")
+    sizes = select(distributions.c.size_text, local).select_from(distributions.join(local, true()))\
+        .cte("warehouse_shared_sizes").prefix_with("MATERIALIZED")
+    quantity = case((sizes.c.unallocated, matches.c.quantity - sizes.c.allocated_quantity), else_=sizes.c.quantity)
+    return select(
+        *(column for column in matches.c if column.key not in {"quantity", "size_text"}),
+        sizes.c.inventory_size_key, sizes.c.unallocated, quantity.label("quantity"),
+    ).select_from(matches.join(sizes, sizes.c.size_text == matches.c.size_text))\
+        .where(or_(quantity != 0, sizes.c.unit_count == 1)).cte("warehouse_expanded_stock")
 
 
 def enrich_stock_barcodes(repository, result):

@@ -5,6 +5,7 @@ from collections import defaultdict
 from decimal import Decimal
 
 from sqlalchemy import JSON, MetaData, Numeric, Text, and_, case, cast, func, literal, or_, select, true, union_all
+from sqlalchemy.sql import visitors
 
 from domain.inventory_numeric import INVENTORY_NUMBER_PRECISION, INVENTORY_NUMBER_SCALE
 from domain.inventory_schema import INVENTORY_DETAIL_TABLE, INVENTORY_TABLE, SUPPLIER_BRAND_TABLE, SUPPLIER_TABLE
@@ -14,13 +15,18 @@ from domain.product_size_code import build_product_size_code
 from domain.schema import PRODUCT_ARCHIVE_TABLES, build_product_archive_table
 from domain.size_group_schema import SIZE_GROUP_ITEMS_TABLE, SIZE_GROUPS_TABLE
 from storage.detail_selection import selected_detail_values
+from storage.warehouse_inventory_cache import InventoryGroups
 
 
 def _text(value):
     return "" if value is None else str(value).strip()
 
 
-def _barcode_statements(connection, criterion, signed_quantity, signed_amount, return_type, is_sales, direction, page, page_size, size_name, selected_rows=None):
+def _barcode_statements(connection, criterion, signed_quantity, signed_amount, return_type, is_sales, direction, page, page_size, size_name, selected_rows=None, cached_totals=None):
+    if connection.dialect.name == "postgresql" and not size_name and selected_rows is None:
+        return _paged_postgres_barcode_statement(
+            criterion, signed_quantity, signed_amount, return_type, is_sales, direction, page, page_size, cached_totals,
+        )
     detail, record = INVENTORY_DETAIL_TABLE, INVENTORY_TABLE
     matches = select(
         detail.c.id.label("detail_id"), detail.c.size_quantities,
@@ -108,6 +114,124 @@ def _barcode_statements(connection, criterion, signed_quantity, signed_amount, r
     ).select_from(source).order_by(*order(paged.c))
 
 
+def _paged_postgres_barcode_statement(criterion, signed_quantity, signed_amount, return_type, is_sales, direction, page, page_size, cached_totals=None):
+    """Count repeated distributions once; allocate cents only for page parents.
+
+    Sorting a compact parent index avoids a global expanded-size amount window
+    and its temporary files. Each parent contributes at least one size line.
+    """
+    detail, record = INVENTORY_DETAIL_TABLE, INVENTORY_TABLE
+    document_conditions, detail_conditions = [], []
+    for condition in criterion.clauses:
+        target = detail_conditions if any(getattr(node, "table", None) is detail for node in visitors.iterate(condition)) else document_conditions
+        target.append(condition)
+    documents = select(record.c.id, record.c.document_type, record.c.date_value, record.c.date, record.c.document_number)\
+        .where(*document_conditions).cte("barcode_documents").prefix_with("MATERIALIZED")
+    def replace_record(node):
+        if getattr(node, "table", None) is record:
+            return documents.c[node.key]
+    signed_quantity = visitors.replacement_traverse(signed_quantity, {}, replace_record)
+    signed_amount = visitors.replacement_traverse(signed_amount, {}, replace_record)
+    matches = select(
+        detail.c.id.label("detail_id"), detail.c.size_quantities,
+        documents.c.document_type, documents.c.date_value, documents.c.date, documents.c.document_number,
+        signed_quantity.label("parent_quantity"), signed_amount.label("parent_amount"),
+    ).select_from(detail.join(documents, documents.c.id == detail.c.document_id)).where(*detail_conditions)
+    matches = matches.subquery("barcode_parent_matches")
+
+    def sizes_for(parent, name):
+        obj = case((func.json_typeof(parent.c.size_quantities) == "object", parent.c.size_quantities),
+                   else_=cast(literal("{}"), JSON))
+        entries = func.json_each_text(obj).table_valued("key", "value").alias(name)
+        value = func.trim(cast(entries.c.value, Text))
+        quantity = case((value.op("~")(r"^[+-]?([0-9]+(\.[0-9]*)?|\.[0-9]+)$"),
+                         cast(value, Numeric(INVENTORY_NUMBER_PRECISION, INVENTORY_NUMBER_SCALE))), else_=0)
+        quantity = case((parent.c.document_type == return_type, -func.abs(quantity) if is_sales else -quantity), else_=quantity)
+        return entries, quantity
+
+    size_text = func.coalesce(cast(matches.c.size_quantities, Text), literal("null"))
+    force_residual = and_(matches.c.parent_quantity == 0, matches.c.parent_amount != 0)
+    distributions = select(
+        size_text.label("size_text"), matches.c.document_type, matches.c.parent_quantity,
+        force_residual.label("force_residual"),
+        func.count().label("parent_count"), func.sum(matches.c.parent_quantity).label("quantity_total"),
+        func.sum(matches.c.parent_amount).label("amount_total"),
+    ).group_by(size_text, matches.c.document_type, matches.c.parent_quantity,
+               force_residual).cte("barcode_distributions").prefix_with("MATERIALIZED")
+    grouped_parents = select(
+        distributions, cast(distributions.c.size_text, JSON).label("size_quantities"),
+    ).subquery("barcode_grouped_parents")
+    entries, quantity = sizes_for(grouped_parents, "barcode_count_sizes")
+    summary = select(func.count().label("size_count"), func.coalesce(func.sum(quantity), 0).label("size_quantity"))\
+        .select_from(entries).where(quantity != 0).correlate(grouped_parents).lateral("barcode_parent_size_summary")
+    residual = grouped_parents.c.parent_quantity - summary.c.size_quantity
+    has_residual = or_(residual != 0, summary.c.size_count == 0,
+                       grouped_parents.c.force_residual)
+
+    def parent_order(columns):
+        return (
+            (columns.date_value.desc() if direction == "desc" else columns.date_value.asc()).nulls_last(),
+            (columns.date.desc() if direction == "desc" else columns.date.asc()).nulls_last(),
+            columns.document_number, columns.detail_id,
+        )
+
+    totals = select(
+        func.coalesce(func.sum(grouped_parents.c.parent_count * (summary.c.size_count + case((has_residual, 1), else_=0))), 0).label("detail_count"),
+        func.coalesce(func.sum(grouped_parents.c.quantity_total), 0).label("quantity_total"),
+        func.coalesce(func.sum(grouped_parents.c.amount_total), 0).label("amount_total"),
+    ).select_from(grouped_parents.join(summary, true())).subquery("barcode_totals")
+    if cached_totals is not None:
+        totals = select(
+            literal(cached_totals["detail_count"]).label("detail_count"),
+            literal(Decimal(cached_totals["quantity_total"])).label("quantity_total"),
+            literal(Decimal(cached_totals["amount_total"])).label("amount_total"),
+        ).subquery("barcode_totals")
+    offset = (page - 1) * page_size
+    # Every parent produces at least one line, so no page needs more than this
+    # many parents. Never sort/allocate all historical expanded size lines.
+    chosen = select(matches).order_by(*parent_order(matches.c)).limit(offset + page_size)\
+        .cte("barcode_page_parents").prefix_with("MATERIALIZED")
+    entries, quantity = sizes_for(chosen, "barcode_page_sizes")
+    raw_units = union_all(
+        select(cast(entries.c.key, Text).label("size_name"), quantity.label("size_quantity"), literal(0).label("unallocated"))
+        .select_from(entries).where(quantity != 0).correlate(chosen),
+        select(literal(""), literal(0), literal(1)),
+    ).subquery("barcode_local_units")
+    allocated = select(
+        raw_units.c.size_name, raw_units.c.unallocated,
+        case((raw_units.c.unallocated == 1, chosen.c.parent_quantity - func.sum(raw_units.c.size_quantity).over()),
+             else_=raw_units.c.size_quantity).label("quantity"),
+        func.count().over().label("unit_count"),
+    ).correlate(chosen).subquery("barcode_local_balances")
+    units = select(allocated.c.size_name, allocated.c.unallocated, allocated.c.quantity)\
+        .where(or_(allocated.c.unallocated == 0, allocated.c.quantity != 0, allocated.c.unit_count == 1,
+                   and_(chosen.c.parent_quantity == 0, chosen.c.parent_amount != 0)))\
+        .correlate(chosen).subquery("barcode_page_units")
+    cumulative = func.sum(units.c.quantity).over(order_by=(units.c.unallocated, units.c.size_name), rows=(None, 0))
+    divisor = func.nullif(chosen.c.parent_quantity, 0)
+    amount = case(
+        (chosen.c.parent_quantity == 0, case((units.c.unallocated == 1, chosen.c.parent_amount), else_=0)),
+        else_=(func.round(chosen.c.parent_amount * cumulative / divisor, 2)
+               - func.round(chosen.c.parent_amount * (cumulative - units.c.quantity) / divisor, 2)),
+    )
+    local_lines = select(units, amount.label("amount")).correlate(chosen).lateral("barcode_local_lines")
+    paged = select(
+        chosen.c.detail_id, chosen.c.date_value, chosen.c.date, chosen.c.document_number,
+        local_lines.c.size_name, local_lines.c.unallocated, local_lines.c.quantity, local_lines.c.amount,
+    ).select_from(chosen.join(local_lines, true()))\
+        .order_by(*parent_order(chosen.c), local_lines.c.unallocated, local_lines.c.size_name)\
+        .offset(offset).limit(page_size).cte("barcode_page").prefix_with("MATERIALIZED")
+    source = totals.outerjoin(paged, true()).outerjoin(detail, detail.c.id == paged.c.detail_id)\
+        .outerjoin(record, record.c.id == detail.c.document_id)
+    return select(
+        detail.c.id, detail.c.document_id, detail.c.product_identity_id, detail.c.product_code,
+        detail.c.product_name, detail.c.color_name, detail.c.color_spec, detail.c.unit_price,
+        paged.c.size_name, paged.c.unallocated, paged.c.quantity, paged.c.amount,
+        record.c.document_type, record.c.document_number, record.c.date, record.c.supplier, record.c.warehouse,
+        totals.c.detail_count, totals.c.quantity_total, totals.c.amount_total,
+    ).select_from(source).order_by(*parent_order(paged.c), paged.c.unallocated, paged.c.size_name)
+
+
 def _load_profiles(connection, rows):
     """Resolve only current-page archives, preferring the saved product identity."""
     identity_ids = {row["product_identity_id"] for row in rows if row["product_identity_id"] is not None}
@@ -183,8 +307,46 @@ def _load_profiles(connection, rows):
 def list_detail_barcodes(repository, *, criterion, signed_quantity, signed_amount, return_type, is_sales,
                          sort_direction, page, page_size, size_name, quantity_field, amount_field, selected_rows=None):
     with repository.engine.connect() as connection:
-        statement = _barcode_statements(connection, criterion, signed_quantity, signed_amount, return_type, is_sales, sort_direction, page, page_size, size_name, selected_rows)
-        result = connection.execute(statement).mappings().all()
+        cache = getattr(repository, "_warehouse_inventory_cache", None)
+        # The warehouse revision tracks inventory writes. Brand filters also
+        # depend on supplier/configuration tables that it does not track, so
+        # those queries always count afresh. Archives are never cached here.
+        cacheable = (cache is not None and connection.dialect.name == "postgresql"
+                     and not size_name and selected_rows is None
+                     and all(getattr(node, "table", None) is None
+                             or getattr(node, "table", None) is INVENTORY_TABLE
+                             or getattr(node, "table", None) is INVENTORY_DETAIL_TABLE
+                             for node in visitors.iterate(criterion)))
+        filter_key = str(criterion.compile(dialect=connection.dialect, compile_kwargs={"literal_binds": True})) if cacheable else ""
+        version = repository._warehouse_inventory_version(connection) if cacheable and len(filter_key) <= 4096 else None
+        key = ("barcode_detail_totals", version, return_type, is_sales, filter_key)
+        result = None
+
+        def query(cached_totals=None):
+            statement = _barcode_statements(connection, criterion, signed_quantity, signed_amount, return_type, is_sales,
+                                            sort_direction, page, page_size, size_name, selected_rows, cached_totals)
+            return connection.execute(statement).mappings().all()
+
+        if version is not None:
+            def load_totals():
+                nonlocal result
+                result = query()
+                if repository._warehouse_inventory_version(connection) != version:
+                    result = None
+                    return None
+                return InventoryGroups.from_result({"items": [], "total": 0, "totals": {
+                    "detail_count": int(result[0]["detail_count"]),
+                    "quantity_total": str(result[0]["quantity_total"]),
+                    "amount_total": str(result[0]["amount_total"]),
+                }})
+
+            groups = cache.get_or_load(key, load_totals)
+            if result is None and groups is not None:
+                result = query(groups.page(1, 1, False)["totals"])
+                if repository._warehouse_inventory_version(connection) != version:
+                    result = query()
+        if result is None:
+            result = query()
         totals = result[0]
         rows = [dict(row) for row in result if row["id"] is not None]
         profiles, sizes = {}, {}

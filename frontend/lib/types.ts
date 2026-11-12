@@ -91,6 +91,7 @@ export type ProductListItem = {
   image_storage_path?: string | null
   sku: string | null
   original_sku: string | null
+  international_code?: string | null
   product_name: string | null
   group_name: string | null
   category: string | null
@@ -273,6 +274,7 @@ export type FineTableResponse = {
   page: number
   page_size: number
   latest_order_date: string | null
+  latest_vip_sales_date?: string | null
 }
 
 export type FineTableSnapshotBatch = {
@@ -622,6 +624,7 @@ export type ProductFormValues = {
   image_path: string
   sku: string
   original_sku: string
+  international_code: string
   product_name: string
   group_name: string
   category: string
@@ -668,6 +671,7 @@ export type ProductMutationPayload = Record<string, unknown> & {
   image_path?: string | null
   sku?: string | null
   original_sku?: string | null
+  international_code?: string | null
   product_name?: string | null
   group_name?: string | null
   category?: string | null

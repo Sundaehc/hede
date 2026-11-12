@@ -2442,7 +2442,7 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
                 />
                 <span>
                   共 {total} 条{hasFilters ? " (已筛选)" : ""}
-                  {selectedIds.size > 0 && <span className="ml-2 font-medium text-foreground">已选 {selectedIds.size} 张单据{isAllMatchingSelected ? "（全部筛选结果）" : "（跨页保留）"}</span>}
+                  {selectedIds.size > 0 && <span className="ml-2 font-medium text-foreground">已选 {selectedIds.size} 张单据{isAllMatchingSelected ? "（全部筛选结果）" : ""}</span>}
                 </span>
                 <Button type="button" variant="outline" size="sm" onClick={() => void handleSelectAllMatching()} disabled={isLoading || isSelectingAll || isBatchDeleting || total === 0 || isAllMatchingSelected} className="h-7 cursor-pointer px-2 text-xs">
                   {isSelectingAll ? "正在全选..." : "全选筛选结果"}

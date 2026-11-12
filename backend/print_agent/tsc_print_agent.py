@@ -14,6 +14,7 @@ from pathlib import Path
 import re
 import sys
 import threading
+import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
 from urllib.parse import urlsplit
@@ -38,6 +39,74 @@ SERVICE_NAME = "HedePrintAgent"
 SERVICE_DISPLAY_NAME = "Hede 鞋盒标签打印服务"
 SERVICE_DESCRIPTION = "接收 Hede 系统鞋盒标签并发送到本机 TSC 打印机。"
 CONFIG_FILE_NAME = "config.json"
+PRINT_JOB_RETENTION_SECONDS = 3600
+MAX_TRACKED_PRINT_JOBS = 512
+
+
+class PrintCancelled(Exception):
+    pass
+
+
+@dataclass
+class PrintJob:
+    request_id: str
+    origin: str | None
+    created_at: float
+    cancelled: threading.Event
+    registered: bool = False
+    printer_name: str | None = None
+    spooler_id: int | None = None
+
+    @property
+    def document_name(self) -> str:
+        return f"Hede 鞋盒标签 {self.request_id}"
+
+
+class PrintJobRegistry:
+    def __init__(self):
+        self.lock = threading.RLock()
+        self.jobs: dict[tuple[str | None, str], PrintJob] = {}
+
+    def _get_or_create(self, request_id: str, origin: str | None) -> PrintJob:
+        key = (origin, request_id)
+        if key not in self.jobs:
+            now = time.monotonic()
+            self.jobs = {key: job for key, job in self.jobs.items()
+                         if now - job.created_at < PRINT_JOB_RETENTION_SECONDS}
+            if len(self.jobs) >= MAX_TRACKED_PRINT_JOBS:
+                raise ValueError("打印任务过多，请稍后重试")
+            self.jobs[key] = PrintJob(request_id, origin, now, threading.Event())
+        return self.jobs[key]
+
+    def register(self, request_id: str, origin: str | None) -> PrintJob:
+        with self.lock:
+            job = self._get_or_create(request_id, origin)
+            if job.cancelled.is_set():
+                raise PrintCancelled()
+            if job.registered:
+                raise ValueError("该打印任务已提交，请勿重复发送")
+            job.registered = True
+            return job
+
+    def cancel(self, request_id: str, origin: str | None) -> str:
+        with self.lock:
+            known = (origin, request_id) in self.jobs
+            job = self._get_or_create(request_id, origin)
+            job.cancelled.set()
+            printer_name, spooler_id = job.printer_name, job.spooler_id
+        # Keep a cancellation record even when /cancel arrives before /print.
+        if printer_name is None or spooler_id is None:
+            return "cancelled" if known and job.registered else "not_received"
+        return cancel_spooled_print_job(printer_name, spooler_id, job.document_name)
+
+
+def _request_id(payload: dict[str, Any], *, required: bool = False) -> str | None:
+    value = payload.get("request_id")
+    if value is None and not required:
+        return None
+    if not isinstance(value, str) or not re.fullmatch(r"[a-f0-9]{32}", value):
+        raise ValueError("打印任务编号格式不正确")
+    return value
 
 
 @dataclass(frozen=True)
@@ -262,6 +331,30 @@ class DOC_INFO_1W(ctypes.Structure):
     ]
 
 
+class SYSTEMTIME(ctypes.Structure):
+    _fields_ = [(field, wintypes.WORD) for field in (
+        "wYear", "wMonth", "wDayOfWeek", "wDay", "wHour", "wMinute", "wSecond", "wMilliseconds",
+    )]
+
+
+class JOB_INFO_1W(ctypes.Structure):
+    _fields_ = [
+        ("JobId", wintypes.DWORD),
+        ("pPrinterName", wintypes.LPWSTR),
+        ("pMachineName", wintypes.LPWSTR),
+        ("pUserName", wintypes.LPWSTR),
+        ("pDocument", wintypes.LPWSTR),
+        ("pDatatype", wintypes.LPWSTR),
+        ("pStatus", wintypes.LPWSTR),
+        ("Status", wintypes.DWORD),
+        ("Priority", wintypes.DWORD),
+        ("Position", wintypes.DWORD),
+        ("TotalPages", wintypes.DWORD),
+        ("PagesPrinted", wintypes.DWORD),
+        ("Submitted", SYSTEMTIME),
+    ]
+
+
 class PRINTER_INFO_4W(ctypes.Structure):
     _fields_ = [
         ("pPrinterName", wintypes.LPWSTR),
@@ -287,6 +380,17 @@ def _load_winspool():
     winspool.StartDocPrinterW.restype = wintypes.DWORD
     winspool.EndDocPrinter.argtypes = [wintypes.HANDLE]
     winspool.EndDocPrinter.restype = wintypes.BOOL
+    winspool.AbortPrinter.argtypes = [wintypes.HANDLE]
+    winspool.AbortPrinter.restype = wintypes.BOOL
+    winspool.GetJobW.argtypes = [
+        wintypes.HANDLE, wintypes.DWORD, wintypes.DWORD,
+        ctypes.c_void_p, wintypes.DWORD, ctypes.POINTER(wintypes.DWORD),
+    ]
+    winspool.GetJobW.restype = wintypes.BOOL
+    winspool.SetJobW.argtypes = [
+        wintypes.HANDLE, wintypes.DWORD, wintypes.DWORD, ctypes.c_void_p, wintypes.DWORD,
+    ]
+    winspool.SetJobW.restype = wintypes.BOOL
     winspool.StartPagePrinter.argtypes = [wintypes.HANDLE]
     winspool.StartPagePrinter.restype = wintypes.BOOL
     winspool.EndPagePrinter.argtypes = [wintypes.HANDLE]
@@ -399,7 +503,40 @@ def check_printer(printer_name: str) -> str:
     )
 
 
-def send_raw_to_printer(printer_name: str, payload: bytes) -> None:
+def cancel_spooled_print_job(printer_name: str, spooler_id: int, document_name: str) -> str:
+    winspool = _load_winspool()
+    printer_handle = wintypes.HANDLE()
+    if not winspool.OpenPrinterW(printer_name, ctypes.byref(printer_handle), None):
+        _raise_last_windows_error(f"打开打印机 {printer_name}")
+    try:
+        needed = wintypes.DWORD()
+        winspool.GetJobW(printer_handle, spooler_id, 1, None, 0, ctypes.byref(needed))
+        if not needed.value:
+            if ctypes.get_last_error() in (2, 87):
+                return "not_in_queue"
+            _raise_last_windows_error("查询打印任务")
+        buffer = ctypes.create_string_buffer(needed.value)
+        if not winspool.GetJobW(printer_handle, spooler_id, 1, buffer, needed.value, ctypes.byref(needed)):
+            if ctypes.get_last_error() in (2, 87):
+                return "not_in_queue"
+            _raise_last_windows_error("查询打印任务")
+        job = ctypes.cast(buffer, ctypes.POINTER(JOB_INFO_1W)).contents
+        # Windows can reuse job IDs: never delete a different document.
+        if job.pDocument != document_name:
+            return "not_in_queue"
+        if not winspool.SetJobW(printer_handle, spooler_id, 0, None, 5):  # JOB_CONTROL_DELETE
+            if ctypes.get_last_error() in (2, 87):
+                return "not_in_queue"
+            _raise_last_windows_error("取消打印任务")
+        return "cancelled"
+    finally:
+        winspool.ClosePrinter(printer_handle)
+
+
+def send_raw_to_printer(
+    printer_name: str, payload: bytes,
+    job: PrintJob | None = None, registry: PrintJobRegistry | None = None,
+) -> None:
     winspool = _load_winspool()
     printer_handle = wintypes.HANDLE()
     document_started = False
@@ -407,16 +544,31 @@ def send_raw_to_printer(printer_name: str, payload: bytes) -> None:
     if not winspool.OpenPrinterW(printer_name, ctypes.byref(printer_handle), None):
         _raise_last_windows_error(f"打开打印机 {printer_name}")
     try:
-        document_info = DOC_INFO_1W("Hede 鞋盒标签", None, "RAW")
-        if not winspool.StartDocPrinterW(printer_handle, 1, ctypes.byref(document_info)):
-            _raise_last_windows_error("创建打印任务")
-        document_started = True
+        document_info = DOC_INFO_1W(job.document_name if job else "Hede 鞋盒标签", None, "RAW")
+        if job is not None and registry is not None:
+            with registry.lock:
+                if job.cancelled.is_set():
+                    raise PrintCancelled()
+                spooler_id = winspool.StartDocPrinterW(printer_handle, 1, ctypes.byref(document_info))
+                if not spooler_id:
+                    _raise_last_windows_error("创建打印任务")
+                document_started = True
+                job.printer_name = printer_name
+                job.spooler_id = spooler_id
+        else:
+            if not winspool.StartDocPrinterW(printer_handle, 1, ctypes.byref(document_info)):
+                _raise_last_windows_error("创建打印任务")
+            document_started = True
+        if job is not None and job.cancelled.is_set():
+            raise PrintCancelled()
         if not winspool.StartPagePrinter(printer_handle):
             _raise_last_windows_error("开始打印页面")
         page_started = True
 
         buffer = ctypes.create_string_buffer(payload)
         bytes_written = wintypes.DWORD()
+        if job is not None and job.cancelled.is_set():
+            raise PrintCancelled()
         if not winspool.WritePrinter(
             printer_handle,
             ctypes.cast(buffer, ctypes.c_void_p),
@@ -426,6 +578,14 @@ def send_raw_to_printer(printer_name: str, payload: bytes) -> None:
             _raise_last_windows_error("写入打印数据")
         if bytes_written.value != len(payload):
             raise OSError(f"打印数据未完整写入：{bytes_written.value}/{len(payload)} 字节")
+        if job is not None and job.cancelled.is_set():
+            raise PrintCancelled()
+    except BaseException:
+        if document_started:
+            winspool.AbortPrinter(printer_handle)
+            document_started = False
+            page_started = False
+        raise
     finally:
         if page_started:
             winspool.EndPagePrinter(printer_handle)
@@ -440,12 +600,13 @@ class PrintAgentServer(ThreadingHTTPServer):
     def __init__(self, server_address: tuple[str, int], config: AgentConfig):
         super().__init__(server_address, PrintAgentHandler)
         self.config = config
+        self.print_jobs = PrintJobRegistry()
 
 
 class PrintAgentHandler(BaseHTTPRequestHandler):
     server: PrintAgentServer
     protocol_version = "HTTP/1.1"
-    server_version = "HedePrintAgent/1.0"
+    server_version = "HedePrintAgent/1.1"
 
     def _origin(self) -> str | None:
         return self.headers.get("Origin")
@@ -527,13 +688,14 @@ class PrintAgentHandler(BaseHTTPRequestHandler):
                 "printer": resolved_printer,
                 "configured_printer": self.server.config.printer_name,
                 "status": "ready",
+                "capabilities": ["cancel_print_job"],
             },
         )
 
     def do_POST(self) -> None:  # noqa: N802
         if self._reject_disallowed_origin():
             return
-        if self.path != "/print":
+        if self.path not in ("/print", "/cancel"):
             self._send_json(404, {"ok": False, "error": "接口不存在"})
             return
         try:
@@ -550,6 +712,14 @@ class PrintAgentHandler(BaseHTTPRequestHandler):
 
         try:
             payload = json.loads(self.rfile.read(content_length).decode("utf-8"))
+            if not isinstance(payload, dict):
+                raise ValueError("打印请求必须是 JSON 对象")
+            request_id = _request_id(payload, required=self.path == "/cancel")
+            if self.path == "/cancel":
+                status = self.server.print_jobs.cancel(request_id, self._origin())
+                self._send_json(200, {"ok": True, "status": status})
+                return
+            job = self.server.print_jobs.register(request_id, self._origin()) if request_id else None
             bitmaps = decode_label_bitmaps(payload)
             raw_job = build_tspl_job(
                 bitmaps,
@@ -558,7 +728,13 @@ class PrintAgentHandler(BaseHTTPRequestHandler):
                 invert_bitmap=self.server.config.invert_bitmap,
             )
             resolved_printer = check_printer(self.server.config.printer_name)
-            send_raw_to_printer(resolved_printer, raw_job)
+            if job is not None:
+                send_raw_to_printer(resolved_printer, raw_job, job, self.server.print_jobs)
+            else:
+                send_raw_to_printer(resolved_printer, raw_job)
+        except PrintCancelled:
+            self._send_json(409, {"ok": False, "error": "本次打印已取消"})
+            return
         except (UnicodeDecodeError, json.JSONDecodeError):
             self._send_json(400, {"ok": False, "error": "请求不是有效的 JSON"})
             return

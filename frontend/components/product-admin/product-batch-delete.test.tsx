@@ -79,7 +79,7 @@ test("cross-page selection keeps the same numeric ID in different brands and con
   await nextPage(user)
   expect(screen.getByText("已选 1 个商品")).toBeInTheDocument()
   await user.click(screen.getByRole("checkbox", { name: "选择商品 SKU-2" }))
-  expect(screen.getByText("已选 2 项（跨页保留）")).toBeInTheDocument()
+  expect(screen.getByText("已选 2 项")).toBeInTheDocument()
   await user.click(screen.getByRole("button", { name: "批量删除" }))
   const confirmation = within(screen.getByRole("alertdialog", { name: "确认批量删除" }))
   expect(confirmation.getByText(/跨页选中的 2 条商品/)).toHaveTextContent("不仅是当前页")

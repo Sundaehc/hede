@@ -90,6 +90,7 @@ SIZE_EXPORT_HEADERS = [
     "分类",
     "成本价",
     "LOGO",
+    "国际码",
 ]
 SIZE_EXPORT_CBANNER_WOMENS_EXTRA_COLUMNS = (
     "sole_style",
@@ -405,6 +406,7 @@ def _build_product_import_template() -> io.BytesIO:
         worksheet.cell(row=1, column=headers.index(header) + 1).fill = choice_fill
     for header in ("颜色", "颜色代码"):
         worksheet.cell(row=1, column=headers.index(header) + 1).fill = required_fill
+    worksheet.column_dimensions[get_column_letter(headers.index("国际码") + 1)].number_format = "@"
 
     barcode_column = headers.index("条码构成逻辑") + 1
     worksheet.cell(row=1, column=barcode_column).fill = required_fill
@@ -432,6 +434,7 @@ def _build_product_import_template() -> io.BytesIO:
     instructions.append(["颜色/颜色代码", "两项均必填", "新增或更新商品均须在文件中填写；任一为空或缺少对应列时拒绝整批导入，提示全部错误行", "黑色 / 01"])
     instructions.append(["供应商名", "按需填写", "更新已有商品时，导入供应商必须与档案中的现有供应商一致", "温州示例鞋业"])
     instructions.append(["尺码段", "按需填写", "填写的尺码段名称必须已存在于尺码组管理中", "女鞋34-40"])
+    instructions.append(["国际码", "按需填写", "按文本填写，保留前导零；不参与商品匹配或条码拼接", "0012345678905"])
     instructions.append(["跟高/后跟高", "分别填写", "跟高与后跟高是两个独立字段；后跟高仅在千百度女鞋档案中展示和导出", "中跟 / 5cm"])
     instructions.append(["其他空白单元格", "按需填写", "除颜色和颜色代码外，更新已有商品时空白单元格不会清空档案中的原值", ""])
     instructions.append(["图片", "无需填写", "图片不通过模板导入，系统按货号或原始货号从品牌图片目录自动匹配", ""])
@@ -992,6 +995,7 @@ def _size_export_style_context(
         "original_sku": _first_text(gj.get("original_goods_code"), archive.get("original_sku")),
         "factory_code": _first_text(archive.get("factory_sku"), gj.get("factory_code")),
         "supplier_name": _first_text(archive.get("supplier_name")),
+        "international_code": _first_text(archive.get("international_code")),
         "brand": _first_text(gj.get("brand")),
         "cost": _first_text(archive.get("cost")),
         "sole_style": _first_text(archive.get("sole_style"), archive_extra.get("跟底款式")),
@@ -1147,6 +1151,7 @@ def _export_products_with_sizes(
             category,
             _first_text(context["cost"], raw_payload.get("成本价"), raw_payload.get("成本")),
             logo,
+            context["international_code"],
         ]
         if not include_cost:
             row.pop(SIZE_EXPORT_HEADERS.index("成本价"))

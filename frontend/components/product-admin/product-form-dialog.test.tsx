@@ -36,6 +36,7 @@ const NULL_FIELDS = {
   image_url: null,
   sku: null,
   original_sku: null,
+  international_code: null,
   product_name: null,
   group_name: null,
   category: null,
@@ -163,6 +164,25 @@ describe("ProductFormDialog", () => {
     await user.type(screen.getByLabelText("成本价"), "136.50")
     await user.click(screen.getByRole("button", { name: "保存" }))
     await waitFor(() => expect(mockUpdateProduct).toHaveBeenCalledWith("cbanner_mens", 7, expect.objectContaining({ cost: "118", cost_price: "136.50" })))
+  })
+
+  it.each(["cbanner_mens", "cbanner_womens", "smiley", "ni", "custom"])("edits the optional international code as text for %s", async brand => {
+    const user = userEvent.setup()
+    render(<ProductFormDialog open mode="edit" item={{ ...sampleItem, brand, international_code: "0012345678905" }} brands={[{ key: brand, label: brand }]} onOpenChange={vi.fn()} onSaved={vi.fn()} />)
+    const input = screen.getByRole("textbox", { name: "国际码" })
+    expect(input).toHaveValue("0012345678905")
+    await user.clear(input)
+    await user.type(input, "0009876543210")
+    await user.click(screen.getByRole("button", { name: "保存" }))
+    await waitFor(() => expect(mockUpdateProduct).toHaveBeenCalledWith(brand, 7, expect.objectContaining({ international_code: "0009876543210", sku: "SKU-007" })))
+  })
+
+  it("can clear an international code", async () => {
+    const user = userEvent.setup()
+    render(<ProductFormDialog open mode="edit" item={{ ...sampleItem, international_code: "0012345678905" }} onOpenChange={vi.fn()} onSaved={vi.fn()} />)
+    await user.clear(screen.getByRole("textbox", { name: "国际码" }))
+    await user.click(screen.getByRole("button", { name: "保存" }))
+    await waitFor(() => expect(mockUpdateProduct).toHaveBeenCalledWith("cbanner_mens", 7, expect.objectContaining({ international_code: null })))
   })
 
   it("fills image_path on successful lookup", async () => {

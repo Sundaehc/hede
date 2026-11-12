@@ -15,7 +15,6 @@ from sqlalchemy import text
 
 from config import load_settings
 from domain.sources import TABLE_NAMES
-from scripts.sync_products_daily import TASK_NAME as PRODUCT_TASK_NAME
 from storage.product_image_refresh import run_product_image_refresh
 from storage.product_image_sync import run_product_image_us3_sync
 from storage.product_repository import ProductRepository
@@ -78,12 +77,6 @@ def refresh_images(settings, repository, *, brand=None, overwrite=False, skip_us
 
 
 def run_daily_refresh(settings, statuses, business_date: date) -> int:
-    if not statuses.is_success(PRODUCT_TASK_NAME, business_date):
-        statuses.mark_finished(
-            TASK_NAME, business_date, status="skipped", message="当天商品档案尚未同步成功，等待档案更新后再同步图片",
-        )
-        print("[WAIT] today's product archive sync has not succeeded; image refresh was not started")
-        return 1
     if statuses.is_success(TASK_NAME, business_date):
         print(f"[SKIP] {business_date.isoformat()} product image refresh already succeeded")
         return 0
@@ -134,7 +127,7 @@ def main() -> int:
     parser.add_argument("--skip-us3", action="store_true")
     parser.add_argument("--force-us3", action="store_true")
     parser.add_argument("--dry-run-us3", action="store_true")
-    parser.add_argument("--daily", action="store_true", help="档案同步成功后执行完整图片更新，当天成功后跳过")
+    parser.add_argument("--daily", action="store_true", help="基于现有网页商品档案执行完整图片更新，当天成功后跳过")
     args = parser.parse_args()
     if args.daily and any((args.brand, args.overwrite, args.skip_us3, args.force_us3, args.dry_run_us3)):
         parser.error("--daily 不能与手动刷新参数组合使用")

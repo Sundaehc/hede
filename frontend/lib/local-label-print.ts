@@ -42,6 +42,17 @@ export type LocalLabelPrintResult = {
   printer: string
 }
 
+export type LocalLabelPrintCancelResult = {
+  ok: boolean
+  status: "cancelled" | "not_in_queue" | "not_received"
+}
+
+type LocalLabelPrintOptions = {
+  requestId?: string
+  signal?: AbortSignal
+  onSending?: () => void
+}
+
 export class LocalLabelPrintError extends Error {
   constructor(message: string) {
     super(message)
@@ -318,18 +329,26 @@ async function readPrintAgentError(response: Response) {
 export async function printLabelsWithLocalAgent(
   labels: InventoryPrintLabel[],
   config: PurchasePrintTemplateConfig,
+  { requestId, signal, onSending }: LocalLabelPrintOptions = {},
 ): Promise<LocalLabelPrintResult> {
+  signal?.throwIfAborted()
   const bitmaps: LocalLabelBitmap[] = []
   for (let index = 0; index < labels.length; index += 1) {
+    signal?.throwIfAborted()
     bitmaps.push(await renderLocalLabelBitmap(labels[index], config))
     if ((index + 1) % 10 === 0) {
       await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve()))
     }
   }
+  signal?.throwIfAborted()
 
   const controller = new AbortController()
+  const abort = () => controller.abort()
+  signal?.addEventListener("abort", abort, { once: true })
   const timeout = window.setTimeout(() => controller.abort(), 120_000)
   try {
+    onSending?.()
+    signal?.throwIfAborted()
     const response = await fetch(`${PRINT_AGENT_URL}/print`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -337,14 +356,44 @@ export async function printLabelsWithLocalAgent(
         paper_width_mm: LABEL_WIDTH_MM,
         paper_height_mm: LABEL_HEIGHT_MM,
         labels: bitmaps,
+        request_id: requestId,
       }),
       signal: controller.signal,
     })
     if (!response.ok) throw new LocalLabelPrintError(await readPrintAgentError(response))
     return await response.json() as LocalLabelPrintResult
   } catch (error) {
+    signal?.throwIfAborted()
     if (error instanceof LocalLabelPrintError) throw error
     throw new LocalLabelPrintError(LOCAL_PRINT_AGENT_UNAVAILABLE_MESSAGE)
+  } finally {
+    window.clearTimeout(timeout)
+    signal?.removeEventListener("abort", abort)
+  }
+}
+
+export async function cancelLabelsWithLocalAgent(requestId: string): Promise<LocalLabelPrintCancelResult> {
+  const controller = new AbortController()
+  const timeout = window.setTimeout(() => controller.abort(), 15_000)
+  try {
+    const response = await fetch(`${PRINT_AGENT_URL}/cancel`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ request_id: requestId }),
+      signal: controller.signal,
+    })
+    if (response.status === 404) {
+      throw new LocalLabelPrintError("本机打印服务版本较旧，请更新打印服务；本次请在 Windows 打印队列中取消。")
+    }
+    if (!response.ok) throw new LocalLabelPrintError(await readPrintAgentError(response))
+    const result = await response.json() as LocalLabelPrintCancelResult
+    if (!result.ok || !["cancelled", "not_in_queue", "not_received"].includes(result.status)) {
+      throw new LocalLabelPrintError("未能确认取消结果，请在 Windows 打印队列中核对本次任务。")
+    }
+    return result
+  } catch (error) {
+    if (error instanceof LocalLabelPrintError) throw error
+    throw new LocalLabelPrintError("无法连接本机打印服务，未能确认取消结果，请在 Windows 打印队列中核对本次任务。")
   } finally {
     window.clearTimeout(timeout)
   }

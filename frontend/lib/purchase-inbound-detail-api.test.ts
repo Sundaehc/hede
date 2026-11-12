@@ -19,7 +19,9 @@ test.each(["asc", "desc"] as const)("passes brands and %s date ordering to the i
     sort_direction,
     display_mode: "barcode" as const,
   }
-  await listPurchaseInboundDetails({ ...filters, page: 2, pageSize: 50 })
+  const controller = new AbortController()
+  await listPurchaseInboundDetails({ ...filters, page: 2, pageSize: 50 }, controller.signal)
+  expect(fetchMock.mock.calls[0][1]?.signal).toBe(controller.signal)
   const listUrl = new URL(
     String(fetchMock.mock.calls[0][0]),
     "http://localhost"

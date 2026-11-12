@@ -21,7 +21,7 @@ import {
   DEFAULT_PURCHASE_PRINT_TEMPLATE,
   PurchasePrintTemplateEditor,
 } from "@/components/inventory-admin/purchase-print-template-editor"
-import { printLabelsWithLocalAgent } from "@/lib/local-label-print"
+import { cancelLabelsWithLocalAgent, printLabelsWithLocalAgent } from "@/lib/local-label-print"
 import {
   getPurchasePrintTemplate,
   listPurchasePrintTemplates,
@@ -374,7 +374,21 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
   const [deleteTarget, setDeleteTarget] = useState<InventoryDetail | null>(null)
   const [batchDeleteOpen, setBatchDeleteOpen] = useState(false)
   const [isDeleting, setIsDeleting] = useState(false)
-  const [isPrinting, setIsPrinting] = useState(false)
+  const [printState, setPrintState] = useState<{
+    documentId: number | null
+    phase: "idle" | "preparing" | "sending" | "sent" | "cancelling"
+  }>({ documentId, phase: "idle" })
+  const printPhase = printState.documentId === documentId ? printState.phase : "idle"
+  const setPrintPhase = (phase: typeof printState.phase) => setPrintState({ documentId, phase })
+  if (printState.documentId !== documentId) setPrintState({ documentId, phase: "idle" })
+  const printJobRef = useRef<{
+    requestId: string
+    controller: AbortController
+    sending: boolean
+    busy: boolean
+    cancelling: boolean
+  } | null>(null)
+  const isPrinting = printPhase === "preparing" || printPhase === "sending" || printPhase === "cancelling"
   const [printTemplate, setPrintTemplate] = useState<PurchasePrintTemplateConfig>(DEFAULT_PURCHASE_PRINT_TEMPLATE)
   const [printTemplates, setPrintTemplates] = useState<PurchasePrintTemplate[]>([])
   const [selectedPrintTemplateKey, setSelectedPrintTemplateKey] = useState("")
@@ -383,6 +397,13 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
   const [isPrintTemplateLoading, setIsPrintTemplateLoading] = useState(false)
   const [messageOpen, setMessageOpen] = useState(false)
   const [messageContent, setMessageContent] = useState({ title: "", description: "" })
+
+  useEffect(() => {
+    return () => {
+      printJobRef.current?.controller.abort()
+      printJobRef.current = null
+    }
+  }, [documentId])
 
   const load = useCallback(async () => {
     if (!documentId) return
@@ -909,11 +930,19 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
   }
 
   const handlePrint = async () => {
-    if (!documentId || !isPurchaseOrder || isPrinting) return
-    setIsPrinting(true)
+    if (!documentId || !isPurchaseOrder || isPrinting || printJobRef.current?.busy) return
+    const job = {
+      requestId: Array.from(crypto.getRandomValues(new Uint8Array(16)), (value) => value.toString(16).padStart(2, "0")).join(""),
+      controller: new AbortController(),
+      sending: false,
+      busy: true,
+      cancelling: false,
+    }
+    printJobRef.current = job
+    setPrintPhase("preparing")
     try {
       const [result, templateResult] = await Promise.all([
-        listInventoryPrintLabels(documentId),
+        listInventoryPrintLabels(documentId, job.controller.signal),
         selectedPrintTemplateKey
           ? Promise.resolve({
               config: printTemplate,
@@ -924,8 +953,9 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
                 config: printTemplate,
               },
             })
-          : getPurchasePrintTemplate(),
+          : getPurchasePrintTemplate(job.controller.signal),
       ])
+      if (printJobRef.current !== job || job.controller.signal.aborted) return
       const labels = expandPrintLabels(result.items)
       if (labels.length === 0) {
         showMessage("暂无可打印标签", "当前采购单没有数量大于 0 的尺码明细")
@@ -937,12 +967,60 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
         setSelectedPrintTemplateKey(templateResult.template.template_key)
         setSelectedPrintTemplateName(templateResult.template.template_name)
       }
-      const printResult = await printLabelsWithLocalAgent(labels, activeTemplate)
+      const printResult = await printLabelsWithLocalAgent(labels, activeTemplate, {
+        requestId: job.requestId,
+        signal: job.controller.signal,
+        onSending: () => {
+          job.sending = true
+          if (printJobRef.current === job) setPrintPhase("sending")
+        },
+      })
+      if (printJobRef.current !== job || job.controller.signal.aborted) return
       showMessage("打印任务已发送", `已向 ${printResult.printer} 发送 ${printResult.printed} 张鞋盒标签。`)
     } catch (error) {
+      if (printJobRef.current !== job || job.controller.signal.aborted) return
       showMessage("打印失败", getErrorMessage(error))
     } finally {
-      setIsPrinting(false)
+      if (printJobRef.current === job && !job.cancelling) {
+        job.busy = false
+        setPrintPhase(job.sending ? "sent" : "idle")
+        if (!job.sending) printJobRef.current = null
+      }
+    }
+  }
+
+  const handleCancelPrint = async () => {
+    const job = printJobRef.current
+    if (!job || job.cancelling) return
+    job.cancelling = true
+    job.busy = true
+    job.controller.abort()
+    setMessageOpen(false)
+    if (!job.sending) {
+      printJobRef.current = null
+      setPrintPhase("idle")
+      showMessage("打印已取消", "本次标签未发送到打印机。")
+      return
+    }
+    setPrintPhase("cancelling")
+    try {
+      const result = await cancelLabelsWithLocalAgent(job.requestId)
+      if (printJobRef.current !== job) return
+      printJobRef.current = null
+      setPrintPhase("idle")
+      if (result.status === "not_received") {
+        showMessage("已阻止本次后续提交", "打印服务未查到本次任务，已阻止相同任务继续提交。如果打印服务刚重启或仍在出纸，请在 Windows 打印队列或打印机上核对并取消。")
+      } else if (result.status === "not_in_queue") {
+        showMessage("任务已离开打印队列", "本次任务已不在 Windows 打印队列中，可能已打印或已传入打印机，无法确认是否停止。若仍在出纸，请在打印机上取消。")
+      } else {
+        showMessage("已取消本次打印任务", "已请求删除本次待打印任务；已经出纸或传入打印机的标签无法撤回。")
+      }
+    } catch (error) {
+      if (printJobRef.current !== job) return
+      job.cancelling = false
+      job.busy = false
+      setPrintPhase("sent")
+      showMessage("取消打印未确认", getErrorMessage(error))
     }
   }
 
@@ -1078,8 +1156,8 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
       {/* Panel */}
       <div className="fixed inset-y-0 right-0 z-[90] flex w-full max-w-[1500px] flex-col overflow-hidden rounded-l-lg border-l border-border bg-background shadow-2xl">
         {/* Header */}
-        <div className="flex items-center justify-between gap-4 border-b border-border px-6 py-4 shrink-0">
-          <div className="min-w-0 flex-1">
+        <div className="flex flex-wrap items-center justify-between gap-4 border-b border-border px-6 py-4 shrink-0">
+          <div className="min-w-0 flex-1 basis-64">
             <h2
               className="truncate text-lg font-semibold"
               title={documentSummary ? `单据明细（${documentSummary}）` : "单据明细"}
@@ -1088,7 +1166,7 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
             </h2>
             <p className="text-xs text-muted-foreground">单据 {record?.document_number || documentId}{detailTotal > 0 ? ` · ${firstDetailIndex}-${lastDetailIndex} / ${detailTotal} 条` : ""}</p>
           </div>
-          <div className="flex shrink-0 items-center gap-2">
+          <div className="flex max-w-full shrink-0 flex-wrap items-center gap-2">
             {detailTotal > DETAIL_PAGE_SIZE && (
               <div className="flex h-8 items-center rounded-lg border border-border bg-card">
                 <Button
@@ -1153,9 +1231,23 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
                   className="cursor-pointer"
                   title="直接打印到本机 TSCTTP-244 Pro"
                 >
-                  <Printer className="h-4 w-4" />
-                  <span className="ml-1.5">{isPrinting ? "正在发送..." : "打印"}</span>
+                  {isPrinting ? <LoaderCircle className="h-4 w-4 animate-spin motion-reduce:animate-none" /> : <Printer className="h-4 w-4" />}
+                  <span className="ml-1.5">{printPhase === "preparing" ? "准备标签..." : printPhase === "sending" ? "正在发送..." : printPhase === "cancelling" ? "正在取消..." : "打印"}</span>
                 </Button>
+                {printPhase !== "idle" && (
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    onClick={() => void handleCancelPrint()}
+                    disabled={printPhase === "cancelling"}
+                    className="cursor-pointer"
+                    title="仅取消本次打印任务，已出纸的标签无法撤回"
+                  >
+                    <X className="h-4 w-4" />
+                    <span className="ml-1.5">{printPhase === "cancelling" ? "取消中..." : "取消打印"}</span>
+                  </Button>
+                )}
                 <Button
                   type="button"
                   size="icon"

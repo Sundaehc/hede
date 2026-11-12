@@ -16,6 +16,7 @@ class ProductPayload(BaseModel):
     image_path: str | None = None
     sku: str | None = None
     original_sku: str | None = None
+    international_code: str | None = None
     product_name: str | None = None
     group_name: str | None = None
     category: str | None = None

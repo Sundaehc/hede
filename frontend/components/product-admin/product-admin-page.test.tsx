@@ -36,6 +36,7 @@ const NULL_FIELDS = {
   image_url: null,
   sku: null,
   original_sku: null,
+  international_code: null,
   group_name: null,
   category: null,
   product_level: null,

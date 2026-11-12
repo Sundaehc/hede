@@ -4,7 +4,7 @@ import { useSessionQueryState } from "@/lib/session-query-state"
 import { useCrossTabRefresh } from "@/lib/use-cross-tab-refresh"
 
 import { useEffect, useMemo, useRef, useState } from "react"
-import { ArrowDown, ArrowUp, Download, History, Search, X } from "lucide-react"
+import { ArrowDown, ArrowUp, Download, History, LoaderCircle, Search, X } from "lucide-react"
 
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
@@ -41,6 +41,24 @@ const PAGE_SIZES = [50, 100, 200]
 const FILTER_FIELD_CLASS_NAME = "min-w-0 space-y-1"
 const FILTER_LABEL_CLASS_NAME = "text-[11px] font-medium text-muted-foreground"
 const FILTER_CONTROL_CLASS_NAME = "bg-background"
+const SKELETON_ROWS = Array.from({ length: 14 }, (_, index) => index)
+const SKELETON_WIDTHS = ["w-3/5", "w-4/5", "w-2/5", "w-3/4"]
+
+function DetailTableSkeleton({ columnCount }: { columnCount: number }) {
+  return SKELETON_ROWS.map((row) => (
+    <TableRow key={row} aria-hidden="true" className="hover:bg-transparent">
+      {Array.from({ length: columnCount }, (_, column) => (
+        <TableCell key={column} className="h-9 py-2">
+          <div className={cn(
+            "h-2.5 rounded-sm bg-muted-foreground/10 motion-safe:animate-pulse",
+            column === 0 ? "mx-auto h-3.5 w-3.5 rounded" : column === 1 ? "mx-auto w-5" : SKELETON_WIDTHS[(row + column) % SKELETON_WIDTHS.length],
+            column >= columnCount - 6 && column <= columnCount - 4 && "ml-auto",
+          )} />
+        </TableCell>
+      ))}
+    </TableRow>
+  ))
+}
 
 type SubmittedFilters = {
   date_start?: string
@@ -140,7 +158,8 @@ export function PurchaseInboundDetailPage({ mode = "inbound", canExport = true }
     current_page: { purchase_quantity: "0", purchase_amount: "0", retail_amount: "" },
     all: { purchase_quantity: "0", purchase_amount: "0", retail_amount: "" },
   })
-  const [isLoading, setIsLoading] = useState(false)
+  const [isLoading, setIsLoading] = useState(true)
+  const [loadedView, setLoadedView] = useState<{ mode: typeof mode; byBarcode: boolean; page: number; pageSize: number } | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [operationLogOpen, setOperationLogOpen] = useState(false)
   const [dataRevision, setDataRevision] = useState(0)
@@ -232,11 +251,12 @@ export function PurchaseInboundDetailPage({ mode = "inbound", canExport = true }
           ? salesDisplayResponse(await listSalesDetails(params, controller.signal))
           : isPurchaseOrder
             ? await listPurchaseOrderDetails(params, controller.signal)
-            : await listPurchaseInboundDetails(params)
+            : await listPurchaseInboundDetails(params, controller.signal)
         if (cancelled) return
         setItems(response.items)
         setTotal(response.total)
         setTotals(response.totals)
+        setLoadedView({ mode, byBarcode: !isPurchaseOrder && displayMode === "barcode", page, pageSize })
       } catch (loadError) {
         if (cancelled) return
         setItems([])
@@ -260,7 +280,7 @@ export function PurchaseInboundDetailPage({ mode = "inbound", canExport = true }
       cancelled = true
       controller.abort()
     }
-  }, [dataRevision, dateSort, displayMode, isPurchaseOrder, isSales, page, pageSize, submittedFilters])
+  }, [dataRevision, dateSort, displayMode, isPurchaseOrder, isSales, mode, page, pageSize, submittedFilters])
 
   const totalPages = Math.max(1, Math.ceil(total / pageSize))
   const pageRange = useMemo(() => buildPageRange(page, totalPages), [page, totalPages])
@@ -311,8 +331,11 @@ export function PurchaseInboundDetailPage({ mode = "inbound", canExport = true }
     setSubmittedFilters({})
   }
 
-  const firstRow = total === 0 ? 0 : (page - 1) * pageSize + 1
-  const lastRow = Math.min(page * pageSize, total)
+  const showPreviousRows = isLoading && items.length > 0 && loadedView?.mode === mode && loadedView.byBarcode === byBarcode
+  const displayedPage = showPreviousRows ? loadedView.page : page
+  const displayedPageSize = showPreviousRows ? loadedView.pageSize : pageSize
+  const firstRow = total === 0 ? 0 : (displayedPage - 1) * displayedPageSize + 1
+  const lastRow = Math.min(displayedPage * displayedPageSize, total)
   const changePage = (nextPage: number) => {
     if (isLoading || nextPage === page || nextPage < 1 || nextPage > totalPages) return
     setPage(nextPage)
@@ -382,7 +405,7 @@ export function PurchaseInboundDetailPage({ mode = "inbound", canExport = true }
               <History className="h-4 w-4" />
               <span className="ml-1.5 hidden sm:inline">操作日志</span>
             </Button>
-            <span>共 {total} 条</span>
+            <span className="inline-flex min-w-[7rem] justify-end">{isLoading ? "总数更新中…" : `共 ${total} 条`}</span>
             <Select aria-label="每页条数" disabled={isLoading} value={String(pageSize)} onChange={(event) => { setPageSize(Number(event.target.value)); setPage(1) }} className="w-24">
               {PAGE_SIZES.map((size) => (
                 <option key={size} value={String(size)}>{size} 条</option>
@@ -487,7 +510,7 @@ export function PurchaseInboundDetailPage({ mode = "inbound", canExport = true }
         ) : null}
 
         <div className="flex min-h-8 flex-wrap items-center gap-3 text-sm">
-          <span aria-live="polite" className="text-muted-foreground">已选 {selectedRows.size} 条（跨页保留）</span>
+          <span aria-live="polite" className="text-muted-foreground">已选 {selectedRows.size} 条</span>
           <Button variant="ghost" size="sm" onClick={() => setSelection({ scope: selectionScope, rows: [] })} disabled={selectedRows.size === 0 || isExporting} className="h-8 cursor-pointer px-2">清空选择</Button>
           {!isPurchaseOrder ? (
             <div role="group" aria-label="明细展示方式" className="flex w-fit gap-1 rounded-lg border border-border bg-muted/50 p-1">
@@ -508,7 +531,18 @@ export function PurchaseInboundDetailPage({ mode = "inbound", canExport = true }
           ) : null}
         </div>
 
-        <div className="overflow-hidden rounded-lg border border-border bg-card">
+        <div className="relative isolate overflow-hidden rounded-lg border border-border bg-card">
+          {isLoading ? (
+            <>
+              <div aria-hidden="true" className="pointer-events-none absolute inset-x-0 top-0 z-20 h-0.5 bg-primary/40 motion-safe:animate-pulse" />
+              <div role="status" aria-live="polite" aria-atomic="true" className="pointer-events-none absolute inset-x-0 top-14 z-20 flex justify-center px-3">
+                <div className="flex items-center gap-2 rounded-lg border border-border bg-background/95 px-3 py-2 text-xs text-foreground shadow-sm">
+                  <LoaderCircle aria-hidden="true" className="size-3.5 shrink-0 text-muted-foreground motion-safe:animate-spin" />
+                  <span>{showPreviousRows ? "正在更新，暂时显示上次结果" : "正在加载明细…"}</span>
+                </div>
+              </div>
+            </>
+          ) : null}
           <div
             role="region"
             aria-label={`${pageTitle}表格`}
@@ -568,11 +602,9 @@ export function PurchaseInboundDetailPage({ mode = "inbound", canExport = true }
                   <TableHead className="w-48">仓库全名</TableHead>
                 </TableRow>
               </TableHeader>
-              <TableBody>
-                {isLoading ? (
-                  <TableRow>
-                    <TableCell colSpan={columnCount} className="h-40 text-center text-muted-foreground">加载中...</TableCell>
-                  </TableRow>
+              <TableBody className={showPreviousRows ? "opacity-45" : undefined}>
+                {isLoading && !showPreviousRows ? (
+                  <DetailTableSkeleton columnCount={columnCount} />
                 ) : items.length === 0 ? (
                   <TableRow>
                     <TableCell colSpan={columnCount} className="h-40 text-center text-muted-foreground">{isSales ? "没有符合条件的销售明细" : isPurchaseOrder ? "没有符合条件的采购明细" : "没有符合条件的进货明细"}</TableCell>
@@ -626,9 +658,9 @@ export function PurchaseInboundDetailPage({ mode = "inbound", canExport = true }
               <TableFooter className="sticky bottom-0 bg-muted">
                 <TableRow>
                   <TableCell colSpan={(isPurchaseOrder ? 8 : byBarcode ? 11 : 6) + 1} className="font-medium">全部合计</TableCell>
-                  <TableCell className={cn("text-right font-mono tabular-nums", numericTone(totals.all.purchase_quantity))}>{isLoading ? "—" : formatCell(totals.all.purchase_quantity)}</TableCell>
-                  <TableCell className={cn("text-right font-mono tabular-nums", numericTone(totals.all.purchase_amount))}>{isLoading ? "—" : formatCell(totals.all.purchase_amount)}</TableCell>
-                  <TableCell className="text-right font-mono tabular-nums">{isLoading ? "—" : isPurchaseOrder ? "-" : formatCell(totals.all.retail_amount)}</TableCell>
+                  <TableCell className={cn("text-right font-mono tabular-nums", numericTone(totals.all.purchase_quantity))}>{isLoading ? <div aria-label="合计更新中" className="ml-auto h-2.5 w-12 rounded-sm bg-muted-foreground/15 motion-safe:animate-pulse" /> : formatCell(totals.all.purchase_quantity)}</TableCell>
+                  <TableCell className={cn("text-right font-mono tabular-nums", numericTone(totals.all.purchase_amount))}>{isLoading ? <div aria-label="合计更新中" className="ml-auto h-2.5 w-16 rounded-sm bg-muted-foreground/15 motion-safe:animate-pulse" /> : formatCell(totals.all.purchase_amount)}</TableCell>
+                  <TableCell className="text-right font-mono tabular-nums">{isLoading ? <div aria-label="合计更新中" className="ml-auto h-2.5 w-16 rounded-sm bg-muted-foreground/15 motion-safe:animate-pulse" /> : isPurchaseOrder ? "-" : formatCell(totals.all.retail_amount)}</TableCell>
                   <TableCell colSpan={3} />
                 </TableRow>
               </TableFooter>
@@ -637,7 +669,7 @@ export function PurchaseInboundDetailPage({ mode = "inbound", canExport = true }
         </div>
 
         <div className="flex flex-wrap items-center justify-between gap-3 text-sm text-muted-foreground tabular-nums">
-          <span>{isLoading ? "查询中…" : `第 ${firstRow}-${lastRow} 条 / 共 ${total} 条`}</span>
+          <span>{isLoading ? showPreviousRows ? `上次结果：第 ${firstRow}-${lastRow} 条 / 共 ${total} 条` : "正在获取记录数…" : `第 ${firstRow}-${lastRow} 条 / 共 ${total} 条`}</span>
           {totalPages > 1 ? (
             <Pagination>
               <PaginationContent className="flex-nowrap">

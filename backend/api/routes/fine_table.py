@@ -37,7 +37,7 @@ from domain.fine_table_snapshot_schema import (
     fine_table_snapshot_ref_table_exists,
     fine_table_snapshot_year_table_exists,
 )
-from domain.gj_brand import CBANNER_MENS_BRAND, CBANNER_WOMENS_BRAND
+from domain.gj_brand import CBANNER_MENS_BRAND, CBANNER_WOMENS_BRAND, YANDOU_BRAND
 from domain.gj_schema import GJ_MERGED_PRODUCT_INFO_TABLE
 from domain.inventory_schema import SUPPLIER_TABLE
 from domain.product_goods_schema import PRODUCT_GOODS_OVERRIDES_TABLE
@@ -58,6 +58,7 @@ from storage.fine_table_snapshot_dedup import (
     optimized_snapshot_available,
     write_optimized_snapshot_rows,
 )
+from storage.fine_table_vip_sales import load_yandou_vip_sales_windows
 
 
 router = APIRouter()
@@ -83,6 +84,13 @@ SIZE_LABELS = {
 EXCLUDED_OTHER_PLATFORM_ORDER_STATUSES = {"取消", "异常", "被拆分", "已付款待审核"}
 DAILY_SALES_DAYS = 5
 SNAPSHOT_PAGE_SIZE = 200
+YANDOU_DAILY_SALES_FILTER_FIELDS = frozenset({
+    "vip_1d_sales", "vip_3d_sales", "vip_7d_sales", "vip_15d_sales", "vip_30d_sales",
+    "vip_daily_average_sales", "vip_projected_15d_sales", "vip_3d_sales_change_rate",
+    "vip_7d_sales_change_rate", "original_all_7d_sales", "projected_5d_stock_no_inbound",
+    "vip_projected_15d_stock", "other_projected_15d_stock", "risk",
+    *(f"daily_sales_{offset}_{metric}" for offset in range(DAILY_SALES_DAYS) for metric in ("quantity", "uv")),
+})
 
 
 class FineTableExportLogRequest(BaseModel):
@@ -1657,7 +1665,11 @@ def list_fine_table_filter_options(
             filtered_rows.append(row)
         return _fine_table_options_from_rows(filtered_rows, field)
 
-    if not other_filters and not terms and not prefix_terms and field in FINE_TABLE_SNAPSHOT_FILTER_CACHE_FIELDS:
+    if (
+        not other_filters and not terms and not prefix_terms
+        and field in FINE_TABLE_SNAPSHOT_FILTER_CACHE_FIELDS
+        and not (brand == YANDOU_BRAND and field in YANDOU_DAILY_SALES_FILTER_FIELDS)
+    ):
         _ensure_snapshot_tables(repository.engine)
         cached = _load_fine_table_filter_option_cache(
             repository,
@@ -2049,6 +2061,10 @@ def list_fine_table(
             daily_by_sku.setdefault(sku, {}).setdefault(key, dict(row))
 
         stock_codes = sorted({*skus, *all_original_group_skus})
+        vip_sales_date, vip_sales_by_sku = (
+            load_yandou_vip_sales_windows(conn, stock_codes)
+            if brand == YANDOU_BRAND else (None, {})
+        )
         size_stock_by_sku: dict[str, dict[str, int]] = {sku: {} for sku in stock_codes}
         for row in conn.execute(
             select(JST_SIZE_STOCK_TABLE.c.product_code, JST_SIZE_STOCK_TABLE.c.size, func.sum(JST_SIZE_STOCK_TABLE.c.stock_qty).label("qty"))
@@ -2141,7 +2157,7 @@ def list_fine_table(
             original_stock_qty_by_code[original_sku] = stock_total
             original_defect_in_transit_by_code[original_sku] = defect_in_transit_total
 
-        latest_daily_snapshot_day = _latest_daily_snapshot_day(conn, skus)
+        latest_daily_snapshot_day = vip_sales_date if brand == YANDOU_BRAND else _latest_daily_snapshot_day(conn, skus)
         daily_snapshot_totals: dict[str, dict[date, dict[str, int]]] = {sku: {} for sku in skus}
         if isinstance(latest_daily_snapshot_day, date):
             daily_snapshot_start = latest_daily_snapshot_day - timedelta(days=DAILY_SALES_DAYS - 1)
@@ -2229,7 +2245,12 @@ def list_fine_table(
                 orders_by_sku[sku]["daily_sales"] = [
                     {
                         "date": (latest_daily_snapshot_day - timedelta(days=offset)).isoformat(),
-                        "quantity": totals.get(latest_daily_snapshot_day - timedelta(days=offset), {}).get("quantity", 0),
+                        "quantity": (
+                            vip_sales_by_sku.get(sku, {}).get(offset + 1, 0)
+                            - vip_sales_by_sku.get(sku, {}).get(offset, 0)
+                            if brand == YANDOU_BRAND
+                            else totals.get(latest_daily_snapshot_day - timedelta(days=offset), {}).get("quantity", 0)
+                        ),
                         "uv": totals.get(latest_daily_snapshot_day - timedelta(days=offset), {}).get("uv", 0),
                     }
                     for offset in range(DAILY_SALES_DAYS - 1, -1, -1)
@@ -2271,6 +2292,7 @@ def list_fine_table(
         final_price = _to_float(ops.get("final_price"))
         market_price = _to_float(ops.get("market_price"))
         vip_price = _to_float(ops.get("vip_price"))
+        vip_1 = _to_int(_daily_metric(daily, "1d", "sales_volume"))
         vip_3 = _to_int(_daily_metric(daily, "3d", "sales_volume"))
         vip_7 = _to_int(_daily_metric(daily, "7d", "sales_volume"))
         original_vip_7 = _to_int(_daily_metric_with_original_fallback(
@@ -2301,6 +2323,15 @@ def list_fine_table(
             _daily_report_metric(daily, "罗盘", "7d", "sales_volume"),
             _daily_report_metric(daily, "环比", "7d", "sales_volume"),
         )
+        if brand == YANDOU_BRAND:
+            sales = vip_sales_by_sku.get(sku, {})
+            vip_1, vip_3, vip_7, vip_15, vip_30 = (sales.get(days, 0) for days in (1, 3, 7, 15, 30))
+            vip_3d_sales_change_rate = _change_rate(vip_3, sales.get(6, 0) - vip_3)
+            vip_7d_sales_change_rate = _change_rate(vip_7, sales.get(14, 0) - vip_7)
+            original_vip_7 = sum(
+                vip_sales_by_sku.get(code, {}).get(7, 0)
+                for code in original_skus_by_code.get(original_sku, [sku])
+            )
         vip_7d_uv_change_rate = _change_rate(
             _daily_report_metric(daily, "罗盘", "7d", "detail_uv"),
             _daily_report_metric(daily, "环比", "7d", "detail_uv"),
@@ -2353,7 +2384,7 @@ def list_fine_table(
             "activity_profit": activity_profit,
             "margin_rate": margin_rate,
             "discount_rate": final_price / market_price if final_price and market_price else None,
-            "vip_1d_sales": _to_int(_daily_metric(daily, "1d", "sales_volume")),
+            "vip_1d_sales": vip_1,
             "vip_3d_sales": vip_3,
             "vip_7d_sales": vip_7,
             "vip_15d_sales": vip_15,
@@ -2414,6 +2445,7 @@ def list_fine_table(
         "page": page,
         "page_size": page_size,
         "latest_order_date": max_day.isoformat() if "max_day" in locals() else None,
+        **({"latest_vip_sales_date": vip_sales_date.isoformat() if vip_sales_date else None} if brand == YANDOU_BRAND else {}),
     }
     if fetch_all_rows:
         set_fine_table_result_cache(result_cache_key, payload)

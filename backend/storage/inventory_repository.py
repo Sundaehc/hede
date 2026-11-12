@@ -3201,13 +3201,15 @@ class InventoryRepository:
                 return groups.page(1, MAX_GROUPS, False)["items"]
         return self._query_warehouse_inventory_summary(date_start=date_start, date_end=date_end)
 
-    def _warehouse_inventory_version(self) -> str | None:
+    def _warehouse_inventory_version(self, connection=None) -> str | None:
         if self.engine.dialect.name != "postgresql":
             return None
-        with self.engine.connect() as connection:
-            capabilities = connection.execute(CAPABILITIES_SQL).mappings().one()
-            self._warehouse_stock_index_ready = capabilities["stock_index_ready"]
-            return connection.execute(VERSION_SQL).scalar_one() if capabilities["revisions_ready"] else None
+        if connection is None:
+            with self.engine.connect() as connection:
+                return self._warehouse_inventory_version(connection)
+        capabilities = connection.execute(CAPABILITIES_SQL).mappings().one()
+        self._warehouse_stock_index_ready = capabilities["stock_index_ready"]
+        return connection.execute(VERSION_SQL).scalar_one() if capabilities["revisions_ready"] else None
 
     def _query_warehouse_inventory_summary(
         self,
@@ -3427,7 +3429,10 @@ class InventoryRepository:
         # search must allow PostgreSQL to start with its selective detail index.
         if not product_code:
             documents = documents.prefix_with("MATERIALIZED", dialect="postgresql")
-        if not product_code and (getattr(self, "_warehouse_stock_index_ready", False) or (display_mode == "barcode" and self.engine.dialect.name == "postgresql")):
+        if not product_code and (
+            getattr(self, "_warehouse_stock_index_ready", False)
+            or (display_mode == "barcode" and self.engine.dialect.name == "postgresql")
+        ):
             # Goods use the covering index; barcode mode additionally needs
             # recorded sizes from the heap. In both cases avoid scanning other
             # warehouses. OFFSET 0 retains the per-document index lookup.
@@ -3451,7 +3456,7 @@ class InventoryRepository:
                 func.coalesce(detail.c.quantity, 0).label("quantity"),
                 documents.c.beginning_direction, documents.c.inbound_direction, documents.c.outbound_direction,
             ).select_from(joined).where(detail.c.product_code.ilike(f"%{product_code.strip()}%") if product_code else true())
-            detail = expand_stock_sizes(size_source, self.engine.dialect.name)
+            detail = expand_stock_sizes(size_source, self.engine.dialect.name, aggregate=True)
             joined = detail
             documents = detail
         extra_groups = [detail.c.product_identity_id, detail.c.inventory_size_key, detail.c.unallocated] if display_mode == "barcode" else []
@@ -3461,8 +3466,10 @@ class InventoryRepository:
         beginning_qty = func.coalesce(func.sum(quantity * documents.c.beginning_direction).filter(
             documents.c.beginning_direction != 0,
         ), 0).label("beginning_qty")
-        inbound_qty = func.coalesce(func.sum(quantity).filter(documents.c.inbound_direction != 0), 0).label("inbound_qty")
-        outbound_qty = func.coalesce(func.sum(quantity).filter(documents.c.outbound_direction != 0), 0).label("outbound_qty")
+        inbound_quantity = quantity * documents.c.inbound_direction if display_mode == "barcode" else quantity
+        outbound_quantity = quantity * documents.c.outbound_direction if display_mode == "barcode" else quantity
+        inbound_qty = func.coalesce(func.sum(inbound_quantity).filter(documents.c.inbound_direction != 0), 0).label("inbound_qty")
+        outbound_qty = func.coalesce(func.sum(outbound_quantity).filter(documents.c.outbound_direction != 0), 0).label("outbound_qty")
         grouped = (
             select(
                 detail.c.product_code,

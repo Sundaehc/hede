@@ -39,6 +39,7 @@ const FULL_WIDTH_FIELDS = new Set([
 ])
 const CODE_FIELDS = new Set([
   "original_sku",
+  "international_code",
   "sku",
   "factory_sku",
   "color_code",
