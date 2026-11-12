@@ -5,7 +5,7 @@ import { afterEach, beforeEach, expect, test, vi } from "vitest"
 import { InventoryDetailPanel } from "@/components/inventory-admin/inventory-detail-panel"
 import type { InventoryRecord } from "@/lib/api"
 
-const { listMock, optionsMock } = vi.hoisted(() => ({ listMock: vi.fn(), optionsMock: vi.fn() }))
+const { listMock, optionsMock, replaceMock } = vi.hoisted(() => ({ listMock: vi.fn(), optionsMock: vi.fn(), replaceMock: vi.fn() }))
 vi.mock("@/components/auth/auth-provider", () => ({
   useAuth: () => ({ user: { id: 1, role_code: "super_admin" }, hasPermission: () => true }),
 }))
@@ -13,6 +13,7 @@ vi.mock("@/lib/api", async () => ({
   ...(await vi.importActual<typeof import("@/lib/api")>("@/lib/api")),
   listDetails: listMock,
   listInventoryDetailUnitPriceOptions: optionsMock,
+  replaceDetailsFromExcel: replaceMock,
   listInventoryAccountSubjects: vi.fn().mockResolvedValue({ items: [] }),
   listSizeGroupOptions: vi.fn().mockResolvedValue({ items: [] }),
 }))
@@ -83,4 +84,25 @@ test("cancel and clear retain their existing behavior", async () => {
   await user.click(screen.getByRole("button", { name: "单价已筛选" }))
   await user.click(within(screen.getByRole("dialog", { name: "单价筛选" })).getByRole("button", { name: "清除此列" }))
   await waitFor(() => expect(listMock).toHaveBeenLastCalledWith(6787, expect.objectContaining({ unitPriceValues: undefined })))
+})
+
+test("reimport resets detail pagination and price filters before querying the updated rows", async () => {
+  let imported = false
+  listMock.mockImplementation(async (_id, { page, unitPriceValues }) => ({
+    items: imported && page === 1 && !unitPriceValues ? [{ id: 1, product_code: "IMPORTED-SKU", product_name: "导入新品" }] : [],
+    total: imported ? 1 : 101, page, page_size: 100,
+  }))
+  replaceMock.mockImplementation(async () => { imported = true; return { message: "导入成功" } })
+  const { user, dialog, search } = await openFilter()
+  await user.type(search, "268")
+  await user.click(dialog.getByRole("button", { name: "确定" }))
+  await waitFor(() => expect(listMock).toHaveBeenLastCalledWith(6787, expect.objectContaining({ unitPriceValues: ["268"] })))
+  await user.click(screen.getByRole("button", { name: "下一页" }))
+  await waitFor(() => expect(listMock).toHaveBeenLastCalledWith(6787, expect.objectContaining({ page: 2 })))
+  await user.upload(document.querySelector<HTMLInputElement>('input[type="file"]')!, new File(["excel"], "更新.xlsx"))
+  await user.click(within(await screen.findByRole("alertdialog", { name: "确认重新导入明细" })).getByRole("button", { name: "确认导入" }))
+  expect(await screen.findByText("IMPORTED-SKU")).toBeInTheDocument()
+  expect(listMock).toHaveBeenLastCalledWith(6787, { page: 1, pageSize: 100, unitPriceValues: undefined })
+  await user.click(within(screen.getByRole("alertdialog", { name: "导入完成" })).getByRole("button", { name: "确定" }))
+  expect(screen.getByRole("button", { name: "筛选单价" })).toBeInTheDocument()
 })

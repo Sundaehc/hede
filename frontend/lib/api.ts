@@ -369,7 +369,7 @@ export function listProducts(params: ProductSelectionFilters & {
   }
   if (params.season) search.set("season", params.season)
   if (params.productName) search.set("product_name", params.productName)
-  return request<ProductListResponse>(`/products?${search.toString()}`)
+  return request<ProductListResponse>(`/products?${search.toString()}`, { cache: "no-store" })
 }
 
 export type FineTableFilterField =
@@ -1221,7 +1221,7 @@ export function importProducts(
       throw new ApiError(response.status, await readApiError(response))
     }
     const result = (await response.json()) as ImportResult
-    publishBusinessDataChange(["products"])
+    publishBusinessDataChange(["products", "inventory"])
     return result
   })
 }
@@ -1686,7 +1686,7 @@ export function listInventory(params: InventorySelectionFilters & {
   for (const rule of params.sortRules ?? []) {
     search.append("sort", `${rule.key}:${rule.direction}`)
   }
-  return request<InventoryListResponse>(`/inventory?${search.toString()}`, { signal: params.signal })
+  return request<InventoryListResponse>(`/inventory?${search.toString()}`, { cache: "no-store", signal: params.signal })
 }
 
 export function createInventoryRecord(payload: Record<string, unknown>) {
@@ -2293,7 +2293,7 @@ export function listDetails(
     total: number
     page: number
     page_size: number
-  }>(`/inventory/${documentId}/details${suffix}`)
+  }>(`/inventory/${documentId}/details${suffix}`, { cache: "no-store" })
 }
 
 export function setGeneralCustomerShopStatus(id: number, is_active: boolean) {
@@ -2373,13 +2373,17 @@ export type InventoryImportTask = {
 }
 
 const notifiedImportTasks = new Set<string>()
-async function readImportTask(response: Response): Promise<InventoryImportTask> {
-  const task = (await response.json()) as InventoryImportTask
+function notifyCompletedImportTask(task: InventoryImportTask) {
   if (task.status === "succeeded" && task.result && !notifiedImportTasks.has(task.task_id)) {
     notifiedImportTasks.add(task.task_id)
     if (notifiedImportTasks.size > 100) notifiedImportTasks.delete(notifiedImportTasks.values().next().value!)
     publishBusinessDataChange(["inventory"])
   }
+}
+
+async function readImportTask(response: Response): Promise<InventoryImportTask> {
+  const task = (await response.json()) as InventoryImportTask
+  notifyCompletedImportTask(task)
   return task
 }
 
@@ -2443,7 +2447,9 @@ export async function resolveMissingImportTask(
     },
   )
   if (!response.ok) throw new ApiError(response.status, await readApiError(response))
-  return response.json()
+  const result = (await response.json()) as { closed: boolean; task: InventoryImportTask }
+  notifyCompletedImportTask(result.task)
+  return result
 }
 
 export type InventoryDetailUnitPriceOption = {

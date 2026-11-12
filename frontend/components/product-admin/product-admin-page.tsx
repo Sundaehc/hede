@@ -543,8 +543,9 @@ export function ProductAdminPage() {
                   setRecycleOpen(true)
                 } : undefined}
                 onOpenBarcodeSearch={() => setBarcodeSearchOpen(true)}
-                onImportComplete={(skus: string[]) => {
+                onImportComplete={(skus, importedBrand) => {
                   clearSelection()
+                  setBrand(importedBrand)
                   setReloadToken((current) => current + 1)
                   const query = skus.join(",")
                   setSearchInput(query)

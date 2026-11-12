@@ -54,7 +54,7 @@ type ProductToolbarProps = {
   onSearch: (attributes?: { year?: string; season?: string; productName?: string }) => void
   onClear: () => void
   onRefresh: () => void
-  onImportComplete: (skus: string[]) => void
+  onImportComplete: (skus: string[], brand: ProductArchiveBrandKey) => void
   onCreate?: () => void
   onOpenLogs?: () => void
   onOpenRecycleBin?: () => void
@@ -239,8 +239,7 @@ export function ProductToolbar({
       }
     }
 
-    onClear()
-    onImportComplete(importedSkus)
+    onImportComplete(importedSkus, brand)
   }
 
   const handleDownloadTemplate = async () => {

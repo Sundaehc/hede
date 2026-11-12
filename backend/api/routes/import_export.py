@@ -1496,12 +1496,6 @@ def _finish_product_import(
     purchase_order_sync: dict[str, object],
 ) -> None:
     try:
-        clear_fine_table_cache()
-        clear_product_goods_cache()
-    except Exception:
-        logger.exception("Failed to clear product caches after import")
-
-    try:
         write_operation_log(
             request,
             module="product",
@@ -1831,6 +1825,13 @@ async def import_products(
         wb.close()
     except Exception:
         logger.exception("Failed to close product import workbook")
+
+    # Invalidate derived lists before the client receives success and reloads.
+    try:
+        clear_fine_table_cache()
+        clear_product_goods_cache()
+    except Exception:
+        logger.exception("Failed to clear product caches after import")
 
     background_tasks.add_task(
         _finish_product_import,

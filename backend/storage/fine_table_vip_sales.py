@@ -17,10 +17,16 @@ VIP_SALES_FACTS = table(
     column("brand_name", Text),
     column("sales_quantity", Integer),
 )
+BRAND_MARKERS = {
+    "cbanner_mens": ("千百度", "C.banner", "CBANNER"),
+    "cbanner_womens": ("千百度", "C.banner", "CBANNER"),
+    "yandou": ("烟斗", "TRUMPPIPE", "yandou"),
+    "eblan": ("伊伴", "EBLAN"),
+}
 
 
-def load_yandou_vip_sales_windows(
-    connection: Connection, skus: Iterable[str | None],
+def load_vip_sales_windows(
+    connection: Connection, skus: Iterable[str | None], *, brand: str,
 ) -> tuple[date | None, dict[str, dict[int, int]]]:
     """Sum all size/goods IDs by exact archive SKU, using one shared end day.
 
@@ -29,6 +35,7 @@ def load_yandou_vip_sales_windows(
     latest fact date is independent of page/search results. This read path
     never creates tables or substitutes Compass quantities for missing facts.
     """
+    markers = BRAND_MARKERS[brand]
     codes = sorted({str(sku).strip() for sku in skus if str(sku or "").strip()})
     if not codes or not inspect(connection).has_table(VIP_SALES_FACTS.name):
         return None, {}
@@ -42,8 +49,7 @@ def load_yandou_vip_sales_windows(
     # brand cannot contribute; older blank brand labels remain usable.
     brand_condition = or_(
         facts.c.brand_name.is_(None), func.trim(facts.c.brand_name) == "",
-        facts.c.brand_name.ilike("%烟斗%"), facts.c.brand_name.ilike("%TRUMPPIPE%"),
-        facts.c.brand_name.ilike("yandou"),
+        *(facts.c.brand_name.ilike(f"%{marker}%") for marker in markers),
     )
     for start in range(0, len(codes), SKU_BATCH_SIZE):
         rows = connection.execute(select(
@@ -59,3 +65,10 @@ def load_yandou_vip_sales_windows(
         for row in rows:
             totals[row["goods_code"]] = {days: int(row[f"days_{days}"] or 0) for days in WINDOW_DAYS}
     return end_date, totals
+
+
+def load_yandou_vip_sales_windows(
+    connection: Connection, skus: Iterable[str | None],
+) -> tuple[date | None, dict[str, dict[int, int]]]:
+    """Compatibility entry for existing Yandou verification scripts."""
+    return load_vip_sales_windows(connection, skus, brand="yandou")

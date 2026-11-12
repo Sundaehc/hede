@@ -2,7 +2,7 @@ import { afterEach, beforeEach, expect, test, vi } from "vitest"
 import {
   createDetail, deleteProduct, getInventoryTemplateTask, getPurchaseImportTask, importProducts,
   listInventorySelectionIds, listProductSelectionIds, previewInventoryTemplate, previewPurchaseInventory,
-  replaceDetailsFromExcel, submitPurchaseImportTask, updateInventoryRecord, updateProduct, updateSizeGroup,
+  replaceDetailsFromExcel, resolveMissingImportTask, submitPurchaseImportTask, updateInventoryRecord, updateProduct, updateSizeGroup,
 } from "@/lib/api"
 import { publishBusinessDataChange } from "@/lib/business-data-sync"
 
@@ -54,7 +54,7 @@ test("file imports publish only after successful completion", async () => {
   const file = new File(["excel"], "import.xlsx")
   await importProducts("cbanner_womens", file)
   await replaceDetailsFromExcel({ documentId: 1, file })
-  expect(publishBusinessDataChange).toHaveBeenNthCalledWith(1, ["products"])
+  expect(publishBusinessDataChange).toHaveBeenNthCalledWith(1, ["products", "inventory"])
   expect(publishBusinessDataChange).toHaveBeenNthCalledWith(2, ["inventory"])
 })
 
@@ -74,4 +74,14 @@ test("background precheck and running tasks stay silent, successful writes notif
   respond({ ...task, task_id: "template-sync-task", status: "succeeded", result: { created: 1 } })
   await getInventoryTemplateTask("template-sync-task")
   expect(publishBusinessDataChange).toHaveBeenCalledTimes(2)
+})
+
+test("recovering a committed import also notifies other lists, without repeating the notification", async () => {
+  const task = { task_id: "recovered-success-task", status: "succeeded", result: { created: 1 } }
+  vi.mocked(fetch).mockResolvedValueOnce(new Response(JSON.stringify({ closed: false, task })))
+  await resolveMissingImportTask(task.task_id, "purchase")
+  expect(publishBusinessDataChange).toHaveBeenCalledExactlyOnceWith(["inventory"])
+  vi.mocked(fetch).mockResolvedValueOnce(new Response(JSON.stringify(task)))
+  await getPurchaseImportTask(task.task_id)
+  expect(publishBusinessDataChange).toHaveBeenCalledTimes(1)
 })

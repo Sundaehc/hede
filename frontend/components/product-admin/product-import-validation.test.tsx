@@ -56,7 +56,7 @@ test("shows every color error with archive labels, copies all pages and allows a
   await user.click(dialog.getByRole("button", {name:"关闭"}))
   importMock.mockResolvedValueOnce({ created:1, updated:0, skus:["FIXED"], message:"导入完成" })
   upload(container)
-  await waitFor(() => expect(callbacks.onImportComplete).toHaveBeenCalledWith(["FIXED"]))
+  await waitFor(() => expect(callbacks.onImportComplete).toHaveBeenCalledWith(["FIXED"], "cbanner_mens"))
   expect(callbacks.onMessage).toHaveBeenCalledWith("导入完成", "导入完成")
   expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
 })

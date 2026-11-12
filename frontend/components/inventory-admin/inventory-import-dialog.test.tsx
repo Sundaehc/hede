@@ -497,6 +497,44 @@ test("keeps purchase order import working with the shared upload", async () => {
   expect(previewPurchaseMock).not.toHaveBeenCalled()
 })
 
+test.each(["inventory", "purchase-orders"] as const)("%s imports clear old search and pagination only after confirmed success", async (mode) => {
+  const prefix = `hede:session-query:v1:anonymous:inventory:${mode}:`
+  const previousFilters = { summary: "旧摘要", date_start: "2020-01-01", product_code: "OLD" }
+  window.sessionStorage.setItem(prefix + "submittedFilters", JSON.stringify(previousFilters))
+  window.sessionStorage.setItem(prefix + "searchSummary", JSON.stringify("旧摘要"))
+  window.sessionStorage.setItem(prefix + "page", "3")
+  window.sessionStorage.setItem(prefix + "sortRules", JSON.stringify([{ key: "date", direction: "asc" }]))
+  let imported = false
+  listInventoryMock.mockImplementation(async ({ page, summary }) => ({
+    items: imported && page === 1 && !summary ? [{
+      id: 88, document_number: "IMPORT-NEW", document_type: mode === "inventory" ? "进货单" : "进货订单",
+      summary: "本次导入", total_count: "2", amount: "100", extra_fields: {},
+    }] : [], total: imported ? 1 : 30,
+  }))
+  const { user, dialog, ui } = await openImport(mode)
+  selectFile(dialog)
+  await user.click(ui.getByRole("button", { name: "预检查" }))
+  await ui.findByRole("button", { name: "确认导入" })
+  expect(listInventoryMock).toHaveBeenLastCalledWith(expect.objectContaining({ page: 3, summary: "旧摘要" }))
+  expect(JSON.parse(window.sessionStorage.getItem(prefix + "submittedFilters")!)).toEqual(previousFilters)
+  imported = true
+  await user.click(ui.getByRole("button", { name: "确认导入" }))
+  await screen.findByRole("alertdialog", { name: "导入完成" })
+  await waitFor(() => expect(listInventoryMock).toHaveBeenLastCalledWith(expect.objectContaining({ page: 1, summary: undefined, product_code: undefined, sortRules: undefined })))
+  expect(await screen.findByText("IMPORT-NEW")).toBeInTheDocument()
+  expect(JSON.parse(window.sessionStorage.getItem(prefix + "searchSummary")!)).toBe("")
+})
+
+test("failed template imports retain the previous list filters and page", async () => {
+  const prefix = "hede:session-query:v1:anonymous:inventory:inventory:"
+  window.sessionStorage.setItem(prefix + "submittedFilters", JSON.stringify({ summary: "保留条件" }))
+  window.sessionStorage.setItem(prefix + "page", "3")
+  importTemplateMock.mockImplementationOnce(async (payload) => ({ ...importTask("failed", payload.taskId), error: "校验失败" }))
+  const { ui } = await confirmTemplateImport()
+  await ui.findByText(/校验失败/)
+  expect(listInventoryMock).toHaveBeenLastCalledWith(expect.objectContaining({ page: 3, summary: "保留条件" }))
+})
+
 const purchaseConflictPreview: PurchaseImportPreview = {
   total: 4,
   conflicts: [

@@ -319,6 +319,7 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
   const replaceInputRef = useRef<HTMLInputElement>(null)
   const [replaceFile, setReplaceFile] = useState<File | null>(null)
   const [isReplacing, setIsReplacing] = useState(false)
+  const [importRevision, setImportRevision] = useState(0)
   const [replaceValidation, setReplaceValidation] = useState<ProductImportValidation | null>(null)
 
   const [formOpen, setFormOpen] = useState(false)
@@ -459,7 +460,7 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
     setPrintTemplateOpen(false)
   }, [documentId])
 
-  useEffect(() => { void load() }, [load])
+  useEffect(() => { void load() }, [load, importRevision])
 
   useEffect(() => {
     if (!unitPriceFilterOpen || !documentId) return
@@ -913,7 +914,12 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
       })
       setReplaceFile(null)
       if (replaceInputRef.current) replaceInputRef.current.value = ""
-      await load()
+      detailRequestIdRef.current += 1
+      setDetailPage(1)
+      setUnitPriceValues(null)
+      setUnitPriceOptionsLoaded(false)
+      setSelectedIds(new Set())
+      setImportRevision((revision) => revision + 1)
       onTotalChanged()
       showMessage("导入完成", result.message)
     } catch (e) {

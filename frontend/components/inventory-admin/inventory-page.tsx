@@ -1139,6 +1139,32 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
     setMessageOpen(true)
   }, [])
 
+  const clearSearch = useCallback(() => {
+    setSearchDateStart("")
+    setSearchDateEnd("")
+    setSearchBrands([])
+    setSearchSuppliers([])
+    setSearchWarehouses([])
+    setSearchDocumentTypes([])
+    setSearchDocumentNumber("")
+    setSearchSummary("")
+    setSearchOriginalSku("")
+    setSearchProductCode("")
+    setSearchHandler("")
+    setPage(1)
+    setSubmittedFilters(isPurchaseOrderTab ? { document_type: PURCHASE_ORDER_DOCUMENT_TYPE } : {})
+  }, [isPurchaseOrderTab, setPage, setSearchBrands, setSearchDateEnd, setSearchDateStart,
+    setSearchDocumentNumber, setSearchDocumentTypes, setSearchHandler, setSearchOriginalSku,
+    setSearchProductCode, setSearchSummary, setSearchSuppliers, setSearchWarehouses, setSubmittedFilters])
+
+  const refreshAfterImport = useCallback(() => {
+    clearSearch()
+    setSortRules([])
+    setSelectedIds(new Set())
+    setIsAllMatchingSelected(false)
+    setReloadToken((token) => token + 1)
+  }, [clearSearch, setSortRules])
+
   const applyImportTaskResult = useCallback(
     (task: InventoryImportTask) => {
       if (task.status === "queued" || task.status === "running") {
@@ -1168,19 +1194,20 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
       setTemplatePreview(null)
       setPurchasePreview(null)
       setPurchaseDecisions({})
-      setReloadToken((token) => token + 1)
       if (task.status === "succeeded" && task.result) {
+        refreshAfterImport()
         showMessage("导入完成", task.result.message)
         setImportDialogOpen(false)
         setImportFile(null)
         setImportError("")
       } else {
+        setReloadToken((token) => token + 1)
         setImportError((task.error || "本批次导入失败") + (task.validation ? "" : " 请重新预检查后再导入；当前不支持从中断位置继续。"), task.validation)
         setImportDialogOpen(true)
       }
       return true
     },
-    [importTaskStorageKey, showMessage, setImportDialogOpen, setImportError]
+    [importTaskStorageKey, refreshAfterImport, showMessage, setImportDialogOpen, setImportError]
   )
 
   useEffect(() => {
@@ -1811,7 +1838,7 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
       setImportFile(null)
       setPurchasePreview(null)
       setPurchaseDecisions({})
-      setReloadToken((t) => t + 1)
+      refreshAfterImport()
     } catch (err) {
       setImportError(getErrorMessage(err), err instanceof ApiError ? err.validation : null)
       if (err instanceof ApiError && err.status === 409) setPurchasePreview(null)
@@ -1998,22 +2025,6 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
     } finally {
       setIsUpdatingCosts(false)
     }
-  }
-
-  const clearSearch = () => {
-    setSearchDateStart("")
-    setSearchDateEnd("")
-    setSearchBrands([])
-    setSearchSuppliers([])
-    setSearchWarehouses([])
-    setSearchDocumentTypes([])
-    setSearchDocumentNumber("")
-    setSearchSummary("")
-    setSearchOriginalSku("")
-    setSearchProductCode("")
-    setSearchHandler("")
-    setPage(1)
-    setSubmittedFilters(isPurchaseOrderTab ? { document_type: PURCHASE_ORDER_DOCUMENT_TYPE } : {})
   }
 
   const handleCompletionTabChange = (value: string) => {
