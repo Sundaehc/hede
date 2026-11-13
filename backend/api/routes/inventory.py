@@ -70,6 +70,7 @@ from domain.schema import PRODUCT_ARCHIVE_TABLES, PRODUCT_TABLES, build_product_
 from domain.product_archive_naming import manual_product_table_name
 from domain.size_group_schema import SIZE_GROUP_ITEMS_TABLE, SIZE_GROUPS_TABLE
 from domain.vip_schema import JST_PRICE_TABLE
+from storage.purchase_execution_standards import enrich_purchase_execution_standards
 
 router = APIRouter()
 
@@ -216,6 +217,7 @@ PURCHASE_DETAIL_EXTRA_FIELDS = {
     "outsole_material": "大底材质",
     "insole_material": "鞋垫材质",
     "shoe_box_spec": "鞋盒规格",
+    "execution_standard": "执行标准",
 }
 PURCHASE_IMPORT_DOC_FIELD_ALIASES = {
     "supplier": {"供货单位", "供应商", "单位全名", "单位名称"},
@@ -1400,9 +1402,10 @@ def _build_purchase_print_labels(
                     profile.get("product_name") if profile else None,
                     detail.get("product_name"),
                 ),
-                "execution_standard": _first_text(
-                    profile.get("execution_standard") if profile else None,
-                    detail_extra_fields.get("execution_standard"),
+                "execution_standard": (
+                    _cell_text(detail_extra_fields["execution_standard"])
+                    if "execution_standard" in detail_extra_fields
+                    else _cell_text(profile.get("execution_standard") if profile else None)
                 ),
                 "origin": _first_text(
                     profile_extra_fields.get("产地"),
@@ -3218,6 +3221,7 @@ def _load_purchase_product_lookup_batch(connection, brand: str, codes: set[str])
                 product_table.c.outsole_material,
                 product_table.c.insole_material,
                 product_table.c.shoe_box_spec,
+                product_table.c.execution_standard,
                 product_table.c.size_range,
                 product_table.c.extra_fields,
             )
@@ -3256,6 +3260,9 @@ def _load_purchase_product_lookup_batch(connection, brand: str, codes: set[str])
                 product_info["_archive_sku"] = _cell_text(row.get("sku"))
                 product_info["_archive_original_sku"] = _cell_text(row.get("original_sku"))
                 product_info["barcode_build_rule"] = _cell_text(row.get("barcode_build_rule"))
+                # The current archive owns this field; do not borrow it from
+                # legacy GJ/fine-table rows or a different product alias.
+                product_info["execution_standard"] = _cell_text(row.get("execution_standard"))
                 gender_costs = _dict_or_empty(row.get("extra_fields")).get(GENDER_COSTS_FIELD)
                 if gender_costs and not product_info.get(GENDER_COSTS_FIELD):
                     product_info[GENDER_COSTS_FIELD] = gender_costs
@@ -3577,6 +3584,7 @@ def _purchase_detail_extra_fields(product_info: dict[str, object], detail_code: 
         "outsole_material": _cell_text(product_info.get("outsole_material")),
         "insole_material": _cell_text(product_info.get("insole_material")),
         "shoe_box_spec": _cell_text(product_info.get("shoe_box_spec")),
+        "execution_standard": _cell_text(product_info.get("execution_standard")),
     }
     if isinstance(imported_extra_fields, dict):
         for key, value in imported_extra_fields.items():
@@ -6814,6 +6822,9 @@ def list_inventory_details(
         response_page_size = total
     if record is None or not details or _cell_text(record.get("document_type")) in ACCOUNTING_DOCUMENT_TYPES:
         return {"items": details, "total": total, "page": response_page, "page_size": response_page_size}
+
+    if _cell_text(record.get("document_type")) == "进货订单":
+        enrich_purchase_execution_standards(repository, details)
 
     details_to_enrich = [
         detail

@@ -36,6 +36,7 @@ from domain.product_archive_identity_schema import (
 from domain.ni_gendered_costs import FEMALE_KEY, MALE_KEY, GENDER_COSTS_FIELD, normalize_gender_costs
 from domain.excluded_skus import is_excluded_sku
 from domain.product_archive_features import has_womens_product_style_fields
+from domain.posted_product_change import posted_product_changes, posted_product_change_warning
 from domain.product_auxiliary_attribute_schema import PRODUCT_AUXILIARY_ATTRIBUTE_FIELDS, PRODUCT_AUXILIARY_ATTRIBUTE_TABLE
 from domain.schema import PRODUCT_ARCHIVE_TABLES
 from domain.size_group_schema import SIZE_GROUPS_TABLE
@@ -452,34 +453,43 @@ def create_product(request: Request, body: ProductWriteRequest):
 
 
 @router.put("/products/{brand}/{product_id}")
-def update_product(request: Request, brand: ProductArchiveBrandKey, product_id: int, body: ProductWriteRequest):
+def update_product(request: Request, brand: ProductArchiveBrandKey, product_id: int, body: ProductWriteRequest, posted_change_confirmation: str | None = Query(None, max_length=64)):
     if body.brand != brand:
         raise HTTPException(status_code=400, detail="Brand mismatch")
 
     repository = request.app.state.repository
     if not repository.is_product_archive_brand(brand):
         raise HTTPException(status_code=400, detail=f"Invalid brand: {brand}")
-    existing = repository.get_product(brand, product_id)
-    if existing is None:
-        raise HTTPException(status_code=404, detail="Product not found")
-
-    record = build_admin_record(
-        brand,
-        body.payload.model_dump(exclude_none=False),
-        existing_metadata={
-            "source_workbook": existing["source_workbook"],
-            "source_sheet": existing["source_sheet"],
-            "source_row_number": existing["source_row_number"],
-        },
-    )
-    if "international_code" not in body.payload.model_fields_set:
-        record["international_code"] = existing.get("international_code")
-    _validate_size_group(request, record.get("size_range"))
-    record["extra_fields"] = filter_extra_fields(existing.get("extra_fields"))
-    if is_excluded_sku(record.get("sku"), record.get("original_sku")):
-        raise HTTPException(status_code=400, detail="该货号已在永久排除清单中")
     inventory_repository = request.app.state.inventory_repository
     with repository.engine.begin() as connection:
+        existing = repository.get_product(brand, product_id, connection=connection, for_update=True)
+        if existing is None:
+            raise HTTPException(status_code=404, detail="Product not found")
+        record = build_admin_record(
+            brand,
+            body.payload.model_dump(exclude_none=False),
+            existing_metadata={
+                "source_workbook": existing["source_workbook"],
+                "source_sheet": existing["source_sheet"],
+                "source_row_number": existing["source_row_number"],
+            },
+        )
+        if "international_code" not in body.payload.model_fields_set:
+            record["international_code"] = existing.get("international_code")
+        _validate_size_group(request, record.get("size_range"))
+        record["extra_fields"] = filter_extra_fields(existing.get("extra_fields"))
+        if is_excluded_sku(record.get("sku"), record.get("original_sku")):
+            raise HTTPException(status_code=400, detail="该货号已在永久排除清单中")
+        guarded_changes = posted_product_changes(existing, record)
+        if guarded_changes:
+            identity_id = repository.product_identity_id(brand, product_id, connection=connection)
+            posted_documents = inventory_repository.posted_product_documents(
+                connection, identity_id, brand=brand, sku=existing.get("sku"),
+            )
+            if posted_documents:
+                warning = posted_product_change_warning(brand, product_id, guarded_changes, posted_documents)
+                if posted_change_confirmation != warning["confirmation_token"]:
+                    raise HTTPException(status_code=409, detail=warning)
         item = repository.update_product(
             brand,
             product_id,

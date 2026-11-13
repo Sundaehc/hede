@@ -46,18 +46,21 @@ import type {
 import { INVENTORY_IMPORT_MAX_FILE_BYTES } from "@/lib/upload-limits.mjs"
 import { notifyBusinessMutation, publishBusinessDataChange } from "@/lib/business-data-sync"
 import { isProductImportValidation, type ProductImportValidation } from "@/lib/product-import-validation"
+import { isPostedProductChangeWarning, type PostedProductChangeWarning } from "@/lib/posted-product-change"
 
 const API_PREFIX = "/api"
 
 export class ApiError extends Error {
   public readonly validation: ProductImportValidation | null
+  public readonly postedChange: PostedProductChangeWarning | null
   constructor(
     public readonly status: number,
-    message: string | ProductImportValidation
+    message: string | ProductImportValidation | PostedProductChangeWarning
   ) {
     super(typeof message === "string" ? message : message.message)
     this.name = "ApiError"
-    this.validation = typeof message === "string" ? null : message
+    this.validation = isProductImportValidation(message) ? message : null
+    this.postedChange = isPostedProductChangeWarning(message) ? message : null
   }
 }
 
@@ -73,6 +76,7 @@ async function readApiError(response: Response) {
   try {
     const parsed = JSON.parse(text) as { detail?: unknown }
     if (isProductImportValidation(parsed?.detail)) return parsed.detail
+    if (isPostedProductChangeWarning(parsed?.detail)) return parsed.detail
     if (typeof parsed?.detail === "string" && !isHtml(parsed.detail)) {
       return parsed.detail
     }
@@ -870,10 +874,12 @@ export function createProduct(
 export function updateProduct(
   brand: ProductArchiveRecordBrandKey,
   id: number,
-  payload: ProductMutationPayload
+  payload: ProductMutationPayload,
+  postedChangeConfirmation?: string,
 ) {
+  const search = postedChangeConfirmation ? `?posted_change_confirmation=${encodeURIComponent(postedChangeConfirmation)}` : ""
   return request<{ item: ProductListItem; message: string }>(
-    `/products/${brand}/${id}`,
+    `/products/${brand}/${id}${search}`,
     {
       method: "PUT",
       body: JSON.stringify({ brand, payload }),

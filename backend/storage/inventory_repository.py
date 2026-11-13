@@ -3885,6 +3885,37 @@ class InventoryRepository:
         )
 
     @staticmethod
+    def posted_product_documents(connection, product_identity_id: int | None, *, brand: str, sku: str | None) -> list[dict[str, object]]:
+        """Use the ledger's complete-document rule, not the target line's price.
+
+        Stable product identities survive SKU changes. Older unlinked lines
+        require both the exact SKU and an explicit matching document brand.
+        """
+        record, detail = INVENTORY_TABLE, INVENTORY_DETAIL_TABLE
+        matches = []
+        if product_identity_id is not None:
+            matches.append(detail.c.product_identity_id == product_identity_id)
+        if str(sku or "").strip():
+            matches.append(and_(
+                detail.c.product_identity_id.is_(None),
+                detail.c.product_code == str(sku).strip(),
+                func.lower(record.c.raw_payload["brand"].as_string()) == brand.lower(),
+            ))
+        if not matches:
+            return []
+        statement = select(
+            record.c.id, record.c.document_number, record.c.document_type, record.c.date,
+            func.count(detail.c.id).label("detail_count"),
+        ).select_from(detail.join(record, record.c.id == detail.c.document_id)).where(
+            or_(*matches), record.c.deleted_at.is_(None),
+            or_(record.c.document_type.is_(None), record.c.document_type != "进货订单"),
+            InventoryRepository._record_completion_condition("completed"),
+        ).group_by(record.c.id, record.c.document_number, record.c.document_type, record.c.date, record.c.date_value).order_by(
+            record.c.date_value.desc().nulls_last(), record.c.date.desc().nulls_last(), record.c.id.desc(),
+        )
+        return [dict(row) for row in connection.execute(statement).mappings()]
+
+    @staticmethod
     def document_product_identity_scope(
         connection,
         product_identity_id: int | None,

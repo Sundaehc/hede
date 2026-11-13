@@ -80,6 +80,7 @@ const EMPTY_DETAIL: Record<string, string> = {
   outsole_material: "",
   insole_material: "",
   shoe_box_spec: "",
+  execution_standard: "",
   quantity: "",
   unit_price: "",
   amount: "",
@@ -97,6 +98,7 @@ const PURCHASE_DETAIL_EXTRA_FIELDS = [
   { key: "outsole_material", label: "大底材质" },
   { key: "insole_material", label: "鞋垫材质" },
   { key: "shoe_box_spec", label: "鞋盒规格" },
+  { key: "execution_standard", label: "执行标准" },
 ] as const
 type PurchaseDetailExtraKey = (typeof PURCHASE_DETAIL_EXTRA_FIELDS)[number]["key"]
 
@@ -352,7 +354,7 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
   )
   const tableSizeColumns = purchaseTableSizeColumns
   const formSizeColumns = purchaseSizeColumns
-  const detailColumnCount = isAccountingDocument ? 6 : isPurchaseOrder ? 17 + tableSizeColumns.length : 9 + tableSizeColumns.length
+  const detailColumnCount = isAccountingDocument ? 6 : isPurchaseOrder ? 18 + tableSizeColumns.length : 9 + tableSizeColumns.length
   const unitPriceDraftValueSet = useMemo(() => new Set(unitPriceDraftValues), [unitPriceDraftValues])
   const visibleUnitPriceOptions = useMemo(() => {
     const query = unitPriceOptionSearch.trim().toLocaleLowerCase("zh-CN")
@@ -1160,7 +1162,7 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
   const documentSummary = record?.summary?.trim() || ""
   const inventoryTableMinWidth = 880 + tableSizeColumns.length * 72
   const tableClassName = isPurchaseOrder
-    ? "w-[2360px] table-fixed text-xs"
+    ? "w-[2520px] table-fixed text-xs"
     : isAccountingDocument
       ? "w-full text-sm"
       : "w-full table-fixed text-sm"
@@ -1353,6 +1355,7 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
                   <th className={`${purchaseHeaderClassName} w-[112px]`}>大底材质</th>
                   <th className={`${purchaseHeaderClassName} w-[112px]`}>鞋垫材质</th>
                   <th className={`${purchaseHeaderClassName} w-[104px]`}>鞋盒规格</th>
+                  <th className={`${purchaseHeaderClassName} w-[160px]`}>执行标准</th>
                   {tableSizeColumns.map((size) => (
                     <th key={size} className="w-[48px] px-2 py-2.5 text-right font-medium whitespace-nowrap">{size}</th>
                   ))}
@@ -1566,6 +1569,7 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
                       <td className={purchaseTextCellClassName} title={getPurchaseDetailExtra(item, "outsole_material")}>{getPurchaseDetailExtra(item, "outsole_material") || "-"}</td>
                       <td className={purchaseTextCellClassName} title={getPurchaseDetailExtra(item, "insole_material")}>{getPurchaseDetailExtra(item, "insole_material") || "-"}</td>
                       <td className={purchaseTextCellClassName} title={getPurchaseDetailExtra(item, "shoe_box_spec")}>{getPurchaseDetailExtra(item, "shoe_box_spec") || "-"}</td>
+                      <td className={purchaseTextCellClassName} title={getPurchaseDetailExtra(item, "execution_standard")}>{getPurchaseDetailExtra(item, "execution_standard") || "-"}</td>
                       {tableSizeColumns.map((size) => (
                         <td key={size} className={purchaseNumberCellClassName}>
                           {getPurchaseSizeQuantity(item.size_quantities, size) || "-"}
@@ -1607,7 +1611,7 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
             {isPurchaseOrder && !isLoading && detailTotal > 0 && (
               <tfoot>
                 <tr className="border-t-2 border-border bg-muted/60 font-medium">
-                  <td colSpan={13 + tableSizeColumns.length} className="px-3 py-3 text-right whitespace-nowrap">合计</td>
+                  <td colSpan={14 + tableSizeColumns.length} className="px-3 py-3 text-right whitespace-nowrap">合计</td>
                   <td className="px-2 py-3 text-right tabular-nums">{record?.total_count || "-"}</td>
                   <td className="px-2 py-3 text-right tabular-nums">-</td>
                   <td className="px-2 py-3 text-right tabular-nums">{record?.amount ?? "-"}</td>
@@ -1803,6 +1807,10 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
                   <div className="space-y-1.5">
                     <Label htmlFor="detail-shoe-box-spec">鞋盒规格</Label>
                     <Input id="detail-shoe-box-spec" value={formData.shoe_box_spec || ""} onChange={(e) => setFormData((prev) => ({ ...prev, shoe_box_spec: e.target.value }))} />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="detail-execution-standard">执行标准</Label>
+                    <Input id="detail-execution-standard" value={formData.execution_standard || ""} onChange={(e) => setFormData((prev) => ({ ...prev, execution_standard: e.target.value }))} />
                   </div>
                   <div className="space-y-1.5">
                     <Label htmlFor="detail-unit-price">单价</Label>

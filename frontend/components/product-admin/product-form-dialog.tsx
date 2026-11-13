@@ -5,6 +5,7 @@ import { X } from "lucide-react"
 
 import { SizeGroupSelect } from "@/components/inventory-admin/size-group-select"
 import { ImageLookupStatus } from "@/components/product-admin/image-lookup-status"
+import { PostedProductChangeDialog } from "@/components/product-admin/posted-product-change-dialog"
 import { ProductOptionSelect } from "@/components/product-admin/product-option-select"
 import { Button } from "@/components/ui/button"
 import {
@@ -23,6 +24,7 @@ import { PRODUCT_ARCHIVE_BRANDS, type ProductArchiveBrand, type ProductArchiveRe
 import { ALL_PRODUCT_FIELDS, BARCODE_BUILD_RULE_OPTIONS, FIELD_LABELS, SEASON_OPTIONS, getProductFieldGroups, getProductFieldLabel } from "@/lib/fields"
 import type { ImageLookupStatusState, ProductAuxiliaryOptionGroup, ProductColorBarcodeItem, ProductFormValues, ProductListItem, ProductMutationPayload, SizeGroup } from "@/lib/types"
 import { cn } from "@/lib/utils"
+import type { PostedProductChangeWarning } from "@/lib/posted-product-change"
 
 type ProductFormDialogProps = {
   brands?: readonly ProductArchiveBrand[]
@@ -227,6 +229,13 @@ export function ProductFormDialog({ brands = PRODUCT_ARCHIVE_BRANDS, item, mode,
   const [brandError, setBrandError] = useState<string | null>(null)
   const [submitError, setSubmitError] = useState<string | null>(null)
   const [isSaving, setIsSaving] = useState(false)
+  const [postedChange, setPostedChange] = useState<{
+    warning: PostedProductChangeWarning
+    payload: ProductMutationPayload
+    brand: ProductArchiveRecordBrandKey
+    id: number
+  } | null>(null)
+  const [postedChangeError, setPostedChangeError] = useState<string | null>(null)
   const [lookupStatus, setLookupStatus] = useState<ImageLookupStatusState>({ status: "idle", message: null })
   const [colorBarcodeOptions, setColorBarcodeOptions] = useState<ProductColorBarcodeItem[]>([])
   const [isLoadingColorBarcodes, setIsLoadingColorBarcodes] = useState(false)
@@ -264,6 +273,8 @@ export function ProductFormDialog({ brands = PRODUCT_ARCHIVE_BRANDS, item, mode,
     )
     setLookupStatus({ status: "idle", message: null })
     setSubmitError(null)
+    setPostedChange(null)
+    setPostedChangeError(null)
     setBrandError(null)
   }, [initialValues, item, open])
 
@@ -523,7 +534,16 @@ export function ProductFormDialog({ brands = PRODUCT_ARCHIVE_BRANDS, item, mode,
       if (mode === "create") {
         await createProduct(values.brand, payload)
       } else if (item) {
-        await updateProduct(item.brand as ProductArchiveRecordBrandKey, item.id, payload)
+        try {
+          await updateProduct(item.brand as ProductArchiveRecordBrandKey, item.id, payload)
+        } catch (error) {
+          if (error instanceof ApiError && error.postedChange) {
+            setPostedChange({ warning: error.postedChange, payload, brand: item.brand as ProductArchiveRecordBrandKey, id: item.id })
+            setPostedChangeError(null)
+            return
+          }
+          throw error
+        }
       }
 
       await onSaved()
@@ -537,8 +557,30 @@ export function ProductFormDialog({ brands = PRODUCT_ARCHIVE_BRANDS, item, mode,
 
   const imageSrc = item?.image_url ? `/api${item.image_url}` : null
 
+  const confirmPostedChange = async () => {
+    if (!postedChange || isSaving) return
+    setIsSaving(true)
+    setPostedChangeError(null)
+    try {
+      await updateProduct(postedChange.brand, postedChange.id, postedChange.payload, postedChange.warning.confirmation_token)
+      await onSaved()
+      onOpenChange(false)
+      setPostedChange(null)
+    } catch (error) {
+      if (error instanceof ApiError && error.postedChange) {
+        setPostedChange({ ...postedChange, warning: error.postedChange })
+        setPostedChangeError("关联单据或商品信息发生变化，请重新核对后确认。")
+      } else {
+        setPostedChangeError(getErrorMessage(error))
+      }
+    } finally {
+      setIsSaving(false)
+    }
+  }
+
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <>
+    <Dialog open={open && !postedChange} onOpenChange={(next) => { if (!isSaving) onOpenChange(next) }}>
       <DialogContent className="max-h-[90vh] max-w-5xl overflow-hidden p-0">
         <div className="flex max-h-[90vh] flex-col">
           <DialogHeader className="flex flex-row items-center justify-between gap-4 border-b border-border px-6 py-4 space-y-0">
@@ -549,6 +591,7 @@ export function ProductFormDialog({ brands = PRODUCT_ARCHIVE_BRANDS, item, mode,
               size="icon"
               className="h-8 w-8 shrink-0 cursor-pointer"
               onClick={() => onOpenChange(false)}
+              disabled={isSaving}
               aria-label="关闭编辑弹窗"
             >
               <X className="h-4 w-4" />
@@ -745,5 +788,14 @@ export function ProductFormDialog({ brands = PRODUCT_ARCHIVE_BRANDS, item, mode,
         </div>
       </DialogContent>
     </Dialog>
+    {open && postedChange && <PostedProductChangeDialog
+      key={postedChange.warning.confirmation_token}
+      warning={postedChange.warning}
+      saving={isSaving}
+      error={postedChangeError}
+      onConfirm={() => void confirmPostedChange()}
+      onCancel={() => { if (!isSaving) { setPostedChange(null); setPostedChangeError(null) } }}
+    />}
+    </>
   )
 }

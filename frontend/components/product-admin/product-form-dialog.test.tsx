@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 import { ProductFormDialog } from "@/components/product-admin/product-form-dialog"
 import { ApiError } from "@/lib/api"
 import type { ProductListItem } from "@/lib/types"
+import type { PostedProductChangeWarning } from "@/lib/posted-product-change"
 
 const { mockCreateProduct, mockListProductAuxiliaryOptions, mockListProductColorBarcodes, mockListSizeGroups, mockListSuppliersByBrand, mockLookupImage, mockUpdateProduct } = vi.hoisted(() => ({
   mockCreateProduct: vi.fn(),
@@ -139,6 +140,67 @@ describe("ProductFormDialog", () => {
     mockListSizeGroups.mockResolvedValue({ items: [] })
     mockListSuppliersByBrand.mockResolvedValue({ items: [], total: 0, page: 1, page_size: 0 })
     mockUpdateProduct.mockResolvedValue({ item: sampleItem, message: "updated" })
+  })
+
+  const postedWarning: PostedProductChangeWarning = {
+    code: "posted_product_change_confirmation", message: "该商品已在 1 张经营历程单据中过账，是否继续变更？",
+    confirmation_token: "a".repeat(64), document_count: 1, detail_count: 2,
+    changes: [{ field: "sku", label: "商品货号", before: "SKU-007", after: "SKU-008" }],
+    documents: [{ id: 31, document_number: "PFXSD-2026-11-01-0001", document_type: "批发销售单", date: "2026-11-01", detail_count: 2 }],
+  }
+
+  it("shows the exact posted documents and saves only after confirmation", async () => {
+    const user = userEvent.setup()
+    const onSaved = vi.fn()
+    const onOpenChange = vi.fn()
+    mockUpdateProduct.mockRejectedValueOnce(new ApiError(409, postedWarning))
+    render(<ProductFormDialog open mode="edit" item={sampleItem} onOpenChange={onOpenChange} onSaved={onSaved} />)
+    const sku = screen.getByLabelText("商品货号")
+    await user.clear(sku)
+    await user.type(sku, "SKU-008")
+    await user.click(screen.getByRole("button", { name: "保存" }))
+    const dialog = await screen.findByRole("alertdialog")
+    expect(within(dialog).getByText("PFXSD-2026-11-01-0001")).toBeInTheDocument()
+    expect(within(dialog).getByText("SKU-007")).toBeInTheDocument()
+    expect(within(dialog).getByText("SKU-008")).toBeInTheDocument()
+    expect(onSaved).not.toHaveBeenCalled()
+    await user.click(within(dialog).getByRole("button", { name: "继续变更" }))
+    expect(mockUpdateProduct).toHaveBeenLastCalledWith("cbanner_mens", 7,
+      expect.objectContaining({ sku: "SKU-008" }), "a".repeat(64))
+    await waitFor(() => expect(onSaved).toHaveBeenCalledOnce())
+    expect(onOpenChange).toHaveBeenCalledWith(false)
+  })
+
+  it("cancels a posted change without writing and keeps the edit draft", async () => {
+    const user = userEvent.setup()
+    const onSaved = vi.fn()
+    mockUpdateProduct.mockRejectedValueOnce(new ApiError(409, postedWarning))
+    render(<ProductFormDialog open mode="edit" item={sampleItem} onOpenChange={vi.fn()} onSaved={onSaved} />)
+    await user.clear(screen.getByLabelText("商品货号"))
+    await user.type(screen.getByLabelText("商品货号"), "SKU-008")
+    await user.click(screen.getByRole("button", { name: "保存" }))
+    await user.click(within(await screen.findByRole("alertdialog")).getByRole("button", { name: "返回修改" }))
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument()
+    expect(screen.getByLabelText("商品货号")).toHaveValue("SKU-008")
+    expect(mockUpdateProduct).toHaveBeenCalledTimes(1)
+    expect(onSaved).not.toHaveBeenCalled()
+  })
+
+  it("requires a fresh confirmation if the posted scope changes before saving", async () => {
+    const user = userEvent.setup()
+    mockUpdateProduct.mockRejectedValueOnce(new ApiError(409, postedWarning))
+    mockUpdateProduct.mockRejectedValueOnce(new ApiError(409, { ...postedWarning, confirmation_token: "b".repeat(64),
+      documents: [...postedWarning.documents, { ...postedWarning.documents[0], id: 32, document_number: "PFXSD-NEW" }], document_count: 2, detail_count: 4 }))
+    render(<ProductFormDialog open mode="edit" item={sampleItem} onOpenChange={vi.fn()} onSaved={vi.fn()} />)
+    await user.clear(screen.getByLabelText("商品货号"))
+    await user.type(screen.getByLabelText("商品货号"), "SKU-008")
+    await user.click(screen.getByRole("button", { name: "保存" }))
+    await user.click(within(await screen.findByRole("alertdialog")).getByRole("button", { name: "继续变更" }))
+    expect(await screen.findByText("PFXSD-NEW")).toBeInTheDocument()
+    expect(screen.getByRole("alert")).toHaveTextContent("请重新核对后确认")
+    await user.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: "继续变更" }))
+    expect(mockUpdateProduct).toHaveBeenLastCalledWith("cbanner_mens", 7,
+      expect.objectContaining({ sku: "SKU-008" }), "b".repeat(64))
   })
 
   it("requires selecting a brand before saving in create mode", async () => {

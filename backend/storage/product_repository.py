@@ -978,7 +978,7 @@ class ProductRepository:
         with self.engine.connect() as connection:
             return [dict(row) for row in connection.execute(statement).mappings()]
 
-    def get_product(self, brand: str, product_id: int) -> dict[str, object] | None:
+    def get_product(self, brand: str, product_id: int, *, connection=None, for_update: bool = False) -> dict[str, object] | None:
         table = self._table_for_brand(brand)
         statement = (
             select(table)
@@ -986,8 +986,13 @@ class ProductRepository:
             .where(table.c.deleted_at.is_(None))
             .where(not_excluded_sku_condition(table.c.sku, table.c.original_sku))
         )
-        with self.engine.connect() as connection:
+        if for_update:
+            statement = statement.with_for_update()
+        if connection is not None:
             row = connection.execute(statement).mappings().first()
+        else:
+            with self.engine.connect() as active_connection:
+                row = active_connection.execute(statement).mappings().first()
         if row is None:
             return None
         item = dict(row)
