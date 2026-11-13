@@ -1377,7 +1377,7 @@ export type PurchasePrintTemplateField =
 
 export type PurchasePrintTemplateElement = {
   id: string
-  kind: "text" | "barcode"
+  kind: "text" | "barcode" | "line"
   field: PurchasePrintTemplateField | null
   label: string
   text: string

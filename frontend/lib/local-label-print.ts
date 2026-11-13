@@ -232,7 +232,10 @@ function drawTemplateElement(
   context.beginPath()
   context.rect(x, y, width, height)
   context.clip()
-  if (element.kind === "barcode") {
+  if (element.kind === "line") {
+    context.fillStyle = "#000"
+    context.fillRect(x, y, width, height)
+  } else if (element.kind === "barcode") {
     const { value, format } = getPurchaseBarcodeData(element, data)
     try {
       drawBarcodeElement(context, value, x, y, width, height, element.border, format)
@@ -244,7 +247,7 @@ function drawTemplateElement(
   }
   context.restore()
 
-  if (element.border) {
+  if (element.border && element.kind !== "line") {
     context.save()
     context.strokeStyle = "#000"
     context.lineWidth = 1

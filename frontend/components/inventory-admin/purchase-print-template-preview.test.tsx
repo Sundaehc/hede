@@ -115,6 +115,67 @@ test("adds an EAN-13 international code from the current product and saves its i
   }), "测试模板")
 })
 
+test("adds multiple horizontal lines, edits their positions and stroke width, and restores them from the saved template", async () => {
+  const user = userEvent.setup()
+  const callbacks = props()
+  const view = render(<PurchasePrintTemplateEditor {...callbacks} />)
+  const preview = await screen.findByRole("region", { name: "当前单据标签预览" })
+  await user.click(screen.getByRole("button", { name: "添加横线" }))
+  expect(within(preview).getByRole("separator", { name: "横线" })).toBeInTheDocument()
+  expect(screen.queryByLabelText("固定文字")).not.toBeInTheDocument()
+  fireEvent.change(screen.getByLabelText("横坐标 (mm)"), { target: { value: "3" } })
+  fireEvent.change(screen.getByLabelText("纵坐标 (mm)"), { target: { value: "8" } })
+  fireEvent.change(screen.getByLabelText("长度 (mm)"), { target: { value: "70" } })
+  fireEvent.change(screen.getByLabelText("横线线宽 (mm)"), { target: { value: "0.35" } })
+  await user.click(screen.getByRole("button", { name: "添加横线" }))
+  expect(within(preview).getAllByRole("separator", { name: "横线" })).toHaveLength(2)
+  await user.click(screen.getByRole("button", { name: "下一个标签" }))
+  expect(within(preview).getAllByRole("separator", { name: "横线" })).toHaveLength(2)
+  await user.click(screen.getByRole("button", { name: "保存模板" }))
+  const saved = callbacks.onSave.mock.calls[0][0]
+  expect(saved.elements.filter((element: { kind: string }) => element.kind === "line")).toEqual([
+    expect.objectContaining({ kind: "line", field: null, text: "", x: 3, y: 8, width: 70, height: 0.35 }),
+    expect.objectContaining({ kind: "line", width: 76, height: 0.25 }),
+  ])
+  view.unmount()
+  render(<PurchasePrintTemplateEditor {...callbacks} config={saved} />)
+  const reopened = await screen.findByRole("region", { name: "当前单据标签预览" })
+  await user.click(within(reopened).getAllByRole("button", { name: "选择横线" })[0])
+  expect(screen.getByLabelText("横线线宽 (mm)")).toHaveValue(0.35)
+  expect(screen.getByLabelText("长度 (mm)")).toHaveValue(70)
+  await user.click(screen.getByRole("button", { name: "删除元素" }))
+  expect(within(reopened).getAllByRole("separator", { name: "横线" })).toHaveLength(1)
+})
+
+test("moves horizontal lines and resizes their length without changing stroke width", async () => {
+  vi.stubGlobal("PointerEvent", MouseEvent)
+  const user = userEvent.setup()
+  const callbacks = props()
+  render(<PurchasePrintTemplateEditor {...callbacks} />)
+  const preview = await screen.findByRole("region", { name: "当前单据标签预览" })
+  vi.spyOn(preview, "getBoundingClientRect").mockReturnValue({ x: 0, y: 0, top: 0, left: 0, right: 800, bottom: 600, width: 800, height: 600, toJSON: () => ({}) })
+  await user.click(screen.getByRole("button", { name: "添加横线" }))
+  fireEvent.pointerDown(screen.getByRole("button", { name: "选择横线" }), { clientX: 100, clientY: 100 })
+  fireEvent.pointerMove(window, { clientX: 110, clientY: 120 })
+  fireEvent.pointerUp(window)
+  expect(screen.getByLabelText("横坐标 (mm)")).toHaveValue(3)
+  expect(screen.getByLabelText("纵坐标 (mm)")).toHaveValue(9.3)
+  fireEvent.pointerDown(screen.getByRole("button", { name: "调整横线长度" }), { clientX: 100, clientY: 100 })
+  fireEvent.pointerMove(window, { clientX: 0, clientY: 150 })
+  fireEvent.pointerUp(window)
+  expect(screen.getByLabelText("长度 (mm)")).toHaveValue(66)
+  expect(screen.getByLabelText("横线线宽 (mm)")).toHaveValue(0.25)
+  fireEvent.pointerDown(screen.getByRole("button", { name: "选择横线" }), { clientX: 100, clientY: 100 })
+  fireEvent.pointerMove(window, { clientX: 2000, clientY: 2000 })
+  fireEvent.pointerUp(window)
+  expect(screen.getByLabelText("横坐标 (mm)")).toHaveValue(14)
+  expect(screen.getByLabelText("纵坐标 (mm)")).toHaveValue(59.75)
+  await user.click(screen.getByRole("button", { name: "保存模板" }))
+  expect(callbacks.onSave).toHaveBeenLastCalledWith(expect.objectContaining({
+    elements: expect.arrayContaining([expect.objectContaining({ kind: "line", x: 14, y: 59.75, width: 66, height: 0.25 })]),
+  }), "测试模板")
+})
+
 test("adds a production date field, chooses a date from the calendar and saves a dynamic field", async () => {
   const user = userEvent.setup()
   const callbacks = props()

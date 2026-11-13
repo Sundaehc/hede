@@ -9,6 +9,7 @@ from collections import defaultdict
 from collections.abc import Iterator, Mapping
 from decimal import Decimal, InvalidOperation
 from datetime import date, datetime, timedelta
+from math import isfinite
 from typing import Annotated, Literal
 from uuid import uuid4
 
@@ -388,7 +389,7 @@ PURCHASE_PRINT_TEMPLATE_FIELDS = {
     "international_code",
     "production_date",
 }
-PURCHASE_PRINT_TEMPLATE_KINDS = {"text", "barcode"}
+PURCHASE_PRINT_TEMPLATE_KINDS = {"text", "barcode", "line"}
 PURCHASE_PRINT_TEMPLATE_ALIGNS = {"left", "center", "right"}
 PURCHASE_PRINT_TEMPLATE_MAX_ELEMENTS = 40
 PURCHASE_PRINT_TEMPLATE_DEFAULT_WIDTH = 80
@@ -971,7 +972,7 @@ def _bounded_template_number(
         number = float(value)
     except (TypeError, ValueError) as exc:
         raise HTTPException(status_code=400, detail=f"模板元素的 {field_name} 格式不正确") from exc
-    if number < minimum or number > maximum:
+    if not isfinite(number) or number < minimum or number > maximum:
         raise HTTPException(
             status_code=400,
             detail=f"模板元素的 {field_name} 必须在 {minimum:g}-{maximum:g} 之间",
@@ -1218,7 +1219,9 @@ def _normalize_purchase_print_template_config(value: object) -> dict[str, object
         field = _cell_text(element.get("field")) or None
         if field is not None and field not in PURCHASE_PRINT_TEMPLATE_FIELDS:
             raise HTTPException(status_code=400, detail=f"第 {index} 个模板元素的数据字段不支持")
-        if kind == "barcode":
+        if kind == "line":
+            field = None
+        elif kind == "barcode":
             field = "international_code" if field == "international_code" else "barcode"
         elif field == "barcode":
             kind = "text"
@@ -1246,14 +1249,14 @@ def _normalize_purchase_print_template_config(value: object) -> dict[str, object
         width = _bounded_template_number(
             element.get("width"),
             field_name="宽度",
-            minimum=3,
+            minimum=1 if kind == "line" else 3,
             maximum=paper_width,
         )
         height = _bounded_template_number(
             element.get("height"),
-            field_name="高度",
-            minimum=2,
-            maximum=paper_height,
+            field_name="线宽" if kind == "line" else "高度",
+            minimum=0.1 if kind == "line" else 2,
+            maximum=2 if kind == "line" else paper_height,
         )
         if (
             x + width > paper_width + 0.01

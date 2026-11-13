@@ -74,6 +74,27 @@ describe("local EAN-13 label printing", () => {
     })
     expect(context.fillText).toHaveBeenCalledWith("生产日期：2026-11-06", expect.any(Number), expect.any(Number))
   })
+
+  it("prints solid horizontal lines at their saved positions without adding text or barcode pixels", async () => {
+    const context = mockCanvas()
+    const bitmap = await renderLocalLabelBitmap(label, {
+      ...config,
+      elements: [
+        { ...DEFAULT_PURCHASE_PRINT_TEMPLATE.elements[0], id: "line-1", kind: "line", field: null, x: 2, y: 7.5, width: 76, height: 0.25 },
+        { ...DEFAULT_PURCHASE_PRINT_TEMPLATE.elements[0], id: "line-2", kind: "line", field: null, x: 4, y: 20, width: 50, height: 0.1 },
+      ],
+    })
+    const bytes = Uint8Array.from(window.atob(bitmap.data_base64), (char) => char.charCodeAt(0))
+    const row = (y: number) => Array.from({ length: 640 }, (_, x) => !!(bytes[y * 80 + Math.floor(x / 8)] & (0x80 >> (x % 8))))
+    expect(row(59).some(Boolean)).toBe(false)
+    expect(row(60).filter(Boolean)).toHaveLength(608)
+    expect(row(61).filter(Boolean)).toHaveLength(608)
+    expect(row(60).slice(16, 624).every(Boolean)).toBe(true)
+    expect(row(62).some(Boolean)).toBe(false)
+    expect(row(160).filter(Boolean)).toHaveLength(400)
+    expect(row(161).some(Boolean)).toBe(false)
+    expect(context.fillText).not.toHaveBeenCalled()
+  })
 })
 
 describe("local print cancellation", () => {

@@ -11,6 +11,7 @@ import {
   ChevronRight,
   Copy,
   GripVertical,
+  Minus,
   Move,
   Plus,
   RefreshCw,
@@ -114,6 +115,10 @@ function cloneTemplate(config: PurchasePrintTemplateConfig): PurchasePrintTempla
 
 function roundTemplateNumber(value: number) {
   return Math.round(value * 10) / 10
+}
+
+function clampLineMeasurement(value: number, minimum: number, maximum: number) {
+  return clamp(Math.round(value * 100) / 100, minimum, maximum)
 }
 
 function formatPaperDimension(value: number) {
@@ -303,14 +308,14 @@ export function PurchasePrintTemplateContent({
           fontWeight: element.bold ? 700 : 400,
           textDecorationLine: element.kind === "text" && element.underline ? "underline" : undefined,
           textAlign: element.align,
-          border: element.border && element.kind !== "barcode" ? "1px solid #000" : undefined,
+          border: element.border && element.kind === "text" ? "1px solid #000" : undefined,
           whiteSpace: element.wrap ? "normal" : "nowrap",
         }
         const isSelected = interactive && selectedId === element.id
         return (
           <div
             key={element.id}
-            className={`purchase-print-element ${interactive ? "cursor-move touch-none select-none" : ""} ${isSelected ? "purchase-print-element-selected" : ""}`}
+            className={`purchase-print-element ${element.kind === "line" ? "purchase-print-line-element" : ""} ${interactive ? "cursor-move touch-none select-none" : ""} ${isSelected ? "purchase-print-element-selected" : ""}`}
             style={style}
             onClick={(event) => {
               if (!interactive) return
@@ -319,7 +324,16 @@ export function PurchasePrintTemplateContent({
             }}
             onPointerDown={(event) => interactive && onPointerStart?.(event, element, "move")}
           >
-            {element.kind === "barcode" ? (
+            {element.kind === "line" ? (
+              <>
+                <svg className="purchase-print-horizontal-line" viewBox="0 0 1 1" preserveAspectRatio="none" role="separator" aria-label="横线" aria-orientation="horizontal">
+                  <rect width="1" height="1" fill="#000" />
+                </svg>
+                {interactive && (
+                  <button type="button" className="purchase-print-line-hit-area" aria-label="选择横线" aria-pressed={isSelected} />
+                )}
+              </>
+            ) : element.kind === "barcode" ? (
               <Barcode {...getPurchaseBarcodeData(element, data)} {...getLocalLabelElementBounds(config, element)} border={element.border} />
             ) : (
               <AutoFitText
@@ -347,8 +361,8 @@ export function PurchasePrintTemplateContent({
               <button
                 type="button"
                 className="purchase-print-resize-handle"
-                aria-label="调整元素大小"
-                title="拖动调整大小"
+                aria-label={element.kind === "line" ? "调整横线长度" : "调整元素大小"}
+                title={element.kind === "line" ? "拖动调整长度" : "拖动调整大小"}
                 onPointerDown={(event) => onPointerStart?.(event, element, "resize")}
               />
             )}
@@ -582,6 +596,16 @@ function PurchasePrintTemplateEditorDialog({
           ...current,
           elements: current.elements.map((element) => {
             if (element.id !== interaction.id) return element
+            if (element.kind === "line") {
+              return interaction.mode === "move" ? {
+                ...element,
+                x: clampLineMeasurement(interaction.initial.x + deltaX, 0, current.paper_width_mm - element.width),
+                y: clampLineMeasurement(interaction.initial.y + deltaY, 0, current.paper_height_mm - element.height),
+              } : {
+                ...element,
+                width: clampLineMeasurement(interaction.initial.width + deltaX, 1, current.paper_width_mm - element.x),
+              }
+            }
           if (interaction.mode === "move") {
             return {
               ...element,
@@ -640,13 +664,26 @@ function PurchasePrintTemplateEditorDialog({
           width: roundTemplateNumber(current.outer_border.width * scaleX),
           height: roundTemplateNumber(current.outer_border.height * scaleY),
         },
-        elements: current.elements.map((element) => ({
-          ...element,
-          x: roundTemplateNumber(element.x * scaleX),
-          y: roundTemplateNumber(element.y * scaleY),
-          width: roundTemplateNumber(element.width * scaleX),
-          height: roundTemplateNumber(element.height * scaleY),
-        })),
+        elements: current.elements.map((element) => {
+          if (element.kind === "line") {
+            const paperWidth = key === "paper_width_mm" ? nextValue : current.paper_width_mm
+            const paperHeight = key === "paper_height_mm" ? nextValue : current.paper_height_mm
+            const width = clampLineMeasurement(element.width * scaleX, 1, paperWidth)
+            const height = clampLineMeasurement(element.height * scaleY, 0.1, 2)
+            return {
+              ...element, width, height,
+              x: clampLineMeasurement(element.x * scaleX, 0, paperWidth - width),
+              y: clampLineMeasurement(element.y * scaleY, 0, paperHeight - height),
+            }
+          }
+          return {
+            ...element,
+            x: roundTemplateNumber(element.x * scaleX),
+            y: roundTemplateNumber(element.y * scaleY),
+            width: roundTemplateNumber(element.width * scaleX),
+            height: roundTemplateNumber(element.height * scaleY),
+          }
+        }),
       }
     })
   }
@@ -745,6 +782,18 @@ function PurchasePrintTemplateEditorDialog({
       show_label: Boolean(field),
       border: false,
       wrap: false,
+    }
+    setDraft((current) => ({ ...current, elements: [...current.elements, next] }))
+    setSelectedId(id)
+  }
+
+  const addLine = () => {
+    const id = nextElementId("line")
+    const next: PurchasePrintTemplateElement = {
+      id, kind: "line", field: null, label: "", text: "",
+      x: 2, y: 7.3, width: draft.paper_width_mm - 4, height: 0.25,
+      font_size: 9, bold: false, underline: false, align: "left",
+      show_label: false, border: false, wrap: false,
     }
     setDraft((current) => ({ ...current, elements: [...current.elements, next] }))
     setSelectedId(id)
@@ -1047,9 +1096,14 @@ function PurchasePrintTemplateEditorDialog({
                     <Plus className="size-4" />
                   </Button>
                 </div>
-                <Button type="button" variant="outline" size="sm" className="w-full" onClick={() => addElement(null)}>
-                  <Plus className="size-3.5" />添加固定文字
-                </Button>
+                <div className="grid grid-cols-2 gap-2">
+                  <Button type="button" variant="outline" size="sm" onClick={() => addElement(null)}>
+                    <Plus className="size-3.5" />添加固定文字
+                  </Button>
+                  <Button type="button" variant="outline" size="sm" onClick={addLine}>
+                    <Minus className="size-3.5" />添加横线
+                  </Button>
+                </div>
                 <label className="flex cursor-pointer items-center gap-2 text-sm">
                   <input type="checkbox" checked={draft.show_outer_border} onChange={(event) => toggleOuterBorder(event.target.checked)} />
                   显示标签外边框
@@ -1094,8 +1148,8 @@ function PurchasePrintTemplateEditorDialog({
                 <div className="space-y-4">
                   <div className="flex items-center justify-between gap-2">
                     <div>
-                      <p className="text-sm font-medium">{selected.field ? FIELD_LABELS[selected.field] : "固定文字"}</p>
-                      <p className="text-xs text-muted-foreground">位置与内容</p>
+                      <p className="text-sm font-medium">{selected.kind === "line" ? "横线" : selected.field ? FIELD_LABELS[selected.field] : "固定文字"}</p>
+                      <p className="text-xs text-muted-foreground">{selected.kind === "line" ? "位置、长度与线宽" : "位置与内容"}</p>
                     </div>
                     <Button type="button" variant="ghost" size="icon" className="text-destructive" title="删除元素" aria-label="删除元素" onClick={removeSelected}>
                       <Trash2 className="size-4" />
@@ -1147,15 +1201,15 @@ function PurchasePrintTemplateEditorDialog({
                     {([
                       ["x", "横坐标", 0, draft.paper_width_mm - selected.width],
                       ["y", "纵坐标", 0, draft.paper_height_mm - selected.height],
-                      ["width", "宽度", 3, draft.paper_width_mm - selected.x],
-                      ["height", "高度", 2, draft.paper_height_mm - selected.y],
+                      ["width", selected.kind === "line" ? "长度" : "宽度", selected.kind === "line" ? 1 : 3, draft.paper_width_mm - selected.x],
+                      ["height", selected.kind === "line" ? "横线线宽" : "高度", selected.kind === "line" ? 0.1 : 2, selected.kind === "line" ? Math.min(2, draft.paper_height_mm - selected.y) : draft.paper_height_mm - selected.y],
                     ] as const).map(([key, label, minimum, maximum]) => (
                       <div className="space-y-1.5" key={key}>
                         <Label htmlFor={`print-element-${key}`}>{label} (mm)</Label>
                         <Input
                           id={`print-element-${key}`}
                           type="number"
-                          step="0.5"
+                          step={selected.kind === "line" && key === "height" ? "0.05" : "0.5"}
                           min={minimum}
                           max={maximum}
                           value={selected[key]}
