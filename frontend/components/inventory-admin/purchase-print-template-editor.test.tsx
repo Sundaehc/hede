@@ -64,6 +64,39 @@ describe("resolvePurchasePrintElementText", () => {
 })
 
 describe("purchase barcode preview", () => {
+  it("renders the international code as EAN-13 alongside the existing Code128 barcode", () => {
+    const config = {
+      ...DEFAULT_PURCHASE_PRINT_TEMPLATE,
+      elements: [
+        ...DEFAULT_PURCHASE_PRINT_TEMPLATE.elements.filter((element) => element.kind === "barcode"),
+        { ...levelElement, id: "international", kind: "barcode" as const, field: "international_code" as const, width: 34, height: 20 },
+      ],
+    }
+    try {
+      render(<PurchasePrintTemplateContent config={config} data={{ ...label, international_code: "0123456789012" }} />)
+      const international = screen.getByRole("img", { name: "国际码 EAN-13 0123456789012" })
+      expect(international).toHaveAttribute("data-barcode-format", "EAN13")
+      expect(Array.from(international.querySelectorAll("text")).map((text) => text.textContent).join("")).toBe("0123456789012")
+      expect(screen.getByRole("img", { name: `条码 ${label.barcode}` })).toHaveAttribute("data-barcode-format", "CODE128")
+    } finally {
+      cleanup()
+    }
+  })
+
+  it("shows a missing international code instead of substituting the internal barcode", () => {
+    const config = {
+      ...DEFAULT_PURCHASE_PRINT_TEMPLATE,
+      elements: [{ ...levelElement, id: "international", kind: "barcode" as const, field: "international_code" as const, width: 34, height: 20 }],
+    }
+    try {
+      render(<PurchasePrintTemplateContent config={config} data={label} />)
+      expect(screen.getByRole("alert")).toHaveTextContent("未填写国际码")
+      expect(screen.queryByRole("img")).not.toBeInTheDocument()
+    } finally {
+      cleanup()
+    }
+  })
+
   it("shows an actionable error when the barcode area is too narrow", () => {
     const config = {
       ...DEFAULT_PURCHASE_PRINT_TEMPLATE,

@@ -262,7 +262,7 @@ def delete_supplier_brand(request: Request, brand_id: int):
 
 
 @router.post("/suppliers")
-def create_supplier(request: Request, payload: dict):
+def create_supplier(request: Request, payload: dict, confirm_cross_brand_code: bool = False):
     repository = request.app.state.inventory_repository
     name = str(payload.get("name") or "").strip()
     brand = payload.get("brand") or infer_supplier_brand_from_name(name) or CBANNER_MENS_BRAND
@@ -276,6 +276,18 @@ def create_supplier(request: Request, payload: dict):
     existing = repository.get_supplier_by_name(name, brand=normalized_brand)
     if existing:
         raise HTTPException(status_code=400, detail=f"供应商 '{name}' 已存在")
+    factory_code = str(payload.get("factory_code") or "").strip()
+    if factory_code and not confirm_cross_brand_code:
+        conflicts = repository.list_supplier_factory_code_conflicts(factory_code, brand=normalized_brand)
+        if conflicts:
+            labels = "、".join(
+                f"{row['brand_name'] or SUPPLIER_EXPORT_BRAND_LABELS.get(row['brand'], row['brand'])}（{row['name']}）"
+                for row in conflicts
+            )
+            raise HTTPException(
+                status_code=409,
+                detail=f"工厂代码“{factory_code}”已在其他品牌中使用：{labels}。是否继续创建？",
+            )
     item = repository.create_supplier(payload)
     label = str(item.get("name") or item.get("id") or "").strip()
     write_operation_log(

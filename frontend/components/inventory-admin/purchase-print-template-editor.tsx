@@ -30,10 +30,12 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
+import { DatePicker } from "@/components/ui/date-picker"
 import { Label } from "@/components/ui/label"
 import { Select } from "@/components/ui/select"
 import { listInventoryPrintLabels } from "@/lib/api"
-import { createPurchaseBarcodeLayout, getLocalLabelElementBounds } from "@/lib/purchase-label-barcode"
+import { getPurchasePrintToday } from "@/lib/purchase-print-date"
+import { createPurchaseBarcodeLayout, getLocalLabelElementBounds, getPurchaseBarcodeData, PURCHASE_EAN_FONT_FAMILY, type PurchaseBarcodeFormat } from "@/lib/purchase-label-barcode"
 import type {
   InventoryPrintLabel,
   PurchasePrintTemplate,
@@ -63,7 +65,9 @@ export const PURCHASE_PRINT_FIELD_OPTIONS: Array<{
   { value: "product_name", label: "品名" },
   { value: "execution_standard", label: "执行标准" },
   { value: "origin", label: "产地" },
+  { value: "production_date", label: "生产日期" },
   { value: "barcode", label: "条形码" },
+  { value: "international_code", label: "国际码（EAN-13）" },
 ]
 
 const FIELD_LABELS = Object.fromEntries(
@@ -121,25 +125,28 @@ export function resolvePurchasePrintElementText(
   data: InventoryPrintLabel,
 ) {
   const customLevel = element.field === "product_level" ? element.text.trim() : ""
-  const value = customLevel || (element.field ? String(data[element.field] ?? "") : element.text)
+  const value = element.field === "production_date"
+    ? data.production_date || getPurchasePrintToday()
+    : customLevel || (element.field ? String(data[element.field] ?? "") : element.text)
   if (!element.field || !element.show_label) return value || "-"
   return `${element.label || FIELD_LABELS[element.field]}：${value || "-"}`
 }
 
-function Barcode({ value, width, height, border }: {
+function Barcode({ value, width, height, border, format }: {
   value: string
   width: number
   height: number
   border: boolean
+  format: PurchaseBarcodeFormat
 }) {
   const result = useMemo(() => {
-    if (!value) return {}
+    if (!value && format === "CODE128") return {}
     try {
-      return { layout: createPurchaseBarcodeLayout(value, width, height, border) }
+      return { layout: createPurchaseBarcodeLayout(value, width, height, border, format) }
     } catch (error) {
       return { error: error instanceof Error ? error.message : "条码无法生成，请检查商品编码。" }
     }
-  }, [value, width, height, border])
+  }, [value, width, height, border, format])
 
   if (result.error) {
     return <div role="alert" className="whitespace-normal bg-white text-xs text-red-700" title={result.error}>{result.error}</div>
@@ -147,10 +154,13 @@ function Barcode({ value, width, height, border }: {
   const layout = result.layout
   if (!layout) return null
   return (
-    <svg className="purchase-print-barcode" viewBox={`0 0 ${width} ${height}`} role="img" aria-label={`条码 ${value}`}>
+    <svg className="purchase-print-barcode" viewBox={`0 0 ${width} ${height}`} role="img" aria-label={format === "EAN13" ? `国际码 EAN-13 ${value}` : `条码 ${value}`} data-barcode-format={format}>
       <rect width={width} height={height} fill="#fff" />
       <g fill="#000" shapeRendering="crispEdges">
-        {layout.bars.map((bar) => <rect key={bar.x} x={bar.x} y={layout.y} width={bar.width} height={layout.barHeight} />)}
+        {layout.bars.map((bar) => <rect key={bar.x} x={bar.x} y={layout.y} width={bar.width} height={bar.height} />)}
+      </g>
+      <g fill="#000" fontFamily={PURCHASE_EAN_FONT_FAMILY} textAnchor="middle">
+        {layout.text.map((text, index) => <text key={index} x={text.x} y={text.y} fontSize={text.fontSize}>{text.value}</text>)}
       </g>
       {border && <rect x={0.5} y={0.5} width={width - 1} height={height - 1} fill="none" stroke="#000" />}
     </svg>
@@ -310,7 +320,7 @@ export function PurchasePrintTemplateContent({
             onPointerDown={(event) => interactive && onPointerStart?.(event, element, "move")}
           >
             {element.kind === "barcode" ? (
-              <Barcode value={data.barcode} {...getLocalLabelElementBounds(config, element)} border={element.border} />
+              <Barcode {...getPurchaseBarcodeData(element, data)} {...getLocalLabelElementBounds(config, element)} border={element.border} />
             ) : (
               <AutoFitText
                 fitKey={[
@@ -434,6 +444,8 @@ type PurchasePrintTemplateEditorProps = {
   templates: PurchasePrintTemplate[]
   selectedTemplateKey: string
   templateName: string
+  productionDate: string
+  onProductionDateChange: (value: string) => void
   onOpenChange: (open: boolean) => void
   onTemplateChange: (templateKey: string) => void
   onCreateTemplate: (templateName: string, config: PurchasePrintTemplateConfig) => Promise<void>
@@ -456,6 +468,8 @@ function PurchasePrintTemplateEditorDialog({
   templates,
   selectedTemplateKey,
   templateName,
+  productionDate,
+  onProductionDateChange,
   onOpenChange,
   onTemplateChange,
   onCreateTemplate,
@@ -685,6 +699,20 @@ function PurchasePrintTemplateEditorDialog({
     const isBarcode = field === "barcode"
     const id = nextElementId(field || "fixed-text")
     const offset = (draft.elements.length % 8) * 1.2
+    if (field === "international_code") {
+      const width = Math.min(34, draft.paper_width_mm - 6)
+      const height = Math.min(20, draft.paper_height_mm)
+      const next: PurchasePrintTemplateElement = {
+        id, kind: "barcode", field, label: "国际码", text: "",
+        x: Math.max(0, draft.paper_width_mm - width - 3),
+        y: clamp(4 + offset, 0, draft.paper_height_mm - height),
+        width, height, font_size: 8.5, bold: false, underline: false,
+        align: "center", show_label: false, border: false, wrap: false,
+      }
+      setDraft((current) => ({ ...current, elements: [...current.elements, next] }))
+      setSelectedId(id)
+      return
+    }
     if (isBarcode) {
       const width = Math.min(54, draft.paper_width_mm - 6)
       const x = clamp(3 + offset, 0, draft.paper_width_mm - width)
@@ -878,7 +906,7 @@ function PurchasePrintTemplateEditorDialog({
               >
                 <PurchasePrintTemplateContent
                   config={draft}
-                  data={previewLabel}
+                  data={{ ...previewLabel, production_date: productionDate }}
                   selectedId={selectedId}
                   interactive
                   onSelect={setSelectedId}
@@ -1012,7 +1040,7 @@ function PurchasePrintTemplateEditorDialog({
               <div className="space-y-2 border-b border-border pb-4">
                 <Label>添加内容</Label>
                 <div className="flex gap-2">
-                  <Select value={fieldToAdd} onChange={(event) => setFieldToAdd(event.target.value as PurchasePrintTemplateField)}>
+                  <Select aria-label="添加内容" value={fieldToAdd} onChange={(event) => setFieldToAdd(event.target.value as PurchasePrintTemplateField)}>
                     {PURCHASE_PRINT_FIELD_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
                   </Select>
                   <Button type="button" variant="outline" size="icon" title="添加字段" aria-label="添加字段" onClick={() => addElement(fieldToAdd)}>
@@ -1074,6 +1102,10 @@ function PurchasePrintTemplateEditorDialog({
                     </Button>
                   </div>
 
+                  {selected.field === "international_code" && (
+                    <p className="text-xs text-muted-foreground">取自商品档案的国际码，按 EAN-13 打印并显示数字；须为含正确校验码的 13 位数字。</p>
+                  )}
+
                   {selected.kind === "text" && selected.field && (
                     <div className="space-y-1.5">
                       <Label htmlFor="print-element-label">字段标题</Label>
@@ -1090,6 +1122,18 @@ function PurchasePrintTemplateEditorDialog({
                         maxLength={200}
                         onChange={(event) => updateSelected({ text: event.target.value })}
                       />
+                    </div>
+                  )}
+                  {selected.kind === "text" && selected.field === "production_date" && (
+                    <div className="space-y-1.5">
+                      <Label htmlFor="print-element-production-date">生产日期</Label>
+                      <DatePicker
+                        id="print-element-production-date"
+                        value={productionDate}
+                        onValueChange={onProductionDateChange}
+                        required
+                      />
+                      <p className="text-xs text-muted-foreground">用于本次打印，默认当天；模板保存日期字段的位置和样式。</p>
                     </div>
                   )}
                   {selected.kind === "text" && !selected.field && (

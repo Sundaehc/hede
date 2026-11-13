@@ -6,9 +6,12 @@ import type {
 } from "@/lib/api"
 import {
   createPurchaseBarcodeLayout,
+  getPurchaseBarcodeData,
   getLocalLabelElementBounds,
   LOCAL_LABEL_HEIGHT_PX as LABEL_HEIGHT_PX,
   LOCAL_LABEL_WIDTH_PX as LABEL_WIDTH_PX,
+  PURCHASE_EAN_FONT_FAMILY,
+  type PurchaseBarcodeFormat,
 } from "@/lib/purchase-label-barcode"
 
 const LABEL_WIDTH_MM = 80
@@ -197,14 +200,23 @@ function drawBarcodeElement(
   width: number,
   height: number,
   border: boolean,
+  format: PurchaseBarcodeFormat,
 ) {
-  if (!value) return
-  const layout = createPurchaseBarcodeLayout(value, width, height, border)
+  if (!value && format === "CODE128") return
+  const layout = createPurchaseBarcodeLayout(value, width, height, border, format)
   context.fillStyle = "#fff"
   context.fillRect(x, y, width, height)
   context.fillStyle = "#000"
   for (const bar of layout.bars) {
-    context.fillRect(x + bar.x, y + layout.y, bar.width, layout.barHeight)
+    context.fillRect(x + bar.x, y + layout.y, bar.width, bar.height)
+  }
+  if (layout.text.length) {
+    context.textAlign = "center"
+    context.textBaseline = "alphabetic"
+    for (const text of layout.text) {
+      context.font = `${text.fontSize}px ${PURCHASE_EAN_FONT_FAMILY}`
+      context.fillText(text.value, x + text.x, y + text.y)
+    }
   }
 }
 
@@ -221,7 +233,12 @@ function drawTemplateElement(
   context.rect(x, y, width, height)
   context.clip()
   if (element.kind === "barcode") {
-    drawBarcodeElement(context, data.barcode, x, y, width, height, element.border)
+    const { value, format } = getPurchaseBarcodeData(element, data)
+    try {
+      drawBarcodeElement(context, value, x, y, width, height, element.border, format)
+    } catch (error) {
+      throw new LocalLabelPrintError(`${data.product_code}：${error instanceof Error ? error.message : "条码无法生成"}`)
+    }
   } else {
     drawTextElement(context, element, data, x, y, width, height)
   }

@@ -102,6 +102,7 @@ class ProductSelectionFilters(BaseModel):
     year: str | None = None
     season: str | None = None
     product_name: str | None = None
+    supplier_name: str | None = None
 
 
 class BatchDeleteItem(BaseModel):

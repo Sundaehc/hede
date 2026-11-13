@@ -115,6 +115,7 @@ def list_products(
     year: str | None = None,
     season: str | None = None,
     product_name: str | None = None,
+    supplier_name: str | None = None,
     page: int = 1,
     page_size: int = 20,
 ):
@@ -124,7 +125,7 @@ def list_products(
     include_cost = request_can_view_product_cost(request)
 
     if brand == "all":
-        payload = repository.list_all_products(query=query, sku_prefix=sku_prefix, year=year, season=season, product_name=product_name, page=page, page_size=page_size)
+        payload = repository.list_all_products(query=query, sku_prefix=sku_prefix, year=year, season=season, product_name=product_name, supplier_name=supplier_name, page=page, page_size=page_size)
         for item in payload["items"]:
             item["brand"] = str(item.get("brand") or "")
         return {
@@ -139,7 +140,7 @@ def list_products(
         from fastapi import HTTPException
         raise HTTPException(status_code=400, detail=f"Invalid brand: {brand}")
 
-    payload = repository.list_products(brand, query=query, sku_prefix=sku_prefix, year=year, season=season, product_name=product_name, page=page, page_size=page_size)
+    payload = repository.list_products(brand, query=query, sku_prefix=sku_prefix, year=year, season=season, product_name=product_name, supplier_name=supplier_name, page=page, page_size=page_size)
     for item in payload["items"]:
         item["brand"] = brand
     return {

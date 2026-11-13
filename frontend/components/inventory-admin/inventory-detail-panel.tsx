@@ -22,6 +22,7 @@ import {
   PurchasePrintTemplateEditor,
 } from "@/components/inventory-admin/purchase-print-template-editor"
 import { cancelLabelsWithLocalAgent, printLabelsWithLocalAgent } from "@/lib/local-label-print"
+import { getPurchasePrintToday } from "@/lib/purchase-print-date"
 import {
   getPurchasePrintTemplate,
   listPurchasePrintTemplates,
@@ -395,6 +396,19 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
   const [selectedPrintTemplateKey, setSelectedPrintTemplateKey] = useState("")
   const [selectedPrintTemplateName, setSelectedPrintTemplateName] = useState("默认模板")
   const [printTemplateOpen, setPrintTemplateOpen] = useState(false)
+  const [productionDateSelection, setProductionDateSelection] = useState<{
+    documentId: number | null
+    value: string
+  }>({ documentId, value: "" })
+  if (productionDateSelection.documentId !== documentId) {
+    setProductionDateSelection({ documentId, value: "" })
+  }
+  const productionDate = productionDateSelection.documentId === documentId && productionDateSelection.value
+    ? productionDateSelection.value
+    : getPurchasePrintToday()
+  const handleProductionDateChange = (value: string) => {
+    setProductionDateSelection({ documentId, value: value || getPurchasePrintToday() })
+  }
   const [isPrintTemplateLoading, setIsPrintTemplateLoading] = useState(false)
   const [messageOpen, setMessageOpen] = useState(false)
   const [messageContent, setMessageContent] = useState({ title: "", description: "" })
@@ -962,7 +976,7 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
           : getPurchasePrintTemplate(job.controller.signal),
       ])
       if (printJobRef.current !== job || job.controller.signal.aborted) return
-      const labels = expandPrintLabels(result.items)
+      const labels = expandPrintLabels(result.items.map((label) => ({ ...label, production_date: productionDate })))
       if (labels.length === 0) {
         showMessage("暂无可打印标签", "当前采购单没有数量大于 0 的尺码明细")
         return
@@ -1614,6 +1628,8 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
           templates={printTemplates}
           selectedTemplateKey={selectedPrintTemplateKey}
           templateName={selectedPrintTemplateName}
+          productionDate={productionDate}
+          onProductionDateChange={handleProductionDateChange}
           onOpenChange={setPrintTemplateOpen}
           onTemplateChange={handleTemplateChange}
           onCreateTemplate={handleCreatePrintTemplate}

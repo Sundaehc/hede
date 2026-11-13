@@ -22,7 +22,7 @@ afterEach(() => { cleanup(); vi.clearAllMocks() })
 
 test("shows imported products in their original brand after switching brands during upload", async () => {
   const prefix = "hede:session-query:v1:anonymous:products:"
-  for (const [key, value] of Object.entries({ brand: "cbanner_womens", page: 3, year: "2020", season: "冬季", productName: "旧品名", submittedSkuPrefix: "OLD" })) {
+  for (const [key, value] of Object.entries({ brand: "cbanner_womens", page: 3, year: "2020", season: "冬季", productName: "旧品名", supplierName: "旧供应商", supplierNameInput: "旧草稿", supplierNameValues: ["旧供应商"], submittedSkuPrefix: "OLD" })) {
     window.sessionStorage.setItem(prefix + key, JSON.stringify(value))
   }
   let imported = false
@@ -31,7 +31,7 @@ test("shows imported products in their original brand after switching brands dur
   list.mockImplementation(async (params) => {
     if (params.brand === "cbanner_mens") return new Promise((resolve) => { resolveOldList = resolve })
     const show = imported && params.brand === "cbanner_womens" && params.query === "NEW-SKU" && params.page === 1
-      && !params.year && !params.season && !params.productName && !params.skuPrefix
+      && !params.year && !params.season && !params.productName && !params.supplierName && !params.skuPrefix
     return { items: show ? [{ id: 9, sku: "NEW-SKU", brand: "cbanner_womens" }] : [], total: show ? 1 : 0 }
   })
   importFile.mockImplementationOnce(() => new Promise((resolve) => { resolveImport = resolve }))

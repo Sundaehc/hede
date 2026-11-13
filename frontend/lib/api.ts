@@ -249,6 +249,7 @@ export type ProductSearchOptions = {
   years: string[]
   seasons: string[]
   product_names: string[]
+  supplier_names?: string[]
 }
 
 export function getProductSearchOptions(brand: ProductArchiveBrandKey) {
@@ -338,13 +339,14 @@ export type ProductSelectionFilters = {
   year?: string
   season?: string
   productName?: string
+  supplierName?: string
 }
 
-export function listProductSelectionIds({ skuPrefix, productName, ...filters }: ProductSelectionFilters) {
+export function listProductSelectionIds({ skuPrefix, productName, supplierName, ...filters }: ProductSelectionFilters) {
   return request<{ items: ProductDeleteTarget[]; total: number }>("/products/selection-ids", {
     method: "POST",
     cache: "no-store",
-    body: JSON.stringify({ ...filters, sku_prefix: skuPrefix, product_name: productName }),
+    body: JSON.stringify({ ...filters, sku_prefix: skuPrefix, product_name: productName, supplier_name: supplierName }),
   })
 }
 
@@ -369,6 +371,7 @@ export function listProducts(params: ProductSelectionFilters & {
   }
   if (params.season) search.set("season", params.season)
   if (params.productName) search.set("product_name", params.productName)
+  if (params.supplierName) search.set("supplier_name", params.supplierName)
   return request<ProductListResponse>(`/products?${search.toString()}`, { cache: "no-store" })
 }
 
@@ -953,7 +956,7 @@ export function buildProductExportUrl(
   year?: string,
   query?: string,
   skuPrefix?: string,
-  attributes?: { season?: string; productName?: string },
+  attributes?: { season?: string; productName?: string; supplierName?: string },
 ) {
   const params = new URLSearchParams({ brand })
   if (brand !== "all" && ids && ids.length > 0) {
@@ -979,6 +982,7 @@ export function buildProductExportUrl(
   }
   if (attributes?.season?.trim()) params.set("season", attributes.season.trim())
   if (attributes?.productName?.trim()) params.set("product_name", attributes.productName.trim())
+  if (attributes?.supplierName?.trim()) params.set("supplier_name", attributes.supplierName.trim())
   return `${API_PREFIX}/export?${params.toString()}`
 }
 
@@ -1028,7 +1032,7 @@ export async function downloadProductExport(
   year?: string,
   query?: string,
   skuPrefix?: string,
-  attributes?: { season?: string; productName?: string },
+  attributes?: { season?: string; productName?: string; supplierName?: string },
 ) {
   onProgress?.({ phase: "preparing", loaded: 0, total: null, percent: null })
   const response = await fetch(
@@ -1123,7 +1127,7 @@ export async function assertProductExportAllowed(
   year?: string,
   query?: string,
   skuPrefix?: string,
-  attributes?: { season?: string; productName?: string },
+  attributes?: { season?: string; productName?: string; supplierName?: string },
 ) {
   const response = await fetch(
     buildProductExportUrl(
@@ -1156,7 +1160,7 @@ export function exportProducts(
   year?: string,
   query?: string,
   skuPrefix?: string,
-  attributes?: { season?: string; productName?: string },
+  attributes?: { season?: string; productName?: string; supplierName?: string },
 ) {
   return fetch(
     buildProductExportUrl(
@@ -1343,6 +1347,9 @@ export type InventoryPrintLabel = {
   size_name: string
   size_barcode: string
   barcode: string
+  international_code?: string
+  /** Date selected for this print job, rather than stored on the purchase order. */
+  production_date?: string
   copies: number
   brand: string
   brand_name: string
@@ -1365,6 +1372,8 @@ export type PurchasePrintTemplateField =
   | "execution_standard"
   | "origin"
   | "barcode"
+  | "international_code"
+  | "production_date"
 
 export type PurchasePrintTemplateElement = {
   id: string
@@ -3132,8 +3141,9 @@ export async function exportColorBarcodes(params: { brand: string; query?: strin
   return response.blob()
 }
 
-export function createColorBarcode(payload: ColorBarcodeWritePayload) {
-  return request<{ item: ManagedColorBarcodeItem; message: string; synced: { updated: number } }>("/color-barcodes", {
+export function createColorBarcode(payload: ColorBarcodeWritePayload, confirmCrossBrandCode = false) {
+  const suffix = confirmCrossBrandCode ? "?confirm_cross_brand_code=true" : ""
+  return request<{ item: ManagedColorBarcodeItem; message: string; synced: { updated: number } }>(`/color-barcodes${suffix}`, {
     method: "POST",
     body: JSON.stringify(payload),
   })
@@ -3207,8 +3217,9 @@ export function deleteSupplierBrand(id: number) {
   })
 }
 
-export function createSupplier(payload: Record<string, unknown>) {
-  return request<{ item: SupplierItem; message: string }>("/suppliers", {
+export function createSupplier(payload: Record<string, unknown>, confirmCrossBrandCode = false) {
+  const suffix = confirmCrossBrandCode ? "?confirm_cross_brand_code=true" : ""
+  return request<{ item: SupplierItem; message: string }>(`/suppliers${suffix}`, {
     method: "POST",
     body: JSON.stringify(payload),
   })

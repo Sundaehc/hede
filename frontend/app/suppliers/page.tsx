@@ -35,6 +35,7 @@ import {
 const PAGE_SIZE = 30
 type PageToken = number | "start-ellipsis" | "end-ellipsis"
 type SupplierBrand = string
+type SupplierFormData = { brand: SupplierBrand; name: string; factory_code: string }
 const DEFAULT_SUPPLIER_BRAND = "cbanner_mens"
 const DEFAULT_SUPPLIER_TAB = "all"
 
@@ -101,11 +102,7 @@ export default function SuppliersPage() {
 
   const [formOpen, setFormOpen] = useState(false)
   const [formMode, setFormMode] = useState<"create" | "edit">("create")
-  const [formData, setFormData] = useState<{
-    brand: SupplierBrand
-    name: string
-    factory_code: string
-  }>({
+  const [formData, setFormData] = useState<SupplierFormData>({
     brand: DEFAULT_SUPPLIER_BRAND,
     name: "",
     factory_code: "",
@@ -114,6 +111,7 @@ export default function SuppliersPage() {
   const [editingOriginalName, setEditingOriginalName] = useState("")
   const [renameConfirmOpen, setRenameConfirmOpen] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
+  const [codeConflict, setCodeConflict] = useState<{ payload: SupplierFormData; description: string } | null>(null)
 
   const [deleteTarget, setDeleteTarget] = useState<SupplierItem | null>(null)
   const [isDeleting, setIsDeleting] = useState(false)
@@ -121,6 +119,11 @@ export default function SuppliersPage() {
   const [operationLogOpen, setOperationLogOpen] = useState(false)
   const [messageOpen, setMessageOpen] = useState(false)
   const [messageContent, setMessageContent] = useState({ title: "", description: "" })
+
+  const showMessage = useCallback((title: string, description: string) => {
+    setMessageContent({ title, description })
+    setMessageOpen(true)
+  }, [])
 
   const load = useCallback(async () => {
     setIsLoading(true)
@@ -155,7 +158,7 @@ export default function SuppliersPage() {
       setBrands([])
       showMessage("加载失败", getErrorMessage(error))
     }
-  }, [setBrand])
+  }, [setBrand, showMessage])
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -165,15 +168,12 @@ export default function SuppliersPage() {
   }, [load])
 
   useEffect(() => {
-    void loadBrands()
+    const timer = window.setTimeout(() => { void loadBrands() }, 0)
+    return () => window.clearTimeout(timer)
   }, [loadBrands])
 
-  const showMessage = (title: string, description: string) => {
-    setMessageContent({ title, description })
-    setMessageOpen(true)
-  }
-
   const openCreate = () => {
+    setCodeConflict(null)
     setFormMode("create")
     setFormData({
       brand: brand === "all" ? brands[0]?.code || DEFAULT_SUPPLIER_BRAND : brand,
@@ -186,6 +186,7 @@ export default function SuppliersPage() {
   }
 
   const openEdit = (item: SupplierItem) => {
+    setCodeConflict(null)
     setFormMode("edit")
     setEditingId(item.id)
     setEditingOriginalName(item.name)
@@ -197,13 +198,15 @@ export default function SuppliersPage() {
     setFormOpen(true)
   }
 
-  const saveSupplier = async () => {
+  const saveSupplier = async (confirmCrossBrandCode = false, source = formData) => {
+    if (isSaving) return
+    const payload = { ...source, name: source.name.trim(), factory_code: source.factory_code.trim() }
     setIsSaving(true)
     try {
       if (formMode === "create") {
-        await createSupplier(formData)
+        await createSupplier(payload, confirmCrossBrandCode)
       } else if (editingId !== null) {
-        await updateSupplier(editingId, formData)
+        await updateSupplier(editingId, payload)
       }
       setFormOpen(false)
       if (formMode === "create" && page !== 1) {
@@ -212,7 +215,11 @@ export default function SuppliersPage() {
         await load()
       }
     } catch (e) {
-      showMessage("保存失败", getErrorMessage(e))
+      if (formMode === "create" && !confirmCrossBrandCode && e instanceof ApiError && e.status === 409) {
+        setCodeConflict({ payload, description: e.message })
+      } else {
+        showMessage("保存失败", getErrorMessage(e))
+      }
     } finally {
       setIsSaving(false)
     }
@@ -504,7 +511,7 @@ export default function SuppliersPage() {
         </div>
       </div>
 
-      <Dialog open={formOpen} onOpenChange={setFormOpen}>
+      <Dialog open={formOpen && codeConflict === null && !messageOpen && !renameConfirmOpen} onOpenChange={(open) => { if (!isSaving) setFormOpen(open) }}>
         <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle>{formMode === "create" ? "新增供应商" : "编辑供应商"}</DialogTitle>
@@ -515,6 +522,7 @@ export default function SuppliersPage() {
               <select
                 id="supplier-brand"
                 value={formData.brand}
+                disabled={isSaving}
                 onChange={(e) => setFormData((prev) => ({ ...prev, brand: e.target.value as SupplierBrand }))}
                 className="flex h-9 w-full rounded-lg border border-input bg-card px-3 py-2 text-sm shadow-xs outline-none transition-colors focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/35"
               >
@@ -525,11 +533,11 @@ export default function SuppliersPage() {
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="supplier-name">名称 *</Label>
-              <Input id="supplier-name" value={formData.name} onChange={(e) => setFormData((prev) => ({ ...prev, name: e.target.value }))} placeholder="供应商名称" />
+              <Input id="supplier-name" value={formData.name} disabled={isSaving} onChange={(e) => setFormData((prev) => ({ ...prev, name: e.target.value }))} placeholder="供应商名称" />
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="supplier-factory-code">工厂代码</Label>
-              <Input id="supplier-factory-code" value={formData.factory_code} onChange={(e) => setFormData((prev) => ({ ...prev, factory_code: e.target.value }))} placeholder="单位编号" />
+              <Input id="supplier-factory-code" value={formData.factory_code} disabled={isSaving} onChange={(e) => setFormData((prev) => ({ ...prev, factory_code: e.target.value }))} placeholder="单位编号" />
             </div>
           </div>
           <DialogFooter>
@@ -538,6 +546,21 @@ export default function SuppliersPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <ConfirmDialog
+        open={codeConflict !== null}
+        title="工厂代码已在其他品牌中存在"
+        description={codeConflict?.description || ""}
+        confirmLabel="继续创建"
+        cancelLabel="取消创建"
+        onConfirm={() => {
+          if (!codeConflict) return
+          const payload = codeConflict.payload
+          setCodeConflict(null)
+          void saveSupplier(true, payload)
+        }}
+        onCancel={() => setCodeConflict(null)}
+      />
 
       <ConfirmDialog
         open={renameConfirmOpen}

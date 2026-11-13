@@ -78,6 +78,7 @@ export function ColorBarcodeManagementPage() {
   const [editingItem, setEditingItem] = useState<ManagedColorBarcodeItem | null>(null)
   const [draft, setDraft] = useState<ColorBarcodeWritePayload>(EMPTY_DRAFT)
   const [isSaving, setIsSaving] = useState(false)
+  const [codeConflict, setCodeConflict] = useState<{ payload: ColorBarcodeWritePayload; description: string } | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<ManagedColorBarcodeItem | null>(null)
   const [isDeleting, setIsDeleting] = useState(false)
   const [isExporting, setIsExporting] = useState(false)
@@ -159,12 +160,14 @@ export function ColorBarcodeManagementPage() {
   }
 
   const openCreate = () => {
+    setCodeConflict(null)
     setEditingItem(null)
     setDraft({ ...EMPTY_DRAFT, brand: selectedBrand || brands[0]?.brand || "" })
     setEditorOpen(true)
   }
 
   const openEdit = (item: ManagedColorBarcodeItem) => {
+    setCodeConflict(null)
     setEditingItem(item)
     setDraft({
       brand: item.brand,
@@ -174,11 +177,12 @@ export function ColorBarcodeManagementPage() {
     setEditorOpen(true)
   }
 
-  const save = async () => {
+  const save = async (confirmCrossBrandCode = false, source = draft) => {
+    if (isSaving) return
     const payload = {
-      brand: draft.brand.trim(),
-      color_barcode: draft.color_barcode.trim(),
-      color_name: draft.color_name.trim(),
+      brand: source.brand.trim(),
+      color_barcode: source.color_barcode.trim(),
+      color_name: source.color_name.trim(),
     }
     if (!payload.brand || !payload.color_barcode || !payload.color_name) {
       setMessage({ title: "保存失败", description: "请填写品牌、颜色名称和颜色代码" })
@@ -188,14 +192,18 @@ export function ColorBarcodeManagementPage() {
     try {
       const result = editingItem
         ? await updateColorBarcode(editingItem.id, payload)
-        : await createColorBarcode(payload)
+        : await createColorBarcode(payload, confirmCrossBrandCode)
       setEditorOpen(false)
       await loadBrands()
       if (payload.brand !== selectedBrand) selectBrand(payload.brand)
       else await loadItems()
       setMessage({ title: editingItem ? "保存成功" : "新增成功", description: result.message })
     } catch (error) {
-      setMessage({ title: "保存失败", description: getErrorMessage(error) })
+      if (!editingItem && !confirmCrossBrandCode && error instanceof ApiError && error.status === 409) {
+        setCodeConflict({ payload, description: error.message })
+      } else {
+        setMessage({ title: "保存失败", description: getErrorMessage(error) })
+      }
     } finally {
       setIsSaving(false)
     }
@@ -354,7 +362,7 @@ export function ColorBarcodeManagementPage() {
         </section>
       </div>
 
-      <Dialog open={editorOpen} onOpenChange={setEditorOpen}>
+      <Dialog open={editorOpen && codeConflict === null && message === null} onOpenChange={(open) => { if (!isSaving) setEditorOpen(open) }}>
         <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle>{editingItem ? "编辑颜色" : "新增颜色"}</DialogTitle>
@@ -368,26 +376,40 @@ export function ColorBarcodeManagementPage() {
           >
             <div className="space-y-1.5">
               <Label htmlFor="color-brand">品牌</Label>
-              <Select id="color-brand" value={draft.brand} onChange={(event) => setDraft((current) => ({ ...current, brand: event.target.value }))}>
+              <Select id="color-brand" value={draft.brand} disabled={isSaving} onChange={(event) => setDraft((current) => ({ ...current, brand: event.target.value }))}>
                 {brands.map((brand) => <option key={brand.brand} value={brand.brand}>{brand.brand_label}</option>)}
               </Select>
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="color-name">颜色名称</Label>
-              <Input id="color-name" value={draft.color_name} onChange={(event) => setDraft((current) => ({ ...current, color_name: event.target.value }))} placeholder="例如：黑色" autoComplete="off" />
+              <Input id="color-name" value={draft.color_name} disabled={isSaving} onChange={(event) => setDraft((current) => ({ ...current, color_name: event.target.value }))} placeholder="例如：黑色" autoComplete="off" />
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="color-code">颜色代码</Label>
-              <Input id="color-code" value={draft.color_barcode} onChange={(event) => setDraft((current) => ({ ...current, color_barcode: event.target.value }))} placeholder="例如：01" autoComplete="off" />
+              <Input id="color-code" value={draft.color_barcode} disabled={isSaving} onChange={(event) => setDraft((current) => ({ ...current, color_barcode: event.target.value }))} placeholder="例如：01" autoComplete="off" />
             </div>
             <DialogFooter className="pt-2">
-              <Button type="button" variant="outline" className="cursor-pointer" onClick={() => setEditorOpen(false)}>取消</Button>
+              <Button type="button" variant="outline" className="cursor-pointer" disabled={isSaving} onClick={() => setEditorOpen(false)}>取消</Button>
               <Button type="submit" className="cursor-pointer" disabled={isSaving}>{isSaving && <Loader2 className="size-4 animate-spin" />}{isSaving ? "保存中" : "保存"}</Button>
             </DialogFooter>
           </form>
         </DialogContent>
       </Dialog>
 
+      <ConfirmDialog
+        open={codeConflict !== null}
+        title="颜色代码已在其他品牌中存在"
+        description={codeConflict?.description || ""}
+        confirmLabel="继续创建"
+        cancelLabel="取消创建"
+        onConfirm={() => {
+          if (!codeConflict) return
+          const payload = codeConflict.payload
+          setCodeConflict(null)
+          void save(true, payload)
+        }}
+        onCancel={() => setCodeConflict(null)}
+      />
       <ConfirmDialog
         open={deleteTarget !== null}
         title="确认删除颜色"

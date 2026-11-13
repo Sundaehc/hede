@@ -15,6 +15,7 @@ from api.fine_table_cache import clear_fine_table_cache
 from api.operation_log_utils import build_changed_fields, summarize_changes, write_operation_log
 from api.product_goods_cache import clear_product_goods_cache
 from domain.color_barcode_schema import COLOR_BARCODE_TABLE
+from domain.inventory_schema import SUPPLIER_BRAND_TABLE
 
 
 router = APIRouter(prefix="/color-barcodes", tags=["color-barcodes"])
@@ -239,7 +240,7 @@ def export_color_barcodes(
 
 
 @router.post("")
-def create_color_barcode(request: Request, payload: ColorBarcodeWriteRequest):
+def create_color_barcode(request: Request, payload: ColorBarcodeWriteRequest, confirm_cross_brand_code: bool = False):
     table = COLOR_BARCODE_TABLE
     values = {
         "brand": payload.brand,
@@ -259,6 +260,22 @@ def create_color_barcode(request: Request, payload: ColorBarcodeWriteRequest):
             duplicate = _duplicate_message(connection, payload)
             if duplicate:
                 raise HTTPException(status_code=400, detail=duplicate)
+            if not confirm_cross_brand_code:
+                conflicts = connection.execute(
+                    select(table.c.brand, table.c.color_name, SUPPLIER_BRAND_TABLE.c.name.label("brand_name"))
+                    .select_from(table.outerjoin(SUPPLIER_BRAND_TABLE, table.c.brand == SUPPLIER_BRAND_TABLE.c.code))
+                    .where(table.c.color_barcode == payload.color_barcode, table.c.brand != payload.brand)
+                    .order_by(table.c.brand, table.c.id)
+                ).mappings().all()
+                if conflicts:
+                    labels = "、".join(
+                        f"{row['brand_name'] or _brand_label(row['brand'])}（{row['color_name']}）"
+                        for row in conflicts
+                    )
+                    raise HTTPException(
+                        status_code=409,
+                        detail=f"颜色代码“{payload.color_barcode}”已在其他品牌中使用：{labels}。是否继续创建？",
+                    )
             row = connection.execute(insert(table).values(**values).returning(table)).mappings().one()
             sync_result = _sync_products(
                 request,

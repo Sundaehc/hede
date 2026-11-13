@@ -385,6 +385,8 @@ PURCHASE_PRINT_TEMPLATE_FIELDS = {
     "execution_standard",
     "origin",
     "barcode",
+    "international_code",
+    "production_date",
 }
 PURCHASE_PRINT_TEMPLATE_KINDS = {"text", "barcode"}
 PURCHASE_PRINT_TEMPLATE_ALIGNS = {"left", "center", "right"}
@@ -892,6 +894,7 @@ def _load_purchase_size_export_profiles(
                         table.c.sku,
                         table.c.original_sku,
                         table.c.product_name,
+                        table.c.international_code,
                         table.c.color,
                         table.c.color_code,
                         table.c.barcode_build_rule,
@@ -1216,7 +1219,7 @@ def _normalize_purchase_print_template_config(value: object) -> dict[str, object
         if field is not None and field not in PURCHASE_PRINT_TEMPLATE_FIELDS:
             raise HTTPException(status_code=400, detail=f"第 {index} 个模板元素的数据字段不支持")
         if kind == "barcode":
-            field = "barcode"
+            field = "international_code" if field == "international_code" else "barcode"
         elif field == "barcode":
             kind = "text"
 
@@ -1376,6 +1379,7 @@ def _build_purchase_print_labels(
                 "size_name": size_name,
                 "size_barcode": size_barcode,
                 "barcode": barcode,
+                "international_code": _cell_text(profile.get("international_code") if profile else None),
                 "copies": copies,
                 "brand": effective_brand,
                 "brand_name": _purchase_label_brand_name(effective_brand),

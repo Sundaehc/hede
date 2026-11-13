@@ -1753,6 +1753,19 @@ class InventoryRepository:
             }
         return summaries
 
+    def list_supplier_factory_code_conflicts(self, factory_code: str, *, brand: str) -> list[dict[str, object]]:
+        normalized_code = factory_code.strip()
+        if not normalized_code:
+            return []
+        statement = (
+            select(SUPPLIER_TABLE.c.brand, SUPPLIER_TABLE.c.name, SUPPLIER_BRAND_TABLE.c.name.label("brand_name"))
+            .select_from(SUPPLIER_TABLE.outerjoin(SUPPLIER_BRAND_TABLE, SUPPLIER_TABLE.c.brand == SUPPLIER_BRAND_TABLE.c.code))
+            .where(SUPPLIER_TABLE.c.factory_code == normalized_code, SUPPLIER_TABLE.c.brand != brand)
+            .order_by(SUPPLIER_TABLE.c.brand, SUPPLIER_TABLE.c.id)
+        )
+        with self.engine.connect() as connection:
+            return [dict(row) for row in connection.execute(statement).mappings()]
+
     def create_supplier(self, data: Mapping[str, object]) -> dict[str, object]:
         statement = insert(SUPPLIER_TABLE).values(**self._prepare_supplier(data)).returning(SUPPLIER_TABLE)
         with self.engine.begin() as connection:

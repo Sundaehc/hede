@@ -25,6 +25,7 @@ const first: InventoryPrintLabel = {
   barcode: "ACTUAL-01BLACKEU35", copies: 10000, brand: "cbanner_womens", brand_name: "C°BANNER",
   product_level: "合格品", color_name: "黑色", upper_material: "羊皮革", product_name: "当前单据女鞋",
   execution_standard: "ACTUAL-STD", origin: "中国",
+  international_code: "6927335313916",
 }
 const second: InventoryPrintLabel = { ...first, size_name: "36", size_barcode: "EU36", barcode: "ACTUAL-01BLACKEU36", copies: 2 }
 const third: InventoryPrintLabel = { ...first, detail_id: 52, product_code: "ACTUAL-02", color_name: "白色", barcode: "ACTUAL-02WHITEEU35" }
@@ -33,6 +34,7 @@ function props() {
   return {
     open: true, documentId: 42, documentNumber: "JHDD-CURRENT", config: DEFAULT_PURCHASE_PRINT_TEMPLATE,
     templates: [template], selectedTemplateKey: "label", templateName: "测试模板",
+    productionDate: "2026-11-13", onProductionDateChange: vi.fn(),
     onOpenChange: vi.fn(), onTemplateChange: vi.fn(), onCreateTemplate: vi.fn(),
     onDuplicateTemplate: vi.fn(), onSetDefaultTemplate: vi.fn(), onDeleteTemplate: vi.fn(), onSave: vi.fn(),
   }
@@ -92,6 +94,52 @@ test("updates the current label immediately as the template changes and preserve
     elements: expect.arrayContaining([expect.objectContaining({ id: "product-code", label: "款号", x: 4 })]),
   }), "测试模板")
   expect(labelsMock).toHaveBeenCalledTimes(1)
+})
+
+test("adds an EAN-13 international code from the current product and saves its independent position", async () => {
+  const user = userEvent.setup()
+  const callbacks = props()
+  render(<PurchasePrintTemplateEditor {...callbacks} />)
+  const preview = await screen.findByRole("region", { name: "当前单据标签预览" })
+  await user.selectOptions(screen.getByRole("combobox", { name: "添加内容" }), "international_code")
+  await user.click(screen.getByRole("button", { name: "添加字段" }))
+  expect(within(preview).getByRole("img", { name: "国际码 EAN-13 6927335313916" })).toHaveAttribute("data-barcode-format", "EAN13")
+  expect(within(preview).getByRole("img", { name: `条码 ${first.barcode}` })).toHaveAttribute("data-barcode-format", "CODE128")
+  fireEvent.change(screen.getByLabelText("横坐标 (mm)"), { target: { value: "42" } })
+  await user.click(screen.getByRole("button", { name: "保存模板" }))
+  expect(callbacks.onSave).toHaveBeenLastCalledWith(expect.objectContaining({
+    elements: expect.arrayContaining([
+      expect.objectContaining({ field: "international_code", kind: "barcode", x: 42 }),
+      expect.objectContaining({ field: "barcode", kind: "barcode" }),
+    ]),
+  }), "测试模板")
+})
+
+test("adds a production date field, chooses a date from the calendar and saves a dynamic field", async () => {
+  const user = userEvent.setup()
+  const callbacks = props()
+  const view = render(<PurchasePrintTemplateEditor {...callbacks} />)
+  const preview = await screen.findByRole("region", { name: "当前单据标签预览" })
+  expect(screen.queryByLabelText("生产日期")).not.toBeInTheDocument()
+  await user.selectOptions(screen.getByRole("combobox", { name: "添加内容" }), "production_date")
+  await user.click(screen.getByRole("button", { name: "添加字段" }))
+  expect(within(preview).getByText("生产日期：2026-11-13")).toBeInTheDocument()
+  await user.click(screen.getByLabelText("生产日期"))
+  await user.click(screen.getByRole("button", { name: "2026年11月6日" }))
+  expect(callbacks.onProductionDateChange).toHaveBeenCalledWith("2026-11-06")
+  view.rerender(<PurchasePrintTemplateEditor {...callbacks} productionDate="2026-11-06" />)
+  expect(within(preview).getByText("生产日期：2026-11-06")).toBeInTheDocument()
+  await user.click(screen.getByRole("button", { name: "下一个标签" }))
+  expect(within(preview).getByText("生产日期：2026-11-06")).toBeInTheDocument()
+  await user.click(screen.getByRole("button", { name: "保存模板" }))
+  expect(callbacks.onSave).toHaveBeenCalledWith(expect.objectContaining({
+    elements: expect.arrayContaining([
+      expect.objectContaining({ field: "production_date", kind: "text", text: "" }),
+    ]),
+  }), "测试模板")
+  expect(JSON.stringify(callbacks.onSave.mock.calls[0][0])).not.toContain("2026-11-06")
+  await user.click(within(preview).getByText("货号：ACTUAL-01"))
+  expect(screen.queryByLabelText("生产日期")).not.toBeInTheDocument()
 })
 
 test("shows empty and failure states without fabricated data, retries and refreshes latest labels", async () => {

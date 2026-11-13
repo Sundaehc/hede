@@ -20,6 +20,14 @@ import type { ProductImageRefreshStatus } from "@/lib/types"
 type ProductToolbarProps = {
   brand: ProductArchiveBrandKey
   year: string
+  supplierSearch?: {
+    query: string
+    values: string[]
+    applied: string
+    options: string[]
+    onQueryChange: (value: string) => void
+    onValuesChange: (values: string[]) => void
+  }
   attributes?: {
     yearInput: string
     seasonInput: string
@@ -51,7 +59,7 @@ type ProductToolbarProps = {
   canRefreshImages?: boolean
   onValueChange: (value: string) => void
   onPrefixValueChange: (value: string) => void
-  onSearch: (attributes?: { year?: string; season?: string; productName?: string }) => void
+  onSearch: (attributes?: { year?: string; season?: string; productName?: string; supplierName?: string }) => void
   onClear: () => void
   onRefresh: () => void
   onImportComplete: (skus: string[], brand: ProductArchiveBrandKey) => void
@@ -76,6 +84,7 @@ function currentShanghaiDateValue() {
 export function ProductToolbar({
   brand,
   year,
+  supplierSearch,
   attributes,
   value,
   query,
@@ -105,6 +114,7 @@ export function ProductToolbar({
   const yearInputId = useId()
   const seasonInputId = useId()
   const productNameInputId = useId()
+  const supplierNameInputId = useId()
   const yearOptions = useMemo(() => attributes?.availableYears.map((value) => {
     const prefix = value.match(/^\d+/)?.[0] ?? ""
     const keywords = prefix.length === 2 ? `20${prefix}` : prefix.length === 4 ? prefix.slice(-2) : ""
@@ -112,6 +122,7 @@ export function ProductToolbar({
   }) ?? [], [attributes?.availableYears])
   const seasonOptions = useMemo(() => attributes?.availableSeasons.map((value) => ({ value, label: value })) ?? [], [attributes?.availableSeasons])
   const productNameOptions = useMemo(() => attributes?.availableProductNames.map((value) => ({ value, label: value })) ?? [], [attributes?.availableProductNames])
+  const supplierNameOptions = useMemo(() => supplierSearch?.options.map((value) => ({ value, label: value })) ?? [], [supplierSearch?.options])
   const fileInputRef = useRef<HTMLInputElement>(null)
   const submittedImageRefreshAtRef = useRef<number | null>(null)
   const [importing, setImporting] = useState(false)
@@ -195,8 +206,8 @@ export function ProductToolbar({
     const exportYear = isActivityExport ? undefined : year || undefined
     const exportQuery = !isActivityExport && !ids ? query || undefined : undefined
     const exportSkuPrefix = !isActivityExport && !ids ? skuPrefix || undefined : undefined
-    const attributeArgs: [attributes?: { season?: string; productName?: string }] = !isActivityExport && !ids && (attributes?.season || attributes?.productName)
-      ? [{ season: attributes.season || undefined, productName: attributes.productName || undefined }]
+    const attributeArgs: [attributes?: { season?: string; productName?: string; supplierName?: string }] = !isActivityExport && !ids && (attributes?.season || attributes?.productName || supplierSearch?.applied)
+      ? [{ season: attributes?.season || undefined, productName: attributes?.productName || undefined, ...(supplierSearch?.applied ? { supplierName: supplierSearch.applied } : {}) }]
       : []
     setExporting(true)
     setExportingMode(isActivityExport ? (mode ? "range_with_sizes" : "range") : (mode ?? "default"))
@@ -287,7 +298,7 @@ export function ProductToolbar({
         : null
   const defaultExportLabel = exportingMode === "default" && exportStatusText
     ? exportStatusText
-    : hasSelection ? `导出选中 (${selectedIds!.size})` : query || skuPrefix || year || attributes?.season || attributes?.productName ? "导出搜索结果" : "导出 Excel"
+    : hasSelection ? `导出选中 (${selectedIds!.size})` : query || skuPrefix || year || attributes?.season || attributes?.productName || supplierSearch?.applied ? "导出搜索结果" : "导出 Excel"
   const sizeExportLabel = exportingMode === "with_sizes" && exportStatusText ? exportStatusText : "带尺码导出"
   const priceExportLabel = exportingMode === "price" && exportStatusText ? exportStatusText : "物价导出"
   const activityExportLabel = exportingMode === "range" && exportStatusText ? exportStatusText : "导出记录"
@@ -304,6 +315,7 @@ export function ProductToolbar({
     { label: "年份", value: attributes ? productAttributeSummary(year) : "" },
     { label: "季节", value: productAttributeSummary(attributes?.season || "") },
     { label: "品名", value: productAttributeSummary(attributes?.productName || "") },
+    { label: "供应商", value: productAttributeSummary(supplierSearch?.applied || "") },
   ].filter((filter) => filter.value)
   const collapsedSearchSummary = activeSearchFilters.map((filter) => `${filter.label}：${filter.value}`).join("；")
 
@@ -400,7 +412,7 @@ export function ProductToolbar({
             <Button type="button" size="sm" onClick={() => onSearch()} disabled={isLoading} className="h-8 cursor-pointer rounded-md shadow-none">
               搜索
             </Button>
-            <Button type="button" variant="outline" size="sm" onClick={onClear} disabled={isLoading && !value && !prefixValue && !attributes?.yearInput && !attributes?.seasonInput && !attributes?.productNameInput && !attributes?.yearValues.length && !attributes?.seasonValues.length && !attributes?.productNameValues.length} className="h-8 cursor-pointer rounded-md shadow-none">
+            <Button type="button" variant="outline" size="sm" onClick={onClear} disabled={isLoading && !value && !prefixValue && !attributes?.yearInput && !attributes?.seasonInput && !attributes?.productNameInput && !attributes?.yearValues.length && !attributes?.seasonValues.length && !attributes?.productNameValues.length && !supplierSearch?.query && !supplierSearch?.values.length} className="h-8 cursor-pointer rounded-md shadow-none">
               清空
             </Button>
             <Button type="button" variant="outline" size="sm" onClick={onRefresh} disabled={isLoading} className="h-8 cursor-pointer rounded-md shadow-none">
@@ -441,7 +453,7 @@ export function ProductToolbar({
         </div>
 
         {attributes && (
-          <div role="group" aria-label="商品属性筛选" className="grid min-w-0 gap-2 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1.8fr)]">
+          <div role="group" aria-label="商品属性筛选" className={`grid min-w-0 gap-2 ${supplierSearch ? "sm:grid-cols-2 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1.8fr)_minmax(0,1.8fr)]" : "sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1.8fr)]"}`}>
             <div className="min-w-0 space-y-1">
               <Label htmlFor={yearInputId} className="text-xs text-muted-foreground">年份</Label>
               <ProductMultiOptionSelect id={yearInputId} label="年份" values={attributes.yearValues} query={attributes.yearInput} options={yearOptions} onValuesChange={attributes.onYearValuesChange} onQueryChange={attributes.onYearChange} onSubmit={(values) => onSearch({ year: productAttributeFilter(values) })} placeholder="搜索或选择年份（可多选）" />
@@ -454,6 +466,12 @@ export function ProductToolbar({
               <Label htmlFor={productNameInputId} className="text-xs text-muted-foreground">品名</Label>
               <ProductMultiOptionSelect id={productNameInputId} label="品名" values={attributes.productNameValues} query={attributes.productNameInput} options={productNameOptions} onValuesChange={attributes.onProductNameValuesChange} onQueryChange={attributes.onProductNameChange} onSubmit={(values) => onSearch({ productName: productAttributeFilter(values) })} placeholder="搜索或选择品名（可多选）" />
             </div>
+            {supplierSearch && (
+              <div className="min-w-0 space-y-1">
+                <Label htmlFor={supplierNameInputId} className="text-xs text-muted-foreground">供应商</Label>
+                <ProductMultiOptionSelect id={supplierNameInputId} label="供应商" values={supplierSearch.values} query={supplierSearch.query} options={supplierNameOptions} onValuesChange={supplierSearch.onValuesChange} onQueryChange={supplierSearch.onQueryChange} onSubmit={(values) => onSearch({ supplierName: productAttributeFilter(values) })} placeholder="搜索或选择供应商（可多选）" />
+              </div>
+            )}
           </div>
         )}
 

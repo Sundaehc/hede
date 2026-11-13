@@ -57,6 +57,9 @@ export function ProductAdminPage() {
   const [season, setSeason] = useSessionQueryState("products:season", "")
   const [productNameInput, setProductNameInput] = useSessionQueryState("products:productNameInput", "")
   const [productName, setProductName] = useSessionQueryState("products:productName", "")
+  const [supplierNameInput, setSupplierNameInput] = useSessionQueryState("products:supplierNameInput", "")
+  const [supplierName, setSupplierName] = useSessionQueryState("products:supplierName", "")
+  const [supplierNameValues, setSupplierNameValues] = useSessionQueryState<string[]>("products:supplierNameValues", () => productAttributeValues(supplierName))
   const [yearValues, setYearValues] = useSessionQueryState<string[]>("products:yearValues", () => productAttributeValues(year))
   const [seasonValues, setSeasonValues] = useSessionQueryState<string[]>("products:seasonValues", () => productAttributeValues(season))
   const [productNameValues, setProductNameValues] = useSessionQueryState<string[]>("products:productNameValues", () => productAttributeValues(productName))
@@ -120,7 +123,8 @@ export function ProductAdminPage() {
     skuPrefix: submittedSkuPrefix || undefined,
     season: season || undefined,
     productName: productName || undefined,
-  }), [brand, year, submittedQuery, submittedSkuPrefix, season, productName])
+    supplierName: supplierName || undefined,
+  }), [brand, year, submittedQuery, submittedSkuPrefix, season, productName, supplierName])
 
   const clearSelection = useCallback(() => {
     selectionRequestRef.current += 1
@@ -214,6 +218,7 @@ export function ProductAdminPage() {
           year: year || undefined,
           season: season || undefined,
           productName: productName || undefined,
+          supplierName: supplierName || undefined,
         })
 
         if (cancelled) {
@@ -245,7 +250,7 @@ export function ProductAdminPage() {
     return () => {
       cancelled = true
     }
-  }, [brand, year, season, productName, page, pageSize, reloadToken, routeContextReady, submittedQuery, submittedSkuPrefix])
+  }, [brand, year, season, productName, supplierName, page, pageSize, reloadToken, routeContextReady, submittedQuery, submittedSkuPrefix])
 
   useEffect(() => () => { selectionRequestRef.current += 1 }, [selectionFilters])
 
@@ -480,6 +485,11 @@ export function ProductAdminPage() {
             <ProductToolbar
                 brand={brand}
                 year={year}
+                supplierSearch={{
+                  query: supplierNameInput, values: supplierNameValues, applied: supplierName,
+                  options: attributeOptions.supplier_names ?? [],
+                  onQueryChange: setSupplierNameInput, onValuesChange: setSupplierNameValues,
+                }}
                 attributes={{
                   yearInput, seasonInput, productNameInput, yearValues, seasonValues, productNameValues, season, productName,
                   availableYears: attributeOptions.years, availableSeasons: attributeOptions.seasons, availableProductNames: attributeOptions.product_names,
@@ -506,15 +516,19 @@ export function ProductAdminPage() {
                   const nextYear = attributes?.year ?? productAttributeFilter(yearValues, yearInput)
                   const nextSeason = attributes?.season ?? productAttributeFilter(seasonValues, seasonInput)
                   const nextProductName = attributes?.productName ?? productAttributeFilter(productNameValues, productNameInput)
+                  const nextSupplierName = attributes?.supplierName ?? productAttributeFilter(supplierNameValues, supplierNameInput)
                   setYear(nextYear)
                   setSeason(nextSeason)
                   setProductName(nextProductName)
+                  setSupplierName(nextSupplierName)
                   setYearValues(productAttributeValues(nextYear))
                   setSeasonValues(productAttributeValues(nextSeason))
                   setProductNameValues(productAttributeValues(nextProductName))
+                  setSupplierNameValues(productAttributeValues(nextSupplierName))
                   setYearInput("")
                   setSeasonInput("")
                   setProductNameInput("")
+                  setSupplierNameInput("")
                 }}
                 onClear={() => {
                   clearSelection()
@@ -532,6 +546,9 @@ export function ProductAdminPage() {
                   setYearValues([])
                   setSeasonValues([])
                   setProductNameValues([])
+                  setSupplierName("")
+                  setSupplierNameInput("")
+                  setSupplierNameValues([])
                 }}
                 onRefresh={() => {
                   setReloadToken((current) => current + 1)
@@ -561,6 +578,9 @@ export function ProductAdminPage() {
                   setYearValues([])
                   setSeasonValues([])
                   setProductNameValues([])
+                  setSupplierName("")
+                  setSupplierNameInput("")
+                  setSupplierNameValues([])
                   setPage(1)
                 }}
                 onCreate={isAllBrand(brand) || !canManageProducts ? undefined : () => {

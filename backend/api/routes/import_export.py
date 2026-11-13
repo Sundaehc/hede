@@ -312,13 +312,14 @@ def _iter_all_export_rows(
     sku_prefix: str | None = None,
     season: str | None = None,
     product_name: str | None = None,
+    supplier_name: str | None = None,
     include_cost: bool = True,
 ) -> Iterator[tuple[str, list[object]]]:
     export_columns = [column for column in EXPORT_COLUMNS if include_cost or column not in {"cost", "cost_price"}]
     for brand in repository.product_archive_brands():
         table = repository._table_for_brand(brand)
         conditions = _active_product_export_conditions(table)
-        conditions.extend(_product_attribute_conditions(table, season=season, product_name=product_name))
+        conditions.extend(_product_attribute_conditions(table, season=season, product_name=product_name, supplier_name=supplier_name))
         if activity_date_start:
             conditions.append(_activity_date_export_condition(table, activity_date_start, activity_date_end))
         if year:
@@ -466,6 +467,7 @@ def _export_all_products(
     sku_prefix: str | None = None,
     season: str | None = None,
     product_name: str | None = None,
+    supplier_name: str | None = None,
 ) -> StreamingResponse:
     include_cost = request_can_view_product_cost(request)
     brand_labels = _product_export_brand_labels(repository)
@@ -500,6 +502,7 @@ def _export_all_products(
         sku_prefix=sku_prefix,
         season=season,
         product_name=product_name,
+        supplier_name=supplier_name,
         include_cost=include_cost,
     ):
         row = [_excel_cell_value(brand_labels.get(brand, brand))] + [_excel_cell_value(value) for value in values]
@@ -604,12 +607,13 @@ def _load_size_export_source_items(
     sku_prefix: str | None = None,
     season: str | None = None,
     product_name: str | None = None,
+    supplier_name: str | None = None,
 ) -> list[dict[str, object]]:
     table = repository._table_for_brand(brand)
     statement = (
         select(table)
         .where(*_active_product_export_conditions(table))
-        .where(*_product_attribute_conditions(table, season=season, product_name=product_name))
+        .where(*_product_attribute_conditions(table, season=season, product_name=product_name, supplier_name=supplier_name))
     )
     id_list = _parse_id_list(ids)
     if id_list:
@@ -1027,6 +1031,7 @@ def _export_products_with_sizes(
     sku_prefix: str | None = None,
     season: str | None = None,
     product_name: str | None = None,
+    supplier_name: str | None = None,
 ) -> StreamingResponse:
     _validate_product_export_request(repository, brand, SIZE_EXPORT_MODE)
     include_cost = request_can_view_product_cost(request)
@@ -1041,6 +1046,7 @@ def _export_products_with_sizes(
         sku_prefix=sku_prefix,
         season=season,
         product_name=product_name,
+        supplier_name=supplier_name,
     )
     if ids and not source_items:
         raise HTTPException(status_code=404, detail="未找到可导出的选中商品")
@@ -1219,6 +1225,7 @@ def _export_product_prices(
     sku_prefix: str | None = None,
     season: str | None = None,
     product_name: str | None = None,
+    supplier_name: str | None = None,
 ) -> StreamingResponse:
     workbook = Workbook()
     worksheet = workbook.active
@@ -1230,7 +1237,7 @@ def _export_product_prices(
     for archive_brand in brands:
         table = repository._table_for_brand(archive_brand)
         conditions = _active_product_export_conditions(table)
-        conditions.extend(_product_attribute_conditions(table, season=season, product_name=product_name))
+        conditions.extend(_product_attribute_conditions(table, season=season, product_name=product_name, supplier_name=supplier_name))
         if selected_ids:
             conditions.append(table.c.id.in_(selected_ids))
         else:
@@ -1311,6 +1318,7 @@ def export_products(
     sku_prefix: str | None = Query(None),
     season: str | None = Query(None),
     product_name: str | None = Query(None),
+    supplier_name: str | None = Query(None),
     today_only: bool = Query(False),
 ):
     repository = request.app.state.repository
@@ -1331,6 +1339,7 @@ def export_products(
     export_attributes = {
         "season": season.strip() if isinstance(season, str) and not export_date_start else None,
         "product_name": product_name.strip() if isinstance(product_name, str) and not export_date_start else None,
+        "supplier_name": supplier_name.strip() if isinstance(supplier_name, str) and not export_date_start else None,
     }
 
     if mode == PRICE_EXPORT_MODE:
