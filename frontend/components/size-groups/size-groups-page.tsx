@@ -1,7 +1,7 @@
 "use client"
 
-import { useCallback, useEffect, useMemo, useState } from "react"
-import { Check, History, Loader2, Plus, Ruler, Save, Trash2 } from "lucide-react"
+import { useCallback, useEffect, useMemo, useState, type DragEvent } from "react"
+import { ArrowDown, ArrowUp, GripVertical, History, Loader2, Plus, Ruler, Save, Trash2 } from "lucide-react"
 
 import { useAuth } from "@/components/auth/auth-provider"
 import { ConfirmDialog, MessageDialog } from "@/components/confirm-dialog"
@@ -11,6 +11,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { ApiError, createSizeGroup, deleteSizeGroup, listSizeGroups, updateSizeGroup } from "@/lib/api"
 import type { SizeGroup, SizeGroupWritePayload } from "@/lib/types"
+import { useDragPageAutoScroll } from "@/lib/use-drag-page-auto-scroll"
 import { cn } from "@/lib/utils"
 
 
@@ -54,6 +55,29 @@ function sortedGroups(items: SizeGroup[]) {
   return [...items].sort((left, right) => left.name.localeCompare(right.name, "zh-CN"))
 }
 
+const sizeNameCollator = new Intl.Collator("zh-CN", { numeric: true })
+const numericSize = /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)$/
+
+function compareSizeNames(left: string, right: string, direction: "asc" | "desc") {
+  const a = left.trim()
+  const b = right.trim()
+  // Keep unfinished rows at the end in either direction.
+  if (!a || !b) return a ? -1 : b ? 1 : 0
+  const aIsNumber = numericSize.test(a)
+  const bIsNumber = numericSize.test(b)
+  const order = aIsNumber && bIsNumber
+    ? Number(a) - Number(b)
+    : aIsNumber !== bIsNumber
+      ? aIsNumber ? -1 : 1
+      : sizeNameCollator.compare(a, b)
+  return direction === "asc" ? order : -order
+}
+
+function dropPlacement(event: DragEvent<HTMLTableRowElement>) {
+  const { top, height } = event.currentTarget.getBoundingClientRect()
+  return event.clientY < top + height / 2 ? "before" : "after"
+}
+
 export function SizeGroupsPage() {
   const { user } = useAuth()
   const canManage = user?.role_code === "super_admin" || ["商品部", "开发部", "财务部"].includes(user?.department_code ?? "")
@@ -67,6 +91,11 @@ export function SizeGroupsPage() {
   const [isDeleting, setIsDeleting] = useState(false)
   const [operationLogOpen, setOperationLogOpen] = useState(false)
   const [message, setMessage] = useState<{ title: string; description: string } | null>(null)
+  const [draggedItemKey, setDraggedItemKey] = useState<string | null>(null)
+  const [dropTarget, setDropTarget] = useState<{ key: string; placement: "before" | "after" } | null>(null)
+  const [sortAnnouncement, setSortAnnouncement] = useState("")
+  const isBusy = isLoading || isSaving || isDeleting
+  useDragPageAutoScroll(draggedItemKey !== null && !isBusy)
 
   const selectedGroup = useMemo(
     () => groups.find((group) => group.id === selectedId) ?? null,
@@ -106,13 +135,22 @@ export function SizeGroupsPage() {
     }
   }, [groups, isNew, selectedId])
 
+  const clearDrag = () => {
+    setDraggedItemKey(null)
+    setDropTarget(null)
+  }
+
   const selectGroup = (group: SizeGroup) => {
+    clearDrag()
+    setSortAnnouncement("")
     setSelectedId(group.id)
     setIsNew(false)
     setDraft(draftFromGroup(group))
   }
 
   const startNew = () => {
+    clearDrag()
+    setSortAnnouncement("")
     setSelectedId(null)
     setIsNew(true)
     setDraft(EMPTY_DRAFT())
@@ -129,6 +167,51 @@ export function SizeGroupsPage() {
     setDraft((current) => ({
       ...current,
       items: current.items.length === 1 ? current.items : current.items.filter((item) => item.key !== key),
+    }))
+  }
+
+  const moveItem = (key: string, offset: -1 | 1) => {
+    if (isBusy) return
+    const index = draft.items.findIndex((item) => item.key === key)
+    const target = index + offset
+    if (index < 0 || target < 0 || target >= draft.items.length) return
+    setSortAnnouncement(`尺码 ${draft.items[index].size_name || "未填写"} 已移至第 ${target + 1} 行，请保存。`)
+    setDraft((current) => {
+      const index = current.items.findIndex((item) => item.key === key)
+      const target = index + offset
+      if (index < 0 || target < 0 || target >= current.items.length) return current
+      const items = [...current.items]
+      const moved = items[index]
+      items[index] = items[target]
+      items[target] = moved
+      return { ...current, items }
+    })
+  }
+
+  const dropItem = (event: DragEvent<HTMLTableRowElement>, targetKey: string) => {
+    if (isBusy || draggedItemKey === null) return
+    event.preventDefault()
+    event.stopPropagation()
+    const source = draft.items.find((item) => item.key === draggedItemKey)
+    if (source && draggedItemKey !== targetKey) {
+      const items = draft.items.filter((item) => item.key !== draggedItemKey)
+      const targetIndex = items.findIndex((item) => item.key === targetKey)
+      if (targetIndex >= 0) {
+        const insertionIndex = targetIndex + (dropPlacement(event) === "after" ? 1 : 0)
+        items.splice(insertionIndex, 0, source)
+        setDraft((current) => ({ ...current, items }))
+        setSortAnnouncement(`尺码 ${source.size_name || "未填写"} 已移至第 ${insertionIndex + 1} 行，请保存。`)
+      }
+    }
+    clearDrag()
+  }
+
+  const sortItems = (direction: "asc" | "desc") => {
+    clearDrag()
+    setSortAnnouncement(`尺码已按${direction === "asc" ? "升序" : "降序"}排列，请保存。`)
+    setDraft((current) => ({
+      ...current,
+      items: [...current.items].sort((left, right) => compareSizeNames(left.size_name, right.size_name, direction)),
     }))
   }
 
@@ -214,7 +297,7 @@ export function SizeGroupsPage() {
               <History className="size-4" />
               操作日志
             </Button>
-            <Button type="button" onClick={startNew} className="cursor-pointer gap-1.5">
+            <Button type="button" onClick={startNew} disabled={isBusy} className="cursor-pointer gap-1.5">
               <Plus className="size-4" />
               新增尺码组
             </Button>
@@ -233,6 +316,7 @@ export function SizeGroupsPage() {
                   <button
                     key={group.id}
                     type="button"
+                    disabled={isSaving || isDeleting}
                     className={cn(
                       "flex w-full cursor-pointer items-center gap-3 rounded-lg px-3 py-2.5 text-left transition-colors",
                       selected ? "bg-primary text-primary-foreground shadow-sm" : "hover:bg-muted",
@@ -264,6 +348,7 @@ export function SizeGroupsPage() {
                     className="cursor-pointer"
                     title="删除尺码组"
                     aria-label="删除尺码组"
+                    disabled={isBusy}
                     onClick={() => {
                       if (selectedGroup.product_count) {
                         setMessage({ title: "无法删除", description: `该尺码组已被 ${selectedGroup.product_count} 个商品使用，请先修改这些商品的尺码段。` })
@@ -275,7 +360,7 @@ export function SizeGroupsPage() {
                     <Trash2 className="size-4" />
                   </Button>
                 ) : null}
-                <Button type="button" className="cursor-pointer gap-1.5" onClick={save} disabled={isSaving}>
+                <Button type="button" className="cursor-pointer gap-1.5" onClick={save} disabled={isBusy}>
                   {isSaving ? <Loader2 className="size-4 animate-spin" /> : <Save className="size-4" />}
                   保存
                 </Button>
@@ -285,13 +370,34 @@ export function SizeGroupsPage() {
             <div className="flex-1 p-5">
               <div className="max-w-xl space-y-1.5">
                 <Label htmlFor="size-group-name">尺码组名称</Label>
-                <Input id="size-group-name" value={draft.name} onChange={(event) => setDraft((current) => ({ ...current, name: event.target.value }))} placeholder="例如：女鞋 34-39" autoComplete="off" />
+                <Input id="size-group-name" value={draft.name} disabled={isBusy} onChange={(event) => setDraft((current) => ({ ...current, name: event.target.value }))} placeholder="例如：女鞋 34-39" autoComplete="off" />
               </div>
 
-              <div className="mt-6 overflow-hidden rounded-lg border border-border">
-                <table className="w-full table-fixed text-sm">
+              <div className="mt-6 flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <h3 className="text-sm font-medium">尺码明细</h3>
+                  <p id="size-group-sort-help" className="mt-1 text-xs text-muted-foreground">
+                    拖动左侧手柄调整顺序，靠近屏幕上下边缘可自动滚动，修改后点击保存。
+                    <span className="sr-only">也可将焦点移至手柄，按上下方向键移动尺码。</span>
+                  </p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Button type="button" variant="outline" size="sm" disabled={isBusy || draft.items.length < 2} onClick={() => sortItems("asc")}>
+                    <ArrowUp className="size-3.5" aria-hidden="true" />
+                    尺码升序
+                  </Button>
+                  <Button type="button" variant="outline" size="sm" disabled={isBusy || draft.items.length < 2} onClick={() => sortItems("desc")}>
+                    <ArrowDown className="size-3.5" aria-hidden="true" />
+                    尺码降序
+                  </Button>
+                </div>
+              </div>
+              <p role="status" className="sr-only">{sortAnnouncement}</p>
+              <div className="mt-3 overflow-x-auto rounded-lg border border-border">
+                <table className="w-full min-w-[480px] table-fixed text-sm">
                   <thead className="bg-muted/55 text-left text-xs text-muted-foreground">
                     <tr>
+                      <th className="w-12 px-2 py-2.5"><span className="sr-only">拖拽排序</span></th>
                       <th className="w-16 px-3 py-2.5 font-medium">行号</th>
                       <th className="px-3 py-2.5 font-medium">尺码</th>
                       <th className="px-3 py-2.5 font-medium">条码</th>
@@ -300,12 +406,68 @@ export function SizeGroupsPage() {
                   </thead>
                   <tbody>
                     {draft.items.map((item, index) => (
-                      <tr key={item.key} className="border-t border-border">
+                      <tr
+                        key={item.key}
+                        onDragOver={(event) => {
+                          if (isBusy || draggedItemKey === null) return
+                          event.preventDefault()
+                          event.dataTransfer.dropEffect = "move"
+                          if (draggedItemKey === item.key) {
+                            setDropTarget(null)
+                            return
+                          }
+                          const placement = dropPlacement(event)
+                          setDropTarget((current) => current?.key === item.key && current.placement === placement ? current : { key: item.key, placement })
+                        }}
+                        onDragLeave={(event) => {
+                          if (event.relatedTarget instanceof Node && event.currentTarget.contains(event.relatedTarget)) return
+                          setDropTarget((current) => current?.key === item.key ? null : current)
+                        }}
+                        onDrop={(event) => dropItem(event, item.key)}
+                        className={cn(
+                          "border-t border-border transition-colors",
+                          draggedItemKey === item.key && "opacity-40",
+                          dropTarget?.key === item.key && "bg-primary/5",
+                          dropTarget?.key === item.key && (dropTarget.placement === "before"
+                            ? "[&>td]:shadow-[inset_0_2px_0_var(--primary)]"
+                            : "[&>td]:shadow-[inset_0_-2px_0_var(--primary)]"),
+                        )}
+                      >
+                        <td className="px-2 py-1.5">
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            className="cursor-grab text-muted-foreground active:cursor-grabbing"
+                            title="拖拽排序，也可按上下方向键调整"
+                            aria-label={`拖拽排序第 ${index + 1} 行尺码 ${item.size_name}`}
+                            aria-describedby="size-group-sort-help"
+                            aria-keyshortcuts="ArrowUp ArrowDown"
+                            disabled={isBusy || draft.items.length < 2}
+                            draggable={!isBusy && draft.items.length > 1}
+                            onDragStart={(event) => {
+                              event.dataTransfer.effectAllowed = "move"
+                              event.dataTransfer.setData("application/x-hede-size-group-item", item.key)
+                              const row = event.currentTarget.closest("tr")
+                              if (row) event.dataTransfer.setDragImage(row, 24, row.getBoundingClientRect().height / 2)
+                              setDraggedItemKey(item.key)
+                              setDropTarget(null)
+                            }}
+                            onDragEnd={clearDrag}
+                            onKeyDown={(event) => {
+                              if (event.key !== "ArrowUp" && event.key !== "ArrowDown") return
+                              event.preventDefault()
+                              moveItem(item.key, event.key === "ArrowUp" ? -1 : 1)
+                            }}
+                          >
+                            <GripVertical className="size-4" aria-hidden="true" />
+                          </Button>
+                        </td>
                         <td className="px-3 py-2 text-muted-foreground">{index + 1}</td>
-                        <td className="px-3 py-1.5"><Input value={item.size_name} aria-label={`第 ${index + 1} 行尺码`} onChange={(event) => updateItem(item.key, "size_name", event.target.value)} placeholder="例如：34" autoComplete="off" /></td>
-                        <td className="px-3 py-1.5"><Input value={item.barcode} aria-label={`第 ${index + 1} 行条码`} onChange={(event) => updateItem(item.key, "barcode", event.target.value)} placeholder="请输入条码" autoComplete="off" /></td>
+                        <td className="px-3 py-1.5"><Input value={item.size_name} disabled={isBusy} aria-label={`第 ${index + 1} 行尺码`} onChange={(event) => updateItem(item.key, "size_name", event.target.value)} placeholder="例如：34" autoComplete="off" /></td>
+                        <td className="px-3 py-1.5"><Input value={item.barcode} disabled={isBusy} aria-label={`第 ${index + 1} 行条码`} onChange={(event) => updateItem(item.key, "barcode", event.target.value)} placeholder="请输入条码" autoComplete="off" /></td>
                         <td className="px-2 py-1.5 text-center">
-                          <Button type="button" variant="ghost" size="icon" className="cursor-pointer text-muted-foreground hover:text-destructive" title="删除尺码" aria-label={`删除第 ${index + 1} 行尺码`} disabled={draft.items.length === 1} onClick={() => deleteItem(item.key)}>
+                          <Button type="button" variant="ghost" size="icon" className="cursor-pointer text-muted-foreground hover:text-destructive" title="删除尺码" aria-label={`删除第 ${index + 1} 行尺码`} disabled={isBusy || draft.items.length === 1} onClick={() => deleteItem(item.key)}>
                             <Trash2 className="size-4" />
                           </Button>
                         </td>
@@ -315,7 +477,7 @@ export function SizeGroupsPage() {
                 </table>
               </div>
 
-              <Button type="button" variant="outline" className="mt-3 cursor-pointer gap-1.5" onClick={() => setDraft((current) => ({ ...current, items: [...current.items, newDraftItem()] }))}>
+              <Button type="button" variant="outline" disabled={isBusy} className="mt-3 cursor-pointer gap-1.5" onClick={() => setDraft((current) => ({ ...current, items: [...current.items, newDraftItem()] }))}>
                 <Plus className="size-4" />
                 新增尺码
               </Button>

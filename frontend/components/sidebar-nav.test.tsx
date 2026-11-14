@@ -31,6 +31,16 @@ describe("SidebarNav management groups", () => {
 
   afterEach(cleanup)
 
+  it("places stock warnings and replenishment in the dedicated 存 group", () => {
+    render(<SidebarNav />)
+    const group = screen.getByRole("heading", { name: /^存$/ }).parentElement!
+    expect(within(group).getAllByRole("link").map((link) => [link.textContent, link.getAttribute("href")])).toEqual([
+      ["新品零动销预警", "/stock-alerts/new-products"],
+      ["低售罄、滞销预警", "/stock-alerts/slow-sales"],
+      ["补货建议", "/stock-alerts/replenishment"],
+    ])
+  })
+
   it("places product settings in other management and keeps system entries separate", () => {
     render(<SidebarNav />)
 

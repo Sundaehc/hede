@@ -47,8 +47,40 @@ import { INVENTORY_IMPORT_MAX_FILE_BYTES } from "@/lib/upload-limits.mjs"
 import { notifyBusinessMutation, publishBusinessDataChange } from "@/lib/business-data-sync"
 import { isProductImportValidation, type ProductImportValidation } from "@/lib/product-import-validation"
 import { isPostedProductChangeWarning, type PostedProductChangeWarning } from "@/lib/posted-product-change"
+import type { StockAlertFilters, StockAlertKind, StockAlertResponse, StockAlertRuleWrite } from "@/lib/stock-alerts"
+import type { ReplenishmentFilters, ReplenishmentResponse, ReplenishmentRule, ReplenishmentRuleResponse } from "@/lib/stock-replenishment"
 
 const API_PREFIX = "/api"
+
+export function getStockAlertOptions(signal?: AbortSignal) {
+  return request<{ brands: Array<{ value: string; label: string }> }>("/stock-alerts/options", { signal })
+}
+
+export function getStockAlerts(filters: StockAlertFilters, kind: StockAlertKind, options: { signal?: AbortSignal; refresh?: boolean } = {}) {
+  const search = new URLSearchParams({ kind })
+  Object.entries(filters).forEach(([key, value]) => search.set(key, String(value)))
+  if (options.refresh) search.set("refresh", "true")
+  return request<StockAlertResponse>(`/stock-alerts?${search}`, { signal: options.signal, cache: "no-store" })
+}
+
+export function saveStockAlertRule(payload: StockAlertRuleWrite) {
+  return request<{ message: string }>("/stock-alerts/rules", { method: "PUT", body: JSON.stringify(payload) })
+}
+
+export function getReplenishment(filters: ReplenishmentFilters, options: { signal?: AbortSignal; refresh?: boolean } = {}) {
+  const search = new URLSearchParams()
+  Object.entries(filters).forEach(([key, value]) => search.set(key, String(value)))
+  if (options.refresh) search.set("refresh", "true")
+  return request<ReplenishmentResponse>(`/stock-alerts/replenishment?${search}`, { signal: options.signal, cache: "no-store" })
+}
+
+export function getReplenishmentRule(brand: string, supplier: string, signal?: AbortSignal) {
+  return request<ReplenishmentRuleResponse>(`/stock-alerts/replenishment/rules?${new URLSearchParams({ brand, supplier })}`, { signal, cache: "no-store" })
+}
+
+export function saveReplenishmentRule(payload: ReplenishmentRule & { brand: string; supplier: string }) {
+  return request<{ message: string }>("/stock-alerts/replenishment/rules", { method: "PUT", body: JSON.stringify(payload) })
+}
 
 export class ApiError extends Error {
   public readonly validation: ProductImportValidation | null

@@ -3,6 +3,7 @@ import {
   createDetail, deleteProduct, getInventoryTemplateTask, getPurchaseImportTask, importProducts,
   listInventorySelectionIds, listProductSelectionIds, previewInventoryTemplate, previewPurchaseInventory,
   replaceDetailsFromExcel, resolveMissingImportTask, submitPurchaseImportTask, updateInventoryRecord, updateProduct, updateSizeGroup,
+  getReplenishment, saveReplenishmentRule,
 } from "@/lib/api"
 import { publishBusinessDataChange } from "@/lib/business-data-sync"
 
@@ -23,6 +24,24 @@ beforeEach(() => {
   vi.mocked(publishBusinessDataChange).mockClear()
 })
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals() })
+
+test("supplier rules notify other tabs, and replenishment queries preserve filters and avoid HTTP caching", async () => {
+  const payload = { brand: "cbanner_mens", supplier: "工厂甲", lead_days: 10, min_order_qty: 100, cover_days: 14,
+    size_ratios: { "女鞋": { "35": 1, "36": 2 } }, version: 1 }
+  await saveReplenishmentRule(payload)
+  expect(messages).toEqual([expect.objectContaining({ resources: ["stock-alert-rules"] })])
+  const request = vi.mocked(fetch).mock.calls[0][1]
+  expect(request?.method).toBe("PUT")
+  expect(JSON.parse(String(request?.body))).toEqual(payload)
+  await getReplenishment({ brand: "cbanner_mens", supplier: "工厂甲", query: "A", window_days: 15,
+    deduct_transit: true, status: "pending", page: 2 }, { refresh: true })
+  const [url, options] = vi.mocked(fetch).mock.calls[1]
+  expect(String(url)).toContain("deduct_transit=true")
+  expect(String(url)).toContain("page=2")
+  expect(String(url)).toContain("window_days=15")
+  expect(options?.cache).toBe("no-store")
+  expect(messages).toHaveLength(1)
+})
 
 test("notifies after successful product, document, detail and size rule mutations", async () => {
   await updateProduct("cbanner_womens", 1, { product_name: "新名称" })

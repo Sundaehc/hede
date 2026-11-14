@@ -25,6 +25,10 @@ from api.routes.purchase_order_details import router as purchase_order_details_r
 from api.routes.inventory_sales_details import router as inventory_sales_details_router
 from api.routes.operation_logs import router as operation_logs_router
 from api.routes.products import router as products_router
+from api.routes.stock_alerts import router as stock_alerts_router
+from storage.stock_alert_rules import StockAlertRuleRepository
+from api.routes.stock_replenishment import router as stock_replenishment_router
+from storage.stock_replenishment_rules import StockReplenishmentRuleRepository
 from api.routes.product_copywriting import router as product_copywriting_router
 from api.routes.product_goods import (
     list_product_goods,
@@ -199,6 +203,12 @@ def create_app(*, settings, repository=None, image_matchers=None, inventory_repo
         resolved_repository.create_tables()
     app.state.repository = resolved_repository
     product_engine = getattr(resolved_repository, "engine", None)
+    app.state.stock_alert_rules = StockAlertRuleRepository(product_engine) if product_engine is not None else None
+    if app.state.stock_alert_rules is not None:
+        app.state.stock_alert_rules.create_tables()
+    app.state.stock_replenishment_rules = StockReplenishmentRuleRepository(product_engine) if product_engine is not None else None
+    if app.state.stock_replenishment_rules is not None:
+        app.state.stock_replenishment_rules.create_tables()
     app.state.product_copywriting_repository = ProductCopywritingRepository(product_engine) if product_engine is not None else None
     if app.state.product_copywriting_repository is not None:
         app.state.product_copywriting_repository.create_tables()
@@ -227,6 +237,8 @@ def create_app(*, settings, repository=None, image_matchers=None, inventory_repo
     app.include_router(auth_router)
     app.include_router(mcp_tokens_router)
     app.include_router(products_router)
+    app.include_router(stock_alerts_router)
+    app.include_router(stock_replenishment_router)
     app.include_router(product_copywriting_router)
     app.include_router(product_goods_router)
     app.include_router(fine_table_router)

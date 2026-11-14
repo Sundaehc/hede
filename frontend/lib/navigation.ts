@@ -15,6 +15,8 @@ import {
   ListFilter,
   Tags,
   Activity,
+  Sparkles,
+  TrendingDown,
 } from "lucide-react"
 
 import { hasProductGoodsDepartmentAccess } from "@/lib/product-goods-access"
@@ -118,6 +120,14 @@ const NAV_ITEMS = [
         icon: BadgeDollarSign,
         permission: "inventory.view",
       },
+    ],
+  },
+  {
+    section: "存",
+    items: [
+      { href: "/stock-alerts/new-products", label: "新品零动销预警", icon: Sparkles, permission: "product.view" },
+      { href: "/stock-alerts/slow-sales", label: "低售罄、滞销预警", icon: TrendingDown, permission: "product.view" },
+      { href: "/stock-alerts/replenishment", label: "补货建议", icon: Truck, permission: "product.view" },
     ],
   },
   {

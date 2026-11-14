@@ -1,6 +1,6 @@
-export type BusinessDataResource = "products" | "inventory" | "reference-data"
+export type BusinessDataResource = "products" | "inventory" | "reference-data" | "stock-alert-rules"
 
-const RESOURCES: BusinessDataResource[] = ["products", "inventory", "reference-data"]
+const RESOURCES: BusinessDataResource[] = ["products", "inventory", "reference-data", "stock-alert-rules"]
 const PREFIX = "hede:data-change:v1:"
 const CHANNEL = "hede:business-data:v1"
 const source = typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
@@ -114,6 +114,10 @@ export function publishBusinessDataChange(resources: BusinessDataResource[]) {
 export function notifyBusinessMutation(path: string, method = "GET") {
   if (!["POST", "PUT", "PATCH", "DELETE"].includes(method.toUpperCase())) return
   const pathname = path.split("?")[0]
+  if (pathname === "/stock-alerts/rules" || pathname === "/stock-alerts/replenishment/rules") {
+    publishBusinessDataChange(["stock-alert-rules"])
+    return
+  }
   if (/^\/products(?:$|\/batch-delete$|\/recycle-bin\/[^/]+\/\d+(?:\/restore)?$|\/[^/]+\/\d+$)/.test(pathname)) {
     publishBusinessDataChange(["products"])
   } else if (/^\/inventory(?:$|\/\d+(?:\/restore|\/details(?:\/\d+|\/batch-delete)?)?$|\/batch-(?:delete|restore|update-costs)$|\/recycle-bin\/batch-delete$|\/import-jst-stock$)/.test(pathname)) {

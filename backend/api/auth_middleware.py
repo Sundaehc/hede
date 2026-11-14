@@ -36,6 +36,8 @@ def required_permission_for_request(
         return ("system.admin", "product.view", "fine_table.view", "inventory.view", "purchase.view")
     if path.startswith("/product-copywriting"):
         return "product.view"
+    if path == "/stock-alerts" or path.startswith("/stock-alerts/"):
+        return "product.view" if method in {"GET", "HEAD"} else "product.manage"
     if path == "/products/barcodes/export":
         return "product.export"
     if path.startswith("/products"):
