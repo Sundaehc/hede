@@ -37,7 +37,7 @@ export function PageTabs() {
       details.push({ id: currentDetailId, documentNumber: String(currentDetailId) })
     }
     entries.push(...details.map((tab) => ({
-      href: purchaseDetailPath(tab.id), label: `采购单明细 · ${tab.documentNumber}`, icon: FileText, permission: "purchase.view",
+      href: purchaseDetailPath(tab.id), label: tab.summary?.trim() || tab.documentNumber, icon: FileText, permission: "purchase.view",
     })))
   }
   const current = entries.find((entry) => entry.href === pathname)

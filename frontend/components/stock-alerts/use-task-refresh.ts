@@ -3,7 +3,7 @@
 import { useEffect } from "react"
 import { subscribeBusinessDataChanges } from "@/lib/business-data-sync"
 
-// Only small persisted task queries poll; hidden tabs do not issue requests.
+// Only small persisted task queries poll every five minutes; hidden tabs do not issue requests.
 export function useTaskRefresh(refresh: () => void) {
   useEffect(() => {
     const unsubscribe = subscribeBusinessDataChanges((resources) => {
@@ -15,7 +15,7 @@ export function useTaskRefresh(refresh: () => void) {
     })
     const timer = window.setInterval(() => {
       if (document.visibilityState !== "hidden") refresh()
-    }, 60_000)
+    }, 5 * 60_000)
     return () => {
       unsubscribe()
       window.clearInterval(timer)

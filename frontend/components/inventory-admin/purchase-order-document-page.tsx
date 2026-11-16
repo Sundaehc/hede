@@ -102,9 +102,10 @@ export function PurchaseOrderDocumentPage({ recordId }: { recordId: string }) {
 
   const record = state.id === id ? state.record : null
   const number = record?.document_number
+  const summary = record?.summary
   useEffect(() => {
-    if (allowed && id !== null && number !== undefined) openDetail(id, number)
-  }, [allowed, id, number, openDetail])
+    if (allowed && id !== null && number !== undefined) openDetail(id, number, summary)
+  }, [allowed, id, number, summary, openDetail])
 
   function returnToList() {
     router.push("/purchase-orders", { scroll: false })

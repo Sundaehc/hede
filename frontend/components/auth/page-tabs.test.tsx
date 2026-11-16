@@ -327,8 +327,8 @@ test("automatic navigation skips inaccessible pages without blocking later valid
 })
 
 function DetailOpeners() {
-  const { openDetail } = usePurchaseDetailTabs()
-  return <><button onClick={() => openDetail(42, "PO-42")}>打开明细甲</button><button onClick={() => openDetail(43, "PO-43")}>打开明细乙</button></>
+  const { openDetail, updateDetail } = usePurchaseDetailTabs()
+  return <><button onClick={() => openDetail(42, "PO-42", "秋冬补货采购")}>打开明细甲</button><button onClick={() => openDetail(43, "PO-43")}>打开明细乙</button><button onClick={() => updateDetail(42, "PO-42", "秋冬补货采购（已更新）")}>更新明细甲摘要</button></>
 }
 
 function detailFixture() {
@@ -342,12 +342,17 @@ test("opens one independent tab per purchase document and activates the document
   fireEvent.click(screen.getByText("打开明细甲"))
   fireEvent.click(screen.getByText("打开明细甲"))
   fireEvent.click(screen.getByText("打开明细乙"))
-  expect(screen.getAllByRole("link", { name: "采购单明细 · PO-42" })).toHaveLength(1)
-  expect(screen.getByRole("link", { name: "采购单明细 · PO-42" })).toHaveAttribute("href", "/purchase-orders/42")
-  expect(screen.queryByRole("button", { name: "固定采购单明细 · PO-42" })).not.toBeInTheDocument()
+  expect(screen.getAllByRole("link", { name: "秋冬补货采购" })).toHaveLength(1)
+  expect(screen.getByRole("link", { name: "秋冬补货采购" })).toHaveAttribute("href", "/purchase-orders/42")
+  expect(screen.getByRole("link", { name: "秋冬补货采购" })).toHaveAttribute("title", "秋冬补货采购")
+  expect(screen.queryByRole("button", { name: "固定秋冬补货采购" })).not.toBeInTheDocument()
+  expect(screen.getByRole("link", { name: "PO-43" })).toHaveAttribute("href", "/purchase-orders/43")
   navigation.pathname = "/purchase-orders/42"
   view.rerender(detailFixture())
-  expect(screen.getByRole("link", { name: "采购单明细 · PO-42" })).toHaveAttribute("aria-current", "page")
+  expect(screen.getByRole("link", { name: "秋冬补货采购" })).toHaveAttribute("aria-current", "page")
+  fireEvent.click(screen.getByText("更新明细甲摘要"))
+  expect(screen.queryByRole("link", { name: "秋冬补货采购" })).not.toBeInTheDocument()
+  expect(screen.getByRole("link", { name: "秋冬补货采购（已更新）" })).toHaveAttribute("aria-current", "page")
   expect(screen.getByRole("link", { name: "采购单管理" })).not.toHaveAttribute("aria-current")
   expect(api.setPageTabPinned).not.toHaveBeenCalled()
 })
@@ -360,46 +365,46 @@ test("closing background and current document tabs removes their saved entries a
   fireEvent.click(screen.getByText("打开明细乙"))
   navigation.pathname = "/purchase-orders/42"
   view.rerender(detailFixture())
-  fireEvent.click(screen.getByRole("button", { name: "关闭采购单明细 · PO-43" }))
+  fireEvent.click(screen.getByRole("button", { name: "关闭PO-43" }))
   expect(navigation.push).not.toHaveBeenCalled()
-  expect(screen.queryByRole("link", { name: "采购单明细 · PO-43" })).not.toBeInTheDocument()
-  fireEvent.click(screen.getByRole("button", { name: "关闭采购单明细 · PO-42" }))
+  expect(screen.queryByRole("link", { name: "PO-43" })).not.toBeInTheDocument()
+  fireEvent.click(screen.getByRole("button", { name: "关闭秋冬补货采购" }))
   expect(navigation.push).toHaveBeenLastCalledWith("/purchase-orders", { scroll: false })
   navigation.pathname = "/purchase-orders"
   view.rerender(detailFixture())
-  expect(screen.queryByRole("link", { name: /采购单明细/ })).not.toBeInTheDocument()
+  expect(screen.queryByRole("link", { name: "秋冬补货采购" })).not.toBeInTheDocument()
   view.unmount()
   render(detailFixture())
   await waitForPinsLoaded()
-  expect(screen.queryByRole("link", { name: /采购单明细/ })).not.toBeInTheDocument()
+  expect(screen.queryByRole("link", { name: "秋冬补货采购" })).not.toBeInTheDocument()
 })
 
-test("restores document tabs in the same session and isolates their document numbers between accounts", async () => {
+test("restores document tabs in the same session and isolates their summaries between accounts", async () => {
   navigation.pathname = "/purchase-orders"
   const view = render(detailFixture())
   await waitForPinsLoaded()
   fireEvent.click(screen.getByText("打开明细甲"))
   view.unmount()
   const restored = render(detailFixture())
-  expect(screen.getByRole("link", { name: "采购单明细 · PO-42" })).toBeInTheDocument()
+  expect(screen.getByRole("link", { name: "秋冬补货采购" })).toBeInTheDocument()
   auth.user = { ...auth.user, id: 2 }
   restored.rerender(detailFixture())
   await waitForPinsLoaded()
-  expect(screen.queryByRole("link", { name: "采购单明细 · PO-42" })).not.toBeInTheDocument()
+  expect(screen.queryByRole("link", { name: "秋冬补货采购" })).not.toBeInTheDocument()
 })
 
-test("shows a direct document route before its number loads and hides document tabs without purchase access", async () => {
+test("shows a direct document route before its summary loads and hides document tabs without purchase access", async () => {
   navigation.pathname = "/purchase-orders/42"
   const view = render(detailFixture())
   await waitForPinsLoaded()
-  expect(screen.getByRole("link", { name: "采购单明细 · 42" })).toHaveAttribute("aria-current", "page")
+  expect(screen.getByRole("link", { name: "42" })).toHaveAttribute("aria-current", "page")
   fireEvent.click(screen.getByText("打开明细甲"))
-  expect(screen.getByRole("link", { name: "采购单明细 · PO-42" })).toBeInTheDocument()
-  expect(screen.queryByRole("link", { name: "采购单明细 · 42" })).not.toBeInTheDocument()
+  expect(screen.getByRole("link", { name: "秋冬补货采购" })).toBeInTheDocument()
+  expect(screen.queryByRole("link", { name: "42" })).not.toBeInTheDocument()
   auth.user = { ...auth.user, role_code: "staff", department_code: "商品部" }
   auth.hasPermission.mockImplementation((permission) => permission === "product.view")
   view.rerender(detailFixture())
-  expect(screen.queryByRole("link", { name: /采购单明细/ })).not.toBeInTheDocument()
+  expect(screen.queryByRole("link", { name: "秋冬补货采购" })).not.toBeInTheDocument()
 })
 
 test("scrolls automatically added overflowing tabs horizontally without changing the page scroll", async () => {

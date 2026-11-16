@@ -3,7 +3,7 @@
 import { useCallback } from "react"
 import { useSessionQueryState } from "@/lib/session-query-state"
 
-type PurchaseDetailTab = { id: number; documentNumber: string }
+type PurchaseDetailTab = { id: number; documentNumber: string; summary?: string }
 
 export function purchaseDetailPath(id: number) {
   return `/purchase-orders/${id}`
@@ -25,6 +25,7 @@ function normalizeTabs(value: unknown): PurchaseDetailTab[] {
       !Number.isSafeInteger(tab.id) ||
       tab.id <= 0 ||
       typeof tab.documentNumber !== "string" ||
+      (tab.summary !== undefined && typeof tab.summary !== "string") ||
       seen.has(tab.id)
     )
       return false
@@ -45,11 +46,11 @@ export function usePurchaseDetailTabs() {
   const tabs = normalizeTabs(saved)
 
   const openDetail = useCallback(
-    (id: number, documentNumber: string | null) => {
+    (id: number, documentNumber: string | null, summary: string | null = null) => {
       if (!Number.isSafeInteger(id) || id <= 0) return
       setSaved((current) => {
         const next = normalizeTabs(current)
-        const entry = { id, documentNumber: documentNumber || String(id) }
+        const entry = { id, documentNumber: documentNumber || String(id), summary: summary?.trim() || "" }
         const existing = next.findIndex((tab) => tab.id === id)
         if (existing < 0) return [...next, entry]
         return next.map((tab, index) => (index === existing ? entry : tab))
@@ -59,6 +60,17 @@ export function usePurchaseDetailTabs() {
       ])
     },
     [setSaved, setPaths]
+  )
+
+  const updateDetail = useCallback(
+    (id: number, documentNumber: string | null, summary: string | null) => {
+      setSaved((current) => normalizeTabs(current).map((tab) =>
+        tab.id === id
+          ? { id, documentNumber: documentNumber || String(id), summary: summary?.trim() || "" }
+          : tab
+      ))
+    },
+    [setSaved]
   )
 
   const closeDetail = useCallback(
@@ -73,5 +85,5 @@ export function usePurchaseDetailTabs() {
     [setSaved, setPaths]
   )
 
-  return { tabs, openDetail, closeDetail }
+  return { tabs, openDetail, updateDetail, closeDetail }
 }

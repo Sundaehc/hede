@@ -12,6 +12,35 @@ describe("proxy Server Action guard", () => {
   it("allows normal application requests", () => {
     expect(hasUnexpectedServerActionHeader(new Headers())).toBe(false)
   })
+
+  it.each(["/", "/login", "/stock-alerts/replenishment", "/api-unrelated"])(
+    "rejects headerless form POSTs to page path %s before Next handles them as actions",
+    async (path) => {
+      const response = proxy(new NextRequest(`http://localhost${path}`, {
+        method: "POST",
+        headers: { "Content-Type": "multipart/form-data; boundary=diagnostic" },
+      }))
+      expect(response.status).toBe(405)
+      expect(response.headers.get("Allow")).toBe("GET, HEAD, OPTIONS")
+      expect(await response.json()).toEqual({ detail: "页面地址不支持 POST 请求，请通过 /api 接口提交" })
+    },
+  )
+
+  it.each(["/api/inventory/import-template", "/api/stock-alerts/tasks", "/api"])(
+    "keeps backend submissions available at %s",
+    (path) => {
+      const response = proxy(new NextRequest(`http://localhost${path}`, {
+        method: "POST",
+        headers: { "Content-Type": "multipart/form-data; boundary=import-file" },
+      }))
+      expect(response.headers.get("x-middleware-next")).toBe("1")
+    },
+  )
+
+  it.each(["GET", "HEAD", "OPTIONS"])("allows normal page %s requests", (method) => {
+    const response = proxy(new NextRequest("http://localhost/stock-alerts/replenishment", { method }))
+    expect(response.headers.get("x-middleware-next")).toBe("1")
+  })
 })
 
 describe("proxy request size guard", () => {

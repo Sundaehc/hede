@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react"
 import {
   Archive,
+  ArrowRight,
   ChevronLeft,
   ChevronRight,
   PackageSearch,
@@ -25,6 +26,7 @@ import type {
 } from "@/lib/stock-replenishment"
 import { cn } from "@/lib/utils"
 import { ReplenishmentRuleDialog } from "./replenishment-rule-dialog"
+import { ReplenishmentSupplierPicker } from "./replenishment-supplier-picker"
 
 const DEFAULT_FILTERS: ReplenishmentFilters = {
   brand: "cbanner_mens",
@@ -69,6 +71,7 @@ export function ReplenishmentPage() {
   const optionsError = Boolean(options.error)
   const [revision, setRevision] = useState(0)
   const [editingSupplier, setEditingSupplier] = useState<string | null>(null)
+  const [rulePickerOpen, setRulePickerOpen] = useState(false)
   const bypassCache = useRef(false)
   const { data, error, loading, refreshing } = useStockModuleQuery({
     group: "replenishment", queryKey: JSON.stringify(filters), revision,
@@ -105,6 +108,11 @@ export function ReplenishmentPage() {
   const edit = (supplier: string) => {
     if (canManage && supplier) setEditingSupplier(supplier)
   }
+  const openRules = () => {
+    if (!canManage) return
+    if (filters.supplier) edit(filters.supplier)
+    else setRulePickerOpen(true)
+  }
 
   return (
     <div className="space-y-5 p-4 sm:p-6">
@@ -122,16 +130,6 @@ export function ReplenishmentPage() {
           </p>
         </div>
         <div className="flex gap-2">
-          {canManage && (
-            <Button
-              variant="outline"
-              disabled={loading || !filters.supplier}
-              onClick={() => edit(filters.supplier)}
-            >
-              <Settings2 className="size-4" aria-hidden="true" />
-              设置供应商规则
-            </Button>
-          )}
           <Button
             variant="outline"
             disabled={refreshing}
@@ -157,26 +155,40 @@ export function ReplenishmentPage() {
             ["all", "全部相关商品"],
           ] as const
         ).map(([status, label]) => (
-          <button
+          <div
             key={status}
-            type="button"
-            aria-pressed={filters.status === status}
-            onClick={() =>
-              setFilters((current) => ({ ...current, status, page: 1 }))
-            }
             className={cn(
-              "rounded-xl border bg-card p-4 text-left outline-none hover:border-amber-500/60 focus-visible:ring-2 focus-visible:ring-ring",
+              "flex flex-col overflow-hidden rounded-xl border bg-card text-left hover:border-amber-500/60",
               filters.status === status && "border-amber-500/50 bg-amber-500/5"
             )}
           >
-            <p className="text-sm font-medium">{label}</p>
-            <p className="mt-3 text-3xl font-semibold tabular-nums">
-              {metric(data?.counts[status] ?? 0)}
-              <span className="ml-1 text-xs font-normal text-muted-foreground">
-                项
-              </span>
-            </p>
-          </button>
+            <button
+              type="button"
+              aria-pressed={filters.status === status}
+              onClick={() =>
+                setFilters((current) => ({ ...current, status, page: 1 }))
+              }
+              className="flex flex-1 flex-col items-start p-4 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
+            >
+              <p className="text-sm font-medium">{label}</p>
+              <p className="mt-3 text-3xl font-semibold tabular-nums">
+                {metric(data?.counts[status] ?? 0)}
+                <span className="ml-1 text-xs font-normal text-muted-foreground">
+                  项
+                </span>
+              </p>
+            </button>
+            {status === "pending" && canManage && (
+              <button
+                type="button"
+                onClick={openRules}
+                className="flex items-center justify-between gap-2 border-t px-4 py-2 text-xs font-medium text-primary outline-none hover:bg-muted/50 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
+              >
+                去完善规则
+                <ArrowRight className="size-3.5" aria-hidden="true" />
+              </button>
+            )}
+          </div>
         ))}
         <div className="rounded-xl border bg-card p-4">
           <p className="text-sm font-medium">建议补货合计</p>
@@ -191,6 +203,30 @@ export function ReplenishmentPage() {
           </p>
         </div>
       </div>
+
+      {canManage && (
+        <section
+          aria-label="供应商规则设置"
+          className="flex flex-wrap items-center justify-between gap-4 rounded-xl border border-primary/20 bg-primary/5 p-4"
+        >
+          <div className="flex min-w-0 flex-1 items-start gap-3">
+            <div className="flex size-10 shrink-0 items-center justify-center rounded-lg border border-primary/15 bg-card text-primary">
+              <Settings2 className="size-5" aria-hidden="true" />
+            </div>
+            <div>
+              <h2 className="text-sm font-semibold">供应商规则设置</h2>
+              <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                补货前先填写供应商交期、合计起订量及尺码配比。规则按品牌和供应商分别保存。
+              </p>
+            </div>
+          </div>
+          <Button className="h-9 w-full sm:w-auto" onClick={openRules}>
+            <Settings2 className="size-4" aria-hidden="true" />
+            设置供应商规则
+            <ArrowRight className="size-4" aria-hidden="true" />
+          </Button>
+        </section>
+      )}
 
       <form
         className="space-y-3 rounded-xl border bg-card p-4"
@@ -600,6 +636,28 @@ export function ReplenishmentPage() {
                     ? "暂无有效补货建议，可查看待完善商品并填写规则"
                     : "当前筛选下没有相关商品"}
               </p>
+              {data.ready && filters.status === "suggested" && (
+                <div className="mt-2 flex flex-wrap justify-center gap-2">
+                  <Button
+                    variant="outline"
+                    onClick={() =>
+                      setFilters((current) => ({
+                        ...current,
+                        status: "pending",
+                        page: 1,
+                      }))
+                    }
+                  >
+                    查看待完善商品
+                  </Button>
+                  {canManage && (
+                    <Button onClick={openRules}>
+                      <Settings2 className="size-4" aria-hidden="true" />
+                      去设置规则
+                    </Button>
+                  )}
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -654,7 +712,21 @@ export function ReplenishmentPage() {
           </p>
         </div>
       </details>
-      {editingSupplier && (
+      {canManage && rulePickerOpen && (
+        <ReplenishmentSupplierPicker
+          key={filters.brand}
+          brandLabel={brandLabel}
+          suppliers={Object.keys(data?.supplier_options ?? {})}
+          loading={loading}
+          error={error}
+          onClose={() => setRulePickerOpen(false)}
+          onSelect={(supplier) => {
+            setRulePickerOpen(false)
+            edit(supplier)
+          }}
+        />
+      )}
+      {canManage && editingSupplier && (
         <ReplenishmentRuleDialog
           key={`${filters.brand}:${editingSupplier}`}
           brand={filters.brand}

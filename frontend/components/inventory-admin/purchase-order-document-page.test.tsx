@@ -46,6 +46,7 @@ function record(id = 42, total = "5") {
   return {
     id,
     document_number: `PO-${id}`,
+    summary: `采购摘要 ${id}`,
     document_type: "进货订单",
     total_count: total,
   } as InventoryRecord
@@ -81,20 +82,20 @@ test("loads a document directly by ID in page mode and registers its title", asy
     "data-presentation",
     "page"
   )
-  expect(savedTabs()).toEqual([{ id: 42, documentNumber: "PO-42" }])
+  expect(savedTabs()).toEqual([{ id: 42, documentNumber: "PO-42", summary: "采购摘要 42" }])
 })
 
 test("refreshes document totals after a detail write and returns to the list while retaining the document tab", async () => {
   const user = userEvent.setup()
   render(fixture())
   await screen.findByText("合计 5")
-  getRecord.mockResolvedValue(record(42, "8"))
+  getRecord.mockResolvedValue({ ...record(42, "8"), summary: "更新后的采购摘要" })
   await user.click(screen.getByText("保存明细"))
   expect(await screen.findByText("合计 8")).toBeInTheDocument()
   expect(savedTabs()).toHaveLength(1)
   await user.click(screen.getByText("关闭单据明细"))
   expect(push).toHaveBeenCalledWith("/purchase-orders", { scroll: false })
-  expect(savedTabs()).toEqual([{ id: 42, documentNumber: "PO-42" }])
+  expect(savedTabs()).toEqual([{ id: 42, documentNumber: "PO-42", summary: "更新后的采购摘要" }])
   expect(
     JSON.parse(
       window.sessionStorage.getItem(
@@ -119,7 +120,7 @@ test("ignores late responses from a previous document and aborts its request", a
   expect(signal.aborted).toBe(true)
   await act(async () => resolve(record()))
   expect(screen.queryByText("PO-42")).not.toBeInTheDocument()
-  expect(savedTabs()).toEqual([{ id: 43, documentNumber: "PO-43" }])
+  expect(savedTabs()).toEqual([{ id: 43, documentNumber: "PO-43", summary: "采购摘要 43" }])
 })
 
 test("shows a deleted document error and supports retry without rendering stale data", async () => {

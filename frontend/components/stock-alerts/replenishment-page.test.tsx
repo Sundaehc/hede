@@ -248,6 +248,75 @@ test("view-only access hides edits and missing sources show unknown statistics",
   expect(screen.getByRole("button", { name: /需要补货/ })).toHaveTextContent(
     "—"
   )
+  expect(
+    screen.queryByRole("region", { name: "供应商规则设置" })
+  ).not.toBeInTheDocument()
+  expect(
+    screen.queryByRole("button", { name: "去完善规则" })
+  ).not.toBeInTheDocument()
+})
+
+test("opens supplier rules without querying a supplier and searches all archive suppliers in the committed brand", async () => {
+  const data = response()
+  data.supplier_options["工厂乙"] = data.supplier_options["工厂甲"]
+  load.mockResolvedValue(data)
+  render(<ReplenishmentPage />)
+  await screen.findByText("A")
+  fireEvent.change(screen.getByLabelText("品牌"), {
+    target: { value: "cbanner_womens" },
+  })
+  fireEvent.change(screen.getByLabelText("商品搜索"), {
+    target: { value: "不提交的商品筛选" },
+  })
+  const settings = within(
+    screen.getByRole("region", { name: "供应商规则设置" })
+  )
+  fireEvent.click(settings.getByRole("button", { name: "设置供应商规则" }))
+  const picker = within(
+    screen.getByRole("dialog", { name: "选择供应商设置规则" })
+  )
+  expect(picker.getByText(/千百度男鞋/)).toBeInTheDocument()
+  expect(picker.getByRole("status")).toHaveTextContent("共 2 家供应商")
+  fireEvent.change(picker.getByLabelText("搜索规则供应商"), {
+    target: { value: "乙" },
+  })
+  expect(
+    picker.queryByRole("button", { name: "工厂甲，设置规则" })
+  ).not.toBeInTheDocument()
+  fireEvent.click(picker.getByRole("button", { name: "工厂乙，设置规则" }))
+  const editor = within(
+    await screen.findByRole("dialog", { name: "供应商补货规则" })
+  )
+  await editor.findByLabelText("供应商交期")
+  expect(editor.getByText(/千百度男鞋 · 工厂乙/)).toBeInTheDocument()
+  expect(getRule).toHaveBeenCalledWith(
+    "cbanner_mens",
+    "工厂乙",
+    expect.any(AbortSignal)
+  )
+  expect(load).toHaveBeenCalledTimes(1)
+  expect(save).not.toHaveBeenCalled()
+})
+
+test("offers rule setup and pending-product navigation when there are no suggestions", async () => {
+  load.mockResolvedValue({ ...response(), items: [], total: 0 })
+  render(<ReplenishmentPage />)
+  await screen.findByText("暂无有效补货建议，可查看待完善商品并填写规则")
+  fireEvent.click(screen.getByRole("button", { name: "去设置规则" }))
+  const picker = within(
+    screen.getByRole("dialog", { name: "选择供应商设置规则" })
+  )
+  expect(picker.getByRole("button", { name: "工厂甲，设置规则" })).toBeEnabled()
+  fireEvent.click(picker.getByRole("button", { name: "关闭" }))
+  fireEvent.click(screen.getByRole("button", { name: "去完善规则" }))
+  expect(
+    screen.getByRole("dialog", { name: "选择供应商设置规则" })
+  ).toBeInTheDocument()
+  fireEvent.click(screen.getByRole("button", { name: "关闭" }))
+  fireEvent.click(screen.getByRole("button", { name: "查看待完善商品" }))
+  await waitFor(() => expect(load).toHaveBeenCalledTimes(2))
+  expect(load.mock.calls[1][0]).toMatchObject({ status: "pending", page: 1 })
+  expect(save).not.toHaveBeenCalled()
 })
 
 test("cancels superseded queries and ignores late results", async () => {

@@ -60,7 +60,7 @@ test("opens purchase details as document links and registers distinct tabs witho
   const requests = listMock.mock.calls.length
   await user.click(link)
   await user.click(link)
-  expect(JSON.parse(window.sessionStorage.getItem("hede:session-query:v1:anonymous:workspace:purchase-detail-tabs:v1") || "[]")).toEqual([{ id: 19, documentNumber: "PO-19" }])
+  expect(JSON.parse(window.sessionStorage.getItem("hede:session-query:v1:anonymous:workspace:purchase-detail-tabs:v1") || "[]")).toEqual([{ id: 19, documentNumber: "PO-19", summary: "原摘要乙" }])
   expect(listMock).toHaveBeenCalledTimes(requests)
 })
 
@@ -221,6 +221,9 @@ test.each(["最后修改时间", "摘要"])("keeps the edited purchase row and p
   const user = userEvent.setup()
   render(<InventoryPage mode="purchase-orders" />)
   await screen.findByText("PO-19")
+  const detailLink = screen.getByRole("link", { name: "查看采购单 PO-19 明细" })
+  detailLink.addEventListener("click", (event) => event.preventDefault())
+  await user.click(detailLink)
   await user.click(screen.getByRole("button", { name: (name) => name.startsWith(`${sortLabel}：`) }))
   await user.click(screen.getByLabelText("Go to next page"))
   await waitFor(() => expect(listMock).toHaveBeenLastCalledWith(expect.objectContaining({ page: 2 })))
@@ -239,6 +242,7 @@ test.each(["最后修改时间", "摘要"])("keeps the edited purchase row and p
   expect(listMock).toHaveBeenCalledTimes(beforeCount)
   expect(screen.getByText(/第 11-20 条/)).toBeInTheDocument()
   expect(updateMock).toHaveBeenCalledWith(19, expect.objectContaining({ summary: " 修改后的摘要 " }))
+  expect(JSON.parse(window.sessionStorage.getItem("hede:session-query:v1:anonymous:workspace:purchase-detail-tabs:v1") || "[]")).toEqual([{ id: 19, documentNumber: "PO-19", summary: "修改后的摘要" }])
 
   // Explicit refresh continues to honor the user's server-side sorting.
   listMock.mockResolvedValue({ items: [initial[1], initial[0], initial[2]], total: 25 })

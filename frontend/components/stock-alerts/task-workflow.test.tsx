@@ -297,7 +297,7 @@ test("list submits drafts explicitly and keeps existing rows visible during refr
   await screen.findByText("当前筛选下没有待办")
 })
 
-test("reminders refresh each minute while visible and pause polling while hidden", async () => {
+test("reminders refresh every five minutes while visible and pause polling while hidden", async () => {
   vi.useFakeTimers()
   render(<StockAlertTaskReminder />)
   await act(async () => {
@@ -308,12 +308,16 @@ test("reminders refresh each minute while visible and pause polling while hidden
   await act(async () => {
     await vi.advanceTimersByTimeAsync(60_000)
   })
+  expect(mock.reminders.mock.calls.length).toBe(initialCalls)
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(240_000)
+  })
   expect(mock.reminders.mock.calls.length).toBe(initialCalls + 1)
   const visibility = vi
     .spyOn(document, "visibilityState", "get")
     .mockReturnValue("hidden")
   await act(async () => {
-    await vi.advanceTimersByTimeAsync(120_000)
+    await vi.advanceTimersByTimeAsync(600_000)
   })
   expect(mock.reminders.mock.calls.length).toBe(initialCalls + 1)
   visibility.mockReturnValue("visible")

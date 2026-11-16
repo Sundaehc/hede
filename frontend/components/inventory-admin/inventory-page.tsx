@@ -742,7 +742,7 @@ type InventorySubmittedFilters = {
 
 export function InventoryPage({ mode = "inventory", refreshRevision = 0, detailOverlayOpen = false }: InventoryPageProps) {
   const { user } = useAuth()
-  const { openDetail } = usePurchaseDetailTabs()
+  const { openDetail, updateDetail } = usePurchaseDetailTabs()
   const isPurchasePage = mode === "purchase-orders"
   const accountHandler = user?.display_name || user?.username || ""
   const [searchDateStart, setSearchDateStart] = useSessionQueryState("inventory:" + mode + ":searchDateStart", "")
@@ -1552,6 +1552,7 @@ export function InventoryPage({ mode = "inventory", refreshRevision = 0, detailO
       } else if (editingId !== null) {
         const { item: updated } = await updateInventoryRecord(editingId, payload)
         if (isPurchasePage) {
+          updateDetail(updated.id, updated.document_number, updated.summary)
           // Keep the visible purchase rows in place until the user requests a
           // new list. Requerying here would move edits under summary/time sorts.
           setItems((current) => current.map((item) => {
@@ -2785,7 +2786,7 @@ export function InventoryPage({ mode = "inventory", refreshRevision = 0, detailO
                         <td className="sticky right-0 z-10 w-28 border-l border-border bg-card px-4 py-3 align-middle shadow-[-5px_0_10px_-9px_rgb(0_0_0_/_0.45)] transition-colors group-hover:bg-muted">
                           <div className="flex items-center justify-center gap-1">
                             {isPurchasePage ? <Button asChild variant="ghost" size="icon-sm" title="明细">
-                              <Link href={purchaseDetailPath(item.id)} scroll={false} prefetch={false} aria-label={`查看采购单 ${item.document_number || item.id} 明细`} onClick={() => openDetail(item.id, item.document_number)}>
+                              <Link href={purchaseDetailPath(item.id)} scroll={false} prefetch={false} aria-label={`查看采购单 ${item.document_number || item.id} 明细`} onClick={() => openDetail(item.id, item.document_number, item.summary)}>
                                 <List className="h-4 w-4" />
                               </Link>
                             </Button> : <Button variant="ghost" size="icon-sm" onClick={() => setDetailDocumentId(item.id)} className="cursor-pointer" title="明细">
