@@ -677,9 +677,21 @@ export function ProductFormDialog({ brands = PRODUCT_ARCHIVE_BRANDS, item, mode,
                       <p className="mb-2 text-xs font-medium text-muted-foreground">{group.label}</p>
                       <div className={cn("grid gap-4 md:grid-cols-2", group.label !== "物价信息" && "lg:grid-cols-3")}>
                         {fields.map((field) => (
-                          <div key={field} className="space-y-1.5">
+                          <div key={field} className={cn("space-y-1.5", field === "remark" && "md:col-span-2 lg:col-span-3")}>
                             <Label htmlFor={`product-form-${field}`} className="text-xs">{getProductFieldLabel(field, values.brand)}</Label>
-                            {(isLoadingAuxiliaryOptions && AUXILIARY_OPTION_FIELDS.has(field)) || auxiliaryOptionsByField.has(field) ? (
+                            {field === "remark" ? (
+                              <>
+                                <textarea
+                                  id="product-form-remark"
+                                  value={values.remark}
+                                  onChange={(event) => handleFieldChange("remark", event.target.value)}
+                                  rows={3}
+                                  className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
+                                  placeholder="请输入商品备注"
+                                />
+                                <p className="text-xs text-muted-foreground">采购单明细中的商品备注实时读取此处内容，已有采购单也会更新。</p>
+                              </>
+                            ) : (isLoadingAuxiliaryOptions && AUXILIARY_OPTION_FIELDS.has(field)) || auxiliaryOptionsByField.has(field) ? (
                               <AuxiliaryAttributeSelect
                                 id={`product-form-${field}`}
                                 label={getProductFieldLabel(field, values.brand)}

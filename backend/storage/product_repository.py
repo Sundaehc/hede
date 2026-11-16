@@ -338,6 +338,7 @@ class ProductRepository:
         with self.engine.begin() as connection:
             table.create(connection, checkfirst=True)
             connection.execute(text(f"ALTER TABLE {table.name} ADD COLUMN IF NOT EXISTS international_code TEXT"))
+            connection.execute(text(f"ALTER TABLE {table.name} ADD COLUMN IF NOT EXISTS remark TEXT"))
             connection.execute(text(f"ALTER TABLE {table.name} ADD COLUMN IF NOT EXISTS cost_price NUMERIC(10, 2)"))
             connection.execute(text(f"ALTER TABLE {table.name} ADD COLUMN IF NOT EXISTS category TEXT"))
             connection.execute(text(
@@ -381,6 +382,7 @@ class ProductRepository:
             for table in PRODUCT_ARCHIVE_TABLES.values():
                 table.create(connection, checkfirst=True)
                 connection.execute(text(f"ALTER TABLE {table.name} ADD COLUMN IF NOT EXISTS international_code TEXT"))
+                connection.execute(text(f"ALTER TABLE {table.name} ADD COLUMN IF NOT EXISTS remark TEXT"))
                 connection.execute(text(f"ALTER TABLE {table.name} ADD COLUMN IF NOT EXISTS cost_price NUMERIC(10, 2)"))
                 connection.execute(text(
                     f"ALTER TABLE {table.name} ADD COLUMN IF NOT EXISTS category TEXT"

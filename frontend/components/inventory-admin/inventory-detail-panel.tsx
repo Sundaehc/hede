@@ -480,7 +480,7 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
     }
   }, [detailPage, documentId, unitPriceValues])
 
-  useCrossTabRefresh(["inventory"], () => { void load(); onTotalChanged() },
+  useCrossTabRefresh(["inventory", "products"], () => { void load(); onTotalChanged() },
     !documentId || formOpen || isSaving || isReplacing || isDeleting
     || deleteTarget !== null || batchDeleteOpen || printTemplateOpen || unitPriceFilterOpen || columnSettingsOpen)
 
@@ -693,6 +693,7 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
       ...prev,
       product_identity_id: "",
       product_code: value,
+      ...(isPurchaseOrder ? { remark: "" } : {}),
       ...(resetPurchaseFields ? emptyPurchaseExtraFields() : {}),
       ...(resetPurchaseFields ? {
         color_barcode: "",
@@ -729,10 +730,6 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
     }
     if (isAccountingDocument && (!formData.product_name?.trim() || !formData.amount?.trim())) {
       setFormError("请填写科目和金额")
-      return
-    }
-    if (isPurchaseOrder && (formData.remark || "").length > 20) {
-      setFormError("商品备注最多 20 个字")
       return
     }
     setIsSaving(true)
@@ -813,6 +810,7 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
           return {
             ...prev,
             product_identity_id: item.product_identity_id ? String(item.product_identity_id) : "",
+            ...(isPurchaseOrder ? { remark: item.remark || "" } : {}),
             product_code: item.product_code || prev.product_code,
             product_name: item.product_name || prev.product_name,
             color_spec: item.color_spec || prev.color_spec,
@@ -1767,13 +1765,16 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
                   </div>
                   <div className="space-y-1.5">
                     <Label htmlFor="detail-purchase-remark">商品备注</Label>
-                    <Input
+                    <textarea
                       id="detail-purchase-remark"
                       value={formData.remark || ""}
-                      maxLength={20}
-                      onChange={(e) => setFormData((prev) => ({ ...prev, remark: e.target.value.slice(0, 20) }))}
-                      placeholder="20字以内"
+                      readOnly
+                      rows={2}
+                      className="w-full resize-y rounded-md border border-input bg-muted/30 px-3 py-2 text-sm outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
+                      placeholder="商品档案未填写备注"
+                      aria-describedby="detail-purchase-remark-help"
                     />
+                    <p id="detail-purchase-remark-help" className="text-xs text-muted-foreground">来自商品信息档案，请在商品档案中修改。</p>
                   </div>
                   <div className="space-y-1.5">
                     <Label htmlFor="detail-image-code">图片</Label>

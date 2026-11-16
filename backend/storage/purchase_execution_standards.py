@@ -1,4 +1,4 @@
-"""Read archive defaults for old purchase lines without rewriting history."""
+"""Read current archive remarks and defaults for old purchase lines in batches."""
 from collections import defaultdict
 
 from sqlalchemy import MetaData, inspect, or_, select
@@ -10,9 +10,26 @@ from domain.schema import PRODUCT_ARCHIVE_TABLES, build_product_archive_table
 
 
 def enrich_purchase_execution_standards(repository, details):
+    _enrich_purchase_archive_fields(repository, details, include_remarks=False)
+
+
+def enrich_purchase_archive_fields(repository, details):
+    _enrich_purchase_archive_fields(repository, details, include_remarks=True)
+
+
+def enrich_purchase_product_remarks(repository, details):
+    _enrich_purchase_archive_fields(repository, details, include_remarks=True, include_standards=False)
+
+
+def _enrich_purchase_archive_fields(repository, details, *, include_remarks, include_standards=True):
     # An explicit value, including an intentionally cleared value, belongs to
     # the purchase line. Only older lines without this key need an archive default.
-    pending = [detail for detail in details if "execution_standard" not in (detail.get("extra_fields") or {})]
+    pending = [detail for detail in details if include_remarks or "execution_standard" not in (detail.get("extra_fields") or {})]
+    if include_remarks:
+        # The archive is authoritative, even when cleared. Never display an old
+        # line remark or borrow one from an ambiguous/unmatched product.
+        for detail in pending:
+            detail["remark"] = ""
     if not pending:
         return
     identity_ids = sorted({int(detail["product_identity_id"]) for detail in pending if detail.get("product_identity_id")})
@@ -39,7 +56,7 @@ def enrich_purchase_execution_standards(repository, details):
         by_table = defaultdict(set)
         for table_name, product_id in identities.values():
             by_table[table_name].add(product_id)
-        standards, exact, aliases = {}, defaultdict(set), defaultdict(set)
+        profiles, exact, aliases = {}, defaultdict(set), defaultdict(set)
         code_set = set(codes)
         for name, table in tables.items():
             product_ids = sorted(by_table[name])
@@ -47,13 +64,17 @@ def enrich_purchase_execution_standards(repository, details):
                 continue
             for offset in range(0, max(len(product_ids), len(codes)), 1000):
                 code_batch = codes[offset:offset + 1000]
-                rows = connection.execute(select(table.c.id, table.c.sku, table.c.original_sku, table.c.execution_standard)
+                columns = [table.c.id, table.c.sku, table.c.original_sku]
+                if include_standards:
+                    columns.append(table.c.execution_standard)
+                if include_remarks:
+                    columns.append(table.c.remark)
+                rows = connection.execute(select(*columns)
                     .where(table.c.deleted_at.is_(None), or_(table.c.id.in_(product_ids[offset:offset + 1000]),
                         table.c.sku.in_(code_batch), table.c.original_sku.in_(code_batch)))).mappings()
                 for row in rows:
                     key = (name, row["id"])
-                    value = str(row["execution_standard"] or "").strip()
-                    standards[key] = value
+                    profiles[key] = row
                     if row["sku"] in code_set:
                         exact[row["sku"]].add(key)
                     if row["original_sku"] in code_set:
@@ -65,5 +86,9 @@ def enrich_purchase_execution_standards(repository, details):
                 code = str(detail.get("product_code") or "").strip()
                 candidates = exact[code] or aliases[code]
                 key = next(iter(candidates)) if len(candidates) == 1 else None
-            if key in standards:
-                detail["extra_fields"] = {**(detail.get("extra_fields") or {}), "execution_standard": standards[key]}
+            if key in profiles:
+                profile = profiles[key]
+                if include_standards and "execution_standard" not in (detail.get("extra_fields") or {}):
+                    detail["extra_fields"] = {**(detail.get("extra_fields") or {}), "execution_standard": str(profile["execution_standard"] or "").strip()}
+                if include_remarks:
+                    detail["remark"] = str(profile["remark"] or "").strip()

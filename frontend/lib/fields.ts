@@ -8,6 +8,7 @@ export const FIELD_LABELS: Record<string, string> = {
   sku: "商品货号",
   original_sku: "原始货号",
   international_code: "国际码",
+  remark: "备注",
   product_name: "品名",
   group_name: "组别",
   category: "分类",
@@ -79,7 +80,7 @@ export const FIELD_GROUPS = [
   },
   {
     label: "其他",
-    fields: ["toe_shape", "closure_type", "shoe_box_spec", "shoe_box_type", "selling_points", "execution_standard", "first_order_time", "size_range", "product_model", "supplier_name", "launch_date"],
+    fields: ["toe_shape", "closure_type", "shoe_box_spec", "shoe_box_type", "selling_points", "execution_standard", "first_order_time", "size_range", "product_model", "supplier_name", "launch_date", "remark"],
   },
 ] as const
 

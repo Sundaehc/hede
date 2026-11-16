@@ -245,7 +245,7 @@ describe("ProductDetailDialog", () => {
   it("shows full read-only values and hides costs by default", async () => {
     const user = userEvent.setup()
     const onClose = vi.fn()
-    render(<ProductDetailDialog item={sampleItem} onClose={onClose} />)
+    render(<ProductDetailDialog item={{ ...sampleItem, remark: "商品档案备注，应完整展示" }} onClose={onClose} />)
 
     const dialog = screen.getByRole("dialog", { name: "商品详情" })
     expect(within(dialog).getByText("千百度男鞋")).toBeInTheDocument()
@@ -254,6 +254,7 @@ describe("ProductDetailDialog", () => {
     ).toBeInTheDocument()
     expect(within(dialog).getByText("测试供应商")).toBeInTheDocument()
     expect(within(dialog).getByText("国际码")).toBeInTheDocument()
+    expect(within(dialog).getByText("商品档案备注，应完整展示")).toBeInTheDocument()
     expect(within(dialog).getByText("0012345678905")).toBeInTheDocument()
     expect(
       within(dialog).getByText(sampleItem.image_storage_path!)

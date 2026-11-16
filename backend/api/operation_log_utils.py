@@ -12,6 +12,7 @@ PRODUCT_FIELD_LABELS = {
     "sku": "货号",
     "original_sku": "原始货号",
     "international_code": "国际码",
+    "remark": "备注",
     "product_name": "品名",
     "group_name": "组别",
     "category": "分类",

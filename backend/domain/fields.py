@@ -74,6 +74,7 @@ PRODUCT_FIELDS: tuple[FieldSpec, ...] = (
     FieldSpec("barcode_build_rule", "条码构成逻辑"),
     FieldSpec("launch_date", "上市时间"),
     FieldSpec("international_code", "国际码"),
+    FieldSpec("remark", "备注"),
 )
 
 

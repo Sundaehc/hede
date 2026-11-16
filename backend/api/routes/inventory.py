@@ -70,7 +70,7 @@ from domain.schema import PRODUCT_ARCHIVE_TABLES, PRODUCT_TABLES, build_product_
 from domain.product_archive_naming import manual_product_table_name
 from domain.size_group_schema import SIZE_GROUP_ITEMS_TABLE, SIZE_GROUPS_TABLE
 from domain.vip_schema import JST_PRICE_TABLE
-from storage.purchase_execution_standards import enrich_purchase_execution_standards
+from storage.purchase_execution_standards import enrich_purchase_archive_fields, enrich_purchase_product_remarks
 
 router = APIRouter()
 
@@ -238,7 +238,6 @@ PURCHASE_ORDER_IMPORT_FIELD_LABELS = {
     "handler": "经办人",
 }
 PURCHASE_ORDER_IMPORT_CODE_HEADERS = {"商品编码", "货品编码", "商品编号", "商品货号", "货号"}
-PURCHASE_DETAIL_REMARK_LIMIT = 20
 PURCHASE_PRODUCTION_ORDER_EXPORT_MODE = "production_order"
 PURCHASE_EXPORT_MODES = {"summary", "size_rows", PURCHASE_PRODUCTION_ORDER_EXPORT_MODE}
 PURCHASE_DETAIL_VIEW_MODES = {"summary", "size_rows"}
@@ -307,6 +306,7 @@ PURCHASE_PRODUCTION_TAIL_HEADERS = [
     "金额",
     "要求交货日期",
     "工厂回复交货日期",
+    "备注",
 ]
 CBANNER_PURCHASE_ORDER_REQUIREMENTS = "\n".join([
     "1、用皮标准、检验标准、鞋垫做法及颜色搭配必须按我司要求及确认样品的做法；",
@@ -1484,13 +1484,10 @@ def _purchase_detail_completion_text(extra_fields: dict[str, object]) -> str:
     )
 
 
-def _validate_purchase_detail_remark(record: dict[str, object], payload: dict[str, object]) -> None:
+def _apply_purchase_product_remark(repository, record: dict[str, object], payload: dict[str, object]) -> None:
     if _cell_text(record.get("document_type")) != "进货订单":
         return
-    remark = _cell_text(payload.get("remark"))
-    if len(remark) > PURCHASE_DETAIL_REMARK_LIMIT:
-        raise HTTPException(status_code=400, detail=f"商品备注最多 {PURCHASE_DETAIL_REMARK_LIMIT} 个字")
-    payload["remark"] = remark
+    enrich_purchase_product_remarks(repository, [payload])
 
 
 def _normalize_inventory_product_identity(payload: dict[str, object]) -> None:
@@ -2003,6 +2000,7 @@ def _purchase_production_detail_rows(
             _fmt_export_decimal(amount, blank_zero=True),
             _purchase_hyphen_date(_first_text(extra_fields.get("required_delivery_date"), delivery_date)),
             _purchase_sheet_date(_first_text(extra_fields.get("factory_reply_delivery_date"), extra_fields.get("reply_delivery_date"))),
+            _cell_text(detail.get("remark")),
         ])
     return rows
 
@@ -2136,6 +2134,7 @@ def _style_purchase_production_sheet(worksheet, max_row: int, max_col: int, size
     for row_index in range(5, max_row + 1):
         for col_index in (1, 2, 3, 4):
             worksheet.cell(row=row_index, column=col_index).alignment = no_wrap_center
+        worksheet.cell(row=row_index, column=max_col).alignment = Alignment(horizontal="left", vertical="center", wrap_text=True)
 
     width_map = {
         1: 16,
@@ -2151,7 +2150,9 @@ def _style_purchase_production_sheet(worksheet, max_row: int, max_col: int, size
         11: 8,
     }
     for col_index in range(1, max_col + 1):
-        if col_index in width_map:
+        if col_index == max_col:
+            width = 20
+        elif col_index in width_map:
             width = width_map[col_index]
         elif size_start_col <= col_index < tail_start_col:
             width = 5
@@ -3222,6 +3223,7 @@ def _load_purchase_product_lookup_batch(connection, brand: str, codes: set[str])
                 product_table.c.insole_material,
                 product_table.c.shoe_box_spec,
                 product_table.c.execution_standard,
+                product_table.c.remark,
                 product_table.c.size_range,
                 product_table.c.extra_fields,
             )
@@ -3263,6 +3265,7 @@ def _load_purchase_product_lookup_batch(connection, brand: str, codes: set[str])
                 # The current archive owns this field; do not borrow it from
                 # legacy GJ/fine-table rows or a different product alias.
                 product_info["execution_standard"] = _cell_text(row.get("execution_standard"))
+                product_info["remark"] = _cell_text(row.get("remark"))
                 gender_costs = _dict_or_empty(row.get("extra_fields")).get(GENDER_COSTS_FIELD)
                 if gender_costs and not product_info.get(GENDER_COSTS_FIELD):
                     product_info[GENDER_COSTS_FIELD] = gender_costs
@@ -3666,6 +3669,7 @@ def _build_purchase_detail_lookup_for_brand(connection, product_code: str, quant
         extra_fields["size_labels"] = "|".join(size_labels)
     return {
         "product_identity_id": product_info.get("_archive_identity_id"),
+        "remark": _cell_text(product_info.get("remark")),
         "product_code": detail_code,
         "product_name": product_name,
         "color_spec": color_name,
@@ -4864,11 +4868,15 @@ def _list_inventory_export_details(
     document_ids = [int(item["id"]) for item in items]
     normalized_product_code = _cell_text(product_code)
     if document_type == "进货订单" and normalized_product_code:
-        return repository.list_matching_details_for_documents(
+        details = repository.list_matching_details_for_documents(
             document_ids,
             normalized_product_code,
         )
-    return repository.list_details_for_documents(document_ids)
+    else:
+        details = repository.list_details_for_documents(document_ids)
+    purchase_ids = {item["id"] for item in items if _cell_text(item.get("document_type")) == "进货订单"}
+    enrich_purchase_product_remarks(repository, [detail for detail in details if detail.get("document_id") in purchase_ids])
+    return details
 
 
 @router.get("/inventory/export")
@@ -6864,7 +6872,7 @@ def list_inventory_details(
         return {"items": details, "total": total, "page": response_page, "page_size": response_page_size}
 
     if _cell_text(record.get("document_type")) == "进货订单":
-        enrich_purchase_execution_standards(repository, details)
+        enrich_purchase_archive_fields(repository, details)
 
     details_to_enrich = [
         detail
@@ -7175,8 +7183,8 @@ def create_inventory_detail(request: Request, record_id: int, payload: dict):
     record = repository.get_record(record_id)
     if record is None:
         raise HTTPException(status_code=404, detail="Record not found")
-    _validate_purchase_detail_remark(record, payload)
     _normalize_inventory_product_identity(payload)
+    _apply_purchase_product_remark(repository, record, payload)
     payload["document_id"] = record_id
     detail_payloads = [
         _apply_product_archive_cost(repository, record, detail_payload)
@@ -7201,8 +7209,8 @@ def update_inventory_detail(request: Request, record_id: int, detail_id: int, pa
     before = repository.get_detail(detail_id)
     if before is None:
         raise HTTPException(status_code=404, detail="Detail not found")
-    _validate_purchase_detail_remark(record, payload)
     _normalize_inventory_product_identity(payload)
+    _apply_purchase_product_remark(repository, record, payload)
     payload["document_id"] = record_id
     detail_payloads = [
         _apply_product_archive_cost(repository, record, detail_payload)

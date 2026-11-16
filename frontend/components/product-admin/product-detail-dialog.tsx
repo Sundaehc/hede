@@ -33,6 +33,7 @@ const SECTION_ICONS = {
 }
 
 const FULL_WIDTH_FIELDS = new Set([
+  "remark",
   "product_name",
   "selling_points",
   "internal_height_note",

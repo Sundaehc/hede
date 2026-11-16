@@ -181,6 +181,7 @@ ADMIN_EDITABLE_COLUMNS = (
     "sku",
     "original_sku",
     "international_code",
+    "remark",
     "product_name",
     "group_name",
     "category",

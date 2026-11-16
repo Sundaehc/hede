@@ -127,6 +127,18 @@ beforeEach(() => {
 })
 afterEach(cleanup)
 
+test("purchase remarks display the archive value read-only, including long remarks", async () => {
+  const remark = "外箱注明商品货号，鞋垫增加防磨条，左右脚分别包装并附上说明。"
+  detailsMock.mockResolvedValue({ items: [{ ...details[0], remark }], total: 1, page: 1, page_size: 100 })
+  render(panel())
+  await screen.findByText(remark)
+  await userEvent.click(screen.getByRole("button", { name: "编辑明细" }))
+  const input = screen.getByRole("textbox", { name: "商品备注" })
+  expect(input).toHaveValue(remark)
+  expect(input).toHaveAttribute("readonly")
+  expect(screen.getByText("来自商品信息档案，请在商品档案中修改。")).toBeInTheDocument()
+})
+
 test("page presentation keeps the top tabs visible and returns through the detail close button", async () => {
   const onClose = vi.fn()
   const view = render(

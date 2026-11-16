@@ -1497,6 +1497,7 @@ export type PurchasePrintTemplate = {
 }
 
 export type InventoryDetailLookupResult = {
+  remark?: string | null
   matched_product: boolean
   product_identity_id: number | null
   product_code: string | null

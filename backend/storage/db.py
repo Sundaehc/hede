@@ -31,6 +31,7 @@ from domain import product_tag_schema  # noqa: F401 - register product tags on M
 
 NONEMPTY_DAILY_REFRESH_FIELDS = (
     "international_code",
+    "remark",
     "toe_shape",
     "sole_style",
     "fashion_elements",
@@ -75,6 +76,7 @@ class Database:
         with engine.begin() as connection:
             for table in PRODUCT_ARCHIVE_TABLES.values():
                 connection.execute(text(f"ALTER TABLE {table.name} ADD COLUMN IF NOT EXISTS international_code TEXT"))
+                connection.execute(text(f"ALTER TABLE {table.name} ADD COLUMN IF NOT EXISTS remark TEXT"))
                 connection.execute(text(f"ALTER TABLE {table.name} ADD COLUMN IF NOT EXISTS cost_price NUMERIC(10, 2)"))
                 connection.execute(text(f"ALTER TABLE {table.name} ADD COLUMN IF NOT EXISTS product_level TEXT"))
                 connection.execute(text(f"ALTER TABLE {table.name} ADD COLUMN IF NOT EXISTS rear_heel_height TEXT"))
@@ -125,6 +127,12 @@ class Database:
                 for row in payload:
                     if not row.get("international_code"):
                         row["international_code"] = existing_international_codes.get(row.get("sku"))
+                existing_remarks = dict(connection.execute(
+                    select(table.c.sku, table.c.remark).where(table.c.remark.isnot(None))
+                ).tuples().all())
+                for row in payload:
+                    if not row.get("remark"):
+                        row["remark"] = existing_remarks.get(row.get("sku"))
             if brand_group == "smiley" and payload:
                 existing_by_sku = {}
                 skus = [row["sku"] for row in payload if row.get("sku")]
@@ -191,6 +199,9 @@ class Database:
                 set_values["cost_price"] = func.coalesce(excluded.cost_price, table.c.cost_price)
                 set_values["international_code"] = func.coalesce(
                     func.nullif(excluded.international_code, ""), table.c.international_code,
+                )
+                set_values["remark"] = func.coalesce(
+                    func.nullif(excluded.remark, ""), table.c.remark,
                 )
                 set_values["updated_at"] = func.date_trunc("minute", func.now())
                 stmt = stmt.on_conflict_do_update(

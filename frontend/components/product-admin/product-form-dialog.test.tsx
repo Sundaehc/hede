@@ -38,6 +38,7 @@ const NULL_FIELDS = {
   sku: null,
   original_sku: null,
   international_code: null,
+  remark: null,
   product_name: null,
   group_name: null,
   category: null,
@@ -247,6 +248,23 @@ describe("ProductFormDialog", () => {
     await waitFor(() => expect(mockUpdateProduct).toHaveBeenCalledWith("cbanner_mens", 7, expect.objectContaining({ international_code: null })))
   })
 
+  it("edits and clears an archive remark without truncating it to the old purchase-line limit", async () => {
+    const user = userEvent.setup()
+    const view = render(<ProductFormDialog open mode="edit" item={{ ...sampleItem, remark: "原备注" }} onOpenChange={vi.fn()} onSaved={vi.fn()} />)
+    const input = screen.getByRole("textbox", { name: "备注" })
+    expect(input).toHaveValue("原备注")
+    await user.clear(input)
+    const remark = "外箱注明商品货号，鞋垫增加防磨条，左右脚分别包装并附上说明。"
+    await user.type(input, remark)
+    await user.click(screen.getByRole("button", { name: "保存" }))
+    await waitFor(() => expect(mockUpdateProduct).toHaveBeenLastCalledWith("cbanner_mens", 7, expect.objectContaining({ remark })))
+    view.unmount()
+    render(<ProductFormDialog open mode="edit" item={{ ...sampleItem, remark }} onOpenChange={vi.fn()} onSaved={vi.fn()} />)
+    await user.clear(screen.getByRole("textbox", { name: "备注" }))
+    await user.click(screen.getByRole("button", { name: "保存" }))
+    await waitFor(() => expect(mockUpdateProduct).toHaveBeenLastCalledWith("cbanner_mens", 7, expect.objectContaining({ remark: null })))
+  })
+
   it("fills image_path on successful lookup", async () => {
     const user = userEvent.setup()
 
@@ -274,7 +292,9 @@ describe("ProductFormDialog", () => {
     })
 
     expect(await screen.findByText("已匹配图片")).toBeInTheDocument()
-    expect(screen.getByLabelText("图片路径")).toHaveValue("/images/found.jpg")
+    expect(screen.getByLabelText("图片路径")).toHaveAttribute("placeholder", "等待同步到 US3")
+    await user.click(screen.getByRole("button", { name: "保存" }))
+    await waitFor(() => expect(mockCreateProduct).toHaveBeenCalledWith("cbanner_mens", expect.objectContaining({ image_path: "/images/found.jpg" })))
   })
 
   it("shows warning when no image exists and still allows save", async () => {

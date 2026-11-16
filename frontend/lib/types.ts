@@ -92,6 +92,7 @@ export type ProductListItem = {
   sku: string | null
   original_sku: string | null
   international_code?: string | null
+  remark?: string | null
   product_name: string | null
   group_name: string | null
   category: string | null
@@ -625,6 +626,7 @@ export type ProductFormValues = {
   sku: string
   original_sku: string
   international_code: string
+  remark: string
   product_name: string
   group_name: string
   category: string
@@ -672,6 +674,7 @@ export type ProductMutationPayload = Record<string, unknown> & {
   sku?: string | null
   original_sku?: string | null
   international_code?: string | null
+  remark?: string | null
   product_name?: string | null
   group_name?: string | null
   category?: string | null
