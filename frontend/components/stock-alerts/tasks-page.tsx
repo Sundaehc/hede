@@ -167,9 +167,6 @@ function StockAlertTasksContent({ reminderEntry }: { reminderEntry: boolean }) {
             </Button>
           ))}
         </div>
-        <p className="text-xs text-muted-foreground">
-          期限按北京时间当日结束计算 · 提醒每分钟更新
-        </p>
       </div>
       <form
         className="flex flex-wrap items-end gap-3 rounded-xl border bg-card p-4"

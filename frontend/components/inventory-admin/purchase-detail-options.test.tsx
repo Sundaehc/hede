@@ -113,6 +113,7 @@ async function settings() {
 }
 
 beforeEach(() => {
+  window.localStorage.clear()
   clearSessionQueryStates()
   vi.clearAllMocks()
   detailsMock.mockResolvedValue({
@@ -125,6 +126,31 @@ beforeEach(() => {
   printMock.mockResolvedValue({ ok: true, printed: 5, printer: "Test" })
 })
 afterEach(cleanup)
+
+test("page presentation keeps the top tabs visible and returns through the detail close button", async () => {
+  const onClose = vi.fn()
+  const view = render(
+    <SessionQueryProvider userId={1}>
+      <nav aria-label="页面标签">采购单管理</nav>
+      <InventoryDetailPanel
+        record={record}
+        suppliers={[]}
+        presentation="page"
+        onClose={onClose}
+        onTotalChanged={vi.fn()}
+      />
+    </SessionQueryProvider>
+  )
+  await loaded()
+  expect(view.container.querySelector(".fixed.inset-0")).toBeNull()
+  const heading = screen.getByRole("heading", { name: /单据明细/ })
+  expect(heading.closest(".fixed")).toBeNull()
+  expect(screen.getByRole("navigation", { name: "页面标签" })).toBeVisible()
+  expect(screen.getByRole("button", { name: "打印已选" })).toBeDisabled()
+  expect(screen.getByRole("button", { name: "字段位置" })).toBeVisible()
+  await userEvent.click(screen.getByRole("button", { name: "关闭单据明细" }))
+  expect(onClose).toHaveBeenCalledOnce()
+})
 
 test("prints only selected detail IDs even when goods codes match and an older server returns all labels", async () => {
   render(panel())
@@ -198,6 +224,9 @@ test("moves headers, rows and totals together, remembers the order across orders
   expect(table.tFoot!.rows[0].cells[1]).toHaveTextContent("50")
   expect(table.tBodies[0].rows[0].cells[1]).toHaveClass("sticky", "left-10")
   view.unmount()
+  // Browser reload clears temporary queries before mounting the page again.
+  clearSessionQueryStates()
+  window.sessionStorage.clear()
   const another = render(panel(1, { ...record, id: 43 }))
   await loaded()
   expect(columnNames()[1]).toBe("金额")

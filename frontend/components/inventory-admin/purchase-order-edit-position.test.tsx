@@ -3,11 +3,15 @@ import userEvent from "@testing-library/user-event"
 import { afterEach, beforeEach, expect, test, vi } from "vitest"
 
 import { InventoryPage } from "@/components/inventory-admin/inventory-page"
+import { PurchaseOrdersWorkspace, usePurchaseListRefresh } from "./purchase-orders-workspace"
 import type { InventoryRecord } from "@/lib/api"
 
-const { listMock, updateMock, createMock } = vi.hoisted(() => ({
+const { listMock, updateMock, createMock, navigation } = vi.hoisted(() => ({
   listMock: vi.fn(), updateMock: vi.fn(), createMock: vi.fn(),
+  navigation: { pathname: "/purchase-orders" },
 }))
+
+vi.mock("next/navigation", () => ({ usePathname: () => navigation.pathname }))
 
 vi.mock("@/components/auth/auth-provider", () => ({
   useAuth: () => ({ user: { id: 1, username: "test", display_name: "当前用户" } }),
@@ -46,10 +50,25 @@ function order(id: number, summary: string): InventoryRecord {
 
 const initial = [order(20, "原摘要甲"), order(19, "原摘要乙"), order(18, "原摘要丙")]
 
+test("opens purchase details as document links and registers distinct tabs without changing list queries", async () => {
+  const user = userEvent.setup()
+  render(<InventoryPage mode="purchase-orders" />)
+  await screen.findByText("PO-19")
+  const link = screen.getByRole("link", { name: "查看采购单 PO-19 明细" })
+  expect(link).toHaveAttribute("href", "/purchase-orders/19")
+  link.addEventListener("click", (event) => event.preventDefault())
+  const requests = listMock.mock.calls.length
+  await user.click(link)
+  await user.click(link)
+  expect(JSON.parse(window.sessionStorage.getItem("hede:session-query:v1:anonymous:workspace:purchase-detail-tabs:v1") || "[]")).toEqual([{ id: 19, documentNumber: "PO-19" }])
+  expect(listMock).toHaveBeenCalledTimes(requests)
+})
+
 beforeEach(() => {
   vi.clearAllMocks()
   window.localStorage.clear()
   window.sessionStorage.clear()
+  navigation.pathname = "/purchase-orders"
   listMock.mockResolvedValue({ items: initial, total: 25 })
   updateMock.mockImplementation(async (id: number, payload: Partial<InventoryRecord>) => ({
     item: { ...initial.find((item) => item.id === id), ...payload,
@@ -60,6 +79,38 @@ beforeEach(() => {
 })
 
 afterEach(cleanup)
+
+function DetailSaveAction() {
+  const refresh = usePurchaseListRefresh()
+  return <button onClick={() => refresh?.()}>明细保存成功</button>
+}
+
+test("hides and retains the purchase list while details fill the workspace and refreshes its rows after detail changes", async () => {
+  const user = userEvent.setup()
+  const view = render(<PurchaseOrdersWorkspace><DetailSaveAction /></PurchaseOrdersWorkspace>)
+  await screen.findByText("PO-19")
+  await user.click(screen.getByLabelText("Go to next page"))
+  await waitFor(() => expect(listMock).toHaveBeenLastCalledWith(expect.objectContaining({ page: 2 })))
+  await user.click(screen.getByRole("checkbox", { name: "选择单据 PO-19" }))
+  const before = listMock.mock.calls.length
+  navigation.pathname = "/purchase-orders/19"
+  view.rerender(<PurchaseOrdersWorkspace><DetailSaveAction /></PurchaseOrdersWorkspace>)
+  expect(listMock).toHaveBeenCalledTimes(before)
+  expect(screen.getByRole("checkbox", { name: "选择单据 PO-19", hidden: true })).toBeChecked()
+  expect(screen.getByText("PO-19")).not.toBeVisible()
+  listMock.mockResolvedValue({ items: initial.map((item) => item.id === 19 ? { ...item, amount: "123", summary: "明细已更新" } : item), total: 25 })
+  await user.click(screen.getByRole("button", { name: "明细保存成功" }))
+  expect(await screen.findByText("明细已更新")).toBeInTheDocument()
+  expect(listMock).toHaveBeenLastCalledWith(expect.objectContaining({ page: 2 }))
+  expect(screen.getByRole("checkbox", { name: "选择单据 PO-19", hidden: true })).toBeChecked()
+  const afterSave = listMock.mock.calls.length
+  navigation.pathname = "/purchase-orders"
+  view.rerender(<PurchaseOrdersWorkspace>{null}</PurchaseOrdersWorkspace>)
+  expect(listMock).toHaveBeenCalledTimes(afterSave)
+  expect(screen.getByText("PO-19")).toBeVisible()
+  expect(screen.getByRole("checkbox", { name: "选择单据 PO-19" })).toBeChecked()
+  expect(screen.getByText(/第 11-20 条/)).toBeInTheDocument()
+})
 
 function rowOrder() {
   return Array.from(screen.getByText("PO-20").closest("tbody")!.querySelectorAll("tr"))

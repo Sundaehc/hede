@@ -3,19 +3,23 @@
 import { createContext, useCallback, useContext, useMemo, useState, useSyncExternalStore, type Dispatch, type ReactNode, type SetStateAction } from "react"
 
 const STORAGE_PREFIX = "hede:session-query:v1:"
+const PREFERENCE_STORAGE_PREFIX = "hede:account-preference:v1:"
+type StorageKind = "session" | "local"
 const SessionQueryScope = createContext("anonymous")
 const listeners = new Map<string, Set<() => void>>()
 const memoryFallback = new Map<string, string>()
+const preferenceFallback = new Map<string, string>()
 const emptySubscribe = () => () => undefined
 const clientReady = () => true
 const serverReady = () => false
 
-function storedValue(key: string): string | null {
-  if (memoryFallback.has(key)) return memoryFallback.get(key) ?? null
+function storedValue(key: string, kind: StorageKind): string | null {
+  const fallback = kind === "local" ? preferenceFallback : memoryFallback
+  if (fallback.has(key)) return fallback.get(key) ?? null
   try {
-    return window.sessionStorage.getItem(key)
+    return (kind === "local" ? window.localStorage : window.sessionStorage).getItem(key)
   } catch {
-    return memoryFallback.get(key) ?? null
+    return fallback.get(key) ?? null
   }
 }
 
@@ -23,10 +27,10 @@ function notify(key: string) {
   listeners.get(key)?.forEach((listener) => listener())
 }
 
-function createSessionQueryStore<Value>(storageKey: string, defaultValue: Value) {
+function createBrowserStateStore<Value>(storageKey: string, defaultValue: Value, kind: StorageKind) {
   let snapshot: { raw: string | null; value: Value } | null = null
   const getSnapshot = () => {
-    const raw = storedValue(storageKey)
+    const raw = storedValue(storageKey, kind)
     if (snapshot?.raw === raw) return snapshot.value
     let value = defaultValue
     if (raw !== null) {
@@ -61,31 +65,46 @@ export function SessionQueryProvider({ userId, children }: { userId: number | nu
   return <SessionQueryScope.Provider value={userId === null ? "anonymous" : String(userId)}>{ready ? children : null}</SessionQueryScope.Provider>
 }
 
-export function useSessionQueryState<Value>(key: string, initialValue: Value | (() => Value)): [Value, Dispatch<SetStateAction<Value>>] {
+function useBrowserState<Value>(key: string, initialValue: Value | (() => Value), kind: StorageKind): [Value, Dispatch<SetStateAction<Value>>] {
   const scope = useContext(SessionQueryScope)
-  const storageKey = STORAGE_PREFIX + scope + ":" + key
+  const storageKey = (kind === "local" ? PREFERENCE_STORAGE_PREFIX : STORAGE_PREFIX) + scope + ":" + key
   const [defaultValue] = useState<Value>(initialValue)
-  const { getSnapshot } = useMemo(() => createSessionQueryStore(storageKey, defaultValue), [defaultValue, storageKey])
+  const { getSnapshot } = useMemo(() => createBrowserStateStore(storageKey, defaultValue, kind), [defaultValue, storageKey, kind])
   const subscribe = useCallback((listener: () => void) => {
     const group = listeners.get(storageKey) ?? new Set<() => void>()
     group.add(listener)
     listeners.set(storageKey, group)
+    const onStorage = (event: StorageEvent) => {
+      if (event.key === storageKey || event.key === null) listener()
+    }
+    if (kind === "local") window.addEventListener("storage", onStorage)
     return () => {
       group.delete(listener)
       if (group.size === 0) listeners.delete(storageKey)
+      if (kind === "local") window.removeEventListener("storage", onStorage)
     }
-  }, [storageKey])
+  }, [storageKey, kind])
   const value = useSyncExternalStore(subscribe, getSnapshot, () => defaultValue)
   const setValue = useCallback<Dispatch<SetStateAction<Value>>>((action) => {
     const next = typeof action === "function" ? (action as (current: Value) => Value)(getSnapshot()) : action
     const raw = JSON.stringify(next)
+    const fallback = kind === "local" ? preferenceFallback : memoryFallback
     try {
-      window.sessionStorage.setItem(storageKey, raw)
-      memoryFallback.delete(storageKey)
+      (kind === "local" ? window.localStorage : window.sessionStorage).setItem(storageKey, raw)
+      fallback.delete(storageKey)
     } catch {
-      memoryFallback.set(storageKey, raw)
+      fallback.set(storageKey, raw)
     }
     notify(storageKey)
-  }, [getSnapshot, storageKey])
+  }, [getSnapshot, storageKey, kind])
   return [value, setValue]
+}
+
+export function useSessionQueryState<Value>(key: string, initialValue: Value | (() => Value)): [Value, Dispatch<SetStateAction<Value>>] {
+  return useBrowserState(key, initialValue, "session")
+}
+
+// Layout preferences survive reload and logout, with a separate key per account.
+export function useAccountPreferenceState<Value>(key: string, initialValue: Value | (() => Value)): [Value, Dispatch<SetStateAction<Value>>] {
+  return useBrowserState(key, initialValue, "local")
 }

@@ -3,7 +3,7 @@ import { renderToString } from "react-dom/server"
 import { StrictMode } from "react"
 import { afterEach, beforeEach, expect, test, vi } from "vitest"
 
-import { clearSessionQueryStates, SessionQueryProvider, useSessionQueryState } from "@/lib/session-query-state"
+import { clearSessionQueryStates, SessionQueryProvider, useAccountPreferenceState, useSessionQueryState } from "@/lib/session-query-state"
 import { clearSessionScrollPositions } from "@/lib/session-scroll-restoration"
 
 const QUERY_KEY = "hede:session-query:v1:1:inventory:query"
@@ -25,6 +25,11 @@ function QueryFixture() {
     <input aria-label="筛选" value={query} onChange={(event) => setQuery(event.target.value)} />
     <output aria-label="页码">{page}</output>
   </div>
+}
+
+function LayoutPreferenceFixture() {
+  const [order] = useAccountPreferenceState<string[]>("purchase-order:detail-columns:v1", ["product_code", "amount"])
+  return <output aria-label="明细字段顺序">{order.join(",")}</output>
 }
 
 beforeEach(() => {
@@ -58,6 +63,20 @@ test("browser reload clears saved filters, pagination and both scroll directions
   expect(window.sessionStorage.getItem("theme")).toBe("dark")
   expect(window.sessionStorage.getItem("unrelated")).toBe("keep")
   expect(window.history.scrollRestoration).toBe("manual")
+})
+
+test("the actual reload boundary clears temporary queries while preserving account layout preferences", async () => {
+  const key = "hede:account-preference:v1:1:purchase-order:detail-columns:v1"
+  window.localStorage.setItem(key, JSON.stringify(["amount", "product_code"]))
+  navigationType("reload")
+  const { SessionPageStateBoundary } = await import("@/lib/session-page-state")
+  render(<SessionPageStateBoundary><SessionQueryProvider userId={1}><QueryFixture /><LayoutPreferenceFixture /></SessionQueryProvider></SessionPageStateBoundary>)
+  expect(screen.getByLabelText("筛选")).toHaveValue("")
+  expect(screen.getByLabelText("页码")).toHaveTextContent("1")
+  expect(window.sessionStorage.getItem(SCROLL_KEY)).toBeNull()
+  expect(screen.getByLabelText("明细字段顺序")).toHaveTextContent("amount,product_code")
+  expect(JSON.parse(window.localStorage.getItem(key)!)).toEqual(["amount", "product_code"])
+  window.localStorage.removeItem(key)
 })
 
 test.each(["navigate", "back_forward"])("keeps saved filters and scroll positions on %s navigation", async (type) => {

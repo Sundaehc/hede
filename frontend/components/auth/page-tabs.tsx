@@ -3,12 +3,13 @@
 import { useEffect, useRef, useState } from "react"
 import Link from "next/link"
 import { usePathname, useRouter } from "next/navigation"
-import { LayoutGrid, LoaderCircle, Pin, X } from "lucide-react"
+import { FileText, LayoutGrid, LoaderCircle, Pin, X } from "lucide-react"
 
 import { useAuth } from "@/components/auth/auth-provider"
 import { getPinnedPageTabs, setPageTabPinned } from "@/lib/api"
 import { getVisibleNavigation } from "@/lib/navigation"
 import { useSessionQueryState } from "@/lib/session-query-state"
+import { purchaseDetailId, purchaseDetailPath, usePurchaseDetailTabs } from "@/lib/purchase-detail-tabs"
 import { cn } from "@/lib/utils"
 
 export function PageTabs() {
@@ -16,6 +17,7 @@ export function PageTabs() {
   const pathname = usePathname()
   const router = useRouter()
   const [openPaths, setOpenPaths] = useSessionQueryState<string[]>("workspace:manual-tabs", [])
+  const { tabs: detailTabs, closeDetail } = usePurchaseDetailTabs()
   const [pinnedPaths, setPinnedPaths] = useState<string[]>([])
   const [loading, setLoading] = useState(true)
   const [loaded, setLoaded] = useState(false)
@@ -28,10 +30,20 @@ export function PageTabs() {
   if (hasPermission("system.admin")) {
     entries.push({ href: "/admin/mcp-tokens", label: "MCP 令牌管理", icon: Pin, permission: "system.admin" })
   }
+  const currentDetailId = purchaseDetailId(pathname)
+  if (entries.some((entry) => entry.href === "/purchase-orders")) {
+    const details = [...detailTabs]
+    if (currentDetailId !== null && !details.some((tab) => tab.id === currentDetailId)) {
+      details.push({ id: currentDetailId, documentNumber: String(currentDetailId) })
+    }
+    entries.push(...details.map((tab) => ({
+      href: purchaseDetailPath(tab.id), label: `采购单明细 · ${tab.documentNumber}`, icon: FileText, permission: "purchase.view",
+    })))
+  }
   const current = entries.find((entry) => entry.href === pathname)
   const currentPath = current?.href
   const visiblePaths = new Set(entries.map((entry) => entry.href))
-  const paths = [...new Set([...pinnedPaths, ...openPaths])]
+  const paths = [...new Set([...pinnedPaths, ...openPaths, ...(currentDetailId !== null ? [pathname] : [])])]
     .filter((path) => visiblePaths.has(path))
 
   useEffect(() => {
@@ -65,7 +77,7 @@ export function PageTabs() {
     const activeBounds = active.getBoundingClientRect()
     if (activeBounds.left < navigationBounds.left) navigation.scrollLeft += activeBounds.left - navigationBounds.left
     else if (activeBounds.right > navigationBounds.right) navigation.scrollLeft += activeBounds.right - navigationBounds.right
-  }, [pathname, pinnedPaths, openPaths])
+  }, [pathname, pinnedPaths, openPaths, detailTabs.length])
 
   async function togglePin(path: string) {
     if (!loaded || loading || savingPath) return
@@ -87,8 +99,10 @@ export function PageTabs() {
     const index = paths.indexOf(path)
     const remaining = paths.filter((item) => item !== path)
     const destination = remaining[Math.max(0, index - 1)]
+    const detailId = purchaseDetailId(path)
+    if (detailId !== null) closeDetail(detailId)
     setOpenPaths((previous) => previous.filter((item) => item !== path))
-    if (path === pathname && destination) router.push(destination, { scroll: false })
+    if (path === pathname && (destination || detailId !== null)) router.push(destination || "/purchase-orders", { scroll: false })
   }
 
   return (
@@ -103,6 +117,7 @@ export function PageTabs() {
             const entry = entries.find((item) => item.href === path)!
             const active = path === pathname
             const pinned = pinnedPaths.includes(path)
+            const isDetail = purchaseDetailId(path) !== null
             return (
               <div
                 key={path}
@@ -126,7 +141,7 @@ export function PageTabs() {
                   <span className="max-w-36 truncate">{entry.label}</span>
                 </Link>
                 <div className="flex shrink-0 items-center gap-0.5 pr-1">
-                  <button
+                  {!isDetail && <button
                     type="button"
                     aria-label={`${pinned ? "取消固定" : "固定"}${entry.label}`}
                     aria-pressed={pinned}
@@ -142,7 +157,7 @@ export function PageTabs() {
                     )}
                   >
                     {savingPath === path ? <LoaderCircle aria-hidden="true" className="size-3 animate-spin motion-reduce:animate-none" /> : <Pin aria-hidden="true" className={cn("size-3 transition-transform motion-reduce:transition-none", !pinned && "-rotate-45")} strokeWidth={pinned ? 2 : 1.7} />}
-                  </button>
+                  </button>}
                   {!pinned && (
                     <button
                       type="button"

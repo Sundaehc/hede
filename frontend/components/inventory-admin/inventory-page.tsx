@@ -3,6 +3,8 @@
 import { useSessionQueryState } from "@/lib/session-query-state"
 import { useCrossTabRefresh } from "@/lib/use-cross-tab-refresh"
 import dynamic from "next/dynamic"
+import Link from "next/link"
+import { purchaseDetailPath, usePurchaseDetailTabs } from "@/lib/purchase-detail-tabs"
 
 import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent } from "react"
 import { FileSpreadsheet, ClipboardCheck, LoaderCircle, Check, Copy, Plus, Download, Upload, Trash2, Edit, Search, X, RefreshCw, List, BadgeDollarSign, FileText, History, ChevronLeft, ChevronRight, GripVertical, RotateCcw } from "lucide-react"
@@ -719,6 +721,8 @@ function HierarchicalSelect({
 
 type InventoryPageProps = {
   mode?: "inventory" | "purchase-orders"
+  refreshRevision?: number
+  detailOverlayOpen?: boolean
 }
 
 type InventorySubmittedFilters = {
@@ -736,8 +740,9 @@ type InventorySubmittedFilters = {
   handler?: string
 }
 
-export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
+export function InventoryPage({ mode = "inventory", refreshRevision = 0, detailOverlayOpen = false }: InventoryPageProps) {
   const { user } = useAuth()
+  const { openDetail } = usePurchaseDetailTabs()
   const isPurchasePage = mode === "purchase-orders"
   const accountHandler = user?.display_name || user?.username || ""
   const [searchDateStart, setSearchDateStart] = useSessionQueryState("inventory:" + mode + ":searchDateStart", "")
@@ -1056,7 +1061,7 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
   })), [costDocumentOptions])
 
   useCrossTabRefresh(["inventory"], () => setReloadToken((value) => value + 1),
-    formOpen || importDialogOpen || costDialogOpen || detailDocumentId !== null
+    formOpen || importDialogOpen || costDialogOpen || detailDocumentId !== null || detailOverlayOpen
     || isSaving || isDeleting || isBatchDeleting || deleteTarget !== null || batchDeleteOpen)
   useCrossTabRefresh(["reference-data"], () => setReferenceRevision((value) => value + 1),
     formOpen || importDialogOpen || costDialogOpen)
@@ -1100,7 +1105,7 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
     }
     void load()
     return () => { cancelled = true; controller.abort() }
-  }, [isPurchaseOrderTab, page, pageSize, purchaseDetailView, reloadToken, selectionFilters, sortRules, submittedFilters.product_code])
+  }, [isPurchaseOrderTab, page, pageSize, purchaseDetailView, reloadToken, refreshRevision, selectionFilters, sortRules, submittedFilters.product_code])
 
   useEffect(() => {
     let cancelled = false
@@ -2779,9 +2784,13 @@ export function InventoryPage({ mode = "inventory" }: InventoryPageProps) {
                         })}
                         <td className="sticky right-0 z-10 w-28 border-l border-border bg-card px-4 py-3 align-middle shadow-[-5px_0_10px_-9px_rgb(0_0_0_/_0.45)] transition-colors group-hover:bg-muted">
                           <div className="flex items-center justify-center gap-1">
-                            <Button variant="ghost" size="icon-sm" onClick={() => setDetailDocumentId(item.id)} className="cursor-pointer" title="明细">
+                            {isPurchasePage ? <Button asChild variant="ghost" size="icon-sm" title="明细">
+                              <Link href={purchaseDetailPath(item.id)} scroll={false} prefetch={false} aria-label={`查看采购单 ${item.document_number || item.id} 明细`} onClick={() => openDetail(item.id, item.document_number)}>
+                                <List className="h-4 w-4" />
+                              </Link>
+                            </Button> : <Button variant="ghost" size="icon-sm" onClick={() => setDetailDocumentId(item.id)} className="cursor-pointer" title="明细">
                               <List className="h-4 w-4" />
-                            </Button>
+                            </Button>}
                             <Button variant="ghost" size="icon-sm" onClick={() => openEdit(item)} disabled={isPurchasePage && isLoading} className="cursor-pointer" title="编辑">
                               <Edit className="h-4 w-4" />
                             </Button>

@@ -23,7 +23,7 @@ import {
 } from "@/components/inventory-admin/purchase-print-template-editor"
 import { cancelLabelsWithLocalAgent, printLabelsWithLocalAgent } from "@/lib/local-label-print"
 import { getPurchasePrintToday } from "@/lib/purchase-print-date"
-import { useSessionQueryState } from "@/lib/session-query-state"
+import { useAccountPreferenceState } from "@/lib/session-query-state"
 import { DEFAULT_PURCHASE_DETAIL_COLUMN_ORDER, PURCHASE_DETAIL_COLUMNS, normalizePurchaseDetailColumnOrder, type PurchaseDetailColumnKey } from "@/lib/purchase-detail-columns"
 import { PurchaseDetailColumnSettings } from "./purchase-detail-column-settings"
 import {
@@ -137,6 +137,7 @@ type Props = {
   suppliers: SupplierItem[]
   onClose: () => void
   onTotalChanged: () => void
+  presentation?: "drawer" | "page"
 }
 
 function formatComputedNumber(value: number): string {
@@ -315,7 +316,7 @@ function purchaseColumnValue(item: InventoryDetail, key: PurchaseDetailColumnKey
   }
 }
 
-export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChanged }: Props) {
+export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChanged, presentation = "drawer" }: Props) {
   const documentId = record?.id ?? null
   const documentType = record?.document_type || ""
   const isAccountingDocument = ACCOUNTING_DOCUMENT_TYPES.has(documentType)
@@ -338,7 +339,7 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
   const [unitPriceDraftValues, setUnitPriceDraftValues] = useState<string[]>([])
   const detailRequestIdRef = useRef(0)
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set())
-  const [storedColumnOrder, setColumnOrder] = useSessionQueryState<PurchaseDetailColumnKey[]>("purchase-order:detail-columns:v1", DEFAULT_PURCHASE_DETAIL_COLUMN_ORDER)
+  const [storedColumnOrder, setColumnOrder] = useAccountPreferenceState<PurchaseDetailColumnKey[]>("purchase-order:detail-columns:v1", DEFAULT_PURCHASE_DETAIL_COLUMN_ORDER)
   const columnOrder = useMemo(() => normalizePurchaseDetailColumnOrder(storedColumnOrder), [storedColumnOrder])
   const [columnSettingsOpen, setColumnSettingsOpen] = useState(false)
   const replaceInputRef = useRef<HTMLInputElement>(null)
@@ -1204,10 +1205,12 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
   return (
     <>
       {/* Backdrop */}
-      <div className="fixed inset-0 z-[80] bg-black/30 transition-opacity" onClick={onClose} />
+      {presentation === "drawer" && <div className="fixed inset-0 z-[80] bg-black/30 transition-opacity" onClick={onClose} />}
 
       {/* Panel */}
-      <div className="fixed inset-y-0 right-0 z-[90] flex w-full max-w-[1500px] flex-col overflow-hidden rounded-l-lg border-l border-border bg-background shadow-2xl">
+      <div className={presentation === "page"
+        ? "flex h-[calc(100dvh-var(--page-tabs-height,2.75rem))] min-h-96 w-full flex-col overflow-hidden bg-background"
+        : "fixed inset-y-0 right-0 z-[90] flex w-full max-w-[1500px] flex-col overflow-hidden rounded-l-lg border-l border-border bg-background shadow-2xl"}>
         {/* Header */}
         <div className="flex flex-wrap items-center justify-between gap-4 border-b border-border px-6 py-4 shrink-0">
           <div className="min-w-0 flex-1 basis-64">

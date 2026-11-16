@@ -1787,6 +1787,10 @@ export function createInventoryRecord(payload: Record<string, unknown>) {
   })
 }
 
+export function getInventoryRecord(id: number, signal?: AbortSignal) {
+  return request<InventoryRecord>(`/inventory/${id}`, { cache: "no-store", signal })
+}
+
 export function updateInventoryRecord(
   id: number,
   payload: Record<string, unknown>
