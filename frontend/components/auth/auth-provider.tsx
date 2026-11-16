@@ -6,6 +6,7 @@ import { getCurrentUser, logout as logoutRequest } from "@/lib/api"
 import type { AuthUser } from "@/lib/types"
 import { clearSessionQueryStates } from "@/lib/session-query-state"
 import { clearSessionScrollPositions } from "@/lib/session-scroll-restoration"
+import { clearStockModuleQueries } from "@/lib/stock-module-cache"
 
 
 type AuthContextValue = {
@@ -46,6 +47,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [])
 
   const setAuthenticatedUser = useCallback((nextUser: AuthUser | null) => {
+    clearStockModuleQueries()
     refreshTokenRef.current += 1
     setUser(nextUser)
     setLoading(false)

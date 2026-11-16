@@ -49,8 +49,48 @@ import { isProductImportValidation, type ProductImportValidation } from "@/lib/p
 import { isPostedProductChangeWarning, type PostedProductChangeWarning } from "@/lib/posted-product-change"
 import type { StockAlertFilters, StockAlertKind, StockAlertResponse, StockAlertRuleWrite } from "@/lib/stock-alerts"
 import type { ReplenishmentFilters, ReplenishmentResponse, ReplenishmentRule, ReplenishmentRuleResponse } from "@/lib/stock-replenishment"
+import type { StockAlertTask, TaskAssignee, TaskCreate, TaskEventsResponse, TaskFilters, TaskListResponse, TaskUpdate } from "@/lib/stock-alert-tasks"
+import type { TaskBatchCreate, TaskBatchResult, TaskBatchUpdate } from "@/lib/stock-alert-tasks"
 
 const API_PREFIX = "/api"
+
+export function getStockAlertTasks(filters: TaskFilters, signal?: AbortSignal) {
+  const search = new URLSearchParams()
+  Object.entries(filters).forEach(([key, value]) => search.set(key, String(value)))
+  return request<TaskListResponse>(`/stock-alerts/tasks?${search}`, { signal, cache: "no-store" })
+}
+
+export function getStockAlertTask(id: number, signal?: AbortSignal) {
+  return request<{ item: StockAlertTask }>(`/stock-alerts/tasks/${id}`, { signal, cache: "no-store" })
+}
+
+export function getStockAlertTaskEvents(id: number, page: number, signal?: AbortSignal) {
+  return request<TaskEventsResponse>(`/stock-alerts/tasks/${id}/events?page=${page}`, { signal, cache: "no-store" })
+}
+
+export function getStockAlertAssignees(signal?: AbortSignal) {
+  return request<{ items: TaskAssignee[] }>("/stock-alerts/tasks/assignees", { signal, cache: "no-store" })
+}
+
+export function getStockAlertTaskReminders(signal?: AbortSignal) {
+  return request<{ open: number; overdue: number; today: string }>("/stock-alerts/tasks/reminders", { signal, cache: "no-store" })
+}
+
+export function createStockAlertTask(payload: TaskCreate) {
+  return request<{ item: StockAlertTask }>("/stock-alerts/tasks", { method: "POST", body: JSON.stringify(payload) })
+}
+
+export function updateStockAlertTask(id: number, payload: TaskUpdate) {
+  return request<{ item: StockAlertTask }>(`/stock-alerts/tasks/${id}`, { method: "PATCH", body: JSON.stringify(payload) })
+}
+
+export function createStockAlertTasks(payload: TaskBatchCreate) {
+  return request<TaskBatchResult>("/stock-alerts/tasks/batch-create", { method: "POST", body: JSON.stringify(payload) })
+}
+
+export function updateStockAlertTasks(payload: TaskBatchUpdate) {
+  return request<TaskBatchResult>("/stock-alerts/tasks/batch-update", { method: "POST", body: JSON.stringify(payload) })
+}
 
 export function getStockAlertOptions(signal?: AbortSignal) {
   return request<{ brands: Array<{ value: string; label: string }> }>("/stock-alerts/options", { signal })
@@ -2519,11 +2559,15 @@ export function listInventoryDetailUnitPriceOptions(
   }>(`/inventory/${documentId}/details/unit-price-options${suffix}`)
 }
 
-export function listInventoryPrintLabels(documentId: number, signal?: AbortSignal) {
+export function listInventoryPrintLabels(documentId: number, signal?: AbortSignal, detailIds?: readonly number[]) {
+  if (detailIds?.length === 0) return Promise.reject(new ApiError(400, "请先勾选要打印的明细"))
+  const search = new URLSearchParams()
+  detailIds?.forEach((id) => search.append("detail_ids", String(id)))
+  const suffix = detailIds ? `?${search}` : ""
   return request<{
     items: InventoryPrintLabel[]
     label_count: number
-  }>(`/inventory/${documentId}/print-labels`, { signal, cache: "no-store" })
+  }>(`/inventory/${documentId}/print-labels${suffix}`, { signal, cache: "no-store" })
 }
 
 export function getPurchasePrintTemplate(signal?: AbortSignal) {

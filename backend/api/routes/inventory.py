@@ -3810,13 +3810,55 @@ def _apply_product_archive_cost(repository, record: dict[str, object], payload: 
     if price is None:
         price = _to_decimal(lookup.get("unit_price"))
     if price == 0:
-        return payload
+        if (
+            normalize_document_type(record.get("document_type")) not in WHOLESALE_DOCUMENT_TYPES
+            or _cell_text(payload.get("unit_price"))
+        ):
+            return payload
+        candidates = tuple(dict.fromkeys(
+            code for code in (product_code, _cell_text(lookup.get("product_code"))) if code
+        ))
+        history = _load_wholesale_price_history(
+            repository,
+            customer=record.get("supplier"),
+            product_codes=set(candidates),
+            as_of_date=record.get("date_value") or record.get("date"),
+            exclude_document_id=record.get("id"),
+        )
+        price = _wholesale_price_from_history(history, candidates)
+        if price is None:
+            return payload
     normalized = dict(payload)
     normalized["unit_price"] = _fmt_decimal(price)
     quantity = _to_decimal(normalized.get("quantity"))
     if quantity:
         normalized["amount"] = _fmt_decimal(quantity * price)
     return normalized
+
+
+def _load_wholesale_price_history(
+    repository, *, customer: object, product_codes: set[str],
+    as_of_date: object, exclude_document_id: object | None = None,
+) -> tuple[dict[str, Decimal], dict[str, Decimal]]:
+    """Keep sales ahead of returns, including across aliases of one product."""
+    sales = repository.latest_wholesale_sales_prices(
+        customer=customer, product_codes=product_codes, as_of_date=as_of_date,
+        exclude_document_id=exclude_document_id,
+    )
+    remaining = product_codes - sales.keys()
+    returns = (
+        repository.latest_wholesale_sales_return_prices(
+            customer=customer, product_codes=remaining, as_of_date=as_of_date,
+            exclude_document_id=exclude_document_id,
+        )
+        if remaining and hasattr(repository, "latest_wholesale_sales_return_prices")
+        else {}
+    )
+    return sales, returns
+
+
+def _wholesale_price_from_history(history, candidates):
+    return next((prices[code] for prices in history for code in candidates if code in prices), None)
 
 
 def _validate_inventory_import_product_codes(
@@ -4024,14 +4066,15 @@ def _build_purchase_details_from_rows(
 
 
     wholesale_price_history = (
-        repository.latest_wholesale_sales_prices(
+        _load_wholesale_price_history(
+            repository,
             customer=wholesale_customer,
             product_codes=wholesale_price_candidates,
             as_of_date=wholesale_price_date,
             exclude_document_id=wholesale_exclude_document_id,
         )
-        if use_wholesale_price_history
-        else {}
+        if use_wholesale_price_history and any(not row["unit_price"] for row in parsed_rows)
+        else ({}, {})
     )
     document_costs = (
         repository.latest_document_costs(
@@ -4151,17 +4194,14 @@ def _build_purchase_details_from_rows(
         )
         historical_price: Decimal | None = None
         if use_wholesale_price_history and not imported_unit_price_text:
-            for candidate in (
+            historical_price = _wholesale_price_from_history(wholesale_price_history, (
                 original_sku,
                 _cell_text(product_info.get("_archive_original_sku")),
                 _cell_text(product_info.get("original_goods_code")),
                 parsed_original_sku,
                 style_color_code,
                 _cell_text(raw_code),
-            ):
-                if candidate in wholesale_price_history:
-                    historical_price = wholesale_price_history[candidate]
-                    break
+            ))
         should_apply_gender_price = (
             not use_wholesale_price_history
             and recent_cost is None
@@ -6912,7 +6952,10 @@ def list_inventory_details(
 
 
 @router.get("/inventory/{record_id}/print-labels")
-def list_inventory_print_labels(request: Request, record_id: int):
+def list_inventory_print_labels(
+    request: Request, record_id: int,
+    detail_ids: Annotated[list[int] | None, Query(min_length=1, max_length=500)] = None,
+):
     repository = request.app.state.inventory_repository
     record = repository.get_record(record_id)
     if record is None:
@@ -6920,7 +6963,15 @@ def list_inventory_print_labels(request: Request, record_id: int):
     if _cell_text(record.get("document_type")) != "进货订单":
         raise HTTPException(status_code=400, detail="仅进货订单支持打印鞋盒标签")
 
-    details = repository.list_details(record_id)
+    if detail_ids is not None:
+        if not detail_ids or len(detail_ids) > 500 or any(detail_id <= 0 for detail_id in detail_ids):
+            raise HTTPException(status_code=400, detail="请选择 1–500 条有效采购明细")
+        selected_ids = sorted(set(detail_ids))
+        details = repository.list_details(record_id, detail_ids=selected_ids)
+        if {int(detail["id"]) for detail in details} != set(selected_ids):
+            raise HTTPException(status_code=409, detail="勾选明细已变更或不属于当前采购单，请刷新后重新勾选")
+    else:
+        details = repository.list_details(record_id)
     if not details:
         return {"items": [], "label_count": 0}
 
@@ -7455,15 +7506,13 @@ def _import_inventory(request: Request, filename: str | None, content: bytes):
                     for candidate in (product_code, _cell_text(lookup.get("product_code")))
                     if candidate
                 ))
-                historical_prices = repository.latest_wholesale_sales_prices(
+                historical_prices = _load_wholesale_price_history(
+                    repository,
                     customer=doc_payload.get("supplier"),
                     product_codes=set(price_candidates),
                     as_of_date=doc_payload.get("date"),
                 )
-                historical_price = next(
-                    (historical_prices[candidate] for candidate in price_candidates if candidate in historical_prices),
-                    None,
-                )
+                historical_price = _wholesale_price_from_history(historical_prices, price_candidates)
                 detail_payload["unit_price"] = (
                     _fmt_decimal(historical_price) if historical_price is not None else None
                 )

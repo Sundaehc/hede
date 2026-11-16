@@ -1,6 +1,6 @@
-export type BusinessDataResource = "products" | "inventory" | "reference-data" | "stock-alert-rules"
+export type BusinessDataResource = "products" | "inventory" | "reference-data" | "stock-alert-rules" | "stock-alert-tasks"
 
-const RESOURCES: BusinessDataResource[] = ["products", "inventory", "reference-data", "stock-alert-rules"]
+const RESOURCES: BusinessDataResource[] = ["products", "inventory", "reference-data", "stock-alert-rules", "stock-alert-tasks"]
 const PREFIX = "hede:data-change:v1:"
 const CHANNEL = "hede:business-data:v1"
 const source = typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
@@ -101,6 +101,8 @@ export function publishBusinessDataChange(resources: BusinessDataResource[]) {
     try { window.localStorage.setItem(PREFIX + resource, JSON.stringify(notice)) } catch { /* Use the channel below. */ }
   }
   // Do not notify this tab: its save handlers already update the current rows.
+  // Task reminders also live outside the saving page and must update in this tab.
+  if (resources.includes("stock-alert-tasks")) listeners.forEach((listener) => listener(["stock-alert-tasks"]))
   try {
     if (channel) channel.postMessage(notice)
     else {
@@ -114,6 +116,10 @@ export function publishBusinessDataChange(resources: BusinessDataResource[]) {
 export function notifyBusinessMutation(path: string, method = "GET") {
   if (!["POST", "PUT", "PATCH", "DELETE"].includes(method.toUpperCase())) return
   const pathname = path.split("?")[0]
+  if (/^\/stock-alerts\/tasks(?:\/(?:\d+|batch-create|batch-update))?$/.test(pathname)) {
+    publishBusinessDataChange(["stock-alert-tasks"])
+    return
+  }
   if (pathname === "/stock-alerts/rules" || pathname === "/stock-alerts/replenishment/rules") {
     publishBusinessDataChange(["stock-alert-rules"])
     return

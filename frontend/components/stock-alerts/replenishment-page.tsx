@@ -18,9 +18,9 @@ import { Select } from "@/components/ui/select"
 import { getReplenishment, getStockAlertOptions } from "@/lib/api"
 import { subscribeBusinessDataChanges } from "@/lib/business-data-sync"
 import { useSessionQueryState } from "@/lib/session-query-state"
+import { STOCK_FACT_RESOURCES, STOCK_SOURCE_RESOURCES, useStockModuleOptions, useStockModuleQuery } from "@/lib/stock-module-query"
 import type {
   ReplenishmentFilters,
-  ReplenishmentResponse,
   SupplierReplenishmentSummary,
 } from "@/lib/stock-replenishment"
 import { cn } from "@/lib/utils"
@@ -64,22 +64,21 @@ export function ReplenishmentPage() {
     DEFAULT_FILTERS
   )
   const [draft, setDraft] = useState(filters)
-  const [brands, setBrands] = useState<Array<{ value: string; label: string }>>(
-    []
-  )
-  const [optionsError, setOptionsError] = useState(false)
+  const options = useStockModuleOptions(getStockAlertOptions)
+  const brands = options.data?.brands ?? []
+  const optionsError = Boolean(options.error)
   const [revision, setRevision] = useState(0)
   const [editingSupplier, setEditingSupplier] = useState<string | null>(null)
-  const [result, setResult] = useState<{
-    key: string
-    data: ReplenishmentResponse | null
-    error: string | null
-  } | null>(null)
   const bypassCache = useRef(false)
-  const key = JSON.stringify([filters, revision])
-  const loading = result?.key !== key
-  const data = result?.key === key ? result.data : null
-  const error = result?.key === key ? result.error : null
+  const { data, error, loading, refreshing } = useStockModuleQuery({
+    group: "replenishment", queryKey: JSON.stringify(filters), revision,
+    resources: STOCK_FACT_RESOURCES, factResources: STOCK_SOURCE_RESOURCES,
+    load: (signal, refreshFacts) => {
+      const refresh = bypassCache.current || refreshFacts
+      bypassCache.current = false
+      return getReplenishment(filters, { signal, refresh })
+    },
+  })
   const brandLabel =
     brands.find(({ value }) => value === filters.brand)?.label ?? filters.brand
   const page = data?.page ?? filters.page
@@ -88,22 +87,10 @@ export function ReplenishmentPage() {
     Math.ceil((data?.total ?? 0) / (data?.page_size ?? 25))
   )
 
-  useEffect(() => {
-    const controller = new AbortController()
-    getStockAlertOptions(controller.signal)
-      .then((response) => {
-        if (!controller.signal.aborted) setBrands(response.brands)
-      })
-      .catch(() => {
-        if (!controller.signal.aborted) setOptionsError(true)
-      })
-    return () => controller.abort()
-  }, [])
-
   useEffect(
     () =>
       subscribeBusinessDataChanges((resources) => {
-        if (resources.length) {
+        if (resources.some((resource) => resource !== "stock-alert-tasks")) {
           bypassCache.current = !resources.every(
             (resource) => resource === "stock-alert-rules"
           )
@@ -112,29 +99,6 @@ export function ReplenishmentPage() {
       }),
     []
   )
-
-  useEffect(() => {
-    const controller = new AbortController()
-    const refresh = bypassCache.current
-    bypassCache.current = false
-    getReplenishment(filters, { signal: controller.signal, refresh })
-      .then((response) => {
-        if (!controller.signal.aborted)
-          setResult({ key, data: response, error: null })
-      })
-      .catch((cause: unknown) => {
-        if (!controller.signal.aborted)
-          setResult({
-            key,
-            data: null,
-            error:
-              cause instanceof Error
-                ? cause.message
-                : "补货建议加载失败，请重试",
-          })
-      })
-    return () => controller.abort()
-  }, [filters, key])
 
   const metric = (value: number) =>
     loading || !data?.ready ? "—" : number(value)
@@ -170,14 +134,14 @@ export function ReplenishmentPage() {
           )}
           <Button
             variant="outline"
-            disabled={loading}
+            disabled={refreshing}
             onClick={() => {
               bypassCache.current = true
               setRevision((value) => value + 1)
             }}
           >
             <RefreshCw
-              className={cn("size-4", loading && "animate-spin")}
+              className={cn("size-4", refreshing && "animate-spin")}
               aria-hidden="true"
             />
             刷新
@@ -363,7 +327,7 @@ export function ReplenishmentPage() {
       <details
         className="rounded-xl border bg-card"
         open={filters.supplier ? true : undefined}
-        aria-busy={loading}
+        aria-busy={refreshing}
       >
         <summary className="cursor-pointer px-4 py-3 text-sm font-medium">
           供应商起订汇总 ·{" "}
@@ -434,7 +398,7 @@ export function ReplenishmentPage() {
 
       <section
         className="overflow-hidden rounded-xl border bg-card"
-        aria-busy={loading}
+        aria-busy={refreshing}
       >
         <div className="flex min-h-[72px] flex-wrap items-center justify-between gap-2 border-b px-4 py-3 text-xs text-muted-foreground sm:min-h-12">
           <span>
@@ -442,7 +406,7 @@ export function ReplenishmentPage() {
             {data?.sales_start ?? "—"} 至 {data?.sales_end ?? "—"}
           </span>
           <span role="status">
-            {loading
+            {refreshing
               ? "正在计算补货建议…"
               : error
                 ? "加载失败"
@@ -675,13 +639,13 @@ export function ReplenishmentPage() {
           数据来源与计算口径
         </summary>
         <div className="mt-2 space-y-1 leading-6 text-muted-foreground">
-          {(data ?? result?.data)?.source_issues.map((notice) => (
+          {data?.source_issues.map((notice) => (
             <p key={notice}>{notice}</p>
           ))}
-          {(data ?? result?.data)?.unmatched_stock_rows ? (
+          {data?.unmatched_stock_rows ? (
             <p>
               全品牌库存中有{" "}
-              {number((data ?? result?.data)?.unmatched_stock_rows ?? 0)}{" "}
+              {number(data?.unmatched_stock_rows ?? 0)}{" "}
               组编码无法唯一匹配，未计入建议，请核对商品档案。
             </p>
           ) : null}

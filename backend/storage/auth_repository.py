@@ -419,6 +419,19 @@ class AuthRepository:
             rows = [dict(row) for row in connection.execute(select(AUTH_USER_TABLE).order_by(AUTH_USER_TABLE.c.id)).mappings()]
         return [self._user_with_permissions(row) for row in rows]
 
+    def list_stock_alert_assignees(self) -> list[dict[str, object]]:
+        """Only expose assignment labels; do not load credentials or query each role separately."""
+        with self.engine.connect() as connection:
+            rows = connection.execute(select(
+                AUTH_USER_TABLE.c.id, AUTH_USER_TABLE.c.display_name, AUTH_USER_TABLE.c.username,
+                AUTH_USER_TABLE.c.department_code, AUTH_ROLE_TABLE.c.permissions,
+            ).select_from(AUTH_USER_TABLE.join(AUTH_ROLE_TABLE, AUTH_USER_TABLE.c.role_code == AUTH_ROLE_TABLE.c.code))
+             .where(AUTH_USER_TABLE.c.status == "active")
+             .order_by(AUTH_USER_TABLE.c.display_name, AUTH_USER_TABLE.c.id)).mappings()
+            return [{"id": row["id"], "name": row["display_name"] or row["username"],
+                     "department": row["department_code"]} for row in rows
+                    if {"*", "product.view"} & set(_split_permissions(row["permissions"]))]
+
     def list_users_page(self, *, page: int, page_size: int, name_query: str | None = None) -> dict[str, object]:
         page = max(1, int(page))
         page_size = min(max(1, int(page_size)), 100)

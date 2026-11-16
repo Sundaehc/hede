@@ -3759,9 +3759,11 @@ class InventoryRepository:
 
     # ── Inventory Details ───────────────────────────────────────────
 
-    def list_details(self, document_id: int) -> list[dict[str, object]]:
+    def list_details(self, document_id: int, *, detail_ids: list[int] | None = None) -> list[dict[str, object]]:
         table = INVENTORY_DETAIL_TABLE
         statement = select(table).where(table.c.document_id == document_id).order_by(table.c.id)
+        if detail_ids is not None:
+            statement = statement.where(table.c.id.in_(detail_ids))
         with self.engine.connect() as connection:
             return [dict(row) for row in connection.execute(statement).mappings()]
 
@@ -4001,6 +4003,33 @@ class InventoryRepository:
         as_of_date: object | None = None,
         exclude_document_id: object | None = None,
     ) -> dict[str, Decimal]:
+        return self._latest_wholesale_document_prices(
+            customer=customer, product_codes=product_codes, as_of_date=as_of_date,
+            exclude_document_id=exclude_document_id, document_type="批发销售单",
+        )
+
+    def latest_wholesale_sales_return_prices(
+        self,
+        *,
+        customer: object,
+        product_codes: set[str],
+        as_of_date: object | None = None,
+        exclude_document_id: object | None = None,
+    ) -> dict[str, Decimal]:
+        return self._latest_wholesale_document_prices(
+            customer=customer, product_codes=product_codes, as_of_date=as_of_date,
+            exclude_document_id=exclude_document_id, document_type="批发销售退货单",
+        )
+
+    def _latest_wholesale_document_prices(
+        self,
+        *,
+        customer: object,
+        product_codes: set[str],
+        document_type: str,
+        as_of_date: object | None = None,
+        exclude_document_id: object | None = None,
+    ) -> dict[str, Decimal]:
         customer_name = str(customer or "").strip()
         normalized_codes = {
             str(product_code or "").strip()
@@ -4014,7 +4043,7 @@ class InventoryRepository:
         detail = INVENTORY_DETAIL_TABLE
         conditions = [
             record.c.deleted_at.is_(None),
-            record.c.document_type == "批发销售单",
+            record.c.document_type == document_type,
             record.c.supplier == customer_name,
             detail.c.product_code.in_(normalized_codes),
             detail.c.unit_price.is_not(None),
@@ -4042,8 +4071,7 @@ class InventoryRepository:
             .where(and_(*conditions))
             .order_by(
                 detail.c.product_code,
-                record.c.date_value.desc().nulls_last(),
-                record.c.date.desc().nulls_last(),
+                func.coalesce(cast(record.c.date_value, Text), record.c.date).desc().nulls_last(),
                 record.c.id.desc(),
                 detail.c.id.desc(),
             )

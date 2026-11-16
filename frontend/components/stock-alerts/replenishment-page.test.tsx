@@ -10,6 +10,7 @@ import {
 import { afterEach, beforeEach, expect, test, vi } from "vitest"
 import { ReplenishmentPage } from "./replenishment-page"
 import { clearSessionQueryStates } from "@/lib/session-query-state"
+import { clearStockModuleQueries } from "@/lib/stock-module-query"
 import type { ReplenishmentResponse } from "@/lib/stock-replenishment"
 
 const { load, options, getRule, save, permission } = vi.hoisted(() => ({
@@ -105,6 +106,7 @@ function response(): ReplenishmentResponse {
 beforeEach(() => {
   vi.resetAllMocks()
   clearSessionQueryStates()
+  clearStockModuleQueries()
   permission.manage = true
   options.mockResolvedValue({
     brands: [

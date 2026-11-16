@@ -9,6 +9,7 @@ import { useAuth } from "@/components/auth/auth-provider"
 import { Button } from "@/components/ui/button"
 import { ThemeToggle } from "@/components/theme-toggle"
 import { Box, LogOut } from "lucide-react"
+import { StockAlertTaskReminder } from "@/components/stock-alerts/task-reminder"
 
 let productGoodsPrefetchStarted = false
 
@@ -48,6 +49,7 @@ export function SidebarNav() {
         </div>
       </div>
 
+      <StockAlertTaskReminder />
       <nav className="sidebar-scroll-area flex-1 space-y-2 overflow-y-auto px-2 py-3 md:space-y-5 md:px-3 md:py-5">
         {visibleGroups.map((group) => (
           <div key={group.section}>

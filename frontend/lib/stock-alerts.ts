@@ -13,6 +13,7 @@ export type StockAlertFilters = {
   page: number
 }
 export type StockAlertItem = {
+  task?: import("./stock-alert-tasks").StockAlertTaskSummary | null
   id: number
   brand: string
   sku: string

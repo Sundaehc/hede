@@ -17,10 +17,14 @@ _cache, _lock, _build_lock = OrderedDict(), Lock(), Lock()
 TTL, MAX_BYTES = 120, 8 * 1024 * 1024
 
 
-def _sales_dates(connection, name, end):
-    first = connection.execute(text(f"SELECT min(sales_date) FROM {name}")).scalar()
+def _sales_dates(connection, name, end, start=None):
+    first = start or connection.execute(text(f"SELECT min(sales_date) FROM {name}")).scalar()
     if not first or first > end:
         return []
+    if connection.dialect.name != "postgresql":
+        return list(connection.execute(text(f"SELECT DISTINCT sales_date FROM {name} "
+            "WHERE sales_date BETWEEN :start AND :end ORDER BY sales_date"),
+            {"start": first, "end": end}).scalars())
     return list(connection.execute(text(f"""SELECT CAST(day AS date) FROM
         generate_series(CAST(:start AS date), CAST(:end AS date), INTERVAL '1 day') day
         WHERE EXISTS (SELECT 1 FROM {name} f WHERE f.sales_date = CAST(day AS date)) ORDER BY day"""),
@@ -52,7 +56,7 @@ def _load(connection, repository, brand, today):
     ends = [connection.execute(text(f"SELECT max(sales_date) FROM {name}")).scalar() for name in ("jst_daily_sales", "vip_daily_sales")]
     end = min([today - timedelta(days=1), *ends]) if all(ends) else None
     stock, unmatched = defaultdict(Decimal), 0
-    rows = connection.execution_options(stream_results=True).execute(text("""SELECT product_code, style_code,
+    rows = connection.execution_options(stream_results=True, yield_per=5000).execute(text("""SELECT product_code, style_code,
         sum(available_qty) AS quantity FROM jst_full_stock WHERE sync_date = :day AND available_qty <> 0
         GROUP BY product_code, style_code"""), {"day": stock_date})
     for row in rows.mappings():
@@ -66,7 +70,7 @@ def _load(connection, repository, brand, today):
     inbounds = defaultdict(lambda: {"first": None, "last": None, "quantity": Decimal(0)})
     if selected and inspector.has_table("mv_jst_purchase_inbound_age_reference"):
         codes = matcher.source_codes(selected)
-        rows = connection.execution_options(stream_results=True).execute(text("""SELECT goods_code, style_color_code,
+        rows = connection.execution_options(stream_results=True, yield_per=5000).execute(text("""SELECT goods_code, style_color_code,
             original_sku, first_inbound_date, last_inbound_date, received_quantity
             FROM mv_jst_purchase_inbound_age_reference
             WHERE style_color_code = ANY(:codes) OR goods_code = ANY(:codes) OR original_sku = ANY(:codes)"""), {"codes": codes})

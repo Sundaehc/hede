@@ -23,6 +23,9 @@ import {
 } from "@/components/inventory-admin/purchase-print-template-editor"
 import { cancelLabelsWithLocalAgent, printLabelsWithLocalAgent } from "@/lib/local-label-print"
 import { getPurchasePrintToday } from "@/lib/purchase-print-date"
+import { useSessionQueryState } from "@/lib/session-query-state"
+import { DEFAULT_PURCHASE_DETAIL_COLUMN_ORDER, PURCHASE_DETAIL_COLUMNS, normalizePurchaseDetailColumnOrder, type PurchaseDetailColumnKey } from "@/lib/purchase-detail-columns"
+import { PurchaseDetailColumnSettings } from "./purchase-detail-column-settings"
 import {
   getPurchasePrintTemplate,
   listPurchasePrintTemplates,
@@ -296,6 +299,22 @@ function candidateSubtitle(candidate: InventoryDetailCandidate) {
   ].filter(Boolean).join(" · ")
 }
 
+function purchaseColumnValue(item: InventoryDetail, key: PurchaseDetailColumnKey) {
+  switch (key) {
+    case "product_code": return item.product_code || "-"
+    case "remark": return item.remark || "-"
+    case "image_code": return getPurchaseDetailExtra(item, "image_code") || item.product_code || "-"
+    case "style_code": return getPurchaseDetailExtra(item, "image_code") || getPurchaseDetailExtra(item, "style_code") || "-"
+    case "color_name": return item.color_name || item.color_spec || "-"
+    case "quantity": return item.quantity || "-"
+    case "unit_price": return item.unit_price || "-"
+    case "amount": return item.amount || "-"
+    case "sizes": return ""
+    case "inner_color_code": return getPurchaseDetailExtra(item, key) || ""
+    default: return getPurchaseDetailExtra(item, key) || "-"
+  }
+}
+
 export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChanged }: Props) {
   const documentId = record?.id ?? null
   const documentType = record?.document_type || ""
@@ -319,6 +338,9 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
   const [unitPriceDraftValues, setUnitPriceDraftValues] = useState<string[]>([])
   const detailRequestIdRef = useRef(0)
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set())
+  const [storedColumnOrder, setColumnOrder] = useSessionQueryState<PurchaseDetailColumnKey[]>("purchase-order:detail-columns:v1", DEFAULT_PURCHASE_DETAIL_COLUMN_ORDER)
+  const columnOrder = useMemo(() => normalizePurchaseDetailColumnOrder(storedColumnOrder), [storedColumnOrder])
+  const [columnSettingsOpen, setColumnSettingsOpen] = useState(false)
   const replaceInputRef = useRef<HTMLInputElement>(null)
   const [replaceFile, setReplaceFile] = useState<File | null>(null)
   const [isReplacing, setIsReplacing] = useState(false)
@@ -353,6 +375,7 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
     [items],
   )
   const tableSizeColumns = purchaseTableSizeColumns
+  const firstVisibleColumn = columnOrder.find((key) => key !== "sizes" || tableSizeColumns.length > 0)
   const formSizeColumns = purchaseSizeColumns
   const detailColumnCount = isAccountingDocument ? 6 : isPurchaseOrder ? 18 + tableSizeColumns.length : 9 + tableSizeColumns.length
   const unitPriceDraftValueSet = useMemo(() => new Set(unitPriceDraftValues), [unitPriceDraftValues])
@@ -458,7 +481,7 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
 
   useCrossTabRefresh(["inventory"], () => { void load(); onTotalChanged() },
     !documentId || formOpen || isSaving || isReplacing || isDeleting
-    || deleteTarget !== null || batchDeleteOpen || printTemplateOpen || unitPriceFilterOpen)
+    || deleteTarget !== null || batchDeleteOpen || printTemplateOpen || unitPriceFilterOpen || columnSettingsOpen)
 
   useEffect(() => {
     setSelectedIds(new Set())
@@ -474,6 +497,7 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
     setUnitPriceOptionsTruncated(false)
     setUnitPriceDraftValues([])
     setPrintTemplateOpen(false)
+    setColumnSettingsOpen(false)
   }, [documentId])
 
   useEffect(() => { void load() }, [load, importRevision])
@@ -951,8 +975,11 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
     }
   }
 
-  const handlePrint = async () => {
+  const handlePrint = async (scope: "all" | "selected" = "all") => {
     if (!documentId || !isPurchaseOrder || isPrinting || printJobRef.current?.busy) return
+    const detailIds = scope === "selected" ? Array.from(selectedIds) : undefined
+    if (detailIds?.length === 0) return
+    const selected = detailIds ? new Set(detailIds) : null
     const job = {
       requestId: Array.from(crypto.getRandomValues(new Uint8Array(16)), (value) => value.toString(16).padStart(2, "0")).join(""),
       controller: new AbortController(),
@@ -964,7 +991,9 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
     setPrintPhase("preparing")
     try {
       const [result, templateResult] = await Promise.all([
-        listInventoryPrintLabels(documentId, job.controller.signal),
+        detailIds
+          ? listInventoryPrintLabels(documentId, job.controller.signal, detailIds)
+          : listInventoryPrintLabels(documentId, job.controller.signal),
         selectedPrintTemplateKey
           ? Promise.resolve({
               config: printTemplate,
@@ -978,9 +1007,11 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
           : getPurchasePrintTemplate(job.controller.signal),
       ])
       if (printJobRef.current !== job || job.controller.signal.aborted) return
-      const labels = expandPrintLabels(result.items.map((label) => ({ ...label, production_date: productionDate })))
+      const labels = expandPrintLabels(result.items
+        .filter((label) => !selected || selected.has(label.detail_id))
+        .map((label) => ({ ...label, production_date: productionDate })))
       if (labels.length === 0) {
-        showMessage("暂无可打印标签", "当前采购单没有数量大于 0 的尺码明细")
+        showMessage("暂无可打印标签", selected ? "勾选明细没有数量大于 0 的尺码标签，请核对数量和尺码。" : "当前采购单没有数量大于 0 的尺码明细")
         return
       }
       const activeTemplate = templateResult.config ?? DEFAULT_PURCHASE_PRINT_TEMPLATE
@@ -1248,13 +1279,23 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
                 <Button
                   size="sm"
                   variant="outline"
-                  onClick={handlePrint}
+                  onClick={() => void handlePrint()}
                   disabled={isPrinting || isLoading}
                   className="cursor-pointer"
                   title="直接打印到本机 TSCTTP-244 Pro"
                 >
                   {isPrinting ? <LoaderCircle className="h-4 w-4 animate-spin motion-reduce:animate-none" /> : <Printer className="h-4 w-4" />}
                   <span className="ml-1.5">{printPhase === "preparing" ? "准备标签..." : printPhase === "sending" ? "正在发送..." : printPhase === "cancelling" ? "正在取消..." : "打印"}</span>
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => void handlePrint("selected")}
+                  disabled={isPrinting || isLoading || selectedIds.size === 0}
+                  title="仅打印已勾选明细的鞋盒标签"
+                >
+                  <Printer className="h-4 w-4" />
+                  <span className="ml-1.5">打印已选{selectedIds.size > 0 ? `（${selectedIds.size}）` : ""}</span>
                 </Button>
                 {printPhase !== "idle" && (
                   <Button
@@ -1281,6 +1322,10 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
                   aria-label="自定义打印模板"
                 >
                   <Settings2 className="h-4 w-4" />
+                </Button>
+                <Button size="sm" variant="outline" onClick={() => setColumnSettingsOpen(true)}>
+                  <Settings2 className="h-4 w-4" />
+                  <span className="ml-1.5">字段位置</span>
                 </Button>
               </div>
             )}
@@ -1343,25 +1388,15 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
                       aria-label="选择全部明细"
                     />
                   </th>
-                  <th className={`${purchaseHeaderClassName} sticky left-10 z-40 w-[130px] bg-muted`}>商品货号</th>
-                  <th className={`${purchaseHeaderClassName} w-[120px]`}>商品备注</th>
-                  <th className={`${purchaseHeaderClassName} w-[130px]`}>图片</th>
-                  <th className={`${purchaseHeaderClassName} w-[96px]`}>工厂货号</th>
-                  <th className={`${purchaseHeaderClassName} w-[140px]`}>款号（鞋内丝印）</th>
-                  <th className={`${purchaseHeaderClassName} w-[128px]`}>色号（鞋内丝印）</th>
-                  <th className={`${purchaseHeaderClassName} w-[104px]`}>颜色名称</th>
-                  <th className={`${purchaseHeaderClassName} w-[112px]`}>鞋面材质</th>
-                  <th className={`${purchaseHeaderClassName} w-[112px]`}>内里材质</th>
-                  <th className={`${purchaseHeaderClassName} w-[112px]`}>大底材质</th>
-                  <th className={`${purchaseHeaderClassName} w-[112px]`}>鞋垫材质</th>
-                  <th className={`${purchaseHeaderClassName} w-[104px]`}>鞋盒规格</th>
-                  <th className={`${purchaseHeaderClassName} w-[160px]`}>执行标准</th>
-                  {tableSizeColumns.map((size) => (
-                    <th key={size} className="w-[48px] px-2 py-2.5 text-right font-medium whitespace-nowrap">{size}</th>
-                  ))}
-                  <th className="w-[72px] px-3 py-2.5 text-right font-medium whitespace-nowrap">数量</th>
-                  <th className="w-[72px] px-3 py-2.5 text-right font-medium whitespace-nowrap">单价</th>
-                  <th className="w-[82px] px-3 py-2.5 text-right font-medium whitespace-nowrap">金额</th>
+                  {columnOrder.map((key) => {
+                    const column = PURCHASE_DETAIL_COLUMNS.find((field) => field.key === key)!
+                    const fixed = key === firstVisibleColumn ? "sticky left-10 z-40 bg-muted" : ""
+                    return key === "sizes" ? tableSizeColumns.map((size, sizeIndex) => (
+                      <th key={`size:${size}`} style={{ width: 48 }} className={`${purchaseHeaderClassName} text-right ${sizeIndex === 0 ? fixed : ""}`}>{size}</th>
+                    )) : (
+                      <th key={key} style={{ width: column.width }} className={`${purchaseHeaderClassName} ${fixed} ${["quantity", "unit_price", "amount"].includes(key) ? "text-right" : ""}`}>{column.label}</th>
+                    )
+                  })}
                   <th className="sticky right-0 z-30 w-20 border-l border-border bg-muted px-4 py-2.5 font-medium whitespace-nowrap shadow-[-5px_0_10px_-9px_rgb(0_0_0_/_0.45)]">操作</th>
                 </tr>
               ) : (
@@ -1543,9 +1578,9 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
                     <input
                       type="checkbox"
                       checked={selectedIds.has(item.id)}
+                      aria-label={`选择明细 ${item.product_code || item.id}`}
                       onChange={() => toggleSelected(item.id)}
                       className="h-4 w-4 cursor-pointer rounded border-border"
-                      aria-label={`选择明细 ${item.product_code || item.id}`}
                     />
                   </td>
                   {isAccountingDocument ? (
@@ -1557,27 +1592,16 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
                     </>
                   ) : isPurchaseOrder ? (
                     <>
-                      <td className={`${purchaseCodeCellClassName} sticky left-10 z-10 bg-background group-hover:bg-muted`}>{item.product_code || "-"}</td>
-                      <td className={purchaseTextCellClassName} title={item.remark || ""}>{item.remark || "-"}</td>
-                      <td className={purchaseCodeCellClassName}>{getPurchaseDetailExtra(item, "image_code") || item.product_code || "-"}</td>
-                      <td className={purchaseCodeCellClassName}>{getPurchaseDetailExtra(item, "factory_code") || "-"}</td>
-                      <td className={purchaseCodeCellClassName}>{getPurchaseDetailExtra(item, "image_code") || getPurchaseDetailExtra(item, "style_code") || "-"}</td>
-                      <td className={purchaseCodeCellClassName}>{getPurchaseDetailExtra(item, "inner_color_code") || ""}</td>
-                      <td className={purchaseTextCellClassName} title={item.color_name || item.color_spec || ""}>{item.color_name || item.color_spec || "-"}</td>
-                      <td className={purchaseTextCellClassName} title={getPurchaseDetailExtra(item, "upper_material")}>{getPurchaseDetailExtra(item, "upper_material") || "-"}</td>
-                      <td className={purchaseTextCellClassName} title={getPurchaseDetailExtra(item, "lining_material")}>{getPurchaseDetailExtra(item, "lining_material") || "-"}</td>
-                      <td className={purchaseTextCellClassName} title={getPurchaseDetailExtra(item, "outsole_material")}>{getPurchaseDetailExtra(item, "outsole_material") || "-"}</td>
-                      <td className={purchaseTextCellClassName} title={getPurchaseDetailExtra(item, "insole_material")}>{getPurchaseDetailExtra(item, "insole_material") || "-"}</td>
-                      <td className={purchaseTextCellClassName} title={getPurchaseDetailExtra(item, "shoe_box_spec")}>{getPurchaseDetailExtra(item, "shoe_box_spec") || "-"}</td>
-                      <td className={purchaseTextCellClassName} title={getPurchaseDetailExtra(item, "execution_standard")}>{getPurchaseDetailExtra(item, "execution_standard") || "-"}</td>
-                      {tableSizeColumns.map((size) => (
-                        <td key={size} className={purchaseNumberCellClassName}>
-                          {getPurchaseSizeQuantity(item.size_quantities, size) || "-"}
-                        </td>
-                      ))}
-                      <td className="px-3 py-2.5 text-right whitespace-nowrap tabular-nums">{item.quantity || "-"}</td>
-                      <td className="px-3 py-2.5 text-right whitespace-nowrap tabular-nums">{item.unit_price || "-"}</td>
-                      <td className="px-3 py-2.5 text-right whitespace-nowrap tabular-nums">{item.amount || "-"}</td>
+                      {columnOrder.map((key) => {
+                        const fixed = key === firstVisibleColumn ? "sticky left-10 z-10 bg-background group-hover:bg-muted" : ""
+                        if (key === "sizes") return tableSizeColumns.map((size, sizeIndex) => (
+                          <td key={`size:${size}`} className={`${purchaseNumberCellClassName} ${sizeIndex === 0 ? fixed : ""}`}>{getPurchaseSizeQuantity(item.size_quantities, size) || "-"}</td>
+                        ))
+                        const value = purchaseColumnValue(item, key)
+                        const cellClass = ["quantity", "unit_price", "amount"].includes(key) ? purchaseNumberCellClassName
+                          : ["product_code", "image_code", "factory_code", "style_code", "inner_color_code"].includes(key) ? purchaseCodeCellClassName : purchaseTextCellClassName
+                        return <td key={key} className={`${cellClass} ${fixed}`} title={String(value)}>{value}</td>
+                      })}
                     </>
                   ) : (
                     <>
@@ -1611,10 +1635,12 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
             {isPurchaseOrder && !isLoading && detailTotal > 0 && (
               <tfoot>
                 <tr className="border-t-2 border-border bg-muted/60 font-medium">
-                  <td colSpan={14 + tableSizeColumns.length} className="px-3 py-3 text-right whitespace-nowrap">合计</td>
-                  <td className="px-2 py-3 text-right tabular-nums">{record?.total_count || "-"}</td>
-                  <td className="px-2 py-3 text-right tabular-nums">-</td>
-                  <td className="px-2 py-3 text-right tabular-nums">{record?.amount ?? "-"}</td>
+                  <td className="sticky left-0 z-10 bg-muted px-1 py-3 text-center whitespace-nowrap">合计</td>
+                  {columnOrder.map((key) => {
+                    const fixed = key === firstVisibleColumn ? "sticky left-10 z-10 bg-muted" : ""
+                    if (key === "sizes") return tableSizeColumns.map((size, sizeIndex) => <td key={`size:${size}`} className={sizeIndex === 0 ? fixed : ""} />)
+                    return <td key={key} className={`px-2 py-3 text-right tabular-nums ${fixed}`}>{key === "quantity" ? record?.total_count || "-" : key === "amount" ? record?.amount ?? "-" : key === "unit_price" ? "-" : ""}</td>
+                  })}
                   <td className="sticky right-0 z-10 border-l border-border bg-muted/60 px-4 py-3" />
                 </tr>
               </tfoot>
@@ -1623,6 +1649,9 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
         </div>
       </div>
 
+      {isPurchaseOrder && columnSettingsOpen && (
+        <PurchaseDetailColumnSettings order={columnOrder} onClose={() => setColumnSettingsOpen(false)} onApply={(order) => { setColumnOrder(order); setColumnSettingsOpen(false) }} />
+      )}
       {isPurchaseOrder && documentId !== null && (
         <PurchasePrintTemplateEditor
           open={printTemplateOpen}

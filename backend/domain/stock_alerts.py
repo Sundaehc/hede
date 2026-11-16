@@ -28,8 +28,9 @@ def launch_day(value):
 
 class ArchiveMatcher:
     def __init__(self, products, sizes):
-        self.products, self.aliases, self.prefixes = {}, defaultdict(set), defaultdict(list)
-        self.short_prefixes, self.sizes = [], sizes
+        self.products, self.aliases, self.barcode_bases = {}, defaultdict(set), defaultdict(list)
+        self.sizes = sizes
+        self.size_lengths = {len(size) for group in sizes.values() for size in group if size}
         for source in products:
             item = dict(source)
             apply_product_defaults(item["brand"], item)
@@ -41,16 +42,21 @@ class ArchiveMatcher:
             self.products[key] = item
             for alias in {sku, base, code(item.get("original_sku"))} - {""}:
                 self.aliases[alias].add(key)
-            entry = (base, key, str(item.get("size_range") or ""))
-            (self.short_prefixes if len(base) < 4 else self.prefixes[base[:4]]).append(entry)
+            self.barcode_bases[base].append((key, str(item.get("size_range") or "")))
 
     def resolve(self, product_code, *styles):
         value = code(product_code)
         matches = set(self.aliases.get(value, ()))
         if not matches:
-            for base, key, group in (*self.prefixes.get(value[:4], ()), *self.short_prefixes):
-                if value.startswith(base) and value[len(base):] in self.sizes.get(group, set()):
-                    matches.add(key)
+            # Probe only possible size suffix lengths. Scanning every product
+            # sharing the first four characters grows with the whole catalogue.
+            for length in self.size_lengths:
+                if length > len(value):
+                    continue
+                base, suffix = value[:-length], value[-length:]
+                for key, group in self.barcode_bases.get(base, ()):
+                    if suffix in self.sizes.get(group, ()):
+                        matches.add(key)
         if matches:
             return next(iter(matches)) if len(matches) == 1 else None
         for style in styles:

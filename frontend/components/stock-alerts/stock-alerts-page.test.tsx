@@ -10,6 +10,7 @@ import {
 import { afterEach, beforeEach, expect, test, vi } from "vitest"
 import { StockAlertsPage } from "./stock-alerts-page"
 import { clearSessionQueryStates } from "@/lib/session-query-state"
+import { clearStockModuleQueries } from "@/lib/stock-module-query"
 import type { StockAlertResponse } from "@/lib/stock-alerts"
 
 const { load, options, save, canManage } = vi.hoisted(() => ({
@@ -49,6 +50,7 @@ function response(total = 30): StockAlertResponse {
 beforeEach(() => {
   vi.resetAllMocks()
   clearSessionQueryStates()
+  clearStockModuleQueries()
   canManage.value = true
   options.mockResolvedValue({
     brands: [
@@ -84,9 +86,11 @@ test("keeps submitted queries separate from drafts and restores each menu indepe
     expect.objectContaining({ query: "", season: "" }),
     "slow",
   ])
-  view.rerender(<StockAlertsPage kind="zero" />)
-  await waitFor(() => expect(load).toHaveBeenCalledTimes(4))
-  expect(load.mock.calls[3][0]).toMatchObject({ query: "ABC", season: "冬" })
+  await act(async () => view.rerender(<StockAlertsPage kind="zero" />))
+  expect(screen.getByLabelText("商品搜索")).toHaveValue("ABC")
+  expect(screen.getByRole("button", { name: "刷新" })).toBeEnabled()
+  expect(load).toHaveBeenCalledTimes(3)
+  expect(options).toHaveBeenCalledTimes(1)
 })
 
 test("cancels superseded requests and ignores a late response", async () => {

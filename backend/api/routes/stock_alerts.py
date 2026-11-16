@@ -4,6 +4,7 @@ from typing import Literal
 
 from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import JSONResponse
+from fastapi.encoders import jsonable_encoder
 from pydantic import BaseModel, Field
 
 from api.operation_log_utils import write_operation_log
@@ -35,7 +36,10 @@ def list_stock_alerts(request: Request, brand: str = Query(min_length=1, max_len
     facts = load_stock_alert_facts(request.app.state.repository, brand, refresh=refresh)
     result = select_alerts(facts, rules=request.app.state.stock_alert_rules.list_rules(brand), kind=kind,
                           status=status, season=season, query=query, page=page, page_size=page_size)
-    return JSONResponse(result, headers={"Cache-Control": "no-store"})
+    tasks = request.app.state.stock_alert_tasks.active_for(brand, kind, [item["id"] for item in result["items"]])
+    for item in result["items"]:
+        item["task"] = tasks.get(item["id"])
+    return JSONResponse(jsonable_encoder(result), headers={"Cache-Control": "no-store"})
 
 
 class RuleWrite(BaseModel):

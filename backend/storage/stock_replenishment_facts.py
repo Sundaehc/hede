@@ -11,15 +11,16 @@ from sqlalchemy import inspect, select, text
 from domain.size_group_schema import SIZE_GROUPS_TABLE, SIZE_GROUP_ITEMS_TABLE
 from domain.product_defaults import apply_product_defaults
 from domain.stock_alerts import ArchiveMatcher, code, launch_day
+from storage.stock_alert_facts import _sales_dates
 
 _cache, _lock, _build_lock = OrderedDict(), Lock(), Lock()
 TTL, MAX_BYTES = 120, 8 * 1024 * 1024
 
 
-def _catalog(connection, repository):
+def _catalog(connection, repository, brand=None):
     products, groups = [], defaultdict(list)
     inspector = inspect(connection)
-    for brand in repository.product_archive_brands():
+    for brand in ([brand] if brand else repository.product_archive_brands()):
         table = repository._table_for_brand(brand)
         if not inspector.has_table(table.name):
             continue
@@ -42,7 +43,7 @@ def _catalog(connection, repository):
 
 def supplier_catalog(repository, brand):
     with repository.engine.connect() as connection:
-        products, groups = _catalog(connection, repository)
+        products, groups = _catalog(connection, repository, brand)
     suppliers = defaultdict(set)
     for item in products:
         supplier = str(item.get("supplier_name") or "").strip()
@@ -78,13 +79,18 @@ def _load(connection, repository, brand, today, window_days):
     covered = {}
     if end:
         for name in ("jst_daily_sales", "vip_daily_sales", "factory_channel_sales_daily_summaries"):
-            condition = " AND brand = :brand AND match_status = 'date_marker'" if name.endswith("summaries") else ""
-            covered[name] = {launch_day(day) for day in connection.execute(text(
-                f"SELECT DISTINCT sales_date FROM {name} WHERE sales_date BETWEEN :start AND :end{condition}"),
-                {"start": start, "end": end, "brand": brand}).scalars()}
+            if name.endswith("summaries"):
+                dates = connection.execute(text("SELECT DISTINCT sales_date FROM factory_channel_sales_daily_summaries "
+                    "WHERE sales_date BETWEEN :start AND :end AND brand = :brand AND match_status = 'date_marker'"),
+                    {"start": start, "end": end, "brand": brand}).scalars()
+            else:
+                # At most 30 indexed existence probes, rather than aggregating
+                # every raw sales row in the observation window.
+                dates = _sales_dates(connection, name, end, start)
+            covered[name] = {launch_day(day) for day in dates}
     stocks, stock_sizes, transits, transit_sizes = (defaultdict(Decimal) for _ in range(4))
     seen, size_issues, unmatched = set(), defaultdict(set), 0
-    rows = connection.execution_options(stream_results=True).execute(text("""SELECT product_code, style_code, size,
+    rows = connection.execution_options(stream_results=True, yield_per=5000).execute(text("""SELECT product_code, style_code, size,
         sum(available_qty) AS available, sum(purchase_in_transit_qty) AS transit
         FROM jst_full_stock WHERE sync_date = :day GROUP BY product_code, style_code, size"""), {"day": stock_date})
     for row in rows.mappings():
@@ -118,7 +124,7 @@ def _load(connection, repository, brand, today, window_days):
     sku_keys = {item["sku"]: key for key, item in selected.items()}
     sales, returns = defaultdict(Decimal), defaultdict(Decimal)
     if end:
-        rows = connection.execution_options(stream_results=True).execute(text("""SELECT product_code, sales_date,
+        rows = connection.execution_options(stream_results=True, yield_per=5000).execute(text("""SELECT product_code, sales_date,
             sum(quantity) AS net, sum(return_quantity) AS returns FROM factory_channel_sales_daily_summaries
             WHERE brand = :brand AND match_status = 'matched' AND sales_date BETWEEN :start AND :end
             GROUP BY product_code, sales_date"""), {"brand": brand, "start": start, "end": end})

@@ -128,6 +128,7 @@ const NAV_ITEMS = [
       { href: "/stock-alerts/new-products", label: "新品零动销预警", icon: Sparkles, permission: "product.view" },
       { href: "/stock-alerts/slow-sales", label: "低售罄、滞销预警", icon: TrendingDown, permission: "product.view" },
       { href: "/stock-alerts/replenishment", label: "补货建议", icon: Truck, permission: "product.view" },
+      { href: "/stock-alerts/tasks", label: "预警待办", icon: ClipboardList, permission: "product.view" },
     ],
   },
   {

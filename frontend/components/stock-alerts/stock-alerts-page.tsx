@@ -1,6 +1,7 @@
 "use client"
 
-import { useEffect, useRef, useState } from "react"
+import { useEffect, useRef, useState, type SetStateAction } from "react"
+import Link from "next/link"
 import {
   Archive,
   ChevronLeft,
@@ -18,16 +19,28 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Select } from "@/components/ui/select"
 import { StockAlertRuleDialog } from "./stock-alert-rule-dialog"
+import {
+  CreateStockAlertTaskDialog,
+  StockAlertTaskDialog,
+  TaskStatusBadge,
+} from "./task-dialog"
 import { getStockAlertOptions, getStockAlerts } from "@/lib/api"
 import { subscribeBusinessDataChanges } from "@/lib/business-data-sync"
 import { useSessionQueryState } from "@/lib/session-query-state"
+import { STOCK_ALERT_RESOURCES, STOCK_SOURCE_RESOURCES, useStockModuleOptions, useStockModuleQuery } from "@/lib/stock-module-query"
 import type {
   StockAlertFilters,
+  StockAlertItem,
   StockAlertKind,
-  StockAlertResponse,
   StockAlertRule,
 } from "@/lib/stock-alerts"
 import { cn } from "@/lib/utils"
+import {
+  BatchSelectionBar,
+  SelectionCheckbox,
+  useBatchSelection,
+} from "./batch-selection"
+import { BatchTaskDialog } from "./batch-task-dialog"
 
 const DEFAULT_FILTERS: StockAlertFilters = {
   brand: "cbanner_mens",
@@ -49,81 +62,67 @@ export function StockAlertsPage({ kind }: { kind: StockAlertKind }) {
 
 function StockAlertsContent({ kind }: { kind: StockAlertKind }) {
   const { hasPermission } = useAuth()
-  const [filters, setFilters] = useSessionQueryState<StockAlertFilters>(
+  const [filters, setStoredFilters] = useSessionQueryState<StockAlertFilters>(
     `stock-alerts:${kind}:filters`,
     DEFAULT_FILTERS
   )
+  const selection = useBatchSelection<StockAlertItem>()
+  const setFilters = (value: SetStateAction<StockAlertFilters>) => {
+    const next = typeof value === "function" ? value(filters) : value
+    if (
+      JSON.stringify({ ...filters, page: 1 }) !==
+      JSON.stringify({ ...next, page: 1 })
+    )
+      selection.clear()
+    setStoredFilters(next)
+  }
+  const [batchItems, setBatchItems] = useState<StockAlertItem[] | null>(null)
   const [draft, setDraft] = useState({
     brand: filters.brand,
     season: filters.season,
     query: filters.query,
   })
-  const [brands, setBrands] = useState<Array<{ value: string; label: string }>>(
-    []
-  )
-  const [optionsError, setOptionsError] = useState(false)
+  const options = useStockModuleOptions(getStockAlertOptions)
+  const brands = options.data?.brands ?? []
+  const optionsError = Boolean(options.error)
   const [revision, setRevision] = useState(0)
-  const [result, setResult] = useState<{
-    key: string
-    data: StockAlertResponse | null
-    error: string | null
-  } | null>(null)
   const [editingRule, setEditingRule] = useState<StockAlertRule | null>(null)
+  const [creatingTask, setCreatingTask] = useState<StockAlertItem | null>(null)
+  const [taskId, setTaskId] = useState<number | null>(null)
   const forceRefresh = useRef(false)
-  const key = JSON.stringify([filters, revision, kind])
-  const loading = result?.key !== key
-  const data = result?.key === key ? result.data : null
-  const error = result?.key === key ? result.error : null
+  const { data, previousData, error, loading, refreshing } = useStockModuleQuery({
+    group: "stock-alerts", queryKey: JSON.stringify([kind, filters]), revision,
+    resources: STOCK_ALERT_RESOURCES, factResources: STOCK_SOURCE_RESOURCES,
+    load: (signal, refreshFacts) => {
+      const refresh = forceRefresh.current || refreshFacts
+      forceRefresh.current = false
+      return getStockAlerts(filters, kind, { signal, refresh })
+    },
+  })
+  const selectable =
+    data?.items.filter((item) => item.warning && !item.task) ?? []
+  const selectedOnPage = selectable.filter((item) =>
+    selection.selected.has(item.id)
+  ).length
   const Icon = kind === "zero" ? Sparkles : TrendingDown
   const brandLabel =
     brands.find((brand) => brand.value === filters.brand)?.label ??
     filters.brand
-
-  useEffect(() => {
-    const controller = new AbortController()
-    getStockAlertOptions(controller.signal)
-      .then((response) => {
-        if (!controller.signal.aborted) setBrands(response.brands)
-      })
-      .catch(() => {
-        if (!controller.signal.aborted) setOptionsError(true)
-      })
-    return () => controller.abort()
-  }, [])
 
   useEffect(
     () =>
       subscribeBusinessDataChanges((resources) => {
         if (resources.length) {
           forceRefresh.current = !resources.every(
-            (resource) => resource === "stock-alert-rules"
+            (resource) =>
+              resource === "stock-alert-rules" ||
+              resource === "stock-alert-tasks"
           )
           setRevision((value) => value + 1)
         }
       }),
     []
   )
-
-  useEffect(() => {
-    const controller = new AbortController()
-    const refresh = forceRefresh.current
-    forceRefresh.current = false
-    getStockAlerts(filters, kind, { signal: controller.signal, refresh })
-      .then((response) => {
-        if (!controller.signal.aborted)
-          setResult({ key, data: response, error: null })
-      })
-      .catch((cause: unknown) => {
-        if (!controller.signal.aborted)
-          setResult({
-            key,
-            data: null,
-            error:
-              cause instanceof Error ? cause.message : "预警加载失败，请重试",
-          })
-      })
-    return () => controller.abort()
-  }, [filters, kind, key])
 
   const refresh = () => {
     forceRefresh.current = true
@@ -173,9 +172,9 @@ function StockAlertsContent({ kind }: { kind: StockAlertKind }) {
               设置规则
             </Button>
           )}
-          <Button variant="outline" disabled={loading} onClick={refresh}>
+          <Button variant="outline" disabled={refreshing} onClick={refresh}>
             <RefreshCw
-              className={cn("size-4", loading && "animate-spin")}
+              className={cn("size-4", refreshing && "animate-spin")}
               aria-hidden="true"
             />
             刷新
@@ -308,7 +307,7 @@ function StockAlertsContent({ kind }: { kind: StockAlertKind }) {
             }
           >
             <option value="">全部季节</option>
-            {result?.data?.seasons.map((season) => (
+            {(data ?? previousData)?.seasons.map((season) => (
               <option key={season} value={season}>
                 {season}
               </option>
@@ -388,24 +387,65 @@ function StockAlertsContent({ kind }: { kind: StockAlertKind }) {
       <section
         className="overflow-hidden rounded-xl border bg-card"
         aria-label="预警商品列表"
-        aria-busy={loading}
+        aria-busy={refreshing}
       >
-        <div className="flex items-center justify-between gap-2 border-b px-4 py-3">
-          <h2 className="text-sm font-semibold">
+        <div className="flex flex-wrap items-center justify-between gap-2 border-b px-4 py-3">
+          <h2 className="shrink-0 text-sm font-semibold">
             {filters.status === "warning" ? "待跟进清单" : "数据待核对清单"}
           </h2>
-          <span role="status" className="text-xs text-muted-foreground">
-            {loading
+          <Button asChild variant="outline" size="sm">
+            <Link href="/stock-alerts/tasks">预警待办</Link>
+          </Button>
+          <span
+            role="status"
+            className="w-full text-xs text-muted-foreground sm:w-auto"
+          >
+            {refreshing
               ? "正在核对库存及日销…"
               : error
                 ? "加载失败"
                 : `共 ${number(data?.total ?? 0)} 项 · 按可售库存降序`}
           </span>
         </div>
+        {hasPermission("product.manage") && (
+          <BatchSelectionBar
+            count={selection.selected.size}
+            error={selection.error}
+            onClear={selection.clear}
+          >
+            <Button
+              size="sm"
+              disabled={!selection.selected.size}
+              onClick={() =>
+                setBatchItems(Array.from(selection.selected.values()))
+              }
+            >
+              批量分配待办
+            </Button>
+          </BatchSelectionBar>
+        )}
         <div className="h-[min(65vh,600px)] min-h-80 overflow-auto [scrollbar-gutter:stable]">
           <table className="w-full min-w-[1160px] table-fixed text-left text-xs">
             <thead className="sticky top-0 z-10 bg-muted text-muted-foreground">
               <tr>
+                {hasPermission("product.manage") && (
+                  <th className="w-12 px-3 py-3">
+                    <SelectionCheckbox
+                      label="选择本页可分配商品"
+                      checked={
+                        selectable.length > 0 &&
+                        selectedOnPage === selectable.length
+                      }
+                      mixed={
+                        selectedOnPage > 0 && selectedOnPage < selectable.length
+                      }
+                      disabled={loading || !selectable.length}
+                      onChange={(checked) =>
+                        selection.select(selectable, checked)
+                      }
+                    />
+                  </th>
+                )}
                 {[
                   "商品 / 年份季节",
                   "上市日期 / 天数",
@@ -415,6 +455,7 @@ function StockAlertsContent({ kind }: { kind: StockAlertKind }) {
                   "上市后销售 / 净销",
                   kind === "zero" ? "最近销售" : "参考售罄率",
                   "规则及跟进建议",
+                  "处理待办",
                 ].map((label, index) => (
                   <th
                     key={label}
@@ -434,6 +475,21 @@ function StockAlertsContent({ kind }: { kind: StockAlertKind }) {
                 !error &&
                 data?.items.map((item) => (
                   <tr key={item.id} className="align-top hover:bg-muted/30">
+                    {hasPermission("product.manage") && (
+                      <td className="px-3 py-3">
+                        <SelectionCheckbox
+                          label={`选择 ${item.sku}（#${item.id}）`}
+                          checked={selection.selected.has(item.id)}
+                          disabled={
+                            (!item.warning || !!item.task) &&
+                            !selection.selected.has(item.id)
+                          }
+                          onChange={(checked) =>
+                            selection.select([item], checked)
+                          }
+                        />
+                      </td>
+                    )}
                     <td className="px-3 py-3">
                       <p className="font-mono font-medium break-all">
                         {item.sku}
@@ -499,6 +555,33 @@ function StockAlertsContent({ kind }: { kind: StockAlertKind }) {
                               : "核对补货及退货记录，评估调拨或促销"}
                           </p>
                         </>
+                      )}
+                    </td>
+                    <td className="px-3 py-3">
+                      {item.task ? (
+                        <div className="space-y-2">
+                          <TaskStatusBadge task={item.task} />
+                          <p className="text-muted-foreground">
+                            {item.task.assignee_name} · {item.task.due_date}
+                          </p>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => setTaskId(item.task!.id)}
+                          >
+                            查看待办
+                          </Button>
+                        </div>
+                      ) : item.warning && hasPermission("product.manage") ? (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => setCreatingTask(item)}
+                        >
+                          分配待办
+                        </Button>
+                      ) : (
+                        <span className="text-muted-foreground">—</span>
                       )}
                     </td>
                   </tr>
@@ -581,6 +664,38 @@ function StockAlertsContent({ kind }: { kind: StockAlertKind }) {
             setEditingRule(null)
             setRevision((value) => value + 1)
           }}
+        />
+      )}
+      {creatingTask && (
+        <CreateStockAlertTaskDialog
+          item={creatingTask}
+          kind={kind}
+          brandLabel={brandLabel}
+          onClose={() => setCreatingTask(null)}
+          onCreated={(task) => {
+            setCreatingTask(null)
+            setTaskId(task.id)
+          }}
+        />
+      )}
+      {batchItems && (
+        <BatchTaskDialog
+          mode="create"
+          items={batchItems}
+          brand={filters.brand}
+          kind={kind}
+          onClose={() => setBatchItems(null)}
+          onApplied={(report) => {
+            selection.remove(report.succeeded)
+            setRevision((value) => value + 1)
+          }}
+        />
+      )}
+      {taskId !== null && (
+        <StockAlertTaskDialog
+          key={taskId}
+          id={taskId}
+          onClose={() => setTaskId(null)}
         />
       )}
     </div>
