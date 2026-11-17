@@ -4,12 +4,17 @@ import { useEffect, useRef, useState } from "react"
 import {
   Archive,
   ArrowRight,
+  Boxes,
+  CalendarDays,
   ChevronLeft,
   ChevronRight,
+  ClipboardList,
+  Database,
   PackageSearch,
   RefreshCw,
   Search,
   Settings2,
+  SlidersHorizontal,
   Truck,
 } from "lucide-react"
 import { useAuth } from "@/components/auth/auth-provider"
@@ -19,7 +24,12 @@ import { Select } from "@/components/ui/select"
 import { getReplenishment, getStockAlertOptions } from "@/lib/api"
 import { subscribeBusinessDataChanges } from "@/lib/business-data-sync"
 import { useSessionQueryState } from "@/lib/session-query-state"
-import { STOCK_FACT_RESOURCES, STOCK_SOURCE_RESOURCES, useStockModuleOptions, useStockModuleQuery } from "@/lib/stock-module-query"
+import {
+  STOCK_FACT_RESOURCES,
+  STOCK_SOURCE_RESOURCES,
+  useStockModuleOptions,
+  useStockModuleQuery,
+} from "@/lib/stock-module-query"
 import type {
   ReplenishmentFilters,
   SupplierReplenishmentSummary,
@@ -27,6 +37,7 @@ import type {
 import { cn } from "@/lib/utils"
 import { ReplenishmentRuleDialog } from "./replenishment-rule-dialog"
 import { ReplenishmentSupplierPicker } from "./replenishment-supplier-picker"
+import { StockListState, StockStatusCard } from "./workspace-ui"
 
 const DEFAULT_FILTERS: ReplenishmentFilters = {
   brand: "cbanner_mens",
@@ -74,8 +85,11 @@ export function ReplenishmentPage() {
   const [rulePickerOpen, setRulePickerOpen] = useState(false)
   const bypassCache = useRef(false)
   const { data, error, loading, refreshing } = useStockModuleQuery({
-    group: "replenishment", queryKey: JSON.stringify(filters), revision,
-    resources: STOCK_FACT_RESOURCES, factResources: STOCK_SOURCE_RESOURCES,
+    group: "replenishment",
+    queryKey: JSON.stringify(filters),
+    revision,
+    resources: STOCK_FACT_RESOURCES,
+    factResources: STOCK_SOURCE_RESOURCES,
     load: (signal, refreshFacts) => {
       const refresh = bypassCache.current || refreshFacts
       bypassCache.current = false
@@ -113,18 +127,31 @@ export function ReplenishmentPage() {
     if (filters.supplier) edit(filters.supplier)
     else setRulePickerOpen(true)
   }
+  const refresh = () => {
+    bypassCache.current = true
+    setRevision((value) => value + 1)
+  }
+  const resetSearch = () => {
+    const next = { ...filters, supplier: "", query: "", page: 1 }
+    setDraft(next)
+    setFilters(next)
+  }
+  const resetFilters = () => {
+    const next = { ...DEFAULT_FILTERS, brand: filters.brand }
+    setDraft(next)
+    setFilters(next)
+  }
+  const hasRows = Boolean(data?.items.length)
+  const hasSearch = Boolean(filters.supplier || filters.query)
 
   return (
-    <div className="space-y-5 p-4 sm:p-6">
-      <header className="flex flex-wrap items-start justify-between gap-3">
+    <div className="mx-auto max-w-[1600px] space-y-4 p-4 sm:space-y-5 sm:p-6">
+      <header className="flex flex-wrap items-center justify-between gap-4">
         <div>
           <p className="mb-2 flex items-center gap-1.5 text-xs text-muted-foreground">
             <Archive className="size-3.5" aria-hidden="true" />存 / 补货计划
           </p>
-          <h1 className="flex items-center gap-2 text-xl font-semibold">
-            <Truck className="size-5 text-amber-600" aria-hidden="true" />
-            补货建议
-          </h1>
+          <h1 className="text-2xl font-semibold tracking-tight">补货建议</h1>
           <p className="mt-1.5 text-sm text-muted-foreground">
             估算现有库存可售天数与尺码缺口，按供应商合计核对起订量。
           </p>
@@ -132,14 +159,15 @@ export function ReplenishmentPage() {
         <div className="flex gap-2">
           <Button
             variant="outline"
+            className="h-9 bg-card/70"
             disabled={refreshing}
-            onClick={() => {
-              bypassCache.current = true
-              setRevision((value) => value + 1)
-            }}
+            onClick={refresh}
           >
             <RefreshCw
-              className={cn("size-4", refreshing && "animate-spin")}
+              className={cn(
+                "size-4",
+                refreshing && "animate-spin motion-reduce:animate-none"
+              )}
               aria-hidden="true"
             />
             刷新
@@ -147,58 +175,58 @@ export function ReplenishmentPage() {
         </div>
       </header>
 
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <div
+        className="grid grid-cols-2 gap-3 xl:grid-cols-4"
+        aria-label="补货状态筛选"
+      >
         {(
           [
-            ["suggested", "需要补货"],
-            ["pending", "数据或规则待完善"],
-            ["all", "全部相关商品"],
+            ["suggested", "需要补货", "已满足计算条件的补货商品", Truck],
+            [
+              "pending",
+              "数据或规则待完善",
+              "核对商品资料、交期与尺码配比",
+              SlidersHorizontal,
+            ],
+            ["all", "全部相关商品", "查看当前筛选范围内的商品", Boxes],
           ] as const
-        ).map(([status, label]) => (
-          <div
+        ).map(([status, label, description, icon]) => (
+          <StockStatusCard
             key={status}
-            className={cn(
-              "flex flex-col overflow-hidden rounded-xl border bg-card text-left hover:border-amber-500/60",
-              filters.status === status && "border-amber-500/50 bg-amber-500/5"
-            )}
+            label={label}
+            description={description}
+            icon={icon}
+            value={metric(data?.counts[status] ?? 0)}
+            active={filters.status === status}
+            tone="warning"
+            onClick={() =>
+              setFilters((current) => ({ ...current, status, page: 1 }))
+            }
           >
-            <button
-              type="button"
-              aria-pressed={filters.status === status}
-              onClick={() =>
-                setFilters((current) => ({ ...current, status, page: 1 }))
-              }
-              className="flex flex-1 flex-col items-start p-4 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
-            >
-              <p className="text-sm font-medium">{label}</p>
-              <p className="mt-3 text-3xl font-semibold tabular-nums">
-                {metric(data?.counts[status] ?? 0)}
-                <span className="ml-1 text-xs font-normal text-muted-foreground">
-                  项
-                </span>
-              </p>
-            </button>
             {status === "pending" && canManage && (
               <button
                 type="button"
                 onClick={openRules}
-                className="flex items-center justify-between gap-2 border-t px-4 py-2 text-xs font-medium text-primary outline-none hover:bg-muted/50 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
+                className="flex min-h-9 items-center justify-between gap-2 border-t border-border/60 px-4 py-2 text-xs font-medium text-primary outline-none hover:bg-muted/50 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset sm:px-5"
               >
                 去完善规则
                 <ArrowRight className="size-3.5" aria-hidden="true" />
               </button>
             )}
-          </div>
+          </StockStatusCard>
         ))}
-        <div className="rounded-xl border bg-card p-4">
-          <p className="text-sm font-medium">建议补货合计</p>
-          <p className="mt-3 text-3xl font-semibold tabular-nums">
+        <div className="flex flex-col rounded-2xl border border-primary/15 bg-primary/[0.06] p-4 shadow-xs backdrop-blur-xl sm:px-5">
+          <div className="flex items-center justify-between gap-2 text-xs font-medium text-muted-foreground sm:text-sm">
+            <p>建议补货合计</p>
+            <ClipboardList className="size-4 shrink-0" aria-hidden="true" />
+          </div>
+          <p className="mt-3 text-3xl leading-none font-semibold tracking-tight tabular-nums">
             {metric(data?.suggested_quantity ?? 0)}
             <span className="ml-1 text-xs font-normal text-muted-foreground">
               双
             </span>
           </p>
-          <p className="mt-2 text-xs text-muted-foreground">
+          <p className="mt-2.5 text-xs leading-5 text-muted-foreground">
             当前供应商及搜索范围的有效建议
           </p>
         </div>
@@ -207,10 +235,10 @@ export function ReplenishmentPage() {
       {canManage && (
         <section
           aria-label="供应商规则设置"
-          className="flex flex-wrap items-center justify-between gap-4 rounded-xl border border-primary/20 bg-primary/5 p-4"
+          className="flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-amber-500/20 bg-amber-500/[0.04] p-4 backdrop-blur-xl sm:px-5"
         >
           <div className="flex min-w-0 flex-1 items-start gap-3">
-            <div className="flex size-10 shrink-0 items-center justify-center rounded-lg border border-primary/15 bg-card text-primary">
+            <div className="flex size-10 shrink-0 items-center justify-center rounded-xl border border-amber-500/20 bg-card/75 text-amber-700 dark:text-amber-400">
               <Settings2 className="size-5" aria-hidden="true" />
             </div>
             <div>
@@ -229,7 +257,7 @@ export function ReplenishmentPage() {
       )}
 
       <form
-        className="space-y-3 rounded-xl border bg-card p-4"
+        className="space-y-4 rounded-2xl border border-border/80 bg-card/75 p-4 shadow-xs backdrop-blur-xl"
         onSubmit={(event) => {
           event.preventDefault()
           setFilters({
@@ -241,7 +269,7 @@ export function ReplenishmentPage() {
         }}
       >
         <div className="flex flex-wrap items-end gap-3">
-          <label className="w-44 space-y-1.5 text-xs text-muted-foreground">
+          <label className="min-w-36 flex-1 space-y-1.5 text-xs text-muted-foreground sm:w-44 sm:flex-none">
             <span>品牌</span>
             <Select
               aria-label="品牌"
@@ -265,7 +293,7 @@ export function ReplenishmentPage() {
               ))}
             </Select>
           </label>
-          <label className="w-52 space-y-1.5 text-xs text-muted-foreground">
+          <label className="min-w-36 flex-1 space-y-1.5 text-xs text-muted-foreground sm:w-52 sm:flex-none">
             <span>供应商</span>
             <Select
               aria-label="供应商"
@@ -325,12 +353,21 @@ export function ReplenishmentPage() {
             <Search className="size-4" aria-hidden="true" />
             查询
           </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            disabled={loading}
+            onClick={resetFilters}
+          >
+            重置
+          </Button>
         </div>
-        <label className="flex items-center gap-2 text-xs text-muted-foreground">
+        <label className="flex items-start gap-2 border-t border-border/60 pt-3 text-xs leading-5 text-muted-foreground">
           <input
             type="checkbox"
             checked={draft.deduct_transit}
             disabled={loading}
+            className="mt-0.5 size-4 shrink-0 accent-primary"
             onChange={(event) =>
               setDraft((current) => ({
                 ...current,
@@ -352,23 +389,31 @@ export function ReplenishmentPage() {
         </p>
       )}
       {error && (
-        <p
+        <div
           role="alert"
-          className="rounded-lg border border-destructive/30 p-3 text-sm text-destructive"
+          className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-destructive/25 p-3 text-sm text-destructive"
         >
-          {error}
-        </p>
+          <span>
+            {error}
+            {data ? "；当前仍显示上次加载的记录。" : ""}
+          </span>
+          <Button variant="outline" size="sm" onClick={refresh}>
+            重试
+          </Button>
+        </div>
       )}
 
       <details
-        className="rounded-xl border bg-card"
+        className="overflow-hidden rounded-2xl border border-border/80 bg-card/75 shadow-xs backdrop-blur-xl"
         open={filters.supplier ? true : undefined}
         aria-busy={refreshing}
       >
-        <summary className="cursor-pointer px-4 py-3 text-sm font-medium">
-          供应商起订汇总 ·{" "}
-          {loading ? "—" : (data?.supplier_summaries.length ?? 0)} 家
-          <span className="ml-3 text-xs font-normal text-muted-foreground">
+        <summary className="cursor-pointer px-4 py-3.5 text-sm font-medium sm:px-5">
+          供应商起订汇总
+          <span className="ml-2 rounded-md bg-muted/70 px-2 py-1 text-xs tabular-nums">
+            {loading ? "—" : (data?.supplier_summaries.length ?? 0)} 家
+          </span>
+          <span className="mt-1 block text-xs font-normal text-muted-foreground sm:mt-0 sm:ml-3 sm:inline">
             按当前品牌全部商品汇总，搜索及分页不改变起订进度
           </span>
         </summary>
@@ -433,15 +478,22 @@ export function ReplenishmentPage() {
       </details>
 
       <section
-        className="overflow-hidden rounded-xl border bg-card"
+        className="overflow-hidden rounded-2xl border border-border/80 bg-card/80 shadow-xs backdrop-blur-xl"
+        aria-label="补货建议列表"
         aria-busy={refreshing}
       >
-        <div className="flex min-h-[72px] flex-wrap items-center justify-between gap-2 border-b px-4 py-3 text-xs text-muted-foreground sm:min-h-12">
-          <span>
-            {brandLabel} · 库存快照 {data?.stock_date ?? "—"} · 日销{" "}
-            {data?.sales_start ?? "—"} 至 {data?.sales_end ?? "—"}
-          </span>
-          <span role="status">
+        <div className="flex min-h-16 flex-wrap items-center justify-between gap-3 border-b px-4 py-3 sm:px-5">
+          <div className="flex items-center gap-2.5">
+            <PackageSearch
+              className="size-4 text-muted-foreground"
+              aria-hidden="true"
+            />
+            <h2 className="text-sm font-semibold">补货清单</h2>
+            <span className="rounded-md bg-muted/70 px-2 py-1 text-xs text-muted-foreground">
+              {brandLabel}
+            </span>
+          </div>
+          <span role="status" className="text-xs text-muted-foreground">
             {refreshing
               ? "正在计算补货建议…"
               : error
@@ -449,37 +501,58 @@ export function ReplenishmentPage() {
                 : `共 ${number(data?.total ?? 0)} 项 · 按建议补货量降序`}
           </span>
         </div>
-        <div className="h-[min(65vh,600px)] min-h-80 overflow-auto [scrollbar-gutter:stable]">
-          <table className="w-full min-w-[1400px] table-fixed text-left text-xs">
-            <thead className="sticky top-0 z-10 bg-muted text-muted-foreground">
-              <tr>
-                {[
-                  "商品 / 供应商",
-                  "可售库存 / 采购在途",
-                  "近期净销 / 日均净销",
-                  "预计可售天数",
-                  "交期内可能缺货尺码",
-                  "建议补货",
-                  "供应商起订进度",
-                  "尺码补货明细（配比估算）",
-                ].map((label, index) => (
-                  <th
-                    key={label}
-                    className={cn(
-                      "px-3 py-3 font-medium",
-                      index === 0 || index === 7 ? "w-56" : "w-40",
-                      [1, 2, 3, 5].includes(index) && "text-right"
-                    )}
-                  >
-                    {label}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody className="divide-y">
-              {!loading &&
-                !error &&
-                data?.items.map((item) => (
+        <div
+          className="flex flex-wrap gap-x-6 gap-y-2 border-b bg-muted/15 px-4 py-3 text-xs text-muted-foreground sm:px-5"
+          aria-label="数据时间"
+        >
+          <span className="flex items-center gap-2">
+            <Database className="size-3.5 shrink-0" aria-hidden="true" />
+            库存快照{" "}
+            <span className="font-medium text-foreground tabular-nums">
+              {data?.stock_date ?? "—"}
+            </span>
+          </span>
+          <span className="flex flex-wrap items-center gap-2">
+            <CalendarDays className="size-3.5 shrink-0" aria-hidden="true" />
+            日销范围{" "}
+            <span className="font-medium text-foreground tabular-nums">
+              {data?.sales_start ?? "—"} 至 {data?.sales_end ?? "—"}
+            </span>
+          </span>
+          <span className="sm:ml-auto">
+            {filters.deduct_transit ? "已抵扣采购在途" : "未抵扣采购在途"}
+          </span>
+        </div>
+        {hasRows ? (
+          <div className="h-[min(55vh,580px)] min-h-80 overflow-auto [scrollbar-gutter:stable]">
+            <table className="w-full min-w-[1400px] table-fixed text-left text-xs">
+              <thead className="sticky top-0 z-10 bg-muted text-muted-foreground">
+                <tr>
+                  {[
+                    "商品 / 供应商",
+                    "可售库存 / 采购在途",
+                    "近期净销 / 日均净销",
+                    "预计可售天数",
+                    "交期内可能缺货尺码",
+                    "建议补货",
+                    "供应商起订进度",
+                    "尺码补货明细（配比估算）",
+                  ].map((label, index) => (
+                    <th
+                      key={label}
+                      className={cn(
+                        "px-3 py-3 font-medium",
+                        index === 0 || index === 7 ? "w-56" : "w-40",
+                        [1, 2, 3, 5].includes(index) && "text-right"
+                      )}
+                    >
+                      {label}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody className="divide-y">
+                {data?.items.map((item) => (
                   <tr key={item.id} className="align-top hover:bg-muted/30">
                     <td className="px-3 py-3">
                       <p className="font-mono font-medium break-all">
@@ -624,75 +697,120 @@ export function ReplenishmentPage() {
                     </td>
                   </tr>
                 ))}
-            </tbody>
-          </table>
-          {!loading && !error && data?.items.length === 0 && (
-            <div className="flex h-56 flex-col items-center justify-center gap-2 text-sm text-muted-foreground">
-              <PackageSearch className="size-8 opacity-50" aria-hidden="true" />
-              <p>
-                {!data.ready
-                  ? "数据源未就绪，请先补齐库存及日销"
-                  : filters.status === "suggested"
-                    ? "暂无有效补货建议，可查看待完善商品并填写规则"
-                    : "当前筛选下没有相关商品"}
-              </p>
-              {data.ready && filters.status === "suggested" && (
-                <div className="mt-2 flex flex-wrap justify-center gap-2">
-                  <Button
-                    variant="outline"
-                    onClick={() =>
-                      setFilters((current) => ({
-                        ...current,
-                        status: "pending",
-                        page: 1,
-                      }))
-                    }
-                  >
-                    查看待完善商品
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <StockListState
+            icon={PackageSearch}
+            loading={loading}
+            title={
+              loading
+                ? "正在计算补货建议…"
+                : error
+                  ? "暂时无法读取补货建议"
+                  : !data?.ready
+                    ? "数据源未就绪，请先补齐库存及日销"
+                    : filters.status === "suggested"
+                      ? "暂无有效补货建议"
+                      : "当前筛选下没有相关商品"
+            }
+            description={
+              loading
+                ? "正在核对可售库存、近期净销及供应商规则。"
+                : error
+                  ? "请稍后重试，或检查网络连接。"
+                  : !data?.ready
+                    ? "库存和日销就绪后，将结合交期、起订量及尺码配比计算建议。"
+                    : hasSearch
+                      ? "试试清除供应商或商品搜索条件，查看更大范围。"
+                      : filters.status === "suggested"
+                        ? "先核对待完善商品，再补充供应商交期、合计起订量与尺码配比。"
+                        : "可切换“全部相关商品”，或调整品牌和商品筛选条件。"
+            }
+          >
+            {!loading && !error && data?.ready && (
+              <>
+                {hasSearch && (
+                  <Button variant="outline" onClick={resetSearch}>
+                    清除搜索条件
                   </Button>
-                  {canManage && (
-                    <Button onClick={openRules}>
-                      <Settings2 className="size-4" aria-hidden="true" />
-                      去设置规则
+                )}
+                {filters.status === "suggested" ? (
+                  <>
+                    <Button
+                      variant="outline"
+                      onClick={() =>
+                        setFilters((current) => ({
+                          ...current,
+                          status: "pending",
+                          page: 1,
+                        }))
+                      }
+                    >
+                      查看待完善商品
                     </Button>
-                  )}
-                </div>
-              )}
-            </div>
-          )}
-        </div>
+                    {canManage && (
+                      <Button onClick={openRules}>
+                        <Settings2 className="size-4" aria-hidden="true" />
+                        去设置规则
+                      </Button>
+                    )}
+                  </>
+                ) : (
+                  filters.status !== "all" && (
+                    <Button
+                      variant="outline"
+                      onClick={() =>
+                        setFilters((current) => ({
+                          ...current,
+                          status: "all",
+                          page: 1,
+                        }))
+                      }
+                    >
+                      查看全部相关商品
+                    </Button>
+                  )
+                )}
+              </>
+            )}
+          </StockListState>
+        )}
         <footer className="flex flex-wrap items-center justify-between gap-3 border-t px-4 py-3 text-xs text-muted-foreground">
           <span>分码需求为配比估算；建议仅供采购核对，不自动生成采购单。</span>
-          <div className="flex items-center gap-3">
-            <Button
-              variant="outline"
-              size="icon-sm"
-              aria-label="上一页"
-              disabled={loading || page <= 1}
-              onClick={() =>
-                setFilters((current) => ({ ...current, page: page - 1 }))
-              }
-            >
-              <ChevronLeft className="size-4" />
-            </Button>
-            <span className="tabular-nums">
-              {page} / {pages}
-            </span>
-            <Button
-              variant="outline"
-              size="icon-sm"
-              aria-label="下一页"
-              disabled={loading || page >= pages}
-              onClick={() =>
-                setFilters((current) => ({ ...current, page: page + 1 }))
-              }
-            >
-              <ChevronRight className="size-4" />
-            </Button>
-          </div>
+          {(data?.total ?? 0) > 0 && (
+            <div className="flex items-center gap-3">
+              <Button
+                variant="outline"
+                size="icon-sm"
+                aria-label="上一页"
+                disabled={refreshing || page <= 1}
+                onClick={() =>
+                  setFilters((current) => ({ ...current, page: page - 1 }))
+                }
+              >
+                <ChevronLeft className="size-4" />
+              </Button>
+              <span className="tabular-nums">
+                {page} / {pages}
+              </span>
+              <Button
+                variant="outline"
+                size="icon-sm"
+                aria-label="下一页"
+                disabled={refreshing || page >= pages}
+                onClick={() =>
+                  setFilters((current) => ({ ...current, page: page + 1 }))
+                }
+              >
+                <ChevronRight className="size-4" />
+              </Button>
+            </div>
+          )}
         </footer>
       </section>
-      <details className="rounded-lg border bg-card px-4 py-3 text-xs">
+      <details className="rounded-2xl border border-border/80 bg-card/60 px-4 py-3 text-xs backdrop-blur-xl sm:px-5">
         <summary className="cursor-pointer font-medium text-muted-foreground">
           数据来源与计算口径
         </summary>
@@ -702,8 +820,7 @@ export function ReplenishmentPage() {
           ))}
           {data?.unmatched_stock_rows ? (
             <p>
-              全品牌库存中有{" "}
-              {number(data?.unmatched_stock_rows ?? 0)}{" "}
+              全品牌库存中有 {number(data?.unmatched_stock_rows ?? 0)}{" "}
               组编码无法唯一匹配，未计入建议，请核对商品档案。
             </p>
           ) : null}

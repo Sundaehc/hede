@@ -329,6 +329,57 @@ test("reminders refresh every five minutes while visible and pause polling while
   visibility.mockRestore()
 })
 
+test("empty tasks offer alert entry points and clear committed search conditions", async () => {
+  mock.list.mockResolvedValue({
+    items: [],
+    total: 0,
+    page: 1,
+    page_size: 25,
+    counts: { open: 0, overdue: 0, completed: 0 },
+    today: "2026-11-14",
+  })
+  render(<StockAlertTasksPage />)
+  await screen.findByText("当前筛选下没有待办")
+  expect(screen.getByRole("link", { name: "新品零动销预警" })).toHaveAttribute(
+    "href",
+    "/stock-alerts/new-products"
+  )
+  expect(screen.getByRole("link", { name: "低售罄预警" })).toHaveAttribute(
+    "href",
+    "/stock-alerts/slow-sales"
+  )
+  expect(
+    screen.queryByRole("button", { name: "批量处理" })
+  ).not.toBeInTheDocument()
+  fireEvent.click(screen.getByRole("button", { name: "查看全部待办" }))
+  await waitFor(() =>
+    expect(mock.list).toHaveBeenLastCalledWith(
+      expect.objectContaining({ scope: "all", page: 1 }),
+      expect.any(AbortSignal)
+    )
+  )
+  await waitFor(() =>
+    expect(screen.getByRole("button", { name: "刷新" })).toBeEnabled()
+  )
+  fireEvent.change(screen.getByLabelText("搜索待办"), {
+    target: { value: "不存在的货号" },
+  })
+  fireEvent.click(screen.getByRole("button", { name: "查询" }))
+  fireEvent.click(await screen.findByRole("button", { name: "重置筛选" }))
+  expect(screen.getByLabelText("搜索待办")).toHaveValue("")
+  expect(screen.getByRole("button", { name: "我的待办" })).toHaveAttribute(
+    "aria-pressed",
+    "true"
+  )
+  await waitFor(() =>
+    expect(screen.getByRole("button", { name: "刷新" })).toBeEnabled()
+  )
+  expect(screen.getByRole("button", { name: /未完成.*0/ })).toHaveAttribute(
+    "aria-pressed",
+    "true"
+  )
+})
+
 test("selects tasks across pages, completes in bulk with explicit shared content and retains failed selections", async () => {
   mock.list.mockImplementation(async (filters) => ({
     items: [
@@ -394,7 +445,9 @@ test("selects tasks across pages, completes in bulk with explicit shared content
     target: { value: "new" },
   })
   fireEvent.click(screen.getByRole("button", { name: "查询" }))
-  expect(screen.getByText("已选 0 项")).toBeInTheDocument()
+  expect(
+    screen.queryByRole("button", { name: "批量处理" })
+  ).not.toBeInTheDocument()
   await waitFor(() =>
     expect(screen.getByRole("button", { name: "刷新" })).toBeEnabled()
   )

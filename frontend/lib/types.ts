@@ -347,6 +347,7 @@ export type ProductImageRefreshStatus = {
 }
 
 export type ProductGoodsItem = {
+  sales_match_status?: "matched" | "no_record" | "unavailable"
   id: number
   brand: BrandKey
   is_style_summary?: boolean
@@ -392,6 +393,14 @@ export type ProductGoodsItem = {
 }
 
 export type ProductGoodsResponse = {
+  sales_source_status?: {
+    window_start: string | null
+    window_end: string | null
+    expected_date: string
+    jst_latest_date: string | null
+    vip_latest_date: string | null
+    delayed_sources: string[]
+  }
   items: ProductGoodsItem[]
   total: number
   page: number

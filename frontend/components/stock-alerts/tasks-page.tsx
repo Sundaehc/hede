@@ -1,26 +1,34 @@
 "use client"
 
 import { useCallback, useState } from "react"
+import Link from "next/link"
 import { useSearchParams } from "next/navigation"
 import {
   Archive,
+  ArrowRight,
+  CheckCheck,
   ChevronLeft,
   ChevronRight,
   ClipboardCheck,
+  Clock3,
+  ListChecks,
   RefreshCw,
   Search,
+  SlidersHorizontal,
+  TimerOff,
 } from "lucide-react"
 import { useAuth } from "@/components/auth/auth-provider"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Select } from "@/components/ui/select"
 import { getStockAlertOptions, getStockAlertTasks } from "@/lib/api"
-import {
-  alertKindLabels,
-  type TaskFilters,
-} from "@/lib/stock-alert-tasks"
+import { alertKindLabels, type TaskFilters } from "@/lib/stock-alert-tasks"
 import { useSessionQueryState } from "@/lib/session-query-state"
-import { STOCK_TASK_RESOURCES, useStockModuleOptions, useStockModuleQuery } from "@/lib/stock-module-query"
+import {
+  STOCK_TASK_RESOURCES,
+  useStockModuleOptions,
+  useStockModuleQuery,
+} from "@/lib/stock-module-query"
 import { cn } from "@/lib/utils"
 import { StockAlertTaskDialog, TaskStatusBadge } from "./task-dialog"
 import { useTaskRefresh } from "./use-task-refresh"
@@ -30,6 +38,7 @@ import {
   useBatchSelection,
 } from "./batch-selection"
 import { BatchTaskDialog } from "./batch-task-dialog"
+import { StockListState, StockStatusCard } from "./workspace-ui"
 import type { StockAlertTask } from "@/lib/stock-alert-tasks"
 
 const defaults: TaskFilters = {
@@ -41,10 +50,30 @@ const defaults: TaskFilters = {
   page: 1,
 }
 const tabs = [
-  { value: "open", label: "未完成" },
-  { value: "overdue", label: "已超期" },
-  { value: "completed", label: "已完成" },
-  { value: "all", label: "全部状态" },
+  {
+    value: "open",
+    label: "未完成",
+    description: "待处理与跟进中的预警",
+    icon: Clock3,
+  },
+  {
+    value: "overdue",
+    label: "已超期",
+    description: "已超过处理期限，优先跟进",
+    icon: TimerOff,
+  },
+  {
+    value: "completed",
+    label: "已完成",
+    description: "查看已归档的措施与结果",
+    icon: CheckCheck,
+  },
+  {
+    value: "all",
+    label: "全部状态",
+    description: "查看当前范围的全部待办",
+    icon: ListChecks,
+  },
 ] as const
 
 export function StockAlertTasksPage() {
@@ -101,9 +130,14 @@ function StockAlertTasksContent({ reminderEntry }: { reminderEntry: boolean }) {
   const [taskId, setTaskId] = useState<number | null>(null)
   const key = JSON.stringify(filters)
   const { data, error, loading, refreshing } = useStockModuleQuery({
-    group: "stock-tasks", queryKey: key, revision, resources: STOCK_TASK_RESOURCES,
-    ttl: 15_000, retention: 60_000,
-    load: (signal) => getStockAlertTasks(JSON.parse(key) as TaskFilters, signal),
+    group: "stock-tasks",
+    queryKey: key,
+    revision,
+    resources: STOCK_TASK_RESOURCES,
+    ttl: 15_000,
+    retention: 60_000,
+    load: (signal) =>
+      getStockAlertTasks(JSON.parse(key) as TaskFilters, signal),
   })
   const selectable =
     data?.items.filter(
@@ -114,7 +148,10 @@ function StockAlertTasksContent({ reminderEntry }: { reminderEntry: boolean }) {
   const selectedOnPage = selectable.filter((item) =>
     selection.selected.has(item.id)
   ).length
-  const refresh = useCallback(() => setRevision((value) => value + 1), [setRevision])
+  const refresh = useCallback(
+    () => setRevision((value) => value + 1),
+    [setRevision]
+  )
   useTaskRefresh(refresh)
   const page = data?.page ?? filters.page
   const pages = Math.max(
@@ -123,53 +160,92 @@ function StockAlertTasksContent({ reminderEntry }: { reminderEntry: boolean }) {
   )
   const brandName = (brand: string) =>
     brands.find((item) => item.value === brand)?.label ?? brand
+  const hasRows = Boolean(data?.items.length)
+  const hasSearch = Boolean(filters.brand || filters.kind || filters.query)
+  const resetFilters = () => {
+    setDraft({ brand: "", kind: "", query: "" })
+    setFilters(defaults)
+  }
   return (
-    <div className="space-y-5 p-4 sm:p-6">
-      <header className="flex flex-wrap items-start justify-between gap-3">
+    <div className="mx-auto max-w-[1600px] space-y-4 p-4 sm:space-y-5 sm:p-6">
+      <header className="flex flex-wrap items-center justify-between gap-4">
         <div>
           <p className="mb-2 flex items-center gap-1.5 text-xs text-muted-foreground">
             <Archive className="size-3.5" aria-hidden="true" />存 / 预警处理
           </p>
-          <h1 className="text-xl font-semibold tracking-tight">预警待办</h1>
+          <h1 className="text-2xl font-semibold tracking-tight">预警待办</h1>
           <p className="mt-2 text-sm text-muted-foreground">
             分配、跟进、记录结果。超期持续提醒，处理完成后归档。
           </p>
         </div>
-        <Button variant="outline" disabled={refreshing} onClick={refresh}>
-          <RefreshCw
-            className={cn("size-4", refreshing && "animate-spin")}
-            aria-hidden="true"
-          />
-          刷新
-        </Button>
-      </header>
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div
-          className="flex rounded-xl border bg-card p-1"
-          aria-label="待办范围"
-        >
-          {(
-            [
-              { value: "mine", label: "我的待办" },
-              { value: "all", label: "全部待办" },
-            ] as const
-          ).map((scope) => (
-            <Button
-              key={scope.value}
-              size="sm"
-              variant={filters.scope === scope.value ? "secondary" : "ghost"}
-              aria-pressed={filters.scope === scope.value}
-              onClick={() =>
-                setFilters({ ...filters, scope: scope.value, page: 1 })
-              }
-            >
-              {scope.label}
-            </Button>
-          ))}
+        <div className="flex flex-wrap items-center gap-2">
+          <div
+            className="flex rounded-xl border border-border/80 bg-card/70 p-1 shadow-xs backdrop-blur-xl"
+            aria-label="待办范围"
+          >
+            {(
+              [
+                { value: "mine", label: "我的待办" },
+                { value: "all", label: "全部待办" },
+              ] as const
+            ).map((scope) => (
+              <Button
+                key={scope.value}
+                size="sm"
+                variant={filters.scope === scope.value ? "default" : "ghost"}
+                aria-pressed={filters.scope === scope.value}
+                onClick={() =>
+                  setFilters({ ...filters, scope: scope.value, page: 1 })
+                }
+              >
+                {scope.label}
+              </Button>
+            ))}
+          </div>
+          <Button
+            variant="outline"
+            className="h-9 bg-card/70"
+            disabled={refreshing}
+            onClick={refresh}
+          >
+            <RefreshCw
+              className={cn(
+                "size-4",
+                refreshing && "animate-spin motion-reduce:animate-none"
+              )}
+              aria-hidden="true"
+            />
+            刷新
+          </Button>
         </div>
+      </header>
+      <div
+        className="grid grid-cols-2 gap-3 xl:grid-cols-4"
+        aria-label="处理状态筛选"
+      >
+        {tabs.map((tab) => (
+          <StockStatusCard
+            key={tab.value}
+            label={tab.label}
+            description={tab.description}
+            icon={tab.icon}
+            active={filters.status === tab.value}
+            tone={tab.value === "overdue" ? "danger" : "neutral"}
+            value={
+              data
+                ? tab.value === "all"
+                  ? data.counts.open + data.counts.completed
+                  : data.counts[tab.value]
+                : "—"
+            }
+            onClick={() =>
+              setFilters({ ...filters, status: tab.value, page: 1 })
+            }
+          />
+        ))}
       </div>
       <form
-        className="flex flex-wrap items-end gap-3 rounded-xl border bg-card p-4"
+        className="flex flex-wrap items-end gap-3 rounded-2xl border border-border/80 bg-card/75 p-4 shadow-xs backdrop-blur-xl"
         onSubmit={(event) => {
           event.preventDefault()
           setFilters({
@@ -180,7 +256,7 @@ function StockAlertTasksContent({ reminderEntry }: { reminderEntry: boolean }) {
           })
         }}
       >
-        <label className="w-40 space-y-1.5 text-xs text-muted-foreground">
+        <label className="min-w-36 flex-1 space-y-1.5 text-xs text-muted-foreground sm:w-40 sm:flex-none">
           <span>品牌</span>
           <Select
             aria-label="品牌"
@@ -197,7 +273,7 @@ function StockAlertTasksContent({ reminderEntry }: { reminderEntry: boolean }) {
             ))}
           </Select>
         </label>
-        <label className="w-44 space-y-1.5 text-xs text-muted-foreground">
+        <label className="min-w-36 flex-1 space-y-1.5 text-xs text-muted-foreground sm:w-44 sm:flex-none">
           <span>预警类型</span>
           <Select
             aria-label="预警类型"
@@ -230,14 +306,7 @@ function StockAlertTasksContent({ reminderEntry }: { reminderEntry: boolean }) {
           <Search className="size-4" aria-hidden="true" />
           查询
         </Button>
-        <Button
-          type="button"
-          variant="ghost"
-          onClick={() => {
-            setDraft({ brand: "", kind: "", query: "" })
-            setFilters(defaults)
-          }}
-        >
+        <Button type="button" variant="ghost" onClick={resetFilters}>
           重置
         </Button>
       </form>
@@ -261,227 +330,277 @@ function StockAlertTasksContent({ reminderEntry }: { reminderEntry: boolean }) {
         </div>
       )}
       <section
-        className="overflow-hidden rounded-xl border bg-card"
+        className="overflow-hidden rounded-2xl border border-border/80 bg-card/80 shadow-xs backdrop-blur-xl"
         aria-label="预警待办列表"
         aria-busy={refreshing}
       >
-        <div className="flex flex-wrap items-center justify-between gap-3 border-b px-4 py-3">
-          <div className="flex flex-wrap gap-1" aria-label="处理状态筛选">
-            {tabs.map((tab) => (
-              <Button
-                key={tab.value}
-                variant={filters.status === tab.value ? "secondary" : "ghost"}
-                size="sm"
-                aria-pressed={filters.status === tab.value}
-                onClick={() =>
-                  setFilters({ ...filters, status: tab.value, page: 1 })
-                }
-                className={
-                  tab.value === "overdue" && (data?.counts.overdue ?? 0) > 0
-                    ? "text-destructive"
-                    : undefined
-                }
-              >
-                {tab.label}
-                <span className="ml-1 text-muted-foreground tabular-nums">
-                  {data
-                    ? tab.value === "all"
-                      ? data.counts.open + data.counts.completed
-                      : data.counts[tab.value]
-                    : "—"}
-                </span>
-              </Button>
-            ))}
+        <div className="flex min-h-16 flex-wrap items-center justify-between gap-3 border-b px-4 py-3 sm:px-5">
+          <div className="flex items-center gap-2.5">
+            <ClipboardCheck
+              className="size-4 text-muted-foreground"
+              aria-hidden="true"
+            />
+            <h2 className="text-sm font-semibold">待办清单</h2>
+            <span className="rounded-md bg-muted/70 px-2 py-1 text-xs text-muted-foreground">
+              {tabs.find((tab) => tab.value === filters.status)?.label}
+            </span>
           </div>
           <span role="status" className="text-xs text-muted-foreground">
             {refreshing ? "正在更新…" : `共 ${data?.total ?? 0} 项 · 期限优先`}
           </span>
         </div>
-        <BatchSelectionBar
-          count={selection.selected.size}
-          error={selection.error}
-          onClear={selection.clear}
-        >
-          {manager && (
+        {selection.selected.size > 0 ? (
+          <BatchSelectionBar
+            count={selection.selected.size}
+            error={selection.error}
+            onClear={selection.clear}
+          >
+            {manager && (
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={!selection.selected.size}
+                onClick={() =>
+                  setBatch({
+                    mode: "assign",
+                    items: Array.from(selection.selected.values()),
+                  })
+                }
+              >
+                批量调整分配
+              </Button>
+            )}
             <Button
               size="sm"
-              variant="outline"
               disabled={!selection.selected.size}
               onClick={() =>
                 setBatch({
-                  mode: "assign",
+                  mode: "process",
                   items: Array.from(selection.selected.values()),
                 })
               }
             >
-              批量调整分配
+              批量处理
             </Button>
-          )}
-          <Button
-            size="sm"
-            disabled={!selection.selected.size}
-            onClick={() =>
-              setBatch({
-                mode: "process",
-                items: Array.from(selection.selected.values()),
-              })
-            }
-          >
-            批量处理
-          </Button>
-        </BatchSelectionBar>
-        <div className="h-[min(65vh,620px)] min-h-80 overflow-auto [scrollbar-gutter:stable]">
-          <table className="w-full min-w-[960px] table-fixed text-left text-xs">
-            <thead className="sticky top-0 z-10 bg-muted text-muted-foreground">
-              <tr>
-                <th className="w-12 px-4 py-3">
-                  <SelectionCheckbox
-                    label="选择本页可处理待办"
-                    checked={
-                      selectable.length > 0 &&
-                      selectedOnPage === selectable.length
-                    }
-                    mixed={
-                      selectedOnPage > 0 && selectedOnPage < selectable.length
-                    }
-                    disabled={loading || !selectable.length}
-                    onChange={(checked) =>
-                      selection.select(selectable, checked)
-                    }
-                  />
-                </th>
-                {[
-                  "商品 / 品牌",
-                  "预警类型",
-                  "负责人",
-                  "处理期限",
-                  "状态",
-                  "措施 / 结果",
-                  "操作",
-                ].map((label, index) => (
-                  <th
-                    key={label}
-                    className={cn(
-                      "px-4 py-3 font-medium",
-                      index === 0 || index === 5 ? "w-56" : "w-32"
-                    )}
-                  >
-                    {label}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody className="divide-y">
-              {data?.items.map((item) => (
-                <tr key={item.id} className="align-top hover:bg-muted/30">
-                  <td className="px-4 py-4">
-                    <SelectionCheckbox
-                      label={`选择 ${item.sku}（#${item.id}）`}
-                      checked={selection.selected.has(item.id)}
-                      disabled={
-                        (item.status === "completed" ||
-                          (!manager && user?.id !== item.assignee_id)) &&
-                        !selection.selected.has(item.id)
-                      }
-                      onChange={(checked) => selection.select([item], checked)}
-                    />
-                  </td>
-                  <td className="px-4 py-4">
-                    <p className="font-mono font-semibold break-all">
-                      {item.sku}
-                    </p>
-                    <p className="mt-1 text-muted-foreground">
-                      {[item.product_name, item.color]
-                        .filter(Boolean)
-                        .join(" · ")}
-                    </p>
-                    <p className="mt-1 text-muted-foreground">
-                      {brandName(item.brand)} · #{item.id}
-                    </p>
-                  </td>
-                  <td className="px-4 py-4">{alertKindLabels[item.kind]}</td>
-                  <td className="px-4 py-4 font-medium">
-                    {item.assignee_name}
-                  </td>
-                  <td
-                    className={cn(
-                      "px-4 py-4 tabular-nums",
-                      item.overdue && "font-medium text-destructive"
-                    )}
-                  >
-                    {item.due_date}
-                    <p className="mt-1 text-muted-foreground">北京时间</p>
-                  </td>
-                  <td className="px-4 py-4">
-                    <TaskStatusBadge task={item} />
-                  </td>
-                  <td className="px-4 py-4 leading-5">
-                    <p className="line-clamp-2 break-words">
-                      {item.measures || "尚未填写措施"}
-                    </p>
-                    <p className="mt-1 line-clamp-2 break-words text-muted-foreground">
-                      {item.result || "尚未填写结果"}
-                    </p>
-                  </td>
-                  <td className="px-4 py-4">
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => setTaskId(item.id)}
-                    >
-                      查看 / 处理
-                    </Button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          {(!data || !data.items.length) && (
-            <div className="flex h-56 flex-col items-center justify-center gap-3 px-6 text-center text-sm text-muted-foreground">
-              <ClipboardCheck
-                className="size-8 opacity-50"
-                aria-hidden="true"
-              />
-              <p>
-                {loading
-                  ? "正在加载预警待办…"
-                  : error
-                    ? "暂时无法读取待办，请重试"
-                    : "当前筛选下没有待办"}
-              </p>
-              {!loading && !error && (
-                <p className="text-xs">
-                  在新品零动销或低售罄预警清单中点击“分配待办”创建。
-                </p>
+          </BatchSelectionBar>
+        ) : (
+          hasRows && (
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b bg-muted/15 px-4 py-2.5 text-xs text-muted-foreground sm:px-5">
+              <span className="font-medium">已选 0 项</span>
+              <span>勾选待办后可批量处理，支持跨页选择</span>
+              {manager && (
+                <span className="sm:ml-auto">可批量调整负责人及期限</span>
               )}
             </div>
-          )}
-        </div>
+          )
+        )}
+        {hasRows ? (
+          <div className="h-[min(55vh,580px)] min-h-80 overflow-auto [scrollbar-gutter:stable]">
+            <table className="w-full min-w-[960px] table-fixed text-left text-xs">
+              <thead className="sticky top-0 z-10 bg-muted text-muted-foreground">
+                <tr>
+                  <th className="w-12 px-4 py-3">
+                    <SelectionCheckbox
+                      label="选择本页可处理待办"
+                      checked={
+                        selectable.length > 0 &&
+                        selectedOnPage === selectable.length
+                      }
+                      mixed={
+                        selectedOnPage > 0 && selectedOnPage < selectable.length
+                      }
+                      disabled={loading || !selectable.length}
+                      onChange={(checked) =>
+                        selection.select(selectable, checked)
+                      }
+                    />
+                  </th>
+                  {[
+                    "商品 / 品牌",
+                    "预警类型",
+                    "负责人",
+                    "处理期限",
+                    "状态",
+                    "措施 / 结果",
+                    "操作",
+                  ].map((label, index) => (
+                    <th
+                      key={label}
+                      className={cn(
+                        "px-4 py-3 font-medium",
+                        index === 0 || index === 5 ? "w-56" : "w-32"
+                      )}
+                    >
+                      {label}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody className="divide-y">
+                {data?.items.map((item) => (
+                  <tr
+                    key={item.id}
+                    className={cn(
+                      "align-top transition-colors hover:bg-muted/30",
+                      selection.selected.has(item.id) && "bg-primary/5"
+                    )}
+                  >
+                    <td className="px-4 py-4">
+                      <SelectionCheckbox
+                        label={`选择 ${item.sku}（#${item.id}）`}
+                        checked={selection.selected.has(item.id)}
+                        disabled={
+                          (item.status === "completed" ||
+                            (!manager && user?.id !== item.assignee_id)) &&
+                          !selection.selected.has(item.id)
+                        }
+                        onChange={(checked) =>
+                          selection.select([item], checked)
+                        }
+                      />
+                    </td>
+                    <td className="px-4 py-4">
+                      <p className="font-mono font-semibold break-all">
+                        {item.sku}
+                      </p>
+                      <p className="mt-1 text-muted-foreground">
+                        {[item.product_name, item.color]
+                          .filter(Boolean)
+                          .join(" · ")}
+                      </p>
+                      <p className="mt-1 text-muted-foreground">
+                        {brandName(item.brand)} · #{item.id}
+                      </p>
+                    </td>
+                    <td className="px-4 py-4">{alertKindLabels[item.kind]}</td>
+                    <td className="px-4 py-4 font-medium">
+                      {item.assignee_name}
+                    </td>
+                    <td
+                      className={cn(
+                        "px-4 py-4 tabular-nums",
+                        item.overdue && "font-medium text-destructive"
+                      )}
+                    >
+                      {item.due_date}
+                      <p className="mt-1 text-muted-foreground">北京时间</p>
+                    </td>
+                    <td className="px-4 py-4">
+                      <TaskStatusBadge task={item} />
+                    </td>
+                    <td className="px-4 py-4 leading-5">
+                      <p className="line-clamp-2 break-words">
+                        {item.measures || "尚未填写措施"}
+                      </p>
+                      <p className="mt-1 line-clamp-2 break-words text-muted-foreground">
+                        {item.result || "尚未填写结果"}
+                      </p>
+                    </td>
+                    <td className="px-4 py-4">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => setTaskId(item.id)}
+                      >
+                        查看 / 处理
+                      </Button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <StockListState
+            icon={ClipboardCheck}
+            loading={loading}
+            title={
+              loading
+                ? "正在加载预警待办…"
+                : error
+                  ? "暂时无法读取待办，请重试"
+                  : "当前筛选下没有待办"
+            }
+            description={
+              loading
+                ? "正在整理负责人、处理期限和最新进度。"
+                : error
+                  ? "请稍后重试，或检查网络连接。"
+                  : hasSearch
+                    ? "试试调整品牌、预警类型或搜索内容。"
+                    : filters.status === "completed"
+                      ? "处理完成的待办会保留在这里，方便回看措施与结果。"
+                      : filters.status === "overdue"
+                        ? "当前范围内暂无超期待办，可查看未完成待办继续跟进。"
+                        : "在新品零动销或低售罄预警清单中点击“分配待办”创建。"
+            }
+          >
+            {!loading && !error && (
+              <>
+                {hasSearch ? (
+                  <Button variant="outline" onClick={resetFilters}>
+                    <SlidersHorizontal className="size-4" aria-hidden="true" />
+                    重置筛选
+                  </Button>
+                ) : filters.status !== "open" ? (
+                  <Button
+                    variant="outline"
+                    onClick={() =>
+                      setFilters({ ...filters, status: "open", page: 1 })
+                    }
+                  >
+                    查看未完成待办
+                  </Button>
+                ) : filters.scope === "mine" ? (
+                  <Button
+                    variant="outline"
+                    onClick={() =>
+                      setFilters({ ...filters, scope: "all", page: 1 })
+                    }
+                  >
+                    查看全部待办
+                  </Button>
+                ) : null}
+                <Button asChild>
+                  <Link href="/stock-alerts/new-products">
+                    新品零动销预警
+                    <ArrowRight className="size-4" aria-hidden="true" />
+                  </Link>
+                </Button>
+                <Button variant="outline" asChild>
+                  <Link href="/stock-alerts/slow-sales">低售罄预警</Link>
+                </Button>
+              </>
+            )}
+          </StockListState>
+        )}
         <footer className="flex flex-wrap items-center justify-between gap-3 border-t px-4 py-3 text-xs text-muted-foreground">
           <span>商品退出预警后，处理记录仍会保留。</span>
-          <div className="flex items-center gap-3">
-            <Button
-              size="icon-sm"
-              variant="outline"
-              aria-label="上一页"
-              disabled={refreshing || page <= 1}
-              onClick={() => setFilters({ ...filters, page: page - 1 })}
-            >
-              <ChevronLeft className="size-4" />
-            </Button>
-            <span className="tabular-nums">
-              {page} / {pages}
-            </span>
-            <Button
-              size="icon-sm"
-              variant="outline"
-              aria-label="下一页"
-              disabled={refreshing || page >= pages}
-              onClick={() => setFilters({ ...filters, page: page + 1 })}
-            >
-              <ChevronRight className="size-4" />
-            </Button>
-          </div>
+          {(data?.total ?? 0) > 0 && (
+            <div className="flex items-center gap-3">
+              <Button
+                size="icon-sm"
+                variant="outline"
+                aria-label="上一页"
+                disabled={refreshing || page <= 1}
+                onClick={() => setFilters({ ...filters, page: page - 1 })}
+              >
+                <ChevronLeft className="size-4" />
+              </Button>
+              <span className="tabular-nums">
+                {page} / {pages}
+              </span>
+              <Button
+                size="icon-sm"
+                variant="outline"
+                aria-label="下一页"
+                disabled={refreshing || page >= pages}
+                onClick={() => setFilters({ ...filters, page: page + 1 })}
+              >
+                <ChevronRight className="size-4" />
+              </Button>
+            </div>
+          )}
         </footer>
       </section>
       {taskId !== null && (

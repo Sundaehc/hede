@@ -6,11 +6,11 @@ from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.encoders import jsonable_encoder
 from pydantic import BaseModel, ConfigDict
 from collections import defaultdict
-from datetime import date, datetime, time, timedelta
+from datetime import date, datetime, time, timedelta, timezone
 import json
 import re
 
-from sqlalchemy import Date, Text, and_, case, cast, column, delete, desc, exists, false, func, inspect, or_, select, values
+from sqlalchemy import Date, Text, and_, case, cast, column, delete, desc, exists, false, func, inspect, literal, or_, select, values
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from api.product_goods_cache import (
@@ -27,6 +27,7 @@ from api.product_goods_cache import (
 from api.operation_log_utils import write_operation_log
 from api.routes.images import image_url_for
 from domain.product_goods_schema import PRODUCT_GOODS_OVERRIDES_TABLE
+from domain.product_goods_sales_matching import GoodsSalesCatalog
 from domain.product_goods_shop_channel_schema import PRODUCT_GOODS_SHOP_CHANNEL_MAPPINGS_TABLE
 from domain.product_goods_historical_sales_schema import HISTORICAL_SALES_YEARS, product_goods_historical_sales_table_for_year
 from domain.product_goods_historical_orders_schema import HISTORICAL_ORDER_START_YEAR, product_goods_historical_orders_table_for_year
@@ -1881,6 +1882,72 @@ def _resolve_jst_product_code(
     return unique_style_codes.get(str(style_code or "").strip())
 
 
+def _goods_sales_matcher(connection, products: dict[str, str], *, brand: str):
+    cache_key = ("sales-catalog-v1", connection.engine)
+    cached = get_product_goods_cache(cache_key) if connection.dialect.name == "postgresql" else None
+    if cached is not None:
+        catalog = cached["catalog"]
+    else:
+        inspector = inspect(connection)
+        rows = []
+        for archive_brand, table in PRODUCT_TABLES.items():
+            if inspector.has_table(table.name):
+                rows.extend({**dict(row), "brand": archive_brand} for row in connection.execute(
+                    select(table.c.sku, table.c.original_sku)
+                ).mappings())
+        if inspector.has_table(GJ_MERGED_PRODUCT_INFO_TABLE.name):
+            gj = GJ_MERGED_PRODUCT_INFO_TABLE
+            latest = connection.execute(select(func.max(gj.c.source_date_value))).scalar()
+            known_goods = {(str(row["brand"]), str(row["sku"] or "").strip()) for row in rows}
+            for row in connection.execute(select(gj.c.fine_table_brand, gj.c.goods_code, gj.c.original_goods_code)
+                .where(gj.c.source_date_value == latest)).mappings():
+                if (row["fine_table_brand"], str(row["goods_code"] or "").strip()) in known_goods:
+                    rows.append({"brand": row["fine_table_brand"], "sku": row["goods_code"], "original_sku": row["original_goods_code"]})
+        # Small standalone databases may have no archive tables. A real
+        # archive always supplies the complete identity scope, never the page.
+        if not inspector.has_table(PRODUCT_TABLES[brand].name):
+            rows.extend({"brand": brand, "sku": sku, "original_sku": style} for sku, style in products.items())
+        catalog = GoodsSalesCatalog(rows)
+        if connection.dialect.name == "postgresql":
+            set_product_goods_cache(cache_key, {"catalog": catalog})
+    return catalog.matcher(brand, products)
+
+
+def _sales_source_brand_columns(inspector, table):
+    existing = {column["name"] for column in inspector.get_columns(table.name)}
+    names = ("brand",) if "brand" in table.c else ("brand_name", "brand_sn")
+    return [(table.c[name] if name in existing else literal("")).label(f"sales_brand_{index}") for index, name in enumerate(names)]
+
+
+def _goods_sales_source_status(connection, *, as_of_date: date | None = None) -> dict[str, object]:
+    today = datetime.now(timezone(timedelta(hours=8))).date()
+    expected = as_of_date or today - timedelta(days=1)
+    inspector = inspect(connection)
+    latest_by_source = {}
+    for source, factory in (("jst", jst_daily_sales_table_for_year), ("vip", vip_daily_sales_table_for_year)):
+        dates = []
+        for year in (expected.year - 1, expected.year):
+            table = factory(year)
+            if not inspector.has_table(table.name):
+                continue
+            statement = select(func.max(table.c.sales_date))
+            if as_of_date is not None:
+                statement = statement.where(table.c.sales_date <= as_of_date)
+            day = connection.execute(statement).scalar()
+            if isinstance(day, date):
+                dates.append(day)
+        latest_by_source[source] = max(dates, default=None)
+    latest = as_of_date or max((day for day in latest_by_source.values() if day is not None), default=None)
+    return {
+        "window_start": (latest - timedelta(days=29)).isoformat() if latest else None,
+        "window_end": latest.isoformat() if latest else None,
+        "expected_date": expected.isoformat(),
+        "jst_latest_date": latest_by_source["jst"].isoformat() if latest_by_source["jst"] else None,
+        "vip_latest_date": latest_by_source["vip"].isoformat() if latest_by_source["vip"] else None,
+        "delayed_sources": [source for source, day in latest_by_source.items() if day is None or day < expected],
+    }
+
+
 def _aftersale_return_quantities(connection, product_codes: list[str], *, as_of_date: date | None = None) -> dict[str, int]:
     if not product_codes or not inspect(connection).has_table(JST_AFTERSALE_RETURN_TABLE.name):
         return {}
@@ -1968,15 +2035,8 @@ def _sales_matrix_payload(
     if not product_sales_codes:
         return [], {}, {}, {}, {}
     product_codes = sorted(product_sales_codes, key=len, reverse=True)
-    style_code_matches: dict[str, list[str]] = defaultdict(list)
-    for product_code, style_code in product_sales_codes.items():
-        if style_code:
-            style_code_matches[style_code].append(product_code)
-    unique_style_codes = {
-        style_code: matches[0]
-        for style_code, matches in style_code_matches.items()
-        if len(matches) == 1
-    }
+    matcher = _goods_sales_matcher(connection, product_sales_codes, brand=brand)
+    unique_style_codes = matcher.unique_styles
     shop_channel_mappings = _shop_channel_mapping_payload(connection, brand)
     inspector = inspect(connection)
     jst_tables = []
@@ -2079,21 +2139,23 @@ def _sales_matrix_payload(
 
     vip_product_dates: set[tuple[str, date]] = set()
     for table in vip_tables:
+        brand_columns = _sales_source_brand_columns(inspector, table)
         vip_code_conditions = [table.c.goods_code.startswith(product_code) for product_code in product_codes]
         if unique_style_codes:
             vip_code_conditions.append(table.c.style_code.in_(unique_style_codes))
         rows = connection.execute(
             select(
                 table.c.goods_code, table.c.style_code, table.c.sales_date, table.c.size_name, table.c.size_id,
+                *brand_columns,
                 func.sum(func.coalesce(table.c.sales_quantity, 0)).label("quantity"),
                 func.sum(func.coalesce(table.c.customer_count, 0)).label("order_count"),
             )
             .where(or_(*vip_code_conditions))
             .where(table.c.sales_date <= latest)
-            .group_by(table.c.goods_code, table.c.style_code, table.c.sales_date, table.c.size_name, table.c.size_id)
+            .group_by(table.c.goods_code, table.c.style_code, table.c.sales_date, table.c.size_name, table.c.size_id, *brand_columns)
         ).mappings()
         for row in rows:
-            code = _resolve_jst_product_code(row["goods_code"], row["style_code"], product_codes, unique_style_codes)
+            code = matcher.resolve(row["goods_code"], row["style_code"], *(row[column.key] for column in brand_columns))
             day = row["sales_date"]
             if code is None or not isinstance(day, date):
                 continue
@@ -2102,22 +2164,24 @@ def _sales_matrix_payload(
             add_sale(code, day, int(row["quantity"] or 0), order_count=int(row["order_count"] or 0), platform="唯品", size=size)
 
     for table in jst_tables:
+        brand_columns = _sales_source_brand_columns(inspector, table)
         code_conditions = [table.c.product_code.startswith(product_code) for product_code in product_codes]
         if unique_style_codes:
             code_conditions.append(table.c.style_code.in_(unique_style_codes))
         rows = connection.execute(
             select(
                 table.c.product_code, table.c.style_code, table.c.sales_date, table.c.channel, table.c.color_spec,
+                *brand_columns,
                 func.sum(func.coalesce(table.c.net_sales_quantity, 0)).label("quantity"),
                 func.sum(func.coalesce(table.c.sales_order_count, 0)).label("order_count"),
             )
             .where(or_(*code_conditions))
             .where(table.c.sales_date <= latest)
             .where(_consumer_sales_channel_condition(table.c.channel))
-            .group_by(table.c.product_code, table.c.style_code, table.c.sales_date, table.c.channel, table.c.color_spec)
+            .group_by(table.c.product_code, table.c.style_code, table.c.sales_date, table.c.channel, table.c.color_spec, *brand_columns)
         ).mappings()
         for row in rows:
-            code = _resolve_jst_product_code(row["product_code"], row["style_code"], product_codes, unique_style_codes)
+            code = matcher.resolve(row["product_code"], row["style_code"], *(row[column.key] for column in brand_columns))
             day = row["sales_date"]
             quantity = int(row["quantity"] or 0)
             if code is None or not isinstance(day, date):
@@ -2161,7 +2225,7 @@ def _sales_matrix_payload(
             )
         ).mappings()
         for row in history_rows:
-            code = _resolve_jst_product_code(row["product_code"], row["original_sku"], product_codes, unique_style_codes)
+            code = matcher.resolve(row["product_code"], row["original_sku"])
             sales_date = row["sales_date"]
             if code is None or not isinstance(sales_date, date) or sales_date > latest:
                 continue
@@ -2193,15 +2257,8 @@ def _recent_sales_payload(
     if not product_sales_codes:
         return {}, {}, {}, {}
     product_codes = sorted(product_sales_codes, key=len, reverse=True)
-    style_code_matches: dict[str, list[str]] = defaultdict(list)
-    for product_code, style_code in product_sales_codes.items():
-        if style_code:
-            style_code_matches[style_code].append(product_code)
-    unique_style_codes = {
-        style_code: matches[0]
-        for style_code, matches in style_code_matches.items()
-        if len(matches) == 1
-    }
+    matcher = _goods_sales_matcher(connection, product_sales_codes, brand=brand)
+    unique_style_codes = matcher.unique_styles
     inspector = inspect(engine)
     jst_tables = []
     vip_tables = []
@@ -2250,6 +2307,7 @@ def _recent_sales_payload(
             values[size] = values.get(size, 0) + quantity
 
     for table in vip_tables:
+        brand_columns = _sales_source_brand_columns(inspector, table)
         code_conditions = [table.c.goods_code.startswith(product_code) for product_code in product_codes]
         if unique_style_codes:
             code_conditions.append(table.c.style_code.in_(unique_style_codes))
@@ -2260,6 +2318,7 @@ def _recent_sales_payload(
                 table.c.sales_date,
                 table.c.size_name,
                 table.c.size_id,
+                *brand_columns,
                 func.sum(func.coalesce(table.c.sales_quantity, 0)).label("quantity"),
             )
             .where(or_(*code_conditions))
@@ -2270,15 +2329,11 @@ def _recent_sales_payload(
                 table.c.sales_date,
                 table.c.size_name,
                 table.c.size_id,
+                *brand_columns,
             )
         ).mappings()
         for row in rows:
-            code = _resolve_jst_product_code(
-                row["goods_code"],
-                row["style_code"],
-                product_codes,
-                unique_style_codes,
-            )
+            code = matcher.resolve(row["goods_code"], row["style_code"], *(row[column.key] for column in brand_columns))
             sales_date = row["sales_date"]
             size = _size_from_color_spec(row["size_name"]) or _size_from_color_spec(row["size_id"])
             if code is None or not isinstance(sales_date, date):
@@ -2288,6 +2343,7 @@ def _recent_sales_payload(
 
     shop_channel_mappings = _shop_channel_mapping_payload(connection, brand)
     for table in jst_tables:
+        brand_columns = _sales_source_brand_columns(inspector, table)
         code_conditions = [table.c.product_code.startswith(product_code) for product_code in product_codes]
         if unique_style_codes:
             code_conditions.append(table.c.style_code.in_(unique_style_codes))
@@ -2298,6 +2354,7 @@ def _recent_sales_payload(
                 table.c.sales_date,
                 table.c.channel,
                 table.c.color_spec,
+                *brand_columns,
                 func.sum(func.coalesce(table.c.net_sales_quantity, 0)).label("quantity"),
             )
             .where(or_(*code_conditions))
@@ -2308,15 +2365,11 @@ def _recent_sales_payload(
                 table.c.sales_date,
                 table.c.channel,
                 table.c.color_spec,
+                *brand_columns,
             )
         ).mappings()
         for row in rows:
-            code = _resolve_jst_product_code(
-                row["product_code"],
-                row["style_code"],
-                product_codes,
-                unique_style_codes,
-            )
+            code = matcher.resolve(row["product_code"], row["style_code"], *(row[column.key] for column in brand_columns))
             sales_date = row["sales_date"]
             size = _size_from_color_spec(row["color_spec"])
             if code is None or not isinstance(sales_date, date):
@@ -2354,15 +2407,8 @@ def _sales_period_payload(
     if not product_sales_codes or not inspect(connection).has_table(PRODUCT_GOODS_SALES_PERIODS_TABLE.name):
         return annual_columns, monthly_columns, {}, {}
     product_codes = sorted(product_sales_codes, key=len, reverse=True)
-    style_code_matches: dict[str, list[str]] = defaultdict(list)
-    for product_code, style_code in product_sales_codes.items():
-        if style_code:
-            style_code_matches[style_code].append(product_code)
-    unique_style_codes = {
-        style_code: matches[0]
-        for style_code, matches in style_code_matches.items()
-        if len(matches) == 1
-    }
+    matcher = _goods_sales_matcher(connection, product_sales_codes, brand=brand)
+    unique_style_codes = matcher.unique_styles
     conditions = [PRODUCT_GOODS_SALES_PERIODS_TABLE.c.product_code.startswith(product_code) for product_code in product_codes]
     if unique_style_codes:
         conditions.append(PRODUCT_GOODS_SALES_PERIODS_TABLE.c.style_code.in_(unique_style_codes))
@@ -2387,7 +2433,7 @@ def _sales_period_payload(
     annual_by_sku: dict[str, dict[str, int]] = {}
     monthly_by_sku: dict[str, dict[str, int]] = {}
     for row in connection.execute(statement).mappings():
-        code = _resolve_jst_product_code(row["product_code"], row["style_code"], product_codes, unique_style_codes)
+        code = matcher.resolve(row["product_code"], row["style_code"])
         period_start = row["period_start"]
         if code is None or not isinstance(period_start, date):
             continue
@@ -2412,15 +2458,8 @@ def _risk_same_season_monthly_sales_payload(
     if not product_sales_codes or not inspect(engine).has_table(PRODUCT_GOODS_SALES_PERIODS_TABLE.name):
         return {}
     product_codes = sorted(product_sales_codes, key=len, reverse=True)
-    style_code_matches: dict[str, list[str]] = defaultdict(list)
-    for product_code, style_code in product_sales_codes.items():
-        if style_code:
-            style_code_matches[style_code].append(product_code)
-    unique_style_codes = {
-        style_code: matches[0]
-        for style_code, matches in style_code_matches.items()
-        if len(matches) == 1
-    }
+    matcher = _goods_sales_matcher(connection, product_sales_codes, brand=brand)
+    unique_style_codes = matcher.unique_styles
     current_month = date.today().month
     target_periods = {
         date(year + (current_month + offset - 1) // 12, (current_month + offset - 1) % 12 + 1, 1)
@@ -2451,12 +2490,7 @@ def _risk_same_season_monthly_sales_payload(
         )
     monthly_by_sku: dict[str, dict[str, int]] = {}
     for row in connection.execute(statement).mappings():
-        code = _resolve_jst_product_code(
-            row["product_code"],
-            row["style_code"],
-            product_codes,
-            unique_style_codes,
-        )
+        code = matcher.resolve(row["product_code"], row["style_code"])
         period_start = row["period_start"]
         if code is None or not isinstance(period_start, date):
             continue
@@ -3194,7 +3228,7 @@ def list_product_goods(
     normalized_snapshot_date = snapshot_date.isoformat() if snapshot_date else ""
     parsed_filters = _parse_product_goods_filters(filters)
     normalized_filters = tuple(sorted((item.field, item.operator, item.value or "", tuple(sorted(item.values or []))) for item in parsed_filters))
-    cache_key = (brand, view, "style-summary-v5" if view == "style_summary" else "shortage-risk-v4" if view == "shortage_risk" else "goods-v4", normalized_query, normalized_platform, normalized_year, normalized_filters, normalized_snapshot_date, page, page_size)
+    cache_key = (brand, view, "sales-identity-v6", normalized_query, normalized_platform, normalized_year, normalized_filters, normalized_snapshot_date, page, page_size)
     total_cache_key = (*cache_key[:-2], 0, 0)
     cached_total = None if cache_bust else get_product_goods_cache(total_cache_key)
     if not cache_bust:
@@ -3206,6 +3240,7 @@ def list_product_goods(
     style_codes: list[str] = []
     settings = request.app.state.settings
     with repository.engine.connect() as connection:
+        sales_source_status = _goods_sales_source_status(connection, as_of_date=snapshot_date)
         snapshot_dates = _product_goods_snapshot_dates(connection, brand=brand)
         if snapshot_date is not None and snapshot_date not in snapshot_dates:
             raise HTTPException(status_code=404, detail=f"未找到 {snapshot_date.isoformat()} 的货品表快照")
@@ -3573,6 +3608,7 @@ def list_product_goods(
         if view != "shortage_risk" and has_daily_sales_source:
             metrics["month_sales"] = sales.get("month_sales", 0)
         items.append({
+            "sales_match_status": "matched" if sku in sales_summary or sku in recent_30_day_sales else "no_record" if sales_source_status["window_end"] else "unavailable",
             "id": row["id"], "brand": brand, "year": detail_snapshot.get("year") or row.get("year"), "season": detail_snapshot.get("season") or row.get("season_category"),
             "platform": detail_snapshot.get("platform") or row.get("platform"), "category_l4": detail_snapshot.get("category_l4") or row.get("category_l4"),
             "first_order_date": detail_snapshot.get("first_order_date") or row.get("first_order_time"), "factory_sku": detail_snapshot.get("factory_sku") or row.get("factory_sku"),
@@ -3620,6 +3656,7 @@ def list_product_goods(
         "platform_columns": PLATFORM_COLUMNS,
         "snapshot_date": snapshot_date.isoformat() if snapshot_date else None,
         "snapshot_dates": [item.isoformat() for item in snapshot_dates],
+        "sales_source_status": sales_source_status,
     }
     set_product_goods_cache(cache_key, payload)
     return payload

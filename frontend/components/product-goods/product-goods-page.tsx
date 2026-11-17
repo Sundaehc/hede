@@ -64,6 +64,7 @@ import {
 import { BRANDS, type BrandKey } from "@/lib/brands"
 import type { ProductGoodsItem, ProductGoodsResponse } from "@/lib/types"
 import { cn } from "@/lib/utils"
+import { GoodsSalesSourceStatus } from "./sales-source-status"
 
 const PAGE_SIZE = 50
 const SUMMARY_PAGE_SIZE = 20
@@ -272,7 +273,8 @@ function platformMatrix(
   >,
   platform: string
 ) {
-  return value(row[source]?.[platform])
+  const quantity = row[source]?.[platform]
+  return quantity === undefined || quantity === null ? "—" : value(quantity)
 }
 function salesPeriodMatrix(
   row: ProductGoodsItem,
@@ -1114,7 +1116,11 @@ const ProductGoodsGridRow = memo(function ProductGoodsGridRow({
           <td
             key={column.key}
             title={
-              typeof renderedValue === "string" || typeof renderedValue === "number"
+              renderedValue === "—" && /^(日销量|周销量|近30天销量):/.test(column.key)
+                ? item.sales_match_status === "unavailable"
+                  ? "日销数据不可用"
+                  : "该统计期内没有可唯一匹配至此商品和渠道的销量记录，不能直接视为零销量"
+                : typeof renderedValue === "string" || typeof renderedValue === "number"
                 ? String(renderedValue)
                 : undefined
             }
@@ -2749,6 +2755,7 @@ export function ProductGoodsPage() {
             </div>
           </div>
         </div>
+        <GoodsSalesSourceStatus status={data.sales_source_status} />
         <div className="surface-panel p-3">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="flex flex-wrap items-center gap-3">

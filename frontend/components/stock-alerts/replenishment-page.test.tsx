@@ -301,7 +301,7 @@ test("opens supplier rules without querying a supplier and searches all archive 
 test("offers rule setup and pending-product navigation when there are no suggestions", async () => {
   load.mockResolvedValue({ ...response(), items: [], total: 0 })
   render(<ReplenishmentPage />)
-  await screen.findByText("暂无有效补货建议，可查看待完善商品并填写规则")
+  await screen.findByText("暂无有效补货建议")
   fireEvent.click(screen.getByRole("button", { name: "去设置规则" }))
   const picker = within(
     screen.getByRole("dialog", { name: "选择供应商设置规则" })
@@ -337,4 +337,29 @@ test("cancels superseded queries and ignores late results", async () => {
   expect(signal.aborted).toBe(true)
   await act(async () => resolve({ ...response(), total: 999 }))
   expect(screen.queryByText(/共 999 项/)).not.toBeInTheDocument()
+})
+
+test("refresh failures retain suggestions and offer a fresh retry", async () => {
+  render(<ReplenishmentPage />)
+  await screen.findByText("A")
+  let reject!: (reason: Error) => void
+  load.mockReturnValueOnce(
+    new Promise((_resolve, fail) => {
+      reject = fail
+    })
+  )
+  fireEvent.click(screen.getByRole("button", { name: "刷新" }))
+  await waitFor(() => expect(load).toHaveBeenCalledTimes(2))
+  expect(screen.getByText("A")).toBeInTheDocument()
+  await act(async () => reject(new Error("连接超时")))
+  expect(screen.getByRole("alert")).toHaveTextContent(
+    "当前仍显示上次加载的记录"
+  )
+  expect(screen.getByText("A")).toBeInTheDocument()
+  fireEvent.click(screen.getByRole("button", { name: "重试" }))
+  await waitFor(() => expect(load).toHaveBeenCalledTimes(3))
+  expect(load.mock.calls[2][1].refresh).toBe(true)
+  await waitFor(() =>
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument()
+  )
 })
