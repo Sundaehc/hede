@@ -78,13 +78,13 @@ test("supports the same searchable brand multiselect as inventory without queryi
   await user.click(screen.getByRole("button", { name: "查询" }))
   await waitFor(() =>
     expect(listMock).toHaveBeenLastCalledWith(
-      expect.objectContaining({ brands: ["cbanner_mens", "yandou"], page: 1 })
+      expect.objectContaining({ brands: ["cbanner_mens", "yandou"], page: 1 }), expect.any(AbortSignal)
     )
   )
   await user.click(screen.getByLabelText("Go to next page"))
   await waitFor(() =>
     expect(listMock).toHaveBeenLastCalledWith(
-      expect.objectContaining({ brands: ["cbanner_mens", "yandou"], page: 2 })
+      expect.objectContaining({ brands: ["cbanner_mens", "yandou"], page: 2 }), expect.any(AbortSignal)
     )
   )
 })
@@ -97,7 +97,7 @@ test("shows a newly registered brand by its name and queries using its internal 
   await user.click(await screen.findByRole("button", { name: "千百度赫锦" }))
   expect(screen.getByRole("button", { name: "移除 千百度赫锦" })).toBeInTheDocument()
   await user.click(screen.getByRole("button", { name: "查询" }))
-  await waitFor(() => expect(listMock).toHaveBeenLastCalledWith(expect.objectContaining({ brands: [code], page: 1 })))
+  await waitFor(() => expect(listMock).toHaveBeenLastCalledWith(expect.objectContaining({ brands: [code], page: 1 }), expect.any(AbortSignal)))
 })
 
 test("exports applied brand filters rather than an unsubmitted brand draft", async () => {
@@ -107,7 +107,7 @@ test("exports applied brand filters rather than an unsubmitted brand draft", asy
   await user.click(screen.getByRole("button", { name: "查询" }))
   await waitFor(() =>
     expect(listMock).toHaveBeenLastCalledWith(
-      expect.objectContaining({ brands: ["yandou"] })
+      expect.objectContaining({ brands: ["yandou"] }), expect.any(AbortSignal)
     )
   )
   await user.click(screen.getByRole("combobox", { name: "品牌" }))
@@ -119,7 +119,7 @@ test("exports applied brand filters rather than an unsubmitted brand draft", asy
   expect(new URL(downloads[0]).searchParams.has("page")).toBe(false)
   await user.click(screen.getByRole("button", { name: "清空" }))
   await waitFor(() =>
-    expect(listMock).toHaveBeenLastCalledWith({ page: 1, pageSize: 50, sort_direction: "asc" })
+    expect(listMock).toHaveBeenLastCalledWith({ page: 1, pageSize: 50, sort_direction: "asc" }, expect.any(AbortSignal))
   )
   expect(
     screen.queryByRole("button", { name: "移除 烟斗" })
@@ -137,7 +137,7 @@ test("submits selected brands with Enter and restores the selection after return
   await user.keyboard("{Enter}")
   await waitFor(() =>
     expect(listMock).toHaveBeenLastCalledWith(
-      expect.objectContaining({ brands: ["custom"] })
+      expect.objectContaining({ brands: ["custom"] }), expect.any(AbortSignal)
     )
   )
   unmount()
@@ -147,7 +147,7 @@ test("submits selected brands with Enter and restores the selection after return
   ).toBeInTheDocument()
   await waitFor(() =>
     expect(listMock).toHaveBeenLastCalledWith(
-      expect.objectContaining({ brands: ["custom"] })
+      expect.objectContaining({ brands: ["custom"] }), expect.any(AbortSignal)
     )
   )
 })

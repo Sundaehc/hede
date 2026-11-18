@@ -1,17 +1,29 @@
 import { describe, expect, it } from "vitest"
 
-import { getProductFieldGroups, getProductFieldLabel } from "@/lib/fields"
+import { ALL_PRODUCT_FIELDS, getProductFieldGroups, getProductFieldLabel } from "@/lib/fields"
 
 
 describe("product archive field groups", () => {
   it.each(["cbanner_mens", "cbanner_womens", "smiley", "ni", "custom"])("separates prices from basic information for %s", (brand) => {
     const groups = getProductFieldGroups(brand)
     expect(groups.slice(0, 3).map((group) => group.label)).toEqual(["基础信息", "物价信息", "材质信息"])
-    expect(groups[1].fields).toEqual(["cost", "cost_price"])
+    expect(groups[1].fields).toEqual(brand === "smiley" || brand === "ni" ? ["cost", "cost_price", "market_price"] : ["cost", "cost_price"])
     expect(groups[0].fields).not.toContain("cost")
     expect(groups[0].fields).not.toContain("cost_price")
     expect(getProductFieldLabel("cost", brand)).toBe("工厂出货价")
     expect(getProductFieldLabel("cost_price", brand)).toBe("成本价")
+  })
+
+  it.each(["smiley", "ni"])("includes market price exactly once in the price group for %s", (brand) => {
+    const groups = getProductFieldGroups(brand)
+    expect(groups.find((group) => group.label === "物价信息")?.fields).toContain("market_price")
+    expect(groups.flatMap((group) => group.fields).filter((field) => field === "market_price")).toHaveLength(1)
+    expect(ALL_PRODUCT_FIELDS.filter((field) => field === "market_price")).toHaveLength(1)
+    expect(getProductFieldLabel("market_price", brand)).toBe("市场价")
+  })
+
+  it.each([undefined, null, "", "all", "cbanner_mens", "cbanner_womens", "supplier_brand_33aa8a0c3b6a", "yandou", "eblan", "ns", "custom"])("omits market price from other brand groups: %s", (brand) => {
+    expect(getProductFieldGroups(brand).flatMap((group) => group.fields)).not.toContain("market_price")
   })
 
   it.each(["cbanner_womens", "supplier_brand_33aa8a0c3b6a"])("shows the complete style group for %s", (brand) => {

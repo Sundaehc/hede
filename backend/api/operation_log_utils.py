@@ -19,6 +19,7 @@ PRODUCT_FIELD_LABELS = {
     "product_level": "商品等级",
     "cost": "工厂出货价",
     "cost_price": "成本价",
+    "market_price": "市场价",
     "factory_sku": "工厂货号",
     "color": "颜色",
     "season_category": "季节分类",

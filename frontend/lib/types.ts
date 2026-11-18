@@ -641,6 +641,7 @@ export type ProductFormValues = {
   category: string
   product_level: string
   cost: string
+  market_price: string
   factory_sku: string
   color: string
   season_category: string
@@ -689,6 +690,7 @@ export type ProductMutationPayload = Record<string, unknown> & {
   category?: string | null
   product_level?: string | null
   cost?: string | null
+  market_price?: string | null
   factory_sku?: string | null
   color?: string | null
   season_category?: string | null

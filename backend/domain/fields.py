@@ -28,6 +28,9 @@ def alias_map(fields: tuple[FieldSpec, ...]) -> dict[str, str]:
     }
 
 
+PRODUCT_MARKET_PRICE_FIELD = FieldSpec("market_price", "市场价", "numeric", aliases=("吊牌价",))
+
+
 PRODUCT_FIELDS: tuple[FieldSpec, ...] = (
     FieldSpec("image_path", "图片"),
     FieldSpec("sku", "货号"),

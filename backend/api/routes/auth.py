@@ -5,8 +5,12 @@ from typing import Literal
 from urllib.parse import urlsplit
 
 from fastapi import APIRouter, HTTPException, Query, Request, Response
-from pydantic import BaseModel, ConfigDict
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
+from fastapi.routing import APIRoute
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.exc import IntegrityError
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from api.operation_log_utils import (
     USER_FIELD_LABELS,
@@ -17,7 +21,35 @@ from api.operation_log_utils import (
 from storage.auth_repository import SESSION_COOKIE_NAME, SESSION_MAX_AGE_SECONDS
 
 
-router = APIRouter(prefix="/auth")
+class AuthRoute(APIRoute):
+    """Do not echo submitted credentials or cache authentication responses."""
+
+    def get_route_handler(self):
+        original_handler = super().get_route_handler()
+
+        async def handler(request: Request) -> Response:
+            try:
+                response = await original_handler(request)
+            except RequestValidationError:
+                # Missing fields can include the entire JSON body in the
+                # default validation response, including sibling passwords.
+                response = JSONResponse(
+                    status_code=422,
+                    content={"detail": "请求参数格式不正确，请检查必填项和字段格式"},
+                )
+            except StarletteHTTPException as error:
+                response = JSONResponse(
+                    status_code=error.status_code,
+                    content={"detail": error.detail},
+                    headers=error.headers,
+                )
+            response.headers["Cache-Control"] = "no-store"
+            return response
+
+        return handler
+
+
+router = APIRouter(prefix="/auth", route_class=AuthRoute)
 
 
 DepartmentCode = str
@@ -28,6 +60,7 @@ PageTabPath = Literal[
     "/supplier-brands", "/warehouses", "/general-customer-shops", "/account-subjects",
     "/size-groups", "/color-barcodes", "/auxiliary-attributes", "/product-tags",
     "/admin", "/scheduled-tasks", "/admin/mcp-tokens",
+    "/stock-alerts/seasonal-analysis",
     "/stock-alerts/new-products", "/stock-alerts/slow-sales", "/stock-alerts/replenishment", "/stock-alerts/tasks",
 ]
 
@@ -42,7 +75,7 @@ class LoginRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     username: str
-    password: str
+    password: str = Field(repr=False)
 
 
 class AdminUserUpdateRequest(BaseModel):
@@ -52,14 +85,14 @@ class AdminUserUpdateRequest(BaseModel):
     department_code: DepartmentCode | None = None
     role_code: str | None = None
     status: StatusCode | None = None
-    password: str | None = None
+    password: str | None = Field(default=None, repr=False)
 
 
 class AdminUserCreateRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     username: str
-    password: str
+    password: str = Field(repr=False)
     display_name: str
     department_code: DepartmentCode
     role_code: str
@@ -67,7 +100,7 @@ class AdminUserCreateRequest(BaseModel):
 
 
 def sanitize_user(user: dict[str, object]) -> dict[str, object]:
-    return {key: value for key, value in user.items() if key != "password_hash"}
+    return {key: value for key, value in user.items() if key not in {"password", "password_hash"}}
 
 
 USER_STATUS_LABELS = {

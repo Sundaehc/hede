@@ -19,6 +19,8 @@ vi.mock("@/components/auth/auth-provider", () => ({
   useAuth: () => mockAuth,
 }))
 
+vi.mock("@/components/stock-alerts/task-reminder", () => ({ StockAlertTaskReminder: () => null }))
+
 vi.mock("@/components/theme-toggle", () => ({
   ThemeToggle: () => null,
 }))
@@ -35,9 +37,11 @@ describe("SidebarNav management groups", () => {
     render(<SidebarNav />)
     const group = screen.getByRole("heading", { name: /^存$/ }).parentElement!
     expect(within(group).getAllByRole("link").map((link) => [link.textContent, link.getAttribute("href")])).toEqual([
+      ["季度新品分析", "/stock-alerts/seasonal-analysis"],
       ["新品零动销预警", "/stock-alerts/new-products"],
       ["低售罄、滞销预警", "/stock-alerts/slow-sales"],
       ["补货建议", "/stock-alerts/replenishment"],
+      ["预警待办", "/stock-alerts/tasks"],
     ])
   })
 

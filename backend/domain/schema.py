@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from sqlalchemy import JSON, BigInteger, Boolean, Column, DateTime, Identity, Index, MetaData, Numeric, Table, Text, UniqueConstraint, false, func
 
-from domain.fields import FieldSpec, PRODUCT_FIELDS
+from domain.fields import FieldSpec, PRODUCT_FIELDS, PRODUCT_MARKET_PRICE_FIELD
 from domain.sources import TABLE_NAMES
 
 
@@ -17,7 +17,11 @@ def _column_type(field: FieldSpec):
 
 
 
-def build_product_archive_table(table_name: str, *, metadata: MetaData = METADATA) -> Table:
+def build_product_archive_table(
+    table_name: str, *, metadata: MetaData = METADATA, include_market_price: bool | None = None,
+) -> Table:
+    if include_market_price is None:
+        include_market_price = table_name in {"smiley_products", "ni_products"}
     columns: list = [
         Column("id", BigInteger, Identity(always=False), primary_key=True),
         Column("source_workbook", Text, nullable=False),
@@ -26,6 +30,9 @@ def build_product_archive_table(table_name: str, *, metadata: MetaData = METADAT
         Column("raw_payload", JSON, nullable=False),
     ]
     columns.extend(Column(field.name, _column_type(field)) for field in PRODUCT_FIELDS)
+    if include_market_price:
+        field = PRODUCT_MARKET_PRICE_FIELD
+        columns.append(Column(field.name, _column_type(field)))
     # Distinguish a manually maintained archive cost from a value refreshed
     # from the latest combined-footwear price source.
     columns.append(Column("cost_manual_override", Boolean, nullable=False, server_default=false()))
@@ -58,8 +65,8 @@ PRODUCT_TABLES = build_product_tables()
 
 # Smiley and NI use the editable product-archive shape, but intentionally stay
 # outside TABLE_NAMES so they do not enter fine-table or product-goods jobs.
-SMILEY_PRODUCT_TABLE = _build_product_table("smiley_products")
-NI_PRODUCT_TABLE = _build_product_table("ni_products")
+SMILEY_PRODUCT_TABLE = build_product_archive_table("smiley_products", include_market_price=True)
+NI_PRODUCT_TABLE = build_product_archive_table("ni_products", include_market_price=True)
 PRODUCT_ARCHIVE_TABLES = {
     **PRODUCT_TABLES,
     "smiley": SMILEY_PRODUCT_TABLE,

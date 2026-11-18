@@ -15,6 +15,7 @@ export const FIELD_LABELS: Record<string, string> = {
   product_level: "商品等级",
   cost: "工厂出货价",
   cost_price: "成本价",
+  market_price: "市场价",
   factory_sku: "工厂货号",
   color: "颜色",
   season_category: "季节分类",
@@ -59,7 +60,7 @@ export const FIELD_GROUPS = [
   },
   {
     label: "物价信息",
-    fields: ["cost", "cost_price"],
+    fields: ["cost", "cost_price", "market_price"],
   },
   {
     label: "材质信息",
@@ -104,14 +105,16 @@ const CBANNER_WOMENS_RELOCATED_FIELDS = new Set<string>([
 ])
 
 export function getProductFieldGroups(brand?: string | null) {
-  if (!hasWomensProductStyleFields(brand)) {
-    return FIELD_GROUPS
-  }
-
+  const hasWomensStyleFields = hasWomensProductStyleFields(brand)
   const baseGroups = FIELD_GROUPS.map((group) => ({
     ...group,
-    fields: group.fields.filter((field) => !CBANNER_WOMENS_RELOCATED_FIELDS.has(field)),
+    fields: group.fields.filter((field) =>
+      (field !== "market_price" || brand === "smiley" || brand === "ni") &&
+      (!hasWomensStyleFields || !CBANNER_WOMENS_RELOCATED_FIELDS.has(field)),
+    ),
   }))
+  if (!hasWomensStyleFields) return baseGroups
+
   const materialGroupIndex = baseGroups.findIndex((group) => group.label === "材质信息")
   return [...baseGroups.slice(0, materialGroupIndex + 1), CBANNER_WOMENS_STYLE_GROUP, ...baseGroups.slice(materialGroupIndex + 1)]
 }

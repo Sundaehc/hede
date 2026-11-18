@@ -52,6 +52,12 @@ import type { ReplenishmentFilters, ReplenishmentResponse, ReplenishmentRule, Re
 import type { StockAlertTask, TaskAssignee, TaskCreate, TaskEventsResponse, TaskFilters, TaskListResponse, TaskUpdate } from "@/lib/stock-alert-tasks"
 import type { TaskBatchCreate, TaskBatchResult, TaskBatchUpdate } from "@/lib/stock-alert-tasks"
 
+import type {
+  SeasonalFilters,
+  SeasonalItemReview,
+  SeasonalResponse,
+} from "@/lib/seasonal-analysis"
+
 const API_PREFIX = "/api"
 
 export function getStockAlertTasks(filters: TaskFilters, signal?: AbortSignal) {
@@ -2796,6 +2802,7 @@ export type EndingInventoryResponse = {
 }
 
 export type PurchaseInboundDetailItem = {
+  summary?: string | null
   row_number: number
   detail_id: number
   document_id: number
@@ -3461,4 +3468,29 @@ export function reorderWarehouses(brand: string, ids: number[]) {
     method: "PUT",
     body: JSON.stringify({ brand, ids }),
   })
+}
+
+export function getSeasonalAnalysis(filters: SeasonalFilters, options: { signal?: AbortSignal; refresh?: boolean } = {}) {
+  const search = new URLSearchParams()
+  Object.entries(filters).forEach(([key, value]) => search.set(key, String(value)))
+  if (options.refresh) search.set("refresh", "true")
+  return request<SeasonalResponse>("/stock-alerts/seasonal-analysis?" + search, { signal: options.signal, cache: "no-store" })
+}
+
+export function getSeasonalItemReview(
+  filters: Pick<SeasonalFilters, "brand" | "year" | "quarter">,
+  productId: number,
+  receiptPage: number,
+  signal?: AbortSignal
+) {
+  const search = new URLSearchParams({
+    brand: filters.brand,
+    year: String(filters.year),
+    quarter: String(filters.quarter),
+    receipt_page: String(receiptPage),
+  })
+  return request<SeasonalItemReview>(
+    `/stock-alerts/seasonal-analysis/items/${productId}?${search}`,
+    { signal, cache: "no-store" }
+  )
 }

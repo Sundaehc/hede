@@ -79,6 +79,9 @@ def test_complete_import_marks_business_date_success(monkeypatch, tmp_path):
             return {"imported": 2}
 
     monkeypatch.setattr(import_jst_daily, "VipRepository", lambda database_url: _Repository())
+    # This unit test mocks the importers and uses empty placeholder files;
+    # workbook format validation is exercised with real XLSX fixtures separately.
+    monkeypatch.setattr(import_jst_daily, "require_stock_worksheets", lambda *args: None)
 
     assert import_jst_daily.main() == 0
     assert status_repository.finished_calls[-1][1]["status"] == "success"

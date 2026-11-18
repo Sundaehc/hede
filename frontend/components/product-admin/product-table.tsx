@@ -174,7 +174,6 @@ function ProductCard({ item, selectable, showCost = true, selectedKeys, selectio
   const smileyExtraFields = item.brand === "smiley"
     ? [
         { label: "工厂代码", value: item.factory_code },
-        { label: "市场价", value: item.market_price },
         { label: "商品条码", value: item.barcode },
         { label: "配件", value: item.accessories },
       ].filter((field) => field.value !== null && field.value !== undefined && field.value !== "")
@@ -297,8 +296,8 @@ function ProductCard({ item, selectable, showCost = true, selectedKeys, selectio
         {/* Grouped fields */}
         <div className="space-y-2 border-t border-border pt-2">
           {getProductFieldGroups(item.brand).map((group) => {
-            if (group.label === "物价信息" && !showCost) return null
             const visibleFields = group.fields.filter((field) => {
+              if (!showCost && (field === "cost" || field === "cost_price")) return false
               if (field === "sku" || field === "original_sku") return false
               if (field === "season_category" || field === "year" || field === "color" || field === "size_range") return false
               const value = item[field as keyof ProductListItem]

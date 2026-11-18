@@ -28,10 +28,10 @@ from api.operation_log_utils import write_operation_log
 from api.product_cost_access import request_can_view_product_cost
 from api.routes.images import get_image_matcher, image_url_for
 from domain.excluded_skus import is_excluded_sku, not_excluded_sku_condition
-from domain.fields import PRODUCT_FIELDS
+from domain.fields import PRODUCT_FIELDS, PRODUCT_MARKET_PRICE_FIELD
 from domain.gj_schema import GJ_MERGED_PRODUCT_INFO_TABLE
 from domain.inventory_schema import SUPPLIER_BRAND_TABLE
-from domain.product_archive_features import has_womens_product_style_fields
+from domain.product_archive_features import has_product_market_price, has_womens_product_style_fields
 from domain.schema import PRODUCT_ARCHIVE_TABLES
 from domain.product_defaults import apply_product_defaults
 from domain.product_import_validation import raise_product_import_errors
@@ -47,16 +47,23 @@ from storage.product_repository import (
     _product_attribute_conditions,
     apply_jst_product_costs,
 )
-from transform.rows import EXCLUDED_EXTRA_FIELD_KEYS, build_admin_record, filter_extra_fields, normalize_admin_field
+from transform.rows import (
+    EXCLUDED_EXTRA_FIELD_KEYS,
+    build_admin_record,
+    filter_extra_fields,
+    normalize_admin_field,
+    normalize_market_price,
+)
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
 EXPORT_LABELS = {field.name: field.label for field in PRODUCT_FIELDS}
+EXPORT_LABELS[PRODUCT_MARKET_PRICE_FIELD.name] = PRODUCT_MARKET_PRICE_FIELD.label
 # Keep the existing export wording for this field while using the canonical field labels elsewhere.
 EXPORT_LABELS["toe_shape"] = "鞋头款式"
 
-EXPORT_COLUMNS = [c for c in CANONICAL_COLUMNS if c != "image_path"]
+EXPORT_COLUMNS = [c for c in CANONICAL_COLUMNS if c != "image_path"] + [PRODUCT_MARKET_PRICE_FIELD.name]
 CBANNER_WOMENS_ONLY_EXPORT_COLUMNS = {
     "rear_heel_height",
     "sole_style",
@@ -66,6 +73,7 @@ CBANNER_WOMENS_ONLY_EXPORT_COLUMNS = {
     "mesh_upper_type",
 }
 CN_TO_FIELD = {cn: en for cn, en in COLUMN_ALIASES.items() if en in EXPORT_COLUMNS}
+CN_TO_FIELD.update({label: PRODUCT_MARKET_PRICE_FIELD.name for label in PRODUCT_MARKET_PRICE_FIELD.all_labels})
 SIZE_EXPORT_MODE = "with_sizes"
 PRICE_EXPORT_MODE = "price"
 PRICE_EXPORT_HEADERS = ["货号", "商品全名", "主供应商", "预设售价", "工厂货号"]
@@ -190,6 +198,8 @@ def _export_columns_for_brand(brand: str, *, include_cost: bool = True) -> list[
         if has_womens_product_style_fields(brand)
         else [column for column in EXPORT_COLUMNS if column not in CBANNER_WOMENS_ONLY_EXPORT_COLUMNS]
     )
+    if not has_product_market_price(brand):
+        columns.remove(PRODUCT_MARKET_PRICE_FIELD.name)
     return columns if include_cost else [column for column in columns if column not in {"cost", "cost_price"}]
 
 
@@ -332,7 +342,11 @@ def _iter_all_export_rows(
         prefix_condition = _product_prefix_condition(table, sku_prefix)
         if prefix_condition is not None:
             conditions.append(prefix_condition)
-        statement = select(*(table.c[column] for column in export_columns)).where(*conditions).order_by(desc(table.c.id))
+        query_columns = [
+            column for column in export_columns
+            if column != PRODUCT_MARKET_PRICE_FIELD.name or has_product_market_price(brand)
+        ]
+        statement = select(*(table.c[column] for column in query_columns)).where(*conditions).order_by(desc(table.c.id))
         with repository.engine.connect() as connection:
             items = [dict(row) for row in connection.execute(statement).mappings()]
 
@@ -436,6 +450,7 @@ def _build_product_import_template() -> io.BytesIO:
     instructions.append(["供应商名", "按需填写", "更新已有商品时，导入供应商必须与档案中的现有供应商一致", "温州示例鞋业"])
     instructions.append(["尺码段", "按需填写", "填写的尺码段名称必须已存在于尺码组管理中", "女鞋34-40"])
     instructions.append(["国际码", "按需填写", "按文本填写，保留前导零；不参与商品匹配或条码拼接", "0012345678905"])
+    instructions.append(["市场价", "选填（仅笑脸/NI）", "支持市场价、吊牌价或 market_price 列名；非负且不超过99999999.99，最多2位小数；空白保留原值，其他品牌忽略此列", "299.00"])
     instructions.append(["跟高/后跟高", "分别填写", "跟高与后跟高是两个独立字段；后跟高仅在千百度女鞋档案中展示和导出", "中跟 / 5cm"])
     instructions.append(["其他空白单元格", "按需填写", "除颜色和颜色代码外，更新已有商品时空白单元格不会清空档案中的原值", ""])
     instructions.append(["图片", "无需填写", "图片不通过模板导入，系统按货号或原始货号从品牌图片目录自动匹配", ""])
@@ -1648,7 +1663,8 @@ async def import_products(
                 for key, value in row_dict.items():
                     field = reverse_aliases.get(key)
                     if field:
-                        payload[field] = value
+                        if field != PRODUCT_MARKET_PRICE_FIELD.name:
+                            payload[field] = value
                     elif key and key not in known_fields:
                         if key in EXCLUDED_EXTRA_FIELD_KEYS:
                             continue
@@ -1674,6 +1690,16 @@ async def import_products(
                     payload["sku"] = payload["original_sku"]
                 if is_excluded_sku(payload.get("sku"), payload.get("original_sku")):
                     continue
+                if has_product_market_price(brand):
+                    for key, value in row_dict.items():
+                        if reverse_aliases.get(key) != PRODUCT_MARKET_PRICE_FIELD.name:
+                            continue
+                        try:
+                            market_price = normalize_market_price(value)
+                        except ValueError as error:
+                            raise HTTPException(status_code=400, detail=str(error)) from error
+                        if market_price is not None:
+                            payload[PRODUCT_MARKET_PRICE_FIELD.name] = market_price
                 if extra_fields:
                     payload["extra_fields"] = extra_fields
 

@@ -227,6 +227,7 @@ export function ProductFormDialog({ brands = PRODUCT_ARCHIVE_BRANDS, item, mode,
   const initialValues = useMemo(() => toFormValues(item), [item])
   const [values, setValues] = useState<ProductFormValues>(initialValues)
   const [brandError, setBrandError] = useState<string | null>(null)
+  const [marketPriceError, setMarketPriceError] = useState<string | null>(null)
   const [submitError, setSubmitError] = useState<string | null>(null)
   const [isSaving, setIsSaving] = useState(false)
   const [postedChange, setPostedChange] = useState<{
@@ -276,6 +277,7 @@ export function ProductFormDialog({ brands = PRODUCT_ARCHIVE_BRANDS, item, mode,
     setPostedChange(null)
     setPostedChangeError(null)
     setBrandError(null)
+    setMarketPriceError(null)
   }, [initialValues, item, open])
 
   useEffect(() => {
@@ -407,6 +409,8 @@ export function ProductFormDialog({ brands = PRODUCT_ARCHIVE_BRANDS, item, mode,
   }, [open])
 
   const handleFieldChange = (field: keyof ProductFormValues, nextValue: string) => {
+    if (field === "market_price" || field === "brand") setMarketPriceError(null)
+
     if (field === "color") {
       if (values.brand === "smiley" || values.brand === "ns") {
         setValues((current) => ({ ...current, color: nextValue }))
@@ -518,6 +522,13 @@ export function ProductFormDialog({ brands = PRODUCT_ARCHIVE_BRANDS, item, mode,
     }
 
     setBrandError(null)
+    const marketPrice = values.market_price.trim()
+    if ((values.brand === "smiley" || values.brand === "ni") && marketPrice &&
+      (!/^\d+(?:\.\d{1,2})?$/.test(marketPrice) || Number(marketPrice) > 99999999.99)) {
+      setMarketPriceError("市场价须为非负金额，最多两位小数，且不超过99999999.99")
+      return
+    }
+    setMarketPriceError(null)
     setIsSaving(true)
 
     try {
@@ -690,6 +701,21 @@ export function ProductFormDialog({ brands = PRODUCT_ARCHIVE_BRANDS, item, mode,
                                   placeholder="请输入商品备注"
                                 />
                                 <p className="text-xs text-muted-foreground">采购单明细中的商品备注实时读取此处内容，已有采购单也会更新。</p>
+                              </>
+                            ) : field === "market_price" ? (
+                              <>
+                                <Input
+                                  id="product-form-market_price"
+                                  value={values.market_price}
+                                  placeholder="请输入市场价"
+                                  inputMode="decimal"
+                                  onChange={(event) => handleFieldChange("market_price", event.target.value)}
+                                  aria-invalid={Boolean(marketPriceError)}
+                                  aria-describedby={marketPriceError ? "product-form-market-price-error" : undefined}
+                                  autoComplete="off"
+                                  spellCheck={false}
+                                />
+                                {marketPriceError ? <p id="product-form-market-price-error" role="alert" className="text-xs text-destructive">{marketPriceError}</p> : null}
                               </>
                             ) : (isLoadingAuxiliaryOptions && AUXILIARY_OPTION_FIELDS.has(field)) || auxiliaryOptionsByField.has(field) ? (
                               <AuxiliaryAttributeSelect

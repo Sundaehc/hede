@@ -31,6 +31,7 @@ from domain.vip_sources import (
 from storage.date_normalization import parse_date, parse_date_range, parse_datetime
 from domain.history_partitioning import ensure_annual_partitions
 from domain.jst_monthly_order_identity import deduplicate_monthly_order_rows
+from fileio.jst_stock_workbook import require_stock_worksheets
 
 
 def _period_from_filename(filename: str) -> str | None:
@@ -653,6 +654,7 @@ class VipRepository:
 
     def import_size_stock(self, file_path: Path, *, snapshot_date: date | None = None) -> dict[str, object]:
         snapshot_date = snapshot_date or date.today()
+        require_stock_worksheets(file_path, ("尺码表",))
         JST_SIZE_STOCK_SNAPSHOT_TABLE.create(self.engine, checkfirst=True)
         wb = load_workbook(str(file_path), data_only=True)
         ws = wb["尺码表"]
@@ -718,6 +720,7 @@ class VipRepository:
 
     def import_stock_summary(self, file_path: Path, *, snapshot_date: date | None = None) -> dict[str, object]:
         snapshot_date = snapshot_date or date.today()
+        require_stock_worksheets(file_path, ("Sheet4",))
         JST_STOCK_SUMMARY_SNAPSHOT_TABLE.create(self.engine, checkfirst=True)
         wb = load_workbook(str(file_path), data_only=True, read_only=True)
         ws = wb["Sheet4"]
@@ -778,6 +781,7 @@ class VipRepository:
     # ── jst_purchase_diff (采购差异) ───────────────────────────────
 
     def import_purchase_diff(self, file_path: Path) -> dict[str, object]:
+        require_stock_worksheets(file_path, ("Sheet8",))
         wb = load_workbook(str(file_path), data_only=True)
         ws = wb["Sheet8"]
         sheet_title = ws.title

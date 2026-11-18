@@ -1,8 +1,12 @@
 from __future__ import annotations
 
 from typing import Literal
+from decimal import Decimal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+
+from domain.product_archive_features import has_product_market_price
+from transform.rows import normalize_market_price
 
 
 BrandKey = Literal["cbanner_mens", "cbanner_womens", "yandou", "eblan"]
@@ -24,6 +28,7 @@ class ProductPayload(BaseModel):
     product_level: str | None = None
     cost: str | None = None
     cost_price: str | None = None
+    market_price: Decimal | None = None
     factory_sku: str | None = None
     color: str | None = None
     season_category: str | None = None
@@ -60,6 +65,11 @@ class ProductPayload(BaseModel):
     barcode_build_rule: str | None = None
     launch_date: str | None = None
 
+    @field_validator("market_price", mode="before")
+    @classmethod
+    def validate_market_price(cls, value: object) -> Decimal | None:
+        return normalize_market_price(value)
+
     @model_validator(mode="after")
     def validate_not_completely_empty(self) -> ProductPayload:
         if any(
@@ -75,6 +85,12 @@ class ProductWriteRequest(BaseModel):
 
     brand: ProductArchiveBrandKey
     payload: ProductPayload
+
+    @model_validator(mode="after")
+    def validate_brand_market_price(self) -> ProductWriteRequest:
+        if self.payload.market_price is not None and not has_product_market_price(self.brand):
+            raise ValueError("仅笑脸和 NI 品牌支持市场价")
+        return self
 
 
 class ImageLookupRequest(BaseModel):

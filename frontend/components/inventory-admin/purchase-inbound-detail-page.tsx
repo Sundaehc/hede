@@ -140,7 +140,7 @@ export function PurchaseInboundDetailPage({ mode = "inbound", canExport = true }
   const [dateSort, setDateSort] = useSessionQueryState<"asc" | "desc">(`${stateKey}:dateSort`, "asc")
   const [displayMode, setDisplayMode] = useSessionQueryState<"goods" | "barcode">(`${stateKey}:displayMode`, "goods")
   const byBarcode = !isPurchaseOrder && displayMode === "barcode"
-  const columnCount = (isPurchaseOrder ? 14 : byBarcode ? 17 : 12) + 1
+  const columnCount = (isPurchaseOrder ? 14 : byBarcode ? 17 : 12) + 1 + (isSales ? 1 : 0)
   const [selection, setSelection] = useSessionQueryState<{ scope: string; rows: string[] }>(`${stateKey}:exportSelection`, { scope: "", rows: [] })
   const selectionScope = JSON.stringify([submittedFilters, byBarcode])
   const selectedRows = useMemo(() => new Set(selection.scope === selectionScope ? selection.rows : []), [selection, selectionScope])
@@ -550,13 +550,15 @@ export function PurchaseInboundDetailPage({ mode = "inbound", canExport = true }
             data-scroll-restoration-key={`${stateKey}-table`}
             className="h-[max(26rem,calc(100dvh-22rem))] overflow-auto [overflow-anchor:none] [scrollbar-gutter:stable]"
           >
-            <Table containerClassName="overflow-visible" className={cn("table-fixed text-xs [&_th]:whitespace-nowrap", byBarcode ? "min-w-[1800px]" : isPurchaseOrder ? "min-w-[1480px]" : "min-w-[1080px]")}>
+            <Table containerClassName="overflow-visible" className={cn("table-fixed text-xs [&_th]:whitespace-nowrap", byBarcode ? isSales ? "min-w-[2056px]" : "min-w-[1800px]" : isPurchaseOrder ? "min-w-[1480px]" : isSales ? "min-w-[1336px]" : "min-w-[1080px]")}>
               <colgroup>
                 <col className="w-11" />
                 <col className="w-14" /><col className="w-32" /><col className="w-44" />
                 {isPurchaseOrder ? <><col className="w-24" /><col className="w-40" /></> : null}
                 {byBarcode ? <><col className="w-56" /><col className="w-24" /><col className="w-24" /><col className="w-24" /><col className="w-24" /></> : null}
-                <col className="w-24" /><col className="w-40" /><col className="w-28" />
+                <col className="w-24" /><col className="w-40" />
+                {isSales ? <col className="w-64" /> : null}
+                <col className="w-28" />
                 <col className="w-24" /><col className="w-28" /><col className="w-28" />
                 <col className="w-24" /><col className="w-48" /><col className="w-48" />
               </colgroup>
@@ -581,6 +583,7 @@ export function PurchaseInboundDetailPage({ mode = "inbound", canExport = true }
                   </> : null}
                   <TableHead className="w-24">单据类型</TableHead>
                   <TableHead className="w-40">单据编号</TableHead>
+                  {isSales ? <TableHead className="w-64">摘要</TableHead> : null}
                   <TableHead className="w-28" aria-sort={dateSort === "asc" ? "ascending" : "descending"}>
                     <button
                       type="button"
@@ -644,6 +647,7 @@ export function PurchaseInboundDetailPage({ mode = "inbound", canExport = true }
                         </span>
                       </TableCell>
                       <TableCell className="truncate font-mono text-[11px]" title={item.document_number || ""}>{formatCell(item.document_number)}</TableCell>
+                      {isSales ? <TableCell className="whitespace-normal break-words" title={item.summary || ""}>{formatCell(item.summary)}</TableCell> : null}
                       <TableCell className="whitespace-nowrap tabular-nums">{formatCell(item.date)}</TableCell>
                       <TableCell className={cn("text-right font-mono tabular-nums", numericTone(item.purchase_quantity))}>{formatCell(item.purchase_quantity)}</TableCell>
                       <TableCell className={cn("text-right font-mono tabular-nums", numericTone(item.purchase_amount))}>{formatCell(item.purchase_amount)}</TableCell>
@@ -657,7 +661,7 @@ export function PurchaseInboundDetailPage({ mode = "inbound", canExport = true }
               </TableBody>
               <TableFooter className="sticky bottom-0 bg-muted">
                 <TableRow>
-                  <TableCell colSpan={(isPurchaseOrder ? 8 : byBarcode ? 11 : 6) + 1} className="font-medium">全部合计</TableCell>
+                  <TableCell colSpan={(isPurchaseOrder ? 8 : byBarcode ? 11 : 6) + 1 + (isSales ? 1 : 0)} className="font-medium">全部合计</TableCell>
                   <TableCell className={cn("text-right font-mono tabular-nums", numericTone(totals.all.purchase_quantity))}>{isLoading ? <div aria-label="合计更新中" className="ml-auto h-2.5 w-12 rounded-sm bg-muted-foreground/15 motion-safe:animate-pulse" /> : formatCell(totals.all.purchase_quantity)}</TableCell>
                   <TableCell className={cn("text-right font-mono tabular-nums", numericTone(totals.all.purchase_amount))}>{isLoading ? <div aria-label="合计更新中" className="ml-auto h-2.5 w-16 rounded-sm bg-muted-foreground/15 motion-safe:animate-pulse" /> : formatCell(totals.all.purchase_amount)}</TableCell>
                   <TableCell className="text-right font-mono tabular-nums">{isLoading ? <div aria-label="合计更新中" className="ml-auto h-2.5 w-16 rounded-sm bg-muted-foreground/15 motion-safe:animate-pulse" /> : isPurchaseOrder ? "-" : formatCell(totals.all.retail_amount)}</TableCell>

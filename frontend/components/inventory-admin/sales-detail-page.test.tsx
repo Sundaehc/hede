@@ -39,7 +39,7 @@ beforeEach(() => {
     total: 101, page: 1, page_size: 50,
     items: [{
       row_number: 1, detail_id: 111, document_id: 11, product_code: "SKU-A", product_name: "休闲鞋",
-      document_type: "批发销售退货单", document_number: "RETURN-1", date: "2026-11-09",
+      document_type: "批发销售退货单", document_number: "RETURN-1", summary: "杭州客户退回秋季鞋款", date: "2026-11-09",
       sales_quantity: "-2", sales_amount: "-30", retail_amount: "", unit_code: "", unit_name: "杭州客户", warehouse_name: "总仓",
     }],
     totals: { ...totals, all: totals, current_page: { sales_quantity: "-2", sales_amount: "-30", retail_amount: "" } },
@@ -61,6 +61,8 @@ test("shows sales columns, return signs, totals and only the two wholesale docum
   expect(screen.getByRole("heading", { name: "商品销售明细" })).toBeInTheDocument()
   expect(screen.getByRole("columnheader", { name: "销售数量" })).toBeInTheDocument()
   expect(screen.getByRole("columnheader", { name: "销售金额" })).toBeInTheDocument()
+  expect(screen.getByRole("columnheader", { name: "摘要" })).toBeInTheDocument()
+  expect(screen.getByText("杭州客户退回秋季鞋款")).toBeInTheDocument()
   expect(screen.queryByRole("columnheader", { name: "进货金额" })).not.toBeInTheDocument()
   const types = screen.getByRole("combobox", { name: "单据类型" })
   expect(within(types).getAllByRole("option").map((item) => item.textContent)).toEqual(["全部", "批发销售单", "批发销售退货单"])
@@ -111,6 +113,7 @@ test("keeps sales filters separate from inbound and restores them when returning
   const inbound = render(<PurchaseInboundDetailPage />)
   await waitFor(() => expect(screen.getByRole("button", { name: "查询" })).toBeEnabled())
   expect(screen.getByRole("combobox", { name: "单据类型" })).toHaveValue("")
+  expect(screen.queryByRole("columnheader", { name: "摘要" })).not.toBeInTheDocument()
   inbound.unmount()
   render(<SalesDetailPage />)
   await waitFor(() => expect(screen.getByRole("button", { name: "查询" })).toBeEnabled())
@@ -130,4 +133,13 @@ test("shows a recoverable list error", async () => {
   expect(screen.getByText("没有符合条件的销售明细")).toBeInTheDocument()
   await user.click(screen.getByRole("button", { name: "查询" }))
   expect(await screen.findByRole("row", { name: /SKU-A/ })).toBeInTheDocument()
+})
+
+test("keeps the document summary when switching to barcode view", async () => {
+  const { user } = await openPage()
+  await user.click(screen.getByRole("button", { name: "按编码" }))
+  await waitFor(() => expect(mocks.list).toHaveBeenLastCalledWith(expect.objectContaining({ display_mode: "barcode" }), expect.any(AbortSignal)))
+  await waitFor(() => expect(screen.getByRole("button", { name: "查询" })).toBeEnabled())
+  expect(screen.getByRole("columnheader", { name: "摘要" })).toBeInTheDocument()
+  expect(within(screen.getByRole("row", { name: /SKU-A/ })).getByText("杭州客户退回秋季鞋款")).toBeInTheDocument()
 })

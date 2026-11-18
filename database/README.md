@@ -47,6 +47,8 @@ psql -X -h 127.0.0.1 -p 5432 -U postgres -d commodity_department_new -v ON_ERROR
 
 ## 后续重新导出
 
+2026-11-18 笑脸、NI 商品信息档案新增可空市场价，迁移见 `backend/alembic/versions/20261118_0087_product_market_price.py`，仅涉及 `smiley_products.market_price`、`ni_products.market_price`；应用初始化兼容补列，不自动回填。字段与验证说明见 [商品档案市场价](../docs/商品档案市场价.md)。本次增量不修改下述结构快照。
+
 2026-10-27 新增独立的采购入库历史年度分区表、来源批次表及库龄日期参考视图，增量 SQL 见 `purchase-inbound-history-2026-10-27.sql`，对应 Alembic `20261027_0079`。不修改原有采购单、经营历程和库存；年度子分区由导入器按实际入库日期创建。数据导入及库龄口径见 `docs/采购入库历史与库龄参考-2026-10-27.md`。本增量不包含在 2026-10-13 的 `schema.sql` 中。
 
 2026-10-16 经营历程后台模板导入新增批次结果表，建表 SQL 见 `inventory-import-tasks-2026-10-16.sql`，对应 Alembic 迁移 `20261016_0077`。后端初始化也会检查并补建该表。此表不在下述 2026-10-13 结构快照中；本次代码修改没有直接对运行中的数据库执行建表。

@@ -6,6 +6,7 @@ import traceback
 from datetime import date
 
 from config import load_settings
+from fileio.jst_stock_workbook import require_stock_worksheets
 from storage.task_status_repository import ScheduledTaskStatusRepository
 from storage.vip_repository import VipRepository
 
@@ -49,6 +50,9 @@ def main() -> int:
         return 1
 
     try:
+        # Validate both source files before any of the three replacements.
+        require_stock_worksheets(size_file, ("尺码表", "Sheet4"))
+        require_stock_worksheets(diff_file, ("Sheet8",))
         repo = VipRepository(cfg.database_url)
         size_result = repo.import_size_stock(size_file, snapshot_date=business_date)
         summary_result = repo.import_stock_summary(size_file, snapshot_date=business_date)

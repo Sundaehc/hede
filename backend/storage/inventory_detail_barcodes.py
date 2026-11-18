@@ -109,7 +109,7 @@ def _barcode_statements(connection, criterion, signed_quantity, signed_amount, r
         detail.c.id, detail.c.document_id, detail.c.product_identity_id, detail.c.product_code,
         detail.c.product_name, detail.c.color_name, detail.c.color_spec, detail.c.unit_price,
         paged.c.size_name, paged.c.unallocated, paged.c.quantity, paged.c.amount,
-        record.c.document_type, record.c.document_number, record.c.date, record.c.supplier, record.c.warehouse,
+        record.c.document_type, record.c.document_number, record.c.summary, record.c.date, record.c.supplier, record.c.warehouse,
         totals.c.detail_count, totals.c.quantity_total, totals.c.amount_total,
     ).select_from(source).order_by(*order(paged.c))
 
@@ -227,7 +227,7 @@ def _paged_postgres_barcode_statement(criterion, signed_quantity, signed_amount,
         detail.c.id, detail.c.document_id, detail.c.product_identity_id, detail.c.product_code,
         detail.c.product_name, detail.c.color_name, detail.c.color_spec, detail.c.unit_price,
         paged.c.size_name, paged.c.unallocated, paged.c.quantity, paged.c.amount,
-        record.c.document_type, record.c.document_number, record.c.date, record.c.supplier, record.c.warehouse,
+        record.c.document_type, record.c.document_number, record.c.summary, record.c.date, record.c.supplier, record.c.warehouse,
         totals.c.detail_count, totals.c.quantity_total, totals.c.amount_total,
     ).select_from(source).order_by(*parent_order(paged.c), paged.c.unallocated, paged.c.size_name)
 
@@ -390,7 +390,7 @@ def list_detail_barcodes(repository, *, criterion, signed_quantity, signed_amoun
             "row_number": index, "row_key": f"{row['id']}:{row['unallocated']}:{row['size_name']}",
             "detail_id": row["id"], "document_id": row["document_id"], "product_code": row["product_code"],
             "product_name": row["product_name"], "document_type": row["document_type"],
-            "document_number": row["document_number"], "date": row["date"],
+            "document_number": row["document_number"], "summary": row["summary"], "date": row["date"],
             quantity_field: fmt(row["quantity"]), amount_field: fmt(row["amount"]),
             "unit_price": fmt(row["unit_price"]) if row["unit_price"] is not None else None,
             "retail_amount": "", "factory_code": "", "unit_code": supplier_codes.get(_text(row["supplier"]), ""),

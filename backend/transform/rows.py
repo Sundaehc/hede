@@ -6,6 +6,7 @@ from decimal import Decimal, InvalidOperation
 import re
 
 from domain.sources import CANONICAL_COLUMNS, COLUMN_ALIASES
+from domain.product_archive_features import has_product_market_price
 
 
 EMPTY_VALUES = {None, "", "-", "/"}
@@ -176,6 +177,24 @@ def derive_season_category(sheet_name: str) -> str | None:
     return None
 
 
+def normalize_market_price(value: object) -> Decimal | None:
+    """Validate an optional archive price without silently rounding or clearing it."""
+    if value is None or (isinstance(value, str) and not value.strip()):
+        return None
+    error = "市场价须为 0 至 99999999.99 的数字，最多两位小数"
+    if isinstance(value, bool):
+        raise ValueError(error)
+    try:
+        price = Decimal(str(value).strip())
+        if not price.is_finite() or not Decimal("0") <= price <= Decimal("99999999.99"):
+            raise ValueError(error)
+        if price != price.quantize(Decimal("0.01")):
+            raise ValueError(error)
+    except (InvalidOperation, TypeError):
+        raise ValueError(error) from None
+    return price.quantize(Decimal("0.01"))
+
+
 ADMIN_EDITABLE_COLUMNS = (
     "image_path",
     "sku",
@@ -188,6 +207,7 @@ ADMIN_EDITABLE_COLUMNS = (
     "product_level",
     "cost",
     "cost_price",
+    "market_price",
     "factory_sku",
     "color",
     "season_category",
@@ -241,6 +261,7 @@ def normalize_admin_launch_date(value: object) -> str | None:
 ADMIN_FIELD_NORMALIZERS = {
     "cost": coerce_cost,
     "cost_price": coerce_cost,
+    "market_price": normalize_market_price,
     "first_order_time": normalize_admin_first_order_time,
     "launch_date": normalize_admin_launch_date,
 }
@@ -276,9 +297,13 @@ def build_admin_record(
     payload: dict[str, object],
     existing_metadata: dict[str, object] | None = None,
 ) -> dict[str, object]:
+    if not has_product_market_price(brand):
+        payload = {key: value for key, value in payload.items() if key != "market_price"}
     normalized_payload = normalize_admin_payload(payload)
     extra = filter_extra_fields(normalized_payload.pop("extra_fields", None))
     record = {column: None for column in CANONICAL_COLUMNS}
+    if has_product_market_price(brand):
+        record["market_price"] = None
     record.update(normalized_payload)
     record["extra_fields"] = extra
 

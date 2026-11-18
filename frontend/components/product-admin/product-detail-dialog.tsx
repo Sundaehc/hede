@@ -93,7 +93,6 @@ export function ProductDetailDialog({
       label: "笑脸商品信息",
       fields: [
         { field: "factory_code", label: "工厂代码" },
-        { field: "market_price", label: "市场价" },
         { field: "barcode", label: "商品条码" },
         { field: "accessories", label: "配件" },
       ],

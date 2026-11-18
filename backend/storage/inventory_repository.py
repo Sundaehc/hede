@@ -669,6 +669,7 @@ class InventoryRepository:
                 detail.c.extra_fields,
                 record.c.document_type,
                 record.c.document_number,
+                record.c.summary,
                 record.c.date,
                 record.c.supplier,
                 record.c.warehouse,
@@ -729,6 +730,7 @@ class InventoryRepository:
                 "product_name": row.get("product_name"),
                 "document_type": row.get("document_type"),
                 "document_number": row.get("document_number"),
+                "summary": row.get("summary"),
                 "date": row.get("date"),
                 quantity_field: self._format_decimal(quantity),
                 amount_field: self._format_decimal(purchase_amount),
@@ -4733,6 +4735,9 @@ class InventoryRepository:
         if ws is None:
             wb.close()
             return {}
+        # Some upstream exporters incorrectly declare A1 as the entire range.
+        # Stream the actual XML rows instead of trusting dimension metadata.
+        ws.reset_dimensions()
         iterator = ws.iter_rows(values_only=True)
         header_row = next(iterator, None)
         if header_row is None:
@@ -4741,18 +4746,15 @@ class InventoryRepository:
 
         headers = [str(h).strip() if h else "" for h in header_row]
 
-        # Find column indices for "商品编码" and "可用数"
-        code_idx = None
-        avail_idx = None
-        for i, h in enumerate(headers):
-            if "商品编码" in h or h == "商品编码":
-                code_idx = i
-            elif "可用数" in h or "可用库存" in h:
-                avail_idx = i
+        # Virtual/public availability are different fields; do not let a later
+        # column with a similar name override the explicit available quantity.
+        code_idx = next((i for i, name in enumerate(headers) if name == "商品编码"), None)
+        avail_idx = next((headers.index(name) for name in ("可用数", "可用库存") if name in headers), None)
 
         if code_idx is None or avail_idx is None:
             wb.close()
-            return {}
+            missing = [name for name, index in (("商品编码", code_idx), ("可用数/可用库存", avail_idx)) if index is None]
+            raise ValueError(f"{stock_file.name} 的 {ws.title} 缺少必需列：{'、'.join(missing)}；请检查源文件表头")
 
         result = {}
         for row in iterator:

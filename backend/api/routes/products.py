@@ -478,6 +478,8 @@ def update_product(request: Request, brand: ProductArchiveBrandKey, product_id: 
             record["international_code"] = existing.get("international_code")
         if "remark" not in body.payload.model_fields_set:
             record["remark"] = existing.get("remark")
+        if "market_price" in record and "market_price" not in body.payload.model_fields_set:
+            record["market_price"] = existing.get("market_price")
         _validate_size_group(request, record.get("size_range"))
         record["extra_fields"] = filter_extra_fields(existing.get("extra_fields"))
         if is_excluded_sku(record.get("sku"), record.get("original_sku")):

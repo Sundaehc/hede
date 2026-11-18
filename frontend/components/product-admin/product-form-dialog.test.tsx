@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from "@testing-library/react"
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
@@ -227,6 +227,102 @@ describe("ProductFormDialog", () => {
     await user.type(screen.getByLabelText("成本价"), "136.50")
     await user.click(screen.getByRole("button", { name: "保存" }))
     await waitFor(() => expect(mockUpdateProduct).toHaveBeenCalledWith("cbanner_mens", 7, expect.objectContaining({ cost: "118", cost_price: "136.50" })))
+  })
+
+  it.each([
+    ["smiley", "create"], ["smiley", "edit"], ["ni", "create"], ["ni", "edit"],
+  ] as const)("saves market price independently of costs for %s / %s", async (brand, mode) => {
+    const onSaved = vi.fn()
+    const onOpenChange = vi.fn()
+    render(<ProductFormDialog open mode={mode} item={mode === "edit" ? { ...sampleItem, brand, market_price: 199.9, cost: "118", cost_price: "136.50" } : undefined} onOpenChange={onOpenChange} onSaved={onSaved} />)
+    if (mode === "create") {
+      fireEvent.change(screen.getByLabelText("品牌"), { target: { value: brand } })
+      fireEvent.change(screen.getByLabelText("工厂出货价"), { target: { value: "118" } })
+      fireEvent.change(screen.getByLabelText("成本价"), { target: { value: "136.50" } })
+    }
+    const marketPrice = screen.getByLabelText("市场价")
+    expect(marketPrice).toHaveValue(mode === "edit" ? "199.9" : "")
+    expect(within(screen.getByText("物价信息").parentElement!).getByLabelText("市场价")).toBe(marketPrice)
+    expect(marketPrice).toHaveAttribute("inputmode", "decimal")
+    fireEvent.change(marketPrice, { target: { value: " 299.90 " } })
+    fireEvent.click(screen.getByRole("button", { name: "保存" }))
+    const payload = expect.objectContaining({ market_price: "299.90", cost: "118", cost_price: "136.50" })
+    if (mode === "edit") {
+      await waitFor(() => expect(mockUpdateProduct).toHaveBeenCalledWith(brand, 7, payload))
+    } else {
+      await waitFor(() => expect(mockCreateProduct).toHaveBeenCalledWith(brand, payload))
+    }
+    expect(onSaved).toHaveBeenCalledOnce()
+    expect(onOpenChange).toHaveBeenCalledWith(false)
+  })
+
+  it.each([
+    ["smiley", null, "", null],
+    ["ni", undefined, "", null],
+    ["smiley", 0, "0", "0"],
+    ["ni", "0.00", "0.00", "0.00"],
+    ["smiley", "199.90", "", null],
+    ["ni", "199.90", "  ", null],
+    ["smiley", null, "99999999.99", "99999999.99"],
+    ["ni", null, "99999999.99", "99999999.99"],
+    ["ni", null, "0.01", "0.01"],
+    ["smiley", null, "12.3", "12.3"],
+  ])("normalizes optional market price for %s: %s -> %s", async (brand, initial, input, expected) => {
+    render(<ProductFormDialog open mode="edit" item={{ ...sampleItem, brand: brand as string, market_price: initial }} onOpenChange={vi.fn()} onSaved={vi.fn()} />)
+    const field = screen.getByLabelText("市场价")
+    expect(field).toHaveValue(initial == null ? "" : String(initial))
+    fireEvent.change(field, { target: { value: input } })
+    fireEvent.click(screen.getByRole("button", { name: "保存" }))
+    await waitFor(() => expect(mockUpdateProduct).toHaveBeenCalledWith(brand, 7, expect.objectContaining({ market_price: expected })))
+  })
+
+  it.each(["-0.01", "1.001", "99999999.999", "100000000", "100000000.00", "1e2", "NaN", "Infinity", "1,000", "abc"])("blocks invalid market price %s before creating or updating", async (input) => {
+    render(<ProductFormDialog open mode="edit" item={{ ...sampleItem, brand: "ni" }} onOpenChange={vi.fn()} onSaved={vi.fn()} />)
+    const field = screen.getByLabelText("市场价")
+    fireEvent.change(field, { target: { value: input } })
+    fireEvent.click(screen.getByRole("button", { name: "保存" }))
+    expect(screen.getByRole("alert")).toHaveTextContent("市场价须为非负金额，最多两位小数，且不超过99999999.99")
+    expect(field).toHaveAttribute("aria-invalid", "true")
+    expect(mockCreateProduct).not.toHaveBeenCalled()
+    expect(mockUpdateProduct).not.toHaveBeenCalled()
+    fireEvent.change(field, { target: { value: "0" } })
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole("button", { name: "保存" }))
+    await waitFor(() => expect(mockUpdateProduct).toHaveBeenCalledWith("ni", 7, expect.objectContaining({ market_price: "0" })))
+  })
+
+  it("validates market price during creation and submits null when left empty", async () => {
+    render(<ProductFormDialog open mode="create" onOpenChange={vi.fn()} onSaved={vi.fn()} />)
+    fireEvent.change(screen.getByLabelText("品牌"), { target: { value: "smiley" } })
+    fireEvent.change(screen.getByLabelText("市场价"), { target: { value: "-1" } })
+    fireEvent.click(screen.getByRole("button", { name: "保存" }))
+    expect(screen.getByRole("alert")).toBeInTheDocument()
+    expect(mockCreateProduct).not.toHaveBeenCalled()
+    fireEvent.change(screen.getByLabelText("市场价"), { target: { value: "" } })
+    fireEvent.click(screen.getByRole("button", { name: "保存" }))
+    await waitFor(() => expect(mockCreateProduct).toHaveBeenCalledWith("smiley", expect.objectContaining({ market_price: null })))
+  })
+
+  it.each(["cbanner_mens", "cbanner_womens", "supplier_brand_33aa8a0c3b6a", "yandou", "eblan", "ns", "custom"])("does not display, validate or submit market price for %s", async (brand) => {
+    render(<ProductFormDialog open mode="edit" item={{ ...sampleItem, brand, market_price: "invalid" }} onOpenChange={vi.fn()} onSaved={vi.fn()} />)
+    expect(screen.queryByLabelText("市场价")).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole("button", { name: "保存" }))
+    await waitFor(() => expect(mockUpdateProduct).toHaveBeenCalledOnce())
+    expect(mockUpdateProduct.mock.calls[0][2]).not.toHaveProperty("market_price")
+  })
+
+  it("drops market price from the payload and clears its error when switching to another brand", async () => {
+    render(<ProductFormDialog open mode="create" onOpenChange={vi.fn()} onSaved={vi.fn()} />)
+    fireEvent.change(screen.getByLabelText("品牌"), { target: { value: "ni" } })
+    fireEvent.change(screen.getByLabelText("市场价"), { target: { value: "-1" } })
+    fireEvent.click(screen.getByRole("button", { name: "保存" }))
+    expect(screen.getByRole("alert")).toBeInTheDocument()
+    fireEvent.change(screen.getByLabelText("品牌"), { target: { value: "cbanner_mens" } })
+    expect(screen.queryByLabelText("市场价")).not.toBeInTheDocument()
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole("button", { name: "保存" }))
+    await waitFor(() => expect(mockCreateProduct).toHaveBeenCalledOnce())
+    expect(mockCreateProduct.mock.calls[0][1]).not.toHaveProperty("market_price")
   })
 
   it.each(["cbanner_mens", "cbanner_womens", "smiley", "ni", "custom"])("edits the optional international code as text for %s", async brand => {

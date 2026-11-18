@@ -78,6 +78,8 @@ class Database:
                 connection.execute(text(f"ALTER TABLE {table.name} ADD COLUMN IF NOT EXISTS international_code TEXT"))
                 connection.execute(text(f"ALTER TABLE {table.name} ADD COLUMN IF NOT EXISTS remark TEXT"))
                 connection.execute(text(f"ALTER TABLE {table.name} ADD COLUMN IF NOT EXISTS cost_price NUMERIC(10, 2)"))
+                if "market_price" in table.c:
+                    connection.execute(text(f"ALTER TABLE {table.name} ADD COLUMN IF NOT EXISTS market_price NUMERIC(10, 2)"))
                 connection.execute(text(f"ALTER TABLE {table.name} ADD COLUMN IF NOT EXISTS product_level TEXT"))
                 connection.execute(text(f"ALTER TABLE {table.name} ADD COLUMN IF NOT EXISTS rear_heel_height TEXT"))
                 connection.execute(text(
@@ -121,6 +123,13 @@ class Database:
                 for row in payload:
                     if row.get("cost_price") is None:
                         row["cost_price"] = existing_cost_prices.get(row.get("sku"))
+                if "market_price" in table.c:
+                    existing_market_prices = dict(connection.execute(
+                        select(table.c.sku, table.c.market_price).where(table.c.market_price.isnot(None))
+                    ).tuples().all())
+                    for row in payload:
+                        if row.get("market_price") is None:
+                            row["market_price"] = existing_market_prices.get(row.get("sku"))
                 existing_international_codes = dict(connection.execute(
                     select(table.c.sku, table.c.international_code).where(table.c.international_code.isnot(None))
                 ).tuples().all())
@@ -197,6 +206,8 @@ class Database:
                 set_values["image_path"] = func.coalesce(getattr(excluded, "image_path"), table.c.image_path)
                 set_values["size_range"] = func.coalesce(getattr(excluded, "size_range"), table.c.size_range)
                 set_values["cost_price"] = func.coalesce(excluded.cost_price, table.c.cost_price)
+                if "market_price" in table.c:
+                    set_values["market_price"] = func.coalesce(excluded.market_price, table.c.market_price)
                 set_values["international_code"] = func.coalesce(
                     func.nullif(excluded.international_code, ""), table.c.international_code,
                 )
@@ -333,6 +344,8 @@ class Database:
                 # persisted archive value during product-source upserts.
                 set_values["cost"] = table.c.cost
                 set_values["cost_price"] = table.c.cost_price
+                if "market_price" in table.c:
+                    set_values["market_price"] = table.c.market_price
                 set_values["cost_manual_override"] = table.c.cost_manual_override
                 changed_condition = _changed_fields_condition(table, set_values)
                 set_values["updated_at"] = case(

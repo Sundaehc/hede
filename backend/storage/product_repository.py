@@ -7,7 +7,7 @@ from decimal import Decimal
 from typing import Callable
 
 import orjson
-from sqlalchemy import MetaData, Table, and_, bindparam, case, create_engine, delete, desc, func, insert, literal, or_, select, text, union_all, update
+from sqlalchemy import MetaData, Numeric, Table, and_, bindparam, case, cast, create_engine, delete, desc, func, insert, literal, or_, select, text, union_all, update
 
 from domain.color_barcode_schema import COLOR_BARCODE_TABLE
 from domain.excluded_skus import not_excluded_sku_condition
@@ -384,6 +384,8 @@ class ProductRepository:
                 connection.execute(text(f"ALTER TABLE {table.name} ADD COLUMN IF NOT EXISTS international_code TEXT"))
                 connection.execute(text(f"ALTER TABLE {table.name} ADD COLUMN IF NOT EXISTS remark TEXT"))
                 connection.execute(text(f"ALTER TABLE {table.name} ADD COLUMN IF NOT EXISTS cost_price NUMERIC(10, 2)"))
+                if "market_price" in table.c:
+                    connection.execute(text(f"ALTER TABLE {table.name} ADD COLUMN IF NOT EXISTS market_price NUMERIC(10, 2)"))
                 connection.execute(text(
                     f"ALTER TABLE {table.name} ADD COLUMN IF NOT EXISTS category TEXT"
                 ))
@@ -852,7 +854,8 @@ class ProductRepository:
             sq = select(
                 table.c.id,
                 literal(brand_key).label("brand"),
-                *([c for c in table.columns if c.key not in ("id",)]),
+                *([c for c in table.columns if c.key not in ("id", "market_price")]),
+                (table.c.market_price if "market_price" in table.c else cast(literal(None), Numeric(10, 2))).label("market_price"),
             )
             sq = sq.where(*_product_list_conditions(table, query, sku_prefix, year, season, product_name, supplier_name))
             subqueries.append(sq)

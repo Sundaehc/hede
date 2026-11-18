@@ -84,7 +84,7 @@ def _export_sales_details(request: Request, filters: dict, selected_rows: list[s
     by_barcode = filters.get("display_mode") == "barcode"
     barcode_headers = ["商品编码", "颜色条码", "尺码名称", "尺码条码", "编码提示"] if by_barcode else []
     worksheet.append([
-        "行号", "货号", "商品全名", "颜色名称", *barcode_headers, "单据类型", "单据编号", "日期",
+        "行号", "货号", "商品全名", "颜色名称", *barcode_headers, "单据类型", "单据编号", "摘要", "日期",
         "销售数量", "销售金额", "零售金额", "单位编号", "单位全名", "仓库全名",
     ])
     for item in result["items"]:
@@ -92,7 +92,7 @@ def _export_sales_details(request: Request, filters: dict, selected_rows: list[s
         worksheet.append([
             item["row_number"], item["product_code"] or "", item["product_name"] or "",
             item["color_name"] or "", *barcode_values, item["document_type"], item["document_number"] or "",
-            item["date"] or "", _excel_number(item["sales_quantity"]), _excel_number(item["sales_amount"]),
+            item.get("summary") or "", item["date"] or "", _excel_number(item["sales_quantity"]), _excel_number(item["sales_amount"]),
             item["retail_amount"] or "", item["unit_code"] or "", item["unit_name"] or "", item["warehouse_name"] or "",
         ])
         if by_barcode:
