@@ -94,12 +94,56 @@ test("keeps deletion available only for shops without historical business", asyn
   expect(within(confirmation).getByRole("button", { name: "删除" })).toBeInTheDocument()
 })
 
-test("shows zero and negative closing balances next to shops and units without opening ledgers", async () => {
+test("rolls up unit balances into the shop without opening ledgers", async () => {
   render(<GeneralCustomerShopsTab standalone />)
-  await waitFor(() => expect(screen.getByLabelText("店铺 测试店铺期末余额")).toHaveTextContent("0.00"))
+  await waitFor(() => expect(screen.getByLabelText("店铺 测试店铺期末余额")).toHaveTextContent("-1,234.50"))
   expect(screen.getByLabelText("单位 测试单位期末余额")).toHaveTextContent("-1,234.50")
   expect(screen.queryByText(/查账：/)).not.toBeInTheDocument()
   expect(api.getGeneralCustomerBalances).toHaveBeenCalledTimes(1)
+})
+
+test("includes own and child balances exactly once, isolates shops and keeps the total when collapsed", async () => {
+  const user = userEvent.setup()
+  api.listGeneralCustomerShops.mockResolvedValue({ items: [shop, { ...shop, id: 2, shop_name: "其他店铺" }] })
+  api.listGeneralCustomerUnits.mockResolvedValue({ items: [
+    { id: 1, shop_id: 1, unit_name: "测试单位" },
+    { id: 2, shop_id: 1, unit_name: "测试店铺" },
+    { id: 3, shop_id: 1, unit_name: "其他单位" },
+    { id: 4, shop_id: 2, unit_name: "另一店单位" },
+  ] })
+  api.getGeneralCustomerBalances.mockResolvedValue({ items: [
+    { name: "测试店铺", ending_balance: "10.005" },
+    { name: "测试单位", ending_balance: "-1.0049" },
+    { name: "其他单位", ending_balance: "0.0049" },
+    { name: "其他店铺", ending_balance: "0" },
+    { name: "另一店单位", ending_balance: "100" },
+  ] })
+  render(<GeneralCustomerShopsTab />)
+  await waitFor(() => expect(screen.getByLabelText("店铺 测试店铺期末余额")).toHaveTextContent("9.01"))
+  expect(screen.getByLabelText("店铺 其他店铺期末余额")).toHaveTextContent("100.00")
+  await user.click(screen.getByRole("button", { name: "收起单位 测试店铺" }))
+  expect(screen.queryByRole("button", { name: "测试单位" })).not.toBeInTheDocument()
+  expect(screen.getByLabelText("店铺 测试店铺期末余额")).toHaveTextContent("9.01")
+  api.getGeneralCustomerBalances.mockResolvedValue({ items: [
+    { name: "测试店铺", ending_balance: "0" },
+    { name: "测试单位", ending_balance: "0" },
+    { name: "其他单位", ending_balance: "0" },
+    { name: "其他店铺", ending_balance: "0" },
+    { name: "另一店单位", ending_balance: "0" },
+  ] })
+  await user.click(screen.getByRole("button", { name: "查询" }))
+  await waitFor(() => expect(screen.getByLabelText("店铺 测试店铺期末余额")).toHaveTextContent("0.00"))
+})
+
+test("shows unknown totals when any unit balance is missing and zero for shops without transactions", async () => {
+  api.getGeneralCustomerBalances.mockResolvedValue({ items: [{ name: "测试店铺", ending_balance: "0" }] })
+  const first = render(<GeneralCustomerShopsTab />)
+  await waitFor(() => expect(screen.getByLabelText("店铺 测试店铺期末余额")).toHaveTextContent("—"))
+  expect(screen.getByLabelText("单位 测试单位期末余额")).toHaveTextContent("—")
+  first.unmount()
+  api.listGeneralCustomerUnits.mockResolvedValue({ items: [] })
+  render(<GeneralCustomerShopsTab />)
+  await waitFor(() => expect(screen.getByLabelText("店铺 测试店铺期末余额")).toHaveTextContent("0.00"))
 })
 
 test("queries selected dates, inherits the submitted range in ledgers and keeps it when returning", async () => {

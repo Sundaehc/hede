@@ -20,6 +20,26 @@ export const PURCHASE_DETAIL_COLUMNS = [
 
 export type PurchaseDetailColumnKey =
   (typeof PURCHASE_DETAIL_COLUMNS)[number]["key"]
+export type PurchaseDetailColumnWidths = Record<PurchaseDetailColumnKey, number>
+export const DEFAULT_PURCHASE_DETAIL_COLUMN_WIDTHS = Object.fromEntries(
+  PURCHASE_DETAIL_COLUMNS.map(({ key, width }) => [key, width])
+) as PurchaseDetailColumnWidths
+
+export function purchaseDetailColumnWidthLimits(key: PurchaseDetailColumnKey) {
+  return key === "sizes" ? { min: 40, max: 160 } : { min: 64, max: 960 }
+}
+
+export function normalizePurchaseDetailColumnWidths(value: unknown): PurchaseDetailColumnWidths {
+  const saved = value && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown> : {}
+  return Object.fromEntries(PURCHASE_DETAIL_COLUMNS.map(({ key, width }) => {
+    const candidate = saved[key]
+    const { min, max } = purchaseDetailColumnWidthLimits(key)
+    return [key, typeof candidate === "number" && Number.isFinite(candidate)
+      ? Math.min(max, Math.max(min, Math.round(candidate))) : width]
+  })) as PurchaseDetailColumnWidths
+}
+
 export const DEFAULT_PURCHASE_DETAIL_COLUMN_ORDER = PURCHASE_DETAIL_COLUMNS.map(
   ({ key }) => key
 )

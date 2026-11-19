@@ -24,8 +24,9 @@ import {
 import { cancelLabelsWithLocalAgent, printLabelsWithLocalAgent } from "@/lib/local-label-print"
 import { getPurchasePrintToday } from "@/lib/purchase-print-date"
 import { useAccountPreferenceState } from "@/lib/session-query-state"
-import { DEFAULT_PURCHASE_DETAIL_COLUMN_ORDER, PURCHASE_DETAIL_COLUMNS, normalizePurchaseDetailColumnOrder, type PurchaseDetailColumnKey } from "@/lib/purchase-detail-columns"
+import { DEFAULT_PURCHASE_DETAIL_COLUMN_ORDER, DEFAULT_PURCHASE_DETAIL_COLUMN_WIDTHS, PURCHASE_DETAIL_COLUMNS, normalizePurchaseDetailColumnOrder, normalizePurchaseDetailColumnWidths, purchaseDetailColumnWidthLimits, type PurchaseDetailColumnKey } from "@/lib/purchase-detail-columns"
 import { PurchaseDetailColumnSettings } from "./purchase-detail-column-settings"
+import { PurchaseDetailColumnResizeHandle } from "./purchase-detail-column-resize-handle"
 import {
   getPurchasePrintTemplate,
   listPurchasePrintTemplates,
@@ -341,6 +342,15 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set())
   const [storedColumnOrder, setColumnOrder] = useAccountPreferenceState<PurchaseDetailColumnKey[]>("purchase-order:detail-columns:v1", DEFAULT_PURCHASE_DETAIL_COLUMN_ORDER)
   const columnOrder = useMemo(() => normalizePurchaseDetailColumnOrder(storedColumnOrder), [storedColumnOrder])
+  const [storedColumnWidths, setColumnWidths] = useAccountPreferenceState("purchase-order:detail-column-widths:v1", DEFAULT_PURCHASE_DETAIL_COLUMN_WIDTHS)
+  const savedColumnWidths = useMemo(() => normalizePurchaseDetailColumnWidths(storedColumnWidths), [storedColumnWidths])
+  const [resizingColumn, setResizingColumn] = useState<{ documentId: number | null; key: PurchaseDetailColumnKey; width: number } | null>(null)
+  const columnWidths = resizingColumn?.documentId === documentId
+    ? { ...savedColumnWidths, [resizingColumn.key]: resizingColumn.width } : savedColumnWidths
+  const commitColumnWidth = (key: PurchaseDetailColumnKey, width: number) => {
+    setColumnWidths((current) => ({ ...normalizePurchaseDetailColumnWidths(current), [key]: width }))
+    setResizingColumn(null)
+  }
   const [columnSettingsOpen, setColumnSettingsOpen] = useState(false)
   const replaceInputRef = useRef<HTMLInputElement>(null)
   const [replaceFile, setReplaceFile] = useState<File | null>(null)
@@ -1191,13 +1201,14 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
   const lastDetailIndex = Math.min(detailPage * DETAIL_PAGE_SIZE, detailTotal)
   const documentSummary = record?.summary?.trim() || ""
   const inventoryTableMinWidth = 880 + tableSizeColumns.length * 72
+  const purchaseTableWidth = 136 + columnOrder.reduce((total, key) => total + columnWidths[key] * (key === "sizes" ? tableSizeColumns.length : 1), 0)
   const tableClassName = isPurchaseOrder
-    ? "w-[2520px] table-fixed text-xs"
+    ? "table-fixed text-xs"
     : isAccountingDocument
       ? "w-full text-sm"
       : "w-full table-fixed text-sm"
-  const purchaseHeaderClassName = "px-3 py-2.5 font-medium whitespace-nowrap"
-  const purchaseCodeCellClassName = "px-3 py-2.5 whitespace-nowrap font-mono text-[11px]"
+  const purchaseHeaderClassName = "relative px-3 py-2.5 pr-4 font-medium whitespace-nowrap"
+  const purchaseCodeCellClassName = "truncate px-3 py-2.5 whitespace-nowrap font-mono text-[11px]"
   const purchaseTextCellClassName = "px-3 py-2.5 truncate whitespace-nowrap"
   const purchaseNumberCellClassName = "px-2 py-2.5 text-right whitespace-nowrap tabular-nums"
   return (
@@ -1219,6 +1230,7 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
               单据明细{documentSummary ? `（${documentSummary}）` : ""}
             </h2>
             <p className="text-xs text-muted-foreground">单据 {record?.document_number || documentId}{detailTotal > 0 ? ` · ${firstDetailIndex}-${lastDetailIndex} / ${detailTotal} 条` : ""}</p>
+            {isPurchaseOrder && <p className="mt-1 text-xs text-muted-foreground">拖动表头右边界调整列宽，双击恢复默认；尺码列同步调整。</p>}
           </div>
           <div className="flex max-w-full shrink-0 flex-wrap items-center gap-2">
             {detailTotal > DETAIL_PAGE_SIZE && (
@@ -1356,8 +1368,15 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
         <div className="flex-1 overflow-auto">
           <table
             className={tableClassName}
-            style={!isPurchaseOrder && !isAccountingDocument ? { minWidth: inventoryTableMinWidth } : undefined}
+            style={isPurchaseOrder ? { width: purchaseTableWidth, minWidth: purchaseTableWidth } : !isAccountingDocument ? { minWidth: inventoryTableMinWidth } : undefined}
           >
+            {isPurchaseOrder && <colgroup>
+              <col style={{ width: 40 }} />
+              {columnOrder.flatMap((key) => key === "sizes"
+                ? tableSizeColumns.map((size) => <col key={`size:${size}`} style={{ width: columnWidths.sizes }} />)
+                : [<col key={key} style={{ width: columnWidths[key] }} />])}
+              <col style={{ width: 96 }} />
+            </colgroup>}
             <thead>
               {isAccountingDocument ? (
                 <tr className="sticky top-0 z-20 border-b border-border bg-muted text-left text-muted-foreground shadow-sm">
@@ -1392,10 +1411,16 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
                   {columnOrder.map((key) => {
                     const column = PURCHASE_DETAIL_COLUMNS.find((field) => field.key === key)!
                     const fixed = key === firstVisibleColumn ? "sticky left-10 z-40 bg-muted" : ""
+                    const resizeHandle = (label: string) => <PurchaseDetailColumnResizeHandle
+                      key={`${documentId}:${key}:${label}`} label={label} width={columnWidths[key]} defaultWidth={column.width}
+                      {...purchaseDetailColumnWidthLimits(key)}
+                      onPreview={(width) => setResizingColumn(width === null ? null : { documentId, key, width })}
+                      onCommit={(width) => commitColumnWidth(key, width)}
+                    />
                     return key === "sizes" ? tableSizeColumns.map((size, sizeIndex) => (
-                      <th key={`size:${size}`} style={{ width: 48 }} className={`${purchaseHeaderClassName} text-right ${sizeIndex === 0 ? fixed : ""}`}>{size}</th>
+                      <th key={`size:${size}`} aria-label={size} style={{ width: columnWidths.sizes }} className={`${purchaseHeaderClassName} text-right ${sizeIndex === 0 ? fixed : ""}`}>{size}{resizeHandle(`尺码${size}`)}</th>
                     )) : (
-                      <th key={key} style={{ width: column.width }} className={`${purchaseHeaderClassName} ${fixed} ${["quantity", "unit_price", "amount"].includes(key) ? "text-right" : ""}`}>{column.label}</th>
+                      <th key={key} aria-label={column.label} style={{ width: columnWidths[key] }} className={`${purchaseHeaderClassName} ${fixed} ${["quantity", "unit_price", "amount"].includes(key) ? "text-right" : ""}`}><span className="block truncate" title={column.label}>{column.label}</span>{resizeHandle(column.label)}</th>
                     )
                   })}
                   <th className="sticky right-0 z-30 w-20 border-l border-border bg-muted px-4 py-2.5 font-medium whitespace-nowrap shadow-[-5px_0_10px_-9px_rgb(0_0_0_/_0.45)]">操作</th>
