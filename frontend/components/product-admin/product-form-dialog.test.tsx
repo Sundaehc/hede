@@ -696,6 +696,33 @@ describe("ProductFormDialog", () => {
     expect(screen.getByLabelText("供应商名")).toHaveValue("笑脸测试供应商")
   })
 
+  it("selects a women's supplier for the shared Eblan archive and saves its original name", async () => {
+    const user = userEvent.setup()
+    const onSaved = vi.fn()
+    mockListSuppliersByBrand.mockResolvedValue({
+      items: [
+        { id: 1, brand: "eblan", name: "测试男鞋工厂（伊伴男鞋）", factory_code: "EB01", contact: null, wechat: null, cooperation_status: "合作中", address: null, notes: null },
+        { id: 2, brand: "eblan_womens", name: "测试女鞋工厂（伊伴女鞋）", factory_code: "EBW02", contact: null, wechat: null, cooperation_status: "合作中", address: null, notes: null },
+      ],
+      total: 2, page: 1, page_size: 2,
+    })
+    render(<ProductFormDialog open mode="edit" item={{ ...sampleItem, brand: "eblan" }} onOpenChange={vi.fn()} onSaved={onSaved} />)
+
+    const supplier = screen.getByLabelText("供应商名")
+    await waitFor(() => expect(supplier).toBeEnabled())
+    expect(mockListSuppliersByBrand).toHaveBeenCalledWith("eblan")
+    await user.click(supplier)
+    expect(await screen.findByRole("option", { name: "测试男鞋工厂（伊伴男鞋）" })).toBeInTheDocument()
+    expect(screen.getByRole("option", { name: "测试女鞋工厂（伊伴女鞋）" })).toBeInTheDocument()
+    await user.type(supplier, "ebw02")
+    expect(screen.queryByRole("option", { name: "测试男鞋工厂（伊伴男鞋）" })).not.toBeInTheDocument()
+    await user.click(screen.getByRole("option", { name: "测试女鞋工厂（伊伴女鞋）" }))
+    expect(supplier).toHaveValue("测试女鞋工厂（伊伴女鞋）")
+    await user.click(screen.getByRole("button", { name: "保存" }))
+    await waitFor(() => expect(mockUpdateProduct).toHaveBeenCalledWith("eblan", 7, expect.objectContaining({ supplier_name: "测试女鞋工厂（伊伴女鞋）" })))
+    await waitFor(() => expect(onSaved).toHaveBeenCalledOnce())
+  })
+
   it("uses brand auxiliary attributes as product field options", async () => {
     const user = userEvent.setup()
     mockListProductAuxiliaryOptions.mockResolvedValue({

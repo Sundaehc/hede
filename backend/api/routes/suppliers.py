@@ -304,6 +304,14 @@ def create_supplier(request: Request, payload: dict, confirm_cross_brand_code: b
     return {"item": item, "message": "创建成功"}
 
 
+@router.get("/suppliers/{supplier_id}")
+def get_supplier(request: Request, supplier_id: int):
+    item = request.app.state.inventory_repository.get_supplier(supplier_id)
+    if item is None:
+        raise HTTPException(status_code=404, detail="供应商不存在")
+    return {"item": item}
+
+
 @router.put("/suppliers/{supplier_id}")
 def update_supplier(request: Request, supplier_id: int, payload: dict):
     repository = request.app.state.inventory_repository

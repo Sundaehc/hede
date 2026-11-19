@@ -77,6 +77,8 @@ def required_permission_for_request(
         return "inventory.view" if method == "GET" else "inventory.manage"
     if path.startswith("/purchase-print-template") or path.startswith("/purchase-print-templates"):
         return ("purchase.view", "inventory.view")
+    if path == "/inventory/supplier-ledger/export":
+        return "inventory.export"
     if path.startswith("/inventory/export"):
         return ("inventory.export", "purchase.export")
     if path.startswith("/inventory/import") or "import" in path:

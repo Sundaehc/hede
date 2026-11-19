@@ -27,13 +27,16 @@ let clock = 1_794_868_200_000
 function Page({
   page = "1",
   revision = 0,
+  previousDataKey,
 }: {
   page?: string
   revision?: number
+  previousDataKey?: string
 }) {
   const query = useStockModuleQuery({
     group: "alerts",
     queryKey: page,
+    previousDataKey,
     revision,
     resources: STOCK_ALERT_RESOURCES,
     factResources: STOCK_SOURCE_RESOURCES,
@@ -44,6 +47,10 @@ function Page({
       <span>{query.data?.label ?? "loading"}</span>
       <span>{query.refreshing ? "refreshing" : "ready"}</span>
       <span>{query.error}</span>
+      <span
+        data-testid="previous-result"
+        data-value={query.previousData?.label}
+      />
     </div>
   )
 }
@@ -71,6 +78,39 @@ test("restores a fresh page immediately without another request", async () => {
   expect(screen.getByText("first")).toBeInTheDocument()
   await act(async () => {})
   expect(load).toHaveBeenCalledTimes(1)
+})
+
+test("only retains previous data from the same display scope and ignores late responses", async () => {
+  const view = render(<Page previousDataKey="brand-a" />)
+  await screen.findByText("first")
+  let finishOld!: (value: { label: string }) => void
+  load.mockReturnValueOnce(
+    new Promise((resolve) => {
+      finishOld = resolve
+    })
+  )
+  view.rerender(<Page page="2" previousDataKey="brand-a" />)
+  await waitFor(() => expect(load).toHaveBeenCalledTimes(2))
+  expect(screen.getByTestId("previous-result")).toHaveAttribute(
+    "data-value",
+    "first"
+  )
+
+  let finishNew!: (value: { label: string }) => void
+  load.mockReturnValueOnce(
+    new Promise((resolve) => {
+      finishNew = resolve
+    })
+  )
+  view.rerender(<Page page="3" previousDataKey="brand-b" />)
+  await waitFor(() => expect(load).toHaveBeenCalledTimes(3))
+  expect(screen.getByTestId("previous-result")).not.toHaveAttribute(
+    "data-value"
+  )
+  await act(async () => finishNew({ label: "new scope" }))
+  await act(async () => finishOld({ label: "late result" }))
+  expect(screen.queryByText("late result")).not.toBeInTheDocument()
+  expect(screen.getByText("new scope")).toBeVisible()
 })
 
 test("keeps expired results visible while revalidating and replaces them", async () => {

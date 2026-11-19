@@ -1,6 +1,8 @@
 "use client"
 
 import { useSessionQueryState } from "@/lib/session-query-state"
+import { useRouter } from "next/navigation"
+import { supplierLedgerPath, useSupplierLedgerTabs } from "@/lib/supplier-ledger-tabs"
 
 import { useCallback, useEffect, useState } from "react"
 import { ChevronLeft, ChevronRight, Download, Edit, History, Plus, Search, Trash2, X } from "lucide-react"
@@ -18,7 +20,6 @@ import {
 } from "@/components/ui/dialog"
 import { ConfirmDialog, MessageDialog } from "@/components/confirm-dialog"
 import { useAuth } from "@/components/auth/auth-provider"
-import { CounterpartyLedgerDialog } from "@/components/inventory-admin/counterparty-ledger-dialog"
 import { OperationLogDialog } from "@/components/operation-log-dialog"
 import {
   listSuppliers,
@@ -84,6 +85,8 @@ function getPageTokens(currentPage: number, totalPages: number): PageToken[] {
 }
 
 export default function SuppliersPage() {
+  const router = useRouter()
+  const { openLedger } = useSupplierLedgerTabs()
   const { hasPermission } = useAuth()
   const [brands, setBrands] = useState<SupplierBrandItem[]>([])
   const [items, setItems] = useState<SupplierItem[]>([])
@@ -115,7 +118,6 @@ export default function SuppliersPage() {
 
   const [deleteTarget, setDeleteTarget] = useState<SupplierItem | null>(null)
   const [isDeleting, setIsDeleting] = useState(false)
-  const [ledgerTarget, setLedgerTarget] = useState<SupplierItem | null>(null)
   const [operationLogOpen, setOperationLogOpen] = useState(false)
   const [messageOpen, setMessageOpen] = useState(false)
   const [messageContent, setMessageContent] = useState({ title: "", description: "" })
@@ -421,7 +423,10 @@ export default function SuppliersPage() {
                   <tr
                     key={item.id}
                     className="table-row cursor-pointer"
-                    onClick={() => setLedgerTarget(item)}
+                    onClick={() => {
+                      openLedger(item.id, item.name, dateStart, dateEnd)
+                      router.push(supplierLedgerPath(item.id), { scroll: false })
+                    }}
                     title="点击查看单据"
                   >
                     <td className="truncate px-4 py-2.5 font-medium" title={item.name}>{item.name}</td>
@@ -583,14 +588,6 @@ export default function SuppliersPage() {
 
       <MessageDialog open={messageOpen} title={messageContent.title} description={messageContent.description} onClose={() => setMessageOpen(false)} />
 
-      <CounterpartyLedgerDialog
-        open={ledgerTarget !== null}
-        counterpartyType="supplier"
-        name={ledgerTarget?.name || ""}
-        onOpenChange={(open) => {
-          if (!open) setLedgerTarget(null)
-        }}
-      />
 
       <OperationLogDialog
         module="supplier"

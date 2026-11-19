@@ -23,7 +23,7 @@ def _validate_brand(request, brand):
 
 @router.get("/options")
 def stock_alert_options(request: Request):
-    return {"brands": [{"value": item["code"], "label": item["name"]}
+    return {"brands": [{"value": item["code"], "label": "伊伴" if item["code"] == "eblan" else item["name"]}
                        for item in request.app.state.inventory_repository.list_product_archive_brands()]}
 
 

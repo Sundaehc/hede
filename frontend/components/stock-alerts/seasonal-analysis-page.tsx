@@ -7,6 +7,7 @@ import {
   ChevronLeft,
   ChevronRight,
   CircleHelp,
+  LoaderCircle,
   RefreshCw,
   Search,
   Sparkles,
@@ -35,6 +36,41 @@ const percent = (value: number | null | undefined) =>
 const panel =
   "rounded-2xl border border-border/80 bg-card/75 shadow-xs backdrop-blur-xl"
 
+function Skeleton({ className }: { className?: string }) {
+  return (
+    <span
+      aria-hidden="true"
+      className={cn(
+        "block animate-pulse rounded-md bg-muted motion-reduce:animate-none",
+        className
+      )}
+    />
+  )
+}
+
+function DetailSkeleton() {
+  return (
+    <div aria-hidden="true" className="min-h-80 overflow-hidden border-t">
+      <div className="flex h-10 items-center gap-8 bg-muted/35 px-5">
+        {["w-32", "w-24", "w-20", "w-20", "w-24", "w-20"].map((width, i) => (
+          <Skeleton key={i} className={cn("h-3 shrink-0", width)} />
+        ))}
+      </div>
+      {Array.from({ length: 5 }, (_, i) => (
+        <div key={i} className="flex h-16 items-center gap-8 border-t px-5">
+          <div className="w-32 shrink-0 space-y-2">
+            <Skeleton className="h-3 w-24" />
+            <Skeleton className="h-2.5 w-16" />
+          </div>
+          {["w-24", "w-20", "w-20", "w-24", "w-20"].map((width, j) => (
+            <Skeleton key={j} className={cn("h-3 shrink-0", width)} />
+          ))}
+        </div>
+      ))}
+    </div>
+  )
+}
+
 function defaults(): SeasonalFilters {
   const now = new Date(Date.now() + 8 * 3600_000)
   return {
@@ -53,20 +89,28 @@ function Stat({
   value,
   unit,
   note,
+  loading = false,
 }: {
   title: string
   value: string
   unit?: string
   note: string
+  loading?: boolean
 }) {
   return (
     <div className={cn(panel, "p-4 sm:p-5")}>
       <p className="text-xs font-medium text-muted-foreground">{title}</p>
       <p className="mt-3 flex items-baseline gap-1.5 text-3xl font-semibold tracking-tight tabular-nums">
-        {value}
-        <span className="text-xs font-normal text-muted-foreground">
-          {unit}
-        </span>
+        {loading ? (
+          <Skeleton className="my-1 h-7 w-28" />
+        ) : (
+          <>
+            {value}
+            <span className="text-xs font-normal text-muted-foreground">
+              {unit}
+            </span>
+          </>
+        )}
       </p>
       <p className="mt-2 text-xs leading-5 text-muted-foreground">{note}</p>
     </div>
@@ -159,6 +203,13 @@ export function SeasonalAnalysisPage() {
     useStockModuleQuery({
       group: "seasonal-analysis",
       queryKey: JSON.stringify(filters),
+      previousDataKey: JSON.stringify([
+        filters.brand,
+        filters.year,
+        filters.quarter,
+        filters.season,
+        filters.query,
+      ]),
       revision,
       resources: STOCK_SOURCE_RESOURCES,
       factResources: STOCK_SOURCE_RESOURCES,
@@ -188,12 +239,26 @@ export function SeasonalAnalysisPage() {
     setRevision((value) => value + 1)
   }
   const shown = data ?? previousData
-  const summary = shown?.summary
-  const review = data?.items.find((item) => item.id === reviewId)
+  const overviewLoading = !shown && loading
+  const overviewBusy = refreshing && (!shown || !!data)
+  const detailLoading = !data && loading
   const followup =
     filters.status === "arrivals" || filters.status === "zero"
       ? filters.status
       : null
+  const statusText = error
+    ? "查询未完成，请重试"
+    : refreshing
+      ? shown
+        ? data
+          ? "正在刷新当前分析…"
+          : followup
+            ? "正在读取跟进清单…"
+            : `正在加载第 ${filters.page} 页明细…`
+        : "正在查询季度分析…"
+      : "日销截至 " + (shown?.sales_end ?? "未就绪")
+  const summary = shown?.summary
+  const review = data?.items.find((item) => item.id === reviewId)
   const followupNotes = {
     arrivals:
       "所选季度首次采购入库、当前有可售库存、档案缺少有效上市日期。点击货号查到货和销量；此清单不计入季度新品指标。",
@@ -247,6 +312,7 @@ export function SeasonalAnalysisPage() {
         className={cn(panel, "flex flex-wrap items-end gap-3 p-4")}
         onSubmit={(event) => {
           event.preventDefault()
+          if (refreshing) return
           setFilters({
             ...draft,
             query: draft.query.trim(),
@@ -331,11 +397,13 @@ export function SeasonalAnalysisPage() {
             }
           >
             <option value="">全部季节</option>
-            {shown?.seasons.map((season) => (
-              <option key={season} value={season}>
-                {season}
-              </option>
-            ))}
+            {Array.from(new Set([draft.season, ...(shown?.seasons ?? [])]))
+              .filter(Boolean)
+              .map((season) => (
+                <option key={season} value={season}>
+                  {season}
+                </option>
+              ))}
           </Select>
         </label>
         <label className="min-w-44 flex-1 text-xs text-muted-foreground">
@@ -351,9 +419,16 @@ export function SeasonalAnalysisPage() {
             }
           />
         </label>
-        <Button type="submit">
-          <Search className="size-4" aria-hidden="true" />
-          查询
+        <Button type="submit" disabled={refreshing} className="min-w-24">
+          {refreshing ? (
+            <LoaderCircle
+              className="size-4 animate-spin motion-reduce:animate-none"
+              aria-hidden="true"
+            />
+          ) : (
+            <Search className="size-4" aria-hidden="true" />
+          )}
+          {refreshing ? "查询中…" : "查询"}
         </Button>
       </form>
       {options.error && (
@@ -379,18 +454,27 @@ export function SeasonalAnalysisPage() {
           </span>
           　按上市日期归季 · {filters.season || "全部季节"}
         </p>
-        <p role="status">
-          {refreshing
-            ? "正在更新分析…"
-            : "日销截至 " + (shown?.sales_end ?? "未就绪")}
-          　库存 {shown?.stock_date ?? "未就绪"}
-        </p>
+        <div className="flex min-h-7 flex-wrap items-center gap-x-3 gap-y-1">
+          <p
+            role="status"
+            aria-live="polite"
+            aria-atomic="true"
+            className={cn(
+              "inline-flex items-center gap-1.5 rounded-full px-2.5 py-1",
+              refreshing && "bg-muted/70 text-foreground"
+            )}
+          >
+            {refreshing && (
+              <LoaderCircle
+                className="size-3 animate-spin motion-reduce:animate-none"
+                aria-hidden="true"
+              />
+            )}
+            {statusText}
+          </p>
+          {shown && <span>库存 {shown.stock_date ?? "未就绪"}</span>}
+        </div>
       </div>
-      {!data && previousData && (
-        <p role="status" className="text-xs text-amber-700 dark:text-amber-400">
-          正在切换查询，以下暂时保留上次分析结果。
-        </p>
-      )}
       {shown &&
         (shown.summary.missing_days > 0 ||
           shown.summary.sell_through_rate == null ||
@@ -416,60 +500,99 @@ export function SeasonalAnalysisPage() {
         )}
       <section
         aria-label="季度经营概览"
+        aria-busy={overviewBusy}
         className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4"
       >
         <Stat
           title="季度新品"
+          loading={overviewLoading}
           value={number(summary?.product_count)}
           unit="款色"
           note="按商品档案款色计数，包含已售罄商品"
         />
         <Stat
           title="季度进货"
+          loading={overviewLoading}
           value={number(summary?.inbound_quantity)}
           unit="双"
           note="本季新品在该季度内的正向采购入库"
         />
         <Stat
           title="新品销售占比"
+          loading={overviewLoading}
           value={percent(summary?.sales_share)}
           note="新品销售双数 ÷ 同品牌同期已匹配销售双数"
         />
         <Stat
           title="整体参考售罄率"
+          loading={overviewLoading}
           value={percent(summary?.sell_through_rate)}
           note="净销 ÷ 累计正向入库，含上市前备货"
         />
       </section>
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1.35fr)_minmax(340px,1fr)]">
-        <section className={cn(panel, "p-5")} aria-label="新品销售趋势">
+        <section
+          className={cn(panel, "p-5")}
+          aria-label="新品销售趋势"
+          aria-busy={overviewBusy}
+        >
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
               <h2 className="text-sm font-semibold">新品销售走势</h2>
               <p className="mt-1 text-xs text-muted-foreground">
-                仅统计该季上市商品，截止 {summary?.cutoff ?? "未就绪"}
+                仅统计该季上市商品
+                {overviewLoading
+                  ? "，正在读取日销数据"
+                  : "，截止 " + (summary?.cutoff ?? "未就绪")}
               </p>
             </div>
             <div className="flex gap-5 text-right">
               <div>
                 <p className="text-[11px] text-muted-foreground">销售</p>
                 <p className="text-lg font-semibold tabular-nums">
-                  {number(summary?.gross_sales)}
-                  <span className="ml-1 text-xs font-normal">双</span>
+                  {overviewLoading ? (
+                    <Skeleton className="my-1 h-5 w-14" />
+                  ) : (
+                    <>
+                      {number(summary?.gross_sales)}
+                      <span className="ml-1 text-xs font-normal">双</span>
+                    </>
+                  )}
                 </p>
               </div>
               <div>
                 <p className="text-[11px] text-muted-foreground">净销售</p>
                 <p className="text-lg font-semibold tabular-nums">
-                  {number(summary?.net_sales)}
-                  <span className="ml-1 text-xs font-normal">双</span>
+                  {overviewLoading ? (
+                    <Skeleton className="my-1 h-5 w-14" />
+                  ) : (
+                    <>
+                      {number(summary?.net_sales)}
+                      <span className="ml-1 text-xs font-normal">双</span>
+                    </>
+                  )}
                 </p>
               </div>
             </div>
           </div>
-          <SalesTrend rows={shown?.trend ?? []} />
+          {overviewLoading ? (
+            <div aria-hidden="true" className="mt-4 space-y-3">
+              <Skeleton className="h-3 w-28" />
+              <Skeleton className="h-32 w-full" />
+              <div className="flex justify-between">
+                <Skeleton className="h-3 w-16" />
+                <Skeleton className="h-3 w-16" />
+              </div>
+            </div>
+          ) : (
+            <SalesTrend rows={shown?.trend ?? []} />
+          )}
         </section>
-        <section className={cn(panel, "p-5")} aria-label="上市后动销观察">
+        <section
+          className={cn(panel, "p-5")}
+          aria-label="上市后动销观察"
+          aria-busy={overviewBusy}
+        >
           <h2 className="flex items-center gap-2 text-sm font-semibold">
             <Sparkles className="size-4 text-primary" aria-hidden="true" />
             上市后动销观察
@@ -494,7 +617,11 @@ export function SeasonalAnalysisPage() {
                 <div className="flex items-baseline justify-between gap-3">
                   <h3 className="text-xs font-medium">前{item.days}天动销率</h3>
                   <span className="font-semibold tabular-nums">
-                    {percent(item.rate)}
+                    {overviewLoading ? (
+                      <Skeleton className="h-5 w-14" />
+                    ) : (
+                      percent(item.rate)
+                    )}
                   </span>
                 </div>
                 <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-muted">
@@ -506,15 +633,29 @@ export function SeasonalAnalysisPage() {
                   />
                 </div>
                 <p className="mt-1.5 text-[11px] text-muted-foreground">
-                  已动销 {item.active} / 有效 {item.valid} 款色 · 未满期{" "}
-                  {item.immature} · 待核对 {item.pending}
+                  {!shown ? (
+                    overviewLoading ? (
+                      <Skeleton className="h-3.5 w-56 max-w-full" />
+                    ) : (
+                      "观察数据未就绪"
+                    )
+                  ) : (
+                    <>
+                      已动销 {item.active} / 有效 {item.valid} 款色 · 未满期{" "}
+                      {item.immature} · 待核对 {item.pending}
+                    </>
+                  )}
                 </p>
               </div>
             ))}
           </div>
         </section>
       </div>
-      <section className={cn(panel, "overflow-hidden")} aria-label="跨季度对比">
+      <section
+        className={cn(panel, "overflow-hidden")}
+        aria-label="跨季度对比"
+        aria-busy={overviewBusy}
+      >
         <div className="px-5 py-4">
           <h2 className="text-sm font-semibold">跨季度对比</h2>
           <p className="mt-1 text-xs text-muted-foreground">
@@ -546,6 +687,20 @@ export function SeasonalAnalysisPage() {
               </tr>
             </thead>
             <tbody>
+              {overviewLoading &&
+                [1, 2, 3, 4].map((quarter) => (
+                  <tr
+                    key={quarter}
+                    aria-hidden="true"
+                    className="h-12 border-b last:border-0"
+                  >
+                    {Array.from({ length: 9 }, (_, i) => (
+                      <td key={i} className="px-5 py-3">
+                        <Skeleton className="h-3 w-16" />
+                      </td>
+                    ))}
+                  </tr>
+                ))}
               {shown?.quarters.map((row) => (
                 <tr
                   key={row.quarter}
@@ -557,6 +712,7 @@ export function SeasonalAnalysisPage() {
                   <td className="px-5 py-3">
                     <button
                       type="button"
+                      disabled={refreshing}
                       onClick={() => {
                         setDraft((current) => ({
                           ...current,
@@ -568,7 +724,7 @@ export function SeasonalAnalysisPage() {
                           page: 1,
                         }))
                       }}
-                      className="rounded font-medium text-primary underline-offset-4 hover:underline focus-visible:outline-2 focus-visible:outline-ring"
+                      className="cursor-pointer rounded font-medium text-primary underline-offset-4 hover:underline focus-visible:outline-2 focus-visible:outline-ring disabled:cursor-wait disabled:opacity-50"
                     >
                       Q{row.quarter}
                     </button>
@@ -610,8 +766,21 @@ export function SeasonalAnalysisPage() {
       </section>
       <section
         aria-label="首单与补货对比"
+        aria-busy={overviewBusy}
         className="grid gap-3 md:grid-cols-3"
       >
+        {overviewLoading &&
+          [1, 2, 3].map((i) => (
+            <div
+              key={i}
+              aria-hidden="true"
+              className={cn(panel, "space-y-4 px-5 py-4")}
+            >
+              <Skeleton className="h-4 w-32" />
+              <Skeleton className="h-8 w-24" />
+              <Skeleton className="h-4 w-48 max-w-full" />
+            </div>
+          ))}
         {shown?.order_groups.map((group) => (
           <div key={group.order_state} className={cn(panel, "px-5 py-4")}>
             <div className="flex items-center justify-between gap-2">
@@ -667,11 +836,12 @@ export function SeasonalAnalysisPage() {
                 key={status}
                 type="button"
                 aria-pressed={filters.status === status}
+                disabled={refreshing}
                 onClick={() =>
                   setFilters((current) => ({ ...current, status, page: 1 }))
                 }
                 className={cn(
-                  "cursor-pointer rounded-lg px-3 py-1.5 text-xs outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                  "cursor-pointer rounded-lg px-3 py-1.5 text-xs outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-wait disabled:opacity-50",
                   filters.status === status
                     ? "bg-card font-medium shadow-xs"
                     : "text-muted-foreground hover:text-foreground"
@@ -681,14 +851,18 @@ export function SeasonalAnalysisPage() {
                 <span className="ml-1 tabular-nums">
                   {(status === "arrivals" || status === "zero") &&
                   !shown?.followup_ready?.[status]
-                    ? (status === "zero" && followup !== "zero" ? "" : "—")
+                    ? status === "zero" && followup !== "zero"
+                      ? ""
+                      : "—"
                     : (shown?.counts[status] ?? "—")}
                 </span>
               </button>
             ))}
           </div>
         </div>
-        {!shown ? (
+        {detailLoading ? (
+          <DetailSkeleton />
+        ) : !data || !shown ? (
           <StockListState
             icon={ChartNoAxesCombined}
             title={error ? "分析暂不可用" : "正在汇总季度新品"}
@@ -698,13 +872,6 @@ export function SeasonalAnalysisPage() {
                 : "正在对齐上市日期、采购入库及日销数据。"
             }
             loading={loading && !error}
-          />
-        ) : followup && !data ? (
-          <StockListState
-            icon={Search}
-            title={error ? "跟进清单暂不可用" : "正在读取跟进清单"}
-            description={error ? "请重试当前查询。" : followupNotes[followup]}
-            loading={!error}
           />
         ) : followup && !data?.followup_ready?.[followup] ? (
           <StockListState
@@ -849,7 +1016,7 @@ export function SeasonalAnalysisPage() {
         )}
         <div className="flex items-center justify-between gap-3 border-t px-4 py-3 text-xs text-muted-foreground">
           <span>
-            共 {shown?.total ?? 0} 款色 · 每页 {shown?.page_size ?? 25} 项
+            共 {data?.total ?? "—"} 款色 · 每页 {data?.page_size ?? 25} 项
           </span>
           <div className="flex items-center gap-2">
             <Button
@@ -867,7 +1034,7 @@ export function SeasonalAnalysisPage() {
               <ChevronLeft className="size-4" aria-hidden="true" />
             </Button>
             <span className="tabular-nums">
-              {shown?.page ?? 1} / {pages}
+              {filters.page} / {data ? pages : "—"}
             </span>
             <Button
               variant="outline"

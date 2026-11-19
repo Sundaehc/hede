@@ -23,6 +23,7 @@ from sqlalchemy import MetaData, desc, or_, select as sa_select
 from starlette.concurrency import run_in_threadpool
 
 from api.excel_export import style_excel_workbook, style_excel_worksheet
+from api.counterparty_ledger_sort import LedgerSortKey, LedgerSortDirection, sort_counterparty_ledger
 from api.detail_export_selection import DetailExportSelection, ensure_selection_complete
 from api.detail_report_filters import purchase_detail_filters
 from api.inventory_import_tasks import submit_inventory_import, task_response, task_user_id
@@ -6408,6 +6409,8 @@ def get_counterparty_ledger(
     name: str,
     date_start: str | None = None,
     date_end: str | None = None,
+    sort_by: LedgerSortKey = "row_number",
+    sort_direction: LedgerSortDirection = "asc",
 ):
     counterparty_type = str(counterparty_type or "").strip()
     if counterparty_type not in {"supplier", "customer"}:
@@ -6416,12 +6419,17 @@ def get_counterparty_ledger(
     if not name:
         raise HTTPException(status_code=400, detail="单位全名不能为空")
     repository = request.app.state.inventory_repository
-    return repository.get_counterparty_ledger(
+    normalized_start = _normalize_date(date_start)
+    normalized_end = _normalize_date(date_end)
+    if normalized_start and normalized_end and normalized_start > normalized_end:
+        raise HTTPException(status_code=400, detail="起始日期不能晚于截止日期")
+    ledger = repository.get_counterparty_ledger(
         counterparty_type=counterparty_type,
         name=name,
-        date_start=_normalize_date(date_start),
-        date_end=_normalize_date(date_end),
+        date_start=normalized_start,
+        date_end=normalized_end,
     )
+    return sort_counterparty_ledger(ledger, sort_by, sort_direction)
 
 
 @router.get("/inventory/counterparty-ledger/export")
@@ -6430,6 +6438,8 @@ def export_general_customer_ledger(
     name: str,
     date_start: str | None = None,
     date_end: str | None = None,
+    sort_by: LedgerSortKey = "row_number",
+    sort_direction: LedgerSortDirection = "asc",
 ):
     actor = actor_from_request(request) or {}
     role_code = _cell_text(actor.get("role_code"))
@@ -6437,22 +6447,52 @@ def export_general_customer_ledger(
     if role_code != "super_admin" and department_code != "财务部":
         raise HTTPException(status_code=403, detail="仅财务部和超级管理员可以导出一般客户明细账本")
 
+    return _export_counterparty_ledger(request, "customer", name, date_start, date_end, sort_by, sort_direction)
+
+
+@router.get("/inventory/supplier-ledger/export")
+def export_supplier_ledger(
+    request: Request,
+    name: str,
+    date_start: str | None = None,
+    date_end: str | None = None,
+    sort_by: LedgerSortKey = "row_number",
+    sort_direction: LedgerSortDirection = "asc",
+):
+    return _export_counterparty_ledger(request, "supplier", name, date_start, date_end, sort_by, sort_direction)
+
+
+def _export_counterparty_ledger(
+    request: Request,
+    counterparty_type: Literal["supplier", "customer"],
+    name: str,
+    date_start: str | None,
+    date_end: str | None,
+    sort_by: LedgerSortKey,
+    sort_direction: LedgerSortDirection,
+):
+    is_supplier = counterparty_type == "supplier"
+    unit_label = "供应商" if is_supplier else "一般客户"
+    ledger_label = "应付款明细账本" if is_supplier else "应收款明细账本"
     customer_name = _cell_text(name)
     if not customer_name:
-        raise HTTPException(status_code=400, detail="一般客户名称不能为空")
+        raise HTTPException(status_code=400, detail=f"{unit_label}名称不能为空")
     normalized_start = _normalize_date(date_start)
     normalized_end = _normalize_date(date_end)
+    if normalized_start and normalized_end and normalized_start > normalized_end:
+        raise HTTPException(status_code=400, detail="起始日期不能晚于截止日期")
     repository = request.app.state.inventory_repository
     ledger = repository.get_counterparty_ledger(
-        counterparty_type="customer",
+        counterparty_type=counterparty_type,
         name=customer_name,
         date_start=normalized_start,
         date_end=normalized_end,
     )
+    ledger = sort_counterparty_ledger(ledger, sort_by, sort_direction)
 
     workbook = Workbook()
     worksheet = workbook.active
-    worksheet.title = "应收款明细账本"
+    worksheet.title = ledger_label
     headers = (
         "行号",
         "日期",
@@ -6492,6 +6532,10 @@ def export_general_customer_ledger(
         _to_decimal(ledger.get("decrease_total")),
         _to_decimal(ledger.get("ending_balance")),
     ])
+    for row in worksheet:
+        for cell in row:
+            if isinstance(cell.value, str):
+                cell.data_type = "s"
     style_excel_worksheet(
         worksheet,
         width_by_header={
@@ -6517,28 +6561,30 @@ def export_general_customer_ledger(
     output = io.BytesIO()
     workbook.save(output)
     output.seek(0)
-    safe_name = re.sub(r'[\\/:*?"<>|]+', "_", customer_name).strip() or "一般客户"
+    safe_name = re.sub(r'[\\/:*?"<>|]+', "_", customer_name).strip() or unit_label
     range_text = f"{normalized_start or '全部'}至{normalized_end or '当前'}"
-    filename = f"{safe_name}_应收款明细账本_{range_text}.xlsx"
+    filename = f"{safe_name}_{ledger_label}_{range_text}.xlsx"
     quoted_filename = urllib.parse.quote(filename)
     write_operation_log(
         request,
-        module="general_customer",
+        module="supplier" if is_supplier else "general_customer",
         action="export",
-        entity_type="general_customer_ledger",
+        entity_type="supplier_ledger" if is_supplier else "general_customer_ledger",
         entity_label=customer_name,
-        summary=f"导出一般客户明细账本 {customer_name}（{range_text}）",
+        summary=f"导出{unit_label}明细账本 {customer_name}（{range_text}）",
         after_data={
             "name": customer_name,
             "date_start": normalized_start,
             "date_end": normalized_end,
             "record_count": len(ledger.get("items", [])),
+            "sort_by": sort_by,
+            "sort_direction": sort_direction,
         },
     )
     return StreamingResponse(
         output,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{quoted_filename}"},
+        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{quoted_filename}", "Cache-Control": "no-store"},
     )
 
 

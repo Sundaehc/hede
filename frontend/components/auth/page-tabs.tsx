@@ -10,6 +10,7 @@ import { getPinnedPageTabs, setPageTabPinned } from "@/lib/api"
 import { getVisibleNavigation } from "@/lib/navigation"
 import { useSessionQueryState } from "@/lib/session-query-state"
 import { purchaseDetailId, purchaseDetailPath, usePurchaseDetailTabs } from "@/lib/purchase-detail-tabs"
+import { supplierLedgerId, supplierLedgerPath, useSupplierLedgerTabs } from "@/lib/supplier-ledger-tabs"
 import { cn } from "@/lib/utils"
 
 export function PageTabs() {
@@ -18,6 +19,7 @@ export function PageTabs() {
   const router = useRouter()
   const [openPaths, setOpenPaths] = useSessionQueryState<string[]>("workspace:manual-tabs", [])
   const { tabs: detailTabs, closeDetail } = usePurchaseDetailTabs()
+  const { tabs: ledgerTabs, closeLedger } = useSupplierLedgerTabs()
   const [pinnedPaths, setPinnedPaths] = useState<string[]>([])
   const [loading, setLoading] = useState(true)
   const [loaded, setLoaded] = useState(false)
@@ -40,10 +42,19 @@ export function PageTabs() {
       href: purchaseDetailPath(tab.id), label: tab.summary?.trim() || tab.documentNumber, icon: FileText, permission: "purchase.view",
     })))
   }
+  const currentLedgerId = supplierLedgerId(pathname)
+  if (entries.some((entry) => entry.href === "/suppliers")) {
+    entries.push(...ledgerTabs.map((tab) => ({
+      href: supplierLedgerPath(tab.id), label: `${tab.name} · 应付款`, icon: FileText, permission: "inventory.view",
+    })))
+    if (currentLedgerId !== null && !ledgerTabs.some((tab) => tab.id === currentLedgerId)) {
+      entries.push({ href: pathname, label: "供应商应付款明细账", icon: FileText, permission: "inventory.view" })
+    }
+  }
   const current = entries.find((entry) => entry.href === pathname)
   const currentPath = current?.href
   const visiblePaths = new Set(entries.map((entry) => entry.href))
-  const paths = [...new Set([...pinnedPaths, ...openPaths, ...(currentDetailId !== null ? [pathname] : [])])]
+  const paths = [...new Set([...pinnedPaths, ...openPaths, ...(currentDetailId !== null || currentLedgerId !== null ? [pathname] : [])])]
     .filter((path) => visiblePaths.has(path))
 
   useEffect(() => {
@@ -77,7 +88,7 @@ export function PageTabs() {
     const activeBounds = active.getBoundingClientRect()
     if (activeBounds.left < navigationBounds.left) navigation.scrollLeft += activeBounds.left - navigationBounds.left
     else if (activeBounds.right > navigationBounds.right) navigation.scrollLeft += activeBounds.right - navigationBounds.right
-  }, [pathname, pinnedPaths, openPaths, detailTabs.length])
+  }, [pathname, pinnedPaths, openPaths, detailTabs.length, ledgerTabs.length])
 
   async function togglePin(path: string) {
     if (!loaded || loading || savingPath) return
@@ -101,8 +112,10 @@ export function PageTabs() {
     const destination = remaining[Math.max(0, index - 1)]
     const detailId = purchaseDetailId(path)
     if (detailId !== null) closeDetail(detailId)
+    const ledgerId = supplierLedgerId(path)
+    if (ledgerId !== null) closeLedger(ledgerId)
     setOpenPaths((previous) => previous.filter((item) => item !== path))
-    if (path === pathname && (destination || detailId !== null)) router.push(destination || "/purchase-orders", { scroll: false })
+    if (path === pathname && (destination || detailId !== null || ledgerId !== null)) router.push(destination || (ledgerId !== null ? "/suppliers" : "/purchase-orders"), { scroll: false })
   }
 
   return (
@@ -117,7 +130,7 @@ export function PageTabs() {
             const entry = entries.find((item) => item.href === path)!
             const active = path === pathname
             const pinned = pinnedPaths.includes(path)
-            const isDetail = purchaseDetailId(path) !== null
+            const isDetail = purchaseDetailId(path) !== null || supplierLedgerId(path) !== null
             return (
               <div
                 key={path}

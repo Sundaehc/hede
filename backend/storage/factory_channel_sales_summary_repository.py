@@ -6,13 +6,15 @@ from datetime import date
 from typing import Any
 
 import orjson
-from sqlalchemy import and_, create_engine, delete, func, inspect, insert, select, text
+from sqlalchemy import MetaData, Table, and_, create_engine, delete, func, inspect, insert, or_, select, text
 
 from domain.daily_sales_schema import jst_daily_sales_table_for_year, vip_daily_sales_table_for_year
 from domain.factory_channel_sales import channel_group, platform_name, product_for_sale, product_index, sales_metrics, season_group, shop_channel_key
 from domain.factory_channel_sales_summary_schema import FACTORY_CHANNEL_SALES_DAILY_SUMMARY_TABLE
+from domain.inventory_schema import SUPPLIER_BRAND_TABLE
+from domain.product_archive_naming import manual_product_table_name
 from domain.product_goods_shop_channel_schema import PRODUCT_GOODS_SHOP_CHANNEL_MAPPINGS_TABLE
-from domain.schema import PRODUCT_TABLES
+from domain.schema import PRODUCT_ARCHIVE_TABLES, build_product_archive_table
 
 
 DATE_MARKER_STATUS = "date_marker"
@@ -33,6 +35,21 @@ def _consumer_sales_channel_condition(channel_column):
         ~channel.ilike("%-公司"),
         ~channel.ilike("%VMI%"),
     )
+
+
+def _product_archive_tables(connection, inspector) -> dict[str, Table]:
+    tables = dict(PRODUCT_ARCHIVE_TABLES)
+    if inspector.has_table(SUPPLIER_BRAND_TABLE.name):
+        configured = connection.execute(
+            select(SUPPLIER_BRAND_TABLE.c.code, SUPPLIER_BRAND_TABLE.c.product_table_name)
+            .where(SUPPLIER_BRAND_TABLE.c.product_archive_enabled.is_(True))
+        ).mappings()
+        for row in configured:
+            brand = str(row["code"])
+            name = manual_product_table_name(row["product_table_name"])
+            if brand not in tables and name:
+                tables[brand] = build_product_archive_table(name, metadata=MetaData())
+    return {brand: table for brand, table in tables.items() if inspector.has_table(table.name)}
 
 
 def summarize_factory_channel_sales(
@@ -143,6 +160,8 @@ class FactoryChannelSalesSummaryRepository:
         sales_year: int,
         date_start: date | None = None,
         date_end: date | None = None,
+        brands: Iterable[str] | None = None,
+        dry_run: bool = False,
     ) -> dict[str, Any]:
         range_start = date_start or date(sales_year, 1, 1)
         range_end = date_end or date(sales_year, 12, 31)
@@ -151,12 +170,24 @@ class FactoryChannelSalesSummaryRepository:
         if range_start.year != sales_year or range_end.year != sales_year:
             raise ValueError("Factory-channel summary refresh must stay within one calendar year")
 
-        FACTORY_CHANNEL_SALES_DAILY_SUMMARY_TABLE.create(self.engine, checkfirst=True)
+        requested_brands = None if brands is None else list(dict.fromkeys(brands))
+        if requested_brands == []:
+            raise ValueError("At least one brand must be selected")
+        if not dry_run:
+            FACTORY_CHANNEL_SALES_DAILY_SUMMARY_TABLE.create(self.engine, checkfirst=True)
         inspector = inspect(self.engine)
         jst_table = jst_daily_sales_table_for_year(sales_year)
         vip_table = vip_daily_sales_table_for_year(sales_year)
 
         with self.engine.connect() as connection:
+            tables = _product_archive_tables(connection, inspector)
+            if requested_brands is not None:
+                unknown = set(requested_brands) - tables.keys()
+                if unknown:
+                    raise ValueError("Unknown or unavailable product archive brands: " + ", ".join(sorted(unknown)))
+                tables = {brand: tables[brand] for brand in requested_brands}
+            if not tables:
+                raise ValueError("No product archives are available for sales summaries")
             product_rows_by_brand = {
                 brand: [
                     dict(row)
@@ -166,7 +197,7 @@ class FactoryChannelSalesSummaryRepository:
                         .where(table.c.sku.is_not(None))
                     ).mappings()
                 ]
-                for brand, table in PRODUCT_TABLES.items()
+                for brand, table in tables.items()
             }
             shop_channel_mappings_by_brand: dict[str, dict[str, str]] = defaultdict(dict)
             if inspector.has_table(PRODUCT_GOODS_SHOP_CHANNEL_MAPPINGS_TABLE.name):
@@ -230,7 +261,11 @@ class FactoryChannelSalesSummaryRepository:
                     )
                     .where(jst_table.c.sales_date.between(range_start, range_end))
                     .where(_consumer_sales_channel_condition(jst_table.c.channel))
-                    .where(func.coalesce(jst_table.c.net_sales_quantity, 0) != 0)
+                    .where(or_(
+                        func.coalesce(jst_table.c.net_sales_quantity, 0) != 0,
+                        func.coalesce(jst_table.c.sales_quantity, 0) != 0,
+                        func.coalesce(jst_table.c.return_quantity, 0) != 0,
+                    ))
                     .group_by(
                         jst_table.c.product_code,
                         jst_table.c.style_code,
@@ -248,19 +283,35 @@ class FactoryChannelSalesSummaryRepository:
             covered_sales_dates=covered_sales_dates,
         )
 
+        result = {
+            "sales_year": sales_year,
+            "date_start": range_start.isoformat(),
+            "date_end": range_end.isoformat(),
+            "brands": list(product_rows_by_brand),
+            "dry_run": dry_run,
+            "written": 0 if dry_run else len(rows),
+            "prepared_rows": len(rows),
+            "matched_rows": sum(row["match_status"] == MATCHED_STATUS for row in rows),
+            "unmatched_rows": sum(row["match_status"] == UNMATCHED_STATUS for row in rows),
+            "covered_days": len(covered_sales_dates),
+            "gross_quantity": sum(row["gross_quantity"] for row in rows if row["match_status"] == MATCHED_STATUS),
+            "quantity": sum(row["quantity"] for row in rows if row["match_status"] == MATCHED_STATUS),
+        }
+        if dry_run:
+            return result
+
         with self.engine.begin() as connection:
-            connection.execute(text(
-                f"ALTER TABLE {FACTORY_CHANNEL_SALES_DAILY_SUMMARY_TABLE.name} "
-                "ADD COLUMN IF NOT EXISTS gross_quantity BIGINT NOT NULL DEFAULT 0"
-            ))
-            connection.execute(text(
-                f"ALTER TABLE {FACTORY_CHANNEL_SALES_DAILY_SUMMARY_TABLE.name} "
-                "ADD COLUMN IF NOT EXISTS return_quantity BIGINT NOT NULL DEFAULT 0"
-            ))
+            columns = {column["name"] for column in inspect(connection).get_columns(FACTORY_CHANNEL_SALES_DAILY_SUMMARY_TABLE.name)}
+            for column in ("gross_quantity", "return_quantity"):
+                if column not in columns:
+                    connection.execute(text(
+                        f"ALTER TABLE {FACTORY_CHANNEL_SALES_DAILY_SUMMARY_TABLE.name} "
+                        f"ADD COLUMN {column} BIGINT NOT NULL DEFAULT 0"
+                    ))
             connection.execute(
                 delete(FACTORY_CHANNEL_SALES_DAILY_SUMMARY_TABLE).where(
                     FACTORY_CHANNEL_SALES_DAILY_SUMMARY_TABLE.c.sales_date.between(range_start, range_end)
-                )
+                ).where(FACTORY_CHANNEL_SALES_DAILY_SUMMARY_TABLE.c.brand.in_(product_rows_by_brand))
             )
             for offset in range(0, len(rows), INSERT_BATCH_SIZE):
                 connection.execute(
@@ -269,13 +320,4 @@ class FactoryChannelSalesSummaryRepository:
                 )
             connection.exec_driver_sql("ANALYZE factory_channel_sales_daily_summaries")
 
-        matched_rows = sum(1 for row in rows if row["match_status"] == MATCHED_STATUS)
-        unmatched_rows = sum(1 for row in rows if row["match_status"] == UNMATCHED_STATUS)
-        return {
-            "sales_year": sales_year,
-            "date_start": range_start.isoformat(),
-            "date_end": range_end.isoformat(),
-            "written": len(rows),
-            "matched_rows": matched_rows,
-            "unmatched_rows": unmatched_rows,
-        }
+        return result

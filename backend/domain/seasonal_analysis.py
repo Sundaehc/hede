@@ -14,18 +14,22 @@ def _ratio(numerator, denominator):
 
 
 def _summary(products, quarter, cutoff, coverage, brand_gross, purchase_ready):
-    complete = cutoff is not None and coverage and all(p["sales_complete"] for p in products)
+    # New launches after the sales cutoff still count as seasonal products,
+    # but have no sales observation window in this historical total.
+    sales_products = [p for p in products if cutoff and p["launch_date"] <= cutoff.isoformat()]
+    complete = cutoff is not None and coverage and all(p["sales_complete"] for p in sales_products)
+    sell_through_complete = complete and all(p["sales_complete"] for p in products)
     received = sum(Decimal(p["received"][quarter - 1]) for p in products)
     inbound = sum(Decimal(p["inbound"][quarter - 1]) for p in products)
-    net = sum(p["net"] for p in products)
-    gross = sum(p["gross"] for p in products)
+    net = sum(p["net"] for p in sales_products)
+    gross = sum(p["gross"] for p in sales_products)
     return {
         "product_count": len(products), "gross_sales": gross if complete else None,
         "net_sales": net if complete else None,
         "sales_share": _ratio(gross, brand_gross) if complete else None,
         "inbound_quantity": str(inbound) if purchase_ready and cutoff else None,
         "received_quantity": str(received) if purchase_ready and cutoff else None,
-        "sell_through_rate": _ratio(net, received) if complete and purchase_ready and all(Decimal(p["received"][quarter-1]) > 0 for p in products) else None,
+        "sell_through_rate": _ratio(net, received) if sell_through_complete and purchase_ready and all(Decimal(p["received"][quarter-1]) > 0 for p in products) else None,
         "single_order_count": sum(p["order_state"] == "single" for p in products),
         "multiple_order_count": sum(p["order_state"] == "multiple" for p in products),
         "unknown_order_count": sum(p["order_state"] == "unknown" for p in products),
@@ -118,8 +122,9 @@ def analyze_quarter(facts, *, year, quarter, season="", query="", status="all", 
                 if day in daily and day >= p["launch_date"]:
                     daily[day][0] += gross
                     daily[day][1] += net
-        trend = [{"date": day, "gross": None if date.fromisoformat(day) in missing or any(p.get("sales_ambiguous") for p in products) else values[0],
-                  "net": None if date.fromisoformat(day) in missing or any(p.get("sales_ambiguous") for p in products) else values[1]} for day, values in daily.items()]
+        ambiguous_sales = any(p.get("sales_ambiguous") for p in products if cutoff and p["launch_date"] <= cutoff.isoformat())
+        trend = [{"date": day, "gross": None if date.fromisoformat(day) in missing or ambiguous_sales else values[0],
+                  "net": None if date.fromisoformat(day) in missing or ambiguous_sales else values[1]} for day, values in daily.items()]
     groups = []
     for state in ("single", "multiple", "unknown"):
         members = [p for p in selected if p["order_state"] == state]

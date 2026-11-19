@@ -35,6 +35,10 @@ type ManagedBrand = {
   name: string
 }
 
+export function getProductArchiveBrandLabel(code: string, name: string) {
+  return code === "eblan" ? "伊伴" : name
+}
+
 const PRODUCT_ARCHIVE_BRAND_CODES = new Set<string>([
   "cbanner_mens",
   "cbanner_womens",
@@ -55,7 +59,7 @@ export function resolveProductArchiveBrands(managedBrands: readonly ManagedBrand
     const staticBrand = staticByCode.get(code)
     if (configuredCodes.has(code)) continue
     configuredCodes.add(code)
-    const archiveLabel = code === "eblan" ? staticBrand?.label : managedBrand.name
+    const archiveLabel = getProductArchiveBrandLabel(code, managedBrand.name)
     configuredBrands.push({ key: code, label: archiveLabel || staticBrand?.label || code })
   }
 

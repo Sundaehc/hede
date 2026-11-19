@@ -13,6 +13,10 @@ const { mockProducts, mockSuppliers, mockSupplierBrands, mockArchiveBrands, mock
 vi.mock("@/components/auth/auth-provider", () => ({
   useAuth: () => ({ user: { id: 1, role_code: "super_admin" }, hasPermission: mockHasPermission }),
 }))
+vi.mock("next/navigation", async () => ({
+  ...(await vi.importActual<typeof import("next/navigation")>("next/navigation")),
+  useRouter: () => ({ push: vi.fn() }),
+}))
 vi.mock("@/components/operation-log-dialog", () => ({ OperationLogDialog: () => null }))
 vi.mock("@/components/inventory-admin/counterparty-ledger-dialog", () => ({ CounterpartyLedgerDialog: () => null }))
 vi.mock("@/lib/api", async () => ({
@@ -110,7 +114,7 @@ test("a new product archive brand is selectable and shows its name in product de
   const code = "supplier_brand_33aa8a0c3b6a"
   mockArchiveBrands.mockResolvedValue({ items: [{ id: 4960, code, name: "千百度赫锦" }] })
   mockProducts.mockResolvedValue({ items: [{ id: 1, brand: code, sku: "HEJIN-001" }], total: 1, page: 1, page_size: 10 })
-  mockHasPermission.mockImplementation((permission) => permission !== "product.manage")
+  mockHasPermission.mockImplementation((permission) => !["product.manage", "product.edit"].includes(permission))
   const user = userEvent.setup()
   render(<ProductAdminPage />)
   await user.click(await screen.findByRole("tab", { name: "千百度赫锦" }))

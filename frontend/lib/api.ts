@@ -1,7 +1,8 @@
-import type {
-  BrandKey,
-  ProductArchiveBrandKey,
-  ProductArchiveRecordBrandKey,
+import {
+  getProductArchiveBrandLabel,
+  type BrandKey,
+  type ProductArchiveBrandKey,
+  type ProductArchiveRecordBrandKey,
 } from "@/lib/brands"
 import type {
   ImageLookupResult,
@@ -98,8 +99,11 @@ export function updateStockAlertTasks(payload: TaskBatchUpdate) {
   return request<TaskBatchResult>("/stock-alerts/tasks/batch-update", { method: "POST", body: JSON.stringify(payload) })
 }
 
-export function getStockAlertOptions(signal?: AbortSignal) {
-  return request<{ brands: Array<{ value: string; label: string }> }>("/stock-alerts/options", { signal })
+export async function getStockAlertOptions(signal?: AbortSignal) {
+  const result = await request<{ brands: Array<{ value: string; label: string }> }>("/stock-alerts/options", { signal })
+  return { ...result, brands: result.brands.map((brand) => ({
+    ...brand, label: getProductArchiveBrandLabel(brand.value, brand.label),
+  })) }
 }
 
 export function getStockAlerts(filters: StockAlertFilters, kind: StockAlertKind, options: { signal?: AbortSignal; refresh?: boolean } = {}) {
@@ -1835,20 +1839,30 @@ export function listInventoryRecycleBin(params: {
   )
 }
 
+export type CounterpartyLedgerSortKey = "row_number" | "date" | "document_number" | "summary" | "increase_amount" | "decrease_amount" | "balance"
+
+export function getSupplier(id: number, signal?: AbortSignal) {
+  return request<{ item: SupplierItem }>(`/suppliers/${id}`, { signal, cache: "no-store" })
+}
+
 export function listCounterpartyLedger(params: {
   counterpartyType: "supplier" | "customer"
   name: string
   dateStart?: string
   dateEnd?: string
-}) {
+  sortBy?: CounterpartyLedgerSortKey
+  sortDirection?: "asc" | "desc"
+}, signal?: AbortSignal) {
   const search = new URLSearchParams({
     counterparty_type: params.counterpartyType,
     name: params.name,
   })
   if (params.dateStart) search.set("date_start", params.dateStart)
   if (params.dateEnd) search.set("date_end", params.dateEnd)
+  if (params.sortBy) search.set("sort_by", params.sortBy)
+  if (params.sortDirection) search.set("sort_direction", params.sortDirection)
   return request<CounterpartyLedgerResponse>(
-    `/inventory/counterparty-ledger?${search.toString()}`
+    `/inventory/counterparty-ledger?${search.toString()}`, { signal, cache: "no-store" }
   )
 }
 
@@ -2617,22 +2631,38 @@ export async function downloadGeneralCustomerLedger(params: {
   name: string
   dateStart?: string
   dateEnd?: string
-}) {
+  sortBy?: CounterpartyLedgerSortKey
+  sortDirection?: "asc" | "desc"
+}, signal?: AbortSignal) {
+  return downloadCounterpartyLedger("customer", params, signal)
+}
+
+export async function downloadCounterpartyLedger(counterpartyType: "supplier" | "customer", params: {
+  name: string
+  dateStart?: string
+  dateEnd?: string
+  sortBy?: CounterpartyLedgerSortKey
+  sortDirection?: "asc" | "desc"
+}, signal?: AbortSignal) {
   const search = new URLSearchParams({ name: params.name })
   if (params.dateStart) search.set("date_start", params.dateStart)
   if (params.dateEnd) search.set("date_end", params.dateEnd)
+  if (params.sortBy) search.set("sort_by", params.sortBy)
+  if (params.sortDirection) search.set("sort_direction", params.sortDirection)
+  const path = counterpartyType === "supplier" ? "supplier-ledger" : "counterparty-ledger"
   const response = await fetch(
-    `${API_PREFIX}/inventory/counterparty-ledger/export?${search.toString()}`,
-    { credentials: "include" },
+    `${API_PREFIX}/inventory/${path}/export?${search.toString()}`,
+    { credentials: "include", signal, cache: "no-store" },
   )
   if (!response.ok) {
     throw new ApiError(response.status, await readApiError(response))
   }
   const filename = filenameFromContentDisposition(
     response.headers.get("content-disposition"),
-    "一般客户应收款明细账本.xlsx",
+    counterpartyType === "supplier" ? "供应商应付款明细账本.xlsx" : "一般客户应收款明细账本.xlsx",
   )
   const blob = await response.blob()
+  if (signal?.aborted) return
   downloadBlob(blob, filename)
   return { filename, size: blob.size }
 }
@@ -3256,9 +3286,25 @@ export function deleteColorBarcode(id: number) {
   })
 }
 
-export function listSuppliersByBrand(brand: ProductArchiveRecordBrandKey) {
-  const search = new URLSearchParams({ brand })
-  return request<SupplierListResponse>(`/suppliers?${search.toString()}`)
+export async function listSuppliersByBrand(brand: ProductArchiveRecordBrandKey) {
+  const load = (supplierBrand: string) => {
+    const search = new URLSearchParams({ brand: supplierBrand })
+    return request<SupplierListResponse>(`/suppliers?${search.toString()}`, {
+      cache: "no-store",
+    })
+  }
+  if (brand !== "eblan") return load(brand)
+
+  // The shared Eblan product archive uses both supplier-management groups.
+  const responses = await Promise.all([load("eblan"), load("eblan_womens")])
+  const items = Array.from(
+    new Map(
+      responses.flatMap((response) => response.items).map((item) => [item.id, item])
+    ).values()
+  ).sort((left, right) =>
+    left.name.localeCompare(right.name, "zh-CN", { numeric: true })
+  )
+  return { items, total: items.length, page: 1, page_size: items.length }
 }
 
 export async function exportSuppliers(params?: {

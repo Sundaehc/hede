@@ -1,18 +1,21 @@
 "use client"
 
-import { Fragment, useCallback, useEffect, useMemo, useState } from "react"
-import { Download, RefreshCw, X } from "lucide-react"
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from "react"
+import { ArrowLeft, Download, RefreshCw, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { DateRangeControl } from "@/components/ui/date-range-control"
 import { useAuth } from "@/components/auth/auth-provider"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { defaultLedgerQuery, type LedgerQueryState } from "@/lib/supplier-ledger-tabs"
 import {
   ApiError,
   downloadGeneralCustomerLedger,
+  downloadCounterpartyLedger,
   listCounterpartyLedger,
   listDetails,
   type CounterpartyLedgerResponse,
   type InventoryDetail,
+  type CounterpartyLedgerSortKey,
 } from "@/lib/api"
 
 type CounterpartyLedgerDialogProps = {
@@ -20,27 +23,15 @@ type CounterpartyLedgerDialogProps = {
   counterpartyType: "supplier" | "customer"
   name: string
   onOpenChange: (open: boolean) => void
+  presentation?: "dialog" | "page"
+  queryState?: LedgerQueryState
+  onQueryChange?: Dispatch<SetStateAction<LedgerQueryState>>
 }
 
 function getErrorMessage(error: unknown) {
   if (error instanceof ApiError) return error.message || `请求失败（${error.status}）`
   if (error instanceof Error) return error.message
   return "发生未知错误"
-}
-
-function todayText() {
-  const date = new Date()
-  const year = date.getFullYear()
-  const month = String(date.getMonth() + 1).padStart(2, "0")
-  const day = String(date.getDate()).padStart(2, "0")
-  return `${year}-${month}-${day}`
-}
-
-function monthStartText() {
-  const date = new Date()
-  const year = date.getFullYear()
-  const month = String(date.getMonth() + 1).padStart(2, "0")
-  return `${year}-${month}-01`
 }
 
 function formatMoney(value: string | number | null | undefined) {
@@ -92,10 +83,19 @@ function getDetailSizeQuantity(values: Record<string, string> | null | undefined
   return millimeterSize ? values[millimeterSize] || "" : ""
 }
 
-export function CounterpartyLedgerDialog({ open, counterpartyType, name, onOpenChange }: CounterpartyLedgerDialogProps) {
-  const { user } = useAuth()
-  const [dateStart, setDateStart] = useState(monthStartText)
-  const [dateEnd, setDateEnd] = useState(todayText)
+export function CounterpartyLedgerDialog({ open, counterpartyType, name, onOpenChange, presentation = "dialog", queryState, onQueryChange }: CounterpartyLedgerDialogProps) {
+  const { user, hasPermission } = useAuth()
+  const [localQuery, setLocalQuery] = useState(defaultLedgerQuery)
+  const query = queryState ?? localQuery
+  const { dateStart, dateEnd, dateStartInput, dateEndInput, sortBy, sortDirection } = query
+  const updateQuery = (patch: Partial<LedgerQueryState>) => {
+    const setQuery = onQueryChange ?? setLocalQuery
+    setQuery((current) => ({ ...current, ...patch }))
+  }
+  const [refreshVersion, setRefreshVersion] = useState(0)
+  const requestRef = useRef<AbortController | null>(null)
+  const exportRef = useRef<AbortController | null>(null)
+  const detailScopeRef = useRef(0)
   const [ledger, setLedger] = useState<CounterpartyLedgerResponse | null>(null)
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState("")
@@ -110,10 +110,16 @@ export function CounterpartyLedgerDialog({ open, counterpartyType, name, onOpenC
   const canExportCustomerLedger = counterpartyType === "customer" && (
     user?.role_code === "super_admin" || user?.department_code === "财务部"
   )
+  const canExport = counterpartyType === "supplier" ? hasPermission("inventory.export") : canExportCustomerLedger
 
   const load = useCallback(async () => {
     if (!open || !name) return
+    requestRef.current?.abort()
+    const controller = new AbortController()
+    requestRef.current = controller
+    detailScopeRef.current += 1
     setIsLoading(true)
+    setLedger(null)
     setError("")
     try {
       const response = await listCounterpartyLedger({
@@ -121,22 +127,32 @@ export function CounterpartyLedgerDialog({ open, counterpartyType, name, onOpenC
         name,
         dateStart,
         dateEnd,
-      })
+        sortBy,
+        sortDirection,
+      }, controller.signal)
+      if (controller.signal.aborted) return
       setLedger(response)
       setExpandedId(null)
       setDetailsByDocumentId({})
       setDetailErrorByDocumentId({})
     } catch (err) {
+      if (controller.signal.aborted) return
       setLedger(null)
       setError(getErrorMessage(err))
     } finally {
-      setIsLoading(false)
+      if (!controller.signal.aborted) setIsLoading(false)
     }
-  }, [counterpartyType, dateEnd, dateStart, name, open])
+  }, [counterpartyType, dateEnd, dateStart, name, open, sortBy, sortDirection])
 
   useEffect(() => {
     if (open) void load()
-  }, [load, open])
+    return () => { requestRef.current?.abort(); detailScopeRef.current += 1 }
+  }, [load, open, refreshVersion])
+
+  useEffect(() => {
+    setIsExporting(false)
+    return () => { exportRef.current?.abort() }
+  }, [open, counterpartyType, name, dateStart, dateEnd, sortBy, sortDirection])
 
   useEffect(() => {
     if (!open) {
@@ -157,6 +173,7 @@ export function CounterpartyLedgerDialog({ open, counterpartyType, name, onOpenC
     if (detailsByDocumentId[documentId]) return
 
     setDetailLoadingId(documentId)
+    const scope = detailScopeRef.current
     setDetailErrorByDocumentId((current) => {
       const next = { ...current }
       delete next[documentId]
@@ -164,25 +181,32 @@ export function CounterpartyLedgerDialog({ open, counterpartyType, name, onOpenC
     })
     try {
       const response = await listDetails(documentId)
+      if (scope !== detailScopeRef.current) return
       setDetailsByDocumentId((current) => ({ ...current, [documentId]: response.items }))
     } catch (err) {
+      if (scope !== detailScopeRef.current) return
       setDetailErrorByDocumentId((current) => ({ ...current, [documentId]: getErrorMessage(err) }))
       setDetailsByDocumentId((current) => ({ ...current, [documentId]: [] }))
     } finally {
-      setDetailLoadingId((current) => (current === documentId ? null : current))
+      if (scope === detailScopeRef.current) setDetailLoadingId((current) => (current === documentId ? null : current))
     }
   }, [detailsByDocumentId, expandedId])
 
   const handleExport = async () => {
-    if (!canExportCustomerLedger || !name || isExporting) return
+    if (!canExport || !name || isExporting || isLoading || !ledger) return
+    const controller = new AbortController()
+    exportRef.current = controller
     setIsExporting(true)
     setError("")
     try {
-      await downloadGeneralCustomerLedger({ name, dateStart, dateEnd })
+      const params = { name, dateStart, dateEnd, sortBy, sortDirection }
+      if (counterpartyType === "customer") await downloadGeneralCustomerLedger(params, controller.signal)
+      else await downloadCounterpartyLedger("supplier", params, controller.signal)
     } catch (err) {
+      if (controller.signal.aborted) return
       setError(getErrorMessage(err))
     } finally {
-      setIsExporting(false)
+      if (!controller.signal.aborted) setIsExporting(false)
     }
   }
 
@@ -194,13 +218,20 @@ export function CounterpartyLedgerDialog({ open, counterpartyType, name, onOpenC
     ending: ledger?.ending_balance ?? "0",
   }), [ledger])
 
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[88vh] max-w-6xl overflow-hidden">
+  const Heading = presentation === "page" ? "h1" : DialogTitle
+  const columns: { key: CounterpartyLedgerSortKey; label: string; numeric?: boolean }[] = [
+    { key: "row_number", label: "行号" }, { key: "date", label: "日期" },
+    { key: "document_number", label: "单据编号" }, { key: "summary", label: "单据摘要" },
+    { key: "increase_amount", label: "增加金额", numeric: true },
+    { key: "decrease_amount", label: "减少金额", numeric: true },
+    { key: "balance", label: "余额", numeric: true },
+  ]
+  const content = (
+    <>
         <DialogHeader>
           <div className="flex items-center justify-between gap-3">
             <div>
-              <DialogTitle>{title}</DialogTitle>
+              <Heading className={presentation === "page" ? "page-title" : undefined}>{title}</Heading>
               <p className="mt-1 text-sm text-muted-foreground">
                 {unitLabel} <span className="font-medium text-foreground">{name || "-"}</span>
               </p>
@@ -208,32 +239,44 @@ export function CounterpartyLedgerDialog({ open, counterpartyType, name, onOpenC
             <Button
               type="button"
               variant="ghost"
-              size="icon"
+              size={presentation === "page" ? "sm" : "icon"}
               onClick={() => onOpenChange(false)}
-              className="h-8 w-8 cursor-pointer"
-              aria-label="关闭明细账本"
-              title="关闭"
+              className={presentation === "page" ? "shrink-0 cursor-pointer" : "h-8 w-8 cursor-pointer"}
+              aria-label={presentation === "page" ? "返回供应商管理" : "关闭明细账本"}
+              title={presentation === "page" ? "返回供应商管理" : "关闭"}
             >
-              <X className="h-4 w-4" />
+              {presentation === "page" ? <><ArrowLeft className="h-4 w-4" /><span>返回供应商管理</span></> : <X className="h-4 w-4" />}
             </Button>
           </div>
         </DialogHeader>
 
-        <div className="space-y-3 overflow-hidden">
-          <div className="flex flex-wrap items-center gap-3 rounded-lg border border-border bg-muted/25 p-3">
-            <DateRangeControl start={dateStart} end={dateEnd} onStartChange={setDateStart} onEndChange={setDateEnd} />
-            <div className="flex items-center gap-2">
-              <Button onClick={() => void load()} disabled={isLoading || !name} className="cursor-pointer">
+        <div className="mt-3 space-y-3 overflow-hidden">
+          <div className="rounded-lg border border-border bg-muted/25 p-3">
+            <DateRangeControl
+              start={dateStartInput}
+              end={dateEndInput}
+              onStartChange={(value) => updateQuery({ dateStartInput: value })}
+              onEndChange={(value) => updateQuery({ dateEndInput: value })}
+              actions={<>
+              <Button size="lg" onClick={() => {
+                if (dateStartInput && dateEndInput && dateStartInput > dateEndInput) {
+                  setError("起始日期不能晚于截止日期")
+                  return
+                }
+                updateQuery({ dateStart: dateStartInput, dateEnd: dateEndInput })
+                setRefreshVersion((value) => value + 1)
+              }} disabled={isLoading || !name} className="cursor-pointer">
                 <RefreshCw className={`h-4 w-4 ${isLoading ? "animate-spin" : ""}`} />
-                <span className="ml-1.5">{isLoading ? "查询中..." : "查询"}</span>
+                <span>{isLoading ? "查询中..." : "查询"}</span>
               </Button>
-              {canExportCustomerLedger && (
-                <Button type="button" variant="outline" onClick={() => void handleExport()} disabled={isExporting || !name} className="cursor-pointer">
+              {canExport && (
+                <Button type="button" size="lg" variant="outline" onClick={() => void handleExport()} disabled={isExporting || isLoading || !name || !ledger} className="cursor-pointer">
                   <Download className="h-4 w-4" />
-                  <span className="ml-1.5">{isExporting ? "导出中..." : "导出 Excel"}</span>
+                  <span>{isExporting ? "导出中..." : "导出 Excel"}</span>
                 </Button>
               )}
-            </div>
+              </>}
+            />
           </div>
 
           <div className="grid gap-2 sm:grid-cols-4">
@@ -256,12 +299,13 @@ export function CounterpartyLedgerDialog({ open, counterpartyType, name, onOpenC
           </div>
 
           {error && (
-            <div className="rounded-lg border border-destructive/25 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+            <div role="alert" className="rounded-lg border border-destructive/25 bg-destructive/10 px-3 py-2 text-sm text-destructive">
               {error}
             </div>
           )}
 
-          <div className="max-h-[46vh] overflow-auto rounded-lg border border-border">
+          <p className="text-xs text-muted-foreground">点击表头可切换排序；余额按单据发生顺序计算，排序仅调整展示顺序。</p>
+          <div className={`${presentation === "page" ? "max-h-[calc(100svh-23rem)] min-h-64" : "max-h-[46vh]"} overflow-auto rounded-lg border border-border`}>
             <table className="w-full min-w-[1120px] table-fixed text-sm">
               <colgroup>
                 <col className="w-14" />
@@ -274,13 +318,11 @@ export function CounterpartyLedgerDialog({ open, counterpartyType, name, onOpenC
               </colgroup>
               <thead className="sticky top-0 z-10">
                 <tr className="border-b border-border bg-muted text-left text-muted-foreground">
-                  <th className="whitespace-nowrap px-3 py-2 font-medium">行号</th>
-                  <th className="whitespace-nowrap px-3 py-2 font-medium">日期</th>
-                  <th className="whitespace-nowrap px-3 py-2 font-medium">单据编号</th>
-                  <th className="whitespace-nowrap px-3 py-2 font-medium">单据摘要</th>
-                  <th className="whitespace-nowrap px-3 py-2 text-right font-medium">增加金额</th>
-                  <th className="whitespace-nowrap px-3 py-2 text-right font-medium">减少金额</th>
-                  <th className="whitespace-nowrap px-3 py-2 text-right font-medium">余额</th>
+                  {columns.map((column) => <th key={column.key} aria-sort={sortBy === column.key ? sortDirection === "asc" ? "ascending" : "descending" : "none"} className={`whitespace-nowrap px-3 py-2 font-medium ${column.numeric ? "text-right" : ""}`}>
+                    <button type="button" onClick={() => updateQuery({ sortBy: column.key, sortDirection: sortBy === column.key ? sortDirection === "asc" ? "desc" : "asc" : column.numeric ? "desc" : "asc" })} className="cursor-pointer rounded px-1 py-1 hover:bg-muted-foreground/10 focus-visible:outline-2 focus-visible:outline-ring" aria-label={`按${column.label}排序`}>
+                      {column.label}<span aria-hidden="true" className="ml-1">{sortBy === column.key ? sortDirection === "asc" ? "↑" : "↓" : "↕"}</span>
+                    </button>
+                  </th>)}
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
@@ -289,7 +331,7 @@ export function CounterpartyLedgerDialog({ open, counterpartyType, name, onOpenC
                     <td colSpan={LEDGER_COLUMN_COUNT} className="px-4 py-10 text-center text-muted-foreground">加载中...</td>
                   </tr>
                 )}
-                {!isLoading && rows.length === 0 && (
+                {!isLoading && !error && rows.length === 0 && (
                   <tr>
                     <td colSpan={LEDGER_COLUMN_COUNT} className="px-4 py-10 text-center text-muted-foreground">该时间范围内暂无单据</td>
                   </tr>
@@ -414,7 +456,8 @@ export function CounterpartyLedgerDialog({ open, counterpartyType, name, onOpenC
             </table>
           </div>
         </div>
-      </DialogContent>
-    </Dialog>
+    </>
   )
+  if (presentation === "page") return <div className="app-page"><div className="app-content-wide">{content}</div></div>
+  return <Dialog open={open} onOpenChange={onOpenChange}><DialogContent className="max-h-[88vh] max-w-6xl overflow-hidden">{content}</DialogContent></Dialog>
 }

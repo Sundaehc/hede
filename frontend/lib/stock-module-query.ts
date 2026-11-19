@@ -25,6 +25,7 @@ const OPTION_RESOURCES: readonly BusinessDataResource[] = ["reference-data"]
 export function useStockModuleQuery<T>({
   group,
   queryKey,
+  previousDataKey,
   revision = 0,
   resources,
   load,
@@ -34,6 +35,8 @@ export function useStockModuleQuery<T>({
 }: {
   group: string
   queryKey: string
+  /** Only reuse previous results from this display scope, when provided. */
+  previousDataKey?: string
   revision?: number
   resources: readonly BusinessDataResource[]
   load: (signal: AbortSignal, refreshFacts: boolean) => Promise<T>
@@ -62,6 +65,7 @@ export function useStockModuleQuery<T>({
   const [state, setState] = useState<{
     key: string
     family: string
+    previousDataKey?: string
     revision: number
     data: T | null
     error: string | null
@@ -71,7 +75,7 @@ export function useStockModuleQuery<T>({
   const cached = readStockModuleQuery<T>(key)
   const current = state?.key === key ? state : null
   const data = current?.data ?? cached?.data ?? null
-  const error = current?.error ?? null
+  const error = current?.revision === revision ? current.error : null
   const loading = data === null && !error
   const refreshing =
     current?.revision !== revision && (revision > 0 || !cached?.fresh)
@@ -93,13 +97,21 @@ export function useStockModuleQuery<T>({
     )
       .then((data) => {
         if (!controller.signal.aborted)
-          setState({ key, family, revision, data, error: null })
+          setState({
+            key,
+            family,
+            previousDataKey,
+            revision,
+            data,
+            error: null,
+          })
       })
       .catch((cause: unknown) => {
         if (!controller.signal.aborted)
           setState((previous) => ({
             key,
             family,
+            previousDataKey,
             revision,
             data:
               previous?.key === key
@@ -109,11 +121,16 @@ export function useStockModuleQuery<T>({
           }))
       })
     return () => controller.abort()
-  }, [key, family, revision, ttl, retention, factsToken])
+  }, [key, family, previousDataKey, revision, ttl, retention, factsToken])
 
   return {
     data,
-    previousData: state?.family === family ? state.data : null,
+    previousData:
+      state?.family === family &&
+      (previousDataKey === undefined ||
+        state.previousDataKey === previousDataKey)
+        ? state.data
+        : null,
     error,
     loading,
     refreshing: loading || refreshing,

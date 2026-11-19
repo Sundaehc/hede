@@ -1,6 +1,6 @@
 "use client"
 
-import { useId, useState } from "react"
+import { useId, useState, type ReactNode } from "react"
 import { CalendarDays, ChevronDown, ChevronLeft, ChevronRight } from "lucide-react"
 
 import { DatePicker } from "@/components/ui/date-picker"
@@ -19,6 +19,7 @@ type DateRangeControlProps = {
   className?: string
   disabled?: boolean
   maxDate?: string
+  actions?: ReactNode
 }
 
 function parseDate(value: string): Date | null {
@@ -50,7 +51,7 @@ function periodFor(start: string, end: string, maxDate?: string): Period {
   return "custom"
 }
 
-export function DateRangeControl({ start, end, onStartChange, onEndChange, label = "日期范围", hideLabel = false, size = "default", className, disabled, maxDate }: DateRangeControlProps) {
+export function DateRangeControl({ start, end, onStartChange, onEndChange, label = "日期范围", hideLabel = false, size = "default", className, disabled, maxDate, actions }: DateRangeControlProps) {
   const [customOpen, setCustomOpen] = useState(false)
   const startId = useId()
   const endId = useId()
@@ -164,6 +165,7 @@ export function DateRangeControl({ start, end, onStartChange, onEndChange, label
           <button type="button" aria-label="上一周期" title="上一周期" disabled={disabled || !start || !end || start > end} onClick={() => shift(-1)} className={cn("flex cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring disabled:cursor-not-allowed disabled:opacity-40", size === "sm" ? "size-6" : "size-7")}><ChevronLeft className="size-4" /></button>
           <button type="button" aria-label="下一周期" title="下一周期" disabled={disabled || !start || !end || start > end || !canNext} onClick={() => shift(1)} className={cn("flex cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring disabled:cursor-not-allowed disabled:opacity-40", size === "sm" ? "size-6" : "size-7")}><ChevronRight className="size-4" /></button>
         </div>
+        {actions ? <div className="flex shrink-0 items-center gap-2">{actions}</div> : null}
       </div>
       {customOpen && (
         <div className="flex max-w-full flex-wrap items-end gap-3 rounded-lg border border-border bg-muted/25 p-3 shadow-xs">
