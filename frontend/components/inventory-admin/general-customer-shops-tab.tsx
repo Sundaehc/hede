@@ -2,13 +2,15 @@
 
 import { useSessionQueryState } from "@/lib/session-query-state"
 
-import { type DragEvent, useCallback, useEffect, useMemo, useState } from "react"
+import { type DragEvent, useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { ChevronDown, ChevronRight, Edit, GripVertical, History, PauseCircle, Plus, RotateCcw, Search, Trash2, X } from "lucide-react"
 
 import { ConfirmDialog, MessageDialog } from "@/components/confirm-dialog"
 import { CounterpartyLedgerDialog } from "@/components/inventory-admin/counterparty-ledger-dialog"
 import { OperationLogDialog } from "@/components/operation-log-dialog"
 import { Button } from "@/components/ui/button"
+import { DateRangeControl } from "@/components/ui/date-range-control"
+import { defaultLedgerQuery, type LedgerQueryState } from "@/lib/supplier-ledger-tabs"
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -21,6 +23,7 @@ import {
   deleteGeneralCustomerShop,
   deleteGeneralCustomerUnit,
   listGeneralCustomerBrands,
+  getGeneralCustomerBalances,
   listGeneralCustomerShops,
   listGeneralCustomerUnits,
   reorderGeneralCustomerBrands,
@@ -70,6 +73,16 @@ export function GeneralCustomerShopsTab({ standalone = false }: GeneralCustomerS
   const [isLoading, setIsLoading] = useState(true)
   const [queryInput, setQueryInput] = useSessionQueryState("general-customer-shops:queryInput", "")
   const [query, setQuery] = useSessionQueryState("general-customer-shops:query", "")
+  const [dateRange, setDateRange] = useSessionQueryState("general-customer-shops:dateRange", () => {
+    const defaults = defaultLedgerQuery()
+    return { start: defaults.dateStart, end: defaults.dateEnd }
+  })
+  const [dateStartInput, setDateStartInput] = useSessionQueryState("general-customer-shops:dateStartInput", dateRange.start)
+  const [dateEndInput, setDateEndInput] = useSessionQueryState("general-customer-shops:dateEndInput", dateRange.end)
+  const [refreshVersion, setRefreshVersion] = useState(0)
+  const [balances, setBalances] = useState<Map<string, string>>(new Map())
+  const [loadError, setLoadError] = useState("")
+  const requestRef = useRef<AbortController | null>(null)
   const [selectedBrandId, setSelectedBrandId] = useSessionQueryState<number | null>("general-customer-shops:selectedBrandId", null)
 
   const [brandFormOpen, setBrandFormOpen] = useState(false)
@@ -106,34 +119,67 @@ export function GeneralCustomerShopsTab({ standalone = false }: GeneralCustomerS
   const [isReordering, setIsReordering] = useState(false)
   const [collapsedShopIds, setCollapsedShopIds] = useState<Set<number>>(() => new Set())
   const [ledgerTargetName, setLedgerTargetName] = useState<string | null>(null)
+  const [ledgerQuery, setLedgerQuery] = useState<LedgerQueryState>(defaultLedgerQuery)
 
   const [operationLogOpen, setOperationLogOpen] = useState(false)
   const [messageOpen, setMessageOpen] = useState(false)
   const [messageContent, setMessageContent] = useState({ title: "", description: "" })
 
   const load = useCallback(async () => {
+    requestRef.current?.abort()
+    const controller = new AbortController()
+    requestRef.current = controller
     setIsLoading(true)
+    setLoadError("")
+    setBalances(new Map())
     try {
-      const [brandResponse, shopResponse, unitResponse] = await Promise.all([
-        listGeneralCustomerBrands(),
-        listGeneralCustomerShops(),
-        listGeneralCustomerUnits(),
+      const [brandResponse, shopResponse, unitResponse, balanceResponse] = await Promise.all([
+        listGeneralCustomerBrands(controller.signal),
+        listGeneralCustomerShops(controller.signal),
+        listGeneralCustomerUnits(controller.signal),
+        getGeneralCustomerBalances({ dateStart: dateRange.start, dateEnd: dateRange.end }, controller.signal),
       ])
+      if (controller.signal.aborted) return
       setBrands(brandResponse.items)
       setShops(shopResponse.items)
       setUnits(unitResponse.items)
+      setBalances(new Map(balanceResponse.items.map((item) => [item.name, item.ending_balance])))
     } catch (error) {
+      if (controller.signal.aborted) return
       setBrands([])
       setShops([])
       setUnits([])
-      setMessageContent({ title: "加载失败", description: getErrorMessage(error) })
-      setMessageOpen(true)
+      setLoadError(getErrorMessage(error))
     } finally {
-      setIsLoading(false)
+      if (!controller.signal.aborted) setIsLoading(false)
     }
-  }, [])
+  }, [dateRange.start, dateRange.end])
 
-  useEffect(() => { void load() }, [load])
+  useEffect(() => {
+    let active = true
+    queueMicrotask(() => { if (active) void load() })
+    return () => { active = false; requestRef.current?.abort() }
+  }, [load, refreshVersion])
+
+  const submitQuery = () => {
+    if (dateStartInput && dateEndInput && dateStartInput > dateEndInput) {
+      setLoadError("起始日期不能晚于截止日期")
+      return
+    }
+    setQuery(queryInput.trim())
+    setDateRange({ start: dateStartInput, end: dateEndInput })
+    setRefreshVersion((value) => value + 1)
+  }
+  const openLedger = (name: string) => {
+    setLedgerQuery({ ...defaultLedgerQuery(), dateStartInput: dateRange.start, dateEndInput: dateRange.end, dateStart: dateRange.start, dateEnd: dateRange.end })
+    setLedgerTargetName(name)
+  }
+  const balanceText = (name: string) => {
+    if (isLoading) return "加载中…"
+    const value = balances.get(name)
+    if (value === undefined || !Number.isFinite(Number(value))) return "—"
+    return new Intl.NumberFormat("zh-CN", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(Number(value))
+  }
 
   const filteredBrands = useMemo(() => {
     const term = query.trim().toLowerCase()
@@ -273,10 +319,26 @@ export function GeneralCustomerShopsTab({ standalone = false }: GeneralCustomerS
           <div className="flex items-center gap-3"><h1 className={standalone ? "page-title" : "text-sm font-medium text-foreground"}>一般客户</h1><span className="rounded-full border border-border bg-muted/45 px-3 py-1 text-sm text-muted-foreground tabular-nums">{units.length} 个单位</span></div>
           <Button size="sm" variant="outline" onClick={() => setOperationLogOpen(true)} className="cursor-pointer"><History className="h-4 w-4" /><span className="ml-1.5">操作日志</span></Button>
         </div>
+        <form className="surface-panel mb-4 space-y-2 p-3" onSubmit={(event) => { event.preventDefault(); submitQuery() }}>
+          <DateRangeControl
+            start={dateStartInput}
+            end={dateEndInput}
+            onStartChange={setDateStartInput}
+            onEndChange={setDateEndInput}
+            actions={<>
+              <Button type="submit" size="lg" disabled={isLoading} className="cursor-pointer"><Search className="size-4" /><span>{isLoading ? "查询中…" : "查询"}</span></Button>
+              <Button type="button" size="lg" variant="outline" disabled={isLoading} className="cursor-pointer" onClick={() => {
+                setDateStartInput(""); setDateEndInput(""); setDateRange({ start: "", end: "" }); setRefreshVersion((value) => value + 1)
+              }}><X className="size-4" /><span>清空日期</span></Button>
+            </>}
+          />
+          <p className="text-xs text-muted-foreground">期末余额包含期初余额；店铺与下属单位按各自名称分别核算，与对应明细账一致。</p>
+          {loadError && <p role="alert" className="text-sm text-destructive">{loadError}</p>}
+        </form>
         <div className="grid gap-4 xl:grid-cols-[280px_minmax(0,1fr)]">
           <section className="surface-panel p-4">
             <div className="flex items-center justify-between gap-2"><p className="text-sm font-medium">品牌</p><Button size="sm" onClick={() => openBrand()} className="cursor-pointer"><Plus className="h-4 w-4" /><span className="ml-1">新增</span></Button></div>
-            <form className="mt-3 flex gap-2" onSubmit={(event) => { event.preventDefault(); setQuery(queryInput.trim()) }}><div className="relative min-w-0 flex-1"><Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" /><Input value={queryInput} onChange={(event) => setQueryInput(event.target.value)} placeholder="搜索品牌、店铺或单位" className="pl-9" /></div>{(query || queryInput) && <Button type="button" variant="outline" size="icon" className="cursor-pointer" onClick={() => { setQuery(""); setQueryInput("") }}><X className="h-4 w-4" /></Button>}</form>
+            <form className="mt-3 flex gap-2" onSubmit={(event) => { event.preventDefault(); submitQuery() }}><div className="relative min-w-0 flex-1"><Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" /><Input value={queryInput} onChange={(event) => setQueryInput(event.target.value)} placeholder="搜索品牌、店铺或单位" className="pl-9" /></div>{(query || queryInput) && <Button type="button" variant="outline" size="icon" className="cursor-pointer" onClick={() => { setQuery(""); setQueryInput("") }}><X className="h-4 w-4" /></Button>}</form>
             <div className="mt-3 space-y-1.5">
               {isLoading && <div className="py-10 text-center text-sm text-muted-foreground">加载中...</div>}
               {!isLoading && filteredBrands.length === 0 && <div className="py-10 text-center text-sm text-muted-foreground">暂无品牌</div>}
@@ -301,8 +363,8 @@ export function GeneralCustomerShopsTab({ standalone = false }: GeneralCustomerS
                 return (
                   <div key={shop.id} onDragOver={(event) => { if (draggedShopId === null || draggedShopId === shop.id) return; event.preventDefault(); const nextTarget = { id: shop.id, placement: dropPlacement(event) }; setShopDropTarget((current) => current?.id === nextTarget.id && current.placement === nextTarget.placement ? current : nextTarget) }} onDrop={(event) => { event.preventDefault(); void handleShopDrop(shop.id, shopDropTarget?.id === shop.id ? shopDropTarget.placement : "before") }} className={`relative overflow-hidden rounded-lg border bg-card transition-all duration-150 ${draggedShopId === shop.id ? "scale-[0.99] opacity-45" : "border-border"} ${shopDropTarget?.id === shop.id && draggedShopId !== shop.id ? shopDropTarget.placement === "before" ? "translate-y-2 border-t-2 border-t-primary" : "-translate-y-2 border-b-2 border-b-primary" : ""}`}>
                     {shopDropTarget?.id === shop.id && draggedShopId !== shop.id && <span aria-hidden="true" className={`pointer-events-none absolute inset-x-2 z-10 h-0.5 rounded-full bg-primary shadow-sm ${shopDropTarget.placement === "before" ? "top-0" : "bottom-0"}`} />}
-                    <div className="flex items-center gap-2 border-b border-border px-3 py-2.5"><button type="button" draggable={!isReordering} onDragStart={(event) => { event.dataTransfer.effectAllowed = "move"; setShopDropTarget(null); setDraggedShopId(shop.id) }} onDragEnd={() => { setDraggedShopId(null); setShopDropTarget(null) }} className="flex size-8 shrink-0 cursor-grab items-center justify-center rounded-md text-muted-foreground hover:bg-muted active:cursor-grabbing" aria-label={`拖拽排序店铺 ${shop.shop_name}`} title="拖拽排序"><GripVertical className="h-4 w-4" /></button><div className="flex min-w-0 flex-1 items-center gap-1"><button type="button" onClick={() => setLedgerTargetName(shop.shop_name)} className="min-w-0 flex-1 cursor-pointer rounded-md px-1 py-0.5 text-left hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50" title="查看应收款明细账"><div className="flex items-center gap-2"><p className="truncate text-sm font-medium">{shop.shop_name}</p>{shop.is_active === false && <span className="shrink-0 rounded-full border border-border bg-muted px-2 py-0.5 text-xs text-muted-foreground">已停用</span>}</div><p className="mt-0.5 text-xs text-muted-foreground">{shopUnits.length} 个单位</p></button>{shopUnits.length > 0 && <Button size="icon" variant="ghost" className="h-7 w-7 shrink-0 cursor-pointer" onClick={() => setCollapsedShopIds((current) => { const next = new Set(current); if (next.has(shop.id)) next.delete(shop.id); else next.add(shop.id); return next })} aria-label={isShopUnitsCollapsed ? `展开单位 ${shop.shop_name}` : `收起单位 ${shop.shop_name}`} title={isShopUnitsCollapsed ? "展开单位" : "收起单位"} aria-expanded={!isShopUnitsCollapsed}>{isShopUnitsCollapsed ? <ChevronRight className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}</Button>}</div><Button size="sm" variant="outline" onClick={() => openUnit(shop)} disabled={shop.is_active === false} className="cursor-pointer"><Plus className="h-3.5 w-3.5" /><span className="ml-1">新增单位</span></Button><Button size="icon" variant="ghost" className="h-8 w-8 cursor-pointer" onClick={() => openShop(shop)} disabled={shop.is_active === false} aria-label={`编辑店铺 ${shop.shop_name}`}><Edit className="h-4 w-4" /></Button>{shop.is_active === false && <Button size="sm" variant="outline" className="cursor-pointer" onClick={() => setEnableShopTarget(shop)} aria-label={`启用店铺 ${shop.shop_name}`}><RotateCcw className="h-3.5 w-3.5" /><span className="ml-1">启用</span></Button>}{(shop.is_active !== false || !shop.has_history) && <Button size="icon" variant="ghost" className="h-8 w-8 cursor-pointer" onClick={() => setDeleteShopTarget(shop)} aria-label={`${shop.has_history ? "停用" : "删除"}店铺 ${shop.shop_name}`} title={shop.has_history ? "停用店铺，保留历史业务" : "删除无历史业务的店铺"}>{shop.has_history ? <PauseCircle className="h-4 w-4 text-muted-foreground" /> : <Trash2 className="h-4 w-4 text-destructive" />}</Button>}</div>
-                    {shopUnits.length > 0 && !isShopUnitsCollapsed && <div className="divide-y divide-border">{shopUnits.map((unit) => <div key={unit.id} onDragOver={(event) => { if (draggedUnitId === null || draggedUnitId === unit.id) return; event.preventDefault(); const nextTarget = { id: unit.id, placement: dropPlacement(event) }; setUnitDropTarget((current) => current?.id === nextTarget.id && current.placement === nextTarget.placement ? current : nextTarget) }} onDrop={(event) => { event.preventDefault(); void handleUnitDrop(shop, unit.id, unitDropTarget?.id === unit.id ? unitDropTarget.placement : "before") }} className={`relative flex items-center gap-2 px-3 py-2 transition-all duration-150 ${draggedUnitId === unit.id ? "scale-[0.99] opacity-40" : ""} ${unitDropTarget?.id === unit.id && draggedUnitId !== unit.id ? unitDropTarget.placement === "before" ? "translate-y-2 bg-primary/5" : "-translate-y-2 bg-primary/5" : ""}`}>{unitDropTarget?.id === unit.id && draggedUnitId !== unit.id && <span aria-hidden="true" className={`pointer-events-none absolute inset-x-2 z-10 h-0.5 rounded-full bg-primary shadow-sm ${unitDropTarget.placement === "before" ? "top-0" : "bottom-0"}`} />}<button type="button" draggable={!isReordering} onDragStart={(event) => { event.dataTransfer.effectAllowed = "move"; setUnitDropTarget(null); setDraggedUnitId(unit.id) }} onDragEnd={() => { setDraggedUnitId(null); setUnitDropTarget(null) }} className="flex size-8 shrink-0 cursor-grab items-center justify-center rounded-md text-muted-foreground hover:bg-muted active:cursor-grabbing" aria-label={`拖拽排序单位 ${unit.unit_name}`} title="拖拽排序"><GripVertical className="h-4 w-4" /></button><button type="button" onClick={() => setLedgerTargetName(unit.unit_name)} className="min-w-0 flex-1 cursor-pointer rounded-md px-1 py-0.5 text-left text-sm hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50" title="查看应收款明细账"><span className="block truncate">{unit.unit_name}</span></button><Button size="icon" variant="ghost" className="h-8 w-8 cursor-pointer" onClick={() => openUnit(shop, unit)} disabled={shop.is_active === false}><Edit className="h-4 w-4" /></Button><Button size="icon" variant="ghost" className="h-8 w-8 cursor-pointer" onClick={() => setDeleteUnitTarget(unit)} disabled={shop.is_active === false}><Trash2 className="h-4 w-4 text-destructive" /></Button></div>)}</div>}
+                    <div className="flex flex-wrap items-center gap-2 border-b border-border px-3 py-2.5"><button type="button" draggable={!isReordering} onDragStart={(event) => { event.dataTransfer.effectAllowed = "move"; setShopDropTarget(null); setDraggedShopId(shop.id) }} onDragEnd={() => { setDraggedShopId(null); setShopDropTarget(null) }} className="flex size-8 shrink-0 cursor-grab items-center justify-center rounded-md text-muted-foreground hover:bg-muted active:cursor-grabbing" aria-label={`拖拽排序店铺 ${shop.shop_name}`} title="拖拽排序"><GripVertical className="h-4 w-4" /></button><div className="flex min-w-40 flex-1 items-center gap-1"><button type="button" onClick={() => openLedger(shop.shop_name)} className="min-w-0 flex-1 cursor-pointer rounded-md px-1 py-0.5 text-left hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50" title="查看应收款明细账"><div className="flex items-center gap-2"><p className="truncate text-sm font-medium">{shop.shop_name}</p>{shop.is_active === false && <span className="shrink-0 rounded-full border border-border bg-muted px-2 py-0.5 text-xs text-muted-foreground">已停用</span>}</div><p className="mt-0.5 text-xs text-muted-foreground">{shopUnits.length} 个单位</p></button>{shopUnits.length > 0 && <Button size="icon" variant="ghost" className="h-7 w-7 shrink-0 cursor-pointer" onClick={() => setCollapsedShopIds((current) => { const next = new Set(current); if (next.has(shop.id)) next.delete(shop.id); else next.add(shop.id); return next })} aria-label={isShopUnitsCollapsed ? `展开单位 ${shop.shop_name}` : `收起单位 ${shop.shop_name}`} title={isShopUnitsCollapsed ? "展开单位" : "收起单位"} aria-expanded={!isShopUnitsCollapsed}>{isShopUnitsCollapsed ? <ChevronRight className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}</Button>}</div><div className="w-28 shrink-0 text-right"><p className="text-xs text-muted-foreground">期末余额</p><span aria-label={`店铺 ${shop.shop_name}期末余额`} className="mt-1 block whitespace-nowrap font-mono text-sm tabular-nums">{balanceText(shop.shop_name)}</span></div><Button size="sm" variant="outline" onClick={() => openUnit(shop)} disabled={shop.is_active === false} className="cursor-pointer"><Plus className="h-3.5 w-3.5" /><span className="ml-1">新增单位</span></Button><Button size="icon" variant="ghost" className="h-8 w-8 cursor-pointer" onClick={() => openShop(shop)} disabled={shop.is_active === false} aria-label={`编辑店铺 ${shop.shop_name}`}><Edit className="h-4 w-4" /></Button>{shop.is_active === false && <Button size="sm" variant="outline" className="cursor-pointer" onClick={() => setEnableShopTarget(shop)} aria-label={`启用店铺 ${shop.shop_name}`}><RotateCcw className="h-3.5 w-3.5" /><span className="ml-1">启用</span></Button>}{(shop.is_active !== false || !shop.has_history) && <Button size="icon" variant="ghost" className="h-8 w-8 cursor-pointer" onClick={() => setDeleteShopTarget(shop)} aria-label={`${shop.has_history ? "停用" : "删除"}店铺 ${shop.shop_name}`} title={shop.has_history ? "停用店铺，保留历史业务" : "删除无历史业务的店铺"}>{shop.has_history ? <PauseCircle className="h-4 w-4 text-muted-foreground" /> : <Trash2 className="h-4 w-4 text-destructive" />}</Button>}</div>
+                    {shopUnits.length > 0 && !isShopUnitsCollapsed && <div className="overflow-x-auto"><div className="min-w-[520px]"><div className="flex items-center gap-2 bg-muted/35 px-3 py-2 text-xs font-medium text-muted-foreground"><span className="w-8 shrink-0" aria-hidden="true" /><span className="min-w-0 flex-1">单位名称</span><span className="w-28 shrink-0 text-right">期末余额</span><span className="w-[72px] shrink-0 text-center">操作</span></div><div className="divide-y divide-border">{shopUnits.map((unit) => <div key={unit.id} onDragOver={(event) => { if (draggedUnitId === null || draggedUnitId === unit.id) return; event.preventDefault(); const nextTarget = { id: unit.id, placement: dropPlacement(event) }; setUnitDropTarget((current) => current?.id === nextTarget.id && current.placement === nextTarget.placement ? current : nextTarget) }} onDrop={(event) => { event.preventDefault(); void handleUnitDrop(shop, unit.id, unitDropTarget?.id === unit.id ? unitDropTarget.placement : "before") }} className={`relative flex items-center gap-2 px-3 py-2 transition-all duration-150 ${draggedUnitId === unit.id ? "scale-[0.99] opacity-40" : ""} ${unitDropTarget?.id === unit.id && draggedUnitId !== unit.id ? unitDropTarget.placement === "before" ? "translate-y-2 bg-primary/5" : "-translate-y-2 bg-primary/5" : ""}`}>{unitDropTarget?.id === unit.id && draggedUnitId !== unit.id && <span aria-hidden="true" className={`pointer-events-none absolute inset-x-2 z-10 h-0.5 rounded-full bg-primary shadow-sm ${unitDropTarget.placement === "before" ? "top-0" : "bottom-0"}`} />}<button type="button" draggable={!isReordering} onDragStart={(event) => { event.dataTransfer.effectAllowed = "move"; setUnitDropTarget(null); setDraggedUnitId(unit.id) }} onDragEnd={() => { setDraggedUnitId(null); setUnitDropTarget(null) }} className="flex size-8 shrink-0 cursor-grab items-center justify-center rounded-md text-muted-foreground hover:bg-muted active:cursor-grabbing" aria-label={`拖拽排序单位 ${unit.unit_name}`} title="拖拽排序"><GripVertical className="h-4 w-4" /></button><button type="button" onClick={() => openLedger(unit.unit_name)} className="min-w-0 flex-1 cursor-pointer rounded-md px-1 py-0.5 text-left text-sm hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50" title="查看应收款明细账"><span className="block truncate">{unit.unit_name}</span></button><span aria-label={`单位 ${unit.unit_name}期末余额`} className="w-28 shrink-0 whitespace-nowrap text-right font-mono text-sm tabular-nums">{balanceText(unit.unit_name)}</span><Button size="icon" variant="ghost" className="h-8 w-8 cursor-pointer" onClick={() => openUnit(shop, unit)} disabled={shop.is_active === false}><Edit className="h-4 w-4" /></Button><Button size="icon" variant="ghost" className="h-8 w-8 cursor-pointer" onClick={() => setDeleteUnitTarget(unit)} disabled={shop.is_active === false}><Trash2 className="h-4 w-4 text-destructive" /></Button></div>)}</div></div></div>}
                   </div>
                 )
               })}
@@ -319,7 +381,7 @@ export function GeneralCustomerShopsTab({ standalone = false }: GeneralCustomerS
       <ConfirmDialog open={enableShopTarget !== null} title="确认启用" description={`启用店铺 ${enableShopTarget?.shop_name} 后，该店铺及下属单位可以重新用于新增业务。`} confirmLabel={isEnablingShop ? "启用中..." : "启用"} onConfirm={() => { if (!enableShopTarget) return; setIsEnablingShop(true); void setGeneralCustomerShopStatus(enableShopTarget.id, true).then(load).then(() => setEnableShopTarget(null)).catch((error) => showMessage("启用失败", getErrorMessage(error))).finally(() => setIsEnablingShop(false)) }} onCancel={() => setEnableShopTarget(null)} />
       <ConfirmDialog open={deleteUnitTarget !== null} title="确认删除" description={`确定删除单位 ${deleteUnitTarget?.unit_name}？此操作不可撤销。`} confirmLabel={isDeletingUnit ? "删除中..." : "删除"} variant="destructive" onConfirm={() => { if (!deleteUnitTarget) return; setIsDeletingUnit(true); void deleteGeneralCustomerUnit(deleteUnitTarget.id).then(load).then(() => setDeleteUnitTarget(null)).catch((error) => showMessage("删除失败", getErrorMessage(error))).finally(() => setIsDeletingUnit(false)) }} onCancel={() => setDeleteUnitTarget(null)} />
       <MessageDialog open={messageOpen} title={messageContent.title} description={messageContent.description} onClose={() => setMessageOpen(false)} />
-      <CounterpartyLedgerDialog open={ledgerTargetName !== null} counterpartyType="customer" name={ledgerTargetName || ""} onOpenChange={(open) => { if (!open) setLedgerTargetName(null) }} />
+      <CounterpartyLedgerDialog key={ledgerTargetName || "closed"} queryState={ledgerQuery} onQueryChange={setLedgerQuery} open={ledgerTargetName !== null} counterpartyType="customer" name={ledgerTargetName || ""} onOpenChange={(open) => { if (!open) setLedgerTargetName(null) }} />
       <OperationLogDialog module="general_customer" title="一般客户操作日志" open={operationLogOpen} onOpenChange={setOperationLogOpen} />
     </div>
   )

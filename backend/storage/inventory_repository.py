@@ -2483,6 +2483,54 @@ class InventoryRepository:
             condition=GENERAL_CUSTOMER_SHOP_TABLE.c.customer_name == customer_name,
         )
 
+    def general_customer_ending_balances(
+        self, *, date_start: str | None = None, date_end: str | None = None,
+    ) -> list[dict[str, str]]:
+        record = INVENTORY_TABLE
+        detail = INVENTORY_DETAIL_TABLE
+        names_source = union_all(
+            select(GENERAL_CUSTOMER_SHOP_TABLE.c.shop_name.label("name")),
+            select(GENERAL_CUSTOMER_UNIT_TABLE.c.unit_name.label("name"))
+            .join(GENERAL_CUSTOMER_SHOP_TABLE, GENERAL_CUSTOMER_UNIT_TABLE.c.shop_id == GENERAL_CUSTOMER_SHOP_TABLE.c.id),
+        ).subquery()
+        names = select(names_source.c.name).distinct().cte("general_customer_balance_names")
+        conditions = [
+            record.c.deleted_at.is_(None),
+            record.c.supplier.in_(select(names.c.name)),
+            record.c.document_type.in_((*CUSTOMER_LEDGER_INCREASE_TYPES, *CUSTOMER_LEDGER_DECREASE_TYPES)),
+        ]
+        if date_end:
+            conditions.append(record.c.date_value <= parse_date(date_end))
+        elif date_start:
+            # Opening + in-period amounts cover all dated records when no end is set.
+            conditions.append(record.c.date_value.is_not(None))
+        matching_records = select(record.c.id).where(*conditions)
+        detail_amount = (
+            select(detail.c.document_id, func.coalesce(func.sum(detail.c.amount), 0).label("amount"))
+            .where(detail.c.document_id.in_(matching_records))
+            .group_by(detail.c.document_id).subquery()
+        )
+        amount = func.abs(func.coalesce(detail_amount.c.amount, record.c.amount, 0))
+        signed_amount = case(
+            (record.c.document_type.in_(CUSTOMER_LEDGER_INCREASE_TYPES), amount),
+            (record.c.document_type.in_(CUSTOMER_LEDGER_DECREASE_TYPES), -amount),
+            else_=0,
+        )
+        totals = (
+            select(record.c.supplier.label("name"), func.sum(signed_amount).label("balance"))
+            .outerjoin(detail_amount, detail_amount.c.document_id == record.c.id)
+            .where(*conditions).group_by(record.c.supplier).subquery()
+        )
+        statement = (
+            select(names.c.name, func.coalesce(totals.c.balance, 0).label("balance"))
+            .outerjoin(totals, totals.c.name == names.c.name).order_by(names.c.name)
+        )
+        with self.engine.connect() as connection:
+            return [
+                {"name": row["name"], "ending_balance": self._format_decimal(Decimal(str(row["balance"] or 0)))}
+                for row in connection.execute(statement).mappings()
+            ]
+
     def list_general_customer_units(self, user_id: int | None = None) -> list[dict[str, object]]:
         statement = (
             select(

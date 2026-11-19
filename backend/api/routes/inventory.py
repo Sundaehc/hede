@@ -72,6 +72,7 @@ from domain.product_archive_naming import manual_product_table_name
 from domain.size_group_schema import SIZE_GROUP_ITEMS_TABLE, SIZE_GROUPS_TABLE
 from domain.vip_schema import JST_PRICE_TABLE
 from storage.purchase_execution_standards import enrich_purchase_archive_fields, enrich_purchase_product_remarks
+from storage.date_normalization import parse_date
 
 router = APIRouter()
 
@@ -5911,6 +5912,26 @@ def list_inventory_brands(request: Request):
 def list_general_customer_shops(request: Request):
     repository = request.app.state.inventory_repository
     return {"items": repository.list_general_customer_shops(user_id=_current_account_id(request))}
+
+
+@router.get("/inventory/general-customer-balances")
+def get_general_customer_balances(
+    request: Request, date_start: str | None = None, date_end: str | None = None,
+):
+    start = parse_date(date_start) if date_start else None
+    end = parse_date(date_end) if date_end else None
+    if date_start and start is None:
+        raise HTTPException(status_code=400, detail="起始日期无效")
+    if date_end and end is None:
+        raise HTTPException(status_code=400, detail="截止日期无效")
+    if start and end and start > end:
+        raise HTTPException(status_code=400, detail="起始日期不能晚于截止日期")
+    normalized_start = start.isoformat() if start else None
+    normalized_end = end.isoformat() if end else None
+    items = request.app.state.inventory_repository.general_customer_ending_balances(
+        date_start=normalized_start, date_end=normalized_end,
+    )
+    return {"items": items, "date_start": normalized_start, "date_end": normalized_end}
 
 
 @router.get("/inventory/account-subjects")

@@ -2113,9 +2113,18 @@ export function exportInventory(
   })
 }
 
-export function listGeneralCustomerShops() {
+export function listGeneralCustomerShops(signal?: AbortSignal) {
   return request<GeneralCustomerShopListResponse>(
-    "/inventory/general-customer-shops"
+    "/inventory/general-customer-shops", { signal, cache: "no-store" }
+  )
+}
+
+export function getGeneralCustomerBalances(params: { dateStart?: string; dateEnd?: string }, signal?: AbortSignal) {
+  const search = new URLSearchParams()
+  if (params.dateStart) search.set("date_start", params.dateStart)
+  if (params.dateEnd) search.set("date_end", params.dateEnd)
+  return request<{ items: { name: string; ending_balance: string }[]; date_start: string | null; date_end: string | null }>(
+    `/inventory/general-customer-balances?${search.toString()}`, { signal, cache: "no-store" }
   )
 }
 
@@ -2189,9 +2198,9 @@ function submitPurchaseInventory(payload: PurchaseImportPayload): Promise<Invent
     .finally(() => window.clearTimeout(timeout))
 }
 
-export function listGeneralCustomerBrands() {
+export function listGeneralCustomerBrands(signal?: AbortSignal) {
   return request<GeneralCustomerBrandListResponse>(
-    "/inventory/general-customer-brands"
+    "/inventory/general-customer-brands", { signal, cache: "no-store" }
   )
 }
 
@@ -2342,9 +2351,9 @@ export function reorderGeneralCustomerBrands(ids: number[]) {
   )
 }
 
-export function listGeneralCustomerUnits() {
+export function listGeneralCustomerUnits(signal?: AbortSignal) {
   return request<GeneralCustomerUnitListResponse>(
-    "/inventory/general-customer-units"
+    "/inventory/general-customer-units", { signal, cache: "no-store" }
   )
 }
 
