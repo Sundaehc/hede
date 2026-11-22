@@ -3,9 +3,11 @@ from __future__ import annotations
 import logging
 import mimetypes
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Request
 from fastapi.responses import FileResponse, RedirectResponse
+from sqlalchemy.exc import SQLAlchemyError
 
 from api.fine_table_cache import clear_fine_table_cache
 from api.product_goods_cache import clear_product_goods_cache
@@ -110,6 +112,17 @@ def serve_image(brand: str, image_path: str, request: Request):
     if root is None:
         raise HTTPException(status_code=404, detail="Unknown brand")
 
+    service_sku = getattr(request.state, "product_image_service_sku", None)
+    if service_sku is not None:
+        try:
+            product_image = request.app.state.repository.find_product_image_path(brand, service_sku)
+        except SQLAlchemyError:
+            raise HTTPException(status_code=503, detail="Product image lookup unavailable") from None
+        relative_path = relative_image_path(product_image, Path(root)) if product_image else None
+        if relative_path is None or relative_path.suffix.lower() not in MIME_MAP:
+            raise HTTPException(status_code=404, detail="Product image not found")
+        image_path = relative_path.as_posix()
+
     try:
         normalized_image_path = normalized_relative_image_path(image_path)
     except ValueError:
@@ -120,13 +133,22 @@ def serve_image(brand: str, image_path: str, request: Request):
         try:
             object_key = us3_storage.object_key(brand, normalized_image_path)
             if us3_storage.has_synced_object(object_key):
-                return RedirectResponse(
-                    us3_storage.private_download_url(object_key),
-                    status_code=307,
-                    headers={"Cache-Control": "private, max-age=300"},
-                )
+                if service_sku is not None:
+                    url = us3_storage.private_download_url(object_key, expires=60)
+                    destination = urlsplit(url)
+                    if destination.scheme == "https" and destination.hostname:
+                        return RedirectResponse(url, status_code=307)
+                else:
+                    return RedirectResponse(
+                        us3_storage.private_download_url(object_key),
+                        status_code=307,
+                        headers={"Cache-Control": "private, max-age=300"},
+                    )
         except Exception:
-            logger.exception("Failed to build US3 image URL for %s/%s", brand, image_path)
+            if service_sku is not None:
+                logger.warning("Failed to prepare object storage image; using local fallback")
+            else:
+                logger.exception("Failed to build US3 image URL for %s/%s", brand, image_path)
 
     full_path = (Path(root) / normalized_image_path).resolve()
     try:

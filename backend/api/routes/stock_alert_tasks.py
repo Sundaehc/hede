@@ -120,6 +120,9 @@ def _validate_change(user, item, values):
         raise HTTPException(403, "只能处理分配给自己的预警待办")
     if "due_date" in values and values["due_date"] != item["due_date"] and values["due_date"] < business_today():
         raise HTTPException(400, "新的处理期限不能早于今天（北京时间）")
+    exit_limit = (item.get("snapshot") or {}).get("due_date") if item.get("kind") == "clearance" else None
+    if exit_limit and "due_date" in values and values["due_date"].isoformat() > exit_limit:
+        raise HTTPException(400, "清货待办期限不能晚于建议的最晚处理日")
     if values.get("status") == "completed" and (
         not values.get("measures", item["measures"]).strip() or not values.get("result", item["result"]).strip()
     ):
@@ -156,7 +159,7 @@ def reminders(request: Request):
 @router.get("")
 def list_tasks(request: Request, scope: Literal["mine", "all"] = "mine",
     status: Literal["open", "overdue", "completed", "all"] = "open",
-    brand: str = Query(default="", max_length=100), kind: Literal["", "zero", "slow"] = "",
+    brand: str = Query(default="", max_length=100), kind: Literal["", "zero", "slow", "replenish", "clearance"] = "",
     query: str = Query(default="", max_length=200), page: int = Query(default=1, ge=1),
     page_size: int = Query(default=25, ge=1, le=100)):
     user = _actor(request)

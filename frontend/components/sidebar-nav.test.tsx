@@ -37,6 +37,7 @@ describe("SidebarNav management groups", () => {
     render(<SidebarNav />)
     const group = screen.getByRole("heading", { name: /^存$/ }).parentElement!
     expect(within(group).getAllByRole("link").map((link) => [link.textContent, link.getAttribute("href")])).toEqual([
+      ["库存经营总览", "/stock-alerts/overview"],
       ["季度新品分析", "/stock-alerts/seasonal-analysis"],
       ["新品零动销预警", "/stock-alerts/new-products"],
       ["低售罄、滞销预警", "/stock-alerts/slow-sales"],

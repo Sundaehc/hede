@@ -9,6 +9,7 @@ import json
 
 import orjson
 from sqlalchemy import inspect, select, text
+from sqlalchemy.exc import DBAPIError
 
 from domain.stock_alerts import ArchiveMatcher, launch_day
 from domain.size_group_schema import SIZE_GROUPS_TABLE, SIZE_GROUP_ITEMS_TABLE
@@ -31,49 +32,62 @@ def _sales_dates(connection, name, end, start=None):
         {"start": first, "end": end}).scalars())
 
 
-def _load(connection, repository, brand, today):
-    inspector = inspect(connection)
+def confirm_recent_zero_candidates(connection, brand, candidates, matcher, inspector):
+    """Return keys verified against both raw sales feeds, including same-day returns."""
+    from storage.seasonal_analysis_facts import _zero_sales_evidence
+    targets = {(brand, product): dates for product, dates in candidates.items()
+               if (brand, product) in matcher.products and matcher.source_codes(((brand, product),))}
+    verified = _zero_sales_evidence(connection, inspector, matcher, targets)
+    return {key[1] for key in targets.keys() - verified} if verified is not None else set()
+
+
+def _load(connection, repository, brand, today, *, shared=None, verify_zero=False):
+    inspector = shared["inspector"] if shared else inspect(connection)
     required = ("jst_full_stock", "jst_daily_sales", "vip_daily_sales", "factory_channel_sales_daily_summaries")
-    missing = [name for name in required if not inspector.has_table(name)]
-    if missing:
-        return {"items": [], "seasons": [], "stock_date": None, "sales_end": None, "ready": False,
-                "unmatched_stock_rows": 0, "source_issues": ["缺少数据源：" + "、".join(missing)]}
-    products = []
-    for key in repository.product_archive_brands():
-        table = repository._table_for_brand(key)
-        if inspector.has_table(table.name):
-            fields = ("id", "sku", "original_sku", "product_name", "color", "color_code", "barcode_build_rule", "size_range", "launch_date", "season_category", "year")
-            products.extend({**dict(row), "brand": key} for row in connection.execute(
-                select(*(table.c[field] for field in fields)).where(table.c.deleted_at.is_(None))).mappings())
-    sizes = defaultdict(set)
-    for group, barcode in connection.execute(select(SIZE_GROUPS_TABLE.c.name, SIZE_GROUP_ITEMS_TABLE.c.barcode)
-            .join(SIZE_GROUP_ITEMS_TABLE, SIZE_GROUP_ITEMS_TABLE.c.size_group_id == SIZE_GROUPS_TABLE.c.id)):
-        if str(barcode or "").strip():
-            sizes[group].add(str(barcode).strip().upper())
-    matcher = ArchiveMatcher(products, sizes)
-    del products
-    stock_date = connection.execute(text("SELECT max(sync_date) FROM jst_full_stock")).scalar()
-    ends = [connection.execute(text(f"SELECT max(sales_date) FROM {name}")).scalar() for name in ("jst_daily_sales", "vip_daily_sales")]
-    end = min([today - timedelta(days=1), *ends]) if all(ends) else None
-    stock, unmatched = defaultdict(Decimal), 0
-    rows = connection.execution_options(stream_results=True, yield_per=5000).execute(text("""SELECT product_code, style_code,
-        sum(available_qty) AS quantity FROM jst_full_stock WHERE sync_date = :day AND available_qty <> 0
-        GROUP BY product_code, style_code"""), {"day": stock_date})
-    for row in rows.mappings():
-        identity = matcher.resolve(row["product_code"], row["style_code"])
-        if identity is None:
-            unmatched += 1
-        elif identity[0] == brand:
-            stock[identity] += Decimal(row["quantity"])
-    rows.close()
+    if shared:
+        matcher, stock, stock_date, end = (shared[key] for key in ("matcher", "stock", "stock_date", "sales_end"))
+        unmatched = 0  # Not exposed by the overview's historical facts.
+    else:
+        missing = [name for name in required if not inspector.has_table(name)]
+        if missing:
+            return {"items": [], "seasons": [], "stock_date": None, "sales_end": None, "ready": False,
+                    "unmatched_stock_rows": 0, "source_issues": ["缺少数据源：" + "、".join(missing)]}
+        products = []
+        for key in repository.product_archive_brands():
+            table = repository._table_for_brand(key)
+            if inspector.has_table(table.name):
+                fields = ("id", "sku", "original_sku", "product_name", "color", "color_code", "barcode_build_rule", "size_range", "launch_date", "season_category", "year")
+                products.extend({**dict(row), "brand": key} for row in connection.execute(
+                    select(*(table.c[field] for field in fields)).where(table.c.deleted_at.is_(None))).mappings())
+        sizes = defaultdict(set)
+        for group, barcode in connection.execute(select(SIZE_GROUPS_TABLE.c.name, SIZE_GROUP_ITEMS_TABLE.c.barcode)
+                .join(SIZE_GROUP_ITEMS_TABLE, SIZE_GROUP_ITEMS_TABLE.c.size_group_id == SIZE_GROUPS_TABLE.c.id)):
+            if str(barcode or "").strip():
+                sizes[group].add(str(barcode).strip().upper())
+        matcher = ArchiveMatcher(products, sizes)
+        del products
+        stock_date = connection.execute(text("SELECT max(sync_date) FROM jst_full_stock")).scalar()
+        ends = [connection.execute(text(f"SELECT max(sales_date) FROM {name}")).scalar() for name in ("jst_daily_sales", "vip_daily_sales")]
+        end = min([today - timedelta(days=1), *ends]) if all(ends) else None
+        stock, unmatched = defaultdict(Decimal), 0
+        rows = connection.execute(text("""SELECT product_code, style_code,
+            sum(available_qty) AS quantity FROM jst_full_stock WHERE sync_date = :day AND available_qty <> 0
+            GROUP BY product_code, style_code""").execution_options(yield_per=5000), {"day": stock_date})
+        for row in rows.mappings():
+            identity = matcher.resolve(row["product_code"], row["style_code"])
+            if identity is None:
+                unmatched += 1
+            elif identity[0] == brand:
+                stock[identity] += Decimal(row["quantity"])
+        rows.close()
     selected = {key: matcher.products[key] for key, quantity in stock.items() if quantity > 0}
     inbounds = defaultdict(lambda: {"first": None, "last": None, "quantity": Decimal(0)})
     if selected and inspector.has_table("mv_jst_purchase_inbound_age_reference"):
         codes = matcher.source_codes(selected)
-        rows = connection.execution_options(stream_results=True, yield_per=5000).execute(text("""SELECT goods_code, style_color_code,
+        rows = connection.execute(text("""SELECT goods_code, style_color_code,
             original_sku, first_inbound_date, last_inbound_date, received_quantity
             FROM mv_jst_purchase_inbound_age_reference
-            WHERE style_color_code = ANY(:codes) OR goods_code = ANY(:codes) OR original_sku = ANY(:codes)"""), {"codes": codes})
+            WHERE style_color_code = ANY(:codes) OR goods_code = ANY(:codes) OR original_sku = ANY(:codes)""").execution_options(yield_per=5000), {"codes": codes})
         for row in rows.mappings():
             identity = matcher.resolve(row["goods_code"], row["style_color_code"], row["original_sku"])
             if identity not in selected:
@@ -97,9 +111,13 @@ def _load(connection, repository, brand, today):
             WHERE f.brand = :brand AND f.match_status = 'matched' AND f.sales_date >= p.launch_date AND f.sales_date <= :end
             GROUP BY f.product_code"""), {"cohort": json.dumps(cohort), "brand": brand, "end": end})
         sales = {row["product_code"]: dict(row) for row in rows.mappings()}
-    coverage = {name: _sales_dates(connection, name, end) if end else [] for name in ("jst_daily_sales", "vip_daily_sales")}
-    summary_dates = sorted(set(connection.execute(text("""SELECT sales_date FROM factory_channel_sales_daily_summaries
-        WHERE brand = :brand AND match_status = 'date_marker' AND sales_date <= :end"""), {"brand": brand, "end": end}).scalars())) if end else []
+    if shared:
+        coverage = {name: shared["coverage"].get(name, []) for name in ("jst_daily_sales", "vip_daily_sales")}
+        summary_dates = shared["coverage"].get("factory_channel_sales_daily_summaries", [])
+    else:
+        coverage = {name: _sales_dates(connection, name, end) if end else [] for name in ("jst_daily_sales", "vip_daily_sales")}
+        summary_dates = sorted(set(connection.execute(text("""SELECT sales_date FROM factory_channel_sales_daily_summaries
+            WHERE brand = :brand AND match_status = 'date_marker' AND sales_date <= :end"""), {"brand": brand, "end": end}).scalars())) if end else []
     result = []
     for key, item in selected.items():
         launch, inbound = launches[key], inbounds[key]
@@ -129,6 +147,20 @@ def _load(connection, repository, brand, today):
             "net_sales": str(sale["net"]), "sales_returns": str(sale["returns"]), "last_sales_date": str(sale["last"]) if sale["last"] else None,
             "sell_through_rate": str(rate.quantize(Decimal("0.01"))) if rate is not None else None,
             "sales_issues": issues, "inbound_issues": inbound_issues})
+    if verify_zero and stock_date and end:
+        candidates = {item["id"]: (launch_day(item["launch_date"]), end) for item in result
+                      if not item["sales_issues"] and not Decimal(item["gross_sales"])}
+        if candidates:
+            try:
+                with connection.begin_nested():
+                    confirmed = confirm_recent_zero_candidates(connection, brand, candidates, matcher, inspector)
+            except DBAPIError as error:
+                if getattr(getattr(error, "orig", None), "sqlstate", None) != "57014":
+                    raise
+                confirmed = set()
+            for item in result:
+                if item["id"] in candidates:
+                    item["zero_confirmed"] = item["id"] in confirmed
     notices = ["上市时间取商品档案，平台上架时间尚未接入；上市天数算至日销截止日。采购首入、末入单独展示，不代表现存商品的准确实物库龄。",
                "采购退货数量目前缺失，售罄率以历史正向采购入库量（含补货）为分母，仅供参考，需核对后处理。",
                "销量复用聚水潭、唯品日销生成的渠道日汇总，唯品同商品同日去重；唯品日销未单列退货。",
@@ -144,9 +176,9 @@ def _load(connection, repository, brand, today):
             "source_issues": notices, "unmatched_stock_rows": unmatched}
 
 
-def load_stock_alert_facts(repository, brand, *, refresh=False, today=None):
+def load_stock_alert_facts(repository, brand, *, refresh=False, today=None, verify_zero=False):
     today = today or datetime.now(timezone(timedelta(hours=8))).date()
-    key = (id(repository.engine), brand, today)
+    key = (id(repository.engine), brand, today, verify_zero)
     def cached():
         with _lock:
             hit = _cache.get(key)
@@ -165,7 +197,7 @@ def load_stock_alert_facts(repository, brand, *, refresh=False, today=None):
         with repository.engine.connect().execution_options(isolation_level="REPEATABLE READ") as connection, connection.begin():
             connection.execute(text("SET TRANSACTION READ ONLY"))
             connection.execute(text("SET LOCAL statement_timeout = '25s'"))
-            result = _load(connection, repository, brand, today)
+            result = _load(connection, repository, brand, today, verify_zero=True) if verify_zero else _load(connection, repository, brand, today)
         encoded = orjson.dumps(result)
         with _lock:
             _cache.pop(key, None)

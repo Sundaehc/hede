@@ -14,6 +14,7 @@ import { Input } from "@/components/ui/input"
 import { listOperationLogs } from "@/lib/api"
 import {
   formatOperationLogPrimitive,
+  formatOperationLogSummary,
   getOperationLogFieldLabel,
   getOperationLogRecordChanges,
   isOperationLogRecord,
@@ -629,7 +630,7 @@ export function OperationLogDialog({
                     </p>
                   </td>
                   <td className="px-4 py-3 leading-6">
-                    <p className="[overflow-wrap:anywhere]">{item.summary}</p>
+                    <p className="[overflow-wrap:anywhere]">{formatOperationLogSummary(item.summary, item.changed_fields)}</p>
                   </td>
                   <td className="px-4 py-3 [overflow-wrap:anywhere]">
                     <LogDetails item={item} />

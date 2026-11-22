@@ -1039,6 +1039,16 @@ class ProductRepository:
         with self.engine.begin() as active_connection:
             mark_imported(active_connection)
 
+    def find_product_image_path(self, brand: str, sku: str) -> str | None:
+        table = self._table_for_brand(brand)
+        statement = (
+            select(table.c.image_path)
+            .where(table.c.sku == sku, table.c.deleted_at.is_(None))
+            .where(not_excluded_sku_condition(table.c.sku, table.c.original_sku))
+        )
+        with self.engine.connect() as connection:
+            return connection.execute(statement).scalar_one_or_none()
+
     def find_by_sku(
         self,
         brand: str,

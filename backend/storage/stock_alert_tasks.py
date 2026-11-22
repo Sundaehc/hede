@@ -1,13 +1,15 @@
 """Persist alert follow-up work independently of the live alert calculation."""
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, time, timedelta, timezone
 
 from sqlalchemy import (JSON, CheckConstraint, Column, Date, DateTime, ForeignKey,
                         Index, Integer, MetaData, Table, Text, case, func, insert,
-                        select, update)
+                        inspect, select, text, update)
 from sqlalchemy.exc import IntegrityError
 
 
 METADATA = MetaData()
+TASK_KIND_SQL = "kind IN ('zero', 'slow', 'replenish', 'clearance')"
+TASK_KIND_CHECK = "ck_stock_alert_tasks_kind"
 TASKS = Table(
     "stock_alert_tasks", METADATA,
     Column("id", Integer, primary_key=True),
@@ -25,7 +27,7 @@ TASKS = Table(
     Column("created_at", DateTime(timezone=True), nullable=False),
     Column("updated_at", DateTime(timezone=True), nullable=False),
     Column("completed_at", DateTime(timezone=True)),
-    CheckConstraint("kind IN ('zero', 'slow')"),
+    CheckConstraint(TASK_KIND_SQL, name=TASK_KIND_CHECK),
     CheckConstraint("status IN ('pending', 'processing', 'completed')"),
     CheckConstraint("(status = 'completed' AND active_key IS NULL) OR (status <> 'completed' AND active_key IS NOT NULL)"),
 )
@@ -72,6 +74,21 @@ class StockAlertTaskRepository:
 
     def create_tables(self):
         METADATA.create_all(self.engine)
+        if self.engine.dialect.name == "postgresql":
+            # These tables are provisioned at app startup (not by the Alembic chain).
+            with self.engine.begin() as connection:
+                checks = inspect(connection).get_check_constraints(TASKS.name)
+                if not any(check["name"] == TASK_KIND_CHECK for check in checks):
+                    connection.exec_driver_sql("LOCK TABLE stock_alert_tasks IN ACCESS EXCLUSIVE MODE")
+                    checks = inspect(connection).get_check_constraints(TASKS.name)
+                    if any(check["name"] == TASK_KIND_CHECK for check in checks):
+                        return
+                    for check in checks:
+                        sql = check.get("sqltext") or ""
+                        if "kind" in sql and "'zero'" in sql and "'slow'" in sql:
+                            name = connection.dialect.identifier_preparer.quote(check["name"])
+                            connection.exec_driver_sql(f"ALTER TABLE stock_alert_tasks DROP CONSTRAINT {name}")
+                    connection.exec_driver_sql(f"ALTER TABLE stock_alert_tasks ADD CONSTRAINT {TASK_KIND_CHECK} CHECK ({TASK_KIND_SQL})")
 
     def _event(self, connection, task_id, actor, action, values, now):
         connection.execute(insert(EVENTS).values(
@@ -100,6 +117,16 @@ class StockAlertTaskRepository:
         key = f"{snapshot['brand']}:{snapshot['id']}:{kind}"
         try:
             with self.engine.begin() as connection:
+                if kind in {"replenish", "clearance"}:
+                    if connection.dialect.name == "postgresql":
+                        # Serialize opposite decisions for this brand and style without blocking other writes.
+                        connection.execute(text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))"),
+                                           {"key": f"stock-overview:{snapshot['brand']}:{snapshot['id']}"})
+                    other = "replenish" if kind == "clearance" else "clearance"
+                    existing = connection.execute(select(TASKS.c.id).where(TASKS.c.active_key ==
+                        f"{snapshot['brand']}:{snapshot['id']}:{other}")).scalar_one_or_none()
+                    if existing is not None:
+                        raise TaskConflict(f"该商品已有相反的未完成待办（#{existing}），请先核对现有待办")
                 item = self._create_on(connection, **kwargs)
         except IntegrityError:
             with self.engine.connect() as connection:
@@ -189,6 +216,32 @@ class StockAlertTaskRepository:
                 TASKS.c.product_id.in_(product_ids), TASKS.c.active_key.is_not(None))).mappings()
             return {row["product_id"]: {key: value for key, value in public_task(row, business_today()).items()
                     if key in {"id", "status", "assignee_name", "due_date", "overdue"}} for row in rows}
+
+    def overview_active(self, brand):
+        with self.engine.connect() as connection:
+            rows = connection.execute(select(TASKS.c.id, TASKS.c.product_id, TASKS.c.kind,
+                TASKS.c.status, TASKS.c.assignee_name, TASKS.c.due_date).where(
+                TASKS.c.brand == brand, TASKS.c.active_key.is_not(None))).mappings()
+            today = business_today()
+            return {(row["product_id"], row["kind"]): {"id": row["id"], "status": row["status"],
+                "assignee_name": row["assignee_name"], "due_date": row["due_date"],
+                "overdue": row["due_date"] < today} for row in rows}
+
+    def overview_week(self, brand, first, last):
+        zone = timezone(timedelta(hours=8))
+        start, stop = (datetime.combine(day, time.min, zone).astimezone(timezone.utc)
+                       for day in (first, last + timedelta(days=1)))
+        created = (TASKS.c.created_at >= start) & (TASKS.c.created_at < stop)
+        completed = (TASKS.c.completed_at >= start) & (TASKS.c.completed_at < stop)
+        overdue = (TASKS.c.created_at < stop) & (TASKS.c.due_date <= last) & (
+            TASKS.c.completed_at.is_(None) | (TASKS.c.completed_at >= stop))
+        with self.engine.connect() as connection:
+            summary = dict(connection.execute(select(*[func.coalesce(func.sum(case((where, 1), else_=0)), 0).label(key)
+                for key, where in (("created", created), ("completed", completed), ("overdue", overdue))])
+                .where(TASKS.c.brand == brand)).mappings().one())
+            rows = list(connection.execute(select(TASKS.c.product_id, TASKS.c.kind).distinct()
+                .where(TASKS.c.brand == brand, completed)))
+            return summary, {product for product, _ in rows}, {product for product, kind in rows if kind == "clearance"}
 
     def list(self, *, user_id, scope, status, brand, kind, query, page, page_size):
         today = business_today()

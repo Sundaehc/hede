@@ -1,3 +1,4 @@
+import type { ExitPolicy, OverviewFilters, OverviewResponse, OverviewTaskCreate, OverviewWeek } from "@/lib/stock-overview"
 import {
   getProductArchiveBrandLabel,
   type BrandKey,
@@ -104,6 +105,24 @@ export async function getStockAlertOptions(signal?: AbortSignal) {
   return { ...result, brands: result.brands.map((brand) => ({
     ...brand, label: getProductArchiveBrandLabel(brand.value, brand.label),
   })) }
+}
+
+export function getStockOverview(filters: OverviewFilters, options: { signal?: AbortSignal; refresh?: boolean } = {}) {
+  const search = new URLSearchParams(Object.entries(filters).map(([key, value]) => [key, String(value)]))
+  if (options.refresh) search.set("refresh", "true")
+  return request<OverviewResponse>(`/stock-alerts/overview?${search}`, { signal: options.signal, cache: "no-store" })
+}
+
+export function getStockOverviewWeek(brand: string, signal?: AbortSignal) {
+  return request<OverviewWeek>(`/stock-alerts/overview/week?${new URLSearchParams({ brand })}`, { signal, cache: "no-store" })
+}
+
+export function saveStockOverviewPolicy(payload: ExitPolicy & { brand: string }) {
+  return request<{ message: string }>("/stock-alerts/overview/rules", { method: "PUT", body: JSON.stringify(payload) })
+}
+
+export function createOverviewTask(payload: OverviewTaskCreate) {
+  return request<{ item: StockAlertTask }>("/stock-alerts/tasks/from-overview", { method: "POST", body: JSON.stringify(payload) })
 }
 
 export function getStockAlerts(filters: StockAlertFilters, kind: StockAlertKind, options: { signal?: AbortSignal; refresh?: boolean } = {}) {

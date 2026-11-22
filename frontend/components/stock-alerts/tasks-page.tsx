@@ -288,6 +288,8 @@ function StockAlertTasksContent({ reminderEntry }: { reminderEntry: boolean }) {
             <option value="">全部类型</option>
             <option value="zero">新品零动销</option>
             <option value="slow">低售罄、滞销</option>
+            <option value="replenish">核心尺码补货</option>
+            <option value="clearance">清货跟进</option>
           </Select>
         </label>
         <label className="min-w-44 flex-1 space-y-1.5 text-xs text-muted-foreground">

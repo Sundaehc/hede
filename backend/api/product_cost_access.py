@@ -13,6 +13,7 @@ PRODUCT_COST_FIELD_NAMES = {
     "costmanualoverride",
     "factoryshippingprice",
     "工厂出货价",
+    "工厂出货价手动维护标记",
     "gendercosts",
     "presetprice",
     "成本",
@@ -77,11 +78,13 @@ def _redact_product_cost_summary(value: object) -> str:
     if separator not in summary:
         return summary
     prefix, field_text = summary.split(separator, 1)
-    fields = [field.removesuffix("等字段") for field in field_text.split("、")]
+    field_text, suffix_separator, suffix = field_text.partition("；")
+    more_fields = "等字段" if field_text.endswith("等字段") else ""
+    fields = field_text.removesuffix("等字段").split("、")
     visible_fields = [field for field in fields if not is_product_cost_field(field)]
     if not visible_fields:
-        return prefix
-    return f"{prefix}{separator}{'、'.join(visible_fields)}"
+        return f"{prefix}{suffix_separator}{suffix}"
+    return f"{prefix}{separator}{'、'.join(visible_fields)}{more_fields}{suffix_separator}{suffix}"
 
 
 def redact_product_cost_log_item(item: Mapping[str, object]) -> dict[str, object]:

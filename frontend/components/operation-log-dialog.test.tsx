@@ -127,3 +127,24 @@ test.each([
     })
   }
 )
+
+test("shows historical manual price flags in Chinese in both the summary and details", async () => {
+  mockListOperationLogs.mockResolvedValue({
+    items: [{
+      ...logItem,
+      module: "product",
+      entity_type: "product",
+      entity_label: "SKU001",
+      summary: "编辑商品 SKU001：修改了 工厂出货价、cost_manual_override；同步更新 1 条关联单据明细（1 张单据）",
+      changed_fields: [
+        { field: "cost", label: "工厂出货价", before: "100", after: "120" },
+        { field: "cost_manual_override", label: "cost_manual_override", before: false, after: true },
+      ],
+    }], total: 1, page: 1, page_size: 20,
+  })
+  render(<OperationLogDialog module="product" open title="商品操作日志" onOpenChange={vi.fn()} />)
+  expect(await screen.findByText("编辑商品 SKU001：修改了 工厂出货价、工厂出货价手动维护标记；同步更新 1 条关联单据明细（1 张单据）")).toBeInTheDocument()
+  expect(screen.getByText("工厂出货价手动维护标记")).toBeInTheDocument()
+  expect(screen.getByText("否 → 是")).toBeInTheDocument()
+  expect(screen.queryByText(/cost_manual_override/)).not.toBeInTheDocument()
+})

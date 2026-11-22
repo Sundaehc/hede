@@ -1,7 +1,9 @@
 import { FIELD_LABELS } from "@/lib/fields"
+import type { OperationLogChange } from "@/lib/types"
 
 const OPERATION_LOG_FIELD_LABELS: Record<string, string> = {
   ...FIELD_LABELS,
+  cost_manual_override: "工厂出货价手动维护标记",
   document_number: "单据编号",
   date: "日期",
   supplier: "供应商/单位",
@@ -61,7 +63,7 @@ const OPERATION_LOG_FIELD_LABELS: Record<string, string> = {
   selling_points: "卖点",
 }
 
-const DATABASE_FIELD_NAME = /^[a-z][a-z0-9_]*$/
+const DATABASE_FIELD_NAME = /^[a-z][a-z0-9_]*$/i
 
 function isDatabaseFieldName(value: string) {
   return DATABASE_FIELD_NAME.test(value.trim())
@@ -86,6 +88,25 @@ export function getOperationLogFieldLabel(
   if (mappedLabel) return mappedLabel
   if (!isDatabaseFieldName(normalizedField)) return normalizedField || "其他信息"
   return "其他信息"
+}
+
+export function formatOperationLogSummary(
+  summary: string,
+  changes: OperationLogChange[] | null
+) {
+  if (!changes?.length) return summary
+  const marker = "：修改了 "
+  const markerIndex = summary.lastIndexOf(marker)
+  if (markerIndex < 0) return summary
+  const start = markerIndex + marker.length
+  const visible = changes.slice(0, 8)
+  const suffix = changes.length > 8 ? "等字段" : ""
+  const savedFields = visible.map((change) => change.label || change.field).join("、") + suffix
+  if (!summary.startsWith(savedFields, start)) return summary
+  const remaining = summary.slice(start + savedFields.length)
+  if (remaining && !remaining.startsWith("；")) return summary
+  const translated = visible.map((change) => getOperationLogFieldLabel(change.field, change.label)).join("、")
+  return summary.slice(0, start) + translated + suffix + remaining
 }
 
 export function isOperationLogStructuredValue(value: unknown) {

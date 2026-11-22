@@ -930,7 +930,7 @@ export function SeasonalAnalysisPage() {
                         disabled={!data}
                         onClick={() => setReviewId(item.id)}
                         aria-label={`复盘 ${item.sku}`}
-                        className="rounded-sm font-medium text-primary underline-offset-2 outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring disabled:text-foreground"
+                        className="cursor-pointer rounded-sm font-medium text-primary underline-offset-2 outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-default disabled:text-foreground"
                       >
                         {item.sku}
                       </button>
@@ -960,7 +960,7 @@ export function SeasonalAnalysisPage() {
                           disabled={!data}
                           onClick={() => setReviewId(item.id)}
                           aria-label={`查看 ${item.sku} 本季进货明细，共 ${number(item.inbound_quantity)} 双`}
-                          className="rounded-sm text-primary underline decoration-primary/40 underline-offset-4 outline-none hover:decoration-current focus-visible:ring-2 focus-visible:ring-ring disabled:text-foreground"
+                          className="cursor-pointer rounded-sm text-primary underline decoration-primary/40 underline-offset-4 outline-none hover:decoration-current focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-default disabled:text-foreground"
                         >
                           {number(item.inbound_quantity)}
                         </button>

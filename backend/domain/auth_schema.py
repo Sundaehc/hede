@@ -93,3 +93,15 @@ AUTH_PINNED_PAGE_TAB_TABLE = Table(
     Column("page_path", Text, primary_key=True),
     Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
 )
+
+
+PRODUCT_IMAGE_TOKEN_TABLE = Table(
+    "product_image_service_tokens",
+    METADATA,
+    Column("id", Integer, primary_key=True),
+    Column("label", Text, nullable=False),
+    Column("token_hash", Text, nullable=False, unique=True),
+    Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+    Column("expires_at", DateTime(timezone=True), nullable=False),
+    Column("revoked_at", DateTime(timezone=True), nullable=True),
+)

@@ -136,11 +136,11 @@ class UCloudUS3ImageStorage:
             prefix=self.image_prefix,
         )
 
-    def private_download_url(self, object_key: str) -> str:
+    def private_download_url(self, object_key: str, *, expires: int | None = None) -> str:
         return self._manager.private_download_url(
             self.bucket,
             object_key,
-            expires=self.signed_url_expires,
+            expires=self.signed_url_expires if expires is None else min(expires, self.signed_url_expires),
             internal=True,
         )
 

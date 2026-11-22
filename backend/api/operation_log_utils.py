@@ -18,6 +18,7 @@ PRODUCT_FIELD_LABELS = {
     "category": "分类",
     "product_level": "商品等级",
     "cost": "工厂出货价",
+    "cost_manual_override": "工厂出货价手动维护标记",
     "cost_price": "成本价",
     "market_price": "市场价",
     "factory_sku": "工厂货号",

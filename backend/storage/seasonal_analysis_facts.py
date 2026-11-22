@@ -44,7 +44,7 @@ def _receipt_references(connection, matcher, keys):
     codes = matcher.source_codes(keys)
     if not codes:
         return
-    with connection.execution_options(stream_results=True, yield_per=5000).execute(text(
+    with connection.execute(text(
         "SELECT goods_code, style_color_code, original_sku, first_inbound_date FROM mv_jst_purchase_inbound_age_reference "
         "WHERE upper(trim(goods_code))=ANY(:codes) OR upper(trim(style_color_code))=ANY(:codes) "
         "OR upper(trim(original_sku))=ANY(:codes)"), {"codes": codes}) as rows:
@@ -131,16 +131,16 @@ def _load(connection, repository, brand, year, today, *, zero_quarter=None):
                 # product rows needed by this year's cohorts or ambiguity notice.
                 sales_codes = sorted({p["sku"] for p in products.values()}
                                      | {sku for sku, ids in by_sku.items() if len(ids) > 1})
-                with connection.execution_options(stream_results=True, yield_per=5000).execute(text("""SELECT sales_date,
+                with connection.execute(text("""SELECT sales_date,
                     sum(gross_quantity) AS gross, sum(quantity) AS net FROM factory_channel_sales_daily_summaries
                     WHERE brand=:brand AND match_status='matched' AND sales_date>=:start AND sales_date<=:end
-                    GROUP BY sales_date"""), {"brand": brand, "start": start, "end": end}) as rows:
+                    GROUP BY sales_date""").execution_options(yield_per=5000), {"brand": brand, "start": start, "end": end}) as rows:
                     for row in rows.mappings():
                         brand_sales[row["sales_date"].isoformat()] = [int(row["gross"] or 0), int(row["net"] or 0)]
-                with connection.execution_options(stream_results=True, yield_per=5000).execute(text("""SELECT product_code, sales_date,
+                with connection.execute(text("""SELECT product_code, sales_date,
                     sum(gross_quantity) AS gross, sum(quantity) AS net FROM factory_channel_sales_daily_summaries
                     WHERE brand=:brand AND match_status='matched' AND sales_date>=:start AND sales_date<=:end
-                    AND product_code=ANY(:codes) GROUP BY product_code, sales_date"""),
+                    AND product_code=ANY(:codes) GROUP BY product_code, sales_date""").execution_options(yield_per=5000),
                     {"brand": brand, "start": start, "end": end, "codes": sales_codes}) as rows:
                     for row in rows.mappings():
                         day = row["sales_date"].isoformat()
@@ -181,11 +181,11 @@ def _load(connection, repository, brand, year, today, *, zero_quarter=None):
         if day and source_codes:
             quantities = defaultdict(Decimal)
             null_stock = set()
-            with connection.execution_options(stream_results=True, yield_per=5000).execute(text("""SELECT product_code, style_code,
+            with connection.execute(text("""SELECT product_code, style_code,
                 CASE WHEN count(available_qty) = count(*) THEN sum(available_qty) END AS quantity
                 FROM jst_full_stock WHERE sync_date=:day
                 AND (upper(trim(product_code))=ANY(:codes) OR upper(trim(style_code))=ANY(:codes))
-                GROUP BY product_code, style_code"""), {"day": day, "codes": source_codes}) as rows:
+                GROUP BY product_code, style_code""").execution_options(yield_per=5000), {"day": day, "codes": source_codes}) as rows:
                 for row in rows.mappings():
                     identity = matcher.resolve(row["product_code"], row["style_code"])
                     if identity is None:
@@ -214,7 +214,7 @@ def _load(connection, repository, brand, year, today, *, zero_quarter=None):
             WHERE inbound_date<=:end AND goods_code=ANY(:codes)
             GROUP BY goods_code, style_color_code, original_sku, """ + period
         for offset in range(0, len(codes), 1000):
-            with connection.execution_options(stream_results=True, yield_per=5000).execute(text(sql),
+            with connection.execute(text(sql),
                     parameters | {"codes": codes[offset:offset+1000]}) as rows:
                 for row in rows.mappings():
                     identity = matcher.resolve(row["goods_code"], row["style_color_code"], row["original_sku"])
@@ -255,12 +255,6 @@ def _verify_zero_sales(connection, inspector, matcher, products, facts, year, qu
     # returns. Confirm candidate products against both sales feeds.
     if not facts["sales_end"] or not facts["stock_date"]:
         return
-    jst_columns = {column["name"] for column in inspector.get_columns("jst_daily_sales")}
-    vip_columns = {column["name"] for column in inspector.get_columns("vip_daily_sales")}
-    if (not {"product_code", "style_code", "channel", "sales_quantity"} <= jst_columns
-            or not {"goods_code", "style_code", "sales_quantity"} <= vip_columns):
-        return
-    facts["zero_checked"] = True
     end = date.fromisoformat(facts["sales_end"])
     begin, after = quarter_bounds(year, quarter)
     cutoff = min(end, after-timedelta(days=1))
@@ -277,9 +271,24 @@ def _verify_zero_sales(connection, inspector, matcher, products, facts, year, qu
                for day, gross, _ in facts["sales"].get(str(p["id"]), ())):
             continue
         targets[key] = (launch, cutoff)
-    facts["zero_candidates"] = [key[1] for key in targets]
-    if not targets:
+    found = _zero_sales_evidence(connection, inspector, matcher, targets)
+    if found is None:
         return
+    facts["zero_checked"] = True
+    facts["zero_candidates"] = [key[1] for key in targets]
+    for candidate in found:
+        facts["zero_sales_evidence"][str(candidate[1])] = True
+
+
+def _zero_sales_evidence(connection, inspector, matcher, targets):
+    """Shared positive raw sales check for a bounded set of matched products."""
+    jst_columns = {column["name"] for column in inspector.get_columns("jst_daily_sales")}
+    vip_columns = {column["name"] for column in inspector.get_columns("vip_daily_sales")}
+    if (not {"product_code", "style_code", "channel", "sales_quantity"} <= jst_columns
+            or not {"goods_code", "style_code", "sales_quantity"} <= vip_columns):
+        return None
+    if not targets:
+        return set()
     ambiguous_codes = defaultdict(set)
     for key in targets:
         product = matcher.products[key]
@@ -292,6 +301,7 @@ def _verify_zero_sales(connection, inspector, matcher, products, facts, year, qu
     # Daily-sales import strips surrounding whitespace. Preserve original
     # catalogue case variants while leaving the source columns indexable.
     params["codes"] = _indexed_sales_codes(matcher, targets, codes)
+    found = set()
     for table, goods, extra in (("jst_daily_sales", "product_code", """
             AND coalesce(channel, '') NOT ILIKE '%采购%' AND coalesce(channel, '') NOT ILIKE '%-公司'
             AND coalesce(channel, '') NOT ILIKE '%VMI%'"""), ("vip_daily_sales", "goods_code", "")):
@@ -306,7 +316,8 @@ def _verify_zero_sales(connection, inspector, matcher, products, facts, year, qu
                                 ambiguous_codes.get(code(goods_code), set()) | ambiguous_codes.get(code(style), set()))
                     for candidate in possible:
                         if candidate in targets and targets[candidate][0] <= day <= targets[candidate][1]:
-                            facts["zero_sales_evidence"][str(candidate[1])] = True
+                            found.add(candidate)
+    return found
 
 
 def _indexed_sales_codes(matcher, keys, normalized):

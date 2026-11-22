@@ -1,4 +1,5 @@
 """Bounded, read-only recent sales and size stock; no raw sales-detail scans."""
+from bisect import bisect_left
 from collections import OrderedDict, defaultdict
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
@@ -17,15 +18,17 @@ _cache, _lock, _build_lock = OrderedDict(), Lock(), Lock()
 TTL, MAX_BYTES = 120, 8 * 1024 * 1024
 
 
-def _catalog(connection, repository, brand=None):
+def _catalog(connection, repository, brand=None, *, overview=False, inspector=None):
     products, groups = [], defaultdict(list)
-    inspector = inspect(connection)
+    inspector = inspector if inspector is not None else inspect(connection)
     for brand in ([brand] if brand else repository.product_archive_brands()):
         table = repository._table_for_brand(brand)
         if not inspector.has_table(table.name):
             continue
         fields = ("id", "sku", "original_sku", "product_name", "color", "color_code", "barcode_build_rule",
                   "size_range", "supplier_name", "launch_date")
+        if overview:
+            fields += ("season_category", "year", "upper_material")
         for row in connection.execute(select(*(table.c[field] for field in fields)).where(table.c.deleted_at.is_(None))).mappings():
             item = {**dict(row), "brand": brand}
             apply_product_defaults(brand, item)
@@ -53,19 +56,21 @@ def supplier_catalog(repository, brand):
             for supplier, names in sorted(suppliers.items())}
 
 
-def _load(connection, repository, brand, today, window_days):
-    products, groups = _catalog(connection, repository)
+def _load(connection, repository, brand, today, window_days, *, overview=False, shared=None):
+    inspector = inspect(connection)
+    products, groups = _catalog(connection, repository, overview=overview, inspector=inspector)
     matcher = ArchiveMatcher(products, {name: {size["barcode"] for size in sizes if size["barcode"]} for name, sizes in groups.items()})
     del products
     selected = {key: value for key, value in matcher.products.items() if key[0] == brand}
-    catalog = defaultdict(set)
-    for item in selected.values():
-        supplier = str(item.get("supplier_name") or "").strip()
-        if supplier:
-            catalog[supplier].add(str(item.get("size_range") or ""))
-    options = {supplier: {group: groups.get(group, []) for group in sorted(names)} for supplier, names in sorted(catalog.items())}
+    options = {}
+    if not overview:
+        catalog = defaultdict(set)
+        for item in selected.values():
+            supplier = str(item.get("supplier_name") or "").strip()
+            if supplier:
+                catalog[supplier].add(str(item.get("size_range") or ""))
+        options = {supplier: {group: groups.get(group, []) for group in sorted(names)} for supplier, names in sorted(catalog.items())}
     required = ("jst_full_stock", "jst_daily_sales", "vip_daily_sales", "factory_channel_sales_daily_summaries")
-    inspector = inspect(connection)
     missing = [name for name in required if not inspector.has_table(name)]
     base = {"window_days": window_days, "supplier_options": options, "stock_date": None, "sales_start": None,
             "sales_end": None, "ready": False, "unmatched_stock_rows": 0, "source_issues": []}
@@ -76,23 +81,12 @@ def _load(connection, repository, brand, today, window_days):
             for name in ("jst_daily_sales", "vip_daily_sales")]
     end = min(today - timedelta(days=1), stock_date - timedelta(days=1), *ends) if stock_date and all(ends) else None
     start = end - timedelta(days=window_days - 1) if end else None
-    covered = {}
-    if end:
-        for name in ("jst_daily_sales", "vip_daily_sales", "factory_channel_sales_daily_summaries"):
-            if name.endswith("summaries"):
-                dates = connection.execute(text("SELECT DISTINCT sales_date FROM factory_channel_sales_daily_summaries "
-                    "WHERE sales_date BETWEEN :start AND :end AND brand = :brand AND match_status = 'date_marker'"),
-                    {"start": start, "end": end, "brand": brand}).scalars()
-            else:
-                # At most 30 indexed existence probes, rather than aggregating
-                # every raw sales row in the observation window.
-                dates = _sales_dates(connection, name, end, start)
-            covered[name] = {launch_day(day) for day in dates}
     stocks, stock_sizes, transits, transit_sizes = (defaultdict(Decimal) for _ in range(4))
     seen, size_issues, unmatched = set(), defaultdict(set), 0
-    rows = connection.execution_options(stream_results=True, yield_per=5000).execute(text("""SELECT product_code, style_code, size,
+    explicit_sizes, negative_sizes = defaultdict(set), set()
+    rows = connection.execute(text("""SELECT product_code, style_code, size,
         sum(available_qty) AS available, sum(purchase_in_transit_qty) AS transit
-        FROM jst_full_stock WHERE sync_date = :day GROUP BY product_code, style_code, size"""), {"day": stock_date})
+        FROM jst_full_stock WHERE sync_date = :day GROUP BY product_code, style_code, size""").execution_options(yield_per=5000), {"day": stock_date})
     for row in rows.mappings():
         identity = matcher.resolve(row["product_code"], row["style_code"])
         if identity is None:
@@ -118,32 +112,88 @@ def _load(connection, repository, brand, today, window_days):
                 size_issues[identity].add("库存明细的尺码无法唯一匹配，请核对尺码组与条码规则")
         else:
             size_name = next(iter(matches))
+            if overview:
+                explicit_sizes[identity].add(size_name)
+                if available < 0:
+                    negative_sizes.add(identity)
             stock_sizes[identity, size_name] += available
             transit_sizes[identity, size_name] += transit
     rows.close()
+    launch_dates = {}
+    for key, item in selected.items():
+        value = item.get("launch_date")
+        if value not in launch_dates:
+            launch_dates[value] = launch_day(value)
+    launches = {key: launch_dates[item.get("launch_date")] for key, item in selected.items()}
+    # The overview also checks lifetime coverage. Use the same date lookups for
+    # both windows, and keep the separate cutoffs when the stock snapshot lags.
+    historic_end = min(today - timedelta(days=1), *ends) if all(ends) else None
+    first, last = start, end
+    if shared is not None and historic_end:
+        active_launches = [launches[key] for key, qty in stocks.items()
+                           if qty > 0 and launches[key] and launches[key] <= historic_end]
+        first = min([*active_launches, *([start] if start else [])], default=None)
+        last = historic_end
+    coverage = {}
+    if first and last and first <= last:
+        coverage = {name: _sales_dates(connection, name, last, first) for name in ("jst_daily_sales", "vip_daily_sales")}
+        coverage["factory_channel_sales_daily_summaries"] = list(connection.execute(text("""SELECT DISTINCT sales_date
+            FROM factory_channel_sales_daily_summaries WHERE sales_date BETWEEN :start AND :end
+            AND brand = :brand AND match_status = 'date_marker' ORDER BY sales_date"""),
+            {"start": first, "end": last, "brand": brand}).scalars())
+    if connection.dialect.name != "postgresql":
+        coverage = {name: [launch_day(day) for day in dates] for name, dates in coverage.items()}
+    covered = {name: dates[:bisect_left(dates, end + timedelta(days=1))] for name, dates in coverage.items()} if end else {}
+    if shared is not None:
+        shared.update(matcher=matcher, inspector=inspector,
+                      stock={key: qty for key, qty in stocks.items() if qty > 0},
+                      stock_date=stock_date, sales_end=historic_end, coverage=coverage)
     sku_keys = {item["sku"]: key for key, item in selected.items()}
+    if overview:
+        sku_groups = defaultdict(list)
+        for key, item in selected.items():
+            sku_groups[item["sku"]].append(key)
+        ambiguous = {key for keys in sku_groups.values() if len(keys) != 1 for key in keys}
+        sku_keys = {sku: keys[0] for sku, keys in sku_groups.items() if len(keys) == 1}
+    recent = defaultdict(lambda: defaultdict(int))
     sales, returns = defaultdict(Decimal), defaultdict(Decimal)
     if end:
-        rows = connection.execution_options(stream_results=True, yield_per=5000).execute(text("""SELECT product_code, sales_date,
-            sum(quantity) AS net, sum(return_quantity) AS returns FROM factory_channel_sales_daily_summaries
-            WHERE brand = :brand AND match_status = 'matched' AND sales_date BETWEEN :start AND :end
-            GROUP BY product_code, sales_date"""), {"brand": brand, "start": start, "end": end})
-        for row in rows.mappings():
-            identity = sku_keys.get(row["product_code"])
-            if identity is None:
-                continue
-            launch = launch_day(selected[identity].get("launch_date"))
-            if launch and launch_day(row["sales_date"]) < launch:
-                continue
-            sales[identity] += Decimal(str(row["net"] or 0))
-            returns[identity] += Decimal(str(row["returns"] or 0))
-        rows.close()
+        if overview:
+            # One result per SKU, including zero-net SKUs with recorded sales rows.
+            statement = text("""SELECT product_code,
+                sum(quantity) AS net30, sum(quantity) FILTER (WHERE channel_group = 'clearance') AS clearance30,
+                sum(quantity) FILTER (WHERE sales_date >= :recent) AS net7,
+                sum(quantity) FILTER (WHERE sales_date >= :recent AND channel_group = 'clearance') AS clearance7
+                FROM factory_channel_sales_daily_summaries
+                WHERE brand = :brand AND match_status = 'matched' AND sales_date BETWEEN :start AND :end
+                GROUP BY product_code""")
+            params = {"brand": brand, "start": start, "end": end, "recent": end - timedelta(days=6)}
+        else:
+            statement = text("""SELECT product_code, sales_date, sum(quantity) AS net, sum(return_quantity) AS returns
+                FROM factory_channel_sales_daily_summaries
+                WHERE brand = :brand AND match_status = 'matched' AND sales_date BETWEEN :start AND :end
+                GROUP BY product_code, sales_date""")
+            params = {"brand": brand, "start": start, "end": end}
+        with connection.execute(statement.execution_options(yield_per=5000), params) as rows:
+            for row in rows.mappings():
+                identity = sku_keys.get(row["product_code"])
+                if identity is None:
+                    continue
+                if overview:
+                    for window in (7, 30):
+                        net = int(row[f"net{window}"] or 0)
+                        clearance = int(row[f"clearance{window}"] or 0)
+                        recent[identity][f"regular_{window}"] = net - clearance
+                        recent[identity][f"clearance_{window}"] = clearance
+                elif not launches[identity] or launch_day(row["sales_date"]) >= launches[identity]:
+                    sales[identity] += Decimal(str(row["net"] or 0))
+                    returns[identity] += Decimal(str(row["returns"] or 0))
     items = []
     for identity, item in selected.items():
         # Include sold-out products with recent sales, as well as stock/in-transit.
-        if not (stocks[identity] or transits[identity] or sales[identity] or returns[identity]):
+        if not (stocks[identity] or transits[identity] or sales[identity] or returns[identity] or (overview and recent.get(identity))):
             continue
-        launch, issues = launch_day(item.get("launch_date")), []
+        launch, issues = launches[identity], []
         item_start = max(start, launch) if start and launch else start
         observation_days = (end - item_start).days + 1 if end and item_start and item_start <= end else 0
         if not stock_date or identity not in seen:
@@ -155,9 +205,12 @@ def _load(connection, repository, brand, today, window_days):
         else:
             for name, label in (("jst_daily_sales", "聚水潭日销"), ("vip_daily_sales", "唯品日销"),
                                 ("factory_channel_sales_daily_summaries", "日销计算汇总")):
-                count = sum(item_start <= day <= end for day in covered[name] if day)
+                dates = covered[name]
+                count = len(dates) - bisect_left(dates, item_start)
                 if count < observation_days:
                     issues.append(f"{label}缺少 {observation_days - count} 天")
+        if overview and identity in ambiguous:
+            issues.append("档案货号重复，近销无法唯一匹配")
         group = str(item.get("size_range") or "")
         sizes = groups.get(group, [])
         items.append({"id": item["id"], "brand": brand, "sku": item["sku"], "original_sku": item.get("original_sku"),
@@ -168,6 +221,12 @@ def _load(connection, repository, brand, today, window_days):
                       "transit_by_size": {size["name"]: str(transit_sizes[identity, size["name"]]) for size in sizes},
                       "net_sales": str(sales[identity]), "sales_returns": str(returns[identity]),
                       "observation_days": observation_days, "issues": issues, "size_issues": sorted(size_issues[identity])})
+        if overview:
+            items[-1].update(launch_date=launch.isoformat() if launch else None,
+                season=item.get("season_category"), year=item.get("year"), upper_material=item.get("upper_material"),
+                seen=identity in seen, explicit_sizes=sorted(explicit_sizes[identity]),
+                negative_sizes=identity in negative_sizes, ambiguous_sales=identity in ambiguous,
+                **{key: recent[identity][key] for key in ("regular_7", "clearance_7", "regular_30", "clearance_30")})
     notices = ["近 7/15/30 天净销量来自聚水潭、唯品日销生成的渠道日汇总，沿用唯品同商品同日去重；唯品日销未单列退货。",
                "分码日需求按使用者填写的尺码配比估算，并非实际尺码销量；近期无正净销量时不生成补货量。",
                "需求覆盖供应商交期加到货后的备货天数。按尺码目标需求减去库存，缺口逐码向上取整。",
@@ -180,12 +239,15 @@ def _load(connection, repository, brand, today, window_days):
         notices.append(f"销量截至 {end}，未更新至昨日，结果仅供参考。")
     return {**base, "items": items, "stock_date": str(stock_date) if stock_date else None,
             "sales_start": str(start) if start else None, "sales_end": str(end) if end else None,
-            "ready": bool(stock_date and end), "unmatched_stock_rows": unmatched, "source_issues": notices}
+            "ready": bool(stock_date and end), "unmatched_stock_rows": unmatched, "source_issues": notices,
+            **({"window_complete": {str(window): bool(end and covered and all(
+                len(dates) - bisect_left(dates, end - timedelta(days=window - 1)) == window
+                for dates in covered.values())) for window in (7, 30)}} if overview else {})}
 
 
-def load_replenishment_facts(repository, brand, *, window_days=30, refresh=False, today=None):
+def load_replenishment_facts(repository, brand, *, window_days=30, refresh=False, today=None, overview=False):
     today = today or datetime.now(timezone(timedelta(hours=8))).date()
-    key = id(repository.engine), brand, today, window_days
+    key = id(repository.engine), brand, today, window_days, overview
 
     def cached():
         with _lock:
@@ -206,7 +268,7 @@ def load_replenishment_facts(repository, brand, *, window_days=30, refresh=False
         with repository.engine.connect().execution_options(isolation_level="REPEATABLE READ") as connection, connection.begin():
             connection.execute(text("SET TRANSACTION READ ONLY"))
             connection.execute(text("SET LOCAL statement_timeout = '25s'"))
-            result = _load(connection, repository, brand, today, window_days)
+            result = _load(connection, repository, brand, today, window_days, overview=True) if overview else _load(connection, repository, brand, today, window_days)
         encoded = orjson.dumps(result)
         with _lock:
             _cache.pop(key, None)

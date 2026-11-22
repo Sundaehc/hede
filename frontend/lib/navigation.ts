@@ -125,6 +125,7 @@ const NAV_ITEMS = [
   {
     section: "存",
     items: [
+      { href: "/stock-alerts/overview", label: "库存经营总览", icon: Activity, permission: "product.view" },
       { href: "/stock-alerts/seasonal-analysis", label: "季度新品分析", icon: ChartNoAxesCombined, permission: "product.view" },
       { href: "/stock-alerts/new-products", label: "新品零动销预警", icon: Sparkles, permission: "product.view" },
       { href: "/stock-alerts/slow-sales", label: "低售罄、滞销预警", icon: TrendingDown, permission: "product.view" },

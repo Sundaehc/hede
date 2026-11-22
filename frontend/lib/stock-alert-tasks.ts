@@ -5,7 +5,13 @@ export const taskStatusLabels = {
   processing: "处理中",
   completed: "已完成",
 }
-export const alertKindLabels = { zero: "新品零动销", slow: "低售罄、滞销" }
+export const alertKindLabels = {
+  zero: "新品零动销",
+  slow: "低售罄、滞销",
+  replenish: "核心尺码补货",
+  clearance: "清货跟进",
+}
+export type StockTaskKind = keyof typeof alertKindLabels
 export type StockAlertTaskSummary = {
   id: number
   status: keyof typeof taskStatusLabels
@@ -16,12 +22,18 @@ export type StockAlertTaskSummary = {
 export type StockAlertTask = StockAlertTaskSummary & {
   brand: string
   product_id: number
-  kind: StockAlertKind
+  kind: StockTaskKind
   sku: string
   original_sku: string | null
   product_name: string | null
   color: string | null
-  snapshot: StockAlertItem & {
+  snapshot: Partial<Omit<StockAlertItem, "available_quantity">> & {
+    reason?: string
+    quantity?: number | null
+    sizes?: Array<{ name: string; available: number; quantity: number }>
+    channel?: string | null
+    exit_date?: string | null
+    available_quantity?: string | number
     stock_date: string | null
     sales_end: string | null
   }
@@ -38,7 +50,7 @@ export type TaskFilters = {
   scope: "mine" | "all"
   status: "open" | "overdue" | "completed" | "all"
   brand: string
-  kind: "" | StockAlertKind
+  kind: "" | StockTaskKind
   query: string
   page: number
 }

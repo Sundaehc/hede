@@ -6,6 +6,7 @@ from fastapi import Request
 from starlette.concurrency import run_in_threadpool
 from starlette.responses import JSONResponse
 
+from api.product_image_auth import authorize_product_image_token
 from api.routes.auth import get_current_user_from_request, user_has_permission
 
 
@@ -89,6 +90,10 @@ def required_permission_for_request(
 
 
 async def auth_middleware(request: Request, call_next):
+    token_response = await authorize_product_image_token(request, call_next)
+    if token_response is not None:
+        return token_response
+
     if request.method == "OPTIONS":
         return await call_next(request)
 

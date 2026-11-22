@@ -15,6 +15,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import {
+  createOverviewTask,
   createStockAlertTask,
   getStockAlertAssignees,
   getStockAlertTask,
@@ -22,6 +23,7 @@ import {
   updateStockAlertTask,
 } from "@/lib/api"
 import type { StockAlertItem, StockAlertKind } from "@/lib/stock-alerts"
+import type { OverviewItem } from "@/lib/stock-overview"
 import {
   alertKindLabels,
   beijingDate,
@@ -86,9 +88,15 @@ export function CreateStockAlertTaskDialog({
   brandLabel,
   onClose,
   onCreated,
+  recommendation,
 }: {
-  item: StockAlertItem
-  kind: StockAlertKind
+  item: Pick<
+    StockAlertItem,
+    "id" | "brand" | "sku" | "product_name" | "color" | "available_quantity"
+  > &
+    Partial<Pick<StockAlertItem, "listed_days" | "sell_through_rate">>
+  kind: StockAlertKind | "replenish" | "clearance"
+  recommendation?: OverviewItem
   brandLabel: string
   onClose: () => void
   onCreated: (task: StockAlertTask) => void
@@ -96,8 +104,10 @@ export function CreateStockAlertTaskDialog({
   const { user } = useAuth()
   const assignees = useAssignees(true)
   const [assigneeId, setAssigneeId] = useState(String(user?.id ?? ""))
-  const [dueDate, setDueDate] = useState(beijingDate(3))
-  const [measures, setMeasures] = useState("")
+  const [dueDate, setDueDate] = useState(
+    recommendation?.due_date ?? beijingDate(3)
+  )
+  const [measures, setMeasures] = useState(recommendation?.reason ?? "")
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const validAssignee = assignees?.items.some(
@@ -125,14 +135,24 @@ export function CreateStockAlertTaskDialog({
             setSaving(true)
             setError(null)
             try {
-              const response = await createStockAlertTask({
+              const details = {
                 brand: item.brand,
                 product_id: item.id,
-                kind,
                 assignee_id: Number(assigneeId),
                 due_date: dueDate,
                 measures,
-              })
+              }
+              const response = recommendation?.signature
+                ? await createOverviewTask({
+                    ...details,
+                    kind,
+                    signature: recommendation.signature,
+                  })
+                : kind === "zero" || kind === "slow"
+                  ? await createStockAlertTask({ ...details, kind })
+                  : (() => {
+                      throw new Error("建议已变化，请刷新后重试")
+                    })()
               onCreated(response.item)
             } catch (cause) {
               setError(errorMessage(cause))
@@ -150,11 +170,10 @@ export function CreateStockAlertTaskDialog({
               {[item.product_name, item.color].filter(Boolean).join(" · ")}
             </p>
             <p className="mt-3 text-xs leading-5 text-muted-foreground">
-              可售库存 {item.available_quantity} 双 · 上市{" "}
-              {item.listed_days ?? "—"} 天
-              {kind === "slow"
-                ? ` · 参考售罄率 ${item.sell_through_rate ?? "—"}%`
-                : " · 上市后无销售"}
+              可售库存 {item.available_quantity} 双 ·{" "}
+              {recommendation
+                ? `${recommendation.reason}${recommendation.quantity !== null ? ` · 建议 ${recommendation.quantity} 双` : ""}`
+                : `上市 ${item.listed_days ?? "—"} 天${kind === "slow" ? ` · 参考售罄率 ${item.sell_through_rate ?? "—"}%` : " · 上市后无销售"}`}
             </p>
           </div>
           <div className="grid gap-4 sm:grid-cols-2">
@@ -183,6 +202,11 @@ export function CreateStockAlertTaskDialog({
                 aria-label="处理期限"
                 type="date"
                 min={beijingDate()}
+                max={
+                  kind === "clearance"
+                    ? (recommendation?.due_date ?? undefined)
+                    : undefined
+                }
                 required
                 value={dueDate}
                 disabled={saving}
@@ -396,17 +420,40 @@ function TaskEditor({
                 库存快照 {item.snapshot.stock_date ?? "—"} · 日销截止{" "}
                 {item.snapshot.sales_end ?? "—"}
               </p>
+              {item.snapshot.reason ? (
+                <>
+                  <p>{item.snapshot.reason}</p>
+                  <p>
+                    可售库存 {item.snapshot.available_quantity} 双 · 建议处理{" "}
+                    {item.snapshot.quantity ?? "—"} 双
+                    {item.snapshot.channel ? ` · ${item.snapshot.channel}` : ""}
+                  </p>
+                  {item.snapshot.sizes?.length ? (
+                    <p>
+                      建议尺码：
+                      {item.snapshot.sizes
+                        .map((size) => `${size.name}码 ${size.quantity}双`)
+                        .join("、")}
+                    </p>
+                  ) : null}
+                </>
+              ) : (
+                <>
+                  <p>
+                    可售库存 {item.snapshot.available_quantity} 双 · 上市{" "}
+                    {item.snapshot.listed_days ?? "—"} 天
+                  </p>
+                  <p>
+                    上市满 {item.snapshot.rule_age_days} 天
+                    {item.kind === "slow"
+                      ? ` · 参考售罄率 ${item.snapshot.sell_through_rate ?? "—"}%，低于 ${item.snapshot.rule_rate}%`
+                      : " · 上市后无销售"}
+                  </p>
+                </>
+              )}
               <p>
-                可售库存 {item.snapshot.available_quantity} 双 · 上市{" "}
-                {item.snapshot.listed_days ?? "—"} 天
+                此处保留创建时的数据，当前情况请回库存经营总览或预警清单核对。
               </p>
-              <p>
-                上市满 {item.snapshot.rule_age_days} 天
-                {item.kind === "slow"
-                  ? ` · 参考售罄率 ${item.snapshot.sell_through_rate ?? "—"}%，低于 ${item.snapshot.rule_rate}%`
-                  : " · 上市后无销售"}
-              </p>
-              <p>此处保留创建时的数据，当前情况请回预警清单核对。</p>
             </details>
           </div>
           {item.overdue && (

@@ -60,7 +60,7 @@ PageTabPath = Literal[
     "/supplier-brands", "/warehouses", "/general-customer-shops", "/account-subjects",
     "/size-groups", "/color-barcodes", "/auxiliary-attributes", "/product-tags",
     "/admin", "/scheduled-tasks", "/admin/mcp-tokens",
-    "/stock-alerts/seasonal-analysis",
+    "/stock-alerts/overview", "/stock-alerts/seasonal-analysis",
     "/stock-alerts/new-products", "/stock-alerts/slow-sales", "/stock-alerts/replenishment", "/stock-alerts/tasks",
 ]
 

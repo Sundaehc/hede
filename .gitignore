@@ -38,4 +38,6 @@ tests/
 !backend/tests/
 backend/tests/*
 !backend/tests/test_inventory_import_product_validation.py
+!backend/tests/test_stock_overview.py
+!backend/tests/test_stock_overview_postgres.py
 tmp/

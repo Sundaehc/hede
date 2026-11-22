@@ -116,11 +116,11 @@ export function publishBusinessDataChange(resources: BusinessDataResource[]) {
 export function notifyBusinessMutation(path: string, method = "GET") {
   if (!["POST", "PUT", "PATCH", "DELETE"].includes(method.toUpperCase())) return
   const pathname = path.split("?")[0]
-  if (/^\/stock-alerts\/tasks(?:\/(?:\d+|batch-create|batch-update))?$/.test(pathname)) {
+  if (/^\/stock-alerts\/tasks(?:\/(?:\d+|batch-create|batch-update|from-overview))?$/.test(pathname)) {
     publishBusinessDataChange(["stock-alert-tasks"])
     return
   }
-  if (pathname === "/stock-alerts/rules" || pathname === "/stock-alerts/replenishment/rules") {
+  if (pathname === "/stock-alerts/rules" || pathname === "/stock-alerts/replenishment/rules" || pathname === "/stock-alerts/overview/rules") {
     publishBusinessDataChange(["stock-alert-rules"])
     return
   }
