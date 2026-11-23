@@ -3,14 +3,18 @@
 import { useEffect, useRef, useState } from "react"
 import Link from "next/link"
 import {
+  Archive,
   ArrowRight,
+  Box,
   CalendarDays,
   ChevronLeft,
   ChevronRight,
   ClipboardList,
+  Database,
   RefreshCw,
   Search,
   SlidersHorizontal,
+  TriangleAlert,
 } from "lucide-react"
 import { useAuth } from "@/components/auth/auth-provider"
 import { Button } from "@/components/ui/button"
@@ -60,76 +64,149 @@ const defaults: OverviewFilters = {
 }
 const labels = { ...alertKindLabels, review: "数据待核对" }
 const bucketLabels: Record<InventoryBucket["key"], [string, string]> = {
-  selling: ["正常销售", "bg-emerald-600"],
-  next_season: ["跨季待售", "bg-sky-600"],
-  size_imbalance: ["尺码不均衡", "bg-amber-500"],
-  clearance: ["待清货", "bg-rose-500"],
-  watch: ["继续观察", "bg-slate-500"],
-  review: ["数据待核对", "bg-stone-400"],
+  selling: ["正常销售", "bg-emerald-600 dark:bg-emerald-400"],
+  next_season: ["跨季待售", "bg-sky-600 dark:bg-sky-400"],
+  size_imbalance: ["尺码不均衡", "bg-indigo-600 dark:bg-indigo-400"],
+  clearance: ["待清货", "bg-rose-600 dark:bg-rose-400"],
+  watch: ["继续观察", "bg-slate-500 dark:bg-slate-400"],
+  review: ["数据待核对", "bg-amber-500 dark:bg-amber-400"],
 }
 const kinds = ["clearance", "zero", "replenish", "slow", "review"] as const
 const number = new Intl.NumberFormat("zh-CN", { maximumFractionDigits: 1 })
+const percent = new Intl.NumberFormat("zh-CN", {
+  maximumFractionDigits: 1,
+  style: "percent",
+})
 const fmt = (value: number | null | undefined, suffix = "") =>
   value == null ? "—" : `${number.format(value)}${suffix}`
-const panel = "rounded-xl border bg-card text-card-foreground"
+const panel =
+  "min-w-0 overflow-hidden rounded-2xl border border-border/80 bg-card/80 text-card-foreground shadow-xs"
+const badge = "rounded-md bg-muted/70 px-2 py-1 text-xs text-muted-foreground"
+const warning = "text-amber-800 dark:text-amber-300"
+
+function NetSales({
+  label,
+  recent,
+  monthly,
+}: {
+  label: string
+  recent: number | null
+  monthly: number | null
+}) {
+  return (
+    <div className="min-w-0">
+      <h3 className="text-sm font-medium text-muted-foreground">{label}</h3>
+      <dl className="mt-3 grid gap-x-3 gap-y-2 @min-[18rem]/inventory:grid-cols-2">
+        {(
+          [
+            ["近 7 天", recent],
+            ["近 30 天", monthly],
+          ] as const
+        ).map(([period, value]) => (
+          <div key={period}>
+            <dt className="text-xs text-muted-foreground">{period}</dt>
+            <dd className="mt-0.5 text-base font-semibold wrap-anywhere tabular-nums sm:text-xl">
+              {fmt(value)}
+              {value != null && (
+                <span className="ml-1 text-xs font-normal text-muted-foreground">
+                  双
+                </span>
+              )}
+            </dd>
+          </div>
+        ))}
+      </dl>
+    </div>
+  )
+}
 
 function InventoryPanel({ data }: { data: OverviewResponse }) {
   const { inventory, sources } = data
-  const health =
-    inventory.coverage_days == null
-      ? "范围或数据不足，暂不估算覆盖天数"
-      : `按近 30 天净销估算可覆盖 ${fmt(inventory.coverage_days, " 天")}`
+  const review = inventory.buckets.find(({ key }) => key === "review")
+  const reviewShare =
+    review && inventory.available && review.units > 0
+      ? review.units / inventory.available
+      : null
+  const reviewPercent =
+    reviewShare == null
+      ? null
+      : reviewShare < 0.001
+        ? "<0.1%"
+        : reviewShare > 0.999 && reviewShare < 1
+          ? ">99.9%"
+          : percent.format(reviewShare)
   return (
-    <section aria-label="整盘库存" className={panel}>
-      <div className="grid gap-4 border-b px-4 py-5 sm:px-6 lg:grid-cols-[1.1fr_1.9fr]">
-        <div>
-          <p className="text-sm font-medium">整盘可售库存</p>
-          <div className="mt-1 flex flex-wrap items-baseline gap-2">
-            <strong className="font-mono text-4xl font-bold tracking-tight tabular-nums">
+    <section
+      aria-label="整盘库存"
+      className={cn(panel, "@container/inventory")}
+    >
+      <div className="grid @min-[48rem]/inventory:grid-cols-[minmax(0,1fr)_minmax(0,2fr)]">
+        <div className="border-b bg-primary/[0.04] p-4 sm:px-5 @min-[48rem]/inventory:border-r @min-[48rem]/inventory:border-b-0">
+          <h2 className="flex items-center justify-between gap-2 text-sm font-medium text-muted-foreground">
+            整盘可售库存
+            <Box className="size-4 shrink-0" aria-hidden="true" />
+          </h2>
+          <div className="mt-3 flex flex-wrap items-baseline gap-x-1.5">
+            <strong className="text-3xl leading-none font-semibold tracking-tight wrap-anywhere tabular-nums">
               {fmt(inventory.available)}
             </strong>
             {inventory.available != null && (
-              <span className="text-sm text-muted-foreground">双</span>
+              <span className="text-xs text-muted-foreground">双</span>
             )}
           </div>
           <p className="mt-2 text-xs leading-5 text-muted-foreground">
-            {health}
+            {inventory.coverage_days == null
+              ? "数据不足，暂无法估算库存覆盖天数"
+              : `按近 30 天净销估算可覆盖 ${fmt(inventory.coverage_days, " 天")}`}
           </p>
         </div>
-        <div className="grid grid-cols-2 gap-3 self-center border-l pl-4 sm:pl-6">
-          <div>
-            <p className="text-xs text-muted-foreground">
-              非清仓净销 · 7 天 / 30 天
-            </p>
-            <p className="mt-2 font-mono text-base font-semibold tabular-nums sm:text-lg">
-              {fmt(inventory.regular_7)}{" "}
-              <span className="text-muted-foreground">/</span>{" "}
-              {fmt(inventory.regular_30)}
-            </p>
+        <div className="p-4 sm:px-5">
+          <div className="grid grid-cols-2 divide-x divide-border/80">
+            <div className="pr-3 sm:pr-4">
+              <NetSales
+                label="非清仓净销"
+                recent={inventory.regular_7}
+                monthly={inventory.regular_30}
+              />
+            </div>
+            <div className="pl-3 sm:pl-4">
+              <NetSales
+                label="清仓净销"
+                recent={inventory.clearance_7}
+                monthly={inventory.clearance_30}
+              />
+            </div>
           </div>
-          <div>
-            <p className="text-xs text-muted-foreground">
-              清仓净销 · 7 天 / 30 天
-            </p>
-            <p className="mt-2 font-mono text-base font-semibold tabular-nums sm:text-lg">
-              {fmt(inventory.clearance_7)}{" "}
-              <span className="text-muted-foreground">/</span>{" "}
-              {fmt(inventory.clearance_30)}
-            </p>
-          </div>
-          <p className="col-span-2 text-xs text-muted-foreground">
-            近 30 天合计 {fmt(inventory.total_30, " 双")}
+          <p className="mt-3 border-t border-border/80 pt-2.5 text-xs text-muted-foreground">
+            近 30 天合计{" "}
+            <strong className="ml-1 font-semibold text-foreground tabular-nums">
+              {fmt(inventory.total_30, " 双")}
+            </strong>
           </p>
         </div>
       </div>
-      <div className="space-y-3 px-4 py-4 sm:px-6">
-        {inventory.available ? (
+      <div className="border-t px-4 py-3 sm:px-5">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h3 className="text-sm font-semibold">库存分布</h3>
+          {reviewPercent && (
+            <span
+              className={cn(
+                "inline-flex items-center gap-1.5 text-xs font-medium",
+                warning
+              )}
+            >
+              <TriangleAlert className="size-3.5 shrink-0" aria-hidden="true" />
+              待核对库存占 {reviewPercent}
+            </span>
+          )}
+        </div>
+        {inventory.available != null && inventory.available > 0 && (
           <div
-            className="flex h-2 w-full overflow-hidden rounded-full bg-muted"
+            className="mt-2 flex h-2 overflow-hidden rounded-full bg-muted"
             aria-hidden="true"
           >
             {inventory.buckets
-              .filter((bucket) => bucket.units > 0)
+              .filter(({ units }) => units > 0)
               .map((bucket) => (
                 <span
                   key={bucket.key}
@@ -138,39 +215,69 @@ function InventoryPanel({ data }: { data: OverviewResponse }) {
                 />
               ))}
           </div>
-        ) : null}
-        <ul className="grid grid-cols-2 gap-x-3 gap-y-2 sm:grid-cols-3 lg:grid-cols-6">
-          {inventory.buckets.map((bucket) => (
-            <li key={bucket.key} className="flex items-start gap-2 text-xs">
-              <span
-                className={cn(
-                  "mt-1 size-2 shrink-0 rounded-sm",
-                  bucketLabels[bucket.key][1]
-                )}
-                aria-hidden="true"
-              />
-              <span>
-                {bucketLabels[bucket.key][0]}{" "}
-                <span className="block font-mono text-muted-foreground">
-                  {fmt(bucket.units, " 双")} / {fmt(bucket.styles, " 款色")}
-                </span>
-              </span>
-            </li>
-          ))}
-        </ul>
-        <p className="text-xs leading-5 text-muted-foreground">
-          库存 {sources.stock_date ?? "待同步"} · 日销截至{" "}
-          {sources.sales_end ?? "待同步"} · 北京时间。只汇总唯一匹配的档案款色。
-          {sources.unmatched_stock_rows > 0
-            ? ` 全部品牌库存中有 ${fmt(sources.unmatched_stock_rows)} 个编码组未能唯一匹配。`
-            : ""}
-        </p>
-        {!sources.aligned && (
-          <p className="text-xs font-medium text-destructive">
-            库存或日销有延迟，可查看当前数据，暂不生成可分配建议。
+        )}
+        {inventory.buckets.length > 0 ? (
+          <ul className="mt-2.5 grid grid-cols-2 gap-2 @min-[30rem]/inventory:grid-cols-3 @min-[62rem]/inventory:grid-cols-6">
+            {inventory.buckets.map((bucket) => (
+              <li key={bucket.key} className="min-w-0 text-xs">
+                <p className="flex items-center gap-1.5 font-medium">
+                  <span
+                    className={cn(
+                      "size-2 shrink-0 rounded-full",
+                      bucketLabels[bucket.key][1]
+                    )}
+                    aria-hidden="true"
+                  />
+                  {bucketLabels[bucket.key][0]}
+                </p>
+                <p className="mt-1 flex flex-wrap items-baseline gap-x-1.5 tabular-nums">
+                  <strong className="font-semibold">
+                    {fmt(bucket.units, " 双")}
+                  </strong>
+                  <span className="text-muted-foreground">
+                    {fmt(bucket.styles, " 款色")}
+                  </span>
+                </p>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="mt-2 text-sm text-muted-foreground">
+            暂无库存分布数据。
           </p>
         )}
       </div>
+      <div className="border-t bg-muted/15 px-4 py-2.5 text-xs leading-5 text-muted-foreground sm:px-5">
+        <div className="flex items-start gap-2">
+          <Database className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
+          <div className="flex flex-wrap gap-x-4">
+            <p className="flex flex-wrap gap-x-3 tabular-nums">
+              <span>库存快照：{sources.stock_date ?? "待同步"}</span>
+              <span>日销截至：{sources.sales_end ?? "待同步"}</span>
+              <span>北京时间</span>
+            </p>
+            <p>
+              只汇总唯一匹配的档案款色。{" "}
+              {sources.unmatched_stock_rows > 0 &&
+                `全部品牌有 ${fmt(sources.unmatched_stock_rows)} 个库存编码组未能唯一匹配。`}
+            </p>
+          </div>
+        </div>
+      </div>
+      {!sources.aligned && (
+        <p
+          className={cn(
+            "flex items-start gap-2 border-t border-amber-500/20 bg-amber-500/5 px-4 py-2.5 text-xs leading-5 font-medium sm:px-5",
+            warning
+          )}
+        >
+          <TriangleAlert
+            className="mt-0.5 size-3.5 shrink-0"
+            aria-hidden="true"
+          />
+          库存或日销有延迟，可查看当前数据，暂不生成可分配建议。
+        </p>
+      )}
     </section>
   )
 }
@@ -184,27 +291,27 @@ function WeeklyPanel({
   error: string | null
   retry: () => void
 }) {
-  const metrics = week
-    ? ([
-        ["新增待办", week.created, " 项"],
-        ["已完成", week.completed, " 项"],
-        ["周末已到期未完成", week.overdue, " 项"],
-        ["处理款净销", week.net_sales, " 双"],
-        ["处理款尺码库存变化", week.stock_change, " 双"],
-        ["清货款清仓净销", week.clearance_net_sales, " 双"],
-      ] as const)
-    : []
   return (
-    <section aria-label="上周复盘" className={cn(panel, "p-4 sm:p-5")}>
-      <h2 className="flex items-center gap-2 text-sm font-semibold">
-        <CalendarDays
-          className="size-4 text-muted-foreground"
-          aria-hidden="true"
-        />
-        上周复盘
-      </h2>
+    <section aria-labelledby="stock-overview-week" className={panel}>
+      <div className="border-b border-border/80 px-4 py-4 sm:px-5">
+        <h2
+          id="stock-overview-week"
+          className="flex items-center gap-2 text-sm font-semibold"
+        >
+          <CalendarDays
+            className="size-4 text-muted-foreground"
+            aria-hidden="true"
+          />{" "}
+          上周复盘
+        </h2>
+        {week && (
+          <p className="mt-1 text-xs text-muted-foreground tabular-nums">
+            {week.start} 至 {week.end}
+          </p>
+        )}
+      </div>
       {error ? (
-        <div className="mt-3 space-y-2">
+        <div className="space-y-2 p-4 sm:px-5">
           <p className="text-sm text-destructive" role="alert">
             {error}
           </p>
@@ -213,27 +320,68 @@ function WeeklyPanel({
           </Button>
         </div>
       ) : week ? (
-        <>
-          <p className="mt-1 text-xs text-muted-foreground">
-            {week.start} 至 {week.end}
-          </p>
-          <dl className="mt-4 grid grid-cols-2 gap-x-3 gap-y-4 lg:grid-cols-1 xl:grid-cols-2 xl:gap-y-3">
-            {metrics.map(([label, value, suffix]) => (
-              <div key={label} className="border-b pb-2">
-                <dt className="text-xs text-muted-foreground">{label}</dt>
-                <dd className="mt-1 font-mono text-lg font-semibold tabular-nums">
-                  {fmt(value, suffix)}
+        <div className="space-y-4 p-4 sm:px-5">
+          <dl className="grid grid-cols-3 divide-x">
+            {(
+              [
+                ["新增待办", week.created],
+                ["已完成", week.completed],
+                ["到期未完成", week.overdue],
+              ] as const
+            ).map(([label, value]) => (
+              <div
+                key={label}
+                className={cn(
+                  "min-w-0 px-1 text-center",
+                  label === "到期未完成" && value > 0 && warning
+                )}
+              >
+                <dt
+                  className="text-xs text-muted-foreground"
+                  title={label === "到期未完成" ? "截至上周末" : undefined}
+                >
+                  {label}
+                </dt>
+                <dd className="mt-1 text-lg font-semibold wrap-anywhere tabular-nums">
+                  {fmt(value)}
+                  <span className="ml-0.5 text-xs font-normal text-muted-foreground">
+                    项
+                  </span>
                 </dd>
               </div>
             ))}
           </dl>
-          <p className="mt-4 text-xs leading-5 text-muted-foreground">
-            以该周已完成待办的 {week.completed_styles}{" "}
-            个款色作观察，库存变化使用尺码历史快照。没有完整记录时显示「—」；观察值不能直接归因为某次处理。回收金额待财务口径接入。
+          <div>
+            <h3 className="text-xs font-medium text-muted-foreground">
+              处理成效
+            </h3>
+            <dl className="mt-1 divide-y divide-border/70 text-xs">
+              {(
+                [
+                  ["处理款净销", week.net_sales],
+                  ["处理款尺码库存变化", week.stock_change],
+                  ["清货款清仓净销", week.clearance_net_sales],
+                ] as const
+              ).map(([label, value]) => (
+                <div
+                  key={label}
+                  className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1 py-2"
+                >
+                  <dt className="text-muted-foreground">{label}</dt>
+                  <dd className="font-medium tabular-nums">
+                    {fmt(value, " 双")}
+                  </dd>
+                </div>
+              ))}
+            </dl>
+          </div>
+          <p className="border-t border-border/80 pt-3 text-xs leading-5 text-muted-foreground">
+            观察上周已完成待办的 {fmt(week.completed_styles)}{" "}
+            个款色。库存变化来自尺码历史快照，记录不全时显示「—」。观察值不能直接归因于某次处理，回收金额待财务口径接入。
           </p>
-        </>
+        </div>
       ) : (
-        <p className="mt-3 text-sm text-muted-foreground" role="status">
+        <p className="p-4 text-sm text-muted-foreground sm:px-5" role="status">
           正在读取上周记录…
         </p>
       )}
@@ -363,19 +511,22 @@ export function StockOverviewPage() {
   const options = useStockModuleOptions(getStockAlertOptions)
   const brands = options.data?.brands ?? []
   const brandLabel =
-    brands.find(({ value }) => value === filters.brand)?.label ?? filters.brand
-  const { data, loading, error, refreshing } = useStockModuleQuery({
-    group: "stock-overview",
-    queryKey: JSON.stringify(filters),
-    revision,
-    resources: STOCK_ALERT_RESOURCES,
-    factResources: STOCK_SOURCE_RESOURCES,
-    load: (signal, refreshFacts) => {
-      const refresh = force.current || refreshFacts
-      force.current = false
-      return getStockOverview(filters, { signal, refresh })
-    },
-  })
+    brands.find(({ value }) => value === filters.brand)?.label ??
+    (filters.brand === defaults.brand ? "千百度女鞋" : filters.brand)
+  const { data, previousData, loading, error, refreshing } =
+    useStockModuleQuery({
+      group: "stock-overview",
+      queryKey: JSON.stringify(filters),
+      previousDataKey: filters.brand,
+      revision,
+      resources: STOCK_ALERT_RESOURCES,
+      factResources: STOCK_SOURCE_RESOURCES,
+      load: (signal, refreshFacts) => {
+        const refresh = force.current || refreshFacts
+        force.current = false
+        return getStockOverview(filters, { signal, refresh })
+      },
+    })
   const weekly = useStockModuleQuery({
     group: "stock-overview-week",
     queryKey: filters.brand,
@@ -396,61 +547,66 @@ export function StockOverviewPage() {
     setRevision((value) => value + 1)
     setWeekRevision((value) => value + 1)
   }
+  const summary = data ?? (loading ? previousData : null)
   const page = data?.page ?? filters.page
   const pages = data ? Math.max(1, Math.ceil(data.total / data.page_size)) : 1
   return (
-    <div className="mx-auto max-w-[1520px] space-y-5 pb-5">
-      <header className="flex flex-wrap items-start justify-between gap-3 border-b pb-4">
+    <div className="@container/overview mx-auto max-w-[1600px] space-y-4 p-4 sm:space-y-5 sm:p-6">
+      <header className="flex flex-wrap items-center justify-between gap-4">
         <div>
-          <p className="mb-1 text-xs font-medium tracking-widest text-muted-foreground">
-            存 / 经营分析
+          <p className="mb-2 flex items-center gap-1.5 text-xs text-muted-foreground">
+            <Archive className="size-3.5" aria-hidden="true" />存 / 经营分析
           </p>
-          <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">
+          <h1 className="text-2xl font-semibold tracking-tight">
             库存经营总览
           </h1>
           <p className="mt-1.5 text-sm text-muted-foreground">
-            看库存压在哪里，决定今天先处理什么。
+            查看库存分布，安排今天的处理顺序。
           </p>
         </div>
-        <div className="flex flex-wrap gap-2 self-end">
-          <Select
-            aria-label="品牌"
-            className="min-w-36"
-            value={filters.brand}
-            onChange={(event) => {
-              setNotice("")
-              setFilters({ ...filters, brand: event.target.value, page: 1 })
-            }}
-          >
-            {!brands.some(({ value }) => value === filters.brand) && (
-              <option value={filters.brand}>
-                {filters.brand === defaults.brand
-                  ? "千百度女鞋"
-                  : filters.brand}
-              </option>
-            )}
-            {brands.map(({ value, label }) => (
-              <option key={value} value={value}>
-                {label}
-              </option>
-            ))}
-          </Select>
+        <div className="flex max-w-full min-w-0 flex-wrap items-end gap-2">
+          <label className="min-w-0 basis-full @min-[32rem]/overview:basis-auto">
+            <span className="mb-1 block text-xs font-medium text-muted-foreground">
+              品牌
+            </span>
+            <Select
+              className="h-9 min-w-0 @min-[32rem]/overview:w-40"
+              value={filters.brand}
+              onChange={(event) => {
+                setNotice("")
+                setFilters({ ...filters, brand: event.target.value, page: 1 })
+              }}
+            >
+              {!brands.some(({ value }) => value === filters.brand) && (
+                <option value={filters.brand}>{brandLabel}</option>
+              )}
+              {brands.map(({ value, label }) => (
+                <option key={value} value={value}>
+                  {label}
+                </option>
+              ))}
+            </Select>
+          </label>
           <Button
+            size="lg"
             variant="outline"
             onClick={refresh}
             disabled={loading || refreshing}
           >
-            <RefreshCw className={cn(refreshing && "animate-spin")} />
+            <RefreshCw
+              className={cn(refreshing && "motion-safe:animate-spin")}
+              aria-hidden="true"
+            />
             刷新
           </Button>
           {manager && (
             <Button
+              size="lg"
               variant="outline"
-              disabled={!data || refreshing}
+              disabled={!summary || refreshing}
               onClick={() => setPolicyOpen(true)}
             >
-              <SlidersHorizontal />
-              退出规则
+              <SlidersHorizontal aria-hidden="true" /> 退出规则
             </Button>
           )}
         </div>
@@ -461,55 +617,117 @@ export function StockOverviewPage() {
         </p>
       )}
       {notice && (
-        <p className="rounded-md border bg-muted p-3 text-sm" role="status">
+        <p
+          className="rounded-lg border bg-muted/50 px-4 py-3 text-sm"
+          role="status"
+        >
           {notice}
         </p>
       )}
       {error && (
-        <p
-          role="alert"
-          className="rounded-md border p-3 text-sm text-destructive"
-        >
-          {error}{" "}
+        <div className="flex flex-wrap items-center gap-2 rounded-lg border border-destructive/25 bg-destructive/5 px-4 py-2 text-sm text-destructive">
+          <p role="alert">{error}</p>
           <Button variant="link" onClick={refresh}>
             重试
           </Button>
-        </p>
+        </div>
       )}
-      {loading && (
-        <p
-          role="status"
-          className="rounded-md border p-5 text-sm text-muted-foreground"
+      {summary ? (
+        <InventoryPanel data={summary} />
+      ) : (
+        loading && (
+          <div className={cn(panel, "p-5")}>
+            <div
+              aria-hidden="true"
+              className="mb-4 h-2 w-28 rounded-full bg-muted motion-safe:animate-pulse"
+            />
+            <p className="text-sm text-muted-foreground" role="status">
+              正在汇总库存和处理建议…
+            </p>
+          </div>
+        )
+      )}
+      <div className="grid items-start gap-4 @min-[55rem]/overview:grid-cols-[minmax(0,1fr)_minmax(16rem,21%)]">
+        <section
+          aria-labelledby="stock-overview-queue"
+          className={cn(panel, "@container/queue")}
+          aria-busy={refreshing}
         >
-          正在汇总库存和处理建议…
-        </p>
-      )}
-      {data && <InventoryPanel data={data} />}
-      <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,1fr)_245px] xl:grid-cols-[minmax(0,1fr)_282px]">
-        <section aria-label="今日优先处理" className={panel}>
-          <div className="flex flex-wrap items-start justify-between gap-2 px-4 pt-4 sm:px-5">
-            <div>
-              <h2 className="flex items-center gap-2 text-base font-semibold">
+          <div className="space-y-2 px-4 py-3 sm:px-5">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <h2
+                id="stock-overview-queue"
+                className="flex items-center gap-2 text-sm font-semibold"
+              >
                 <ClipboardList
                   className="size-4 text-muted-foreground"
                   aria-hidden="true"
                 />
                 今日优先处理
               </h2>
-              <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                {data
-                  ? `${fmt(data.assignable)} 条待分配 · ${fmt(data.in_progress)} 条已有待办 · ${fmt(data.counts.review)} 条待核对`
-                  : "按处理类型、期限和影响数量排序"}
-              </p>
+              <Button asChild variant="outline" size="sm">
+                <Link href="/stock-alerts/tasks">
+                  预警待办 <ArrowRight aria-hidden="true" />
+                </Link>
+              </Button>
             </div>
-            <Button asChild variant="ghost" size="sm">
-              <Link href="/stock-alerts/tasks">
-                预警待办 <ArrowRight aria-hidden="true" />
-              </Link>
-            </Button>
+            {summary ? (
+              <div className="flex flex-wrap items-center gap-2 text-xs tabular-nums">
+                <span className={badge}>
+                  待分配{" "}
+                  <strong className="ml-1 font-semibold">
+                    {fmt(summary.assignable)}
+                  </strong>{" "}
+                  条
+                </span>
+                <span className={badge}>
+                  已有待办{" "}
+                  <strong className="ml-1 font-semibold">
+                    {fmt(summary.in_progress)}
+                  </strong>{" "}
+                  条
+                </span>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  disabled={
+                    summary.counts.review === 0 && filters.kind !== "review"
+                  }
+                  aria-pressed={filters.kind === "review"}
+                  onClick={() =>
+                    setFilters({
+                      ...filters,
+                      kind: filters.kind === "review" ? "all" : "review",
+                      page: 1,
+                    })
+                  }
+                  className="h-7 px-2 text-xs shadow-none aria-pressed:border-primary/40 aria-pressed:bg-primary/5"
+                >
+                  {summary.counts.review > 0 && (
+                    <TriangleAlert
+                      className="text-amber-600 dark:text-amber-400"
+                      aria-hidden="true"
+                    />
+                  )}
+                  <span>
+                    待核对{" "}
+                    <strong className="ml-1 font-semibold">
+                      {fmt(summary.counts.review)}
+                    </strong>{" "}
+                    条
+                  </span>
+                  <ChevronRight aria-hidden="true" />
+                </Button>
+              </div>
+            ) : (
+              <p className="text-xs text-muted-foreground">
+                按处理类型、期限和影响数量排序
+              </p>
+            )}
           </div>
           <form
-            className="flex flex-wrap gap-2 p-4 sm:px-5"
+            className="grid grid-cols-[minmax(0,1fr)_auto] gap-2 border-y bg-muted/15 px-4 py-2.5 sm:px-5 @min-[30rem]/queue:grid-cols-[minmax(0,9.5rem)_minmax(0,1fr)_auto]"
             onSubmit={(event) => {
               event.preventDefault()
               setFilters({ ...filters, query: query.trim(), page: 1 })
@@ -517,6 +735,7 @@ export function StockOverviewPage() {
           >
             <Select
               aria-label="处理类型"
+              className="col-span-2 @min-[30rem]/queue:col-span-1"
               value={filters.kind}
               onChange={(event) =>
                 setFilters({
@@ -530,126 +749,160 @@ export function StockOverviewPage() {
               {kinds.map((kind) => (
                 <option value={kind} key={kind}>
                   {labels[kind]}
-                  {data ? `（${data.counts[kind]}）` : ""}
+                  {summary ? `（${fmt(summary.counts[kind])}）` : ""}
                 </option>
               ))}
             </Select>
-            <Input
-              aria-label="搜索货号、品名或颜色"
-              className="min-w-36 flex-1"
-              placeholder="货号 / 品名 / 颜色"
-              maxLength={200}
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-            />
-            <Button type="submit" variant="outline">
-              <Search aria-hidden="true" />
+            <div className="relative min-w-0">
+              <Search
+                className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground"
+                aria-hidden="true"
+              />
+              <Input
+                aria-label="搜索货号、品名或颜色"
+                className="pl-9"
+                placeholder="货号 / 品名 / 颜色"
+                maxLength={200}
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+              />
+            </div>
+            <Button type="submit" size="lg" className="px-3.5">
               查询
             </Button>
           </form>
           {data?.items.length ? (
-            <ul className="divide-y border-t">
+            <ul className="divide-y divide-border/80">
               {data.items.map((item) => (
                 <li
                   key={`${item.id}/${item.kind}`}
-                  className="grid gap-2 px-4 py-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center sm:px-5"
+                  className="grid gap-x-4 gap-y-2 px-4 py-3 transition-colors hover:bg-muted/30 sm:px-5 @min-[32rem]/queue:grid-cols-[minmax(0,1fr)_auto] @min-[32rem]/queue:items-center"
                 >
                   <div className="min-w-0">
                     <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
                       <span
                         className={cn(
-                          "rounded border px-1.5 py-0.5 text-xs",
-                          item.kind === "clearance" &&
-                            "border-rose-600/25 bg-rose-500/10 text-rose-800 dark:text-rose-300",
-                          item.kind === "replenish" &&
-                            "border-sky-600/25 bg-sky-500/10 text-sky-800 dark:text-sky-300"
+                          badge,
+                          "py-0.5",
+                          item.kind === "review" && "bg-amber-500/10",
+                          item.kind === "review" && warning
                         )}
                       >
                         {labels[item.kind]}
                       </span>
                       <button
                         type="button"
-                        className="font-mono text-sm font-semibold break-all underline-offset-4 hover:underline focus-visible:underline"
+                        className="min-w-0 cursor-pointer rounded-sm font-mono text-sm font-semibold wrap-anywhere text-foreground underline-offset-4 hover:underline focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
                         onClick={() => setDetail(item)}
                       >
                         {item.sku}
                       </button>
-                      <span className="text-xs text-muted-foreground">
-                        {[item.product_name, item.color]
-                          .filter(Boolean)
-                          .join(" · ")}
-                      </span>
+                      {(item.product_name || item.color) && (
+                        <span className="min-w-0 text-xs wrap-anywhere text-muted-foreground">
+                          {[item.product_name, item.color]
+                            .filter(Boolean)
+                            .join(" · ")}
+                        </span>
+                      )}
                     </div>
-                    <p className="mt-1 text-sm leading-5">{item.reason}</p>
-                    <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                      可售 {fmt(item.available_quantity, " 双")}
-                      {item.quantity != null &&
-                        ` · 建议 ${fmt(item.quantity, " 双")}（${item.sizes.map((size) => size.name).join("、")}码）`}
-                      {item.due_date && ` · 建议 ${item.due_date} 前处理`}
-                      {item.channel && ` · ${item.channel}`}
+                    <p className="mt-1.5 text-sm leading-5 wrap-anywhere">
+                      {item.reason}
+                    </p>
+                    <p className="mt-1.5 flex flex-wrap items-baseline gap-x-3 gap-y-1 text-xs leading-5 text-muted-foreground tabular-nums">
+                      <span>
+                        可售{" "}
+                        <strong className="font-semibold text-foreground">
+                          {fmt(item.available_quantity, " 双")}
+                        </strong>
+                      </span>
+                      {item.quantity != null && (
+                        <span>
+                          建议 {fmt(item.quantity, " 双")}（
+                          {item.sizes.map((size) => size.name).join("、")}码）
+                        </span>
+                      )}
+                      {item.due_date && (
+                        <span>建议 {item.due_date} 前处理</span>
+                      )}
+                      {item.channel && (
+                        <span className="wrap-anywhere">{item.channel}</span>
+                      )}
                     </p>
                   </div>
-                  <div className="flex flex-wrap items-center gap-2 sm:justify-end">
+                  <div className="flex flex-wrap items-center gap-2 @min-[32rem]/queue:max-w-44 @min-[32rem]/queue:justify-end">
                     {item.task ? (
                       <Button
                         size="sm"
                         variant="ghost"
+                        className="h-auto max-w-full flex-wrap justify-start py-1.5 whitespace-normal shadow-none"
                         onClick={() => setTaskId(item.task!.id)}
                       >
                         <TaskStatusBadge task={item.task} />
-                        {item.task.assignee_name}
+                        <span className="min-w-0 wrap-anywhere">
+                          {item.task.assignee_name}
+                        </span>
                       </Button>
                     ) : manager && item.signature ? (
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => setAssignment(item)}
-                      >
+                      <Button size="sm" onClick={() => setAssignment(item)}>
                         分配待办
                       </Button>
                     ) : (
                       <Button
                         size="sm"
-                        variant="ghost"
+                        variant="outline"
+                        className="shadow-none"
                         onClick={() => setDetail(item)}
                       >
-                        查看依据
+                        查看依据 <ChevronRight aria-hidden="true" />
                       </Button>
                     )}
                   </div>
                 </li>
               ))}
             </ul>
-          ) : (
-            data && (
-              <p className="border-t p-6 text-sm text-muted-foreground">
-                当前筛选没有处理建议。
+          ) : loading && summary ? (
+            <p
+              className="px-4 py-6 text-sm text-muted-foreground sm:px-5"
+              role="status"
+            >
+              正在读取处理列表…
+            </p>
+          ) : data ? (
+            <div className="px-4 py-7 text-center sm:px-5">
+              <h3 className="text-sm font-medium">当前筛选没有处理建议</h3>
+              <p className="mt-1 text-xs text-muted-foreground">
+                {filters.kind !== "all" || filters.query
+                  ? "可更换类型或搜索词后再查。"
+                  : "当前品牌没有待处理的库存建议。"}
               </p>
-            )
-          )}
+            </div>
+          ) : null}
           {data && pages > 1 && (
-            <div className="flex items-center justify-end gap-2 border-t p-3 text-xs text-muted-foreground">
-              <span>
-                {fmt(data.total)} 条 · {page} / {pages} 页
-              </span>
-              <Button
-                size="icon-sm"
-                variant="outline"
-                aria-label="上一页"
-                disabled={page <= 1}
-                onClick={() => setFilters({ ...filters, page: page - 1 })}
-              >
-                <ChevronLeft />
-              </Button>
-              <Button
-                size="icon-sm"
-                variant="outline"
-                aria-label="下一页"
-                disabled={page >= pages}
-                onClick={() => setFilters({ ...filters, page: page + 1 })}
-              >
-                <ChevronRight />
-              </Button>
+            <div className="flex flex-wrap items-center justify-between gap-2 border-t bg-muted/15 px-4 py-2.5 text-xs text-muted-foreground tabular-nums sm:px-5">
+              <span>共 {fmt(data.total)} 条</span>
+              <div className="flex items-center gap-2">
+                <span>
+                  第 {page} / {pages} 页
+                </span>
+                <Button
+                  size="icon-sm"
+                  variant="outline"
+                  aria-label="上一页"
+                  disabled={page <= 1}
+                  onClick={() => setFilters({ ...filters, page: page - 1 })}
+                >
+                  <ChevronLeft aria-hidden="true" />
+                </Button>
+                <Button
+                  size="icon-sm"
+                  variant="outline"
+                  aria-label="下一页"
+                  disabled={page >= pages}
+                  onClick={() => setFilters({ ...filters, page: page + 1 })}
+                >
+                  <ChevronRight aria-hidden="true" />
+                </Button>
+              </div>
             </div>
           )}
         </section>
