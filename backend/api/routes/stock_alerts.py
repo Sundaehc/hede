@@ -8,6 +8,7 @@ from fastapi.encoders import jsonable_encoder
 from pydantic import BaseModel, Field
 
 from api.operation_log_utils import write_operation_log
+from api.stock_product_images import add_stock_product_images
 from domain.stock_alerts import select_alerts
 from storage.stock_alert_facts import load_stock_alert_facts
 from storage.stock_alert_rules import RuleConflict
@@ -39,6 +40,7 @@ def list_stock_alerts(request: Request, brand: str = Query(min_length=1, max_len
     tasks = request.app.state.stock_alert_tasks.active_for(brand, kind, [item["id"] for item in result["items"]])
     for item in result["items"]:
         item["task"] = tasks.get(item["id"])
+    add_stock_product_images(request, result["items"], brand=brand)
     return JSONResponse(jsonable_encoder(result), headers={"Cache-Control": "no-store"})
 
 
@@ -80,9 +82,10 @@ def seasonal_analysis(request: Request, brand: str = Query(min_length=1, max_len
     _validate_brand(request, brand)
     facts = load_seasonal_analysis_facts(request.app.state.repository, brand, year, refresh=refresh,
                                         zero_quarter=quarter if status == "zero" else None)
-    return JSONResponse(jsonable_encoder(analyze_quarter(facts, year=year, quarter=quarter,
-        season=season, query=query, status=status, page=page, page_size=page_size)),
-        headers={"Cache-Control": "no-store"})
+    result = analyze_quarter(facts, year=year, quarter=quarter,
+        season=season, query=query, status=status, page=page, page_size=page_size)
+    add_stock_product_images(request, result["items"], brand=brand)
+    return JSONResponse(jsonable_encoder(result), headers={"Cache-Control": "no-store"})
 
 
 @router.get("/seasonal-analysis/items/{product_id}")

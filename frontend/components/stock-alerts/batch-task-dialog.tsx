@@ -25,6 +25,7 @@ import {
   type TaskBatchUpdate,
 } from "@/lib/stock-alert-tasks"
 import type { StockAlertItem, StockAlertKind } from "@/lib/stock-alerts"
+import { StockProductPhoto } from "./stock-product-photo"
 
 type Props = {
   onClose: () => void
@@ -166,9 +167,15 @@ export function BatchTaskDialog(props: Props) {
             </summary>
             <ul className="mt-2 max-h-36 space-y-1 overflow-y-auto text-xs text-muted-foreground">
               {props.items.map((item) => (
-                <li key={item.id} className="break-words">
-                  #{item.id} · {item.sku}
-                  {"assignee_name" in item ? ` · ${item.assignee_name}` : ""}
+                <li
+                  key={item.id}
+                  className="flex items-center gap-2 break-words"
+                >
+                  <StockProductPhoto item={item} />
+                  <span className="min-w-0">
+                    #{item.id} · {item.sku}
+                    {"assignee_name" in item ? ` · ${item.assignee_name}` : ""}
+                  </span>
                 </li>
               ))}
             </ul>

@@ -2,6 +2,7 @@ from collections import Counter, defaultdict
 from datetime import timedelta
 from fractions import Fraction
 from math import ceil, floor
+import re
 
 from domain.stock_alerts import evaluate_alert, launch_day, resolve_rule
 from domain.stock_replenishment import evaluate_replenishment
@@ -14,11 +15,17 @@ def _units(value):
     return int(value or 0)
 
 
+# Archive labels include 26年冬季款 and 2026冬季款; exit policy keys use a four-digit year.
+_STYLE_YEAR = re.compile(r"((?:20|21)[0-9]{2}|[0-9]{2})(?:\s*年)?(?:\s*[春夏秋冬]{1,2}季?款)?")
+
+
 def _scope(item):
-    year = str(item.get("year") or "").strip()
-    if year.endswith("年"):
-        year = year[:-1]
-    return (year, str(item.get("season") or "").strip())
+    match = _STYLE_YEAR.fullmatch(str(item.get("year") or "").strip())
+    year = match[1] if match else ""
+    if len(year) == 2:
+        year = "20" + year
+    season = str(item.get("season") or "").strip()
+    return year, season if season != "0" else ""
 
 
 def _recent(item, facts, window, channel):

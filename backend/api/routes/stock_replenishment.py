@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field
 
 from api.operation_log_utils import write_operation_log
 from api.routes.stock_alerts import _validate_brand
+from api.stock_product_images import add_stock_product_images
 from domain.stock_replenishment import select_replenishment
 from storage.stock_alert_rules import RuleConflict
 from storage.stock_replenishment_facts import load_replenishment_facts, supplier_catalog
@@ -28,6 +29,7 @@ def list_replenishment(request: Request, brand: str = Query(min_length=1, max_le
     facts = load_replenishment_facts(request.app.state.repository, brand, window_days=window_days, refresh=refresh)
     result = select_replenishment(facts, request.app.state.stock_replenishment_rules.list_rules(brand),
         supplier=supplier, query=query, status=status, page=page, page_size=page_size, deduct_transit=deduct_transit)
+    add_stock_product_images(request, result["items"], brand=brand)
     return JSONResponse(result, headers={"Cache-Control": "no-store"})
 
 

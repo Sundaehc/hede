@@ -142,8 +142,10 @@ def _xlsx_shared_strings(archive: ZipFile) -> list[str]:
     ]
 
 
-def _xlsx_sheet_rows(file_path: Path) -> Iterator[tuple[int, dict[int, str]]]:
-    """Read XLSX rows without relying on the worksheet dimension metadata."""
+def _xlsx_sheet_rows(
+    file_path: Path, columns: set[int] | None = None,
+) -> Iterator[tuple[int, dict[int, str]]]:
+    """Read XLSX rows without worksheet dimensions; an empty columns set reads all cells."""
     row_tag = f"{XLSX_NAMESPACE}row"
     cell_tag = f"{XLSX_NAMESPACE}c"
     value_tag = f"{XLSX_NAMESPACE}v"
@@ -159,7 +161,7 @@ def _xlsx_sheet_rows(file_path: Path) -> Iterator[tuple[int, dict[int, str]]]:
                         continue
                     reference = cell.attrib.get("r", "")
                     column_index = _xlsx_column_index(reference)
-                    if column_index < 0:
+                    if column_index < 0 or (columns and column_index not in columns):
                         continue
                     cell_type = cell.attrib.get("t")
                     if cell_type == "inlineStr":

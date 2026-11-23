@@ -40,6 +40,7 @@ import {
 import { BatchTaskDialog } from "./batch-task-dialog"
 import { StockListState, StockStatusCard } from "./workspace-ui"
 import type { StockAlertTask } from "@/lib/stock-alert-tasks"
+import { StockProductPhoto } from "./stock-product-photo"
 
 const defaults: TaskFilters = {
   scope: "mine",
@@ -462,17 +463,22 @@ function StockAlertTasksContent({ reminderEntry }: { reminderEntry: boolean }) {
                       />
                     </td>
                     <td className="px-4 py-4">
-                      <p className="font-mono font-semibold break-all">
-                        {item.sku}
-                      </p>
-                      <p className="mt-1 text-muted-foreground">
-                        {[item.product_name, item.color]
-                          .filter(Boolean)
-                          .join(" · ")}
-                      </p>
-                      <p className="mt-1 text-muted-foreground">
-                        {brandName(item.brand)} · #{item.id}
-                      </p>
+                      <div className="flex items-start gap-2.5">
+                        <StockProductPhoto item={item} />
+                        <div className="min-w-0 flex-1">
+                          <p className="font-mono font-semibold break-all">
+                            {item.sku}
+                          </p>
+                          <p className="mt-1 text-muted-foreground">
+                            {[item.product_name, item.color]
+                              .filter(Boolean)
+                              .join(" · ")}
+                          </p>
+                          <p className="mt-1 text-muted-foreground">
+                            {brandName(item.brand)} · #{item.id}
+                          </p>
+                        </div>
+                      </div>
                     </td>
                     <td className="px-4 py-4">{alertKindLabels[item.kind]}</td>
                     <td className="px-4 py-4 font-medium">

@@ -1,4 +1,4 @@
-﻿import {
+import {
   cleanup,
   fireEvent,
   render,
@@ -133,7 +133,9 @@ test("an operator can inspect sizes and confirm the exact decision snapshot in t
   const detail = screen.getByRole("dialog")
   expect(within(detail).getByText("牛皮")).toBeInTheDocument()
   expect(
-    within(detail).getByRole("cell", { name: "200 双" })
+    within(
+      within(detail).getByRole("table", { name: "尺码库存及处理建议" })
+    ).getByRole("cell", { name: "200 双" })
   ).toBeInTheDocument()
   fireEvent.click(within(detail).getByRole("button", { name: "分配待办" }))
   const dialog = await screen.findByRole("dialog", { name: "分配预警待办" })

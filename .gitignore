@@ -32,6 +32,7 @@ backend/.us3_image_sync_manifest.json
 scripts/
 !backend/scripts/
 backend/scripts/*
+!backend/scripts/backfill_vip_daily_detail.py
 !backend/scripts/prepare_warehouse_inventory_queries.py
 !backend/scripts/rename_product_archives.py
 tests/

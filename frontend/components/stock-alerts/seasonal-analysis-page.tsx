@@ -27,6 +27,7 @@ import type { SeasonalFilters, SeasonalResponse } from "@/lib/seasonal-analysis"
 import { cn } from "@/lib/utils"
 import { StockListState } from "./workspace-ui"
 import { SeasonalItemReviewDialog } from "./seasonal-item-review"
+import { StockProductPhoto } from "./stock-product-photo"
 
 const formatter = new Intl.NumberFormat("zh-CN", { maximumFractionDigits: 2 })
 const number = (value: number | string | null | undefined) =>
@@ -925,25 +926,30 @@ export function SeasonalAnalysisPage() {
                     className="border-b transition-colors last:border-0 hover:bg-muted/20"
                   >
                     <td className="min-w-44 px-4 py-3">
-                      <button
-                        type="button"
-                        disabled={!data}
-                        onClick={() => setReviewId(item.id)}
-                        aria-label={`复盘 ${item.sku}`}
-                        className="cursor-pointer rounded-sm font-medium text-primary underline-offset-2 outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-default disabled:text-foreground"
-                      >
-                        {item.sku}
-                      </button>
-                      <p className="mt-1 text-muted-foreground">
-                        {[item.product_name, item.color]
-                          .filter(Boolean)
-                          .join(" · ") || "—"}
-                      </p>
-                      {item.original_sku && (
-                        <p className="mt-1 text-[11px] text-muted-foreground">
-                          原始货号 {item.original_sku}
-                        </p>
-                      )}
+                      <div className="flex items-start gap-2.5">
+                        <StockProductPhoto item={item} />
+                        <div className="min-w-0 flex-1">
+                          <button
+                            type="button"
+                            disabled={!data}
+                            onClick={() => setReviewId(item.id)}
+                            aria-label={`复盘 ${item.sku}`}
+                            className="cursor-pointer rounded-sm font-medium text-primary underline-offset-2 outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-default disabled:text-foreground"
+                          >
+                            {item.sku}
+                          </button>
+                          <p className="mt-1 text-muted-foreground">
+                            {[item.product_name, item.color]
+                              .filter(Boolean)
+                              .join(" · ") || "—"}
+                          </p>
+                          {item.original_sku && (
+                            <p className="mt-1 text-[11px] text-muted-foreground">
+                              原始货号 {item.original_sku}
+                            </p>
+                          )}
+                        </div>
+                      </div>
                     </td>
                     <td className="px-4 py-3 whitespace-nowrap">
                       <p>{item.season || "—"}</p>

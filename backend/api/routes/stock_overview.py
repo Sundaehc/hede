@@ -12,6 +12,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from api.routes.stock_alerts import _validate_brand
 from api.routes.stock_alert_tasks import _actor, _assignee, _log, _manager, _response
 from api.operation_log_utils import write_operation_log
+from api.stock_product_images import add_stock_product_images
 from storage.stock_alert_rules import RuleConflict
 from storage.stock_alert_tasks import TaskConflict, business_today
 from storage.stock_overview import load_stock_overview, weekly_observations
@@ -78,6 +79,7 @@ def stock_overview(request: Request, brand: str = Query(min_length=1, max_length
             break
     items = [{**row, "task": task, "signature": _signature(row) if row["kind"] != "review" and not task else None}
              for task, row in page_rows]
+    add_stock_product_images(request, items, brand=brand)
     return _response({**{key: value for key, value in data.items() if key != "recommendations"}, "policies": list(policies.values()), "items": items, "counts": counts,
                       "assignable": assignable, "in_progress": in_progress, "page": page, "page_size": size,
                       "total": total, "today": today})

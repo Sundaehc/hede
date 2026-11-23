@@ -6,15 +6,20 @@ import {
   Archive,
   ArrowRight,
   Box,
+  CheckCircle2,
   CalendarDays,
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
   ClipboardList,
   Database,
+  Info,
+  ListPlus,
   RefreshCw,
   Search,
   SlidersHorizontal,
   TriangleAlert,
+  X,
 } from "lucide-react"
 import { useAuth } from "@/components/auth/auth-provider"
 import { Button } from "@/components/ui/button"
@@ -24,7 +29,6 @@ import {
   Dialog,
   DialogContent,
   DialogDescription,
-  DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
 import {
@@ -55,6 +59,7 @@ import {
   StockAlertTaskDialog,
   TaskStatusBadge,
 } from "./task-dialog"
+import { StockProductPhoto } from "./stock-product-photo"
 
 const defaults: OverviewFilters = {
   brand: "cbanner_womens",
@@ -65,10 +70,10 @@ const defaults: OverviewFilters = {
 const labels = { ...alertKindLabels, review: "数据待核对" }
 const bucketLabels: Record<InventoryBucket["key"], [string, string]> = {
   selling: ["正常销售", "bg-emerald-600 dark:bg-emerald-400"],
-  next_season: ["跨季待售", "bg-sky-600 dark:bg-sky-400"],
-  size_imbalance: ["尺码不均衡", "bg-indigo-600 dark:bg-indigo-400"],
-  clearance: ["待清货", "bg-rose-600 dark:bg-rose-400"],
-  watch: ["继续观察", "bg-slate-500 dark:bg-slate-400"],
+  next_season: ["跨季待售", "bg-chart-2"],
+  size_imbalance: ["尺码不均衡", "bg-chart-3"],
+  clearance: ["待清货", "bg-destructive"],
+  watch: ["继续观察", "bg-chart-1"],
   review: ["数据待核对", "bg-amber-500 dark:bg-amber-400"],
 }
 const kinds = ["clearance", "zero", "replenish", "slow", "review"] as const
@@ -81,193 +86,259 @@ const fmt = (value: number | null | undefined, suffix = "") =>
   value == null ? "—" : `${number.format(value)}${suffix}`
 const panel =
   "min-w-0 overflow-hidden rounded-2xl border border-border/80 bg-card/80 text-card-foreground shadow-xs"
-const badge = "rounded-md bg-muted/70 px-2 py-1 text-xs text-muted-foreground"
 const warning = "text-amber-800 dark:text-amber-300"
 
-function NetSales({
-  label,
-  recent,
-  monthly,
-}: {
-  label: string
-  recent: number | null
-  monthly: number | null
-}) {
-  return (
-    <div className="min-w-0">
-      <h3 className="text-sm font-medium text-muted-foreground">{label}</h3>
-      <dl className="mt-3 grid gap-x-3 gap-y-2 @min-[18rem]/inventory:grid-cols-2">
-        {(
-          [
-            ["近 7 天", recent],
-            ["近 30 天", monthly],
-          ] as const
-        ).map(([period, value]) => (
-          <div key={period}>
-            <dt className="text-xs text-muted-foreground">{period}</dt>
-            <dd className="mt-0.5 text-base font-semibold wrap-anywhere tabular-nums sm:text-xl">
-              {fmt(value)}
-              {value != null && (
-                <span className="ml-1 text-xs font-normal text-muted-foreground">
-                  双
-                </span>
-              )}
-            </dd>
-          </div>
-        ))}
-      </dl>
-    </div>
-  )
+const bucketDefinitions: Record<InventoryBucket["key"], string> = {
+  selling: "近 7 天和 30 天非清仓净销均为正，且没有触发处理建议或待核对问题。",
+  next_season: "设置了再次开售日，当前还未到开售时间。",
+  size_imbalance: "核心尺码需补货，同时其他非核心尺码仍有库存。",
+  clearance:
+    "已生成清货建议。这里统计该款色全部可售库存，实际处理量以清单为准。",
+  watch: "未归到其他类别，仍需观察近期销售和库存变化。",
+  review:
+    "库存或日销不可用，或存在需要核实的资料问题。仅统计可售合计为正的款色。",
 }
 
-function InventoryPanel({ data }: { data: OverviewResponse }) {
+function shareLabel(units: number, total: number | null) {
+  if (!total || !units) return "0%"
+  const share = units / total
+  return share < 0.001
+    ? "<0.1%"
+    : share > 0.999 && share < 1
+      ? ">99.9%"
+      : percent.format(share)
+}
+
+function InventoryPanel({
+  data,
+  onReview,
+}: {
+  data: OverviewResponse
+  onReview: () => void
+}) {
   const { inventory, sources } = data
-  const review = inventory.buckets.find(({ key }) => key === "review")
-  const reviewShare =
-    review && inventory.available && review.units > 0
-      ? review.units / inventory.available
-      : null
-  const reviewPercent =
-    reviewShare == null
-      ? null
-      : reviewShare < 0.001
-        ? "<0.1%"
-        : reviewShare > 0.999 && reviewShare < 1
-          ? ">99.9%"
-          : percent.format(reviewShare)
+  const rows = [
+    ["非清仓净销", inventory.regular_7, inventory.regular_30],
+    ["清仓净销", inventory.clearance_7, inventory.clearance_30],
+    [
+      "总净销",
+      inventory.regular_7 == null || inventory.clearance_7 == null
+        ? null
+        : inventory.regular_7 + inventory.clearance_7,
+      inventory.total_30,
+    ],
+  ] as const
   return (
     <section
       aria-label="整盘库存"
       className={cn(panel, "@container/inventory")}
     >
-      <div className="grid @min-[48rem]/inventory:grid-cols-[minmax(0,1fr)_minmax(0,2fr)]">
-        <div className="border-b bg-primary/[0.04] p-4 sm:px-5 @min-[48rem]/inventory:border-r @min-[48rem]/inventory:border-b-0">
-          <h2 className="flex items-center justify-between gap-2 text-sm font-medium text-muted-foreground">
+      <div className="grid @min-[49rem]/inventory:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]">
+        <div className="border-b bg-primary/[0.06] px-5 py-5 sm:px-6 sm:py-6 @min-[49rem]/inventory:border-r @min-[49rem]/inventory:border-b-0">
+          <h2 className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
+            <Box className="size-4 shrink-0 text-primary" aria-hidden="true" />
             整盘可售库存
-            <Box className="size-4 shrink-0" aria-hidden="true" />
           </h2>
-          <div className="mt-3 flex flex-wrap items-baseline gap-x-1.5">
-            <strong className="text-3xl leading-none font-semibold tracking-tight wrap-anywhere tabular-nums">
+          <p className="mt-2 flex flex-wrap items-baseline gap-x-2">
+            <strong className="text-[clamp(2.1rem,6cqw,3.5rem)] leading-none font-semibold tracking-tight wrap-anywhere tabular-nums">
               {fmt(inventory.available)}
             </strong>
             {inventory.available != null && (
-              <span className="text-xs text-muted-foreground">双</span>
+              <span className="text-sm text-muted-foreground">双</span>
             )}
-          </div>
-          <p className="mt-2 text-xs leading-5 text-muted-foreground">
-            {inventory.coverage_days == null
-              ? "数据不足，暂无法估算库存覆盖天数"
-              : `按近 30 天净销估算可覆盖 ${fmt(inventory.coverage_days, " 天")}`}
+          </p>
+          <p className="mt-3 flex flex-wrap items-baseline gap-x-2 text-xs leading-5 text-muted-foreground">
+            <span>预计可覆盖</span>
+            <strong className="font-semibold text-foreground tabular-nums">
+              {fmt(inventory.coverage_days, " 天")}
+            </strong>
+            <span>
+              {inventory.coverage_days == null
+                ? "暂缺完整库存或近销数据"
+                : "按近 30 天总净销估算"}
+            </span>
           </p>
         </div>
-        <div className="p-4 sm:px-5">
-          <div className="grid grid-cols-2 divide-x divide-border/80">
-            <div className="pr-3 sm:pr-4">
-              <NetSales
-                label="非清仓净销"
-                recent={inventory.regular_7}
-                monthly={inventory.regular_30}
-              />
-            </div>
-            <div className="pl-3 sm:pl-4">
-              <NetSales
-                label="清仓净销"
-                recent={inventory.clearance_7}
-                monthly={inventory.clearance_30}
-              />
-            </div>
-          </div>
-          <p className="mt-3 border-t border-border/80 pt-2.5 text-xs text-muted-foreground">
-            近 30 天合计{" "}
-            <strong className="ml-1 font-semibold text-foreground tabular-nums">
-              {fmt(inventory.total_30, " 双")}
-            </strong>
-          </p>
+        <div className="min-w-0 px-5 py-4 sm:px-6">
+          <h3 className="text-sm font-semibold">近期销售</h3>
+          <table className="mt-1 w-full text-xs tabular-nums sm:text-sm">
+            <caption className="sr-only">近期销售（单位：双）</caption>
+            <thead className="text-muted-foreground">
+              <tr className="border-b">
+                <th scope="col" className="py-1.5 text-left font-normal">
+                  净销（双）
+                </th>
+                <th scope="col" className="py-1.5 pl-2 text-right font-normal">
+                  近 7 天
+                </th>
+                <th scope="col" className="py-1.5 pl-2 text-right font-normal">
+                  近 30 天
+                </th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-border/65">
+              {rows.map(([label, recent, monthly]) => (
+                <tr
+                  key={label}
+                  className={label === "总净销" ? "font-semibold" : undefined}
+                >
+                  <th scope="row" className="py-1.5 text-left font-medium">
+                    {label}
+                  </th>
+                  <td className="py-1.5 pl-2 text-right wrap-anywhere">
+                    {fmt(recent)}
+                  </td>
+                  <td className="py-1.5 pl-2 text-right wrap-anywhere">
+                    {fmt(monthly)}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       </div>
-      <div className="border-t px-4 py-3 sm:px-5">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <h3 className="text-sm font-semibold">库存分布</h3>
-          {reviewPercent && (
-            <span
-              className={cn(
-                "inline-flex items-center gap-1.5 text-xs font-medium",
-                warning
-              )}
+      <div className="border-t px-4 py-4 sm:px-6">
+        <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1.5">
+          <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+            <h3 className="text-base font-semibold tracking-tight">库存分布</h3>
+            <span className="text-xs text-muted-foreground">按双数统计</span>
+          </div>
+          {data.counts.review > 0 && (
+            <Button
+              variant="outline"
+              type="button"
+              size="sm"
+              onClick={onReview}
+              className={cn("shadow-none", warning)}
             >
-              <TriangleAlert className="size-3.5 shrink-0" aria-hidden="true" />
-              待核对库存占 {reviewPercent}
-            </span>
+              <TriangleAlert aria-hidden="true" /> 查看待核对建议
+              <ChevronRight aria-hidden="true" />
+            </Button>
           )}
         </div>
-        {inventory.available != null && inventory.available > 0 && (
-          <div
-            className="mt-2 flex h-2 overflow-hidden rounded-full bg-muted"
-            aria-hidden="true"
-          >
-            {inventory.buckets
-              .filter(({ units }) => units > 0)
-              .map((bucket) => (
-                <span
-                  key={bucket.key}
-                  className={bucketLabels[bucket.key][1]}
-                  style={{ flex: bucket.units }}
-                />
-              ))}
-          </div>
-        )}
-        {inventory.buckets.length > 0 ? (
-          <ul className="mt-2.5 grid grid-cols-2 gap-2 @min-[30rem]/inventory:grid-cols-3 @min-[62rem]/inventory:grid-cols-6">
-            {inventory.buckets.map((bucket) => (
-              <li key={bucket.key} className="min-w-0 text-xs">
-                <p className="flex items-center gap-1.5 font-medium">
+        {inventory.buckets.length ? (
+          <>
+            <div
+              className="mt-3 flex h-2.5 gap-px overflow-hidden rounded-full bg-muted"
+              aria-hidden="true"
+            >
+              {inventory.buckets
+                .filter(({ units }) => units > 0)
+                .map(({ key, units }) => (
                   <span
-                    className={cn(
-                      "size-2 shrink-0 rounded-full",
-                      bucketLabels[bucket.key][1]
-                    )}
-                    aria-hidden="true"
+                    key={key}
+                    className={bucketLabels[key][1]}
+                    style={{ flexGrow: units, flexBasis: 0 }}
                   />
-                  {bucketLabels[bucket.key][0]}
-                </p>
-                <p className="mt-1 flex flex-wrap items-baseline gap-x-1.5 tabular-nums">
-                  <strong className="font-semibold">
-                    {fmt(bucket.units, " 双")}
-                  </strong>
-                  <span className="text-muted-foreground">
-                    {fmt(bucket.styles, " 款色")}
-                  </span>
-                </p>
-              </li>
-            ))}
-          </ul>
+                ))}
+            </div>
+            <ul className="mt-3 grid grid-cols-2 gap-px overflow-hidden rounded-lg border border-border/80 bg-border @min-[31rem]/inventory:grid-cols-3 @min-[68rem]/inventory:grid-cols-6">
+              {inventory.buckets.map(({ key, units, styles }) => (
+                <li
+                  key={key}
+                  className={cn(
+                    "min-w-0 bg-card px-3 py-2.5 text-xs",
+                    key === "review" &&
+                      units > 0 &&
+                      "bg-linear-to-b from-amber-500/5 to-amber-500/5"
+                  )}
+                >
+                  <p className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1">
+                    <span className="flex items-center gap-1.5 font-medium">
+                      <span
+                        className={cn(
+                          "size-1.5 shrink-0 rounded-full",
+                          bucketLabels[key][1]
+                        )}
+                        aria-hidden="true"
+                      />
+                      {bucketLabels[key][0]}
+                    </span>
+                    <span
+                      className={cn(
+                        "tabular-nums",
+                        key === "review" && units > 0
+                          ? warning
+                          : "text-muted-foreground"
+                      )}
+                    >
+                      {shareLabel(units, inventory.available)}
+                    </span>
+                  </p>
+                  <p className="mt-1.5 flex flex-wrap items-baseline gap-x-1.5 tabular-nums">
+                    <strong
+                      className={cn(
+                        "text-base leading-5 font-semibold wrap-anywhere",
+                        !units && "text-muted-foreground"
+                      )}
+                    >
+                      {fmt(units)}
+                    </strong>
+                    <span className="text-muted-foreground">双</span>
+                    <span className="text-muted-foreground">
+                      · {fmt(styles, " 款色")}
+                    </span>
+                  </p>
+                </li>
+              ))}
+            </ul>
+            <details className="group mt-2.5 text-xs">
+              <summary className="inline-flex min-h-7 cursor-pointer list-none items-center gap-1.5 rounded-sm text-muted-foreground underline-offset-4 hover:text-foreground hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 [&::-webkit-details-marker]:hidden">
+                <Info className="size-3.5" aria-hidden="true" />
+                查看分类口径
+                <ChevronDown
+                  className="size-3.5 group-open:rotate-180"
+                  aria-hidden="true"
+                />
+              </summary>
+              <p className="mt-1 leading-5 text-muted-foreground">
+                仅统计可售库存合计为正的款色，每个款色归入一类。负库存可在下方待核对建议中查看。
+              </p>
+              <dl className="mt-2 grid gap-3 rounded-lg bg-muted/40 p-3 @min-[34rem]/inventory:grid-cols-2 @min-[54rem]/inventory:grid-cols-3">
+                {(Object.keys(bucketLabels) as InventoryBucket["key"][]).map(
+                  (key) => (
+                    <div key={key}>
+                      <dt className="font-semibold">{bucketLabels[key][0]}</dt>
+                      <dd className="mt-1 leading-5 text-muted-foreground">
+                        {bucketDefinitions[key]}
+                      </dd>
+                    </div>
+                  )
+                )}
+              </dl>
+            </details>
+          </>
         ) : (
           <p className="mt-2 text-sm text-muted-foreground">
             暂无库存分布数据。
           </p>
         )}
       </div>
-      <div className="border-t bg-muted/15 px-4 py-2.5 text-xs leading-5 text-muted-foreground sm:px-5">
-        <div className="flex items-start gap-2">
-          <Database className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
-          <div className="flex flex-wrap gap-x-4">
-            <p className="flex flex-wrap gap-x-3 tabular-nums">
-              <span>库存快照：{sources.stock_date ?? "待同步"}</span>
-              <span>日销截至：{sources.sales_end ?? "待同步"}</span>
-              <span>北京时间</span>
-            </p>
-            <p>
-              只汇总唯一匹配的档案款色。{" "}
-              {sources.unmatched_stock_rows > 0 &&
-                `全部品牌有 ${fmt(sources.unmatched_stock_rows)} 个库存编码组未能唯一匹配。`}
-            </p>
-          </div>
-        </div>
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-t bg-muted/30 px-4 py-2.5 text-xs leading-5 text-muted-foreground sm:px-6">
+        <p className="inline-flex items-center gap-1.5">
+          <Database className="size-3.5 shrink-0" aria-hidden="true" />
+          数据日期（北京时间）
+        </p>
+        <p className="flex flex-wrap gap-x-3 tabular-nums">
+          <span>库存快照：{sources.stock_date ?? "待同步"}</span>
+          <span>日销截至：{sources.sales_end ?? "待同步"}</span>
+        </p>
+        {sources.aligned && (
+          <span className="inline-flex items-center gap-1 text-emerald-700 dark:text-emerald-400">
+            <CheckCircle2 className="size-3.5" aria-hidden="true" /> 日期已对齐
+          </span>
+        )}
+        {sources.unmatched_stock_rows > 0 && (
+          <span>
+            全部品牌有 {fmt(sources.unmatched_stock_rows)}{" "}
+            个库存编码组未能唯一匹配
+          </span>
+        )}
       </div>
       {!sources.aligned && (
         <p
           className={cn(
-            "flex items-start gap-2 border-t border-amber-500/20 bg-amber-500/5 px-4 py-2.5 text-xs leading-5 font-medium sm:px-5",
+            "flex items-start gap-2 border-t border-amber-500/20 bg-amber-500/5 px-4 py-2.5 text-xs leading-5 font-medium sm:px-6",
             warning
           )}
         >
@@ -389,6 +460,14 @@ function WeeklyPanel({
   )
 }
 
+const decisionTone: Record<OverviewItem["kind"], string> = {
+  zero: "border-amber-600/25 bg-amber-500/10 text-amber-900 dark:text-amber-200",
+  slow: "border-amber-600/25 bg-amber-500/10 text-amber-900 dark:text-amber-200",
+  clearance: "border-destructive/25 bg-destructive/5 text-destructive",
+  replenish: "border-border bg-muted text-foreground",
+  review: `border-amber-500/25 bg-amber-500/5 ${warning}`,
+}
+
 function DecisionDetail({
   item,
   close,
@@ -398,31 +477,30 @@ function DecisionDetail({
   close: () => void
   assign?: () => void
 }) {
-  const fields = [
+  const actionsBySize = new Map(
+    item.sizes.map(({ name, quantity }) => [name, quantity])
+  )
+  const actionLabel =
+    item.kind === "replenish"
+      ? "建议补货"
+      : item.kind === "clearance"
+        ? "建议清货"
+        : "建议处理"
+  const identity = [item.product_name, item.color].filter(Boolean).join(" · ")
+  const archive = [
     ["年份 / 季节", [item.year, item.season].filter(Boolean).join(" / ")],
     ["鞋面材质", item.upper_material],
     ["档案上市日", item.launch_date],
-    [
-      "采购首入 / 最近入库",
-      [item.first_inbound_date, item.last_inbound_date]
-        .filter(Boolean)
-        .join(" / "),
-    ],
     ["计划退出日", item.exit_date],
-    [
-      "参考售罄率",
-      item.sell_through_rate != null ? `${item.sell_through_rate}%` : null,
-    ],
-    [
-      "近 7 / 30 天非清仓净销",
-      `${fmt(item.regular_7)} / ${fmt(item.regular_30)}`,
-    ],
-    [
-      "近 7 / 30 天清仓净销",
-      `${fmt(item.clearance_7)} / ${fmt(item.clearance_30)}`,
-    ],
+    ["采购首入", item.first_inbound_date],
+    ["最近入库", item.last_inbound_date],
     ["拟用清货渠道", item.channel],
   ]
+  const sales = [
+    ["非清仓净销", item.regular_7, item.regular_30],
+    ["清仓净销", item.clearance_7, item.clearance_30],
+  ] as const
+
   return (
     <Dialog
       open
@@ -430,63 +508,276 @@ function DecisionDetail({
         if (!open) close()
       }}
     >
-      <DialogContent className="max-h-[90svh] overflow-y-auto sm:max-w-2xl">
-        <DialogHeader>
-          <DialogTitle>
-            {labels[item.kind]} · {item.sku}
-          </DialogTitle>
-          <DialogDescription>
-            {[item.product_name, item.color].filter(Boolean).join(" · ")}
-          </DialogDescription>
-        </DialogHeader>
-        <p className="rounded-lg border bg-muted/50 p-3 text-sm leading-6">
-          {item.reason}
-        </p>
-        <dl className="grid grid-cols-2 gap-3 text-sm">
-          {fields.map(([label, value]) => (
-            <div key={label}>
-              <dt className="text-xs text-muted-foreground">{label}</dt>
-              <dd className="mt-0.5">{value || "—"}</dd>
+      <DialogContent className="flex max-h-[min(92dvh,52rem)] flex-col overflow-hidden rounded-2xl bg-card p-0 text-card-foreground shadow-xl sm:max-w-[52rem]">
+        <header className="relative shrink-0 border-b bg-muted/35 px-4 pt-4 pb-3.5 sm:px-6 sm:pt-5 sm:pb-4">
+          <div className="flex items-center gap-3 pr-11 sm:gap-4">
+            <StockProductPhoto item={item} detail />
+            <div className="min-w-0">
+              <div className="mb-2 flex flex-wrap items-center gap-x-2.5 gap-y-1.5">
+                <span className="text-xs font-medium text-muted-foreground">
+                  库存处理依据
+                </span>
+                <span
+                  className={cn(
+                    "rounded-md border px-2 py-0.5 text-xs font-semibold",
+                    decisionTone[item.kind]
+                  )}
+                >
+                  {labels[item.kind]}
+                </span>
+              </div>
+              <DialogTitle className="font-mono text-xl leading-tight font-semibold tracking-tight wrap-anywhere sm:text-2xl">
+                {item.sku}
+              </DialogTitle>
+              <DialogDescription className="mt-1 text-sm wrap-anywhere">
+                {identity || "商品名称和颜色未记录"}
+              </DialogDescription>
             </div>
-          ))}
-        </dl>
-        {item.size_inventory.length > 0 && (
-          <div className="overflow-x-auto rounded-lg border">
-            <table className="w-full text-sm">
-              <thead className="bg-muted text-left text-xs">
-                <tr>
-                  <th className="p-2">尺码</th>
-                  <th className="p-2">可售库存</th>
-                  <th className="p-2">建议处理</th>
-                </tr>
-              </thead>
-              <tbody>
-                {item.size_inventory.map((size) => (
-                  <tr key={size.name} className="border-t">
-                    <td className="p-2">
-                      {size.name}
-                      {size.core ? " · 核心" : ""}
-                    </td>
-                    <td className="p-2">{fmt(size.available, " 双")}</td>
-                    <td className="p-2">
-                      {fmt(
-                        item.sizes.find((action) => action.name === size.name)
-                          ?.quantity,
-                        " 双"
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
           </div>
-        )}
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <p className="text-xs text-muted-foreground">
-            采购日期仅供参考；混批库存的实物库龄未确认。
-          </p>
-          {assign && <Button onClick={assign}>分配待办</Button>}
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            aria-label="关闭详情"
+            className="absolute top-3 right-3 size-10 sm:right-4"
+            onClick={close}
+          >
+            <X aria-hidden="true" />
+          </Button>
+        </header>
+
+        <div
+          role="region"
+          aria-label="库存处理详情"
+          tabIndex={0}
+          className="min-h-0 overflow-y-auto overscroll-contain px-4 py-4 outline-offset-[-3px] focus-visible:outline-ring sm:px-6 sm:py-5"
+        >
+          <section
+            aria-label="处理建议"
+            className={cn(
+              "rounded-lg border border-s-4 px-3 py-2.5 sm:px-4",
+              decisionTone[item.kind]
+            )}
+          >
+            <h3 className="text-xs font-semibold">处理建议</h3>
+            <p className="mt-1 text-sm leading-relaxed wrap-anywhere text-foreground">
+              {item.reason}
+            </p>
+          </section>
+
+          <dl className="mt-4 grid grid-cols-3 divide-x overflow-hidden rounded-xl border bg-muted/25">
+            {[
+              ["总可售库存", fmt(item.available_quantity, " 双")],
+              [
+                "参考售罄率",
+                item.sell_through_rate == null
+                  ? "—"
+                  : `${item.sell_through_rate}%`,
+              ],
+              [`${actionLabel}量`, fmt(item.quantity, " 双")],
+            ].map(([label, value]) => (
+              <div
+                key={label}
+                className="min-w-0 px-2.5 py-2.5 sm:px-4 sm:py-3"
+              >
+                <dt className="text-xs leading-4 text-muted-foreground">
+                  {label}
+                </dt>
+                <dd className="mt-1 text-base leading-tight font-semibold wrap-anywhere tabular-nums sm:text-xl">
+                  {value}
+                </dd>
+              </div>
+            ))}
+          </dl>
+
+          <div className="mt-5 grid min-w-0 gap-5 md:grid-cols-[minmax(0,1.05fr)_minmax(0,1fr)]">
+            <section aria-label="尺码库存" className="min-w-0">
+              <div className="mb-2 flex items-baseline justify-between gap-2">
+                <h3 className="text-sm font-semibold">尺码库存</h3>
+                <span className="text-xs text-muted-foreground">
+                  {item.size_inventory.length} 个尺码
+                </span>
+              </div>
+              {item.size_inventory.length ? (
+                <div className="overflow-hidden rounded-lg border">
+                  <table
+                    aria-label="尺码库存及处理建议"
+                    className="w-full table-fixed text-sm tabular-nums"
+                  >
+                    <thead className="bg-muted/65 text-xs text-muted-foreground">
+                      <tr>
+                        <th
+                          scope="col"
+                          className="px-2.5 py-2 text-left font-medium sm:px-3"
+                        >
+                          尺码
+                        </th>
+                        <th
+                          scope="col"
+                          className="px-2.5 py-2 text-right font-medium sm:px-3"
+                        >
+                          可售库存
+                        </th>
+                        <th
+                          scope="col"
+                          className="px-2.5 py-2 text-right font-medium sm:px-3"
+                        >
+                          {actionLabel}
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y border-t">
+                      {item.size_inventory.map((size) => {
+                        const quantity = actionsBySize.get(size.name)
+                        return (
+                          <tr
+                            key={size.name}
+                            className={cn(quantity != null && "bg-muted/50")}
+                          >
+                            <th
+                              scope="row"
+                              className="px-2.5 py-2 text-left font-medium wrap-anywhere sm:px-3"
+                            >
+                              <span>{size.name}</span>
+                              {size.core && (
+                                <span className="ms-1 inline-block rounded bg-muted px-1 text-[11px] text-muted-foreground">
+                                  核心
+                                </span>
+                              )}
+                            </th>
+                            <td
+                              className={cn(
+                                "px-2.5 py-2 text-right wrap-anywhere sm:px-3",
+                                size.available == null &&
+                                  "text-muted-foreground"
+                              )}
+                            >
+                              {fmt(size.available, " 双")}
+                            </td>
+                            <td
+                              className={cn(
+                                "px-2.5 py-2 text-right wrap-anywhere sm:px-3",
+                                quantity == null
+                                  ? "text-muted-foreground"
+                                  : "font-semibold"
+                              )}
+                            >
+                              {fmt(quantity, " 双")}
+                            </td>
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <p className="rounded-lg border border-dashed px-3 py-4 text-sm text-muted-foreground">
+                  暂无尺码库存明细
+                </p>
+              )}
+            </section>
+
+            <div className="min-w-0 space-y-4">
+              <section aria-label="近期净销">
+                <h3 className="mb-2 text-sm font-semibold">近期净销</h3>
+                <div className="overflow-hidden rounded-lg border">
+                  <table
+                    aria-label="近 7 天与近 30 天净销"
+                    className="w-full table-fixed text-sm tabular-nums"
+                  >
+                    <thead className="bg-muted/65 text-xs text-muted-foreground">
+                      <tr>
+                        <th
+                          scope="col"
+                          className="px-2.5 py-2 text-left font-medium"
+                        >
+                          口径
+                        </th>
+                        <th
+                          scope="col"
+                          className="px-2.5 py-2 text-right font-medium"
+                        >
+                          近 7 天
+                        </th>
+                        <th
+                          scope="col"
+                          className="px-2.5 py-2 text-right font-medium"
+                        >
+                          近 30 天
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y border-t">
+                      {sales.map(([label, week, month]) => (
+                        <tr key={label}>
+                          <th
+                            scope="row"
+                            className="px-2.5 py-2 text-left font-medium"
+                          >
+                            {label}
+                          </th>
+                          <td className="px-2.5 py-2 text-right wrap-anywhere">
+                            {fmt(week, " 双")}
+                          </td>
+                          <td className="px-2.5 py-2 text-right wrap-anywhere">
+                            {fmt(month, " 双")}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </section>
+              <section aria-label="商品与入库信息">
+                <h3 className="mb-2 text-sm font-semibold">商品与入库信息</h3>
+                <dl className="grid grid-cols-2 gap-x-3 gap-y-2.5 rounded-lg border px-2.5 py-2.5 text-sm sm:px-3">
+                  {archive.map(([label, value]) => (
+                    <div key={label} className="min-w-0">
+                      <dt className="text-xs text-muted-foreground">{label}</dt>
+                      <dd
+                        className={cn(
+                          "mt-0.5 wrap-anywhere tabular-nums",
+                          !value && "text-muted-foreground"
+                        )}
+                      >
+                        {value || "—"}
+                      </dd>
+                    </div>
+                  ))}
+                </dl>
+              </section>
+            </div>
+          </div>
         </div>
+
+        <footer className="flex shrink-0 flex-wrap items-center justify-between gap-x-5 gap-y-2 border-t bg-card px-4 pt-2.5 pb-3 sm:px-6 sm:py-3">
+          <p className="flex min-w-0 flex-auto items-start gap-1.5 text-xs leading-4 text-muted-foreground sm:flex-1">
+            <Info aria-hidden="true" className="mt-0.5 size-3.5 shrink-0" />
+            <span>采购日期仅供参考，混批库存的实物库龄未确认。</span>
+          </p>
+          <div className="ml-auto flex shrink-0 items-center gap-2">
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              className="min-h-9"
+              onClick={close}
+            >
+              关闭
+            </Button>
+            {assign && (
+              <Button
+                type="button"
+                size="sm"
+                className="min-h-9"
+                onClick={assign}
+              >
+                <ListPlus aria-hidden="true" />
+                分配待办
+              </Button>
+            )}
+          </div>
+        </footer>
       </DialogContent>
     </Dialog>
   )
@@ -508,6 +799,7 @@ export function StockOverviewPage() {
   const [taskId, setTaskId] = useState<number | null>(null)
   const [notice, setNotice] = useState("")
   const force = useRef(false)
+  const queueHeading = useRef<HTMLHeadingElement>(null)
   const options = useStockModuleOptions(getStockAlertOptions)
   const brands = options.data?.brands ?? []
   const brandLabel =
@@ -550,19 +842,32 @@ export function StockOverviewPage() {
   const summary = data ?? (loading ? previousData : null)
   const page = data?.page ?? filters.page
   const pages = data ? Math.max(1, Math.ceil(data.total / data.page_size)) : 1
+  const totalSuggestions = summary
+    ? kinds.reduce((total, kind) => total + summary.counts[kind], 0)
+    : null
+  const selectKind = (kind: OverviewFilters["kind"]) => {
+    setFilters({ ...filters, kind, page: 1 })
+  }
+  const clearQuery = () => {
+    setQuery("")
+    if (filters.query) setFilters({ ...filters, query: "", page: 1 })
+  }
   return (
-    <div className="@container/overview mx-auto max-w-[1600px] space-y-4 p-4 sm:space-y-5 sm:p-6">
-      <header className="flex flex-wrap items-center justify-between gap-4">
-        <div>
-          <p className="mb-2 flex items-center gap-1.5 text-xs text-muted-foreground">
-            <Archive className="size-3.5" aria-hidden="true" />存 / 经营分析
+    <div className="@container/overview mx-auto max-w-[1600px] space-y-4 px-3 py-4 sm:space-y-5 sm:px-5 sm:py-5 lg:px-6">
+      <header className="flex flex-wrap items-end justify-between gap-x-5 gap-y-3.5">
+        <div className="min-w-0">
+          <p className="mb-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
+            <Archive className="size-3.5 shrink-0" aria-hidden="true" /> 存 /
+            经营分析
+            {summary && (
+              <span className="border-l pl-2 tabular-nums">
+                业务日 <time dateTime={summary.today}>{summary.today}</time>
+              </span>
+            )}
           </p>
-          <h1 className="text-2xl font-semibold tracking-tight">
+          <h1 className="text-2xl font-semibold tracking-tight sm:text-[1.75rem]">
             库存经营总览
           </h1>
-          <p className="mt-1.5 text-sm text-muted-foreground">
-            查看库存分布，安排今天的处理顺序。
-          </p>
         </div>
         <div className="flex max-w-full min-w-0 flex-wrap items-end gap-2">
           <label className="min-w-0 basis-full @min-[32rem]/overview:basis-auto">
@@ -603,7 +908,7 @@ export function StockOverviewPage() {
             <Button
               size="lg"
               variant="outline"
-              disabled={!summary || refreshing}
+              disabled={!data || refreshing}
               onClick={() => setPolicyOpen(true)}
             >
               <SlidersHorizontal aria-hidden="true" /> 退出规则
@@ -633,14 +938,23 @@ export function StockOverviewPage() {
         </div>
       )}
       {summary ? (
-        <InventoryPanel data={summary} />
+        <InventoryPanel
+          data={summary}
+          onReview={() => {
+            selectKind("review")
+            queueHeading.current?.focus()
+          }}
+        />
       ) : (
         loading && (
           <div className={cn(panel, "p-5")}>
             <div
               aria-hidden="true"
-              className="mb-4 h-2 w-28 rounded-full bg-muted motion-safe:animate-pulse"
-            />
+              className="mb-4 grid max-w-lg grid-cols-2 items-end gap-4 motion-safe:animate-pulse"
+            >
+              <div className="h-12 rounded-lg bg-muted" />
+              <div className="h-7 rounded-lg bg-muted" />
+            </div>
             <p className="text-sm text-muted-foreground" role="status">
               正在汇总库存和处理建议…
             </p>
@@ -651,185 +965,212 @@ export function StockOverviewPage() {
         <section
           aria-labelledby="stock-overview-queue"
           className={cn(panel, "@container/queue")}
-          aria-busy={refreshing}
+          aria-busy={loading || refreshing}
         >
-          <div className="space-y-2 px-4 py-3 sm:px-5">
-            <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 px-4 py-4 sm:px-5">
+            <div className="min-w-0">
               <h2
                 id="stock-overview-queue"
-                className="flex items-center gap-2 text-sm font-semibold"
+                ref={queueHeading}
+                tabIndex={-1}
+                className="flex scroll-mt-16 items-center gap-2 rounded-sm text-base font-semibold tracking-tight focus-visible:outline-2 focus-visible:outline-offset-2"
               >
                 <ClipboardList
-                  className="size-4 text-muted-foreground"
+                  className="size-4 shrink-0 text-muted-foreground"
                   aria-hidden="true"
                 />
                 今日优先处理
               </h2>
-              <Button asChild variant="outline" size="sm">
-                <Link href="/stock-alerts/tasks">
-                  预警待办 <ArrowRight aria-hidden="true" />
-                </Link>
-              </Button>
-            </div>
-            {summary ? (
-              <div className="flex flex-wrap items-center gap-2 text-xs tabular-nums">
-                <span className={badge}>
-                  待分配{" "}
-                  <strong className="ml-1 font-semibold">
-                    {fmt(summary.assignable)}
-                  </strong>{" "}
-                  条
-                </span>
-                <span className={badge}>
-                  已有待办{" "}
-                  <strong className="ml-1 font-semibold">
-                    {fmt(summary.in_progress)}
-                  </strong>{" "}
-                  条
-                </span>
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="outline"
-                  disabled={
-                    summary.counts.review === 0 && filters.kind !== "review"
-                  }
-                  aria-pressed={filters.kind === "review"}
-                  onClick={() =>
-                    setFilters({
-                      ...filters,
-                      kind: filters.kind === "review" ? "all" : "review",
-                      page: 1,
-                    })
-                  }
-                  className="h-7 px-2 text-xs shadow-none aria-pressed:border-primary/40 aria-pressed:bg-primary/5"
-                >
-                  {summary.counts.review > 0 && (
-                    <TriangleAlert
-                      className="text-amber-600 dark:text-amber-400"
-                      aria-hidden="true"
-                    />
-                  )}
+              {summary ? (
+                <p className="mt-1 flex flex-wrap items-baseline gap-x-3 text-xs text-muted-foreground tabular-nums">
                   <span>
-                    待核对{" "}
-                    <strong className="ml-1 font-semibold">
-                      {fmt(summary.counts.review)}
+                    待分配{" "}
+                    <strong className="font-semibold text-foreground">
+                      {fmt(summary.assignable)}
                     </strong>{" "}
                     条
                   </span>
-                  <ChevronRight aria-hidden="true" />
-                </Button>
+                  <span>
+                    已有待办{" "}
+                    <strong className="font-semibold text-foreground">
+                      {fmt(summary.in_progress)}
+                    </strong>{" "}
+                    条
+                  </span>
+                </p>
+              ) : (
+                <p className="mt-1 text-xs text-muted-foreground">
+                  按处理类型、期限和影响数量排序
+                </p>
+              )}
+            </div>
+            <Button asChild variant="outline" size="sm" className="shadow-none">
+              <Link href="/stock-alerts/tasks">
+                预警待办 <ArrowRight aria-hidden="true" />
+              </Link>
+            </Button>
+          </div>
+          <div className="space-y-2.5 border-y bg-muted/25 px-4 py-3 sm:px-5">
+            <div
+              role="group"
+              aria-label="处理类型"
+              className="flex flex-wrap gap-1.5"
+            >
+              {(["all", ...kinds] as const).map((kind) => {
+                const active = filters.kind === kind
+                const count =
+                  kind === "all" ? totalSuggestions : summary?.counts[kind]
+                return (
+                  <Button
+                    key={kind}
+                    type="button"
+                    variant={active ? "default" : "outline"}
+                    size="sm"
+                    className="h-8 gap-1.5 px-2 text-xs shadow-none"
+                    aria-pressed={active}
+                    onClick={() => selectKind(kind)}
+                  >
+                    {kind === "all" ? "全部" : labels[kind]}
+                    {count != null && (
+                      <span
+                        className={cn(
+                          "rounded px-1 tabular-nums",
+                          active
+                            ? "bg-primary-foreground/15"
+                            : "bg-muted text-muted-foreground"
+                        )}
+                      >
+                        {fmt(count)}
+                      </span>
+                    )}
+                  </Button>
+                )
+              })}
+            </div>
+            <form
+              className="flex max-w-lg items-center gap-2"
+              onSubmit={(event) => {
+                event.preventDefault()
+                setFilters({ ...filters, query: query.trim(), page: 1 })
+              }}
+            >
+              <div className="relative min-w-0 flex-1">
+                <Search
+                  className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground"
+                  aria-hidden="true"
+                />
+                <Input
+                  aria-label="搜索货号、品名或颜色"
+                  className="h-9 bg-background pr-9 pl-9"
+                  placeholder="货号 / 品名 / 颜色"
+                  maxLength={200}
+                  value={query}
+                  onChange={(event) => setQuery(event.target.value)}
+                />
+                {(query || filters.query) && (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon-sm"
+                    aria-label="清空搜索"
+                    onClick={clearQuery}
+                    className="absolute top-1/2 right-1 -translate-y-1/2 shadow-none"
+                  >
+                    <X aria-hidden="true" />
+                  </Button>
+                )}
               </div>
-            ) : (
-              <p className="text-xs text-muted-foreground">
-                按处理类型、期限和影响数量排序
+              <Button
+                type="submit"
+                size="lg"
+                variant="outline"
+                className="shadow-none"
+              >
+                查询
+              </Button>
+            </form>
+            {filters.query && (
+              <p className="text-xs leading-5 wrap-anywhere text-muted-foreground">
+                当前搜索：
+                <strong className="font-medium text-foreground">
+                  {filters.query}
+                </strong>
               </p>
             )}
           </div>
-          <form
-            className="grid grid-cols-[minmax(0,1fr)_auto] gap-2 border-y bg-muted/15 px-4 py-2.5 sm:px-5 @min-[30rem]/queue:grid-cols-[minmax(0,9.5rem)_minmax(0,1fr)_auto]"
-            onSubmit={(event) => {
-              event.preventDefault()
-              setFilters({ ...filters, query: query.trim(), page: 1 })
-            }}
-          >
-            <Select
-              aria-label="处理类型"
-              className="col-span-2 @min-[30rem]/queue:col-span-1"
-              value={filters.kind}
-              onChange={(event) =>
-                setFilters({
-                  ...filters,
-                  kind: event.target.value as OverviewFilters["kind"],
-                  page: 1,
-                })
-              }
-            >
-              <option value="all">全部类型</option>
-              {kinds.map((kind) => (
-                <option value={kind} key={kind}>
-                  {labels[kind]}
-                  {summary ? `（${fmt(summary.counts[kind])}）` : ""}
-                </option>
-              ))}
-            </Select>
-            <div className="relative min-w-0">
-              <Search
-                className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground"
-                aria-hidden="true"
-              />
-              <Input
-                aria-label="搜索货号、品名或颜色"
-                className="pl-9"
-                placeholder="货号 / 品名 / 颜色"
-                maxLength={200}
-                value={query}
-                onChange={(event) => setQuery(event.target.value)}
-              />
-            </div>
-            <Button type="submit" size="lg" className="px-3.5">
-              查询
-            </Button>
-          </form>
           {data?.items.length ? (
             <ul className="divide-y divide-border/80">
               {data.items.map((item) => (
                 <li
                   key={`${item.id}/${item.kind}`}
-                  className="grid gap-x-4 gap-y-2 px-4 py-3 transition-colors hover:bg-muted/30 sm:px-5 @min-[32rem]/queue:grid-cols-[minmax(0,1fr)_auto] @min-[32rem]/queue:items-center"
+                  className="grid gap-x-4 gap-y-2.5 px-4 py-3.5 transition-colors hover:bg-muted/25 sm:px-5 @min-[34rem]/queue:grid-cols-[minmax(0,1fr)_auto] @min-[34rem]/queue:items-center"
                 >
-                  <div className="min-w-0">
-                    <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                      <span
-                        className={cn(
-                          badge,
-                          "py-0.5",
-                          item.kind === "review" && "bg-amber-500/10",
-                          item.kind === "review" && warning
+                  <div className="flex min-w-0 items-start gap-3">
+                    <StockProductPhoto item={item} />
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                        <span
+                          className={cn(
+                            "rounded border px-1.5 py-0.5 text-xs font-medium",
+                            decisionTone[item.kind]
+                          )}
+                        >
+                          {labels[item.kind]}
+                        </span>
+                        <button
+                          type="button"
+                          className="min-w-0 cursor-pointer rounded-sm font-mono text-sm font-semibold wrap-anywhere text-foreground underline-offset-4 hover:underline focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+                          onClick={() => setDetail(item)}
+                        >
+                          {item.sku}
+                        </button>
+                        {(item.product_name || item.color) && (
+                          <span className="min-w-0 text-xs wrap-anywhere text-muted-foreground">
+                            {[item.product_name, item.color]
+                              .filter(Boolean)
+                              .join(" · ")}
+                          </span>
                         )}
-                      >
-                        {labels[item.kind]}
-                      </span>
-                      <button
-                        type="button"
-                        className="min-w-0 cursor-pointer rounded-sm font-mono text-sm font-semibold wrap-anywhere text-foreground underline-offset-4 hover:underline focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
-                        onClick={() => setDetail(item)}
-                      >
-                        {item.sku}
-                      </button>
-                      {(item.product_name || item.color) && (
-                        <span className="min-w-0 text-xs wrap-anywhere text-muted-foreground">
-                          {[item.product_name, item.color]
-                            .filter(Boolean)
-                            .join(" · ")}
-                        </span>
-                      )}
-                    </div>
-                    <p className="mt-1.5 text-sm leading-5 wrap-anywhere">
-                      {item.reason}
-                    </p>
-                    <p className="mt-1.5 flex flex-wrap items-baseline gap-x-3 gap-y-1 text-xs leading-5 text-muted-foreground tabular-nums">
-                      <span>
-                        可售{" "}
-                        <strong className="font-semibold text-foreground">
-                          {fmt(item.available_quantity, " 双")}
-                        </strong>
-                      </span>
-                      {item.quantity != null && (
+                      </div>
+                      <p className="mt-1.5 text-sm leading-5 wrap-anywhere">
+                        {item.reason}
+                      </p>
+                      <p className="mt-1.5 flex flex-wrap items-baseline gap-x-3 gap-y-1 text-xs leading-5 text-muted-foreground tabular-nums">
                         <span>
-                          建议 {fmt(item.quantity, " 双")}（
-                          {item.sizes.map((size) => size.name).join("、")}码）
+                          可售{" "}
+                          <strong className="font-semibold text-foreground">
+                            {fmt(item.available_quantity, " 双")}
+                          </strong>
                         </span>
-                      )}
-                      {item.due_date && (
-                        <span>建议 {item.due_date} 前处理</span>
-                      )}
-                      {item.channel && (
-                        <span className="wrap-anywhere">{item.channel}</span>
-                      )}
-                    </p>
+                        {item.quantity != null && (
+                          <span>
+                            建议处理{" "}
+                            <strong className="font-semibold text-foreground">
+                              {fmt(item.quantity, " 双")}
+                            </strong>
+                            {item.sizes.length > 0 &&
+                              `（${item.sizes.map(({ name }) => name).join("、")}码）`}
+                          </span>
+                        )}
+                        {item.due_date && (
+                          <span className="inline-flex items-center gap-1">
+                            <CalendarDays
+                              className="size-3 shrink-0"
+                              aria-hidden="true"
+                            />
+                            <time dateTime={item.due_date}>
+                              {item.due_date}
+                            </time>{" "}
+                            前处理
+                          </span>
+                        )}
+                        {item.channel && (
+                          <span className="wrap-anywhere">{item.channel}</span>
+                        )}
+                      </p>
+                    </div>
                   </div>
-                  <div className="flex flex-wrap items-center gap-2 @min-[32rem]/queue:max-w-44 @min-[32rem]/queue:justify-end">
+                  <div className="flex min-w-0 flex-wrap items-center gap-2 pl-[3.75rem] @min-[34rem]/queue:max-w-44 @min-[34rem]/queue:justify-end @min-[34rem]/queue:pl-0">
                     {item.task ? (
                       <Button
                         size="sm"
@@ -875,34 +1216,50 @@ export function StockOverviewPage() {
                   ? "可更换类型或搜索词后再查。"
                   : "当前品牌没有待处理的库存建议。"}
               </p>
+              {(filters.kind !== "all" || filters.query) && (
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  className="mt-3 shadow-none"
+                  onClick={() => {
+                    setQuery("")
+                    setFilters({ ...filters, kind: "all", query: "", page: 1 })
+                  }}
+                >
+                  清除筛选
+                </Button>
+              )}
             </div>
           ) : null}
-          {data && pages > 1 && (
+          {data && data.total > 0 && (
             <div className="flex flex-wrap items-center justify-between gap-2 border-t bg-muted/15 px-4 py-2.5 text-xs text-muted-foreground tabular-nums sm:px-5">
               <span>共 {fmt(data.total)} 条</span>
-              <div className="flex items-center gap-2">
-                <span>
-                  第 {page} / {pages} 页
-                </span>
-                <Button
-                  size="icon-sm"
-                  variant="outline"
-                  aria-label="上一页"
-                  disabled={page <= 1}
-                  onClick={() => setFilters({ ...filters, page: page - 1 })}
-                >
-                  <ChevronLeft aria-hidden="true" />
-                </Button>
-                <Button
-                  size="icon-sm"
-                  variant="outline"
-                  aria-label="下一页"
-                  disabled={page >= pages}
-                  onClick={() => setFilters({ ...filters, page: page + 1 })}
-                >
-                  <ChevronRight aria-hidden="true" />
-                </Button>
-              </div>
+              {pages > 1 && (
+                <div className="flex items-center gap-2">
+                  <span>
+                    第 {page} / {pages} 页
+                  </span>
+                  <Button
+                    size="icon-sm"
+                    variant="outline"
+                    aria-label="上一页"
+                    disabled={page <= 1}
+                    onClick={() => setFilters({ ...filters, page: page - 1 })}
+                  >
+                    <ChevronLeft aria-hidden="true" />
+                  </Button>
+                  <Button
+                    size="icon-sm"
+                    variant="outline"
+                    aria-label="下一页"
+                    disabled={page >= pages}
+                    onClick={() => setFilters({ ...filters, page: page + 1 })}
+                  >
+                    <ChevronRight aria-hidden="true" />
+                  </Button>
+                </div>
+              )}
             </div>
           )}
         </section>

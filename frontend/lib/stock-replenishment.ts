@@ -35,6 +35,7 @@ export type SupplierReplenishmentSummary = {
 }
 
 export type ReplenishmentItem = {
+  image_url?: string | null
   id: number
   sku: string
   original_sku: string | null

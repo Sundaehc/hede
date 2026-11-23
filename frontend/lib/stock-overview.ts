@@ -33,6 +33,7 @@ export type InventoryBucket = {
   styles: number
 }
 export type OverviewItem = {
+  image_url?: string | null
   id: number
   brand: string
   sku: string

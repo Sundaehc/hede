@@ -1,4 +1,5 @@
 from datetime import date
+from decimal import Decimal
 
 from domain.daily_sales_schema import jst_daily_sales_table_for_year, vip_daily_sales_table_for_year
 from storage.daily_sales_repository import DailySalesRepository
@@ -52,3 +53,37 @@ def test_vip_daily_sales_mapping_and_key_are_stable():
     assert mapped["size_id"] == "34"
     assert mapped["sales_quantity"] == 5
     assert DailySalesRepository._vip_key(mapped) == (date(2026, 7, 18), "101", "34")
+
+
+def test_vip_daily_detail_uses_source_ratios_and_preserves_zeroes():
+    mapped = DailySalesRepository._map_vip({
+        "退货件数": "2.0",
+        "拒收件数": "1",
+        "拒退件数": "3",
+        "换货件数": "0",
+        "退货金额": "1,200.50",
+        "拒收金额": "50",
+        "拒退金额": "1,250.50",
+        "换货金额": "0",
+        "退货率(退货件数/销售量)": "33.33%",
+        "拒收率(拒收件数/销售量)": "0.125",
+        "拒退率": "150%",
+        "换货率(换货件数/销售量)": "—",
+        "可售库存": "0.0",
+        "在售库存": "15",
+        "最低市场价": "329.50",
+        "最低到手价": "119.90",
+        "最低唯品价": "139.00",
+    })
+
+    assert tuple(mapped[name] for name in ("return_quantity", "reject_quantity", "reject_return_quantity", "exchange_quantity")) == (2, 1, 3, 0)
+    assert tuple(mapped[name] for name in ("return_amount", "reject_amount", "reject_return_amount", "exchange_amount")) == (
+        Decimal("1200.50"), Decimal("50"), Decimal("1250.50"), Decimal(0),
+    )
+    assert tuple(mapped[name] for name in ("return_rate", "reject_rate", "reject_return_rate", "exchange_rate")) == (
+        Decimal("0.3333"), Decimal("0.125"), Decimal("1.5"), None,
+    )
+    assert (mapped["available_stock"], mapped["on_sale_stock"]) == (0, 15)
+    assert tuple(mapped[name] for name in ("lowest_market_price", "lowest_take_home_price", "lowest_vip_price")) == (
+        Decimal("329.50"), Decimal("119.90"), Decimal("139.00"),
+    )

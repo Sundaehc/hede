@@ -36,6 +36,7 @@ import {
   type TaskUpdate,
 } from "@/lib/stock-alert-tasks"
 import { cn } from "@/lib/utils"
+import { StockProductPhoto } from "./stock-product-photo"
 
 const textAreaClass =
   "min-h-24 w-full resize-y rounded-lg border border-input bg-background px-3 py-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-70"
@@ -94,7 +95,9 @@ export function CreateStockAlertTaskDialog({
     StockAlertItem,
     "id" | "brand" | "sku" | "product_name" | "color" | "available_quantity"
   > &
-    Partial<Pick<StockAlertItem, "listed_days" | "sell_through_rate">>
+    Partial<
+      Pick<StockAlertItem, "image_url" | "listed_days" | "sell_through_rate">
+    >
   kind: StockAlertKind | "replenish" | "clearance"
   recommendation?: OverviewItem
   brandLabel: string
@@ -162,13 +165,20 @@ export function CreateStockAlertTaskDialog({
           }}
         >
           <div className="rounded-xl border bg-muted/30 p-4 text-sm">
-            <p className="text-xs text-muted-foreground">
-              {brandLabel} · {alertKindLabels[kind]}
-            </p>
-            <p className="mt-2 font-mono font-semibold break-all">{item.sku}</p>
-            <p className="mt-1 text-muted-foreground">
-              {[item.product_name, item.color].filter(Boolean).join(" · ")}
-            </p>
+            <div className="flex items-start gap-2.5">
+              <StockProductPhoto item={item} detail />
+              <div className="min-w-0 flex-1">
+                <p className="text-xs text-muted-foreground">
+                  {brandLabel} · {alertKindLabels[kind]}
+                </p>
+                <p className="mt-2 font-mono font-semibold break-all">
+                  {item.sku}
+                </p>
+                <p className="mt-1 text-muted-foreground">
+                  {[item.product_name, item.color].filter(Boolean).join(" · ")}
+                </p>
+              </div>
+            </div>
             <p className="mt-3 text-xs leading-5 text-muted-foreground">
               可售库存 {item.available_quantity} 双 ·{" "}
               {recommendation
@@ -407,13 +417,19 @@ function TaskEditor({
           }}
         >
           <div className="rounded-xl border bg-muted/25 p-4">
-            <p className="font-mono text-sm font-semibold break-all">
-              {item.sku}
-            </p>
-            <p className="mt-1 text-sm text-muted-foreground">
-              {[item.product_name, item.color].filter(Boolean).join(" · ") ||
-                "—"}
-            </p>
+            <div className="flex items-start gap-2.5">
+              <StockProductPhoto item={item} detail />
+              <div className="min-w-0 flex-1">
+                <p className="font-mono text-sm font-semibold break-all">
+                  {item.sku}
+                </p>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  {[item.product_name, item.color]
+                    .filter(Boolean)
+                    .join(" · ") || "—"}
+                </p>
+              </div>
+            </div>
             <details className="mt-3 text-xs leading-6 text-muted-foreground">
               <summary className="cursor-pointer">查看创建时的预警依据</summary>
               <p>

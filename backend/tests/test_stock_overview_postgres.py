@@ -73,7 +73,12 @@ def test_overview_postgres_sources_and_old_task_constraint():
             conn.execute(text("INSERT INTO jst_full_stock VALUES (:day,'TEST01','TEST01','37',100,0),(:day,'TEST02','TEST02','37',10,0),(:day,'TEST03','TEST03','37',21,0)"), {"day": today})
             for source in ("jst_daily_sales", "vip_daily_sales"):
                 conn.execute(text(f"INSERT INTO {source} (sales_date) SELECT CAST(d AS date) FROM generate_series(CAST(:first AS date), CAST(:last AS date), interval '1 day') d"), {"first": today - timedelta(days=31), "last": end})
-            conn.execute(text("INSERT INTO jst_daily_sales VALUES (:day,'TEST02','TEST02','shop',1)"), {"day": first})
+            # A raw sale identified only by its style still disproves zero sales.
+            # A purchase-channel row and a pre-launch VIP sale do not.
+            conn.execute(text("""INSERT INTO jst_daily_sales VALUES
+                (:day,'unmapped','TEST02','shop',1),(:day,'TEST03','TEST03','采购',1)"""), {"day": first})
+            conn.execute(text("INSERT INTO vip_daily_sales VALUES (:day,'TEST03','TEST03',1)"),
+                         {"day": launch - timedelta(days=1)})
             conn.execute(text("INSERT INTO factory_channel_sales_daily_summaries (sales_date,brand,match_status) SELECT CAST(d as date), :brand, 'date_marker' FROM generate_series(CAST(:first AS date), CAST(:last AS date), interval '1 day') d"), {"first": today-timedelta(days=30), "last": end, "brand": brand})
             conn.execute(text("INSERT INTO factory_channel_sales_daily_summaries VALUES (:day,:brand,'TEST01','clearance','matched',3,3,0),(:day,:brand,'TEST01','traditional','matched',10,10,0)"), {"day": first, "brand": brand})
             conn.execute(text("INSERT INTO jst_size_stock_snapshots VALUES (:before,'TEST01','37',110),(:after,'TEST01','37',101)"), {"before": first-timedelta(days=1), "after": last})

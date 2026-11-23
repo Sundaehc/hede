@@ -17,6 +17,7 @@ import {
   STOCK_SOURCE_RESOURCES,
   useStockModuleQuery,
 } from "@/lib/stock-module-query"
+import { StockProductPhoto } from "./stock-product-photo"
 
 const formatter = new Intl.NumberFormat("zh-CN", { maximumFractionDigits: 2 })
 const units = (value: number | string | null) =>
@@ -73,18 +74,21 @@ export function SeasonalItemReviewDialog({
       }}
     >
       <DialogContent className="max-h-[calc(100dvh-2rem)] max-w-4xl overflow-y-auto p-0">
-        <DialogHeader className="border-b px-5 py-4 pr-14 sm:px-6 sm:pr-16">
-          <DialogTitle>单款复盘 · {item.sku}</DialogTitle>
-          <DialogDescription>
-            {[
-              item.product_name,
-              item.color,
-              `${filters.year} 年 Q${filters.quarter}`,
-              stockDate && `库存 ${stockDate}`,
-            ]
-              .filter(Boolean)
-              .join(" · ")}
-          </DialogDescription>
+        <DialogHeader className="flex-row items-center gap-3 border-b px-5 py-4 pr-14 sm:gap-4 sm:px-6 sm:pr-16">
+          <StockProductPhoto item={item} detail />
+          <div className="min-w-0 space-y-1">
+            <DialogTitle>单款复盘 · {item.sku}</DialogTitle>
+            <DialogDescription>
+              {[
+                item.product_name,
+                item.color,
+                `${filters.year} 年 Q${filters.quarter}`,
+                stockDate && `库存 ${stockDate}`,
+              ]
+                .filter(Boolean)
+                .join(" · ")}
+            </DialogDescription>
+          </div>
         </DialogHeader>
         <DialogClose
           className="absolute top-4 right-4 inline-flex size-8 items-center justify-center rounded-md text-muted-foreground outline-none hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring"

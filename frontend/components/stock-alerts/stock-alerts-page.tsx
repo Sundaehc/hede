@@ -27,7 +27,12 @@ import {
 import { getStockAlertOptions, getStockAlerts } from "@/lib/api"
 import { subscribeBusinessDataChanges } from "@/lib/business-data-sync"
 import { useSessionQueryState } from "@/lib/session-query-state"
-import { STOCK_ALERT_RESOURCES, STOCK_SOURCE_RESOURCES, useStockModuleOptions, useStockModuleQuery } from "@/lib/stock-module-query"
+import {
+  STOCK_ALERT_RESOURCES,
+  STOCK_SOURCE_RESOURCES,
+  useStockModuleOptions,
+  useStockModuleQuery,
+} from "@/lib/stock-module-query"
 import type {
   StockAlertFilters,
   StockAlertItem,
@@ -41,6 +46,7 @@ import {
   useBatchSelection,
 } from "./batch-selection"
 import { BatchTaskDialog } from "./batch-task-dialog"
+import { StockProductPhoto } from "./stock-product-photo"
 
 const DEFAULT_FILTERS: StockAlertFilters = {
   brand: "cbanner_mens",
@@ -90,15 +96,19 @@ function StockAlertsContent({ kind }: { kind: StockAlertKind }) {
   const [creatingTask, setCreatingTask] = useState<StockAlertItem | null>(null)
   const [taskId, setTaskId] = useState<number | null>(null)
   const forceRefresh = useRef(false)
-  const { data, previousData, error, loading, refreshing } = useStockModuleQuery({
-    group: "stock-alerts", queryKey: JSON.stringify([kind, filters]), revision,
-    resources: STOCK_ALERT_RESOURCES, factResources: STOCK_SOURCE_RESOURCES,
-    load: (signal, refreshFacts) => {
-      const refresh = forceRefresh.current || refreshFacts
-      forceRefresh.current = false
-      return getStockAlerts(filters, kind, { signal, refresh })
-    },
-  })
+  const { data, previousData, error, loading, refreshing } =
+    useStockModuleQuery({
+      group: "stock-alerts",
+      queryKey: JSON.stringify([kind, filters]),
+      revision,
+      resources: STOCK_ALERT_RESOURCES,
+      factResources: STOCK_SOURCE_RESOURCES,
+      load: (signal, refreshFacts) => {
+        const refresh = forceRefresh.current || refreshFacts
+        forceRefresh.current = false
+        return getStockAlerts(filters, kind, { signal, refresh })
+      },
+    })
   const selectable =
     data?.items.filter((item) => item.warning && !item.task) ?? []
   const selectedOnPage = selectable.filter((item) =>
@@ -491,18 +501,24 @@ function StockAlertsContent({ kind }: { kind: StockAlertKind }) {
                       </td>
                     )}
                     <td className="px-3 py-3">
-                      <p className="font-mono font-medium break-all">
-                        {item.sku}
-                      </p>
-                      <p className="mt-1 text-muted-foreground">
-                        {[item.product_name, item.color]
-                          .filter(Boolean)
-                          .join(" · ") || "—"}
-                      </p>
-                      <p className="mt-1 text-muted-foreground">
-                        {[item.year, item.season].filter(Boolean).join(" / ") ||
-                          "—"}
-                      </p>
+                      <div className="flex items-start gap-2.5">
+                        <StockProductPhoto item={item} />
+                        <div className="min-w-0 flex-1">
+                          <p className="font-mono font-medium break-all">
+                            {item.sku}
+                          </p>
+                          <p className="mt-1 text-muted-foreground">
+                            {[item.product_name, item.color]
+                              .filter(Boolean)
+                              .join(" · ") || "—"}
+                          </p>
+                          <p className="mt-1 text-muted-foreground">
+                            {[item.year, item.season]
+                              .filter(Boolean)
+                              .join(" / ") || "—"}
+                          </p>
+                        </div>
+                      </div>
                     </td>
                     <td className="px-3 py-3 tabular-nums">
                       {item.launch_date ?? "未填写"}

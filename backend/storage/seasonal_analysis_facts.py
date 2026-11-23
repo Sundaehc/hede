@@ -301,14 +301,25 @@ def _zero_sales_evidence(connection, inspector, matcher, targets):
     # Daily-sales import strips surrounding whitespace. Preserve original
     # catalogue case variants while leaving the source columns indexable.
     params["codes"] = _indexed_sales_codes(matcher, targets, codes)
+    if not params["codes"]:
+        return set()
+    # Small candidate lists are selective by code, even across many months.
+    # Keep each lookup correlated so PostgreSQL can use the code (or style/date)
+    # index without building a bitmap for the entire date range. For bigger
+    # cohorts retain the set-based plan rather than forcing many index probes.
+    indexed = connection.dialect.name == "postgresql" and len(params["codes"]) <= 2048
     found = set()
     for table, goods, extra in (("jst_daily_sales", "product_code", """
             AND coalesce(channel, '') NOT ILIKE '%采购%' AND coalesce(channel, '') NOT ILIKE '%-公司'
             AND coalesce(channel, '') NOT ILIKE '%VMI%'"""), ("vip_daily_sales", "goods_code", "")):
         for field in (goods, "style_code"):
+            match = "codes.code" if indexed else "ANY(:codes)"
             sql = f"""SELECT DISTINCT sales_date, {goods}, style_code FROM {table}
                 WHERE sales_date BETWEEN :start AND :end AND sales_quantity > 0
-                AND {field}=ANY(:codes) {extra}"""
+                AND {field} = {match} {extra}"""
+            if indexed:
+                sql = f"""SELECT hit.* FROM unnest(CAST(:codes AS text[])) AS codes(code)
+                    CROSS JOIN LATERAL ({sql} OFFSET 0) AS hit"""
             with connection.execute(text(sql).execution_options(yield_per=5000), params) as rows:
                 for day, goods_code, style in rows:
                     key = matcher.resolve(goods_code, style)

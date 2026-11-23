@@ -38,6 +38,7 @@ import { cn } from "@/lib/utils"
 import { ReplenishmentRuleDialog } from "./replenishment-rule-dialog"
 import { ReplenishmentSupplierPicker } from "./replenishment-supplier-picker"
 import { StockListState, StockStatusCard } from "./workspace-ui"
+import { StockProductPhoto } from "./stock-product-photo"
 
 const DEFAULT_FILTERS: ReplenishmentFilters = {
   brand: "cbanner_mens",
@@ -555,27 +556,32 @@ export function ReplenishmentPage() {
                 {data?.items.map((item) => (
                   <tr key={item.id} className="align-top hover:bg-muted/30">
                     <td className="px-3 py-3">
-                      <p className="font-mono font-medium break-all">
-                        {item.sku}
-                      </p>
-                      <p className="mt-1 text-muted-foreground">
-                        {[item.product_name, item.color]
-                          .filter(Boolean)
-                          .join(" · ") || "—"}
-                      </p>
-                      <p className="mt-1 text-muted-foreground">
-                        {item.supplier || "未填写供应商"} ·{" "}
-                        {item.size_group || "未填尺码组"}
-                      </p>
-                      {canManage && item.supplier && (
-                        <button
-                          type="button"
-                          className="mt-2 text-primary underline-offset-4 hover:underline focus-visible:outline-2 focus-visible:outline-ring"
-                          onClick={() => edit(item.supplier)}
-                        >
-                          设置补货规则
-                        </button>
-                      )}
+                      <div className="flex items-start gap-2.5">
+                        <StockProductPhoto item={item} />
+                        <div className="min-w-0 flex-1">
+                          <p className="font-mono font-medium break-all">
+                            {item.sku}
+                          </p>
+                          <p className="mt-1 text-muted-foreground">
+                            {[item.product_name, item.color]
+                              .filter(Boolean)
+                              .join(" · ") || "—"}
+                          </p>
+                          <p className="mt-1 text-muted-foreground">
+                            {item.supplier || "未填写供应商"} ·{" "}
+                            {item.size_group || "未填尺码组"}
+                          </p>
+                          {canManage && item.supplier && (
+                            <button
+                              type="button"
+                              className="mt-2 text-primary underline-offset-4 hover:underline focus-visible:outline-2 focus-visible:outline-ring"
+                              onClick={() => edit(item.supplier)}
+                            >
+                              设置补货规则
+                            </button>
+                          )}
+                        </div>
+                      </div>
                     </td>
                     <td className="px-3 py-3 text-right tabular-nums">
                       <p className="text-sm font-semibold">

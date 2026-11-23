@@ -26,9 +26,12 @@ def _sales_dates(connection, name, end, start=None):
         return list(connection.execute(text(f"SELECT DISTINCT sales_date FROM {name} "
             "WHERE sales_date BETWEEN :start AND :end ORDER BY sales_date"),
             {"start": first, "end": end}).scalars())
+    # A single indexed hit per day proves coverage without reading the rest
+    # of that day's sales. The limit keeps this lookup correlated by date.
     return list(connection.execute(text(f"""SELECT CAST(day AS date) FROM
         generate_series(CAST(:start AS date), CAST(:end AS date), INTERVAL '1 day') day
-        WHERE EXISTS (SELECT 1 FROM {name} f WHERE f.sales_date = CAST(day AS date)) ORDER BY day"""),
+        CROSS JOIN LATERAL (SELECT 1 FROM {name} f WHERE f.sales_date = CAST(day AS date) LIMIT 1) hit
+        ORDER BY day"""),
         {"start": first, "end": end}).scalars())
 
 

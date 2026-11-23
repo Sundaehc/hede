@@ -64,6 +64,26 @@ def test_future_season_does_not_clear_even_inside_exit_lead_time():
     assert next(bucket for bucket in result["inventory"]["buckets"] if bucket["key"] == "next_season")["units"] == 1000
 
 
+def test_archive_style_years_share_the_same_exit_rule_and_option():
+    recent = facts(regular_7=0, regular_30=0)
+    source = recent["items"][0]
+    years = ["26年冬季款", "2026冬季款", "2026年", "2026"]
+    recent["items"] = [
+        {**source, "id": i, "sku": f"SHOE-{i}", "year": year, "season": "冬季"}
+        for i, year in enumerate(years, 1)
+    ] + [
+        {**source, "id": 5, "sku": "SHOE-5", "year": "2026", "season": "0"},
+        {**source, "id": 6, "sku": "SHOE-6", "year": "X2026", "season": "冬季"},
+    ]
+    without_rules = build(recent)
+    assert without_rules["scopes"] == [{"year": "2026", "season": "冬季"}]
+    rule = next(iter(policies(target_rate=100).values()))
+    result = build(recent, rules={("2026", "冬季"): rule})
+    cleared = [row for row in result["recommendations"] if row["kind"] == "clearance"]
+    assert {row["id"]: row["year"] for row in cleared} == dict(enumerate(years, 1))
+    assert all(row["exit_date"] == rule["exit_date"].isoformat() for row in cleared)
+
+
 def test_clearance_sales_do_not_cause_replenishment_and_missing_sales_is_unknown():
     recent = facts(regular_7=0, regular_30=0, clearance_30=1000)
     assert "replenish" not in {row["kind"] for row in build(recent)["recommendations"]}
@@ -173,14 +193,27 @@ def test_overview_cache_reuses_recommendations_but_reads_new_rules(monkeypatch):
 
 def test_overview_pages_keep_priority_when_crossing_live_task_and_review_groups(monkeypatch):
     import json
+    from pathlib import Path
     from types import SimpleNamespace
+
+    from domain.sources import IMAGE_BRAND_KEYS
 
     kinds = ["clearance"] * 20 + ["zero"] * 12 + ["review"] * 6
     rows = [{"id": i, "sku": f"item{i}", "kind": kind, "reason": "reason"}
             for i, kind in enumerate(kinds)]
     active = {(i, kinds[i]): {"id": i + 100} for i in (1, 3, 25)}
     active[(2, "replenish")] = {"id": 102}
-    state = SimpleNamespace(stock_alert_tasks=SimpleNamespace(overview_active=lambda _: active))
+    lookups = []
+
+    def image_paths(brand, ids):
+        lookups.append((brand, ids))
+        return {0: "/photos/stock/photo #1.jpg"} if 0 in ids else {}
+
+    state = SimpleNamespace(
+        stock_alert_tasks=SimpleNamespace(overview_active=lambda _: active),
+        repository=SimpleNamespace(product_image_paths_by_id=image_paths),
+        settings=SimpleNamespace(image_roots={IMAGE_BRAND_KEYS[BRAND]: Path("/photos/stock")}),
+    )
     request = SimpleNamespace(app=SimpleNamespace(state=state))
     payload = {"recommendations": rows, "inventory": {}}
     monkeypatch.setattr(routes, "_actor", lambda _: None)
@@ -192,5 +225,8 @@ def test_overview_pages_keep_priority_when_crossing_live_task_and_review_groups(
     assert first["assignable"] == 28 and first["in_progress"] == 4
     assert [row["id"] for row in first["items"] + second["items"]] == sorted(
         range(len(rows)), key=lambda i: 2 if kinds[i] == "review" else int(i in {1, 2, 3, 25}))
-    assert rows[2]["reason"] == "reason"  # Response decoration must not mutate the cached calculation.
+    assert lookups == [(BRAND, {row["id"] for row in page["items"]}) for page in (first, second)]
+    assert first["items"][0]["image_url"] == f"/images/serve/{BRAND}/photo%20%231.jpg"
+    assert first["items"][1]["image_url"] is None
+    assert "image_url" not in rows[0]  # Presentation fields must not mutate cached calculations.
     assert next(row for row in second["items"] if row["id"] == 2)["task"] == {"id": 102}

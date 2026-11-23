@@ -27,6 +27,7 @@ export type SeasonalSummary = {
   unknown_order_count: number
 }
 export type SeasonalItem = {
+  image_url?: string | null
   id: number
   sku: string
   original_sku: string | null

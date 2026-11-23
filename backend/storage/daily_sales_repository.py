@@ -8,10 +8,15 @@ from typing import Any
 
 import orjson
 from openpyxl import load_workbook
-from sqlalchemy import create_engine
+from sqlalchemy import Integer, Text, case, create_engine
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
-from domain.daily_sales_schema import ensure_jst_daily_sales_table, ensure_vip_daily_sales_table
+from domain.daily_sales_schema import (
+    VIP_DAILY_BASE_FIELDS,
+    ensure_jst_daily_sales_table,
+    ensure_vip_daily_sales_table,
+)
+from domain.vip_daily_detail import VIP_DAILY_DETAIL_FIELDS
 from storage.date_normalization import parse_date
 from storage.vip_repository import _xlsx_sheet_rows
 
@@ -55,6 +60,34 @@ def _decimal(value: object) -> Decimal | None:
         return Decimal(str(value).replace(",", ""))
     except InvalidOperation:
         return None
+
+
+def _vip_detail_value(name: str, value: object, kind, *, strict: bool = False) -> int | Decimal | None:
+    value = _text(value)
+    if value is None or value in {"-", "--", "—", "N/A"}:
+        return None
+    try:
+        is_percent = name.endswith("_rate") and value.endswith("%")
+        parsed = Decimal((value[:-1] if is_percent else value).replace(",", ""))
+        if not parsed.is_finite():
+            raise ValueError("non-finite number")
+        if isinstance(kind, Integer):
+            if parsed != parsed.to_integral_value():
+                raise ValueError("expected integer")
+            return int(parsed)
+        return parsed / 100 if is_percent else parsed
+    except (InvalidOperation, ValueError) as error:
+        if strict:
+            raise ValueError(f"{name}: invalid value {value!r}") from error
+        return None
+
+
+def _vip_base_value(name: str, value: object, kind, *, strict: bool = False):
+    if isinstance(kind, Text):
+        return _text(value)
+    if strict:
+        return _vip_detail_value(name, value, kind, strict=True)
+    return _integer(value) if isinstance(kind, Integer) else _decimal(value)
 
 
 def _payload_value(value: object) -> object:
@@ -316,23 +349,12 @@ class DailySalesRepository:
     @staticmethod
     def _map_vip(row: dict[str, object]) -> dict[str, object]:
         return {
-            "barcode": _text(_value(row, "条码")),
             "size_id": _key_text(_value(row, "SIZE_ID")),
             "goods_id": _key_text(_value(row, "商品ID")),
-            "product_name": _text(_value(row, "商品名称")),
-            "goods_code": _text(_value(row, "货号")),
-            "style_code": _text(_value(row, "款号")),
-            "spu_id": _text(_value(row, "P_SPU_ID")),
-            "size_name": _text(_value(row, "尺码名称")),
-            "product_image": _text(_value(row, "商品图片")),
-            "product_type": _text(_value(row, "货品类型")),
-            "brand_sn": _text(_value(row, "品牌SN")),
-            "brand_name": _text(_value(row, "品牌名称")),
-            "sales_amount": _decimal(_value(row, "销售额")),
-            "sales_quantity": _integer(_value(row, "销售量")),
-            "customer_count": _integer(_value(row, "客户数")),
-            "on_sale_stock": _integer(_value(row, "在售库存")),
-            "product_link": _text(_value(row, "商品链接")),
+            **{name: _vip_base_value(name, row.get(header), kind)
+               for name, header, kind in VIP_DAILY_BASE_FIELDS},
+            **{name: _vip_detail_value(name, row.get(header), kind)
+               for name, header, kind in VIP_DAILY_DETAIL_FIELDS},
         }
 
     def _upsert(self, table, rows: list[dict[str, object]], key_columns: list[str]) -> None:
@@ -341,8 +363,13 @@ class DailySalesRepository:
             for start in range(0, len(rows), 1000):
                 chunk = rows[start:start + 1000]
                 statement = pg_insert(table).values(chunk)
-                statement = statement.on_conflict_do_update(
-                    index_elements=key_columns,
-                    set_={column: statement.excluded[column] for column in update_columns},
-                )
+                updates = {column: statement.excluded[column] for column in update_columns}
+                if key_columns == self._vip_key_columns:
+                    for name, header, _ in VIP_DAILY_DETAIL_FIELDS:
+                        # The legacy workbook has no detail columns. Preserve previous detail on reimport.
+                        updates[name] = case(
+                            (statement.excluded.raw_payload[header].is_not(None), statement.excluded[name]),
+                            else_=table.c[name],
+                        )
+                statement = statement.on_conflict_do_update(index_elements=key_columns, set_=updates)
                 connection.execute(statement)

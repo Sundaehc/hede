@@ -1039,6 +1039,22 @@ class ProductRepository:
         with self.engine.begin() as active_connection:
             mark_imported(active_connection)
 
+    def product_image_paths_by_id(self, brand: str, product_ids: set[int]) -> dict[int, str]:
+        if not product_ids:
+            return {}
+        try:
+            table = self._table_for_brand(brand)
+        except KeyError:
+            # Historical tasks can refer to a brand no longer in the archive.
+            return {}
+        statement = select(table.c.id, table.c.image_path).where(
+            table.c.id.in_(product_ids), table.c.deleted_at.is_(None),
+            table.c.image_path.is_not(None), table.c.image_path != "",
+            not_excluded_sku_condition(table.c.sku, table.c.original_sku),
+        )
+        with self.engine.connect() as connection:
+            return {product_id: path for product_id, path in connection.execute(statement)}
+
     def find_product_image_path(self, brand: str, sku: str) -> str | None:
         table = self._table_for_brand(brand)
         statement = (

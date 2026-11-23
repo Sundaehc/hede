@@ -10,6 +10,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field
 
 from api.operation_log_utils import write_operation_log
+from api.stock_product_images import add_stock_product_images
 from api.routes.auth import user_has_permission
 from api.routes.stock_alerts import _validate_brand
 from domain.stock_alerts import evaluate_alert, resolve_rule
@@ -163,8 +164,10 @@ def list_tasks(request: Request, scope: Literal["mine", "all"] = "mine",
     query: str = Query(default="", max_length=200), page: int = Query(default=1, ge=1),
     page_size: int = Query(default=25, ge=1, le=100)):
     user = _actor(request)
-    return _response(request.app.state.stock_alert_tasks.list(
-        user_id=user["id"], scope=scope, status=status, brand=brand, kind=kind, query=query, page=page, page_size=page_size))
+    result = request.app.state.stock_alert_tasks.list(
+        user_id=user["id"], scope=scope, status=status, brand=brand, kind=kind, query=query, page=page, page_size=page_size)
+    add_stock_product_images(request, result["items"], id_key="product_id")
+    return _response(result)
 
 
 @router.post("")
@@ -254,6 +257,7 @@ def task_detail(request: Request, task_id: int):
     item = request.app.state.stock_alert_tasks.get(task_id)
     if item is None:
         raise HTTPException(404, "预警待办不存在")
+    add_stock_product_images(request, [item], id_key="product_id")
     return _response({"item": item})
 
 
@@ -279,4 +283,5 @@ def update_task(request: Request, task_id: int, body: TaskUpdate):
     except TaskConflict as error:
         raise HTTPException(409, str(error)) from error
     _log(request, "stock_alert_task_update", saved)
+    add_stock_product_images(request, [saved], id_key="product_id")
     return _response({"item": saved})

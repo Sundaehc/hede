@@ -4,6 +4,7 @@ from sqlalchemy import BigInteger, Column, Date, DateTime, Identity, Index, Inte
 
 from domain.legacy_partitioning import LegacyPartitionTarget, attach_partition_if_parent_exists
 from domain.schema import METADATA
+from domain.vip_daily_detail import VIP_DAILY_DETAIL_FIELDS
 
 
 def _table_for_year(prefix: str, year: int, columns: list[Column], unique_columns: list[str]) -> Table:
@@ -81,26 +82,33 @@ def jst_daily_sales_table_for_year(year: int) -> Table:
     )
 
 
+VIP_DAILY_BASE_FIELDS = (
+    ("barcode", "条码", Text()),
+    ("product_name", "商品名称", Text()),
+    ("goods_code", "货号", Text()),
+    ("style_code", "款号", Text()),
+    ("spu_id", "P_SPU_ID", Text()),
+    ("size_name", "尺码名称", Text()),
+    ("product_image", "商品图片", Text()),
+    ("product_type", "货品类型", Text()),
+    ("brand_sn", "品牌SN", Text()),
+    ("brand_name", "品牌名称", Text()),
+    ("sales_amount", "销售额", Numeric(18, 2)),
+    ("sales_quantity", "销售量", Integer()),
+    ("customer_count", "客户数", Integer()),
+    ("on_sale_stock", "在售库存", Integer()),
+    ("product_link", "商品链接", Text()),
+)
+
+
 def vip_daily_sales_table_for_year(year: int) -> Table:
     columns = [
-        Column("barcode", Text, nullable=True),
+        Column("barcode", VIP_DAILY_BASE_FIELDS[0][2], nullable=True),
         Column("size_id", Text, nullable=False, server_default=""),
         Column("goods_id", Text, nullable=False, server_default=""),
-        Column("product_name", Text, nullable=True),
-        Column("goods_code", Text, nullable=True),
-        Column("style_code", Text, nullable=True),
-        Column("spu_id", Text, nullable=True),
-        Column("size_name", Text, nullable=True),
-        Column("product_image", Text, nullable=True),
-        Column("product_type", Text, nullable=True),
-        Column("brand_sn", Text, nullable=True),
-        Column("brand_name", Text, nullable=True),
-        Column("sales_amount", Numeric(18, 2), nullable=True),
-        Column("sales_quantity", Integer, nullable=True),
-        Column("customer_count", Integer, nullable=True),
-        Column("on_sale_stock", Integer, nullable=True),
-        Column("product_link", Text, nullable=True),
+        *(Column(name, kind, nullable=True) for name, _, kind in VIP_DAILY_BASE_FIELDS[1:]),
     ]
+    columns.extend(Column(name, kind, nullable=True) for name, _, kind in VIP_DAILY_DETAIL_FIELDS)
     return _table_for_year("vip_daily_sales", year, columns, ["goods_id", "size_id"])
 
 

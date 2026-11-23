@@ -20,6 +20,7 @@ export type StockAlertTaskSummary = {
   overdue: boolean
 }
 export type StockAlertTask = StockAlertTaskSummary & {
+  image_url?: string | null
   brand: string
   product_id: number
   kind: StockTaskKind
