@@ -13,58 +13,87 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import {
+  createOverviewTasks,
   createStockAlertTasks,
   getStockAlertAssignees,
   updateStockAlertTasks,
 } from "@/lib/api"
 import {
+  alertKindLabels,
   beijingDate,
   type StockAlertTask,
   type TaskAssignee,
   type TaskBatchResult,
   type TaskBatchUpdate,
 } from "@/lib/stock-alert-tasks"
+import type { OverviewItem } from "@/lib/stock-overview"
 import type { StockAlertItem, StockAlertKind } from "@/lib/stock-alerts"
 import { StockProductPhoto } from "./stock-product-photo"
 
-type Props = {
-  onClose: () => void
-  onApplied: (result: TaskBatchResult) => void
-} & (
+export type OverviewBatchItem = Omit<
+  OverviewItem,
+  "id" | "kind" | "signature"
+> & {
+  id: string
+  productId: number
+  kind: keyof typeof alertKindLabels
+  signature: string
+}
+
+type Props = { onClose: () => void } & (
   | {
-      mode: "create"
-      items: StockAlertItem[]
+      mode: "overview"
+      items: OverviewBatchItem[]
       brand: string
-      kind: StockAlertKind
+      onApplied: (result: TaskBatchResult<string>) => void
     }
-  | { mode: "assign" | "process"; items: StockAlertTask[] }
+  | ({ onApplied: (result: TaskBatchResult) => void } & (
+      | {
+          mode: "create"
+          items: StockAlertItem[]
+          brand: string
+          kind: StockAlertKind
+        }
+      | { mode: "assign" | "process"; items: StockAlertTask[] }
+    ))
 )
 const textAreaClass =
   "min-h-24 w-full resize-y rounded-lg border border-input bg-background px-3 py-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-60"
 
 export function BatchTaskDialog(props: Props) {
   const assigning = props.mode !== "process"
-  const title =
-    props.mode === "create"
-      ? "批量分配待办"
-      : assigning
-        ? "批量调整分配"
-        : "批量处理待办"
+  const creating = props.mode === "create" || props.mode === "overview"
+  const latestDue =
+    props.mode === "overview"
+      ? props.items.reduce<string | undefined>((limit, item) => {
+          if (item.kind !== "clearance" || !item.due_date) return limit
+          return !limit || item.due_date < limit ? item.due_date : limit
+        }, undefined)
+      : undefined
+  const title = creating
+    ? "批量分配待办"
+    : assigning
+      ? "批量调整分配"
+      : "批量处理待办"
   const [assignees, setAssignees] = useState<TaskAssignee[]>([])
   const [assigneeError, setAssigneeError] = useState<string | null>(null)
   const [assigneeId, setAssigneeId] = useState("")
-  const [dueDate, setDueDate] = useState(
-    props.mode === "create" ? beijingDate(3) : ""
-  )
+  const [dueDate, setDueDate] = useState(() => {
+    if (!creating) return ""
+    const suggested = beijingDate(3)
+    return latestDue && latestDue < suggested ? latestDue : suggested
+  })
   const [status, setStatus] = useState<"processing" | "completed">("processing")
   const [measures, setMeasures] = useState("")
   const [result, setResult] = useState("")
-  const [writeMeasures, setWriteMeasures] = useState(props.mode === "create")
+  const [writeMeasures, setWriteMeasures] = useState(creating)
   const [writeResult, setWriteResult] = useState(false)
   const [saving, setSaving] = useState(false)
   const savingRef = useRef(false)
   const [error, setError] = useState<string | null>(null)
-  const [report, setReport] = useState<TaskBatchResult | null>(null)
+  const [report, setReport] = useState<TaskBatchResult<string | number> | null>(
+    null
+  )
   useEffect(() => {
     if (!assigning) return
     const controller = new AbortController()
@@ -121,6 +150,22 @@ export function BatchTaskDialog(props: Props) {
             savingRef.current = true
             setSaving(true)
             try {
+              if (props.mode === "overview") {
+                const response = await createOverviewTasks({
+                  brand: props.brand,
+                  items: props.items.map(({ productId, kind, signature }) => ({
+                    product_id: productId,
+                    kind,
+                    signature,
+                  })),
+                  assignee_id: Number(assigneeId),
+                  due_date: dueDate,
+                  measures,
+                })
+                setReport(response)
+                props.onApplied(response)
+                return
+              }
               let response: TaskBatchResult
               if (props.mode === "create") {
                 response = await createStockAlertTasks({
@@ -173,8 +218,10 @@ export function BatchTaskDialog(props: Props) {
                 >
                   <StockProductPhoto item={item} />
                   <span className="min-w-0">
-                    #{item.id} · {item.sku}
-                    {"assignee_name" in item ? ` · ${item.assignee_name}` : ""}
+                    #{"productId" in item ? item.productId : item.id} ·{" "}
+                    {item.sku}
+                    {"productId" in item && ` · ${alertKindLabels[item.kind]}`}
+                    {"assignee_name" in item && ` · ${item.assignee_name}`}
                   </span>
                 </li>
               ))}
@@ -191,7 +238,7 @@ export function BatchTaskDialog(props: Props) {
                     </span>
                     <Select
                       aria-label="统一负责人"
-                      required={props.mode === "create"}
+                      required={creating}
                       value={assigneeId}
                       disabled={saving || !assignees.length}
                       onChange={(event) => setAssigneeId(event.target.value)}
@@ -217,11 +264,17 @@ export function BatchTaskDialog(props: Props) {
                       aria-label="统一处理期限"
                       type="date"
                       min={beijingDate()}
-                      required={props.mode === "create"}
+                      max={latestDue}
+                      required={creating}
                       value={dueDate}
                       disabled={saving}
                       onChange={(event) => setDueDate(event.target.value)}
                     />
+                    {latestDue && (
+                      <span className="block text-xs text-muted-foreground">
+                        清货项最晚 {latestDue} 处理
+                      </span>
+                    )}
                   </label>
                 </div>
               ) : (
@@ -331,7 +384,11 @@ export function BatchTaskDialog(props: Props) {
                   <ul className="space-y-2 text-xs text-destructive">
                     {report.failed.map((item) => (
                       <li key={item.id} className="break-words">
-                        {item.label}（#{item.id}）：{item.reason}
+                        {item.label}
+                        {typeof item.id === "number"
+                          ? `（#${item.id}）`
+                          : ` · ${alertKindLabels[item.id.split("/")[1] as keyof typeof alertKindLabels]}`}
+                        ：{item.reason}
                       </li>
                     ))}
                   </ul>
@@ -352,9 +409,7 @@ export function BatchTaskDialog(props: Props) {
               <Button
                 type="submit"
                 disabled={
-                  saving ||
-                  (props.mode === "create" &&
-                    (!assigneeId || !assignees.length))
+                  saving || (creating && (!assigneeId || !assignees.length))
                 }
               >
                 {saving

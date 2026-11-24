@@ -17,6 +17,7 @@ import {
   updateSizeGroup,
   getReplenishment,
   saveReplenishmentRule,
+  createOverviewTasks,
   createStockAlertTasks,
   updateStockAlertTasks,
 } from "@/lib/api"
@@ -62,6 +63,16 @@ test("batch alert assignment and processing send one request per batch and notif
     due_date: "2026-11-30",
     measures: "核查上架",
   }
+  const overviewAssignment = {
+    brand: assignment.brand,
+    items: [
+      { product_id: 11, kind: "zero" as const, signature: "a".repeat(64) },
+      { product_id: 11, kind: "clearance" as const, signature: "b".repeat(64) },
+    ],
+    assignee_id: assignment.assignee_id,
+    due_date: assignment.due_date,
+    measures: assignment.measures,
+  }
   const processing = {
     items: [
       { id: 1, version: 2 },
@@ -71,10 +82,12 @@ test("batch alert assignment and processing send one request per batch and notif
   }
   await createStockAlertTasks(assignment)
   await updateStockAlertTasks(processing)
-  expect(fetch).toHaveBeenCalledTimes(2)
+  await createOverviewTasks(overviewAssignment)
+  expect(fetch).toHaveBeenCalledTimes(3)
   expect(vi.mocked(fetch).mock.calls.map(([url]) => url)).toEqual([
     "/api/stock-alerts/tasks/batch-create",
     "/api/stock-alerts/tasks/batch-update",
+    "/api/stock-alerts/tasks/batch-from-overview",
   ])
   expect(JSON.parse(String(vi.mocked(fetch).mock.calls[0][1]?.body))).toEqual(
     assignment
@@ -82,7 +95,11 @@ test("batch alert assignment and processing send one request per batch and notif
   expect(JSON.parse(String(vi.mocked(fetch).mock.calls[1][1]?.body))).toEqual(
     processing
   )
+  expect(JSON.parse(String(vi.mocked(fetch).mock.calls[2][1]?.body))).toEqual(
+    overviewAssignment
+  )
   expect(messages).toEqual([
+    expect.objectContaining({ resources: ["stock-alert-tasks"] }),
     expect.objectContaining({ resources: ["stock-alert-tasks"] }),
     expect.objectContaining({ resources: ["stock-alert-tasks"] }),
   ])

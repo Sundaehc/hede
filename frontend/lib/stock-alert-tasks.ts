@@ -101,10 +101,10 @@ export type TaskUpdate = { version: number } & Partial<
   >
 >
 
-export type TaskBatchResult = {
+export type TaskBatchResult<Key extends string | number = number> = {
   total: number
-  succeeded: number[]
-  failed: Array<{ id: number; label: string; reason: string }>
+  succeeded: Key[]
+  failed: Array<{ id: Key; label: string; reason: string }>
 }
 export type TaskBatchCreate = Omit<TaskCreate, "product_id"> & {
   product_ids: number[]

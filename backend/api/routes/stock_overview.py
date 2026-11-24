@@ -10,7 +10,9 @@ from fastapi.encoders import jsonable_encoder
 from pydantic import BaseModel, ConfigDict, Field
 
 from api.routes.stock_alerts import _validate_brand
-from api.routes.stock_alert_tasks import _actor, _assignee, _log, _manager, _response
+from api.routes.stock_alert_tasks import (
+    _actor, _assignee, _batch_response, _log, _manager, _response, _unique_ids,
+)
 from api.operation_log_utils import write_operation_log
 from api.stock_product_images import add_stock_product_images
 from storage.stock_alert_rules import RuleConflict
@@ -131,15 +133,34 @@ def save_exit_policy(request: Request, body: ExitPolicyWrite):
     return _response({"message": "退出规则已保存"})
 
 
-class OverviewTaskCreate(BaseModel):
+class OverviewTaskSelection(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    brand: str = Field(min_length=1, max_length=100)
     product_id: int = Field(gt=0)
     kind: Literal["zero", "slow", "replenish", "clearance"]
     signature: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+
+class OverviewAssignment(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    brand: str = Field(min_length=1, max_length=100)
     assignee_id: int = Field(gt=0)
     due_date: date
     measures: str = Field(default="", max_length=2000)
+
+
+class OverviewTaskCreate(OverviewAssignment, OverviewTaskSelection):
+    pass
+
+
+class OverviewTaskBatchCreate(OverviewAssignment):
+    items: list[OverviewTaskSelection] = Field(min_length=1, max_length=500)
+
+
+def _validate_assignment(row, selection: OverviewTaskSelection, due_date: date):
+    if row is None or _signature(row) != selection.signature:
+        raise HTTPException(409, "建议依据已变化，请刷新库存经营总览后重试")
+    if selection.kind == "clearance" and due_date > date.fromisoformat(row["due_date"]):
+        raise HTTPException(400, "清货待办期限不能晚于当前建议的最晚处理日")
 
 
 @router.post("/tasks/from-overview")
@@ -153,10 +174,7 @@ def assign_overview_task(request: Request, body: OverviewTaskCreate):
         raise HTTPException(400, "处理期限不能早于今天（北京时间）")
     data, _ = _overview(request.app.state, body.brand, today)
     row = next((row for row in data["recommendations"] if row["id"] == body.product_id and row["kind"] == body.kind), None)
-    if row is None or _signature(row) != body.signature:
-        raise HTTPException(409, "建议依据已变化，请刷新库存经营总览后重试")
-    if body.kind == "clearance" and body.due_date > date.fromisoformat(row["due_date"]):
-        raise HTTPException(400, "清货待办期限不能晚于当前建议的最晚处理日")
+    _validate_assignment(row, body, body.due_date)
     try:
         task = request.app.state.stock_alert_tasks.create(snapshot=jsonable_encoder(row), kind=body.kind,
             assignee=assignee, due_date=body.due_date, measures=body.measures.strip(), actor=user)
@@ -164,3 +182,52 @@ def assign_overview_task(request: Request, body: OverviewTaskCreate):
         raise HTTPException(409, str(error)) from error
     _log(request, "stock_alert_task_create", task)
     return _response({"item": task})
+
+
+@router.post("/tasks/batch-from-overview")
+def assign_overview_tasks(request: Request, body: OverviewTaskBatchCreate):
+    user = _actor(request)
+    _manager(user)
+    keys = [(item.product_id, item.kind) for item in body.items]
+    _unique_ids(keys)
+    _validate_brand(request, body.brand)
+    assignee = _assignee(request, body.assignee_id)
+    today = business_today()
+    if body.due_date < today:
+        raise HTTPException(400, "处理期限不能早于今天（北京时间）")
+
+    state = request.app.state
+    data, _ = _overview(state, body.brand, today)
+    selected = set(keys)
+    rows = {
+        (row["id"], row["kind"]): row for row in data["recommendations"]
+        if (row["id"], row["kind"]) in selected
+    }
+    entries, failed = [], []
+    for item, key in zip(body.items, keys):
+        row = rows.get(key)
+        try:
+            _validate_assignment(row, item, body.due_date)
+        except HTTPException as error:
+            reason = (
+                "建议依据已变化，请刷新并重新勾选后再分配"
+                if error.status_code == 409 else error.detail
+            )
+            failed.append({
+                "id": f"{item.product_id}/{item.kind}",
+                "label": row["sku"] if row else f"商品 #{item.product_id}",
+                "reason": reason,
+            })
+        else:
+            entries.append((jsonable_encoder(row), item.kind))
+
+    saved, conflicts = state.stock_alert_tasks.create_many_by_kind(
+        entries, assignee=assignee, due_date=body.due_date, measures=body.measures.strip(), actor=user,
+    )
+    failed.extend({
+        "id": f"{item['id']}/{item['kind']}", "label": item["label"], "reason": item["reason"],
+    } for item in conflicts)
+    return _batch_response(
+        request, "stock_overview_task_batch_create", len(keys), saved, failed,
+        lambda item: f"{item['product_id']}/{item['kind']}",
+    )

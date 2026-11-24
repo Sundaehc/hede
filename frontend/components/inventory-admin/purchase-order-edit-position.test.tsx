@@ -338,7 +338,8 @@ test("still reloads purchase orders after creating a new order", async () => {
   expect(handler).toHaveValue("")
   expect(handler).not.toHaveAttribute("readonly")
   await user.type(handler, "新单经手人")
-  fireEvent.change(within(dialog).getByLabelText("交货日期"), { target: { value: "2026-11-20" } })
+  const orderDate = within(dialog).getByLabelText<HTMLInputElement>("订货日期").value
+  fireEvent.change(within(dialog).getByLabelText("交货日期"), { target: { value: orderDate } })
   const beforeCount = listMock.mock.calls.length
   await user.click(within(dialog).getByRole("button", { name: "保存" }))
   await waitFor(() => expect(createMock).toHaveBeenCalled())

@@ -9,22 +9,26 @@ import {
 import { afterEach, beforeEach, expect, test, vi } from "vitest"
 import { clearSessionQueryStates } from "@/lib/session-query-state"
 import { clearStockModuleQueries } from "@/lib/stock-module-query"
-import type { OverviewResponse } from "@/lib/stock-overview"
+import { beijingDate } from "@/lib/stock-alert-tasks"
+import type { OverviewItem, OverviewResponse } from "@/lib/stock-overview"
 import { StockOverviewPage } from "./stock-overview-page"
 
-const { overview, week, options, assign, assignees, auth } = vi.hoisted(() => ({
-  overview: vi.fn(),
-  week: vi.fn(),
-  options: vi.fn(),
-  assign: vi.fn(),
-  assignees: vi.fn(),
-  auth: { manager: true },
-}))
+const { overview, week, options, assign, batchAssign, assignees, auth } =
+  vi.hoisted(() => ({
+    overview: vi.fn(),
+    week: vi.fn(),
+    options: vi.fn(),
+    assign: vi.fn(),
+    batchAssign: vi.fn(),
+    assignees: vi.fn(),
+    auth: { manager: true },
+  }))
 vi.mock("@/lib/api", () => ({
   getStockOverview: overview,
   getStockOverviewWeek: week,
   getStockAlertOptions: options,
   createOverviewTask: assign,
+  createOverviewTasks: batchAssign,
   getStockAlertAssignees: assignees,
 }))
 vi.mock("@/components/auth/auth-provider", () => ({
@@ -166,9 +170,100 @@ test("view-only users can inspect the same evidence but cannot assign or edit ru
   fireEvent.click(await screen.findByRole("button", { name: "查看依据" }))
   expect(screen.getByRole("dialog")).toBeInTheDocument()
   expect(
+    screen.queryByRole("button", { name: "批量分配待办", hidden: true })
+  ).not.toBeInTheDocument()
+  expect(
     screen.queryByRole("button", { name: "分配待办" })
   ).not.toBeInTheDocument()
   expect(
     screen.queryByRole("button", { name: "退出规则" })
   ).not.toBeInTheDocument()
+})
+
+test("assigns multiple recommendation types across pages and keeps only failures selected", async () => {
+  const deadline = beijingDate(1)
+  const clearance: OverviewItem = { ...response.items[0]!, due_date: deadline }
+  const zero: OverviewItem = {
+    ...clearance,
+    kind: "zero",
+    due_date: null,
+    signature: "b".repeat(64),
+  }
+  const review: OverviewItem = {
+    ...clearance,
+    id: 43,
+    sku: "STOCK-43",
+    kind: "review",
+    signature: null,
+  }
+  overview.mockImplementation(async ({ page }) => ({
+    ...response,
+    page,
+    page_size: 2,
+    total: 3,
+    items: page === 1 ? [clearance, review] : [zero],
+    counts: { ...response.counts, zero: 1, review: 1 },
+  }))
+  const reason = "建议依据已变化，请刷新并重新勾选后再分配"
+  batchAssign.mockResolvedValue({
+    total: 2,
+    succeeded: ["42/clearance"],
+    failed: [{ id: "42/zero", label: "STOCK-42", reason }],
+  })
+
+  render(<StockOverviewPage />)
+  const selectPage = await screen.findByRole("checkbox", {
+    name: "选择本页可分配建议",
+  })
+  expect(
+    screen.queryByRole("checkbox", { name: /STOCK-43/ })
+  ).not.toBeInTheDocument()
+  fireEvent.click(selectPage)
+  expect(
+    screen.getByRole("checkbox", { name: /STOCK-42.*清货跟进/ })
+  ).toBeChecked()
+  expect(screen.getByText("已选 1 项")).toBeInTheDocument()
+
+  fireEvent.click(screen.getByRole("button", { name: "下一页" }))
+  const zeroChoice = await screen.findByRole("checkbox", {
+    name: /STOCK-42.*新品零动销/,
+  })
+  expect(zeroChoice).not.toBeChecked()
+  fireEvent.click(zeroChoice)
+  expect(screen.getByText("已选 2 项")).toBeInTheDocument()
+
+  fireEvent.click(screen.getByRole("button", { name: "批量分配待办" }))
+  const dialog = within(
+    await screen.findByRole("dialog", { name: "批量分配待办" })
+  )
+  expect(dialog.getByLabelText("统一处理期限")).toHaveAttribute("max", deadline)
+  expect(dialog.getByLabelText("统一处理期限")).toHaveValue(deadline)
+  await dialog.findByRole("option", { name: /王伟/ })
+  fireEvent.change(dialog.getByLabelText("统一负责人"), {
+    target: { value: "7" },
+  })
+  fireEvent.click(dialog.getByRole("button", { name: "确认操作 2 项" }))
+  expect(await dialog.findByRole("status")).toHaveTextContent(
+    "操作完成：成功 1 项，失败 1 项"
+  )
+  expect(
+    dialog.getByText(`STOCK-42 · 新品零动销：${reason}`)
+  ).toBeInTheDocument()
+  expect(batchAssign).toHaveBeenCalledExactlyOnceWith({
+    brand: clearance.brand,
+    assignee_id: 7,
+    due_date: deadline,
+    measures: "",
+    items: [
+      { product_id: 42, kind: "clearance", signature: clearance.signature },
+      { product_id: 42, kind: "zero", signature: zero.signature },
+    ],
+  })
+  fireEvent.click(dialog.getByRole("button", { name: "关闭" }))
+  expect(screen.getByText("已选 1 项")).toBeInTheDocument()
+  expect(
+    screen.getByRole("checkbox", { name: /STOCK-42.*新品零动销/ })
+  ).toBeChecked()
+  fireEvent.click(screen.getByRole("button", { name: /清货跟进/ }))
+  expect(await screen.findByText("已选 0 项")).toBeInTheDocument()
 })

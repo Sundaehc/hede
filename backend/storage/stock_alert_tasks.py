@@ -97,6 +97,16 @@ class StockAlertTaskRepository:
             action=action, changes=_changes(values), created_at=now))
 
     def _create_on(self, connection, *, snapshot, kind, assignee, due_date, measures, actor):
+        if kind in {"replenish", "clearance"}:
+            if connection.dialect.name == "postgresql":
+                # Serialize opposite decisions for this brand and style.
+                connection.execute(text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))"),
+                                   {"key": f"stock-overview:{snapshot['brand']}:{snapshot['id']}"})
+            other = "replenish" if kind == "clearance" else "clearance"
+            existing = connection.execute(select(TASKS.c.id).where(TASKS.c.active_key ==
+                f"{snapshot['brand']}:{snapshot['id']}:{other}")).scalar_one_or_none()
+            if existing is not None:
+                raise TaskConflict(f"该商品已有相反的未完成待办（#{existing}），请先核对现有待办")
         now = datetime.now(timezone.utc)
         key = f"{snapshot['brand']}:{snapshot['id']}:{kind}"
         values = dict(
@@ -117,16 +127,6 @@ class StockAlertTaskRepository:
         key = f"{snapshot['brand']}:{snapshot['id']}:{kind}"
         try:
             with self.engine.begin() as connection:
-                if kind in {"replenish", "clearance"}:
-                    if connection.dialect.name == "postgresql":
-                        # Serialize opposite decisions for this brand and style without blocking other writes.
-                        connection.execute(text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))"),
-                                           {"key": f"stock-overview:{snapshot['brand']}:{snapshot['id']}"})
-                    other = "replenish" if kind == "clearance" else "clearance"
-                    existing = connection.execute(select(TASKS.c.id).where(TASKS.c.active_key ==
-                        f"{snapshot['brand']}:{snapshot['id']}:{other}")).scalar_one_or_none()
-                    if existing is not None:
-                        raise TaskConflict(f"该商品已有相反的未完成待办（#{existing}），请先核对现有待办")
                 item = self._create_on(connection, **kwargs)
         except IntegrityError:
             with self.engine.connect() as connection:
@@ -136,26 +136,38 @@ class StockAlertTaskRepository:
             raise
         return item
 
-    def create_many(self, snapshots, **kwargs):
-        saved, failed = [], []
+    def create_many(self, snapshots, *, kind, **kwargs):
+        saved, failed = self.create_many_by_kind(((snapshot, kind) for snapshot in snapshots), **kwargs)
+        return saved, [{key: value for key, value in item.items() if key != "kind"} for item in failed]
+
+    def create_many_by_kind(self, entries, **kwargs):
+        # Consistent lock order avoids deadlocks when operators pick the same rows in different orders.
+        ordered = sorted(enumerate(entries), key=lambda entry: (
+            entry[1][0]["brand"], entry[1][0]["id"], entry[1][1]))
+        if not ordered:
+            return [], []
+        saved, failed = {}, {}
         with self.engine.begin() as connection:
             # SQLite's legacy driver otherwise releases the first SAVEPOINT as a commit.
             if connection.dialect.name == "sqlite":
                 connection.exec_driver_sql("BEGIN")
-            for snapshot in snapshots:
+            for index, (snapshot, kind) in ordered:
                 try:
                     with connection.begin_nested():
-                        item = self._create_on(connection, snapshot=snapshot, **kwargs)
-                except IntegrityError:
-                    key = f"{snapshot['brand']}:{snapshot['id']}:{kwargs['kind']}"
-                    existing = connection.execute(select(TASKS.c.id).where(TASKS.c.active_key == key)).scalar_one_or_none()
-                    if existing is None:
-                        raise
-                    failed.append({"id": snapshot["id"], "label": snapshot["sku"],
-                                   "reason": f"已有未完成待办（#{existing}），请查看现有待办"})
+                        item = self._create_on(connection, snapshot=snapshot, kind=kind, **kwargs)
+                except (IntegrityError, TaskConflict) as error:
+                    if isinstance(error, TaskConflict):
+                        reason = str(error)
+                    else:
+                        key = f"{snapshot['brand']}:{snapshot['id']}:{kind}"
+                        existing = connection.execute(select(TASKS.c.id).where(TASKS.c.active_key == key)).scalar_one_or_none()
+                        if existing is None:
+                            raise
+                        reason = f"已有未完成待办（#{existing}），请查看现有待办"
+                    failed[index] = {"id": snapshot["id"], "label": snapshot["sku"], "kind": kind, "reason": reason}
                 else:
-                    saved.append(item)
-        return saved, failed
+                    saved[index] = item
+        return [saved[i] for i in sorted(saved)], [failed[i] for i in sorted(failed)]
 
     def get(self, task_id):
         with self.engine.connect() as connection:

@@ -166,6 +166,70 @@ def test_assignment_route_rejects_stale_snapshot_and_revalidates_permissions(mon
         assert client.post(url, json=body, headers={"test-manager": "1"}).status_code == 400
 
 
+def test_batch_assigns_by_kind_and_keeps_successes_when_other_rows_fail(monkeypatch):
+    from types import SimpleNamespace
+    from sqlalchemy.pool import StaticPool
+
+    app = FastAPI()
+    app.include_router(routes.router)
+    app.state.repository = SimpleNamespace(product_archive_brands=lambda: [BRAND])
+    app.state.auth_repository = SimpleNamespace(get_user=lambda user_id: {
+        "status": "active", "id": user_id, "username": "operator", "permissions": ["product.view"]})
+    repo = app.state.stock_alert_tasks = StockAlertTaskRepository(create_engine(
+        "sqlite://", poolclass=StaticPool, connect_args={"check_same_thread": False}))
+    repo.create_tables()
+    actor = {"id": 1, "username": "manager"}
+    repo.create(snapshot={"brand": BRAND, "id": 4, "sku": "SHOE-4"}, kind="clearance",
+        assignee=actor, due_date=TODAY, measures="", actor=actor)
+    repo.create(snapshot={"brand": BRAND, "id": 6, "sku": "SHOE-6"}, kind="slow",
+        assignee=actor, due_date=TODAY, measures="", actor=actor)
+    due = (TODAY + timedelta(days=3)).isoformat()
+    selections = [(1, "slow"), (1, "clearance"), (2, "zero"), (3, "clearance"), (4, "replenish"), (6, "slow"), (7, "zero")]
+    rows = [{"brand": BRAND, "id": number, "sku": f"SHOE-{number}", "kind": kind,
+             "due_date": TODAY.isoformat() if number == 3 else due, "quantity": 10}
+            for number, kind in selections if number != 7]
+    signed = {(row["id"], row["kind"]): routes._signature(row) for row in rows}
+    items = [{"product_id": number, "kind": kind,
+              "signature": signed[(number, kind)] if number not in (2, 7) else "0" * 64}
+             for number, kind in selections]
+    calls = []
+    monkeypatch.setattr(routes, "_overview", lambda *_: (calls.append(1) or {"recommendations": rows}, {}))
+    monkeypatch.setattr(routes, "business_today", lambda: TODAY)
+    monkeypatch.setattr("api.routes.stock_alert_tasks.write_operation_log", lambda *_, **__: None)
+
+    @app.middleware("http")
+    async def identity(request: Request, call_next):
+        request.state.current_user = {**actor, "permissions": ["product.view", *(
+            ["product.manage"] if request.headers.get("test-manager") else [])]}
+        return await call_next(request)
+
+    url = "/stock-alerts/tasks/batch-from-overview"
+    body = {"brand": BRAND, "assignee_id": 8, "due_date": due, "measures": " review ", "items": items}
+    headers = {"test-manager": "1"}
+    with TestClient(app) as client:
+        assert client.post(url, json=body).status_code == 403
+        assert client.post(url, json={**body, "items": [items[0], items[0]]}, headers=headers).status_code == 400
+        result = client.post(url, json=body, headers=headers)
+        assert result.status_code == 200
+        payload = result.json()
+        assert payload["total"] == 7
+        assert payload["succeeded"] == ["1/slow", "1/clearance"]
+        failures = {row["id"]: row["reason"] for row in payload["failed"]}
+        assert set(failures) == {"2/zero", "3/clearance", "4/replenish", "6/slow", "7/zero"}
+        assert failures["2/zero"] == failures["7/zero"] and "重新勾选" in failures["2/zero"]
+        assert "最晚处理日" in failures["3/clearance"]
+        assert "相反" in failures["4/replenish"]
+        assert "已有未完成" in failures["6/slow"]
+        assert len(calls) == 1
+    active = repo.overview_active(BRAND)
+    assert set(active) == {(1, "slow"), (1, "clearance"), (4, "clearance"), (6, "slow")}
+    for key in ((1, "slow"), (1, "clearance")):
+        task = repo.get(active[key]["id"])
+        assert task["assignee_id"] == 8 and task["measures"] == "review"
+        assert routes._signature(task["snapshot"]) == signed[key]
+        assert repo.events(task["id"])["items"][0]["action"] == "created"
+
+
 def test_overview_cache_reuses_recommendations_but_reads_new_rules(monkeypatch):
     class Repository:
         engine = object()

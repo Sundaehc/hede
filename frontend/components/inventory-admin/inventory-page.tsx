@@ -2207,12 +2207,12 @@ export function InventoryPage({ mode = "inventory", refreshRevision = 0, detailO
 
   return (
     <div className="app-page">
-      <div className={isPurchasePage ? "app-content" : "flex w-full min-w-0 flex-col gap-5"}>
+      <div className="flex w-full min-w-0 flex-col gap-5">
         <div className="page-header">
           <div>
             <h1 className="page-title">{isPurchasePage ? "采购单管理" : "进销存管理"}</h1>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex min-w-0 flex-wrap items-center gap-2">
             <Button variant="outline" size="sm" onClick={openImportDialog} disabled={isImporting && !importTaskId} className="cursor-pointer">
               <Upload className="h-4 w-4" />
               <span className="ml-2 hidden sm:inline">{importTaskId ? "查看导入进度" : isImporting ? "导入中..." : isPurchaseOrderTab ? "导入采购单" : "导入Excel"}</span>

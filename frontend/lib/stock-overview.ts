@@ -114,3 +114,10 @@ export type OverviewTaskCreate = Omit<TaskCreate, "kind"> & {
   kind: StockTaskKind
   signature: string
 }
+
+export type OverviewBatchTaskCreate = Omit<
+  OverviewTaskCreate,
+  "product_id" | "kind" | "signature"
+> & {
+  items: Array<Pick<OverviewTaskCreate, "product_id" | "kind" | "signature">>
+}

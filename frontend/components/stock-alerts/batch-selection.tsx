@@ -5,8 +5,8 @@ import { Button } from "@/components/ui/button"
 
 export const BATCH_LIMIT = 500
 
-export function useBatchSelection<T extends { id: number }>() {
-  const [selected, setSelected] = useState<Map<number, T>>(() => new Map())
+export function useBatchSelection<T extends { id: string | number }>() {
+  const [selected, setSelected] = useState<Map<T["id"], T>>(() => new Map())
   const [error, setError] = useState<string | null>(null)
   const clear = () => {
     setSelected(new Map())
@@ -28,7 +28,7 @@ export function useBatchSelection<T extends { id: number }>() {
       return next
     })
   }
-  const remove = (ids: number[]) =>
+  const remove = (ids: T["id"][]) =>
     setSelected((current) => {
       const next = new Map(current)
       ids.forEach((id) => next.delete(id))

@@ -1,4 +1,4 @@
-import type { ExitPolicy, OverviewFilters, OverviewResponse, OverviewTaskCreate, OverviewWeek } from "@/lib/stock-overview"
+import type { ExitPolicy, OverviewBatchTaskCreate, OverviewFilters, OverviewResponse, OverviewTaskCreate, OverviewWeek } from "@/lib/stock-overview"
 import {
   getProductArchiveBrandLabel,
   type BrandKey,
@@ -119,6 +119,10 @@ export function getStockOverviewWeek(brand: string, signal?: AbortSignal) {
 
 export function saveStockOverviewPolicy(payload: ExitPolicy & { brand: string }) {
   return request<{ message: string }>("/stock-alerts/overview/rules", { method: "PUT", body: JSON.stringify(payload) })
+}
+
+export function createOverviewTasks(payload: OverviewBatchTaskCreate) {
+  return request<TaskBatchResult<string>>("/stock-alerts/tasks/batch-from-overview", { method: "POST", body: JSON.stringify(payload) })
 }
 
 export function createOverviewTask(payload: OverviewTaskCreate) {

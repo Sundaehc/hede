@@ -142,7 +142,8 @@ def _batch_response(request, action, total, saved, failed, key):
             after_data={"task_ids": [item["id"] for item in saved], "failed": failed})
     except Exception:
         logger.exception("Batch tasks saved with history, but operation log could not be written")
-    return _response({"total": total, "succeeded": [item[key] for item in saved], "failed": failed})
+    succeeded = [key(item) if callable(key) else item[key] for item in saved]
+    return _response({"total": total, "succeeded": succeeded, "failed": failed})
 
 
 @router.get("/assignees")

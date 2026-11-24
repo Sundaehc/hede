@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useRef, useState } from "react"
+import dynamic from "next/dynamic"
 import Link from "next/link"
 import {
   Archive,
@@ -53,6 +54,12 @@ import type {
   OverviewWeek,
 } from "@/lib/stock-overview"
 import { cn } from "@/lib/utils"
+import {
+  BatchSelectionBar,
+  SelectionCheckbox,
+  useBatchSelection,
+} from "./batch-selection"
+import type { OverviewBatchItem } from "./batch-task-dialog"
 import { StockOverviewPolicyDialog } from "./stock-overview-policy-dialog"
 import {
   CreateStockAlertTaskDialog,
@@ -60,6 +67,11 @@ import {
   TaskStatusBadge,
 } from "./task-dialog"
 import { StockProductPhoto } from "./stock-product-photo"
+
+const BatchTaskDialog = dynamic(() =>
+  import("./batch-task-dialog").then((module) => module.BatchTaskDialog)
+)
+const recommendationKey = ({ id, kind }: OverviewItem) => `${id}/${kind}`
 
 const defaults: OverviewFilters = {
   brand: "cbanner_womens",
@@ -786,10 +798,21 @@ function DecisionDetail({
 export function StockOverviewPage() {
   const { hasPermission } = useAuth()
   const manager = hasPermission("product.manage")
-  const [filters, setFilters] = useSessionQueryState<OverviewFilters>(
+  const [filters, setStoredFilters] = useSessionQueryState<OverviewFilters>(
     "stock-overview:filters",
     defaults
   )
+  const selection = useBatchSelection<OverviewBatchItem>()
+  const [batchItems, setBatchItems] = useState<OverviewBatchItem[] | null>(null)
+  const setFilters = (next: OverviewFilters) => {
+    if (
+      next.brand !== filters.brand ||
+      next.kind !== filters.kind ||
+      next.query !== filters.query
+    )
+      selection.clear()
+    setStoredFilters(next)
+  }
   const [query, setQuery] = useState(filters.query)
   const [revision, setRevision] = useState(0)
   const [weekRevision, setWeekRevision] = useState(0)
@@ -845,6 +868,26 @@ export function StockOverviewPage() {
   const totalSuggestions = summary
     ? kinds.reduce((total, kind) => total + summary.counts[kind], 0)
     : null
+  const selectable =
+    manager && data
+      ? data.items.flatMap((item): OverviewBatchItem[] =>
+          item.kind !== "review" && item.signature && !item.task
+            ? [
+                {
+                  ...item,
+                  kind: item.kind,
+                  signature: item.signature,
+                  productId: item.id,
+                  id: recommendationKey(item),
+                },
+              ]
+            : []
+        )
+      : []
+  const availableByKey = new Map(selectable.map((item) => [item.id, item]))
+  const checkedOnPage = selectable.filter((item) =>
+    selection.selected.has(item.id)
+  ).length
   const selectKind = (kind: OverviewFilters["kind"]) => {
     setFilters({ ...filters, kind, page: 1 })
   }
@@ -1098,108 +1141,183 @@ export function StockOverviewPage() {
               </p>
             )}
           </div>
+          {manager &&
+            (selectable.length > 0 || selection.selected.size > 0) && (
+              <BatchSelectionBar
+                count={selection.selected.size}
+                error={selection.error}
+                onClear={selection.clear}
+              >
+                <Button
+                  size="sm"
+                  disabled={loading || refreshing || !selection.selected.size}
+                  onClick={() =>
+                    setBatchItems([...selection.selected.values()])
+                  }
+                >
+                  批量分配待办
+                </Button>
+              </BatchSelectionBar>
+            )}
+          {manager && selectable.length > 0 && (
+            <label className="flex min-h-9 w-fit cursor-pointer items-center gap-2.5 px-4 text-xs text-muted-foreground sm:px-5">
+              <SelectionCheckbox
+                label="选择本页可分配建议"
+                checked={checkedOnPage === selectable.length}
+                mixed={checkedOnPage > 0 && checkedOnPage < selectable.length}
+                disabled={loading || refreshing}
+                onChange={(checked) =>
+                  selection.select(
+                    checked
+                      ? selectable.filter(
+                          ({ id }) => !selection.selected.has(id)
+                        )
+                      : selectable,
+                    checked
+                  )
+                }
+              />
+              选择本页可分配建议
+            </label>
+          )}
           {data?.items.length ? (
             <ul className="divide-y divide-border/80">
-              {data.items.map((item) => (
-                <li
-                  key={`${item.id}/${item.kind}`}
-                  className="grid gap-x-4 gap-y-2.5 px-4 py-3.5 transition-colors hover:bg-muted/25 sm:px-5 @min-[34rem]/queue:grid-cols-[minmax(0,1fr)_auto] @min-[34rem]/queue:items-center"
-                >
-                  <div className="flex min-w-0 items-start gap-3">
-                    <StockProductPhoto item={item} />
-                    <div className="min-w-0 flex-1">
-                      <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                        <span
-                          className={cn(
-                            "rounded border px-1.5 py-0.5 text-xs font-medium",
-                            decisionTone[item.kind]
+              {data.items.map((item) => {
+                const key = recommendationKey(item)
+                const choice = availableByKey.get(key)
+                const selected = selection.selected.get(key)
+                return (
+                  <li
+                    key={key}
+                    className={cn(
+                      "grid gap-x-4 gap-y-2.5 px-4 py-3.5 transition-colors hover:bg-muted/25 sm:px-5 @min-[34rem]/queue:grid-cols-[minmax(0,1fr)_auto] @min-[34rem]/queue:items-center",
+                      selected && "bg-primary/5"
+                    )}
+                  >
+                    <div className="flex min-w-0 items-start gap-3">
+                      {manager &&
+                        (selectable.length > 0 ||
+                          selection.selected.size > 0) && (
+                          <div className="grid h-12 w-4 shrink-0 place-items-center">
+                            {(choice || selected) && (
+                              <SelectionCheckbox
+                                label={`选择 ${item.sku} · ${labels[item.kind]}`}
+                                checked={!!selected}
+                                disabled={refreshing}
+                                onChange={(checked) => {
+                                  if (choice)
+                                    selection.select([choice], checked)
+                                  else if (!checked) selection.remove([key])
+                                }}
+                              />
+                            )}
+                          </div>
+                        )}
+                      <StockProductPhoto item={item} />
+                      <div className="min-w-0 flex-1">
+                        <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                          <span
+                            className={cn(
+                              "rounded border px-1.5 py-0.5 text-xs font-medium",
+                              decisionTone[item.kind]
+                            )}
+                          >
+                            {labels[item.kind]}
+                          </span>
+                          <button
+                            type="button"
+                            className="min-w-0 cursor-pointer rounded-sm font-mono text-sm font-semibold wrap-anywhere text-foreground underline-offset-4 hover:underline focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+                            onClick={() => setDetail(item)}
+                          >
+                            {item.sku}
+                          </button>
+                          {(item.product_name || item.color) && (
+                            <span className="min-w-0 text-xs wrap-anywhere text-muted-foreground">
+                              {[item.product_name, item.color]
+                                .filter(Boolean)
+                                .join(" · ")}
+                            </span>
                           )}
+                        </div>
+                        <p className="mt-1.5 text-sm leading-5 wrap-anywhere">
+                          {item.reason}
+                        </p>
+                        <p className="mt-1.5 flex flex-wrap items-baseline gap-x-3 gap-y-1 text-xs leading-5 text-muted-foreground tabular-nums">
+                          <span>
+                            可售{" "}
+                            <strong className="font-semibold text-foreground">
+                              {fmt(item.available_quantity, " 双")}
+                            </strong>
+                          </span>
+                          {item.quantity != null && (
+                            <span>
+                              建议处理{" "}
+                              <strong className="font-semibold text-foreground">
+                                {fmt(item.quantity, " 双")}
+                              </strong>
+                              {item.sizes.length > 0 &&
+                                `（${item.sizes.map(({ name }) => name).join("、")}码）`}
+                            </span>
+                          )}
+                          {item.due_date && (
+                            <span className="inline-flex items-center gap-1">
+                              <CalendarDays
+                                className="size-3 shrink-0"
+                                aria-hidden="true"
+                              />
+                              <time dateTime={item.due_date}>
+                                {item.due_date}
+                              </time>{" "}
+                              前处理
+                            </span>
+                          )}
+                          {item.channel && (
+                            <span className="wrap-anywhere">
+                              {item.channel}
+                            </span>
+                          )}
+                        </p>
+                      </div>
+                    </div>
+                    <div
+                      className={cn(
+                        "flex min-w-0 flex-wrap items-center gap-2 @min-[34rem]/queue:max-w-44 @min-[34rem]/queue:justify-end @min-[34rem]/queue:pl-0",
+                        manager &&
+                          (selectable.length > 0 || selection.selected.size > 0)
+                          ? "pl-[5.5rem]"
+                          : "pl-[3.75rem]"
+                      )}
+                    >
+                      {item.task ? (
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="h-auto max-w-full flex-wrap justify-start py-1.5 whitespace-normal shadow-none"
+                          onClick={() => setTaskId(item.task!.id)}
                         >
-                          {labels[item.kind]}
-                        </span>
-                        <button
-                          type="button"
-                          className="min-w-0 cursor-pointer rounded-sm font-mono text-sm font-semibold wrap-anywhere text-foreground underline-offset-4 hover:underline focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+                          <TaskStatusBadge task={item.task} />
+                          <span className="min-w-0 wrap-anywhere">
+                            {item.task.assignee_name}
+                          </span>
+                        </Button>
+                      ) : manager && item.signature ? (
+                        <Button size="sm" onClick={() => setAssignment(item)}>
+                          分配待办
+                        </Button>
+                      ) : (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="shadow-none"
                           onClick={() => setDetail(item)}
                         >
-                          {item.sku}
-                        </button>
-                        {(item.product_name || item.color) && (
-                          <span className="min-w-0 text-xs wrap-anywhere text-muted-foreground">
-                            {[item.product_name, item.color]
-                              .filter(Boolean)
-                              .join(" · ")}
-                          </span>
-                        )}
-                      </div>
-                      <p className="mt-1.5 text-sm leading-5 wrap-anywhere">
-                        {item.reason}
-                      </p>
-                      <p className="mt-1.5 flex flex-wrap items-baseline gap-x-3 gap-y-1 text-xs leading-5 text-muted-foreground tabular-nums">
-                        <span>
-                          可售{" "}
-                          <strong className="font-semibold text-foreground">
-                            {fmt(item.available_quantity, " 双")}
-                          </strong>
-                        </span>
-                        {item.quantity != null && (
-                          <span>
-                            建议处理{" "}
-                            <strong className="font-semibold text-foreground">
-                              {fmt(item.quantity, " 双")}
-                            </strong>
-                            {item.sizes.length > 0 &&
-                              `（${item.sizes.map(({ name }) => name).join("、")}码）`}
-                          </span>
-                        )}
-                        {item.due_date && (
-                          <span className="inline-flex items-center gap-1">
-                            <CalendarDays
-                              className="size-3 shrink-0"
-                              aria-hidden="true"
-                            />
-                            <time dateTime={item.due_date}>
-                              {item.due_date}
-                            </time>{" "}
-                            前处理
-                          </span>
-                        )}
-                        {item.channel && (
-                          <span className="wrap-anywhere">{item.channel}</span>
-                        )}
-                      </p>
+                          查看依据 <ChevronRight aria-hidden="true" />
+                        </Button>
+                      )}
                     </div>
-                  </div>
-                  <div className="flex min-w-0 flex-wrap items-center gap-2 pl-[3.75rem] @min-[34rem]/queue:max-w-44 @min-[34rem]/queue:justify-end @min-[34rem]/queue:pl-0">
-                    {item.task ? (
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        className="h-auto max-w-full flex-wrap justify-start py-1.5 whitespace-normal shadow-none"
-                        onClick={() => setTaskId(item.task!.id)}
-                      >
-                        <TaskStatusBadge task={item.task} />
-                        <span className="min-w-0 wrap-anywhere">
-                          {item.task.assignee_name}
-                        </span>
-                      </Button>
-                    ) : manager && item.signature ? (
-                      <Button size="sm" onClick={() => setAssignment(item)}>
-                        分配待办
-                      </Button>
-                    ) : (
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        className="shadow-none"
-                        onClick={() => setDetail(item)}
-                      >
-                        查看依据 <ChevronRight aria-hidden="true" />
-                      </Button>
-                    )}
-                  </div>
-                </li>
-              ))}
+                  </li>
+                )
+              })}
             </ul>
           ) : loading && summary ? (
             <p
@@ -1310,6 +1428,15 @@ export function StockOverviewPage() {
             setAssignment(null)
             setNotice(`已分配待办 #${task.id}，负责人：${task.assignee_name}。`)
           }}
+        />
+      )}
+      {manager && batchItems && (
+        <BatchTaskDialog
+          mode="overview"
+          brand={filters.brand}
+          items={batchItems}
+          onClose={() => setBatchItems(null)}
+          onApplied={(report) => selection.remove(report.succeeded)}
         />
       )}
       {taskId != null && (
