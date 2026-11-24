@@ -56,6 +56,7 @@ from domain.product_archive_identity_schema import PRODUCT_ARCHIVE_IDENTITY_TABL
 from domain.product_size_code import build_product_size_code
 from domain.product_import_validation import raise_product_import_errors
 from domain.smiley_schema import SMILEY_FINE_TABLE
+from domain.supplier_change_schema import SupplierNameExists
 from domain.inventory_sources import (
     ACCOUNT_SUBJECT_CATEGORIES,
     ACCOUNTING_DOCUMENT_TYPES,
@@ -599,7 +600,6 @@ def _build_purchase_order_search_rows(
 ) -> list[dict[str, object]]:
     records_by_id = {record.get("id"): record for record in records}
     groups: dict[tuple[object, ...], dict[str, object]] = {}
-    ordered_keys: list[tuple[object, ...]] = []
 
     for detail in details:
         document_id = detail.get("document_id")
@@ -656,7 +656,6 @@ def _build_purchase_order_search_rows(
                     "detail_remark": detail_remark,
                     "size_quantities": {},
                 }
-                ordered_keys.append(key)
 
             group = groups[key]
             if unit_price != 0:
@@ -682,9 +681,8 @@ def _build_purchase_order_search_rows(
                     if size_text:
                         merged_sizes[size_text] = _to_decimal(merged_sizes.get(size_text)) + _to_decimal(size_quantity)
 
-    rows: list[dict[str, object]] = []
-    for row_index, key in enumerate(ordered_keys, start=1):
-        group = groups[key]
+    rows_by_document: dict[object, list[dict[str, object]]] = defaultdict(list)
+    for row_index, group in enumerate(groups.values(), start=1):
         quantity = _to_decimal(group.pop("quantity"))
         amount = _to_decimal(group.pop("amount"))
         unit_price = _purchase_search_row_unit_price({
@@ -703,8 +701,10 @@ def _build_purchase_order_search_rows(
         group["amount"] = _fmt_decimal(amount)
         group["purchase_detail_mode"] = mode
         group["row_key"] = f"{group.get('document_id')}:{group.get('detail_id')}:{mode}:{row_index}"
-        rows.append(group)
-    return rows
+        rows_by_document[group["document_id"]].append(group)
+
+    # Details arrive in document ID order; the record query owns the requested sort.
+    return [row for record in records for row in rows_by_document.get(record.get("id"), ())]
 
 
 def _purchase_prorated_decimal(total: Decimal, part: Decimal, base: Decimal) -> Decimal:
@@ -5189,10 +5189,16 @@ def _validate_inventory_template_master_data(repository, documents) -> None:
         for detail in document.rows
     }
     missing: list[str] = []
+    ambiguous_suppliers: list[str] = []
     if supplier_names:
-        known = {str(row.get("name") or "").strip() for row in repository.list_suppliers()}
-        if unknown := supplier_names - known:
+        supplier_brands: dict[str, set[str]] = defaultdict(set)
+        for row in repository.list_suppliers():
+            name = _cell_text(row.get("name"))
+            if name in supplier_names:
+                supplier_brands[name].add(_cell_text(row.get("brand")))
+        if unknown := supplier_names - supplier_brands.keys():
             missing.append(f"供应商（供应商管理）：{'、'.join(sorted(unknown))}")
+        ambiguous_suppliers = sorted(name for name, brands in supplier_brands.items() if len(brands) > 1)
     if warehouse_names:
         known = {str(row.get("name") or "").strip() for row in repository.list_warehouses()}
         if unknown := warehouse_names - known:
@@ -5210,6 +5216,12 @@ def _validate_inventory_template_master_data(repository, documents) -> None:
         raise HTTPException(
             status_code=400,
             detail=f"模板中的以下档案不存在：{'；'.join(missing)}。请先在对应管理页面处理后再导入；本次未导入任何数据",
+        )
+
+    if ambiguous_suppliers:
+        raise HTTPException(
+            status_code=400,
+            detail=f"以下供应商全名对应多个品牌：{'、'.join(ambiguous_suppliers)}。请先在供应商管理核对并区分全名，再重新导入；本次未导入任何数据",
         )
 
 
@@ -7682,7 +7694,10 @@ def _import_inventory(request: Request, filename: str | None, content: bytes):
     supplier_added = 0
     for name in new_suppliers:
         if not repository.get_supplier_by_name(name):
-            repository.create_supplier({"name": name})
+            try:
+                repository.create_supplier({"name": name})
+            except SupplierNameExists:
+                continue  # Another import or an operator already created this supplier.
             supplier_added += 1
 
     msg = f"导入完成：新增 {created_docs} 条单据"

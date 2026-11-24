@@ -14,6 +14,7 @@ from sqlalchemy.pool import StaticPool
 
 from api.routes import inventory as inventory_routes
 from domain.inventory_schema import SUPPLIER_TABLE
+from domain.supplier_change_schema import SupplierNameExists
 from storage.inventory_repository import InventoryRepository
 
 
@@ -404,7 +405,13 @@ def test_generic_import_accepts_exact_purchase_supplier(supplier_repository, det
     supplier_repository.create_supplier.assert_not_called()
 
 
-def test_generic_non_purchase_import_keeps_supplier_creation(supplier_repository, detail_builder):
+@pytest.mark.parametrize("concurrent_create", [False, True])
+def test_generic_non_purchase_import_keeps_supplier_creation(
+    supplier_repository, detail_builder, monkeypatch, concurrent_create,
+):
+    monkeypatch.setattr(inventory_routes, "_validate_inventory_import_product_batches", lambda *_args: None)
+    if concurrent_create:
+        supplier_repository.create_supplier.side_effect = SupplierNameExists("新供应商")
     result = asyncio.run(inventory_routes.import_inventory(
         _request(supplier_repository),
         _upload(GENERIC_HEADERS, [[*_purchase_row("新供应商"), "进货单"]]),
@@ -412,6 +419,7 @@ def test_generic_non_purchase_import_keeps_supplier_creation(supplier_repository
 
     assert result["created"] == 1
     supplier_repository.create_supplier.assert_called_once_with({"name": "新供应商"})
+    assert ("新增供应商 1 个" in result["message"]) is not concurrent_create
 
 
 def test_non_purchase_detail_import_keeps_optional_supplier(supplier_repository, detail_builder):

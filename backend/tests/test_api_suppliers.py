@@ -2,19 +2,27 @@ from __future__ import annotations
 
 from fastapi.testclient import TestClient
 
+from domain.inventory_schema import SUPPLIER_TABLE
 from transform.rows import build_admin_record
 
 
 def test_suppliers_are_scoped_by_brand(test_app_client: TestClient):
     first = test_app_client.post(
         "/suppliers",
-        json={"brand": "cbanner_mens", "name": "同名供应商", "factory_code": "M01"},
+        json={"brand": "cbanner_mens", "name": "测试供应商（男鞋）", "factory_code": "M01"},
     )
     assert first.status_code == 200
 
+    duplicate = test_app_client.post(
+        "/suppliers",
+        json={"brand": "cbanner_womens", "name": "测试供应商（男鞋）", "factory_code": "M01"},
+    )
+    assert duplicate.status_code == 400
+    assert "已存在" in duplicate.json()["detail"]
+
     second = test_app_client.post(
         "/suppliers",
-        json={"brand": "cbanner_womens", "name": "同名供应商", "factory_code": "W01"},
+        json={"brand": "cbanner_womens", "name": "测试供应商（女鞋）", "factory_code": "W01"},
     )
     assert second.status_code == 200
 
@@ -187,10 +195,9 @@ def test_supplier_rename_updates_only_matching_brand_product_archives(
         "/suppliers",
         json={"brand": "cbanner_mens", "name": "待改名供应商"},
     ).json()["item"]
-    test_app_client.post(
-        "/suppliers",
-        json={"brand": "cbanner_womens", "name": "待改名供应商"},
-    )
+    # Reproduce a legacy duplicate without using the now guarded create endpoint.
+    with repository.engine.begin() as connection:
+        connection.execute(SUPPLIER_TABLE.insert().values(brand="cbanner_womens", name="待改名供应商"))
     mens_product = repository.create_product(
         "cbanner_mens",
         build_admin_record(

@@ -2649,7 +2649,7 @@ export function InventoryPage({ mode = "inventory", refreshRevision = 0, detailO
                     const counterparty = isTransferRow ? "" : item.supplier || ""
                     const outboundWarehouse = isTransferRow ? item.supplier || "" : ""
                     return (
-                      <tr key={item.row_key || item.id} className="group table-row">
+                      <tr key={item.row_key || item.id} className={cn("group", isPurchaseOrderTab ? "striped-table-row" : "table-row")}>
                         <td className="px-4 py-3 align-middle">
                           <input
                             type="checkbox"
@@ -2783,7 +2783,10 @@ export function InventoryPage({ mode = "inventory", refreshRevision = 0, detailO
                               )
                           }
                         })}
-                        <td className="sticky right-0 z-10 w-28 border-l border-border bg-card px-4 py-3 align-middle shadow-[-5px_0_10px_-9px_rgb(0_0_0_/_0.45)] transition-colors group-hover:bg-muted">
+                        <td className={cn(
+                          "sticky right-0 z-10 w-28 border-l border-border px-4 py-3 align-middle shadow-[-5px_0_10px_-9px_rgb(0_0_0_/_0.45)] transition-colors",
+                          isPurchaseOrderTab ? "bg-(--striped-row-bg)" : "bg-card group-hover:bg-muted",
+                        )}>
                           <div className="flex items-center justify-center gap-1">
                             {isPurchasePage ? <Button asChild variant="ghost" size="icon-sm" title="明细">
                               <Link href={purchaseDetailPath(item.id)} scroll={false} prefetch={false} aria-label={`查看采购单 ${item.document_number || item.id} 明细`} onClick={() => openDetail(item.id, item.document_number, item.summary)}>

@@ -589,11 +589,20 @@ export type FineTableFilterOptionsResponse = {
   options: FineTableFilterOption[]
 }
 
+export type FineTableSort = { field: string; direction: "asc" | "desc" }
+
+function appendFineTableSort(search: URLSearchParams, sort?: FineTableSort) {
+  if (!sort) return
+  search.set("sort_by", sort.field)
+  search.set("sort_direction", sort.direction)
+}
+
 export function listFineTable(params: {
   brand: Exclude<BrandKey, "all">
   query?: string
   skuPrefix?: string
   filters?: FineTableFilter[]
+  sort?: FineTableSort
   page: number
   pageSize: number
   cacheBust?: number | string
@@ -608,6 +617,7 @@ export function listFineTable(params: {
   if (params.filters?.length)
     search.set("filters", JSON.stringify(params.filters))
   if (params.cacheBust) search.set("cache_bust", String(params.cacheBust))
+  appendFineTableSort(search, params.sort)
   return request<FineTableResponse>(`/fine-table?${search.toString()}`)
 }
 
@@ -811,6 +821,7 @@ export function getFineTableSnapshot(params: {
   query?: string
   skuPrefix?: string
   filters?: FineTableFilter[]
+  sort?: FineTableSort
   page: number
   pageSize: number
 }) {
@@ -822,6 +833,7 @@ export function getFineTableSnapshot(params: {
   if (params.skuPrefix) search.set("sku_prefix", params.skuPrefix)
   if (params.filters?.length)
     search.set("filters", JSON.stringify(params.filters))
+  appendFineTableSort(search, params.sort)
   return request<FineTableSnapshotResponse>(
     `/fine-table/snapshots/${params.id}?${search.toString()}`
   )
@@ -833,6 +845,7 @@ export function getFineTableSnapshotByDate(params: {
   query?: string
   skuPrefix?: string
   filters?: FineTableFilter[]
+  sort?: FineTableSort
   page: number
   pageSize: number
 }) {
@@ -846,6 +859,7 @@ export function getFineTableSnapshotByDate(params: {
   if (params.skuPrefix) search.set("sku_prefix", params.skuPrefix)
   if (params.filters?.length)
     search.set("filters", JSON.stringify(params.filters))
+  appendFineTableSort(search, params.sort)
   return request<FineTableSnapshotResponse>(
     `/fine-table/snapshots/by-date?${search.toString()}`
   )
@@ -3397,10 +3411,45 @@ export function createSupplier(payload: Record<string, unknown>, confirmCrossBra
   })
 }
 
+export type SupplierChangeStatus = "pending" | "approved" | "rejected"
+export type SupplierChangeRequest = {
+  id: number
+  supplier_id: number
+  supplier_name: string
+  supplier_brand: string
+  supplier_factory_code: string | null
+  status: SupplierChangeStatus
+  changes: Array<{ field: string; label: string; before: string | null; after: string | null }>
+  expense_document_count: number
+  requester_id: number
+  requester_name: string
+  reviewer_name: string | null
+  review_note: string | null
+  created_at: string
+  reviewed_at: string | null
+}
+
 export function updateSupplier(id: number, payload: Record<string, unknown>) {
-  return request<{ item: SupplierItem; message: string }>(`/suppliers/${id}`, {
+  return request<(
+    | { item: SupplierItem; history_sync_skipped: boolean; review?: never }
+    | { review: SupplierChangeRequest; item?: never; history_sync_skipped?: never }
+  ) & { message: string }>(`/suppliers/${id}`, {
     method: "PUT",
     body: JSON.stringify(payload),
+  })
+}
+
+export function listSupplierChanges(status: SupplierChangeStatus | "all", page: number, signal: AbortSignal) {
+  const search = new URLSearchParams({ status, page: String(page) })
+  return request<{ items: SupplierChangeRequest[]; total: number; page_size: number; can_review: boolean }>(
+    `/suppliers/change-requests?${search}`, { signal, cache: "no-store" },
+  )
+}
+
+export function reviewSupplierChange(id: number, decision: "approve" | "reject", note: string) {
+  return request<{ review: SupplierChangeRequest; message: string }>(`/suppliers/change-requests/${id}`, {
+    method: "PUT",
+    body: JSON.stringify({ decision, note }),
   })
 }
 

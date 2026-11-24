@@ -7,6 +7,8 @@ import { cn } from "@/lib/utils"
 
 type SortableColumnLabelProps = {
   label: string
+  accessibleLabel?: string
+  toggleOnly?: boolean
   sortRule?: {
     direction: "asc" | "desc"
     index: number
@@ -17,6 +19,8 @@ type SortableColumnLabelProps = {
 
 export function SortableColumnLabel({
   label,
+  accessibleLabel = label,
+  toggleOnly = false,
   sortRule,
   onClick,
 }: SortableColumnLabelProps) {
@@ -30,15 +34,17 @@ export function SortableColumnLabel({
       ? "点击按此列降序"
       : sortRule.direction === "desc"
         ? "点击切换升序"
-        : "点击取消排序"
+        : toggleOnly ? "点击切换降序" : "点击取消排序"
+
+  const description = `${accessibleLabel}：${currentState}；${nextAction}`
 
   return (
     <button
       type="button"
       onClick={onClick}
       aria-pressed={active}
-      aria-label={`${label}：${currentState}；${nextAction}`}
-      title={`${label}：${currentState}；${nextAction}；按住上档键点击可追加或切换多列排序`}
+      aria-label={description}
+      title={toggleOnly ? description : `${description}；按住上档键点击可追加或切换多列排序`}
       className={cn(
         "group/sort -mx-1.5 -my-1 inline-flex h-6 max-w-full min-w-0 cursor-pointer items-center gap-1 rounded-md border px-1.5 text-left transition-colors focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:outline-none",
         active

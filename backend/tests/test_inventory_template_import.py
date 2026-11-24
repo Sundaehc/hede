@@ -956,3 +956,26 @@ def test_template_repository_rejects_missing_customer_and_warehouse_atomically()
             assert connection.execute(select(INVENTORY_DETAIL_TABLE.c.id)).all() == []
     finally:
         engine.dispose()
+
+
+@pytest.mark.parametrize("submit", [False, True])
+def test_template_rejects_supplier_name_shared_by_multiple_brands(submit):
+    name = "鞋密码（千百度女鞋）"
+    content = _workbook(TEMPLATE_HEADERS["purchase"], [
+        ["2026-05-10", "进货单", name, "女鞋仓", "张三", "到货", "Q9542032D0101230", 19, 98],
+    ])
+    repository = Mock(spec=InventoryRepository)
+    repository.list_suppliers.return_value = [
+        {"name": name, "brand": "cbanner_womens"},
+        {"name": name, "brand": "hejin"},
+    ]
+    repository.list_warehouses.return_value = [{"name": "女鞋仓"}]
+    request = SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace(inventory_repository=repository)))
+    with pytest.raises(HTTPException, match="对应多个品牌") as error:
+        if submit:
+            inventory_routes._import_inventory_template(request, "sample.xlsx", {"brand": "cbanner_womens"}, content)
+        else:
+            inventory_routes._preview_inventory_template(request, content)
+    assert error.value.status_code == 400
+    repository.get_supplier_by_name.assert_not_called()
+    repository.import_template_documents.assert_not_called()

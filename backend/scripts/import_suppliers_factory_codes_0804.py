@@ -27,6 +27,7 @@ from xlrd.compdoc import CompDoc
 from config import load_settings
 from domain.gj_brand import CBANNER_MENS_BRAND, CBANNER_WOMENS_BRAND, infer_supplier_brand_from_name
 from domain.inventory_schema import SUPPLIER_TABLE
+from storage.inventory_repository import InventoryRepository
 
 sys.stdout.reconfigure(encoding="utf-8")
 
@@ -233,9 +234,11 @@ def preview_or_apply(*, apply: bool) -> dict[str, int]:
     engine = create_engine(settings.database_url, future=True)
     inserted = updated = unchanged = match_conflicts = 0
     with engine.begin() as connection:
+        InventoryRepository.lock_supplier_changes(connection)
         existing_rows = [dict(row) for row in connection.execute(select(SUPPLIER_TABLE)).mappings()]
         by_code, code_conflicts = _unique_lookup(existing_rows, "factory_code")
         by_name, name_conflicts = _unique_lookup(existing_rows, "name")
+        proposed_names: set[str] = set()
         for record in records:
             code_key = (record["brand"], record["factory_code"])
             name_key = (record["brand"], record["name"])
@@ -245,6 +248,17 @@ def preview_or_apply(*, apply: bool) -> dict[str, int]:
                 match_conflicts += 1
                 continue
             existing = code_match or name_match
+            name_key_normalized = record["name"].strip().replace("（", "(").replace("）", ")").lower()
+            name_changed = existing is None or existing["name"] != record["name"]
+            if name_changed and (
+                name_key_normalized in proposed_names or InventoryRepository.supplier_name_exists(
+                    connection, record["name"], except_id=existing["id"] if existing else None,
+                )
+            ):
+                match_conflicts += 1
+                continue
+            if name_changed:
+                proposed_names.add(name_key_normalized)
             if existing is None:
                 if apply:
                     connection.execute(insert(SUPPLIER_TABLE).values(**record))

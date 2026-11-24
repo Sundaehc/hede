@@ -211,8 +211,9 @@ def _write_optimized_snapshot_rows(
 
 
 def load_optimized_snapshot_rows(
-    engine, snapshot_date, batch_id: int, *, conditions: list[Any], page: int, page_size: int,
+    engine, snapshot_date, batch_id: int, *, conditions: list[Any], page: int, page_size: int | None,
     payload_conditions: list[Any] | None = None,
+    order_by: Any | None = None,
 ):
     ref_table = fine_table_snapshot_ref_table_for_date(snapshot_date)
     joined_tables = (
@@ -232,10 +233,12 @@ def load_optimized_snapshot_rows(
         .where(ref_table.c.batch_id == batch_id)
         .where(*conditions)
         .where(*payload_conditions)
-        .order_by(ref_table.c.row_index)
-        .offset((page - 1) * page_size)
-        .limit(page_size)
     )
+    if order_by is not None:
+        statement = statement.order_by(order_by)
+    statement = statement.order_by(ref_table.c.row_index)
+    if page_size is not None:
+        statement = statement.offset((page - 1) * page_size).limit(page_size)
     count_statement = (
         select(func.count())
         .select_from(joined_tables if payload_conditions else ref_table)
@@ -248,7 +251,7 @@ def load_optimized_snapshot_rows(
             {**(row["stable_payload"] or {}), **(row["metrics_payload"] or {})}
             for row in connection.execute(statement).mappings()
         ]
-        total = connection.execute(count_statement).scalar_one()
+        total = len(rows) if page_size is None else connection.execute(count_statement).scalar_one()
     return rows, int(total)
 
 

@@ -66,6 +66,8 @@ def required_permission_for_request(
         return "fine_table.export" if "export" in path and method != "GET" else "fine_table.view"
     if path.startswith("/supplier-brands"):
         return "inventory.view" if method == "GET" else "inventory.manage"
+    if path == "/suppliers/change-requests" or path.startswith("/suppliers/change-requests/"):
+        return ("supplier.manage", "inventory.manage")
     if path.startswith("/suppliers"):
         if method == "GET":
             return "inventory.view"

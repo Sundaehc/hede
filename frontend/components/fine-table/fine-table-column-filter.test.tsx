@@ -164,3 +164,53 @@ test("date tree year and month selection includes dates beyond 300 choices", asy
   await user.click(dialog.getByRole("button", { name: "确定" }))
   expect(savedFilters()).toEqual([{ field: "first_order_time", operator: "in", values: dateOptions.slice(0, 31).map((item) => item.value) }])
 })
+
+
+test("defaults to VIP three-day sales descending and toggles stock sorting from page one", async () => {
+  remember("page", 2)
+  listMock.mockResolvedValue({ items: [], total: 101, page: 2, page_size: 50, latest_order_date: "2026-11-20" })
+  const user = userEvent.setup()
+  render(<FineTablePage />)
+  await waitFor(() => expect(listMock).toHaveBeenLastCalledWith(expect.objectContaining({
+    page: 2,
+    sort: { field: "vip_3d_sales", direction: "desc" },
+  })))
+  expect(screen.getByRole("button", { name: /唯品3天：当前降序/ }).closest("th"))
+    .toHaveAttribute("aria-sort", "descending")
+
+  await user.click(screen.getByRole("button", { name: /聚水潭库存：未排序/ }))
+  await waitFor(() => expect(listMock).toHaveBeenLastCalledWith(expect.objectContaining({
+    page: 1,
+    sort: { field: "stock_qty", direction: "desc" },
+  })))
+  await user.click(screen.getByRole("button", { name: /聚水潭库存：当前降序/ }))
+  await waitFor(() => expect(listMock).toHaveBeenLastCalledWith(expect.objectContaining({
+    page: 1,
+    sort: { field: "stock_qty", direction: "asc" },
+  })))
+  expect(screen.getByRole("button", { name: /聚水潭库存：当前升序/ }).closest("th"))
+    .toHaveAttribute("aria-sort", "ascending")
+
+  await waitFor(() => expect(screen.getByRole("button", { name: "下一页" })).toBeEnabled())
+  await user.click(screen.getByRole("button", { name: "下一页" }))
+  await waitFor(() => expect(listMock).toHaveBeenLastCalledWith(expect.objectContaining({
+    page: 2,
+    sort: { field: "stock_qty", direction: "asc" },
+  })))
+})
+
+test("sorts historical daily sales using the selected date column", async () => {
+  remember("historyDate", "2026-11-01")
+  const user = userEvent.setup()
+  render(<FineTablePage />)
+  await waitFor(() => expect(snapshotMock).toHaveBeenLastCalledWith(expect.objectContaining({
+    snapshotDate: "2026-11-01",
+    sort: { field: "vip_3d_sales", direction: "desc" },
+  })))
+  await user.click(screen.getByRole("button", { name: /10-29 销售：未排序/ }))
+  await waitFor(() => expect(snapshotMock).toHaveBeenLastCalledWith(expect.objectContaining({
+    snapshotDate: "2026-11-01",
+    page: 1,
+    sort: { field: "daily_sales_1_quantity", direction: "desc" },
+  })))
+})

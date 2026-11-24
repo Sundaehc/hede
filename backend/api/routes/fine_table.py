@@ -4,15 +4,15 @@ from collections import defaultdict
 from datetime import date, datetime, time, timedelta
 from decimal import Decimal
 import json
-from math import ceil
+from math import ceil, floor, isfinite
 import re
 from typing import Any, Literal
 
 from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.encoders import jsonable_encoder
 from pydantic import BaseModel
-from sqlalchemy import Text, and_, cast, delete, desc, false, func, insert, or_, select, update
-from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy import Numeric, Text, and_, any_, bindparam, case, cast, delete, desc, false, func, insert, or_, select, update
+from sqlalchemy.dialects.postgresql import ARRAY, insert as pg_insert
 
 from api.fine_table_cache import (
     get_fine_table_cache,
@@ -84,6 +84,7 @@ SIZE_LABELS = {
 EXCLUDED_OTHER_PLATFORM_ORDER_STATUSES = {"取消", "异常", "被拆分", "已付款待审核"}
 DAILY_SALES_DAYS = 5
 SNAPSHOT_PAGE_SIZE = 200
+FINE_TABLE_FAST_SALES_SORT_FIELDS = {"vip_3d_sales", "original_all_7d_sales"}
 VIP_DAILY_SALES_FILTER_FIELDS = frozenset({
     "vip_1d_sales", "vip_3d_sales", "vip_7d_sales", "vip_15d_sales", "vip_30d_sales",
     "vip_daily_average_sales", "vip_projected_15d_sales", "vip_3d_sales_change_rate",
@@ -236,6 +237,18 @@ FINE_TABLE_VIP_OPS_FILTER_COLUMNS = {
 }
 FINE_TABLE_LIVE_SQL_FILTER_FIELDS = {"main_style"}
 FINE_TABLE_DYNAMIC_FILTER_PATTERN = re.compile(r"^(?:daily_sales_(\d+)_(?:quantity|uv)|size_.+)$")
+FINE_TABLE_SORT_METRICS = frozenset(
+    field for field in FINE_TABLE_FILTER_FIELDS - {"vip_price"}
+    if field.startswith(("vip_", "other_", "original_other_")) or field.endswith("_stock")
+) | {
+    "stock_qty", "original_stock_qty", "projected_5d_stock_no_inbound",
+    "inbound_qty", "original_inbound_qty", "original_all_7d_sales",
+    *(f"daily_sales_{day}_{metric}" for day in range(DAILY_SALES_DAYS) for metric in ("quantity", "uv")),
+    *(f"size_{label}" for label in SIZE_LABELS.values()),
+}
+FINE_TABLE_DAILY_SORT_PATTERN = re.compile(r"daily_sales_(\d+)_(quantity|uv)")
+
+
 FINE_TABLE_SNAPSHOT_TEXT_FILTER_FIELDS = {
     "sku", "original_sku", "group_name", "product_level", "year", "season_category",
     "factory_code", "factory_name", "product_name", "main_style", "style_code",
@@ -374,10 +387,47 @@ def _fine_table_live_filter_conditions(sku_column, filters: tuple[FineTableFilte
     ]
 
 
+def _validate_fine_table_sort(sort_by: str | None) -> None:
+    if sort_by is not None and sort_by not in FINE_TABLE_SORT_METRICS:
+        raise HTTPException(status_code=400, detail="该列不支持精细表排序")
+
+
+def _sort_fine_table_rows(
+    items: list[dict[str, Any]], field: str | None, direction: Literal["asc", "desc"],
+    *, daily_end_date: date | str | None,
+) -> list[dict[str, Any]]:
+    if not field:
+        return items
+    daily = FINE_TABLE_DAILY_SORT_PATTERN.fullmatch(field)
+    daily_date = None
+    if daily:
+        end = _parse_iso_date(daily_end_date) or date.today()
+        daily_date = (end - timedelta(days=DAILY_SALES_DAYS - 1 - int(daily[1]))).isoformat()
+
+    def key(row: dict[str, Any]) -> tuple[bool, float]:
+        if daily and daily_date:
+            value = next((
+                entry.get(daily[2], 0) for entry in (row.get("daily_sales") or [])[-DAILY_SALES_DAYS:]
+                if isinstance(entry, dict) and entry.get("date") == daily_date
+            ), 0)
+        else:
+            value = _fine_table_filter_value(row, field)
+        # Keep blanks last in both directions; Python's stable sort preserves
+        # the original record order for equal values across pages.
+        number = _metric_to_float(value)
+        if number is None or not isfinite(number):
+            return True, 0
+        return False, number if direction == "asc" else -number
+
+    return sorted(items, key=key)
+
+
 def _fine_table_filtered_page(
     result: dict[str, Any], filters: tuple[FineTableFilter, ...], *, page: int, page_size: int, include_all: bool,
+    sort_by: str | None = None, sort_direction: Literal["asc", "desc"] = "desc",
 ) -> dict[str, Any]:
     items = _fine_table_rows_match_filters(result["items"], filters)
+    items = _sort_fine_table_rows(items, sort_by, sort_direction, daily_end_date=result.get("latest_order_date"))
     total = len(items)
     if not include_all:
         offset = (page - 1) * page_size
@@ -408,13 +458,14 @@ def _fine_table_metric_number(value: Any) -> float | None:
 def _fine_table_exposure(uv: Any, ctr: Any) -> int | None:
     uv_value = _fine_table_metric_number(uv)
     ctr_value = _metric_to_float(ctr)
-    if uv_value is None or ctr_value in (None, 0):
+    if uv_value is None or ctr_value in (None, 0) or not isfinite(uv_value) or not isfinite(ctr_value):
         return None
-    if isinstance(ctr, str) and "%" in ctr:
-        ctr_value /= 100
-    elif abs(ctr_value) > 1:
-        ctr_value /= 100
-    return round(uv_value / ctr_value) if ctr_value else None
+    # CTR is displayed in percentage points, even when the source omits "%".
+    rate = ctr_value / 100
+    if not rate:
+        return None
+    exposure = uv_value / rate
+    return floor(exposure + 0.5) if isfinite(exposure) else None
 
 
 def _fine_table_filter_value(row: dict[str, Any], field: str) -> Any:
@@ -427,9 +478,11 @@ def _fine_table_filter_value(row: dict[str, Any], field: str) -> Any:
     if field == "cost":
         return row.get("latest_purchase_price") if row.get("latest_purchase_price") not in (None, "") else row.get("cost")
     if field == "vip_projected_15d_sales":
-        return _fine_table_metric_number(row.get("vip_daily_average_sales")) * 15 if row.get("vip_daily_average_sales") is not None else None
+        daily = _fine_table_metric_number(row.get("vip_daily_average_sales"))
+        return daily * 15 if daily is not None else None
     if field == "other_daily_average_sales":
-        return _fine_table_metric_number(row.get("other_30d_sales")) / 30 if row.get("other_30d_sales") is not None else None
+        sales = _fine_table_metric_number(row.get("other_30d_sales"))
+        return sales / 30 if sales is not None else None
     if field == "other_projected_15d_sales":
         daily = _fine_table_filter_value(row, "other_daily_average_sales")
         return daily * 15 if daily is not None else None
@@ -665,6 +718,125 @@ def _date_window(max_day: date, days: int) -> tuple[datetime, datetime]:
     start = datetime.combine(max_day - timedelta(days=days - 1), time.min)
     end = datetime.combine(max_day + timedelta(days=1), time.min)
     return start, end
+
+
+def _fine_table_codes_condition(connection, column, codes):
+    if connection.dialect.name == "postgresql":
+        return column == any_(bindparam(None, sorted(codes), type_=ARRAY(Text())))
+    return column.in_(codes)
+
+
+def _load_fine_table_original_groups(connection, product_table, sku_pairs):
+    groups: dict[str, set[str]] = {}
+    for sku, original in sku_pairs:
+        if original:
+            members = groups.setdefault(original, set())
+            if sku:
+                members.add(sku)
+    if groups:
+        archive_pairs = connection.execute(
+            select(product_table.c.sku, product_table.c.original_sku)
+            .where(_fine_table_codes_condition(connection, product_table.c.original_sku, groups.keys()))
+            .where(product_table.c.deleted_at.is_(None))
+            .where(not_excluded_sku_condition(product_table.c.sku, product_table.c.original_sku))
+        )
+        for sku, original in archive_pairs:
+            sku = str(sku or "").strip()
+            original = str(original or "").strip()
+            if sku and original:
+                groups.setdefault(original, set()).add(sku)
+    sorted_groups = {original: sorted(codes) for original, codes in groups.items()}
+    original_by_sku = {sku: original for original, codes in sorted_groups.items() for sku in codes}
+    return sorted_groups, original_by_sku
+
+
+def _latest_fine_table_order_day(connection) -> date:
+    last_order = connection.execute(select(func.max(JST_MONTHLY_ORDERS_TABLE.c.order_time_at))).scalar()
+    return last_order.date() if isinstance(last_order, datetime) else date.today()
+
+
+def _load_fine_table_sales_rank(connection, *, brand, product_table, source, statement, cache_key, sort_by):
+    cached = get_fine_table_result_cache(cache_key)
+    if cached is not None:
+        return cached
+    columns = source.c
+    from_gj = source is GJ_MERGED_PRODUCT_INFO_TABLE
+    sku_column = columns.goods_code if from_gj else columns.sku
+    original_column = columns.original_goods_code if from_gj else columns.original_sku
+    candidates = []
+    for row_id, raw_sku, raw_original in connection.execute(
+        statement.with_only_columns(columns.id, sku_column, original_column)
+    ):
+        sku = str(raw_sku or "").strip()
+        original = str(raw_original or "").strip()
+        if from_gj:
+            if is_excluded_sku(sku, original):
+                continue
+            original = original or sku
+        candidates.append((row_id, sku, original))
+    groups, original_by_sku = _load_fine_table_original_groups(
+        connection, product_table, ((sku, original) for _, sku, original in candidates),
+    )
+    codes = {sku for _, sku, _ in candidates if sku}
+    if sort_by == "vip_3d_sales":
+        vip_date, vip_by_sku = load_vip_sales_windows(connection, codes, brand=brand, windows=(3,))
+        rank = {
+            "scores": {row_id: (vip_by_sku.get(sku, {}).get(3, 0), 0) for row_id, sku, _ in candidates},
+            "groups": groups, "original_by_sku": original_by_sku,
+            "vip_date": vip_date, "order_day": None,
+        }
+        set_fine_table_result_cache(cache_key, rank)
+        return rank
+    codes.update(original_by_sku)
+    vip_date, vip_by_sku = load_vip_sales_windows(connection, codes, brand=brand, windows=(7,))
+    order_day = _latest_fine_table_order_day(connection) if codes else None
+    other_by_original: dict[str, int] = defaultdict(int)
+    if order_day is not None and original_by_sku:
+        start, end = _date_window(order_day, 7)
+        orders = JST_MONTHLY_ORDERS_TABLE.c
+        for sku, status, quantity in connection.execute(
+            select(orders.style_code, orders.status, func.sum(orders.quantity))
+            .where(_fine_table_codes_condition(connection, orders.style_code, original_by_sku.keys()))
+            .where(orders.order_time_at >= start, orders.order_time_at < end)
+            .where(func.coalesce(orders.shop_name, "").not_like("%唯品%"))
+            .group_by(orders.style_code, orders.status)
+        ):
+            if str(status or "").strip() not in EXCLUDED_OTHER_PLATFORM_ORDER_STATUSES:
+                other_by_original[original_by_sku[sku]] += int(quantity or 0)
+    vip_by_original = {
+        original: sum(vip_by_sku.get(code, {}).get(7, 0) for code in members)
+        for original, members in groups.items()
+    }
+    scores = {
+        row_id: (vip_by_original.get(original, vip_by_sku.get(sku, {}).get(7, 0)), other_by_original.get(original, 0))
+        for row_id, sku, original in candidates
+    }
+    rank = {
+        "scores": scores, "groups": groups, "original_by_sku": original_by_sku,
+        "vip_date": vip_date, "order_day": order_day,
+    }
+    set_fine_table_result_cache(cache_key, rank)
+    return rank
+
+
+def _load_ranked_fine_table_page(
+    connection, *, brand, product_table, source, statement, cache_key, page, page_size, sort_by, direction,
+):
+    rank = _load_fine_table_sales_rank(
+        connection, brand=brand, product_table=product_table, source=source, statement=statement, cache_key=cache_key,
+        sort_by=sort_by,
+    )
+    scores = rank["scores"]
+    offset = (page - 1) * page_size
+    ranked_ids = sorted(scores, key=lambda row_id: sum(scores[row_id]), reverse=direction == "desc")
+    selected_ids = ranked_ids[offset:offset + page_size]
+    by_id = {}
+    if selected_ids:
+        by_id = {
+            row["id"]: dict(row)
+            for row in connection.execute(select(source).where(source.c.id.in_(selected_ids))).mappings()
+        }
+    return [by_id[row_id] for row_id in selected_ids if row_id in by_id], len(scores), rank
 
 
 def _empty_order_bucket() -> dict[str, Any]:
@@ -1157,6 +1329,8 @@ def get_fine_table_snapshot_by_date(
     filters: str | None = None,
     page: int = Query(1, ge=1),
     page_size: int = Query(80, ge=1, le=200),
+    sort_by: str | None = None,
+    sort_direction: Literal["asc", "desc"] = "desc",
 ):
     repository = request.app.state.repository
     _ensure_snapshot_tables(repository.engine)
@@ -1175,6 +1349,8 @@ def get_fine_table_snapshot_by_date(
         query=query,
         sku_prefix=sku_prefix,
         filters=filters,
+        sort_by=sort_by,
+        sort_direction=sort_direction,
         page=page,
         page_size=page_size,
     )
@@ -1189,7 +1365,10 @@ def get_fine_table_snapshot(
     filters: str | None = None,
     page: int = Query(1, ge=1),
     page_size: int = Query(80, ge=1, le=200),
+    sort_by: str | None = None,
+    sort_direction: Literal["asc", "desc"] = "desc",
 ):
+    _validate_fine_table_sort(sort_by)
     settings = request.app.state.settings
     repository = request.app.state.repository
     _ensure_snapshot_tables(repository.engine)
@@ -1233,8 +1412,15 @@ def get_fine_table_snapshot(
                 if parsed_filters and repository.engine.dialect.name == "postgresql"
                 else None
             )
-            if not parsed_filters or payload_conditions is not None:
-                filter_arguments = {"payload_conditions": payload_conditions} if payload_conditions is not None else {}
+            filter_arguments = {"payload_conditions": payload_conditions} if payload_conditions is not None else {}
+            snapshot_order = None
+            if sort_by in FINE_TABLE_FAST_SALES_SORT_FIELDS and repository.engine.dialect.name == "postgresql":
+                sales_text = func.trim(FINE_TABLE_SNAPSHOT_METRICS_TABLE.c.payload[sort_by].astext)
+                sales = case((sales_text.op("~")(r"^[+-]?[0-9]+(\.[0-9]+)?$"), cast(sales_text, Numeric)))
+                snapshot_order = (sales.asc() if sort_direction == "asc" else sales.desc()).nulls_last()
+            if (sort_by is None or snapshot_order is not None) and (not parsed_filters or payload_conditions is not None):
+                if snapshot_order is not None:
+                    filter_arguments["order_by"] = snapshot_order
                 items, total = load_optimized_snapshot_rows(
                     repository.engine,
                     snapshot_date,
@@ -1272,9 +1458,10 @@ def get_fine_table_snapshot(
                 repository.engine,
                 snapshot_date,
                 int(batch_id),
-                conditions=[not_excluded_sku_condition(ref_table.c.sku, ref_table.c.original_sku)],
+                conditions=conditions,
                 page=1,
-                page_size=1_000_000,
+                page_size=None,
+                **filter_arguments,
             )
             costs_hydrated = any(condition.field == "cost" for condition in parsed_filters)
             if costs_hydrated:
@@ -1292,8 +1479,7 @@ def get_fine_table_snapshot(
                         items=all_rows,
                         brand=batch["brand"],
                     )
-            query_terms = _normalized_terms(query)
-            prefix_terms = _normalized_terms(sku_prefix)
+            python_filters = parsed_filters if payload_conditions is None else ()
             filtered_rows = []
             for row in all_rows:
                 sku = str(row.get("sku") or "")
@@ -1304,10 +1490,11 @@ def get_fine_table_snapshot(
                     continue
                 if prefix_terms and not any(sku.lower().startswith(term.lower()) or original_sku.lower().startswith(term.lower()) for term in prefix_terms):
                     continue
-                if parsed_filters and not all(_fine_table_row_matches_filter(row, condition) for condition in parsed_filters):
+                if not all(_fine_table_row_matches_filter(row, condition) for condition in python_filters):
                     continue
                 filtered_rows.append(row)
-            total = len(filtered_rows) if (parsed_filters or query_terms or prefix_terms) else int(_snapshot_total)
+            total = len(filtered_rows)
+            filtered_rows = _sort_fine_table_rows(filtered_rows, sort_by, sort_direction, daily_end_date=snapshot_date)
             offset = (page - 1) * page_size
             items = filtered_rows[offset:offset + page_size]
             with repository.engine.connect() as connection:
@@ -1373,6 +1560,7 @@ def get_fine_table_snapshot(
                 continue
             filtered_rows.append(row)
         total = len(filtered_rows)
+        filtered_rows = _sort_fine_table_rows(filtered_rows, sort_by, sort_direction, daily_end_date=snapshot_date)
         offset = (page - 1) * page_size
         items = filtered_rows[offset:offset + page_size]
         if not costs_hydrated:
@@ -1754,7 +1942,10 @@ def list_fine_table(
     include_all: bool = False,
     page: int = Query(1, ge=1),
     page_size: int = Query(80, ge=1, le=200),
+    sort_by: str | None = None,
+    sort_direction: Literal["asc", "desc"] = "desc",
 ):
+    _validate_fine_table_sort(sort_by)
     settings = request.app.state.settings
     repository = request.app.state.repository
     product_table = PRODUCT_TABLES[brand]
@@ -1780,10 +1971,16 @@ def list_fine_table(
         if _gj_fine_table_brand(brand) is not None
         else tuple(item for item in parsed_filters if item.field not in FINE_TABLE_SQL_FILTER_FIELDS | FINE_TABLE_LIVE_SQL_FILTER_FIELDS)
     )
-    fetch_all_rows = include_all or bool(payload_filters)
+    use_sales_rank = sort_by in FINE_TABLE_FAST_SALES_SORT_FIELDS and not include_all and not payload_filters
+    fetch_all_rows = include_all or bool(payload_filters) or (sort_by is not None and not use_sales_rank)
     normalized_filters = tuple(sorted((item.field, item.operator, tuple(item.values)) for item in parsed_filters))
-    bypass_cache = bool(cache_bust) or include_all
-    cache_key = (brand, normalized_query, normalized_sku_prefix, normalized_season, normalized_filters, page, page_size)
+    # Share ranking or full results across pages and directions for each refresh.
+    sort_generation = cache_bust if sort_by else None
+    bypass_cache = include_all or (bool(cache_bust) and sort_by is None)
+    cache_key = (
+        brand, normalized_query, normalized_sku_prefix, normalized_season, normalized_filters,
+        page, page_size, sort_by, sort_direction, sort_generation,
+    )
     total_cache_key = (brand, normalized_query, normalized_sku_prefix, normalized_season, normalized_filters, 0, 0)
     cached = None if bypass_cache else get_fine_table_cache(cache_key)
     if cached is not None:
@@ -1791,11 +1988,15 @@ def list_fine_table(
     result_cache_key = (
         brand, normalized_query, normalized_sku_prefix, normalized_season,
         tuple(sorted((item.field, item.operator, tuple(item.values)) for item in parsed_filters if item not in payload_filters)),
+        sort_generation,
     )
-    if fetch_all_rows and not cache_bust:
+    if fetch_all_rows and (not cache_bust or sort_by is not None):
         cached_result = get_fine_table_result_cache(result_cache_key)
         if cached_result is not None:
-            payload = _fine_table_filtered_page(cached_result, payload_filters, page=page, page_size=page_size, include_all=include_all)
+            payload = _fine_table_filtered_page(
+                cached_result, payload_filters, page=page, page_size=page_size, include_all=include_all,
+                sort_by=sort_by, sort_direction=sort_direction,
+            )
             if not include_all:
                 set_fine_table_cache(cache_key, payload)
             return payload
@@ -1806,6 +2007,8 @@ def list_fine_table(
         else None
     )
 
+    rank = None
+    rank_key = ("sales-rank", sort_by, *result_cache_key)
     with repository.engine.connect() as conn:
         gj_fine_table_brand = _gj_fine_table_brand(brand)
         if gj_fine_table_brand is not None:
@@ -1873,25 +2076,30 @@ def list_fine_table(
                     )
                 gj_conditions.extend(_fine_table_live_filter_conditions(GJ_MERGED_PRODUCT_INFO_TABLE.c.goods_code, live_sql_filters))
                 gj_criterion = and_(*gj_conditions)
-                if fetch_all_rows:
-                    total = 0
-                elif cached_total is None:
-                    total = conn.execute(
-                        select(func.count()).select_from(GJ_MERGED_PRODUCT_INFO_TABLE).where(gj_criterion)
-                    ).scalar_one()
-                    set_fine_table_cache(total_cache_key, {"total": total})
-                else:
-                    total = cached_total
                 gj_statement = (
                     select(GJ_MERGED_PRODUCT_INFO_TABLE)
                     .where(gj_criterion)
                     .order_by(desc(GJ_MERGED_PRODUCT_INFO_TABLE.c.id))
                 )
-                if not fetch_all_rows:
-                    gj_statement = gj_statement.offset((page - 1) * page_size).limit(page_size)
-                gj_rows = [dict(row) for row in conn.execute(gj_statement).mappings()]
-                if fetch_all_rows:
-                    total = len(gj_rows)
+                if use_sales_rank:
+                    gj_rows, total, rank = _load_ranked_fine_table_page(
+                        conn, brand=brand, product_table=product_table, source=GJ_MERGED_PRODUCT_INFO_TABLE,
+                        statement=gj_statement, cache_key=(*rank_key, latest_gj_product_info_date),
+                        page=page, page_size=page_size, sort_by=sort_by, direction=sort_direction,
+                    )
+                else:
+                    if not fetch_all_rows:
+                        if cached_total is None:
+                            total = conn.execute(
+                                select(func.count()).select_from(GJ_MERGED_PRODUCT_INFO_TABLE).where(gj_criterion)
+                            ).scalar_one()
+                            set_fine_table_cache(total_cache_key, {"total": total})
+                        else:
+                            total = cached_total
+                        gj_statement = gj_statement.offset((page - 1) * page_size).limit(page_size)
+                    gj_rows = [dict(row) for row in conn.execute(gj_statement).mappings()]
+                    if fetch_all_rows:
+                        total = len(gj_rows)
                 gj_match_codes = {
                     code
                     for row in gj_rows
@@ -1956,17 +2164,23 @@ def list_fine_table(
                 count_stmt = count_stmt.where(criterion)
                 items_base_stmt = items_base_stmt.where(criterion)
 
-            if fetch_all_rows:
-                total = 0
-            elif cached_total is None:
-                total = conn.execute(count_stmt).scalar_one()
-                set_fine_table_cache(total_cache_key, {"total": total})
+            if use_sales_rank:
+                product_rows, total, rank = _load_ranked_fine_table_page(
+                    conn, brand=brand, product_table=product_table, source=product_table,
+                    statement=items_base_stmt, cache_key=rank_key,
+                    page=page, page_size=page_size, sort_by=sort_by, direction=sort_direction,
+                )
             else:
-                total = cached_total
-            items_statement = items_base_stmt if fetch_all_rows else items_base_stmt.offset((page - 1) * page_size).limit(page_size)
-            product_rows = [dict(row) for row in conn.execute(items_statement).mappings()]
-            if fetch_all_rows:
-                total = len(product_rows)
+                if not fetch_all_rows:
+                    if cached_total is None:
+                        total = conn.execute(count_stmt).scalar_one()
+                        set_fine_table_cache(total_cache_key, {"total": total})
+                    else:
+                        total = cached_total
+                    items_base_stmt = items_base_stmt.offset((page - 1) * page_size).limit(page_size)
+                product_rows = [dict(row) for row in conn.execute(items_base_stmt).mappings()]
+                if fetch_all_rows:
+                    total = len(product_rows)
 
         _hydrate_fine_table_platforms(
             connection=conn,
@@ -1985,12 +2199,19 @@ def list_fine_table(
             for row in product_rows
             if str(row.get("original_sku") or "").strip()
         }
-        original_skus_by_code: dict[str, list[str]] = {original_sku: [] for original_sku in original_skus}
-        for row in product_rows:
-            sku = str(row.get("sku") or "").strip()
-            original_sku = str(row.get("original_sku") or "").strip()
-            if sku and original_sku:
-                original_skus_by_code.setdefault(original_sku, []).append(sku)
+        if rank is not None:
+            original_skus_by_code = {
+                original: rank["groups"][original] for original in original_skus if original in rank["groups"]
+            }
+            original_sku_by_sku = rank["original_by_sku"]
+        else:
+            original_skus_by_code, original_sku_by_sku = _load_fine_table_original_groups(
+                conn, product_table, (
+                    (str(row.get("sku") or "").strip(), str(row.get("original_sku") or "").strip())
+                    for row in product_rows
+                ),
+            )
+        all_original_group_skus = {sku for members in original_skus_by_code.values() for sku in members}
 
         supplier_names = sorted({
             str(row.get("supplier_name") or "").strip()
@@ -2008,27 +2229,6 @@ def list_fine_table(
                 ).mappings()
                 if row["name"]
             }
-
-        if original_skus:
-            for row in conn.execute(
-                select(product_table.c.sku, product_table.c.original_sku)
-                .where(product_table.c.original_sku.in_(original_skus))
-                .where(product_table.c.deleted_at.is_(None))
-                .where(not_excluded_sku_condition(product_table.c.sku, product_table.c.original_sku))
-            ).mappings():
-                sku = str(row.get("sku") or "").strip()
-                original_sku = str(row.get("original_sku") or "").strip()
-                if sku and original_sku:
-                    original_skus_by_code.setdefault(original_sku, []).append(sku)
-
-        original_sku_by_sku: dict[str, str] = {}
-        all_original_group_skus: set[str] = set()
-        for original_sku, grouped_skus in original_skus_by_code.items():
-            deduped = sorted(set(grouped_skus))
-            original_skus_by_code[original_sku] = deduped
-            all_original_group_skus.update(deduped)
-            for grouped_sku in deduped:
-                original_sku_by_sku[grouped_sku] = original_sku
 
         ops_by_sku: dict[str, dict[str, Any]] = {}
         for row in conn.execute(
@@ -2050,7 +2250,10 @@ def list_fine_table(
             daily_by_sku.setdefault(sku, {}).setdefault(key, dict(row))
 
         stock_codes = sorted({*skus, *all_original_group_skus})
-        vip_sales_date, vip_sales_by_sku = load_vip_sales_windows(conn, stock_codes, brand=brand)
+        vip_sales_date, vip_sales_by_sku = (
+            load_vip_sales_windows(conn, stock_codes, brand=brand, end_date=rank["vip_date"] if rank else None)
+            if rank is None or rank["vip_date"] is not None else (None, {})
+        )
         size_stock_by_sku: dict[str, dict[str, int]] = {sku: {} for sku in stock_codes}
         for row in conn.execute(
             select(JST_SIZE_STOCK_TABLE.c.product_code, JST_SIZE_STOCK_TABLE.c.size, func.sum(JST_SIZE_STOCK_TABLE.c.stock_qty).label("qty"))
@@ -2169,15 +2372,13 @@ def list_fine_table(
                         "uv": _to_int(row["uv"]),
                     }
 
-        max_order_day = conn.execute(select(func.max(JST_MONTHLY_ORDERS_TABLE.c.order_time_at))).scalar()
-        max_day = max_order_day.date() if isinstance(max_order_day, datetime) else date.today()
+        max_day = rank["order_day"] if rank and rank["order_day"] is not None else _latest_fine_table_order_day(conn)
         start_3, end_window = _date_window(max_day, 3)
         start_7, _ = _date_window(max_day, 7)
         start_15, _ = _date_window(max_day, 15)
         start_30, _ = _date_window(max_day, 30)
 
         orders_by_sku: dict[str, dict[str, Any]] = {sku: _empty_order_bucket() for sku in skus}
-        original_orders_by_sku: dict[str, dict[str, Any]] = {sku: _empty_order_bucket() for sku in skus}
         original_orders_by_code: dict[str, dict[str, Any]] = {
             original_sku: _empty_order_bucket()
             for original_sku in original_skus_by_code
@@ -2278,6 +2479,12 @@ def list_fine_table(
         vip_price = _to_float(ops.get("vip_price"))
         sales = vip_sales_by_sku.get(sku, {})
         vip_1, vip_3, vip_7, vip_15, vip_30 = (sales.get(days, 0) for days in (1, 3, 7, 15, 30))
+        ranked_sales = None
+        if rank is not None:
+            source_id = -product["id"] if gj_fine_table_brand is not None else product["id"]
+            ranked_sales = rank["scores"][source_id]
+        if ranked_sales is not None and sort_by == "vip_3d_sales":
+            vip_3 = ranked_sales[0]
         vip_3d_sales_change_rate = _change_rate(vip_3, sales.get(6, 0) - vip_3)
         vip_7d_sales_change_rate = _change_rate(vip_7, sales.get(14, 0) - vip_7)
         original_vip_7 = sum(
@@ -2310,6 +2517,8 @@ def list_fine_table(
         )
         other_30 = _to_int(orders.get("other_30"))
         original_other_7 = _to_int(original_orders.get("other_7"))
+        if ranked_sales is not None and sort_by == "original_all_7d_sales":
+            original_vip_7, original_other_7 = ranked_sales
         vip_daily_average = vip_3 / 3 if vip_3 else 0
         daily_average = vip_daily_average
         projected_15 = stock_qty + inbound_qty - round(daily_average * 15)
@@ -2413,7 +2622,10 @@ def list_fine_table(
     }
     if fetch_all_rows:
         set_fine_table_result_cache(result_cache_key, payload)
-        payload = _fine_table_filtered_page(payload, payload_filters, page=page, page_size=page_size, include_all=include_all)
+        payload = _fine_table_filtered_page(
+            payload, payload_filters, page=page, page_size=page_size, include_all=include_all,
+            sort_by=sort_by, sort_direction=sort_direction,
+        )
     if not include_all:
         set_fine_table_cache(cache_key, payload)
     return payload

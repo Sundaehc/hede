@@ -112,7 +112,8 @@ def test_snapshot_text_filters_use_correct_payload_and_null_safe_exclusion():
     assert "coalesce" in sql and "NOT IN" in sql
 
 
-def test_snapshot_text_filters_paginate_in_database(monkeypatch):
+@pytest.mark.parametrize("sort_by", [None, "vip_3d_sales", "original_all_7d_sales"])
+def test_snapshot_text_filters_paginate_in_database(monkeypatch, sort_by):
     batch = {"id": 42, "brand": "cbanner_mens", "snapshot_date": date(2026, 10, 12), "total_rows": 20000}
     connection = Mock()
     connection.execute.return_value.mappings.return_value.first.return_value = batch
@@ -133,11 +134,18 @@ def test_snapshot_text_filters_paginate_in_database(monkeypatch):
     response = fine_table.get_fine_table_snapshot(
         request, batch_id=42, query="A_1", sku_prefix="A_",
         filters='[{"field":"factory_name","operator":"in","values":["工厂A"]}]', page=2, page_size=80,
+        sort_by=sort_by,
     )
     assert response["total"] == 7
     arguments = loader.call_args.kwargs
     assert arguments["page"] == 2 and arguments["page_size"] == 80
     assert len(arguments["payload_conditions"]) == 1
+    if sort_by:
+        ordering = arguments["order_by"].compile(dialect=postgresql.dialect())
+        assert sort_by in ordering.params.values()
+        assert "CAST(" in str(ordering) and "DESC NULLS LAST" in str(ordering)
+    else:
+        assert "order_by" not in arguments
     assert any("%A!_1%" in condition.compile(dialect=postgresql.dialect()).params.values() for condition in arguments["conditions"])
     assert any("A!_%" in condition.compile(dialect=postgresql.dialect()).params.values() for condition in arguments["conditions"])
 

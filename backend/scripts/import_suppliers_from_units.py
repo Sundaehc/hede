@@ -229,6 +229,7 @@ def import_suppliers(path: Path) -> dict[str, int]:
     updated = 0
     skipped = 0
     with repository.engine.begin() as connection:
+        repository.lock_supplier_changes(connection)
         existing_rows = [dict(row) for row in connection.execute(select(SUPPLIER_TABLE)).mappings()]
         by_code = {
             (str(row["brand"]), str(row["factory_code"])): row
@@ -243,6 +244,11 @@ def import_suppliers(path: Path) -> dict[str, int]:
 
         for record in records:
             existing = by_code.get((record["brand"], record["factory_code"])) or by_name.get((record["brand"], record["name"]))
+            if (existing is None or existing["name"] != record["name"]) and repository.supplier_name_exists(
+                connection, record["name"], except_id=existing["id"] if existing else None,
+            ):
+                skipped += 1
+                continue
             if existing is None:
                 connection.execute(insert(SUPPLIER_TABLE).values(**record))
                 inserted += 1

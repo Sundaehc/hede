@@ -3,23 +3,30 @@ from __future__ import annotations
 import io
 import urllib.parse
 from decimal import Decimal
+from typing import Literal
 
 from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
 from openpyxl import Workbook
+from pydantic import BaseModel, Field
 from sqlalchemy import text
+from sqlalchemy.exc import IntegrityError
 
 from api.excel_export import style_excel_worksheet
 from api.fine_table_cache import clear_fine_table_cache
 from api.operation_log_utils import (
     SUPPLIER_FIELD_LABELS,
+    actor_from_request,
     build_changed_fields,
     summarize_changes,
     write_operation_log,
 )
 from api.product_goods_cache import clear_product_goods_cache
+from api.routes.auth import user_has_permission
 from domain.gj_brand import CBANNER_MENS_BRAND, EBLAN_BRAND, EBLAN_WOMENS_SUPPLIER_BRAND, infer_supplier_brand_from_name
 from domain.schema import PRODUCT_ARCHIVE_TABLES
+from domain.supplier_change_schema import SupplierChangeConflict, SupplierNameExists
+from storage.auth_repository import normalize_department_code
 from storage.date_normalization import parse_date
 
 router = APIRouter()
@@ -273,9 +280,9 @@ def create_supplier(request: Request, payload: dict, confirm_cross_brand_code: b
         raise HTTPException(status_code=400, detail="供应商名称不能为空")
     payload["name"] = name
     payload["brand"] = normalized_brand
-    existing = repository.get_supplier_by_name(name, brand=normalized_brand)
+    existing = repository.get_supplier_by_name(name)
     if existing:
-        raise HTTPException(status_code=400, detail=f"供应商 '{name}' 已存在")
+        raise HTTPException(status_code=400, detail=str(SupplierNameExists(name)))
     factory_code = str(payload.get("factory_code") or "").strip()
     if factory_code and not confirm_cross_brand_code:
         conflicts = repository.list_supplier_factory_code_conflicts(factory_code, brand=normalized_brand)
@@ -288,7 +295,10 @@ def create_supplier(request: Request, payload: dict, confirm_cross_brand_code: b
                 status_code=409,
                 detail=f"工厂代码“{factory_code}”已在其他品牌中使用：{labels}。是否继续创建？",
             )
-    item = repository.create_supplier(payload)
+    try:
+        item = repository.create_supplier(payload)
+    except SupplierNameExists as error:
+        raise HTTPException(400, str(error)) from error
     label = str(item.get("name") or item.get("id") or "").strip()
     write_operation_log(
         request,
@@ -302,6 +312,97 @@ def create_supplier(request: Request, payload: dict, confirm_cross_brand_code: b
         after_data=item,
     )
     return {"item": item, "message": "创建成功"}
+
+
+def _supplier_change_user(request: Request):
+    actor = actor_from_request(request)
+    if not actor or not actor.get("id"):
+        raise HTTPException(401, "请先登录")
+    if not any(user_has_permission(actor, permission) for permission in ("supplier.manage", "inventory.manage")):
+        raise HTTPException(403, "没有供应商管理权限")
+    return actor
+
+
+def _can_review_supplier_changes(actor):
+    return normalize_department_code(actor.get("department_code")) == "商品部"
+
+
+def _public_supplier_change(row):
+    return {
+        **{key: value for key, value in row.items() if key not in {"before", "proposed"}},
+        "supplier_name": row["before"]["name"],
+        "supplier_brand": row["before"]["brand"],
+        "supplier_factory_code": row["before"]["factory_code"],
+        "changes": build_changed_fields(row["before"], row["proposed"], SUPPLIER_FIELD_LABELS),
+    }
+
+
+def _record_supplier_update(request: Request, outcome):
+    before, record = outcome["before"], outcome["item"]
+    if (before.get("name"), before.get("brand")) != (record.get("name"), record.get("brand")):
+        clear_fine_table_cache()
+        clear_product_goods_cache()
+    label = record["name"]
+    changes = build_changed_fields(before, record, SUPPLIER_FIELD_LABELS)
+    if changes:
+        write_operation_log(
+            request, module="supplier", action="update", entity_type="supplier", entity_id=record["id"],
+            entity_label=label, summary=summarize_changes("编辑供应商", label, changes),
+            changed_fields=changes, before_data=before, after_data=record,
+        )
+    if outcome.get("history_sync_skipped"):
+        return record, "已更新供应商；因品牌变更或存在同名档案，历史单据保留原名称，请按单核对"
+    return record, "供应商已更新"
+
+
+@router.get("/suppliers/change-requests")
+def list_supplier_changes(request: Request, page: int = Query(1, ge=1),
+                          status: Literal["pending", "approved", "rejected", "all"] = "pending"):
+    actor = _supplier_change_user(request)
+    can_review = _can_review_supplier_changes(actor)
+    response = request.app.state.inventory_repository.list_supplier_changes(
+        page=page, status=status, requester_id=None if can_review else actor["id"],
+    )
+    return {**response, "items": [_public_supplier_change(row) for row in response["items"]],
+            "can_review": can_review}
+
+
+class SupplierReviewDecision(BaseModel):
+    decision: Literal["approve", "reject"]
+    note: str = Field(default="", max_length=1000)
+
+
+@router.put("/suppliers/change-requests/{request_id}")
+def review_supplier_change(request: Request, request_id: int, body: SupplierReviewDecision):
+    actor = _supplier_change_user(request)
+    if not _can_review_supplier_changes(actor):
+        raise HTTPException(403, "仅商品组可审核供应商变更")
+    approved = body.decision == "approve"
+    note = body.note.strip()
+    if not approved and not note:
+        raise HTTPException(400, "请填写驳回原因")
+    try:
+        outcome = request.app.state.inventory_repository.review_supplier_change(
+            request_id, approved=approved, note=note, actor=actor,
+        )
+    except PermissionError as error:
+        raise HTTPException(403, str(error)) from error
+    except SupplierChangeConflict as error:
+        raise HTTPException(409, str(error)) from error
+    except IntegrityError as error:
+        if getattr(error.orig, "sqlstate", None) != "23505":
+            raise
+        raise HTTPException(409, "供应商档案或申请已变化，请刷新后重试") from error
+    if outcome is None:
+        raise HTTPException(404, "申请不存在")
+    message = _record_supplier_update(request, outcome)[1] if approved else "申请已驳回"
+    review = _public_supplier_change(outcome["review"])
+    write_operation_log(
+        request, module="supplier", action="approve_change" if approved else "reject_change",
+        entity_type="supplier_change_request", entity_id=request_id, entity_label=review["supplier_name"],
+        summary=f"供应商变更申请 #{request_id}：{message}", after_data=review,
+    )
+    return {"review": review, "message": message}
 
 
 @router.get("/suppliers/{supplier_id}")
@@ -320,37 +421,29 @@ def update_supplier(request: Request, supplier_id: int, payload: dict):
     if brand == EBLAN_BRAND and infer_supplier_brand_from_name(name) == EBLAN_WOMENS_SUPPLIER_BRAND:
         brand = EBLAN_WOMENS_SUPPLIER_BRAND
     normalized_brand = _normalize_brand(repository, str(brand))
-    if not name:
-        raise HTTPException(status_code=400, detail="供应商名称不能为空")
-    existing = repository.get_supplier_by_name(name, brand=normalized_brand)
-    if existing and existing.get("id") != supplier_id:
-        raise HTTPException(status_code=400, detail=f"供应商 '{name}' 已存在")
-    payload["name"] = name
-    payload["brand"] = normalized_brand
-    before = repository.get_supplier(supplier_id)
-    if before is None:
-        raise HTTPException(status_code=404, detail="Supplier not found")
-    record = repository.update_supplier(supplier_id, payload)
-    if record is None:
-        raise HTTPException(status_code=404, detail="Supplier not found")
-    if str(before.get("name") or "").strip() != str(record.get("name") or "").strip():
-        clear_fine_table_cache()
-        clear_product_goods_cache()
-    label = str(record.get("name") or before.get("name") or supplier_id).strip()
-    changes = build_changed_fields(before, record, SUPPLIER_FIELD_LABELS)
-    write_operation_log(
-        request,
-        module="supplier",
-        action="update",
-        entity_type="supplier",
-        entity_id=supplier_id,
-        entity_label=label,
-        summary=summarize_changes("编辑供应商", label, changes),
-        changed_fields=changes,
-        before_data=before,
-        after_data=record,
-    )
-    return {"item": record, "message": "更新成功，相关商品资料和供应商单据已同步"}
+    if not name or not normalized_brand:
+        raise HTTPException(status_code=400, detail="请填写供应商名称并选择品牌")
+    payload.update(name=name, brand=normalized_brand)
+    try:
+        outcome = repository.update_supplier(supplier_id, payload, actor=actor_from_request(request))
+    except SupplierChangeConflict as error:
+        raise HTTPException(409, str(error)) from error
+    except IntegrityError as error:
+        if getattr(error.orig, "sqlstate", None) != "23505":
+            raise
+        raise HTTPException(409, "供应商档案或申请已变化，请刷新后重试") from error
+    if outcome is None:
+        raise HTTPException(404, "Supplier not found")
+    if "review" in outcome:
+        review = _public_supplier_change(outcome["review"])
+        write_operation_log(
+            request, module="supplier", action="request_change", entity_type="supplier_change_request",
+            entity_id=review["id"], entity_label=review["supplier_name"],
+            summary=f"提交供应商变更申请 #{review['id']}", after_data=review,
+        )
+        return {"review": review, "message": f"申请 #{review['id']} 已提交，等待商品组审核后生效"}
+    record, message = _record_supplier_update(request, outcome)
+    return {"item": record, "message": message, "history_sync_skipped": outcome.get("history_sync_skipped", False)}
 
 
 @router.delete("/suppliers/{supplier_id}")
@@ -359,7 +452,11 @@ def delete_supplier(request: Request, supplier_id: int):
     before = repository.get_supplier(supplier_id)
     if before is None:
         raise HTTPException(status_code=404, detail="Supplier not found")
-    if not repository.delete_supplier(supplier_id):
+    try:
+        deleted = repository.delete_supplier(supplier_id)
+    except SupplierChangeConflict as error:
+        raise HTTPException(409, str(error)) from error
+    if not deleted:
         raise HTTPException(status_code=404, detail="Supplier not found")
     label = str(before.get("name") or supplier_id).strip()
     write_operation_log(

@@ -27,6 +27,7 @@ BRAND_MARKERS = {
 
 def load_vip_sales_windows(
     connection: Connection, skus: Iterable[str | None], *, brand: str,
+    windows: tuple[int, ...] = WINDOW_DAYS, end_date: date | None = None,
 ) -> tuple[date | None, dict[str, dict[int, int]]]:
     """Sum all size/goods IDs by exact archive SKU, using one shared end day.
 
@@ -40,10 +41,11 @@ def load_vip_sales_windows(
     if not codes or not inspect(connection).has_table(VIP_SALES_FACTS.name):
         return None, {}
     facts = VIP_SALES_FACTS
-    end_date = connection.execute(select(func.max(facts.c.sales_date))).scalar()
+    if end_date is None:
+        end_date = connection.execute(select(func.max(facts.c.sales_date))).scalar()
     if not isinstance(end_date, date):
         return None, {}
-    start_date = end_date - timedelta(days=29)
+    start_date = end_date - timedelta(days=max(windows) - 1)
     totals = {}
     # Exact SKU matches may occur in different brands. An explicit foreign
     # brand cannot contribute; older blank brand labels remain usable.
@@ -51,19 +53,20 @@ def load_vip_sales_windows(
         facts.c.brand_name.is_(None), func.trim(facts.c.brand_name) == "",
         *(facts.c.brand_name.ilike(f"%{marker}%") for marker in markers),
     )
-    for start in range(0, len(codes), SKU_BATCH_SIZE):
+    batch_size = 4000 if len(windows) == 1 else SKU_BATCH_SIZE
+    for start in range(0, len(codes), batch_size):
         rows = connection.execute(select(
             facts.c.goods_code,
             *(func.coalesce(func.sum(case(
                 (facts.c.sales_date >= end_date - timedelta(days=days - 1),
                  func.coalesce(facts.c.sales_quantity, 0)), else_=0,
-            )), 0).label(f"days_{days}") for days in WINDOW_DAYS),
+            )), 0).label(f"days_{days}") for days in windows),
         ).where(
-            facts.c.goods_code.in_(codes[start:start + SKU_BATCH_SIZE]),
+            facts.c.goods_code.in_(codes[start:start + batch_size]),
             facts.c.sales_date.between(start_date, end_date), brand_condition,
         ).group_by(facts.c.goods_code)).mappings()
         for row in rows:
-            totals[row["goods_code"]] = {days: int(row[f"days_{days}"] or 0) for days in WINDOW_DAYS}
+            totals[row["goods_code"]] = {days: int(row[f"days_{days}"] or 0) for days in windows}
     return end_date, totals
 
 

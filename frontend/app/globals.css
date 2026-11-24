@@ -181,6 +181,27 @@
   .table-row {
     @apply transition-colors hover:bg-muted/35;
   }
+
+  .striped-table-row {
+    @apply transition-colors;
+    --striped-row-bg: var(--card);
+    background-color: var(--striped-row-bg);
+  }
+
+  .striped-table-row:nth-child(even) {
+    --striped-row-bg: color-mix(in oklab, var(--card), var(--foreground) 11%);
+  }
+
+  .striped-table-row:hover {
+    --striped-row-bg: color-mix(in oklab, var(--card), var(--foreground) 22%);
+    --muted-foreground: color-mix(in oklab, var(--card), var(--foreground) 72%);
+    --striped-row-hover-destructive: color-mix(in oklab, var(--destructive), var(--foreground) 20%);
+    background-color: var(--striped-row-bg);
+  }
+
+  .striped-table-row:hover .text-destructive {
+    --destructive: var(--striped-row-hover-destructive);
+  }
 }
 .sidebar-scroll-area {
   scrollbar-width: thin;

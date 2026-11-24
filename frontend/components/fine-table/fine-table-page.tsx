@@ -38,12 +38,13 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { useAuth } from "@/components/auth/auth-provider"
+import { SortableColumnLabel } from "@/components/inventory-admin/sortable-column-label"
 import { OperationLogDialog } from "@/components/operation-log-dialog"
 import { Input } from "@/components/ui/input"
 import { DatePicker } from "@/components/ui/date-picker"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { BRANDS, type BrandKey } from "@/lib/brands"
-import { ApiError, getFineTableSnapshotByDate, listFineTable, listFineTableFilterOptions, logFineTableExport, type FineTableFilter, type FineTableFilterField, type FineTableFilterOption, type FineTableFilterOptionsResponse } from "@/lib/api"
+import { ApiError, getFineTableSnapshotByDate, listFineTable, listFineTableFilterOptions, logFineTableExport, type FineTableFilter, type FineTableFilterField, type FineTableFilterOption, type FineTableFilterOptionsResponse, type FineTableSort } from "@/lib/api"
 import type { FineTableItem, FineTableResponse, FineTableSnapshotResponse, ProductListItem } from "@/lib/types"
 import { cn } from "@/lib/utils"
 
@@ -53,6 +54,7 @@ const EXPORT_CONCURRENCY = 3
 const FINE_TABLE_PAGE_CACHE_LIMIT = 80
 const FINE_TABLE_CLIENT_CACHE_TTL_MS = 5 * 60 * 1000
 const DAILY_SALES_DISPLAY_DAYS = 5
+const DEFAULT_FINE_TABLE_SORT: FineTableSort = { field: "vip_3d_sales", direction: "desc" }
 type ViewKey = "all" | "missingImage" | "stockRisk"
 type ColumnMode = "full" | "custom"
 type ColumnGroup = "基础" | "价格" | "销售" | "库存" | "每日" | "尺码"
@@ -89,6 +91,7 @@ type FineTablePageContext = {
   skuPrefix: string
   filters: FineTableFilter[]
   reloadToken: number
+  sort: FineTableSort
 }
 type ActiveFineTableColumnFilter = { field: FineTableFilterField; label: string; top: number; left: number }
 type ColumnFilterSortOrder = "asc" | "desc"
@@ -173,7 +176,6 @@ const viewTabs: { value: ViewKey; label: string }[] = [
 const FINE_TABLE_BRANDS = BRANDS.filter((item) => item.key !== "all") as Array<{ key: FineTableBrandKey; label: string }>
 const DEFAULT_FINE_TABLE_BRAND: FineTableBrandKey = "cbanner_mens"
 const fineTablePageCache = new Map<string, FineTablePageCacheEntry>()
-const fineTablePagePrefetching = new Set<string>()
 const fineTableColumnFilterCache = new Map<string, FineTableColumnFilterCacheEntry>()
 
 const SIZE_STOCK_LABELS = [
@@ -1228,6 +1230,10 @@ function DetailDrawer({ row, onClose }: { row: FineTableItem | null; onClose: ()
   )
 }
 
+function isFineTableSortable(column: TableColumn) {
+  return Boolean(column.align) && ["销售", "库存", "每日", "尺码"].includes(column.group)
+}
+
 const FineTableGrid = memo(function FineTableGrid({
   activeFilters,
   error,
@@ -1238,7 +1244,9 @@ const FineTableGrid = memo(function FineTableGrid({
   onPageChange,
   onPreviewImage,
   onSelectRow,
+  onSort,
   page,
+  sort,
   total,
   totalPages,
   visibleColumns,
@@ -1252,7 +1260,9 @@ const FineTableGrid = memo(function FineTableGrid({
   onPageChange: (page: number) => void
   onPreviewImage: (row: FineTableItem) => void
   onSelectRow: (row: FineTableItem) => void
+  onSort: (field: string) => void
   page: number
+  sort: FineTableSort
   total: number
   totalPages: number
   visibleColumns: TableColumn[]
@@ -1263,6 +1273,27 @@ const FineTableGrid = memo(function FineTableGrid({
     1500,
     500 + visibleColumns.reduce((sum, column) => sum + (column.dailyMetricLabel ? 68 : 120), 0),
   )
+  function sortDirection(column: TableColumn) {
+    if (sort.field !== column.key) return undefined
+    return sort.direction === "asc" ? "ascending" : "descending"
+  }
+
+  function renderColumnLabel(column: TableColumn) {
+    const label = column.dailyMetricLabel ?? column.label
+    if (isFineTableSortable(column)) {
+      return (
+        <SortableColumnLabel
+          label={label}
+          accessibleLabel={column.dailyDateLabel ? `${column.dailyDateLabel} ${label}` : label}
+          sortRule={sort.field === column.key ? { direction: sort.direction, index: 1, total: 1 } : undefined}
+          onClick={() => onSort(column.key)}
+          toggleOnly
+        />
+      )
+    }
+    return <span className={cn("block whitespace-nowrap", column.filterField && activeFilterFields.has(column.filterField) && "font-semibold text-foreground")}>{label}</span>
+  }
+
   const headerCells: ReactNode[] = []
   for (let index = 0; index < visibleColumns.length; index += 1) {
     const column = visibleColumns[index]
@@ -1289,6 +1320,7 @@ const FineTableGrid = memo(function FineTableGrid({
       <th
         key={column.key}
         rowSpan={hasDailyColumns ? 2 : 1}
+        aria-sort={sortDirection(column)}
         className={cn(
           "border-b border-border px-3 py-2.5 font-medium",
           tableAlignClass(column.align),
@@ -1296,7 +1328,7 @@ const FineTableGrid = memo(function FineTableGrid({
         )}
       >
         <div className={cn("flex items-center gap-1", tableHeaderContentAlignClass(column.align))}>
-          <span className={cn("block whitespace-nowrap", column.filterField && activeFilterFields.has(column.filterField) && "font-semibold text-foreground")}>{column.label}</span>
+          {renderColumnLabel(column)}
           {filtersEnabled && column.filterField && (
             <FineTableHeaderFilterButton
               field={column.filterField}
@@ -1330,13 +1362,14 @@ const FineTableGrid = memo(function FineTableGrid({
                 {visibleColumns.filter((column) => column.dailyMetricLabel).map((column) => (
                   <th
                     key={column.key}
+                    aria-sort={sortDirection(column)}
                     className={cn(
                       "border-b border-border px-3 py-2 text-center font-medium",
                       column.className,
                     )}
                   >
                     <div className="flex items-center justify-center gap-1">
-                      <span className={cn(column.filterField && activeFilterFields.has(column.filterField) && "font-semibold text-foreground")}>{column.dailyMetricLabel}</span>
+                      {renderColumnLabel(column)}
                       {filtersEnabled && column.filterField && (
                         <FineTableHeaderFilterButton
                           field={column.filterField}
@@ -1368,8 +1401,8 @@ const FineTableGrid = memo(function FineTableGrid({
               </tr>
             )}
             {!isLoading && !error && filteredRows.map((row) => (
-              <tr key={`${row.brand}-${row.id}`} className="group transition-colors hover:bg-muted/50">
-                <td className="sticky left-0 z-20 w-20 min-w-[5rem] max-w-[5rem] border-b border-border bg-card px-3 py-2 text-center group-hover:bg-muted">
+              <tr key={`${row.brand}-${row.id}`} className="striped-table-row">
+                <td className="sticky left-0 z-20 w-20 min-w-[5rem] max-w-[5rem] border-b border-border bg-(--striped-row-bg) px-3 py-2 text-center transition-colors">
                   <button
                     type="button"
                     className={cn(
@@ -1386,10 +1419,10 @@ const FineTableGrid = memo(function FineTableGrid({
                     <ProductThumb item={row} />
                   </button>
                 </td>
-                <td className="sticky left-20 z-20 w-40 min-w-[10rem] max-w-[10rem] border-b border-border bg-card px-3 py-2 text-left group-hover:bg-muted">
+                <td className="sticky left-20 z-20 w-40 min-w-[10rem] max-w-[10rem] border-b border-border bg-(--striped-row-bg) px-3 py-2 text-left transition-colors">
                   <p className="truncate font-medium">{row.sku || "-"}</p>
                 </td>
-                <td className="sticky left-60 z-20 w-40 min-w-[10rem] max-w-[10rem] border-b border-border bg-card px-3 py-2 text-left group-hover:bg-muted">
+                <td className="sticky left-60 z-20 w-40 min-w-[10rem] max-w-[10rem] border-b border-border bg-(--striped-row-bg) px-3 py-2 text-left transition-colors">
                   <p className="truncate text-sm">{row.original_sku || "-"}</p>
                 </td>
                 {visibleColumns.map((column) => (
@@ -1404,7 +1437,7 @@ const FineTableGrid = memo(function FineTableGrid({
                     {column.render(row)}
                   </td>
                 ))}
-                <td className="sticky right-0 z-20 w-20 min-w-[5rem] max-w-[5rem] border-b border-border bg-card px-3 py-2 text-center group-hover:bg-muted">
+                <td className="sticky right-0 z-20 w-20 min-w-[5rem] max-w-[5rem] border-b border-border bg-(--striped-row-bg) px-3 py-2 text-center transition-colors">
                   <Button variant="ghost" size="icon" onClick={() => onSelectRow(row)} aria-label="查看详情">
                     <ChevronRight className="h-4 w-4" />
                   </Button>
@@ -1440,7 +1473,7 @@ function getMaxHistoryDate() {
 }
 
 function fineTablePageCacheKey(context: FineTablePageContext, page: number) {
-  return JSON.stringify([context.brand, context.historyDate, context.query, context.skuPrefix, context.filters, context.reloadToken, page])
+  return JSON.stringify([context.brand, context.historyDate, context.query, context.skuPrefix, context.filters, context.reloadToken, context.sort.field, context.sort.direction, page])
 }
 
 function fineTableResponseToCacheEntry(response: FineTableResponse | FineTableSnapshotResponse): FineTablePageCacheEntry {
@@ -1473,6 +1506,7 @@ async function loadFineTablePage(context: FineTablePageContext, page: number) {
       query: context.query || undefined,
       skuPrefix: context.skuPrefix || undefined,
       filters: context.filters.length ? context.filters : undefined,
+      sort: context.sort,
     })
     : await listFineTable({
       brand: context.brand,
@@ -1481,6 +1515,7 @@ async function loadFineTablePage(context: FineTablePageContext, page: number) {
       query: context.query || undefined,
       skuPrefix: context.skuPrefix || undefined,
       filters: context.filters.length ? context.filters : undefined,
+      sort: context.sort,
       cacheBust: context.reloadToken || undefined,
     })
 
@@ -1529,6 +1564,7 @@ export function FineTablePage() {
   const [filters, setFilters] = useSessionQueryState<FineTableFilter[]>("fine-table:filters", [])
   const [view, setView] = useSessionQueryState<ViewKey>("fine-table:view", "all")
   const [historyDate, setHistoryDate] = useSessionQueryState("fine-table:historyDate", "")
+  const [sort, setSort] = useSessionQueryState<FineTableSort>("fine-table:sort", DEFAULT_FINE_TABLE_SORT)
   const [reloadToken, setReloadToken] = useState(0)
   const initialCacheEntry = getCachedFineTablePage(fineTablePageCache, fineTablePageCacheKey({
     brand,
@@ -1537,6 +1573,7 @@ export function FineTablePage() {
     skuPrefix,
     filters,
     reloadToken,
+    sort,
   }, page))
   const [items, setItems] = useState<FineTableItem[]>(() => initialCacheEntry?.items ?? [])
   const [total, setTotal] = useState(() => initialCacheEntry?.total ?? 0)
@@ -1569,7 +1606,6 @@ export function FineTablePage() {
   const loadRequestIdRef = useRef(0)
   const columnFilterRequestIdRef = useRef(0)
   const pageCacheRef = useRef(fineTablePageCache)
-  const prefetchingPagesRef = useRef(fineTablePagePrefetching)
 
   const maxHistoryDate = getMaxHistoryDate()
   const canExportFineTable = hasPermission("fine_table.export")
@@ -1608,36 +1644,14 @@ export function FineTablePage() {
     const requestId = loadRequestIdRef.current + 1
     loadRequestIdRef.current = requestId
     const isCurrentRequest = () => !cancelled && loadRequestIdRef.current === requestId
-    const context: FineTablePageContext = { brand, historyDate, query, skuPrefix, filters, reloadToken }
+    const context: FineTablePageContext = { brand, historyDate, query, skuPrefix, filters, reloadToken, sort }
     const cacheKey = fineTablePageCacheKey(context, page)
-
-    function prefetchPage(pageToPrefetch: number, totalPageCount: number) {
-      if (pageToPrefetch < 1 || pageToPrefetch > totalPageCount) return
-
-      const prefetchKey = fineTablePageCacheKey(context, pageToPrefetch)
-      if (getCachedFineTablePage(pageCacheRef.current, prefetchKey) || prefetchingPagesRef.current.has(prefetchKey)) return
-
-      prefetchingPagesRef.current.add(prefetchKey)
-      void loadFineTablePage(context, pageToPrefetch)
-        .then((entry) => {
-          rememberFineTablePage(pageCacheRef.current, prefetchKey, entry)
-        })
-        .catch(() => {
-          // Prefetch is only a speed-up; the active page request will surface real errors.
-        })
-        .finally(() => {
-          prefetchingPagesRef.current.delete(prefetchKey)
-        })
-    }
 
     const cachedEntry = getCachedFineTablePage(pageCacheRef.current, cacheKey)
     if (cachedEntry) {
       applyPageEntry(cachedEntry)
       setError(null)
       setIsLoading(false)
-      const cachedTotalPages = Math.max(1, Math.ceil(cachedEntry.total / PAGE_SIZE))
-      prefetchPage(page - 1, cachedTotalPages)
-      prefetchPage(page + 1, cachedTotalPages)
       return () => {
         cancelled = true
       }
@@ -1651,9 +1665,6 @@ export function FineTablePage() {
         if (!isCurrentRequest()) return
         rememberFineTablePage(pageCacheRef.current, cacheKey, entry)
         applyPageEntry(entry)
-        const loadedTotalPages = Math.max(1, Math.ceil(entry.total / PAGE_SIZE))
-        prefetchPage(page - 1, loadedTotalPages)
-        prefetchPage(page + 1, loadedTotalPages)
       } catch (loadError) {
         if (!isCurrentRequest()) return
         setItems([])
@@ -1669,7 +1680,7 @@ export function FineTablePage() {
     return () => {
       cancelled = true
     }
-  }, [brand, filters, historyDate, page, query, skuPrefix, reloadToken])
+  }, [brand, filters, historyDate, page, query, skuPrefix, reloadToken, sort])
 
   useEffect(() => {
     if (!activeColumnFilter) return
@@ -1751,6 +1762,10 @@ export function FineTablePage() {
     return recentDailyLabels(historyDate || snapshotLabel || latestOrderDate)
   }, [historyDate, latestOrderDate, snapshotLabel])
   const tableColumns = useMemo(() => createTableColumns(dailyLabels), [dailyLabels])
+  const sortedColumn = tableColumns.find((column) => column.key === sort.field)
+  const sortLabel = sortedColumn?.dailyMetricLabel
+    ? `${sortedColumn.dailyDateLabel} ${sortedColumn.dailyMetricLabel}`
+    : sortedColumn?.label
   const visibleColumns = useMemo(() => {
     if (columnMode === "custom") {
       const selected = new Set(customColumnKeys)
@@ -2009,29 +2024,10 @@ export function FineTablePage() {
     return false
   }
 
-  function prefetchBrandPage(nextBrand: FineTableBrandKey) {
-    if (nextBrand === brand) return
-    const context = { brand: nextBrand, historyDate, query, skuPrefix, filters: [], reloadToken }
-    const prefetchKey = fineTablePageCacheKey(context, 1)
-    if (getCachedFineTablePage(pageCacheRef.current, prefetchKey) || prefetchingPagesRef.current.has(prefetchKey)) return
-
-    prefetchingPagesRef.current.add(prefetchKey)
-    void loadFineTablePage(context, 1)
-      .then((entry) => {
-        rememberFineTablePage(pageCacheRef.current, prefetchKey, entry)
-      })
-      .catch(() => {
-        // Hover prefetch is opportunistic; active tab loading will surface real errors.
-      })
-      .finally(() => {
-        prefetchingPagesRef.current.delete(prefetchKey)
-      })
-  }
-
   function handleBrandChange(nextBrand: FineTableBrandKey) {
     if (nextBrand === brand) return
     loadRequestIdRef.current += 1
-    const nextContext = { brand: nextBrand, historyDate, query, skuPrefix, filters: [], reloadToken }
+    const nextContext = { brand: nextBrand, historyDate, query, skuPrefix, filters: [], reloadToken, sort }
     setBrand(nextBrand)
     setFilters([])
     setPage(1)
@@ -2042,7 +2038,7 @@ export function FineTablePage() {
 
   function clearHistoryDate() {
     if (!historyDate) return
-    const nextContext = { brand, historyDate: "", query, skuPrefix, filters, reloadToken }
+    const nextContext = { brand, historyDate: "", query, skuPrefix, filters, reloadToken, sort }
     setHistoryDate("")
     setPage(1)
     showCachedPageOrLoading(nextContext, 1, null)
@@ -2060,11 +2056,23 @@ export function FineTablePage() {
       setError("历史日期只能选择今天以前")
       return
     }
-    const nextContext = { brand, historyDate: nextDate, query, skuPrefix, filters: [], reloadToken }
+    const nextContext = { brand, historyDate: nextDate, query, skuPrefix, filters: [], reloadToken, sort }
     setHistoryDate(nextDate)
     setFilters([])
     setPage(1)
     showCachedPageOrLoading(nextContext, 1, nextDate || null)
+  }
+
+  function handleSort(field: string) {
+    const nextSort: FineTableSort = {
+      field,
+      direction: sort.field === field && sort.direction === "desc" ? "asc" : "desc",
+    }
+    loadRequestIdRef.current += 1
+    setSort(nextSort)
+    setPage(1)
+    setError(null)
+    setIsLoading(true)
   }
 
   function handlePageChange(nextPage: number) {
@@ -2089,6 +2097,7 @@ export function FineTablePage() {
             query: query || undefined,
             skuPrefix: skuPrefix || undefined,
             filters: filters.length ? filters : undefined,
+            sort,
           })
           : listFineTable({
             brand,
@@ -2097,6 +2106,7 @@ export function FineTablePage() {
             query: query || undefined,
             skuPrefix: skuPrefix || undefined,
             filters: filters.length ? filters : undefined,
+            sort,
             cacheBust: reloadToken || undefined,
           })
       )
@@ -2187,8 +2197,6 @@ export function FineTablePage() {
                     <TabsTrigger
                       key={item.key}
                       value={item.key}
-                      onFocus={() => prefetchBrandPage(item.key)}
-                      onMouseEnter={() => prefetchBrandPage(item.key)}
                       className="cursor-pointer rounded-lg border border-transparent bg-muted/45 px-3 py-1.5 text-xs font-medium text-muted-foreground transition-all duration-150 hover:bg-muted hover:text-foreground data-[state=active]:border-border data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-sm"
                     >
                       {item.label}
@@ -2199,6 +2207,7 @@ export function FineTablePage() {
               <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
                 <span className="inline-flex h-7 items-center rounded-full border border-border bg-muted/40 px-3">当前 {formatNumber(total)} 条</span>
                 <span className="inline-flex h-7 items-center rounded-full border border-border bg-muted/40 px-3">显示 {formatNumber(visibleColumns.length)} 列</span>
+                {sortLabel && <span className="inline-flex h-7 items-center rounded-full border border-border bg-muted/40 px-3">{sortLabel} · {sort.direction === "asc" ? "升序" : "降序"}</span>}
                 <span className="inline-flex h-7 items-center rounded-full border border-border bg-muted/40 px-3">视图 {columnMode === "full" ? "完整" : "自定义"}</span>
               </div>
             </div>
@@ -2251,7 +2260,7 @@ export function FineTablePage() {
                   }
                 />
               </div>
-              <Button variant="outline" className="h-8 px-3 text-xs font-semibold" onClick={() => setReloadToken((current) => current + 1)}>
+              <Button variant="outline" className="h-8 px-3 text-xs font-semibold" onClick={() => setReloadToken((current) => Math.max(Date.now(), current + 1))}>
                 <RefreshCw className="h-4 w-4" />
                 刷新
               </Button>
@@ -2434,7 +2443,9 @@ export function FineTablePage() {
                 })
               }}
               onSelectRow={setSelectedRow}
+              onSort={handleSort}
               page={page}
+              sort={sort}
               total={total}
               totalPages={totalPages}
               visibleColumns={deferredVisibleColumns}

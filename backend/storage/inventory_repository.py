@@ -22,6 +22,7 @@ from domain.gj_schema import GJ_MERGED_PRODUCT_INFO_TABLE
 from domain.inventory_schema import GENERAL_CUSTOMER_BRAND_TABLE, GENERAL_CUSTOMER_SHOP_TABLE, GENERAL_CUSTOMER_SORT_PREFERENCE_TABLE, GENERAL_CUSTOMER_UNIT_TABLE, INVENTORY_ACCOUNT_SUBJECT_TABLE, INVENTORY_DETAIL_TABLE, INVENTORY_TABLE, JST_STOCK_TABLE, PURCHASE_ORDER_REQUIREMENT_TABLE, PURCHASE_PRINT_TEMPLATE_TABLE, SUPPLIER_BRAND_TABLE, SUPPLIER_TABLE, WAREHOUSE_BRAND_TABLE, WAREHOUSE_TABLE
 from domain.inventory_sources import ACCOUNTING_DOCUMENT_TYPES, ACCOUNT_SUBJECT_CATEGORIES
 from domain.inventory_template_import import validate_template_document_numbers
+from domain.supplier_change_schema import SUPPLIER_CHANGE_TABLE, SupplierChangeConflict, SupplierNameExists
 from domain.inventory_brands import inventory_brand_filter_aliases, inventory_brand_options
 from domain.gj_brand import CBANNER_MENS_BRAND, EBLAN_BRAND, EBLAN_WOMENS_SUPPLIER_BRAND, GJ_FINE_TABLE_BRANDS, SUPPLIER_BRANDS, infer_supplier_brand_from_name
 from domain import jst_stock_snapshot_schema  # noqa: F401 - register JST stock snapshot tables on METADATA
@@ -1059,11 +1060,15 @@ class InventoryRepository:
             }
             missing: list[str] = []
             if supplier_names:
-                known = set(connection.execute(
-                    select(SUPPLIER_TABLE.c.name).where(SUPPLIER_TABLE.c.name.in_(supplier_names))
-                ).scalars())
-                if unknown := supplier_names - known:
+                self.lock_supplier_changes(connection)
+                supplier_counts = dict(connection.execute(
+                    select(SUPPLIER_TABLE.c.name, func.count()).where(SUPPLIER_TABLE.c.name.in_(supplier_names))
+                    .group_by(SUPPLIER_TABLE.c.name)
+                ).all())
+                if unknown := supplier_names - supplier_counts.keys():
                     missing.append(f"供应商（供应商管理）：{'、'.join(sorted(unknown))}")
+                if ambiguous := sorted(name for name, count in supplier_counts.items() if count > 1):
+                    raise ValueError(f"以下供应商全名对应多个品牌：{'、'.join(ambiguous)}。请先核对供应商档案后再导入")
             if warehouse_names:
                 known = set(connection.execute(
                     select(WAREHOUSE_TABLE.c.name).where(WAREHOUSE_TABLE.c.name.in_(warehouse_names))
@@ -1769,45 +1774,171 @@ class InventoryRepository:
             return [dict(row) for row in connection.execute(statement).mappings()]
 
     def create_supplier(self, data: Mapping[str, object]) -> dict[str, object]:
-        statement = insert(SUPPLIER_TABLE).values(**self._prepare_supplier(data)).returning(SUPPLIER_TABLE)
+        payload = self._prepare_supplier(data)
         with self.engine.begin() as connection:
-            row = connection.execute(statement).mappings().one()
+            self.lock_supplier_changes(connection)
+            if self.supplier_name_exists(connection, payload["name"]):
+                raise SupplierNameExists(payload["name"])
+            row = connection.execute(insert(SUPPLIER_TABLE).values(**payload)
+                                     .returning(SUPPLIER_TABLE)).mappings().one()
         return dict(row)
 
-    def update_supplier(self, supplier_id: int, data: Mapping[str, object]) -> dict[str, object] | None:
+    @staticmethod
+    def _supplier_for_update(connection, supplier_id: int):
+        return connection.execute(
+            select(SUPPLIER_TABLE).where(SUPPLIER_TABLE.c.id == supplier_id).with_for_update()
+        ).mappings().first()
+
+    @staticmethod
+    def _normalized_supplier_name(value):
+        return func.lower(func.replace(func.replace(func.trim(value), "（", "("), "）", ")"))
+
+    @classmethod
+    def supplier_name_exists(cls, connection, name: str, *, except_id: int | None = None) -> bool:
+        statement = select(SUPPLIER_TABLE.c.id).where(
+            cls._normalized_supplier_name(SUPPLIER_TABLE.c.name) == cls._normalized_supplier_name(name.strip()),
+        )
+        if except_id is not None:
+            statement = statement.where(SUPPLIER_TABLE.c.id != except_id)
+        return connection.execute(statement.limit(1)).scalar_one_or_none() is not None
+
+    @classmethod
+    def _check_supplier_rename(cls, connection, before, proposed) -> None:
+        # Preserve existing same-name records on unrelated edits; only new identities must be unique.
+        if before["name"] != proposed["name"] and cls.supplier_name_exists(
+            connection, proposed["name"], except_id=before["id"],
+        ):
+            raise SupplierNameExists(proposed["name"])
+
+    @staticmethod
+    def _supplier_expense_count(connection, name: str) -> int:
+        record, detail = INVENTORY_TABLE, INVENTORY_DETAIL_TABLE
+        return connection.execute(select(func.count()).select_from(record).where(
+            record.c.deleted_at.is_(None),
+            record.c.supplier == name,
+            record.c.document_type.in_((*SUPPLIER_LEDGER_INCREASE_TYPES, *SUPPLIER_LEDGER_DECREASE_TYPES)),
+            or_(record.c.amount != 0, select(detail.c.id).where(
+                detail.c.document_id == record.c.id, detail.c.amount != 0,
+            ).exists()),
+        )).scalar_one()
+
+    @staticmethod
+    def _previous_supplier_expense_count(connection, supplier_id: int) -> int:
+        # A new name may no longer match the historical ledger after a reviewed rename.
+        table = SUPPLIER_CHANGE_TABLE
+        return connection.execute(select(func.coalesce(func.max(table.c.expense_document_count), 0)).where(
+            table.c.supplier_id == supplier_id, table.c.status == "approved",
+        )).scalar_one()
+
+    @staticmethod
+    def _supplier_change_actor(actor):
+        return int(actor["id"]), str(actor.get("display_name") or actor.get("username") or actor["id"])
+
+    def update_supplier(self, supplier_id: int, data: Mapping[str, object], *, actor=None):
         with self.engine.begin() as connection:
-            before = connection.execute(
-                select(SUPPLIER_TABLE)
-                .where(SUPPLIER_TABLE.c.id == supplier_id)
-                .with_for_update()
-            ).mappings().first()
+            self.lock_supplier_changes(connection)
+            before = self._supplier_for_update(connection, supplier_id)
             if before is None:
                 return None
+            snapshot = self._prepare_supplier(before)
+            proposed = self._prepare_supplier({**before, **data})
+            if proposed == snapshot:
+                return {"before": dict(before), "item": dict(before)}
+            requests = SUPPLIER_CHANGE_TABLE
+            pending = connection.execute(select(requests.c.id).where(
+                requests.c.supplier_id == supplier_id, requests.c.status == "pending",
+            )).scalar_one_or_none()
+            if pending is not None:
+                raise SupplierChangeConflict(f"该供应商已有待审核申请 #{pending}，请先处理原申请")
+            self._check_supplier_rename(connection, before, proposed)
+            expense_count = self._supplier_expense_count(connection, snapshot["name"])
+            if proposed["name"] != snapshot["name"]:
+                expense_count += self._supplier_expense_count(connection, proposed["name"])
+            if not expense_count:
+                expense_count = self._previous_supplier_expense_count(connection, supplier_id)
+            if expense_count:
+                if not actor or not actor.get("id"):
+                    raise SupplierChangeConflict("该供应商已有费用单据，请登录后提交商品组审核")
+                requester_id, requester_name = self._supplier_change_actor(actor)
+                review = connection.execute(insert(requests).values(
+                    supplier_id=supplier_id, before=snapshot, proposed=proposed,
+                    expense_document_count=expense_count, requester_id=requester_id, requester_name=requester_name,
+                ).returning(requests)).mappings().one()
+                return {"before": dict(before), "review": dict(review)}
+            return self._apply_supplier_change(connection, before, proposed)
 
-            payload = self._prepare_supplier({**before, **data})
+    def list_supplier_changes(self, *, page: int, status: str, requester_id: int | None):
+        table = SUPPLIER_CHANGE_TABLE
+        conditions = []
+        if requester_id is not None:
+            conditions.append(table.c.requester_id == requester_id)
+        if status != "all":
+            conditions.append(table.c.status == status)
+        size = 20
+        with self.engine.connect() as connection:
+            total = connection.execute(select(func.count()).select_from(table).where(*conditions)).scalar_one()
+            items = connection.execute(select(table).where(*conditions).order_by(table.c.id.desc())
+                                       .limit(size).offset((page - 1) * size)).mappings()
+            return {"items": [dict(item) for item in items], "total": total, "page_size": size}
 
-            row = connection.execute(
-                update(SUPPLIER_TABLE)
-                .where(SUPPLIER_TABLE.c.id == supplier_id)
-                .values(**payload)
-                .returning(SUPPLIER_TABLE)
-            ).mappings().one()
+    def review_supplier_change(self, request_id: int, *, approved: bool, note: str, actor):
+        table = SUPPLIER_CHANGE_TABLE
+        reviewer_id, reviewer_name = self._supplier_change_actor(actor)
+        with self.engine.begin() as connection:
+            self.lock_supplier_changes(connection)
+            review = connection.execute(select(table).where(table.c.id == request_id).with_for_update()).mappings().first()
+            if review is None:
+                return None
+            if review["status"] != "pending":
+                raise SupplierChangeConflict("申请已处理，请刷新后查看")
+            if review["requester_id"] == reviewer_id:
+                raise PermissionError("不能审核自己的申请，请由另一位商品组成员处理")
+            result = {}
+            if approved:
+                before = self._supplier_for_update(connection, review["supplier_id"])
+                if before is None or self._prepare_supplier(before) != review["before"]:
+                    raise SupplierChangeConflict("供应商资料已变化，请驳回后重新申请")
+                proposed = review["proposed"]
+                if not connection.execute(select(SUPPLIER_BRAND_TABLE.c.id).where(
+                    SUPPLIER_BRAND_TABLE.c.code == proposed["brand"],
+                )).scalar_one_or_none():
+                    raise SupplierChangeConflict("目标品牌已不存在，请驳回后重新申请")
+                self._check_supplier_rename(connection, before, proposed)
+                result = self._apply_supplier_change(connection, before, proposed)
+            resolved = connection.execute(update(table).where(table.c.id == request_id).values(
+                status="approved" if approved else "rejected", reviewer_id=reviewer_id, reviewer_name=reviewer_name,
+                review_note=note or None, reviewed_at=func.now(),
+            ).returning(table)).mappings().one()
+            return {**result, "review": dict(resolved)}
 
-            previous_name = str(before.get("name") or "").strip()
-            current_name = str(row.get("name") or "").strip()
-            if previous_name and current_name and previous_name != current_name:
+    @staticmethod
+    def lock_supplier_changes(connection):
+        if connection.dialect.name == "postgresql":
+            connection.execute(text("SELECT pg_advisory_xact_lock(42917002)"))
+
+    def _apply_supplier_change(self, connection, before, proposed):
+        supplier_id = before["id"]
+        previous_name = str(before.get("name") or "").strip()
+        current_name = proposed["name"]
+        row = connection.execute(update(SUPPLIER_TABLE).where(SUPPLIER_TABLE.c.id == supplier_id)
+                                 .values(**proposed).returning(SUPPLIER_TABLE)).mappings().one()
+        skipped = False
+        if previous_name and current_name and previous_name != current_name:
+            previous_brand = str(before.get("brand") or "").strip()
+            brand_changed = previous_brand != proposed["brand"]
+            if not brand_changed:
                 self._rename_product_archive_supplier(
-                    connection,
-                    brand=str(before.get("brand") or "").strip(),
-                    previous_name=previous_name,
-                    current_name=current_name,
+                    connection, brand=previous_brand, previous_name=previous_name, current_name=current_name,
                 )
+            # Legacy documents only store the name; a shared name cannot identify a supplier.
+            # An approved brand change does not authorize moving historical transactions.
+            skipped = brand_changed or any(self.supplier_name_exists(connection, name, except_id=supplier_id)
+                                          for name in (previous_name, current_name))
+            if not skipped:
                 self._rename_inventory_supplier_references(
-                    connection,
-                    previous_name=previous_name,
-                    current_name=current_name,
+                    connection, previous_name=previous_name, current_name=current_name,
                 )
-        return None if row is None else dict(row)
+        return {"before": dict(before), "item": dict(row), "history_sync_skipped": skipped}
 
     @staticmethod
     def _rename_product_archive_supplier(
@@ -1871,10 +2002,20 @@ class InventoryRepository:
         return None if row is None else dict(row)
 
     def delete_supplier(self, supplier_id: int) -> bool:
-        statement = delete(SUPPLIER_TABLE).where(SUPPLIER_TABLE.c.id == supplier_id)
         with self.engine.begin() as connection:
-            result = connection.execute(statement)
-        return result.rowcount > 0
+            self.lock_supplier_changes(connection)
+            before = self._supplier_for_update(connection, supplier_id)
+            if before is None:
+                return False
+            change = SUPPLIER_CHANGE_TABLE
+            pending = select(change.c.id).where(change.c.supplier_id == supplier_id, change.c.status == "pending")
+            if connection.execute(pending).scalar_one_or_none() is not None:
+                raise SupplierChangeConflict("该供应商有待审核申请，请先处理申请")
+            if (self._supplier_expense_count(connection, before["name"].strip())
+                or self._previous_supplier_expense_count(connection, supplier_id)):
+                raise SupplierChangeConflict("该供应商已有费用单据，不能删除")
+            connection.execute(delete(SUPPLIER_TABLE).where(SUPPLIER_TABLE.c.id == supplier_id))
+        return True
 
     def list_suppliers_by_exact_name(self, name: str) -> list[dict[str, object]]:
         statement = select(SUPPLIER_TABLE).where(SUPPLIER_TABLE.c.name == name).order_by(SUPPLIER_TABLE.c.id)
@@ -1887,20 +2028,14 @@ class InventoryRepository:
             statement = statement.where(SUPPLIER_TABLE.c.brand == brand)
         with self.engine.connect() as connection:
             row = connection.execute(statement).mappings().first()
-            if row is None:
-                normalized_name = str(name or "").strip().replace("（", "(").replace("）", ")").lower()
-                if normalized_name:
-                    normalized_supplier_name = func.lower(
-                        func.replace(
-                            func.replace(SUPPLIER_TABLE.c.name, "（", "("),
-                            "）",
-                            ")",
-                        )
-                    )
-                    normalized_statement = select(SUPPLIER_TABLE).where(normalized_supplier_name == normalized_name)
-                    if brand:
-                        normalized_statement = normalized_statement.where(SUPPLIER_TABLE.c.brand == brand)
-                    row = connection.execute(normalized_statement).mappings().first()
+            if row is None and name and name.strip():
+                normalize = InventoryRepository._normalized_supplier_name
+                normalized_statement = select(SUPPLIER_TABLE).where(
+                    normalize(SUPPLIER_TABLE.c.name) == normalize(name.strip()),
+                )
+                if brand:
+                    normalized_statement = normalized_statement.where(SUPPLIER_TABLE.c.brand == brand)
+                row = connection.execute(normalized_statement).mappings().first()
         return None if row is None else dict(row)
 
     @staticmethod
@@ -4819,8 +4954,11 @@ class InventoryRepository:
 
     def create_tables(self) -> None:
         with self.engine.begin() as connection:
+            # Match supplier writes: acquire the advisory lock before taking table locks.
+            self.lock_supplier_changes(connection)
             INVENTORY_TABLE.create(connection, checkfirst=True)
             INVENTORY_IMPORT_TASK_TABLE.create(connection, checkfirst=True)
+            SUPPLIER_CHANGE_TABLE.create(connection, checkfirst=True)
             PRODUCT_ARCHIVE_IDENTITY_TABLE.create(connection, checkfirst=True)
             INVENTORY_DETAIL_TABLE.create(connection, checkfirst=True)
             JST_STOCK_TABLE.create(connection, checkfirst=True)
@@ -5115,56 +5253,7 @@ class InventoryRepository:
     @staticmethod
     def _ensure_supplier_schema(connection) -> None:
         ensure_columns(connection, "suppliers", {"brand": "TEXT", "wechat": "TEXT", "cooperation_status": "TEXT"})
-        connection.execute(
-            text(
-                """
-                DELETE FROM suppliers AS bad
-                USING suppliers AS good
-                WHERE bad.id <> good.id
-                  AND bad.name = good.name
-                  AND good.brand = CASE
-                      WHEN upper(coalesce(bad.name, '')) LIKE '%TRUMPPIPE%'
-                        OR coalesce(bad.name, '') LIKE '%烟斗%' THEN 'yandou'
-                      WHEN (upper(coalesce(bad.name, '')) LIKE '%EBLAN%'
-                        OR coalesce(bad.name, '') LIKE '%伊伴%')
-                        AND (coalesce(bad.name, '') LIKE '%女鞋%'
-                          OR coalesce(bad.name, '') LIKE '%女靴%'
-                          OR coalesce(bad.name, '') LIKE '%女士%'
-                          OR coalesce(bad.name, '') LIKE '%女款%') THEN 'eblan_womens'
-                      WHEN bad.brand = 'eblan' AND (
-                          coalesce(bad.name, '') LIKE '%女鞋%'
-                          OR coalesce(bad.name, '') LIKE '%女靴%'
-                          OR coalesce(bad.name, '') LIKE '%女士%'
-                          OR coalesce(bad.name, '') LIKE '%女款%'
-                      ) THEN 'eblan_womens'
-                      WHEN upper(coalesce(bad.name, '')) LIKE '%EBLAN%'
-                        OR coalesce(bad.name, '') LIKE '%伊伴%' THEN 'eblan'
-                      WHEN upper(coalesce(bad.name, '')) LIKE '%SMILEY%'
-                        OR coalesce(bad.name, '') LIKE '%笑脸%' THEN 'smiley'
-                      WHEN upper(btrim(coalesce(bad.name, ''))) ~ '(^|[（([:space:]])NI($|[）)[:space:]])' THEN 'ni'
-                      WHEN coalesce(bad.name, '') LIKE '%千百度女鞋%' THEN 'cbanner_womens'
-                      ELSE bad.brand
-                  END
-                  AND bad.brand IS DISTINCT FROM good.brand
-                  AND (
-                      upper(coalesce(bad.name, '')) LIKE '%TRUMPPIPE%'
-                      OR coalesce(bad.name, '') LIKE '%烟斗%'
-                      OR upper(coalesce(bad.name, '')) LIKE '%EBLAN%'
-                      OR coalesce(bad.name, '') LIKE '%伊伴%'
-                      OR bad.brand = 'eblan' AND (
-                          coalesce(bad.name, '') LIKE '%女鞋%'
-                          OR coalesce(bad.name, '') LIKE '%女靴%'
-                          OR coalesce(bad.name, '') LIKE '%女士%'
-                          OR coalesce(bad.name, '') LIKE '%女款%'
-                      )
-                      OR upper(coalesce(bad.name, '')) LIKE '%SMILEY%'
-                      OR coalesce(bad.name, '') LIKE '%笑脸%'
-                      OR upper(btrim(coalesce(bad.name, ''))) ~ '(^|[（([:space:]])NI($|[）)[:space:]])'
-                      OR coalesce(bad.name, '') LIKE '%千百度女鞋%'
-                  )
-                """
-            )
-        )
+        # Backfill missing brands without reclassifying or removing existing supplier records.
         connection.execute(
             text(
                 """
@@ -5178,12 +5267,6 @@ class InventoryRepository:
                         OR coalesce(name, '') LIKE '%女靴%'
                         OR coalesce(name, '') LIKE '%女士%'
                         OR coalesce(name, '') LIKE '%女款%') THEN 'eblan_womens'
-                    WHEN brand = 'eblan' AND (
-                        coalesce(name, '') LIKE '%女鞋%'
-                        OR coalesce(name, '') LIKE '%女靴%'
-                        OR coalesce(name, '') LIKE '%女士%'
-                        OR coalesce(name, '') LIKE '%女款%'
-                    ) THEN 'eblan_womens'
                     WHEN upper(coalesce(name, '')) LIKE '%EBLAN%'
                       OR coalesce(name, '') LIKE '%伊伴%' THEN 'eblan'
                     WHEN upper(coalesce(name, '')) LIKE '%SMILEY%'
@@ -5194,24 +5277,7 @@ class InventoryRepository:
                     WHEN coalesce(name, '') LIKE '%千百度%' THEN 'cbanner_mens'
                     ELSE :default_brand
                 END
-                WHERE brand IS NULL
-                   OR brand = ''
-                   OR (brand IS DISTINCT FROM 'eblan_womens' AND (
-                        upper(coalesce(name, '')) LIKE '%TRUMPPIPE%'
-                        OR coalesce(name, '') LIKE '%烟斗%'
-                        OR upper(coalesce(name, '')) LIKE '%EBLAN%'
-                        OR coalesce(name, '') LIKE '%伊伴%'
-                        OR brand = 'eblan' AND (
-                            coalesce(name, '') LIKE '%女鞋%'
-                            OR coalesce(name, '') LIKE '%女靴%'
-                            OR coalesce(name, '') LIKE '%女士%'
-                            OR coalesce(name, '') LIKE '%女款%'
-                        )
-                         OR upper(coalesce(name, '')) LIKE '%SMILEY%'
-                         OR coalesce(name, '') LIKE '%笑脸%'
-                        OR upper(btrim(coalesce(name, ''))) ~ '(^|[（([:space:]])NI($|[）)[:space:]])'
-                        OR coalesce(name, '') LIKE '%千百度女鞋%'
-                   ))
+                WHERE brand IS NULL OR brand = ''
                 """
             ),
             {"default_brand": CBANNER_MENS_BRAND},
@@ -5252,10 +5318,11 @@ class InventoryRepository:
             )
         )
 
-    @staticmethod
-    def _sync_suppliers_from_gj(connection) -> int:
+    @classmethod
+    def _sync_suppliers_from_gj(cls, connection) -> int:
         if not inspect(connection).has_table(GJ_MERGED_PRODUCT_INFO_TABLE.name):
             return 0
+        cls.lock_supplier_changes(connection)
         synced = 0
         rows = connection.execute(
             select(
@@ -5266,22 +5333,14 @@ class InventoryRepository:
             .where(GJ_MERGED_PRODUCT_INFO_TABLE.c.primary_supplier.isnot(None))
             .where(GJ_MERGED_PRODUCT_INFO_TABLE.c.primary_supplier != "")
             .distinct()
+            .order_by(GJ_MERGED_PRODUCT_INFO_TABLE.c.fine_table_brand, GJ_MERGED_PRODUCT_INFO_TABLE.c.primary_supplier)
         ).mappings()
         for row in rows:
             name = str(row["primary_supplier"] or "").strip()
             brand = infer_supplier_brand_from_name(name) or str(row["fine_table_brand"] or "").strip()
             if not brand or not name:
                 continue
-            matching_brands = (EBLAN_BRAND, EBLAN_WOMENS_SUPPLIER_BRAND) if brand in {
-                EBLAN_BRAND, EBLAN_WOMENS_SUPPLIER_BRAND,
-            } else (brand,)
-            exists = connection.execute(
-                select(SUPPLIER_TABLE.c.id).where(
-                    SUPPLIER_TABLE.c.brand.in_(matching_brands),
-                    SUPPLIER_TABLE.c.name == name,
-                )
-            ).first()
-            if exists is None:
+            if not cls.supplier_name_exists(connection, name):
                 connection.execute(insert(SUPPLIER_TABLE).values(brand=brand, name=name))
                 synced += 1
         return synced

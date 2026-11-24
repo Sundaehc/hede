@@ -5,7 +5,8 @@ import { useRouter } from "next/navigation"
 import { supplierLedgerPath, useSupplierLedgerTabs } from "@/lib/supplier-ledger-tabs"
 
 import { useCallback, useEffect, useState } from "react"
-import { ChevronLeft, ChevronRight, Download, Edit, History, Plus, Search, Trash2, X } from "lucide-react"
+import dynamic from "next/dynamic"
+import { ChevronLeft, ChevronRight, ClipboardCheck, Download, Edit, History, Plus, Search, Trash2, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { DateRangeControl } from "@/components/ui/date-range-control"
 import { Input } from "@/components/ui/input"
@@ -32,6 +33,10 @@ import {
   type SupplierBrandItem,
   type SupplierItem,
 } from "@/lib/api"
+
+const SupplierChangeReviewDialog = dynamic(() =>
+  import("@/components/inventory-admin/supplier-change-review-dialog").then((module) => module.SupplierChangeReviewDialog)
+)
 
 const PAGE_SIZE = 30
 type PageToken = number | "start-ellipsis" | "end-ellipsis"
@@ -87,7 +92,7 @@ function getPageTokens(currentPage: number, totalPages: number): PageToken[] {
 export default function SuppliersPage() {
   const router = useRouter()
   const { openLedger } = useSupplierLedgerTabs()
-  const { hasPermission } = useAuth()
+  const { hasPermission, user } = useAuth()
   const [brands, setBrands] = useState<SupplierBrandItem[]>([])
   const [items, setItems] = useState<SupplierItem[]>([])
   const [total, setTotal] = useState(0)
@@ -119,6 +124,7 @@ export default function SuppliersPage() {
   const [deleteTarget, setDeleteTarget] = useState<SupplierItem | null>(null)
   const [isDeleting, setIsDeleting] = useState(false)
   const [operationLogOpen, setOperationLogOpen] = useState(false)
+  const [reviewOpen, setReviewOpen] = useState(false)
   const [messageOpen, setMessageOpen] = useState(false)
   const [messageContent, setMessageContent] = useState({ title: "", description: "" })
 
@@ -208,7 +214,13 @@ export default function SuppliersPage() {
       if (formMode === "create") {
         await createSupplier(payload, confirmCrossBrandCode)
       } else if (editingId !== null) {
-        await updateSupplier(editingId, payload)
+        const result = await updateSupplier(editingId, payload)
+        if (result.review) {
+          setFormOpen(false)
+          showMessage("已提交商品组审核", result.message)
+          return
+        }
+        if (result.history_sync_skipped) showMessage("供应商已更新", result.message)
       }
       setFormOpen(false)
       if (formMode === "create" && page !== 1) {
@@ -295,7 +307,7 @@ export default function SuppliersPage() {
             </div>
             <span className="min-w-20 rounded-full border border-border bg-muted/45 px-3 py-1 text-center text-sm text-muted-foreground tabular-nums">{formatNumber(total)} 个</span>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex min-w-0 flex-wrap items-center gap-2">
             <Button size="sm" variant="outline" onClick={handleExport} disabled={isExporting} className="cursor-pointer">
               <Download className="h-4 w-4" />
               <span className="ml-1.5">{isExporting ? "导出中..." : "导出"}</span>
@@ -304,6 +316,12 @@ export default function SuppliersPage() {
               <History className="h-4 w-4" />
               <span className="ml-1.5">操作日志</span>
             </Button>
+            {canManageSuppliers && user && (
+              <Button size="sm" variant="outline" onClick={() => setReviewOpen(true)} className="cursor-pointer">
+                <ClipboardCheck aria-hidden="true" className="size-4" />
+                <span className="ml-1.5">变更审核</span>
+              </Button>
+            )}
             {canCreateSupplier ? (
               <Button size="sm" onClick={openCreate} className="cursor-pointer">
                 <Plus className="h-4 w-4" />
@@ -570,7 +588,7 @@ export default function SuppliersPage() {
       <ConfirmDialog
         open={renameConfirmOpen}
         title="确认修改供应商名称"
-        description="修改供应商名称，会同步更新对应的商品信息和历史单据，请确定是否修改。"
+        description="请确认新名称和品牌。若已有费用单据，本次修改将提交商品组审核，通过后生效。"
         confirmLabel={isSaving ? "修改中..." : "确认修改"}
         onConfirm={handleConfirmRename}
         onCancel={() => setRenameConfirmOpen(false)}
@@ -588,6 +606,15 @@ export default function SuppliersPage() {
 
       <MessageDialog open={messageOpen} title={messageContent.title} description={messageContent.description} onClose={() => setMessageOpen(false)} />
 
+
+      {canManageSuppliers && reviewOpen && user && (
+        <SupplierChangeReviewDialog
+          userId={user.id}
+          brands={brands}
+          onClose={() => setReviewOpen(false)}
+          onApproved={() => void load()}
+        />
+      )}
 
       <OperationLogDialog
         module="supplier"
