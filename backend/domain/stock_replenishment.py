@@ -53,9 +53,18 @@ def evaluate_replenishment(item, rule, *, deduct_transit=False):
             "lead_days": rule["lead_days"] if rule else None, "cover_days": rule["cover_days"] if rule else None}
 
 
-def select_replenishment(facts, rules, *, supplier="", query="", status="suggested", page=1, page_size=25, deduct_transit=False):
-    # Evaluate the whole brand before filters/pagination so a supplier's MOQ is stable.
-    evaluated = [evaluate_replenishment(item, rules.get(item["supplier"]), deduct_transit=deduct_transit) for item in facts["items"]]
+def select_replenishment(facts, rules, *, supplier="", query="", status="suggested", page=1, page_size=25,
+                         deduct_transit=False, blocked=None):
+    # Blocked products must not contribute to the supplier's minimum-order quantities.
+    blocked = blocked or {}
+    evaluated = []
+    for item in facts["items"]:
+        if item["id"] in blocked:
+            evaluated.append({**item, "suggested_quantity": None, "pending_reasons": [],
+                              "size_details": [], "blocked_reason": blocked[item["id"]],
+                              "cover_days": None, "lead_days": None, "daily_sales": None, "stock_days": None})
+        else:
+            evaluated.append(evaluate_replenishment(item, rules.get(item["supplier"]), deduct_transit=deduct_transit))
     supplier_totals = defaultdict(lambda: {"suggested_quantity": 0, "pending_products": 0, "suggested_products": 0})
     for item in evaluated:
         if not item["supplier"]:

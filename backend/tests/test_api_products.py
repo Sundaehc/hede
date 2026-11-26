@@ -1,11 +1,16 @@
 from __future__ import annotations
 
 import io
+from contextlib import nullcontext
 from types import SimpleNamespace
+from unittest.mock import Mock
 
+import pytest
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from openpyxl import Workbook, load_workbook
 
+from api.routes import import_export
 from api.routes.import_export import _build_product_import_template
 from api.routes.products import list_products
 from transform.rows import build_admin_record
@@ -59,6 +64,54 @@ def test_list_products_works_without_us3_storage_on_app_state():
     assert response["total"] == 1
     assert response["items"][0]["brand"] == "cbanner_mens"
     assert response["items"][0]["image_storage_path"] is None
+
+
+@pytest.mark.parametrize(
+    ("brand", "color", "include_color_code", "error_reason"),
+    [
+        ("ns", "黑色", True, None),
+        ("ns", "黑色", False, None),
+        ("ns", None, True, "颜色不能为空"),
+        ("cbanner_mens", "黑色", True, "颜色代码不能为空"),
+    ],
+)
+def test_product_import_allows_missing_color_code_only_for_ns(
+    monkeypatch, brand, color, include_color_code, error_reason,
+):
+    repository = Mock()
+    repository.engine.begin.return_value = nullcontext()
+    repository.find_by_sku.return_value = None
+    repository.create_product.return_value = {"id": 1}
+    monkeypatch.setattr(import_export, "get_image_matcher", lambda request, brand: None)
+    monkeypatch.setattr(import_export, "write_operation_log", Mock())
+    app = FastAPI()
+    app.state.repository = repository
+    app.include_router(import_export.router)
+
+    workbook = Workbook()
+    worksheet = workbook.active
+    headers = ["货号", "颜色", "条码构成逻辑"]
+    values = ["NAQ2715025A03", color, "货号+尺码"]
+    if include_color_code:
+        headers.append("颜色代码")
+        values.append(None)
+    worksheet.append(headers)
+    worksheet.append(values)
+    buffer = io.BytesIO()
+    workbook.save(buffer)
+
+    response = TestClient(app).post(
+        "/import", params={"brand": brand}, files={"file": ("products.xlsx", buffer.getvalue())},
+    )
+
+    if error_reason:
+        assert response.status_code == 400, response.text
+        assert response.json()["detail"]["errors"][0]["reason"] == error_reason
+        repository.engine.begin.assert_not_called()
+    else:
+        assert response.status_code == 200, response.text
+        assert response.json()["created"] == 1
+        assert repository.create_product.call_args.args[1]["color_code"] is None
 
 
 def test_import_products_keeps_heel_height_fields_separate(

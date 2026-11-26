@@ -29,8 +29,10 @@ from api.routes.stock_alerts import router as stock_alerts_router
 from storage.stock_alert_rules import StockAlertRuleRepository
 from api.routes.stock_alert_tasks import router as stock_alert_tasks_router
 from api.routes.stock_overview import router as stock_overview_router
+from api.routes.stock_phase_two import router as stock_phase_two_router
 from storage.stock_overview import StockOverviewPolicyRepository
 from storage.stock_alert_tasks import StockAlertTaskRepository
+from storage.stock_operating_rules import StockOperatingRepository
 from api.routes.stock_replenishment import router as stock_replenishment_router
 from storage.stock_replenishment_rules import StockReplenishmentRuleRepository
 from api.routes.product_copywriting import router as product_copywriting_router
@@ -214,6 +216,7 @@ def create_app(*, settings, repository=None, image_matchers=None, inventory_repo
     app.state.stock_alert_tasks = StockAlertTaskRepository(product_engine) if product_engine is not None else None
     if app.state.stock_alert_tasks is not None:
         app.state.stock_alert_tasks.create_tables()
+    app.state.stock_operating = StockOperatingRepository(product_engine) if product_engine is not None else None
     app.state.stock_overview_policies = StockOverviewPolicyRepository(product_engine) if product_engine is not None else None
     if app.state.stock_overview_policies is not None:
         app.state.stock_overview_policies.create_tables()
@@ -250,6 +253,7 @@ def create_app(*, settings, repository=None, image_matchers=None, inventory_repo
     app.include_router(products_router)
     app.include_router(stock_alerts_router)
     app.include_router(stock_overview_router)
+    app.include_router(stock_phase_two_router)
     app.include_router(stock_alert_tasks_router)
     app.include_router(stock_replenishment_router)
     app.include_router(product_copywriting_router)

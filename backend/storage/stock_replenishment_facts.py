@@ -10,6 +10,7 @@ import orjson
 from sqlalchemy import inspect, select, text
 
 from domain.size_group_schema import SIZE_GROUPS_TABLE, SIZE_GROUP_ITEMS_TABLE
+from domain.excluded_skus import not_excluded_sku_condition
 from domain.product_defaults import apply_product_defaults
 from domain.stock_alerts import ArchiveMatcher, code, launch_day
 from storage.stock_alert_facts import _sales_dates
@@ -18,7 +19,7 @@ _cache, _lock, _build_lock = OrderedDict(), Lock(), Lock()
 TTL, MAX_BYTES = 120, 8 * 1024 * 1024
 
 
-def _catalog(connection, repository, brand=None, *, overview=False, inspector=None):
+def _catalog(connection, repository, brand=None, *, overview=False, inspector=None, allocation=False):
     products, groups = [], defaultdict(list)
     inspector = inspector if inspector is not None else inspect(connection)
     for brand in ([brand] if brand else repository.product_archive_brands()):
@@ -27,9 +28,14 @@ def _catalog(connection, repository, brand=None, *, overview=False, inspector=No
             continue
         fields = ("id", "sku", "original_sku", "product_name", "color", "color_code", "barcode_build_rule",
                   "size_range", "supplier_name", "launch_date")
+        fields += tuple(field for field in ("season_category", "year") if field in table.c)
         if overview:
-            fields += ("season_category", "year", "upper_material")
-        for row in connection.execute(select(*(table.c[field] for field in fields)).where(table.c.deleted_at.is_(None))).mappings():
+            fields += tuple(field for field in ("upper_material", "category") if field in table.c)
+        if allocation:
+            fields += tuple(field for field in ("heel_height", "rear_heel_height") if field in table.c)
+        selection = select(*(table.c[field] for field in fields)).where(
+            table.c.deleted_at.is_(None), not_excluded_sku_condition(table.c.sku, table.c.original_sku))
+        for row in connection.execute(selection).mappings():
             item = {**dict(row), "brand": brand}
             apply_product_defaults(brand, item)
             if code(item.get("sku")):
@@ -220,6 +226,7 @@ def _load(connection, repository, brand, today, window_days, *, overview=False, 
                       "stock_by_size": {size["name"]: str(stock_sizes[identity, size["name"]]) for size in sizes},
                       "transit_by_size": {size["name"]: str(transit_sizes[identity, size["name"]]) for size in sizes},
                       "net_sales": str(sales[identity]), "sales_returns": str(returns[identity]),
+                      "season": item.get("season_category"), "year": item.get("year"), "category": item.get("category"),
                       "observation_days": observation_days, "issues": issues, "size_issues": sorted(size_issues[identity])})
         if overview:
             items[-1].update(launch_date=launch.isoformat() if launch else None,

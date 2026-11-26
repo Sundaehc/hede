@@ -419,8 +419,7 @@ def _build_product_import_template() -> io.BytesIO:
     required_fill = PatternFill("solid", fgColor="FCE8E6")
     for header in ("货号", "原始货号"):
         worksheet.cell(row=1, column=headers.index(header) + 1).fill = choice_fill
-    for header in ("颜色", "颜色代码"):
-        worksheet.cell(row=1, column=headers.index(header) + 1).fill = required_fill
+    worksheet.cell(row=1, column=headers.index("颜色") + 1).fill = required_fill
     worksheet.column_dimensions[get_column_letter(headers.index("国际码") + 1)].number_format = "@"
 
     barcode_column = headers.index("条码构成逻辑") + 1
@@ -446,13 +445,14 @@ def _build_product_import_template() -> io.BytesIO:
     instructions.append(["适用品牌", "全部品牌", "本模板可用于所有商品信息档案品牌，实际导入品牌由页面当前选中的Tab决定", "千百度男鞋"])
     instructions.append(["货号/原始货号", "至少填写一项", "黄色表头的两列至少填写一项；同时填写时优先按货号匹配", "QC153883D54"])
     instructions.append(["条码构成逻辑", "下拉选择", "千百度男鞋、千百度女鞋、伊伴固定为货号+颜色代码+尺码；笑脸、NI及KT开头货号固定为货号+尺码；其他品牌按填写值", "货号+颜色代码+尺码"])
-    instructions.append(["颜色/颜色代码", "两项均必填", "新增或更新商品均须在文件中填写；任一为空或缺少对应列时拒绝整批导入，提示全部错误行", "黑色 / 01"])
+    instructions.append(["颜色", "必填", "新增或更新商品时均须填写颜色", "黑色"])
+    instructions.append(["颜色代码", "NS 选填", "其他品牌须填写颜色代码。NS 更新已有商品时，留空会保留原有颜色代码。", "01"])
     instructions.append(["供应商名", "按需填写", "更新已有商品时，导入供应商必须与档案中的现有供应商一致", "温州示例鞋业"])
     instructions.append(["尺码段", "按需填写", "填写的尺码段名称必须已存在于尺码组管理中", "女鞋34-40"])
     instructions.append(["国际码", "按需填写", "按文本填写，保留前导零；不参与商品匹配或条码拼接", "0012345678905"])
     instructions.append(["市场价", "选填（仅笑脸/NI）", "支持市场价、吊牌价或 market_price 列名；非负且不超过99999999.99，最多2位小数；空白保留原值，其他品牌忽略此列", "299.00"])
     instructions.append(["跟高/后跟高", "分别填写", "跟高与后跟高是两个独立字段；后跟高仅在千百度女鞋档案中展示和导出", "中跟 / 5cm"])
-    instructions.append(["其他空白单元格", "按需填写", "除颜色和颜色代码外，更新已有商品时空白单元格不会清空档案中的原值", ""])
+    instructions.append(["其他空白单元格", "按需填写", "更新已有商品时，留空的选填单元格会保留档案中的原值", ""])
     instructions.append(["图片", "无需填写", "图片不通过模板导入，系统按货号或原始货号从品牌图片目录自动匹配", ""])
     instructions.append(["导入结果", "整批校验", "任意一行校验失败时整份文件不写入，请根据错误行修正后重新导入", ""])
     style_excel_worksheet(
@@ -1561,6 +1561,9 @@ def _product_import_code(value: object) -> str:
 
 def _product_import_color_errors(iterator, headers: list[str], aliases: dict[str, str], *, brand: str, sheet_name: str) -> list[dict[str, object]]:
     """Validate uploaded cells before defaults, existing records or any writes."""
+    required_fields = [("color", "颜色")]
+    if brand != "ns":
+        required_fields.append(("color_code", "颜色代码"))
     errors = []
     for row_number, row in enumerate(iterator, start=2):
         fields = {
@@ -1573,7 +1576,7 @@ def _product_import_color_errors(iterator, headers: list[str], aliases: dict[str
         if (not sku and not original_sku) or is_excluded_sku(sku or original_sku, original_sku):
             continue
         missing = [
-            label for field, label in (("color", "颜色"), ("color_code", "颜色代码"))
+            label for field, label in required_fields
             if normalize_admin_field(field, fields.get(field)) is None
         ]
         if missing:
@@ -1626,8 +1629,9 @@ async def import_products(
         raise
     if color_errors:
         wb.close()
+        required_colors = "颜色" if brand == "ns" else "颜色或颜色代码"
         raise_product_import_errors(color_errors, message=(
-            f"发现 {len(color_errors)} 行商品的颜色或颜色代码为空，请补齐后重新导入；本次未导入任何数据。"
+            f"发现 {len(color_errors)} 行商品的{required_colors}为空，请补齐后重新导入；本次未导入任何数据。"
         ))
     # A fresh read-only iterator avoids buffering the entire workbook in memory.
     iterator = ws.iter_rows(min_row=2, values_only=True)

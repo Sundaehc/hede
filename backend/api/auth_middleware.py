@@ -40,6 +40,9 @@ def required_permission_for_request(
     if path == "/stock-alerts/tasks" or path.startswith("/stock-alerts/tasks/"):
         # Task routes enforce assignment rights and owner-only updates themselves.
         return "product.view"
+    if path == "/stock-alerts/planning/clearance-week/recovery":
+        # The route grants the narrow financial confirmation action by department.
+        return "product.view"
     if path == "/stock-alerts" or path.startswith("/stock-alerts/"):
         return "product.view" if method in {"GET", "HEAD"} else "product.manage"
     if path == "/products/barcodes/export":
@@ -180,6 +183,21 @@ async def auth_middleware(request: Request, call_next):
         allowed = user_has_permission(user, permission)
     if not allowed:
         return JSONResponse({"detail": "权限不足"}, status_code=403)
+
+    if (
+        user_has_permission(user, "inventory.history_readonly")
+        and "*" not in user["permissions"]
+        and path.startswith("/inventory/")
+        and (
+            path == "/inventory/import"
+            or path.startswith(("/inventory/import-template", "/inventory/import-jst-stock"))
+            or (request.method not in {"GET", "HEAD"} and (
+                path == "/inventory/batch-update-costs"
+                or path.startswith(("/inventory/account-subjects", "/inventory/general-customer-"))
+            ))
+        )
+    ):
+        return JSONResponse({"detail": "经营历程仅允许查看和导出"}, status_code=403)
 
     request.state.current_user = user
     return await call_next(request)

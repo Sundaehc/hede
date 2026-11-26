@@ -139,6 +139,7 @@ type Props = {
   onClose: () => void
   onTotalChanged: () => void
   presentation?: "drawer" | "page"
+  readOnly?: boolean
 }
 
 function formatComputedNumber(value: number): string {
@@ -317,7 +318,7 @@ function purchaseColumnValue(item: InventoryDetail, key: PurchaseDetailColumnKey
   }
 }
 
-export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChanged, presentation = "drawer" }: Props) {
+export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChanged, presentation = "drawer", readOnly = false }: Props) {
   const documentId = record?.id ?? null
   const documentType = record?.document_type || ""
   const isAccountingDocument = ACCOUNTING_DOCUMENT_TYPES.has(documentType)
@@ -1262,7 +1263,7 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
                 </Button>
               </div>
             )}
-            {!isAccountingDocument && (
+            {!readOnly && !isAccountingDocument && (
               <>
                 <input
                   ref={replaceInputRef}
@@ -1342,7 +1343,7 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
                 </Button>
               </div>
             )}
-            {selectedIds.size > 0 && (
+            {!readOnly && selectedIds.size > 0 && (
               <Button
                 size="sm"
                 variant="destructive"
@@ -1354,10 +1355,10 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
                 <span className="ml-1.5">删除选中 {selectedIds.size}</span>
               </Button>
             )}
-            <Button size="sm" onClick={openCreate} className="cursor-pointer">
+            {!readOnly && <Button size="sm" onClick={openCreate} className="cursor-pointer">
               <Plus className="h-4 w-4" />
               <span className="ml-1.5">新增明细</span>
-            </Button>
+            </Button>}
             <Button variant="ghost" size="icon" onClick={onClose} aria-label="关闭单据明细" title="关闭单据明细" className="cursor-pointer">
               <X className="h-5 w-5" />
             </Button>
@@ -1646,14 +1647,14 @@ export function InventoryDetailPanel({ record, suppliers, onClose, onTotalChange
                     </>
                   )}
                   <td className="sticky right-0 z-10 border-l border-border bg-background px-4 py-2.5 shadow-[-5px_0_10px_-9px_rgb(0_0_0_/_0.45)] transition-colors group-hover:bg-muted">
-                    <div className="flex items-center gap-0.5">
+                    {!readOnly && <div className="flex items-center gap-0.5">
                       <Button variant="ghost" size="icon" onClick={() => openEdit(item)} aria-label="编辑明细" className="h-8 w-8 cursor-pointer">
                         <Edit className="h-3.5 w-3.5" />
                       </Button>
                       <Button variant="ghost" size="icon" onClick={() => setDeleteTarget(item)} className="h-8 w-8 cursor-pointer">
                         <Trash2 className="h-3.5 w-3.5 text-destructive" />
                       </Button>
-                    </div>
+                    </div>}
                   </td>
                 </tr>
               ))}

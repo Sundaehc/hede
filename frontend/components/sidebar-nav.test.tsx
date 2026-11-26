@@ -79,6 +79,21 @@ describe("SidebarNav management groups", () => {
     expect(screen.queryByRole("heading", { name: "系统管理" })).not.toBeInTheDocument()
   })
 
+  it.each([false, true])("shows business history for product staff only with the dedicated permission (%s)", (granted) => {
+    mockAuth.user = { role_code: "staff", department_code: "商品部" }
+    mockAuth.hasPermission.mockImplementation((permission) =>
+      permission === "inventory.view" || (granted && permission === "inventory.history_readonly"),
+    )
+
+    render(<SidebarNav />)
+
+    const history = screen.queryByRole("link", { name: "经营历程" })
+    if (granted) expect(history).toHaveAttribute("href", "/inventory")
+    else expect(history).not.toBeInTheDocument()
+    expect(screen.queryByRole("link", { name: "商品进货明细" })).not.toBeInTheDocument()
+    expect(screen.queryByRole("link", { name: "商品销售明细" })).not.toBeInTheDocument()
+  })
+
   it("shows finance all business pages while keeping system management hidden", () => {
     mockAuth.user = { role_code: "finance_user", department_code: "财务部" }
     const permissions = new Set([

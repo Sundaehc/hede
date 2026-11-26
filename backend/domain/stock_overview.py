@@ -1,29 +1,26 @@
 from collections import Counter, defaultdict
 from datetime import timedelta
+from decimal import Decimal
 from fractions import Fraction
 from math import ceil, floor
-import re
 
 from domain.stock_alerts import evaluate_alert, launch_day, resolve_rule
 from domain.stock_replenishment import evaluate_replenishment
+from domain.stock_portfolio import exit_window, replenishment_block, style_year
 
 PRIORITY = {"clearance": 1, "zero": 2, "replenish": 3, "slow": 4, "review": 5}
 BUCKETS = ("selling", "next_season", "size_imbalance", "clearance", "watch", "review")
 
 
 def _units(value):
-    return int(value or 0)
-
-
-# Archive labels include 26年冬季款 and 2026冬季款; exit policy keys use a four-digit year.
-_STYLE_YEAR = re.compile(r"((?:20|21)[0-9]{2}|[0-9]{2})(?:\s*年)?(?:\s*[春夏秋冬]{1,2}季?款)?")
+    try:
+        return int(value or 0)
+    except ValueError:
+        return int(Decimal(value))
 
 
 def _scope(item):
-    match = _STYLE_YEAR.fullmatch(str(item.get("year") or "").strip())
-    year = match[1] if match else ""
-    if len(year) == 2:
-        year = "20" + year
+    year = style_year(item.get("year"))
     season = str(item.get("season") or "").strip()
     return year, season if season != "0" else ""
 
@@ -76,7 +73,8 @@ def _clearance(item, history, plan, today, recent, replenish_names):
             "target_rate": plan["target_rate"], "plan_version": plan["version"]}, None
 
 
-def build_overview(facts, alerts, alert_rules, supplier_rules, plans, today):
+def build_overview(facts, alerts, alert_rules, supplier_rules, plans, today, *, decisions=None):
+    decisions = decisions or {}
     stock_date, sales_end = launch_day(facts.get("stock_date")), launch_day(facts.get("sales_end"))
     aligned = bool(stock_date == today and sales_end == today - timedelta(days=1))
     same_sources = facts.get("stock_date") == alerts.get("stock_date") and facts.get("sales_end") == alerts.get("sales_end")
@@ -87,7 +85,7 @@ def build_overview(facts, alerts, alert_rules, supplier_rules, plans, today):
     full_stock_scope = all(item["seen"] and _units(item["available_quantity"]) >= 0 for item in facts["items"])
     metrics = [(f"{channel}_{window}", window, channel) for window in (7, 30) for channel in ("regular", "clearance")]
     covered_sales = {key: facts.get("window_complete", {}).get(str(window)) and not ambiguous for key, window, _ in metrics}
-    recommendations = []
+    recommendations, portfolio, unobservable = [], [], {}
     scopes = set()
     for item in facts["items"]:
         current = _units(item["available_quantity"])
@@ -99,9 +97,19 @@ def build_overview(facts, alerts, alert_rules, supplier_rules, plans, today):
             scopes.add((year, season))
         plan = plans.get((year, season))
         prior = history.get(item["id"])
+        if current > 0:
+            historical_unknown = []
+            if not prior or prior.get("sales_issues"):
+                historical_unknown.extend(("zero", "slow"))
+            elif not prior.get("zero_confirmed") and not _units(prior.get("gross_sales")):
+                historical_unknown.append("zero")
+            if prior and prior.get("inbound_issues"):
+                historical_unknown.extend(("slow", "clearance"))
+            if historical_unknown:
+                unobservable[str(item["id"])] = sorted(set(historical_unknown))
         issues = []
         actions = []
-        common = {key: item.get(key) for key in ("id", "brand", "sku", "original_sku", "product_name", "color", "season", "year", "upper_material", "launch_date")}
+        common = {key: item.get(key) for key in ("id", "brand", "sku", "original_sku", "product_name", "color", "season", "year", "category", "upper_material", "launch_date")}
         common.update(available_quantity=current, **recent,
                       first_inbound_date=prior.get("first_inbound_date") if prior else None,
                       last_inbound_date=prior.get("last_inbound_date") if prior else None,
@@ -125,11 +133,12 @@ def build_overview(facts, alerts, alert_rules, supplier_rules, plans, today):
         ratios = (supplier or {}).get("size_ratios", {}).get(item["size_group"], {})
         peak = max(ratios.values(), default=0)
         core = {name for name, weight in ratios.items() if weight == peak and peak > 0}
-        next_start = launch_day(plan.get("sale_start")) if plan else None
-        next_season = bool(next_start and today < next_start <= launch_day(plan["exit_date"]))
+        next_season, exiting = exit_window(plan, today)
+        confirmed = decisions.get(item["id"], {}).get("confirmed", False)
+        blocked = replenishment_block(item, plans, decisions, today)
         live_performance = (recent["regular_7"] or 0) > 0 and (recent["regular_30"] or 0) > 0
         replenishment = []
-        if stock_usable and live_performance and item.get("launch_date") and not next_season and core and supplier:
+        if stock_usable and live_performance and item.get("launch_date") and not next_season and not confirmed and core and supplier:
             # Use normal-channel demand so clearance sales cannot drive replenishment.
             listed_days = (sales_end - launch_day(item["launch_date"])).days + 1 if item.get("launch_date") else 0
             fact = {**item, "net_sales": recent["regular_30"], "observation_days": min(30, max(0, listed_days))}
@@ -137,7 +146,7 @@ def build_overview(facts, alerts, alert_rules, supplier_rules, plans, today):
             replenishment = [{"name": size["name"], "available": _units(size["available_quantity"]), "quantity": size["suggested_quantity"]}
                 for size in computed["size_details"] if size["name"] in core and size["name"] in item["explicit_sizes"]
                 and size["at_risk"] and size["suggested_quantity"] > 0]
-        if stock_usable and current > 0 and prior:
+        if stock_usable and current > 0 and prior and not confirmed:
             for kind in ("zero", "slow"):
                 candidate = evaluate_alert(prior, kind, resolve_rule(alert_rules, kind, season))
                 if not candidate["warning"]:
@@ -155,9 +164,8 @@ def build_overview(facts, alerts, alert_rules, supplier_rules, plans, today):
                                 "due_date": (today + timedelta(days=2 if kind == 'zero' else 5)).isoformat(), "channel": None,
                                 "rule_age_days": candidate["rule_age_days"], "rule_rate": candidate["rule_rate"]})
                 break
-        if stock_usable and (current > 0 or replenishment):
-            exiting = bool(plan and not next_season and (launch_day(plan["exit_date"]) - today).days <= plan["lead_days"])
-            if exiting and current > 0:
+        if stock_usable and current > 0:
+            if exiting:
                 # An exit policy takes precedence over placing new orders for the same style.
                 clearance, issue = _clearance({**item, "ratios": ratios}, prior, plan, today, recent,
                                               {size["name"] for size in replenishment})
@@ -169,11 +177,9 @@ def build_overview(facts, alerts, alert_rules, supplier_rules, plans, today):
                     actions = [action for action in actions if action["kind"] != "slow"]
             elif actions and actions[0]["kind"] == "slow" and not plan:
                 issues.append("尚未配置该年份和季节的退出规则")
-        else:
-            exiting = False
         if replenishment and exiting:
             issues.append("已进入退出处理期且核心尺码偏紧，请复核保留量；不继续推荐补货")
-        if replenishment and not exiting:
+        if replenishment and not blocked:
             actions.append({"kind": "replenish", "reason": "核心尺码现货不足以覆盖交期，建议按供应商配比复核补码",
                             "quantity": sum(size["quantity"] for size in replenishment), "sizes": replenishment,
                             "due_date": today.isoformat(), "channel": None})
@@ -186,6 +192,13 @@ def build_overview(facts, alerts, alert_rules, supplier_rules, plans, today):
                       "review" if issues and not actions else "selling" if live_performance and not actions else "watch")
             available[bucket] += current
             counts[bucket] += 1
+            portfolio.append({key: common[key] for key in ("id", "sku", "original_sku", "product_name",
+                "color", "season", "year", "category", "available_quantity")} | {
+                    "status": "confirmed" if confirmed else bucket,
+                    "historic_received": _units(prior["purchase_received_reference"]) if prior
+                        and not prior["sales_issues"] and not prior["inbound_issues"] else 0,
+                    "historic_net": _units(prior["net_sales"]) if prior and not prior["sales_issues"] else 0,
+                })
         if issues and (current != 0 or recent["regular_30"] or recent["clearance_30"] or actions):
             actions.append({"kind": "review", "reason": "；".join(dict.fromkeys(issues)), "quantity": None, "sizes": [], "due_date": None, "channel": None})
         for action in actions:
@@ -199,7 +212,7 @@ def build_overview(facts, alerts, alert_rules, supplier_rules, plans, today):
     sales["total_30"] = sales["regular_30"] + sales["clearance_30"] if sales["regular_30"] is not None else None
     sales["coverage_days"] = (round(stock * 30 / sales["total_30"], 1)
         if aligned and full_stock_scope and stock is not None and sales["total_30"] and sales["total_30"] > 0 else None)
-    return {"recommendations": recommendations, "inventory": {"available": stock,
+    return {"recommendations": recommendations, "portfolio": portfolio, "unobservable": unobservable, "inventory": {"available": stock,
             "buckets": [{"key": key, "units": available[key], "styles": counts[key]} for key in BUCKETS] if stock is not None else [], **sales},
             "scopes": [{"year": year, "season": season} for year, season in sorted(scopes | set(plans), reverse=True)],
             "sources": {"stock_date": facts.get("stock_date"), "sales_end": facts.get("sales_end"), "aligned": aligned,

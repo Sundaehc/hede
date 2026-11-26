@@ -552,7 +552,7 @@ export function ProductToolbar({
         <DialogContent className="flex max-h-[90vh] max-w-4xl flex-col overflow-hidden">
           <DialogHeader>
             <DialogTitle>商品档案导入未完成</DialogTitle>
-            <DialogDescription>请补齐文件中各行的颜色和颜色代码，再重新导入。</DialogDescription>
+            <DialogDescription>请按下方错误清单补齐必填项，再重新导入。</DialogDescription>
           </DialogHeader>
           <div className="min-h-0 overflow-y-auto">
             {importValidation && <ProductImportErrors validation={importValidation} message={importValidation.message} context="archive" />}

@@ -1,6 +1,7 @@
-"""Maintain images, copywriting and tags for web-managed product archives."""
+"""Refresh shared archive attributes and maintain product images, copywriting and tags."""
 from __future__ import annotations
 
+import logging
 import os
 import subprocess
 import sys
@@ -12,17 +13,20 @@ from config import BACKEND_ROOT, load_settings
 from scripts.sync_product_tags_daily import TASK_NAME as TAG_TASK_NAME, run_daily_sync as run_daily_tag_sync
 from scripts.generate_product_copywriting_daily import TASK_NAME as COPYWRITING_TASK_NAME, business_today, run_daily_generation
 from scripts.refresh_product_images import TASK_NAME as IMAGE_TASK_NAME
+from scripts.refresh_product_size_fields import refresh_product_size_fields
 from storage.task_status_repository import ScheduledTaskStatusRepository
 
 
 TASK_NAME = "sync_products_and_copywriting_daily"
 WORKFLOW_LOCK_ID = 68473102
 IMAGE_MODULE = "refresh_product_images"
+ARCHIVE_FIELDS_TASK_NAME = "refresh_product_archive_fields_daily"
+logger = logging.getLogger(__name__)
 
 
 def run_import(module: str, task_name: str, log_file: str) -> int:
     if module != IMAGE_MODULE:
-        raise ValueError("每日商品维护只运行图片步骤，不再导入外部商品档案或物价")
+        raise ValueError("此入口只运行商品图片同步")
     environment = os.environ.copy()
     environment["PYTHONIOENCODING"] = "utf-8"
     environment["PYTHONUTF8"] = "1"
@@ -44,6 +48,26 @@ def run_workflow(settings, statuses, business_date: date) -> int:
         if business_today() != business_date:
             statuses.mark_finished(TASK_NAME, business_date, status="failed", message="任务跨日，已停止生成，请按新业务日期重试")
             return 1
+        if not statuses.is_success(ARCHIVE_FIELDS_TASK_NAME, business_date):
+            statuses.mark_running(ARCHIVE_FIELDS_TASK_NAME, business_date)
+            try:
+                _, updated = refresh_product_size_fields(dry_run=False, settings=settings, include_womens_style=True)
+            except Exception:
+                logger.exception("Shared product archive field refresh failed")
+                message = "共享商品档案的尺寸和款式同步失败，等待下次计划重试"
+                statuses.mark_finished(ARCHIVE_FIELDS_TASK_NAME, business_date, status="failed", message=message)
+                statuses.mark_finished(TASK_NAME, business_date, status="failed", message=message)
+                return 1
+            result = {
+                brand: {"matched": stats.matched_rows, "updated": stats.updated_rows, "changed_fields": stats.changed_fields}
+                for brand, stats in updated.items()
+            }
+            message = f"共享商品档案同步完成，更新 {sum(stats.updated_rows for stats in updated.values())} 条商品"
+            statuses.mark_finished(ARCHIVE_FIELDS_TASK_NAME, business_date, status="success", message=message, result=result)
+            print(f"[OK] {message}")
+            if business_today() != business_date:
+                statuses.mark_finished(TASK_NAME, business_date, status="failed", message="共享档案同步跨日，请按新业务日期重试")
+                return 1
         if not statuses.is_success(IMAGE_TASK_NAME, business_date):
             exit_code = run_import(IMAGE_MODULE, "HedeRefreshProductImages", "refresh_product_images.log")
             if exit_code != 0 or not statuses.is_success(IMAGE_TASK_NAME, business_date):
@@ -89,11 +113,11 @@ def run_workflow(settings, statuses, business_date: date) -> int:
                 message=f"商品标签同步完成：处理{tag_result['products']}个商品，新增{tag_result['tag_definitions']}个标签",
                 result=tag_result,
             )
-        statuses.mark_finished(TASK_NAME, business_date, status="success", message="基于网页商品档案的图片、提示词及标签维护完成")
-        print(f"[OK] {business_date.isoformat()} web product images, copywriting and tags completed")
+        statuses.mark_finished(TASK_NAME, business_date, status="success", message="共享档案字段、图片、提示词及标签维护完成")
+        print(f"[OK] {business_date.isoformat()} product archive maintenance completed")
         return 0
     except Exception:
-        statuses.mark_finished(TASK_NAME, business_date, status="failed", message="商品图片、提示词与标签维护异常，请检查分步任务日志")
+        statuses.mark_finished(TASK_NAME, business_date, status="failed", message="商品档案每日维护异常，请检查分步任务日志")
         print(f"[FAILED] {business_date.isoformat()} workflow interrupted; existing copywriting preserved")
         return 1
 

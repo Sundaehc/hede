@@ -17,7 +17,7 @@ from sqlalchemy import create_engine, delete, func as sa_func, text
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from domain.vip_schema import VIP_DAILY_TABLE, VIP_DAILY_SNAPSHOT_TABLE, VIP_OPS_TABLE, VIP_OPS_SNAPSHOT_TABLE, JST_PRICE_TABLE, VIP_REALTIME_TABLE, JST_MONTHLY_ORDERS_TABLE, JST_SIZE_STOCK_TABLE, JST_STOCK_SUMMARY_TABLE, JST_PURCHASE_DIFF_TABLE, JST_PRODUCT_PROFILE_TABLE, JST_AFTERSALE_RETURN_TABLE
-from domain.jst_full_stock_schema import JST_FULL_STOCK_TABLE
+from domain.jst_full_stock_schema import JST_FULL_STOCK_EXTRA_SALES_COLUMNS, JST_FULL_STOCK_TABLE
 from domain.jst_stock_snapshot_schema import JST_SIZE_STOCK_SNAPSHOT_TABLE, JST_STOCK_SUMMARY_SNAPSHOT_TABLE
 from domain.vip_sources import (
     VIP_DAILY_COLUMN_ALIASES,
@@ -29,6 +29,7 @@ from domain.vip_sources import (
     JST_MONTHLY_ORDERS_COLUMN_ALIASES,
 )
 from storage.date_normalization import parse_date, parse_date_range, parse_datetime
+from storage.schema_compat import ensure_columns
 from domain.history_partitioning import ensure_annual_partitions
 from domain.jst_monthly_order_identity import deduplicate_monthly_order_rows
 from fileio.jst_stock_workbook import require_stock_worksheets
@@ -100,8 +101,10 @@ JST_FULL_STOCK_HEADER_TO_COLUMN = {
     "库存同步": "inventory_sync_status",
     "主仓位": "main_warehouse_location",
     "昨天销量": "yesterday_sales_qty",
+    "3天销量": "sales_3d_qty",
     "7天销量": "sales_7d_qty",
     "15天销量": "sales_15d_qty",
+    "30天销量": "sales_30d_qty",
     "昨天退货量": "yesterday_return_qty",
     "7天退货量": "return_7d_qty",
     "15天退货量": "return_15d_qty",
@@ -234,9 +237,14 @@ class VipRepository:
         imported = 0
         batch: list[dict[str, object]] = []
 
-        # The full source has over 200,000 rows. Keep the replacement transactional while writing batches.
+        # Release any schema lock before replacing the full snapshot.
         with self.engine.begin() as connection:
             JST_FULL_STOCK_TABLE.create(connection, checkfirst=True)
+            if connection.dialect.name == "postgresql":
+                connection.exec_driver_sql("SET LOCAL lock_timeout = '5s'")
+                ensure_columns(connection, JST_FULL_STOCK_TABLE.name, dict.fromkeys(JST_FULL_STOCK_EXTRA_SALES_COLUMNS, "INTEGER"))
+
+        with self.engine.begin() as connection:
             connection.execute(sa_delete(JST_FULL_STOCK_TABLE))
             for row_number, values in row_iterator:
                 product_code = values.get(product_code_column, "").strip()

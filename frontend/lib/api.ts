@@ -50,6 +50,8 @@ import { notifyBusinessMutation, publishBusinessDataChange } from "@/lib/busines
 import { isProductImportValidation, type ProductImportValidation } from "@/lib/product-import-validation"
 import { isPostedProductChangeWarning, type PostedProductChangeWarning } from "@/lib/posted-product-change"
 import type { StockAlertFilters, StockAlertKind, StockAlertResponse, StockAlertRuleWrite } from "@/lib/stock-alerts"
+import type { AutoAssignmentRule, ClearanceDecision, PortfolioDetail, PortfolioFilters, PortfolioResponse } from "@/lib/stock-portfolio"
+import type { ArrivalBoard, ArrivalScope, ArrivalWrite, OrderLinkWrite, Campaign, CampaignWrite, ClearanceRecovery, ClearanceWeek, PlanFilters, Quantities, StockPlan } from "@/lib/stock-planning"
 import type { ReplenishmentFilters, ReplenishmentResponse, ReplenishmentRule, ReplenishmentRuleResponse } from "@/lib/stock-replenishment"
 import type { StockAlertTask, TaskAssignee, TaskCreate, TaskEventsResponse, TaskFilters, TaskListResponse, TaskUpdate } from "@/lib/stock-alert-tasks"
 import type { TaskBatchCreate, TaskBatchResult, TaskBatchUpdate } from "@/lib/stock-alert-tasks"
@@ -111,6 +113,70 @@ export function getStockOverview(filters: OverviewFilters, options: { signal?: A
   const search = new URLSearchParams(Object.entries(filters).map(([key, value]) => [key, String(value)]))
   if (options.refresh) search.set("refresh", "true")
   return request<OverviewResponse>(`/stock-alerts/overview?${search}`, { signal: options.signal, cache: "no-store" })
+}
+
+export function getStockPortfolio(brand: string, filters: PortfolioFilters, signal?: AbortSignal, refresh = false) {
+  const search = new URLSearchParams(Object.entries({ brand, ...filters }).map(([key, value]) => [key, String(value)]))
+  if (refresh) search.set("refresh", "true")
+  return request<PortfolioResponse>(`/stock-alerts/overview/portfolio?${search}`, { signal, cache: "no-store" })
+}
+
+export function getStockPortfolioItem(brand: string, productId: number, signal?: AbortSignal) {
+  return request<PortfolioDetail>(`/stock-alerts/overview/items/${productId}?${new URLSearchParams({ brand })}`, { signal, cache: "no-store" })
+}
+
+export function saveStockClearance(brand: string, product_id: number, confirmed: boolean, reason: string, version: number) {
+  return request<{ message: string; item: ClearanceDecision }>("/stock-alerts/overview/clearance",
+    { method: "PUT", body: JSON.stringify({ brand, product_id, confirmed, reason, version }) })
+}
+
+export function getStockAutoAssignment(brand: string, signal?: AbortSignal) {
+  return request<{ items: AutoAssignmentRule[] }>(`/stock-alerts/overview/auto-assignment?${new URLSearchParams({ brand })}`, { signal, cache: "no-store" })
+}
+
+export function saveStockAutoAssignment(brand: string, rule: AutoAssignmentRule) {
+  return request<{ message: string; item: AutoAssignmentRule }>("/stock-alerts/overview/auto-assignment",
+    { method: "PUT", body: JSON.stringify({ brand, kind: rule.kind, enabled: rule.enabled, assignee_id: rule.assignee_id, due_days: rule.due_days, version: rule.version }) })
+}
+
+export function getStockPlan(brand: string, productId: number, filters: PlanFilters = {}, signal?: AbortSignal) {
+  const query = new URLSearchParams({ brand })
+  for (const [key, value] of Object.entries(filters)) if (value !== undefined) query.set(key, String(value))
+  return request<StockPlan>(`/stock-alerts/planning/items/${productId}?${query}`, { signal, cache: "no-store" })
+}
+
+export function saveStockSizeBaseline(brand: string, product_id: number, weights: Quantities, season?: string) {
+  return request<{ message: string }>("/stock-alerts/planning/size-baseline", { method: "PUT", body: JSON.stringify({ brand, product_id, weights, season }) })
+}
+
+export function listStockCampaigns(brand: string, signal?: AbortSignal) {
+  return request<{ items: Campaign[] }>(`/stock-alerts/planning/campaigns?${new URLSearchParams({ brand })}`, { signal, cache: "no-store" })
+}
+
+export function saveStockCampaign(brand: string, values: CampaignWrite) {
+  return request<{ message: string; item: Campaign }>("/stock-alerts/planning/campaigns", { method: "POST", body: JSON.stringify({ brand, ...values }) })
+}
+
+export function getStockArrivalBoard(brand: string, scope: ArrivalScope, page: number, signal?: AbortSignal) {
+  const params = new URLSearchParams({ brand, scope, page: String(page) })
+  return request<ArrivalBoard>(`/stock-alerts/planning/arrivals?${params}`, { signal, cache: "no-store" })
+}
+
+export function saveStockPurchaseOrderLink(brand: string, product_id: number, values: OrderLinkWrite) {
+  return request<{ message: string }>("/stock-alerts/planning/purchase-order-link",
+    { method: "PUT", body: JSON.stringify({ brand, product_id, ...values }) })
+}
+
+export function saveStockArrival(brand: string, product_id: number, values: ArrivalWrite) {
+  return request<{ message: string }>("/stock-alerts/planning/arrivals", { method: "PUT", body: JSON.stringify({ brand, product_id, ...values }) })
+}
+
+export function getStockClearanceWeek(brand: string, first: string, signal?: AbortSignal) {
+  return request<ClearanceWeek>(`/stock-alerts/planning/clearance-week?${new URLSearchParams({ brand, first })}`, { signal, cache: "no-store" })
+}
+
+export function saveStockClearanceRecovery(brand: string, first: string, product_id: number, values: ClearanceRecovery) {
+  return request<{ message: string; item: ClearanceRecovery }>("/stock-alerts/planning/clearance-week/recovery", { method: "PUT", body: JSON.stringify({ brand, first, product_id, ...values }) })
 }
 
 export function getStockOverviewWeek(brand: string, signal?: AbortSignal) {

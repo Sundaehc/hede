@@ -198,6 +198,7 @@ export function getVisibleNavigation(
     user?.role_code === "super_admin" || user?.department_code === "开发部"
   const isProductDepartment =
     user?.role_code !== "super_admin" && user?.department_code === "商品部"
+  const hasReadOnlyHistoryAccess = hasPermission("inventory.history_readonly")
   return NAV_ITEMS.map((group) => ({
     ...group,
     items: group.items.filter(
@@ -216,6 +217,7 @@ export function getVisibleNavigation(
         (item.href !== "/product-tags" || canAccessProductTags) &&
         (item.href !== "/scheduled-tasks" || canAccessScheduledTasks) &&
         (!isProductDepartment ||
+          (item.href === "/inventory" && hasReadOnlyHistoryAccess) ||
           ![
             "/inventory",
             "/inventory-purchase-details",

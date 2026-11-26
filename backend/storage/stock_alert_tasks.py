@@ -3,8 +3,10 @@ from datetime import datetime, time, timedelta, timezone
 
 from sqlalchemy import (JSON, CheckConstraint, Column, Date, DateTime, ForeignKey,
                         Index, Integer, MetaData, Table, Text, case, func, insert,
-                        inspect, select, text, update)
+                        inspect, select, update)
 from sqlalchemy.exc import IntegrityError
+
+from storage.stock_operating_rules import CLEARANCE, META as OPERATING_META, lock_stock_decision
 
 
 METADATA = MetaData()
@@ -74,6 +76,7 @@ class StockAlertTaskRepository:
 
     def create_tables(self):
         METADATA.create_all(self.engine)
+        OPERATING_META.create_all(self.engine)
         if self.engine.dialect.name == "postgresql":
             # These tables are provisioned at app startup (not by the Alembic chain).
             with self.engine.begin() as connection:
@@ -98,10 +101,11 @@ class StockAlertTaskRepository:
 
     def _create_on(self, connection, *, snapshot, kind, assignee, due_date, measures, actor):
         if kind in {"replenish", "clearance"}:
-            if connection.dialect.name == "postgresql":
-                # Serialize opposite decisions for this brand and style.
-                connection.execute(text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))"),
-                                   {"key": f"stock-overview:{snapshot['brand']}:{snapshot['id']}"})
+            lock_stock_decision(connection, snapshot["brand"], snapshot["id"])
+            if kind == "replenish" and connection.execute(select(CLEARANCE.c.confirmed).where(
+                CLEARANCE.c.brand == snapshot["brand"], CLEARANCE.c.product_id == snapshot["id"],
+            )).scalar_one_or_none():
+                raise TaskConflict("商品组已确认清仓，不能分配补货待办")
             other = "replenish" if kind == "clearance" else "clearance"
             existing = connection.execute(select(TASKS.c.id).where(TASKS.c.active_key ==
                 f"{snapshot['brand']}:{snapshot['id']}:{other}")).scalar_one_or_none()

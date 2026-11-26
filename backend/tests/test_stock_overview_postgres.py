@@ -126,7 +126,7 @@ def test_overview_postgres_sources_and_old_task_constraint():
         assert stale == build_overview(stale_recent, stale_history, {}, {}, {}, today)
         assert not stale["sources"]["history_aligned"]
         assert weekly_observations(adapter, brand, first, last, {1}, {1}) == {
-            "net_sales": 13, "clearance_net_sales": 3, "stock_change": -9, "recovery_amount": None}
+            "net_sales": 13, "clearance_net_sales": 3, "stock_change": -9}
     finally:
         engine.dispose()
         with admin.begin() as conn:

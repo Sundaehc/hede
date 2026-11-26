@@ -73,7 +73,7 @@ def _overview_facts(repository, brand, today):
         return recent, historic
 
 
-def load_stock_overview(repository, brand, today, *, refresh, read_rules):
+def load_stock_overview(repository, brand, today, *, refresh, read_rules, read_decisions=None):
     """Reuse compressed source and result snapshots across pages and filters."""
     key = (repository.engine, brand, today)
     started = monotonic()
@@ -89,7 +89,8 @@ def load_stock_overview(repository, brand, today, *, refresh, read_rules):
             fresh = entry and monotonic() - entry[0] < _TTL and (not refresh or entry[0] >= started)
             loaded_at, sources, old_rules, output, _ = entry if fresh else (0, None, None, None, 0)
             alert_rules, supplier_rules, policies = read_rules()
-            rules = (alert_rules, supplier_rules, policies)
+            decisions = read_decisions() if read_decisions else {}
+            rules = (alert_rules, supplier_rules, policies, decisions)
             if rules == old_rules:
                 return orjson.loads(decompress(output)), policies
             if sources is None:
@@ -98,7 +99,7 @@ def load_stock_overview(repository, brand, today, *, refresh, read_rules):
                 sources = compress(orjson.dumps(facts), level=1)
             else:
                 facts = orjson.loads(decompress(sources))
-            result = build_overview(*facts, alert_rules, supplier_rules, policies, today)
+            result = build_overview(*facts, alert_rules, supplier_rules, policies, today, decisions=decisions)
             output = compress(orjson.dumps(result), level=1)
             footprint = len(sources) + len(output)
             with _lock:
@@ -117,8 +118,10 @@ def load_stock_overview(repository, brand, today, *, refresh, read_rules):
                 _builders[key] = lock, users - 1
 
 
-def weekly_observations(repository, brand, week_start, week_end, completed, clearance):
-    result = {"net_sales": None, "clearance_net_sales": None, "stock_change": None, "recovery_amount": None}
+def weekly_observations(repository, brand, week_start, week_end, completed, clearance, *, include_details=False):
+    result = {"net_sales": None, "clearance_net_sales": None, "stock_change": None}
+    if include_details:
+        result["clearance_items"] = []
     if not completed:
         return result
     before, after = week_start - timedelta(days=1), week_end
@@ -134,7 +137,18 @@ def weekly_observations(repository, brand, week_start, week_end, completed, clea
         for key, product in matcher.products.items():
             if key[0] == brand:
                 by_sku[product["sku"]].add(key)
-        if not selected.issubset(matcher.products) or any(by_sku[matcher.products[key]["sku"]] != {key} for key in selected):
+        valid = {key for key in selected if key in matcher.products and by_sku[matcher.products[key]["sku"]] == {key}}
+        if include_details:
+            details = {key: {"product_id": key[1], "sku": matcher.products.get(key, {}).get("sku", f"档案 #{key[1]}"),
+                             "net_sales": None, "ending_stock": None} for key in sorted(selected_clearance)}
+            result["clearance_items"] = list(details.values())
+            selected = valid & selected_clearance
+            selected_clearance = selected
+        elif valid != selected:
+            return result
+        else:
+            details = {}
+        if not selected:
             return result
         if all(inspector.has_table(name) for name in ("jst_daily_sales", "vip_daily_sales", "factory_channel_sales_daily_summaries")):
             params = {"brand": brand, "first": week_start, "last": week_end}
@@ -149,7 +163,12 @@ def weekly_observations(repository, brand, week_start, week_end, completed, clea
                     {**params, "codes": [matcher.products[key]["sku"] for key in selected]}).mappings()
                 result["net_sales"], result["clearance_net_sales"] = 0, 0 if selected_clearance else None
                 clearance_skus = {matcher.products[key]["sku"] for key in selected_clearance}
+                sku_details = {details[key]["sku"]: details[key] for key in selected if key in details}
+                for item in sku_details.values():
+                    item["net_sales"] = 0
                 for row in rows:
+                    if row["product_code"] in sku_details:
+                        sku_details[row["product_code"]]["net_sales"] = int(row["clearance"] or 0)
                     result["net_sales"] += int(row["net"] or 0)
                     if row["product_code"] in clearance_skus:
                         result["clearance_net_sales"] += int(row["clearance"] or 0)
@@ -163,6 +182,8 @@ def weekly_observations(repository, brand, week_start, week_end, completed, clea
                 identity = matcher.resolve(row["product_code"])
                 if identity in selected:
                     stock[row["snapshot_date"]][identity] += int(row["stock_qty"])
+            for key, item in details.items():
+                item["ending_stock"] = stock[after].get(key)
             if stock[before].keys() == selected == stock[after].keys():
                 result["stock_change"] = sum(stock[after].values()) - sum(stock[before].values())
         return result

@@ -47,6 +47,7 @@ import {
 } from "./batch-selection"
 import { BatchTaskDialog } from "./batch-task-dialog"
 import { StockProductPhoto } from "./stock-product-photo"
+import { StockPortfolioDetail } from "./stock-portfolio-panel"
 
 const DEFAULT_FILTERS: StockAlertFilters = {
   brand: "cbanner_mens",
@@ -95,6 +96,7 @@ function StockAlertsContent({ kind }: { kind: StockAlertKind }) {
   const [editingRule, setEditingRule] = useState<StockAlertRule | null>(null)
   const [creatingTask, setCreatingTask] = useState<StockAlertItem | null>(null)
   const [taskId, setTaskId] = useState<number | null>(null)
+  const [portfolioItem, setPortfolioItem] = useState<number | null>(null)
   const forceRefresh = useRef(false)
   const { data, previousData, error, loading, refreshing } =
     useStockModuleQuery({
@@ -504,9 +506,13 @@ function StockAlertsContent({ kind }: { kind: StockAlertKind }) {
                       <div className="flex items-start gap-2.5">
                         <StockProductPhoto item={item} />
                         <div className="min-w-0 flex-1">
-                          <p className="font-mono font-medium break-all">
+                          <button
+                            type="button"
+                            className="font-mono font-medium break-all text-primary hover:underline"
+                            onClick={() => setPortfolioItem(item.id)}
+                          >
                             {item.sku}
-                          </p>
+                          </button>
                           <p className="mt-1 text-muted-foreground">
                             {[item.product_name, item.color]
                               .filter(Boolean)
@@ -667,6 +673,16 @@ function StockAlertsContent({ kind }: { kind: StockAlertKind }) {
             </p>
           </div>
         </details>
+      )}
+      {portfolioItem !== null && (
+        <StockPortfolioDetail
+          key={`${filters.brand}/${portfolioItem}`}
+          brand={filters.brand}
+          productId={portfolioItem}
+          manager={hasPermission("product.manage")}
+          onClose={() => setPortfolioItem(null)}
+          onChanged={() => setRevision((value) => value + 1)}
+        />
       )}
       {editingRule && (
         <StockAlertRuleDialog

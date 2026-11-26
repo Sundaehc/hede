@@ -108,7 +108,9 @@ export type OverviewWeek = {
   net_sales: number | null
   stock_change: number | null
   clearance_net_sales: number | null
-  recovery_amount: number | null
+  recovery_amount: string | null
+  recovery_covered?: number
+  clearance_products?: number
 }
 export type OverviewTaskCreate = Omit<TaskCreate, "kind"> & {
   kind: StockTaskKind

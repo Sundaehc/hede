@@ -5,6 +5,9 @@ from sqlalchemy import BigInteger, Column, Date, DateTime, Identity, Index, Inte
 from domain.schema import METADATA
 
 
+JST_FULL_STOCK_EXTRA_SALES_COLUMNS = ("sales_3d_qty", "sales_30d_qty")
+
+
 JST_FULL_STOCK_TABLE = Table(
     "jst_full_stock",
     METADATA,
@@ -48,8 +51,10 @@ JST_FULL_STOCK_TABLE = Table(
     Column("inventory_sync_status", Text, nullable=True),
     Column("main_warehouse_location", Text, nullable=True),
     Column("yesterday_sales_qty", Integer, nullable=True),
+    Column("sales_3d_qty", Integer, nullable=True),
     Column("sales_7d_qty", Integer, nullable=True),
     Column("sales_15d_qty", Integer, nullable=True),
+    Column("sales_30d_qty", Integer, nullable=True),
     Column("yesterday_return_qty", Integer, nullable=True),
     Column("return_7d_qty", Integer, nullable=True),
     Column("return_15d_qty", Integer, nullable=True),

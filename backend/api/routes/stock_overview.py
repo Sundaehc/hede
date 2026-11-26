@@ -10,6 +10,7 @@ from fastapi.encoders import jsonable_encoder
 from pydantic import BaseModel, ConfigDict, Field
 
 from api.routes.stock_alerts import _validate_brand
+from api.routes.auth import user_has_permission
 from api.routes.stock_alert_tasks import (
     _actor, _assignee, _batch_response, _log, _manager, _response, _unique_ids,
 )
@@ -18,6 +19,9 @@ from api.stock_product_images import add_stock_product_images
 from storage.stock_alert_rules import RuleConflict
 from storage.stock_alert_tasks import TaskConflict, business_today
 from storage.stock_overview import load_stock_overview, weekly_observations
+from storage.stock_portfolio_detail import load_portfolio_detail
+from storage.stock_phase_two import recovery_summary
+from domain.stock_portfolio import portfolio_page
 
 
 router = APIRouter(prefix="/stock-alerts", tags=["存"])
@@ -29,7 +33,9 @@ def _overview(state, brand, today, refresh=False):
         return (state.stock_alert_rules.list_rules(brand), state.stock_replenishment_rules.list_rules(brand),
                 state.stock_overview_policies.list_rules(brand))
 
-    return load_stock_overview(state.repository, brand, today, refresh=refresh, read_rules=read_rules)
+    operating = getattr(state, "stock_operating", None)
+    return load_stock_overview(state.repository, brand, today, refresh=refresh, read_rules=read_rules,
+                               read_decisions=(lambda: operating.decisions(brand)) if operating else None)
 
 
 def _signature(row):
@@ -82,9 +88,102 @@ def stock_overview(request: Request, brand: str = Query(min_length=1, max_length
     items = [{**row, "task": task, "signature": _signature(row) if row["kind"] != "review" and not task else None}
              for task, row in page_rows]
     add_stock_product_images(request, items, brand=brand)
-    return _response({**{key: value for key, value in data.items() if key != "recommendations"}, "policies": list(policies.values()), "items": items, "counts": counts,
+    return _response({**{key: value for key, value in data.items() if key not in {"recommendations", "portfolio", "unobservable"}}, "policies": list(policies.values()), "items": items, "counts": counts,
                       "assignable": assignable, "in_progress": in_progress, "page": page, "page_size": size,
                       "total": total, "today": today})
+
+
+@router.get("/overview/portfolio")
+def stock_portfolio(request: Request, brand: str = Query(min_length=1, max_length=100),
+    year: str = Query(default="", max_length=30), season: str = Query(default="", max_length=100),
+    category: str = Query(default="", max_length=150), query: str = Query(default="", max_length=200),
+    status: Literal["", "selling", "next_season", "size_imbalance", "clearance", "watch", "review", "confirmed"] = "",
+    page: int = Query(default=1, ge=1), refresh: bool = False):
+    _actor(request)
+    _validate_brand(request, brand)
+    data, _ = _overview(request.app.state, brand, business_today(), refresh)
+    return _response({**portfolio_page(data["portfolio"], year=year, season=season, category=category,
+                                       query=query, status=status, page=page),
+                      "sources": data["sources"]})
+
+
+@router.get("/overview/items/{product_id}")
+def stock_portfolio_detail(request: Request, product_id: int, brand: str = Query(min_length=1, max_length=100)):
+    user = _actor(request)
+    _validate_brand(request, brand)
+    state = request.app.state
+    detail = load_portfolio_detail(
+        state.repository, brand, product_id, state.stock_operating.decisions(brand),
+        can_view_inventory=user_has_permission(user, "inventory.view"),
+        can_view_purchases=user_has_permission(user, "purchase.view"), today=business_today(),
+    )
+    if detail is None:
+        raise HTTPException(404, "该商品不在当前品牌的有效档案中")
+    add_stock_product_images(request, detail["items"], brand=brand)
+    return _response(detail)
+
+
+class ClearanceWrite(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+    brand: str = Field(min_length=1, max_length=100)
+    product_id: int = Field(gt=0)
+    confirmed: bool
+    reason: str = Field(min_length=1, max_length=1000)
+    version: int = Field(ge=0)
+
+
+@router.put("/overview/clearance")
+def save_clearance(request: Request, body: ClearanceWrite):
+    user = _actor(request)
+    _manager(user)
+    _validate_brand(request, body.brand)
+    state = request.app.state
+    if not state.repository.get_products_by_ids(body.brand, [body.product_id]):
+        raise HTTPException(404, "该商品不在当前品牌的有效档案中")
+    try:
+        decision = state.stock_operating.save_clearance(**body.model_dump(), user_id=user["id"])
+    except RuleConflict as error:
+        raise HTTPException(409, str(error)) from error
+    try:
+        write_operation_log(request, module="inventory", action="stock_clearance_decision",
+                            entity_type="stock_clearance_decision", entity_id=body.product_id,
+                            entity_label=f"{body.brand}/{body.product_id}",
+                            summary="确认清仓" if body.confirmed else "解除清仓",
+                            after_data=jsonable_encoder(decision))
+    except Exception:
+        logger.exception("Clearance decision saved, but operation log could not be written")
+    return _response({"item": decision, "message": "已确认清仓" if body.confirmed else "已解除清仓"})
+
+
+class AutoAssignmentWrite(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+    brand: str = Field(min_length=1, max_length=100)
+    kind: Literal["zero", "slow", "replenish", "clearance"]
+    enabled: bool
+    assignee_id: int = Field(gt=0)
+    due_days: int = Field(ge=0, le=90)
+    version: int = Field(ge=0)
+
+
+@router.get("/overview/auto-assignment")
+def get_auto_assignment(request: Request, brand: str = Query(min_length=1, max_length=100)):
+    _manager(_actor(request))
+    _validate_brand(request, brand)
+    return _response({"items": request.app.state.stock_operating.assignments(brand)})
+
+
+@router.put("/overview/auto-assignment")
+def save_auto_assignment(request: Request, body: AutoAssignmentWrite):
+    user = _actor(request)
+    _manager(user)
+    _validate_brand(request, body.brand)
+    if body.enabled:
+        _assignee(request, body.assignee_id)
+    try:
+        row = request.app.state.stock_operating.save_assignment(**body.model_dump(), user_id=user["id"])
+    except RuleConflict as error:
+        raise HTTPException(409, str(error)) from error
+    return _response({"item": row, "message": "自动派办规则已保存"})
 
 
 @router.get("/overview/week")
@@ -97,7 +196,9 @@ def stock_overview_week(request: Request, brand: str = Query(min_length=1, max_l
     state = request.app.state
     counts, completed, clearance = state.stock_alert_tasks.overview_week(brand, first, last)
     observations = weekly_observations(state.repository, brand, first, last, completed, clearance)
-    return _response({"start": first, "end": last, **counts, "completed_styles": len(completed), **observations})
+    with state.repository.engine.connect() as conn:
+        recovery = recovery_summary(conn, brand, first, clearance)
+    return _response({"start": first, "end": last, **counts, "completed_styles": len(completed), **observations, **recovery})
 
 
 class ExitPolicyWrite(BaseModel):

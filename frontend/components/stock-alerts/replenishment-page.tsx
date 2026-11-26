@@ -39,6 +39,7 @@ import { ReplenishmentRuleDialog } from "./replenishment-rule-dialog"
 import { ReplenishmentSupplierPicker } from "./replenishment-supplier-picker"
 import { StockListState, StockStatusCard } from "./workspace-ui"
 import { StockProductPhoto } from "./stock-product-photo"
+import { StockPortfolioDetail } from "./stock-portfolio-panel"
 
 const DEFAULT_FILTERS: ReplenishmentFilters = {
   brand: "cbanner_mens",
@@ -84,6 +85,7 @@ export function ReplenishmentPage() {
   const [revision, setRevision] = useState(0)
   const [editingSupplier, setEditingSupplier] = useState<string | null>(null)
   const [rulePickerOpen, setRulePickerOpen] = useState(false)
+  const [portfolioItem, setPortfolioItem] = useState<number | null>(null)
   const bypassCache = useRef(false)
   const { data, error, loading, refreshing } = useStockModuleQuery({
     group: "replenishment",
@@ -559,9 +561,18 @@ export function ReplenishmentPage() {
                       <div className="flex items-start gap-2.5">
                         <StockProductPhoto item={item} />
                         <div className="min-w-0 flex-1">
-                          <p className="font-mono font-medium break-all">
+                          <button
+                            type="button"
+                            className="font-mono font-medium break-all text-primary hover:underline"
+                            onClick={() => setPortfolioItem(item.id)}
+                          >
                             {item.sku}
-                          </p>
+                          </button>
+                          {item.blocked_reason && (
+                            <p className="mt-1 text-xs text-destructive">
+                              {item.blocked_reason} · 停止补货
+                            </p>
+                          )}
                           <p className="mt-1 text-muted-foreground">
                             {[item.product_name, item.color]
                               .filter(Boolean)
@@ -660,7 +671,9 @@ export function ReplenishmentPage() {
                       )}
                     </td>
                     <td className="px-3 py-3 leading-5">
-                      {item.pending_reasons.length ? (
+                      {item.blocked_reason ? (
+                        <span className="text-muted-foreground">已停推</span>
+                      ) : item.pending_reasons.length ? (
                         <p className="text-amber-800 dark:text-amber-300">
                           {item.pending_reasons.join("；")}
                         </p>
@@ -835,6 +848,16 @@ export function ReplenishmentPage() {
           </p>
         </div>
       </details>
+      {portfolioItem !== null && (
+        <StockPortfolioDetail
+          key={`${filters.brand}/${portfolioItem}`}
+          brand={filters.brand}
+          productId={portfolioItem}
+          manager={canManage}
+          onClose={() => setPortfolioItem(null)}
+          onChanged={() => setRevision((value) => value + 1)}
+        />
+      )}
       {canManage && rulePickerOpen && (
         <ReplenishmentSupplierPicker
           key={filters.brand}

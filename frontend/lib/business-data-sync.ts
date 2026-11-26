@@ -1,6 +1,6 @@
-export type BusinessDataResource = "products" | "inventory" | "reference-data" | "stock-alert-rules" | "stock-alert-tasks"
+export type BusinessDataResource = "products" | "inventory" | "reference-data" | "stock-alert-rules" | "stock-alert-tasks" | "stock-clearance-recovery"
 
-const RESOURCES: BusinessDataResource[] = ["products", "inventory", "reference-data", "stock-alert-rules", "stock-alert-tasks"]
+const RESOURCES: BusinessDataResource[] = ["products", "inventory", "reference-data", "stock-alert-rules", "stock-alert-tasks", "stock-clearance-recovery"]
 const PREFIX = "hede:data-change:v1:"
 const CHANNEL = "hede:business-data:v1"
 const source = typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
@@ -120,7 +120,11 @@ export function notifyBusinessMutation(path: string, method = "GET") {
     publishBusinessDataChange(["stock-alert-tasks"])
     return
   }
-  if (pathname === "/stock-alerts/rules" || pathname === "/stock-alerts/replenishment/rules" || pathname === "/stock-alerts/overview/rules") {
+  if (pathname === "/stock-alerts/planning/clearance-week/recovery") {
+    publishBusinessDataChange(["stock-clearance-recovery"])
+    return
+  }
+  if (pathname === "/stock-alerts/rules" || pathname === "/stock-alerts/replenishment/rules" || pathname === "/stock-alerts/overview/rules" || pathname === "/stock-alerts/overview/clearance" || pathname === "/stock-alerts/overview/auto-assignment") {
     publishBusinessDataChange(["stock-alert-rules"])
     return
   }

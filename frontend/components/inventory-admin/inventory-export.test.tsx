@@ -4,7 +4,7 @@ import { afterEach, beforeEach, expect, test, vi } from "vitest"
 
 import { InventoryPage } from "@/components/inventory-admin/inventory-page"
 
-const { mockListInventory, mockListSelectionIds, mockCustomerShops, mockCustomerUnits, mockCustomerBrands, mockInventoryBrands, mockProductCandidates, mockAccountSubjects, mockCreateRecord, mockCreateDetail, mockSuppliers } = vi.hoisted(() => ({
+const { mockListInventory, mockListSelectionIds, mockCustomerShops, mockCustomerUnits, mockCustomerBrands, mockInventoryBrands, mockProductCandidates, mockAccountSubjects, mockCreateRecord, mockCreateDetail, mockSuppliers, mockWarehouses } = vi.hoisted(() => ({
   mockListInventory: vi.fn(), mockCustomerShops: vi.fn(),
   mockListSelectionIds: vi.fn(),
   mockCustomerUnits: vi.fn(), mockCustomerBrands: vi.fn(),
@@ -14,6 +14,7 @@ const { mockListInventory, mockListSelectionIds, mockCustomerShops, mockCustomer
   mockCreateRecord: vi.fn(),
   mockCreateDetail: vi.fn(),
   mockSuppliers: vi.fn(),
+  mockWarehouses: vi.fn(),
 }))
 
 vi.mock("@/components/auth/auth-provider", () => ({
@@ -45,7 +46,7 @@ vi.mock("@/lib/api", async () => ({
   listInventoryDetailCandidates: mockProductCandidates,
   listSuppliers: mockSuppliers,
   listWarehouseBrands: async () => ({ items: [] }),
-  listWarehouses: async () => ({ items: [] }),
+  listWarehouses: mockWarehouses,
   listGeneralCustomerBrands: mockCustomerBrands,
   listGeneralCustomerShops: mockCustomerShops,
   listGeneralCustomerUnits: mockCustomerUnits,
@@ -65,6 +66,7 @@ beforeEach(() => {
   mockProductCandidates.mockResolvedValue({ items: [] })
   mockAccountSubjects.mockResolvedValue({ items: [] })
   mockSuppliers.mockResolvedValue({ items: [] })
+  mockWarehouses.mockResolvedValue({ items: [] })
   mockListSelectionIds.mockResolvedValue({ ids: [1, 2, 30], total: 3 })
   window.localStorage.clear()
   downloadUrls = []
@@ -365,6 +367,52 @@ test("excludes disabled shops and their units from new customer business options
   await user.type(customerInput, "启用")
   expect(within(dialog).getByRole("button", { name: "客户品牌 / 启用店铺" })).toBeInTheDocument()
   expect(within(dialog).getByRole("button", { name: "客户品牌 / 启用店铺 / 启用单位" })).toBeInTheDocument()
+})
+
+test("shows only the selected customer and warehouse names in ordinary import", async () => {
+  mockCustomerShops.mockResolvedValue({ items: [
+    { id: 1, customer_name: "客户品牌", shop_name: "示例店铺", is_active: true },
+  ] })
+  mockCustomerUnits.mockResolvedValue({ items: [{ id: 1, shop_id: 1, unit_name: "示例单位" }] })
+  mockWarehouses.mockResolvedValue({ items: [{ id: 1, name: "电商仓", brand: "仓库品牌" }] })
+  const user = userEvent.setup()
+  render(<InventoryPage />)
+  await screen.findByText("EXPORT-0001")
+  await user.click(screen.getByRole("button", { name: "导入Excel" }))
+  const dialog = within(screen.getByRole("dialog", { name: "导入单据明细" }))
+  await user.click(dialog.getByRole("button", { name: "普通导入" }))
+  await user.selectOptions(dialog.getByRole("combobox"), "批发销售退货单")
+
+  const customer = dialog.getByPlaceholderText("选择品牌后选收货客户")
+  await user.type(customer, "示例单位")
+  await user.click(dialog.getByRole("button", { name: "客户品牌 / 示例店铺 / 示例单位" }))
+  expect(customer).toHaveValue("示例单位")
+
+  const warehouse = dialog.getByPlaceholderText("选择品牌后选发货仓库")
+  await user.click(warehouse)
+  await user.click(dialog.getByRole("button", { name: "仓库品牌" }))
+  await user.click(dialog.getByRole("button", { name: "电商仓" }))
+  expect(warehouse).toHaveValue("电商仓")
+})
+
+test("shows the saved customer and warehouse without parent categories when editing business history", async () => {
+  mockCustomerShops.mockResolvedValue({ items: [
+    { id: 1, customer_name: "客户品牌", shop_name: "示例店铺", is_active: true },
+  ] })
+  mockCustomerUnits.mockResolvedValue({ items: [{ id: 1, shop_id: 1, unit_name: "示例单位" }] })
+  mockWarehouses.mockResolvedValue({ items: [{ id: 1, name: "电商仓", brand: "仓库品牌" }] })
+  mockListInventory.mockResolvedValue({ items: [{
+    id: 1, document_number: "RETURN-0001", document_type: "批发销售退货单",
+    supplier: "示例单位", warehouse: "电商仓", date: "2026-11-24",
+  }], total: 1 })
+  const user = userEvent.setup()
+  render(<InventoryPage />)
+
+  const row = (await screen.findByText("RETURN-0001")).closest("tr")!
+  await user.click(within(row).getByTitle("编辑"))
+  const dialog = within(screen.getByRole("dialog", { name: "编辑经营历程" }))
+  expect(dialog.getByPlaceholderText("选择品牌后选收货客户")).toHaveValue("示例单位")
+  expect(dialog.getByPlaceholderText("选择品牌后选发货仓库")).toHaveValue("电商仓")
 })
 
 test("creates a record with an accounting subject from the searchable grouped dropdown", async () => {

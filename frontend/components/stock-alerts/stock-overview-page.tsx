@@ -6,20 +6,15 @@ import Link from "next/link"
 import {
   Archive,
   ArrowRight,
-  Box,
-  CheckCircle2,
   CalendarDays,
-  ChevronDown,
   ChevronLeft,
   ChevronRight,
   ClipboardList,
-  Database,
   Info,
   ListPlus,
   RefreshCw,
   Search,
   SlidersHorizontal,
-  TriangleAlert,
   X,
 } from "lucide-react"
 import { useAuth } from "@/components/auth/auth-provider"
@@ -46,13 +41,7 @@ import {
   useStockModuleOptions,
   useStockModuleQuery,
 } from "@/lib/stock-module-query"
-import type {
-  InventoryBucket,
-  OverviewFilters,
-  OverviewItem,
-  OverviewResponse,
-  OverviewWeek,
-} from "@/lib/stock-overview"
+import type { OverviewFilters, OverviewItem } from "@/lib/stock-overview"
 import { cn } from "@/lib/utils"
 import {
   BatchSelectionBar,
@@ -67,11 +56,48 @@ import {
   TaskStatusBadge,
 } from "./task-dialog"
 import { StockProductPhoto } from "./stock-product-photo"
+import {
+  formatOverview as fmt,
+  InventoryPanel,
+  InventoryPanelLoading,
+  overviewPanel as panel,
+  overviewWarning as warning,
+  WeeklyPanel,
+} from "./stock-overview-panels"
+import {
+  StockPortfolioDetail,
+  StockPortfolioPanel,
+} from "./stock-portfolio-panel"
 
 const BatchTaskDialog = dynamic(() =>
   import("./batch-task-dialog").then((module) => module.BatchTaskDialog)
 )
+const AutoAssignmentDialog = dynamic(() =>
+  import("./stock-auto-assignment-dialog").then(
+    (module) => module.StockAutoAssignmentDialog
+  )
+)
+const CampaignDialog = dynamic(() =>
+  import("./stock-phase-two-dialogs").then(
+    (module) => module.StockCampaignDialog
+  )
+)
+const ClearanceWeekDialog = dynamic(() =>
+  import("./stock-phase-two-dialogs").then(
+    (module) => module.StockClearanceWeekDialog
+  )
+)
+const ArrivalsDialog = dynamic(() =>
+  import("./stock-phase-two-dialogs").then(
+    (module) => module.StockArrivalsDialog
+  )
+)
 const recommendationKey = ({ id, kind }: OverviewItem) => `${id}/${kind}`
+
+const weeklyResources = [
+  ...STOCK_ALERT_RESOURCES,
+  "stock-clearance-recovery",
+] as const
 
 const defaults: OverviewFilters = {
   brand: "cbanner_womens",
@@ -80,397 +106,7 @@ const defaults: OverviewFilters = {
   page: 1,
 }
 const labels = { ...alertKindLabels, review: "数据待核对" }
-const bucketLabels: Record<InventoryBucket["key"], [string, string]> = {
-  selling: ["正常销售", "bg-emerald-600 dark:bg-emerald-400"],
-  next_season: ["跨季待售", "bg-chart-2"],
-  size_imbalance: ["尺码不均衡", "bg-chart-3"],
-  clearance: ["待清货", "bg-destructive"],
-  watch: ["继续观察", "bg-chart-1"],
-  review: ["数据待核对", "bg-amber-500 dark:bg-amber-400"],
-}
 const kinds = ["clearance", "zero", "replenish", "slow", "review"] as const
-const number = new Intl.NumberFormat("zh-CN", { maximumFractionDigits: 1 })
-const percent = new Intl.NumberFormat("zh-CN", {
-  maximumFractionDigits: 1,
-  style: "percent",
-})
-const fmt = (value: number | null | undefined, suffix = "") =>
-  value == null ? "—" : `${number.format(value)}${suffix}`
-const panel =
-  "min-w-0 overflow-hidden rounded-2xl border border-border/80 bg-card/80 text-card-foreground shadow-xs"
-const warning = "text-amber-800 dark:text-amber-300"
-
-const bucketDefinitions: Record<InventoryBucket["key"], string> = {
-  selling: "近 7 天和 30 天非清仓净销均为正，且没有触发处理建议或待核对问题。",
-  next_season: "设置了再次开售日，当前还未到开售时间。",
-  size_imbalance: "核心尺码需补货，同时其他非核心尺码仍有库存。",
-  clearance:
-    "已生成清货建议。这里统计该款色全部可售库存，实际处理量以清单为准。",
-  watch: "未归到其他类别，仍需观察近期销售和库存变化。",
-  review:
-    "库存或日销不可用，或存在需要核实的资料问题。仅统计可售合计为正的款色。",
-}
-
-function shareLabel(units: number, total: number | null) {
-  if (!total || !units) return "0%"
-  const share = units / total
-  return share < 0.001
-    ? "<0.1%"
-    : share > 0.999 && share < 1
-      ? ">99.9%"
-      : percent.format(share)
-}
-
-function InventoryPanel({
-  data,
-  onReview,
-}: {
-  data: OverviewResponse
-  onReview: () => void
-}) {
-  const { inventory, sources } = data
-  const rows = [
-    ["非清仓净销", inventory.regular_7, inventory.regular_30],
-    ["清仓净销", inventory.clearance_7, inventory.clearance_30],
-    [
-      "总净销",
-      inventory.regular_7 == null || inventory.clearance_7 == null
-        ? null
-        : inventory.regular_7 + inventory.clearance_7,
-      inventory.total_30,
-    ],
-  ] as const
-  return (
-    <section
-      aria-label="整盘库存"
-      className={cn(panel, "@container/inventory")}
-    >
-      <div className="grid @min-[49rem]/inventory:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]">
-        <div className="border-b bg-primary/[0.06] px-5 py-5 sm:px-6 sm:py-6 @min-[49rem]/inventory:border-r @min-[49rem]/inventory:border-b-0">
-          <h2 className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
-            <Box className="size-4 shrink-0 text-primary" aria-hidden="true" />
-            整盘可售库存
-          </h2>
-          <p className="mt-2 flex flex-wrap items-baseline gap-x-2">
-            <strong className="text-[clamp(2.1rem,6cqw,3.5rem)] leading-none font-semibold tracking-tight wrap-anywhere tabular-nums">
-              {fmt(inventory.available)}
-            </strong>
-            {inventory.available != null && (
-              <span className="text-sm text-muted-foreground">双</span>
-            )}
-          </p>
-          <p className="mt-3 flex flex-wrap items-baseline gap-x-2 text-xs leading-5 text-muted-foreground">
-            <span>预计可覆盖</span>
-            <strong className="font-semibold text-foreground tabular-nums">
-              {fmt(inventory.coverage_days, " 天")}
-            </strong>
-            <span>
-              {inventory.coverage_days == null
-                ? "暂缺完整库存或近销数据"
-                : "按近 30 天总净销估算"}
-            </span>
-          </p>
-        </div>
-        <div className="min-w-0 px-5 py-4 sm:px-6">
-          <h3 className="text-sm font-semibold">近期销售</h3>
-          <table className="mt-1 w-full text-xs tabular-nums sm:text-sm">
-            <caption className="sr-only">近期销售（单位：双）</caption>
-            <thead className="text-muted-foreground">
-              <tr className="border-b">
-                <th scope="col" className="py-1.5 text-left font-normal">
-                  净销（双）
-                </th>
-                <th scope="col" className="py-1.5 pl-2 text-right font-normal">
-                  近 7 天
-                </th>
-                <th scope="col" className="py-1.5 pl-2 text-right font-normal">
-                  近 30 天
-                </th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-border/65">
-              {rows.map(([label, recent, monthly]) => (
-                <tr
-                  key={label}
-                  className={label === "总净销" ? "font-semibold" : undefined}
-                >
-                  <th scope="row" className="py-1.5 text-left font-medium">
-                    {label}
-                  </th>
-                  <td className="py-1.5 pl-2 text-right wrap-anywhere">
-                    {fmt(recent)}
-                  </td>
-                  <td className="py-1.5 pl-2 text-right wrap-anywhere">
-                    {fmt(monthly)}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
-      <div className="border-t px-4 py-4 sm:px-6">
-        <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1.5">
-          <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
-            <h3 className="text-base font-semibold tracking-tight">库存分布</h3>
-            <span className="text-xs text-muted-foreground">按双数统计</span>
-          </div>
-          {data.counts.review > 0 && (
-            <Button
-              variant="outline"
-              type="button"
-              size="sm"
-              onClick={onReview}
-              className={cn("shadow-none", warning)}
-            >
-              <TriangleAlert aria-hidden="true" /> 查看待核对建议
-              <ChevronRight aria-hidden="true" />
-            </Button>
-          )}
-        </div>
-        {inventory.buckets.length ? (
-          <>
-            <div
-              className="mt-3 flex h-2.5 gap-px overflow-hidden rounded-full bg-muted"
-              aria-hidden="true"
-            >
-              {inventory.buckets
-                .filter(({ units }) => units > 0)
-                .map(({ key, units }) => (
-                  <span
-                    key={key}
-                    className={bucketLabels[key][1]}
-                    style={{ flexGrow: units, flexBasis: 0 }}
-                  />
-                ))}
-            </div>
-            <ul className="mt-3 grid grid-cols-2 gap-px overflow-hidden rounded-lg border border-border/80 bg-border @min-[31rem]/inventory:grid-cols-3 @min-[68rem]/inventory:grid-cols-6">
-              {inventory.buckets.map(({ key, units, styles }) => (
-                <li
-                  key={key}
-                  className={cn(
-                    "min-w-0 bg-card px-3 py-2.5 text-xs",
-                    key === "review" &&
-                      units > 0 &&
-                      "bg-linear-to-b from-amber-500/5 to-amber-500/5"
-                  )}
-                >
-                  <p className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1">
-                    <span className="flex items-center gap-1.5 font-medium">
-                      <span
-                        className={cn(
-                          "size-1.5 shrink-0 rounded-full",
-                          bucketLabels[key][1]
-                        )}
-                        aria-hidden="true"
-                      />
-                      {bucketLabels[key][0]}
-                    </span>
-                    <span
-                      className={cn(
-                        "tabular-nums",
-                        key === "review" && units > 0
-                          ? warning
-                          : "text-muted-foreground"
-                      )}
-                    >
-                      {shareLabel(units, inventory.available)}
-                    </span>
-                  </p>
-                  <p className="mt-1.5 flex flex-wrap items-baseline gap-x-1.5 tabular-nums">
-                    <strong
-                      className={cn(
-                        "text-base leading-5 font-semibold wrap-anywhere",
-                        !units && "text-muted-foreground"
-                      )}
-                    >
-                      {fmt(units)}
-                    </strong>
-                    <span className="text-muted-foreground">双</span>
-                    <span className="text-muted-foreground">
-                      · {fmt(styles, " 款色")}
-                    </span>
-                  </p>
-                </li>
-              ))}
-            </ul>
-            <details className="group mt-2.5 text-xs">
-              <summary className="inline-flex min-h-7 cursor-pointer list-none items-center gap-1.5 rounded-sm text-muted-foreground underline-offset-4 hover:text-foreground hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 [&::-webkit-details-marker]:hidden">
-                <Info className="size-3.5" aria-hidden="true" />
-                查看分类口径
-                <ChevronDown
-                  className="size-3.5 group-open:rotate-180"
-                  aria-hidden="true"
-                />
-              </summary>
-              <p className="mt-1 leading-5 text-muted-foreground">
-                仅统计可售库存合计为正的款色，每个款色归入一类。负库存可在下方待核对建议中查看。
-              </p>
-              <dl className="mt-2 grid gap-3 rounded-lg bg-muted/40 p-3 @min-[34rem]/inventory:grid-cols-2 @min-[54rem]/inventory:grid-cols-3">
-                {(Object.keys(bucketLabels) as InventoryBucket["key"][]).map(
-                  (key) => (
-                    <div key={key}>
-                      <dt className="font-semibold">{bucketLabels[key][0]}</dt>
-                      <dd className="mt-1 leading-5 text-muted-foreground">
-                        {bucketDefinitions[key]}
-                      </dd>
-                    </div>
-                  )
-                )}
-              </dl>
-            </details>
-          </>
-        ) : (
-          <p className="mt-2 text-sm text-muted-foreground">
-            暂无库存分布数据。
-          </p>
-        )}
-      </div>
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-t bg-muted/30 px-4 py-2.5 text-xs leading-5 text-muted-foreground sm:px-6">
-        <p className="inline-flex items-center gap-1.5">
-          <Database className="size-3.5 shrink-0" aria-hidden="true" />
-          数据日期（北京时间）
-        </p>
-        <p className="flex flex-wrap gap-x-3 tabular-nums">
-          <span>库存快照：{sources.stock_date ?? "待同步"}</span>
-          <span>日销截至：{sources.sales_end ?? "待同步"}</span>
-        </p>
-        {sources.aligned && (
-          <span className="inline-flex items-center gap-1 text-emerald-700 dark:text-emerald-400">
-            <CheckCircle2 className="size-3.5" aria-hidden="true" /> 日期已对齐
-          </span>
-        )}
-        {sources.unmatched_stock_rows > 0 && (
-          <span>
-            全部品牌有 {fmt(sources.unmatched_stock_rows)}{" "}
-            个库存编码组未能唯一匹配
-          </span>
-        )}
-      </div>
-      {!sources.aligned && (
-        <p
-          className={cn(
-            "flex items-start gap-2 border-t border-amber-500/20 bg-amber-500/5 px-4 py-2.5 text-xs leading-5 font-medium sm:px-6",
-            warning
-          )}
-        >
-          <TriangleAlert
-            className="mt-0.5 size-3.5 shrink-0"
-            aria-hidden="true"
-          />
-          库存或日销有延迟，可查看当前数据，暂不生成可分配建议。
-        </p>
-      )}
-    </section>
-  )
-}
-
-function WeeklyPanel({
-  week,
-  error,
-  retry,
-}: {
-  week: OverviewWeek | null
-  error: string | null
-  retry: () => void
-}) {
-  return (
-    <section aria-labelledby="stock-overview-week" className={panel}>
-      <div className="border-b border-border/80 px-4 py-4 sm:px-5">
-        <h2
-          id="stock-overview-week"
-          className="flex items-center gap-2 text-sm font-semibold"
-        >
-          <CalendarDays
-            className="size-4 text-muted-foreground"
-            aria-hidden="true"
-          />{" "}
-          上周复盘
-        </h2>
-        {week && (
-          <p className="mt-1 text-xs text-muted-foreground tabular-nums">
-            {week.start} 至 {week.end}
-          </p>
-        )}
-      </div>
-      {error ? (
-        <div className="space-y-2 p-4 sm:px-5">
-          <p className="text-sm text-destructive" role="alert">
-            {error}
-          </p>
-          <Button size="sm" variant="outline" onClick={retry}>
-            重新加载
-          </Button>
-        </div>
-      ) : week ? (
-        <div className="space-y-4 p-4 sm:px-5">
-          <dl className="grid grid-cols-3 divide-x">
-            {(
-              [
-                ["新增待办", week.created],
-                ["已完成", week.completed],
-                ["到期未完成", week.overdue],
-              ] as const
-            ).map(([label, value]) => (
-              <div
-                key={label}
-                className={cn(
-                  "min-w-0 px-1 text-center",
-                  label === "到期未完成" && value > 0 && warning
-                )}
-              >
-                <dt
-                  className="text-xs text-muted-foreground"
-                  title={label === "到期未完成" ? "截至上周末" : undefined}
-                >
-                  {label}
-                </dt>
-                <dd className="mt-1 text-lg font-semibold wrap-anywhere tabular-nums">
-                  {fmt(value)}
-                  <span className="ml-0.5 text-xs font-normal text-muted-foreground">
-                    项
-                  </span>
-                </dd>
-              </div>
-            ))}
-          </dl>
-          <div>
-            <h3 className="text-xs font-medium text-muted-foreground">
-              处理成效
-            </h3>
-            <dl className="mt-1 divide-y divide-border/70 text-xs">
-              {(
-                [
-                  ["处理款净销", week.net_sales],
-                  ["处理款尺码库存变化", week.stock_change],
-                  ["清货款清仓净销", week.clearance_net_sales],
-                ] as const
-              ).map(([label, value]) => (
-                <div
-                  key={label}
-                  className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1 py-2"
-                >
-                  <dt className="text-muted-foreground">{label}</dt>
-                  <dd className="font-medium tabular-nums">
-                    {fmt(value, " 双")}
-                  </dd>
-                </div>
-              ))}
-            </dl>
-          </div>
-          <p className="border-t border-border/80 pt-3 text-xs leading-5 text-muted-foreground">
-            观察上周已完成待办的 {fmt(week.completed_styles)}{" "}
-            个款色。库存变化来自尺码历史快照，记录不全时显示「—」。观察值不能直接归因于某次处理，回收金额待财务口径接入。
-          </p>
-        </div>
-      ) : (
-        <p className="p-4 text-sm text-muted-foreground sm:px-5" role="status">
-          正在读取上周记录…
-        </p>
-      )}
-    </section>
-  )
-}
 
 const decisionTone: Record<OverviewItem["kind"], string> = {
   zero: "border-amber-600/25 bg-amber-500/10 text-amber-900 dark:text-amber-200",
@@ -816,7 +452,16 @@ export function StockOverviewPage() {
   const [query, setQuery] = useState(filters.query)
   const [revision, setRevision] = useState(0)
   const [weekRevision, setWeekRevision] = useState(0)
+  const [portfolioRefresh, setPortfolioRefresh] = useState(0)
   const [policyOpen, setPolicyOpen] = useState(false)
+  const [autoOpen, setAutoOpen] = useState(false)
+  const [campaignOpen, setCampaignOpen] = useState(false)
+  const [arrivalsOpen, setArrivalsOpen] = useState(false)
+  const [clearanceWeek, setClearanceWeek] = useState<string | null>(null)
+  const [portfolioItem, setPortfolioItem] = useState<{
+    id: number
+    tab?: "planning"
+  } | null>(null)
   const [detail, setDetail] = useState<OverviewItem | null>(null)
   const [assignment, setAssignment] = useState<OverviewItem | null>(null)
   const [taskId, setTaskId] = useState<number | null>(null)
@@ -846,19 +491,24 @@ export function StockOverviewPage() {
     group: "stock-overview-week",
     queryKey: filters.brand,
     revision: weekRevision,
-    resources: STOCK_ALERT_RESOURCES,
+    resources: weeklyResources,
     load: (signal) => getStockOverviewWeek(filters.brand, signal),
   })
   useEffect(
     () =>
-      subscribeBusinessDataChanges(() => {
-        setRevision((value) => value + 1)
+      subscribeBusinessDataChanges((resources) => {
+        if (
+          !resources.length ||
+          resources.some((resource) => resource !== "stock-clearance-recovery")
+        )
+          setRevision((value) => value + 1)
         setWeekRevision((value) => value + 1)
       }),
     []
   )
   const refresh = () => {
     force.current = true
+    setPortfolioRefresh((value) => value + 1)
     setRevision((value) => value + 1)
     setWeekRevision((value) => value + 1)
   }
@@ -896,8 +546,8 @@ export function StockOverviewPage() {
     if (filters.query) setFilters({ ...filters, query: "", page: 1 })
   }
   return (
-    <div className="@container/overview mx-auto max-w-[1600px] space-y-4 px-3 py-4 sm:space-y-5 sm:px-5 sm:py-5 lg:px-6">
-      <header className="flex flex-wrap items-end justify-between gap-x-5 gap-y-3.5">
+    <div className="@container/overview mx-auto w-full space-y-4 px-3 py-4 sm:space-y-5 sm:px-5 sm:py-5 lg:px-6">
+      <header className="flex flex-wrap items-end justify-between gap-x-5 gap-y-3.5 border-b border-border/80 pb-4">
         <div className="min-w-0">
           <p className="mb-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
             <Archive className="size-3.5 shrink-0" aria-hidden="true" /> 存 /
@@ -957,6 +607,31 @@ export function StockOverviewPage() {
               <SlidersHorizontal aria-hidden="true" /> 退出规则
             </Button>
           )}
+          <Button
+            size="lg"
+            variant="outline"
+            onClick={() => setCampaignOpen(true)}
+          >
+            <CalendarDays aria-hidden="true" /> 营销日历
+          </Button>
+          {hasPermission("purchase.view") && (
+            <Button
+              size="lg"
+              variant="outline"
+              onClick={() => setArrivalsOpen(true)}
+            >
+              到货清单
+            </Button>
+          )}
+          {manager && (
+            <Button
+              size="lg"
+              variant="outline"
+              onClick={() => setAutoOpen(true)}
+            >
+              自动派办
+            </Button>
+          )}
         </div>
       </header>
       {options.error && (
@@ -980,37 +655,46 @@ export function StockOverviewPage() {
           </Button>
         </div>
       )}
+      <nav
+        aria-label="总览分区"
+        className="flex flex-wrap items-center gap-x-1 gap-y-1 text-sm"
+      >
+        {(
+          [
+            ["overview-inventory", "整盘库存"],
+            ["stock-overview-queue", "今日优先处理"],
+            ["stock-portfolio", "库存货盘"],
+            ["overview-week", "上周复盘"],
+          ] as const
+        ).map(([id, label]) => (
+          <a
+            key={id}
+            href={`#${id}`}
+            className="rounded-lg px-3 py-1.5 font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-2"
+          >
+            {label}
+          </a>
+        ))}
+      </nav>
       {summary ? (
         <InventoryPanel
           data={summary}
           onReview={() => {
             selectKind("review")
-            queueHeading.current?.focus()
+            queueHeading.current?.focus({ preventScroll: true })
+            queueHeading.current?.scrollIntoView?.({ block: "start" })
           }}
         />
       ) : (
-        loading && (
-          <div className={cn(panel, "p-5")}>
-            <div
-              aria-hidden="true"
-              className="mb-4 grid max-w-lg grid-cols-2 items-end gap-4 motion-safe:animate-pulse"
-            >
-              <div className="h-12 rounded-lg bg-muted" />
-              <div className="h-7 rounded-lg bg-muted" />
-            </div>
-            <p className="text-sm text-muted-foreground" role="status">
-              正在汇总库存和处理建议…
-            </p>
-          </div>
-        )
+        loading && <InventoryPanelLoading />
       )}
-      <div className="grid items-start gap-4 @min-[55rem]/overview:grid-cols-[minmax(0,1fr)_minmax(16rem,21%)]">
+      <div className="grid items-start gap-4 @min-[53rem]/overview:grid-cols-[minmax(0,1fr)_minmax(17rem,24%)]">
         <section
           aria-labelledby="stock-overview-queue"
           className={cn(panel, "@container/queue")}
           aria-busy={loading || refreshing}
         >
-          <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 px-4 py-4 sm:px-5">
+          <div className="flex flex-wrap items-start justify-between gap-x-3 gap-y-2 px-4 py-4 sm:px-5">
             <div className="min-w-0">
               <h2
                 id="stock-overview-queue"
@@ -1025,22 +709,20 @@ export function StockOverviewPage() {
                 今日优先处理
               </h2>
               {summary ? (
-                <p className="mt-1 flex flex-wrap items-baseline gap-x-3 text-xs text-muted-foreground tabular-nums">
-                  <span>
-                    待分配{" "}
-                    <strong className="font-semibold text-foreground">
+                <dl className="mt-2 flex flex-wrap gap-2 text-xs tabular-nums">
+                  <div className="flex items-baseline gap-1.5 rounded-md bg-primary/[0.08] px-2 py-1">
+                    <dt className="text-muted-foreground">待分配</dt>
+                    <dd className="font-mono font-semibold">
                       {fmt(summary.assignable)}
-                    </strong>{" "}
-                    条
-                  </span>
-                  <span>
-                    已有待办{" "}
-                    <strong className="font-semibold text-foreground">
+                    </dd>
+                  </div>
+                  <div className="flex items-baseline gap-1.5 rounded-md border border-border/75 px-2 py-1">
+                    <dt className="text-muted-foreground">已有待办</dt>
+                    <dd className="font-mono font-semibold">
                       {fmt(summary.in_progress)}
-                    </strong>{" "}
-                    条
-                  </span>
-                </p>
+                    </dd>
+                  </div>
+                </dl>
               ) : (
                 <p className="mt-1 text-xs text-muted-foreground">
                   按处理类型、期限和影响数量排序
@@ -1231,6 +913,15 @@ export function StockOverviewPage() {
                           >
                             {item.sku}
                           </button>
+                          <Button
+                            type="button"
+                            variant="link"
+                            size="sm"
+                            className="h-auto px-1 text-xs"
+                            onClick={() => setPortfolioItem({ id: item.id })}
+                          >
+                            单款进销存
+                          </Button>
                           {(item.product_name || item.color) && (
                             <span className="min-w-0 text-xs wrap-anywhere text-muted-foreground">
                               {[item.product_name, item.color]
@@ -1385,8 +1076,61 @@ export function StockOverviewPage() {
           week={weekly.data}
           error={weekly.error}
           retry={() => setWeekRevision((value) => value + 1)}
+          onClearance={setClearanceWeek}
         />
       </div>
+      <StockPortfolioPanel
+        key={filters.brand}
+        brand={filters.brand}
+        revision={revision}
+        refreshCount={portfolioRefresh}
+        onOpen={(id) => setPortfolioItem({ id })}
+      />
+      {campaignOpen && (
+        <CampaignDialog
+          brand={filters.brand}
+          canEdit={manager}
+          onClose={() => setCampaignOpen(false)}
+        />
+      )}
+      {arrivalsOpen && (
+        <ArrivalsDialog
+          brand={filters.brand}
+          onClose={() => setArrivalsOpen(false)}
+          openProduct={(id) => {
+            setPortfolioItem({ id, tab: "planning" })
+            setArrivalsOpen(false)
+          }}
+        />
+      )}
+      {clearanceWeek && (
+        <ClearanceWeekDialog
+          brand={filters.brand}
+          first={clearanceWeek}
+          onClose={() => setClearanceWeek(null)}
+          onSaved={() => setWeekRevision((value) => value + 1)}
+        />
+      )}
+      {autoOpen && manager && (
+        <AutoAssignmentDialog
+          brand={filters.brand}
+          onClose={() => setAutoOpen(false)}
+        />
+      )}
+      {portfolioItem !== null && (
+        <StockPortfolioDetail
+          key={`${filters.brand}/${portfolioItem.id}`}
+          brand={filters.brand}
+          productId={portfolioItem.id}
+          initialTab={portfolioItem.tab}
+          manager={manager}
+          onClose={() => setPortfolioItem(null)}
+          onChanged={() => {
+            selection.clear()
+            setRevision((value) => value + 1)
+          }}
+        />
+      )}
       {policyOpen && data && (
         <StockOverviewPolicyDialog
           brand={filters.brand}

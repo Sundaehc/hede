@@ -162,7 +162,7 @@ def test_all_goods_templates_allow_unmatched_products_on_preview_and_submit(cont
     assert detail["product_identity_id"] is None
 
 
-@pytest.mark.parametrize("code", [SKU, SKU + "39", SKU + "35-36", SKU + "45-46"])
+@pytest.mark.parametrize("code", [SKU, SKU + "39", SKU + "35-36", SKU + "45-46", SKU.lower() + "39"])
 def test_archive_sku_and_valid_size_codes_import_with_product_link(context, code):
     repository, request = context
     content = template(codes=(code,))
@@ -171,6 +171,8 @@ def test_archive_sku_and_valid_size_codes_import_with_product_link(context, code
     detail = repository.import_template_documents.call_args.args[0][0]["details"][0]
     assert detail["product_identity_id"] == 1
     assert detail["product_code"] == SKU
+    if code == SKU.lower() + "39":
+        assert Decimal(detail["size_quantities"]["39"]) == 1
 
 
 def test_unmatched_product_imports_when_fallback_brand_is_submitted(context):

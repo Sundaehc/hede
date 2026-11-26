@@ -54,6 +54,7 @@ export type ReplenishmentItem = {
   lead_days: number | null
   cover_days: number | null
   pending_reasons: string[]
+  blocked_reason?: string
   supplier_summary: SupplierReplenishmentSummary | null
   size_details: Array<{
     name: string

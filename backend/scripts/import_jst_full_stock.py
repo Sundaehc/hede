@@ -19,6 +19,9 @@ def main() -> None:
     print(result["message"])
     if int(result.get("imported") or 0) <= 0:
         raise RuntimeError(str(result.get("message") or "聚水潭库存未导入任何数据"))
+    from storage.stock_auto_assignment import after_stock_source_refresh
+
+    after_stock_source_refresh(settings.database_url)
 
 
 if __name__ == "__main__":

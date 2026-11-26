@@ -29,6 +29,7 @@ def launch_day(value):
 class ArchiveMatcher:
     def __init__(self, products, sizes):
         self.products, self.aliases, self.barcode_bases = {}, defaultdict(set), defaultdict(list)
+        self.exact_skus = defaultdict(set)
         self.sizes = sizes
         self.size_lengths = {len(size) for group in sizes.values() for size in group if size}
         for source in products:
@@ -40,13 +41,14 @@ class ArchiveMatcher:
             base = code(build_product_size_code(sku, item.get("color_code"), "", item.get("barcode_build_rule")))
             item["barcode_base"] = base
             self.products[key] = item
+            self.exact_skus[sku].add(key)
             for alias in {sku, base, code(item.get("original_sku"))} - {""}:
                 self.aliases[alias].add(key)
             self.barcode_bases[base].append((key, str(item.get("size_range") or "")))
 
     def resolve(self, product_code, *styles):
         value = code(product_code)
-        matches = set(self.aliases.get(value, ()))
+        matches = self._alias_matches(value)
         if not matches:
             # Probe only possible size suffix lengths. Scanning every product
             # sharing the first four characters grows with the whole catalogue.
@@ -60,17 +62,28 @@ class ArchiveMatcher:
         if matches:
             return next(iter(matches)) if len(matches) == 1 else None
         for style in styles:
-            matches = self.aliases.get(code(style), set())
+            matches = self._alias_matches(code(style))
             if matches:
                 return next(iter(matches)) if len(matches) == 1 else None
         return None
+
+    def _alias_matches(self, value):
+        matches = self.aliases.get(value, set())
+        exact = self.exact_skus.get(value, set())
+        if len(matches) > 1 and len(exact) == 1:
+            # The original code is sometimes still an active child SKU.
+            # Prefer its exact match only within a confirmed archive family.
+            families = {(key[0], code(self.products[key].get("original_sku"))) for key in matches}
+            if len(families) == 1 and next(iter(families))[1]:
+                return set(exact)
+        return set(matches)
 
     def source_codes(self, keys):
         result = set()
         for key in keys:
             item = self.products[key]
             for alias in (code(item["sku"]), item["barcode_base"], code(item.get("original_sku"))):
-                if self.aliases.get(alias) == {key}:
+                if self._alias_matches(alias) == {key}:
                     result.add(alias)
             result.update(item["barcode_base"] + size for size in self.sizes.get(str(item.get("size_range") or ""), ()))
         return sorted(result)

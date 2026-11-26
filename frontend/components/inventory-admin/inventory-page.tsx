@@ -598,6 +598,7 @@ function HierarchicalSelect({
   onChange,
   placeholder = "请选择品牌",
   emptyText = "没有可选项",
+  showSelectedPath = true,
   onTouched,
 }: {
   value: string
@@ -605,6 +606,7 @@ function HierarchicalSelect({
   onChange: (value: string) => void
   placeholder?: string
   emptyText?: string
+  showSelectedPath?: boolean
   onTouched?: () => void
 }) {
   const rootRef = useRef<HTMLDivElement>(null)
@@ -613,6 +615,7 @@ function HierarchicalSelect({
   const [query, setQuery] = useState("")
   const [pathIds, setPathIds] = useState<string[]>([])
   const selected = value ? findHierarchicalOption(options, value) : null
+  const selectedLabel = selected ? (showSelectedPath ? selected.path.join(" / ") : selected.option.label) : value
   const activeNode = pathIds.length > 0 ? findHierarchicalNode(options, pathIds[pathIds.length - 1]) : null
   const activeOptions = activeNode?.children ?? options
   const allSelectableOptions = flattenHierarchicalOptions(options)
@@ -658,7 +661,7 @@ function HierarchicalSelect({
         <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
         <input
           ref={inputRef}
-          value={open ? query : selected?.path.join(" / ") || value}
+          value={open ? query : selectedLabel}
           onFocus={() => { setOpen(true); resetToRoot() }}
           onChange={(event) => { onTouched?.(); setQuery(event.target.value); setOpen(true); setPathIds([]) }}
           onKeyDown={(event) => {
@@ -744,6 +747,7 @@ export function InventoryPage({ mode = "inventory", refreshRevision = 0, detailO
   const { user } = useAuth()
   const { openDetail, updateDetail } = usePurchaseDetailTabs()
   const isPurchasePage = mode === "purchase-orders"
+  const historyReadOnly = !isPurchasePage && user?.permissions?.includes("inventory.history_readonly") && !user.permissions.includes("*")
   const accountHandler = user?.display_name || user?.username || ""
   const [searchDateStart, setSearchDateStart] = useSessionQueryState("inventory:" + mode + ":searchDateStart", "")
   const [searchDateEnd, setSearchDateEnd] = useSessionQueryState("inventory:" + mode + ":searchDateEnd", "")
@@ -2213,10 +2217,10 @@ export function InventoryPage({ mode = "inventory", refreshRevision = 0, detailO
             <h1 className="page-title">{isPurchasePage ? "采购单管理" : "进销存管理"}</h1>
           </div>
           <div className="flex min-w-0 flex-wrap items-center gap-2">
-            <Button variant="outline" size="sm" onClick={openImportDialog} disabled={isImporting && !importTaskId} className="cursor-pointer">
+            {!historyReadOnly && <Button variant="outline" size="sm" onClick={openImportDialog} disabled={isImporting && !importTaskId} className="cursor-pointer">
               <Upload className="h-4 w-4" />
               <span className="ml-2 hidden sm:inline">{importTaskId ? "查看导入进度" : isImporting ? "导入中..." : isPurchaseOrderTab ? "导入采购单" : "导入Excel"}</span>
-            </Button>
+            </Button>}
             {isPurchaseOrderTab ? (
               <>
                 <Button variant="outline" size="sm" onClick={() => handleExport("summary")} disabled={total === 0 || isLoading} className="cursor-pointer">
@@ -2253,13 +2257,13 @@ export function InventoryPage({ mode = "inventory", refreshRevision = 0, detailO
               <RotateCcw className="h-4 w-4" />
               <span className="ml-2 hidden sm:inline">恢复默认列宽</span>
             </Button>
-            {!isPurchasePage && (
+            {!isPurchasePage && !historyReadOnly && (
               <Button variant="outline" size="sm" onClick={openCostDialog} disabled={isUpdatingCosts} className="cursor-pointer">
                 <BadgeDollarSign className="h-4 w-4" />
                 <span className="ml-2 hidden sm:inline">批量改成本价</span>
               </Button>
             )}
-            <Button
+            {!historyReadOnly && <Button
               variant="outline"
               size="sm"
               onClick={() => {
@@ -2273,19 +2277,19 @@ export function InventoryPage({ mode = "inventory", refreshRevision = 0, detailO
             >
               <Trash2 className="h-4 w-4" />
               <span className="ml-2 hidden sm:inline">回收站</span>
-            </Button>
+            </Button>}
             <Button variant="outline" size="sm" onClick={() => setOperationLogOpen(true)} className="cursor-pointer">
               <History className="h-4 w-4" />
               <span className="ml-2 hidden sm:inline">操作日志</span>
             </Button>
-            <Button size="sm" onClick={openCreate} className="cursor-pointer">
+            {!historyReadOnly && <Button size="sm" onClick={openCreate} className="cursor-pointer">
               <Plus className="h-4 w-4" />
               <span className="ml-2 hidden sm:inline">{isPurchaseOrderTab ? "新增采购单" : "新增经营历程"}</span>
-            </Button>
+            </Button>}
           </div>
         </div>
 
-        {!importDialogOpen && importTaskId && importTaskNotice && (
+        {!historyReadOnly && !importDialogOpen && importTaskId && importTaskNotice && (
           <InventoryImportTaskStatus
             notice={importTaskNotice}
             taskId={importTaskId}
@@ -2509,7 +2513,7 @@ export function InventoryPage({ mode = "inventory", refreshRevision = 0, detailO
                 )}
               </div>
               <div className="flex items-center gap-2">
-                {selectedIds.size > 0 && (
+                {!historyReadOnly && selectedIds.size > 0 && (
                   <Button variant="outline" size="sm" disabled={isLoading || isSelectingAll || isBatchDeleting} className="text-destructive hover:text-destructive cursor-pointer" onClick={() => { setBatchDeleteIds(Array.from(selectedIds)); setBatchDeleteOpen(true) }}>
                     <Trash2 className="h-4 w-4" />
                     <span className="ml-1.5">批量删除 ({selectedIds.size})</span>
@@ -2795,12 +2799,12 @@ export function InventoryPage({ mode = "inventory", refreshRevision = 0, detailO
                             </Button> : <Button variant="ghost" size="icon-sm" onClick={() => setDetailDocumentId(item.id)} className="cursor-pointer" title="明细">
                               <List className="h-4 w-4" />
                             </Button>}
-                            <Button variant="ghost" size="icon-sm" onClick={() => openEdit(item)} disabled={isPurchasePage && isLoading} className="cursor-pointer" title="编辑">
+                            {!historyReadOnly && <><Button variant="ghost" size="icon-sm" onClick={() => openEdit(item)} disabled={isPurchasePage && isLoading} className="cursor-pointer" title="编辑">
                               <Edit className="h-4 w-4" />
                             </Button>
                             <Button variant="ghost" size="icon-sm" onClick={() => setDeleteTarget(item)} className="cursor-pointer" title="删除">
                               <Trash2 className="h-4 w-4 text-destructive" />
-                            </Button>
+                            </Button></>}
                           </div>
                         </td>
                       </tr>
@@ -2964,6 +2968,7 @@ export function InventoryPage({ mode = "inventory", refreshRevision = 0, detailO
                 <HierarchicalSelect
                   value={formData.supplier || ""}
                   options={formCounterpartyHierarchicalOptions}
+                  showSelectedPath={isPurchaseOrderTab || formMode !== "edit"}
                   onChange={(nextValue) => setFormData((prev) => ({ ...prev, supplier: nextValue }))}
                   placeholder={isFormAccounting ? (isFormPayable ? "选择品牌后选供应商" : "选择品牌后选一般客户") : isFormTransfer ? "选择品牌后选出货仓库" : isFormWholesale ? "选择品牌后选收货客户" : "选择品牌后选供应商"}
                 />
@@ -2976,6 +2981,7 @@ export function InventoryPage({ mode = "inventory", refreshRevision = 0, detailO
                 <HierarchicalSelect
                   value={formData.warehouse || ""}
                   options={warehouseHierarchicalOptions}
+                  showSelectedPath={isPurchaseOrderTab || formMode !== "edit"}
                   onChange={(nextValue) => setFormData((prev) => ({ ...prev, warehouse: nextValue }))}
                   placeholder={isFormStockAdjustment ? "选择品牌后选仓库" : isFormTransfer ? "选择品牌后选入货仓库" : isFormWholesale ? "选择品牌后选发货仓库" : "选择品牌后选仓库"}
                 />
@@ -3199,6 +3205,7 @@ export function InventoryPage({ mode = "inventory", refreshRevision = 0, detailO
                       <HierarchicalSelect
                         value={importFormData.supplier}
                         options={importCounterpartyHierarchicalOptions}
+                        showSelectedPath={false}
                         onChange={(nextValue) => setImportFormData((prev) => ({ ...prev, supplier: nextValue }))}
                         onTouched={() => setImportError("")}
                         placeholder={isImportTransfer ? "选择品牌后选出货仓库" : isImportWholesale ? "选择品牌后选收货客户" : "选择品牌后选供货单位"}
@@ -3210,6 +3217,7 @@ export function InventoryPage({ mode = "inventory", refreshRevision = 0, detailO
                     <HierarchicalSelect
                       value={importFormData.warehouse}
                       options={warehouseHierarchicalOptions}
+                      showSelectedPath={false}
                       onChange={(nextValue) => setImportFormData((prev) => ({ ...prev, warehouse: nextValue }))}
                       onTouched={() => setImportError("")}
                       placeholder={isImportStockAdjustment ? "选择品牌后选仓库" : isImportTransfer ? "选择品牌后选入货仓库" : isImportWholesale ? "选择品牌后选发货仓库" : "选择品牌后选收货仓库"}
@@ -3628,6 +3636,7 @@ export function InventoryPage({ mode = "inventory", refreshRevision = 0, detailO
       />}
 
       {detailDocumentId !== null && <InventoryDetailPanel
+        readOnly={historyReadOnly}
         record={detailRecord}
         suppliers={supplierOptions}
         onClose={() => setDetailDocumentId(null)}

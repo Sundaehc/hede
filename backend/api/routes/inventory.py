@@ -3125,6 +3125,10 @@ def _load_purchase_product_lookup(connection, brand: str, product_codes: set[str
     return lookup
 
 
+def _inventory_import_lookup_codes(codes: set[str]) -> set[str]:
+    return codes | {code.upper() for code in codes}
+
+
 def _load_purchase_product_lookup_batch(connection, brand: str, codes: set[str]) -> dict[str, dict[str, object]]:
     # Each batch owns disjoint lookup keys. A row matching aliases in other
     # batches must not update them, or it could override their source ordering.
@@ -3612,16 +3616,19 @@ def _lookup_has_product_data(item: dict[str, object]) -> bool:
     return bool(item.get("_matched_product"))
 
 
-def _build_purchase_detail_lookup_for_brand(connection, product_code: str, quantity: Decimal, brand: str) -> dict[str, object]:
+def _build_purchase_detail_lookup_for_brand(connection, product_code: str, quantity: Decimal, brand: str, *, normalize_import_code: bool = False) -> dict[str, object]:
     raw_code = product_code.strip()
     if not raw_code:
         raise HTTPException(status_code=400, detail="货号不能为空")
 
-    product_lookup = _load_purchase_product_lookup(connection, brand, {raw_code})
+    codes = _inventory_import_lookup_codes({raw_code}) if normalize_import_code else {raw_code}
+    product_lookup = _load_purchase_product_lookup(connection, brand, codes)
     size_groups = _load_purchase_size_group_items(connection, {
         _cell_text(info.get("size_range")) for info in _purchase_product_lookup_infos(product_lookup)
         if _cell_text(info.get("size_range"))
     })
+    if normalize_import_code:
+        raw_code = _normalize_inventory_import_product_code(raw_code, brand, product_lookup, size_groups)
     product_info = _matched_purchase_product_info(
         product_lookup, brand, raw_code, size_group_items_by_range=size_groups,
     )
@@ -3880,6 +3887,7 @@ def _validate_inventory_import_product_codes(
 
 def _inventory_import_product_errors(
     rows, brand, product_lookup, size_group_items_by_range, *, require_full_code=False, summary="",
+    normalize_import_codes=False,
 ) -> list[dict[str, object]]:
     errors = []
     reasons_by_code = {}
@@ -3890,8 +3898,11 @@ def _inventory_import_product_errors(
         if raw_code in reasons_by_code:
             reason = reasons_by_code[raw_code]
         else:
+            code = _normalize_inventory_import_product_code(
+                raw_code, brand, product_lookup, size_group_items_by_range,
+            ) if normalize_import_codes else raw_code
             reason = _inventory_import_product_error_reason(
-                raw_code, brand, product_lookup, size_group_items_by_range, require_full_code=require_full_code,
+                code, brand, product_lookup, size_group_items_by_range, require_full_code=require_full_code,
             )
             reasons_by_code[raw_code] = reason
         if reason:
@@ -3942,6 +3953,17 @@ def _inventory_import_product_error_reason(
     return "商品编码不符合档案条码构成逻辑，请核对货号、颜色和尺码"
 
 
+def _normalize_inventory_import_product_code(code, brand, lookup, sizes):
+    upper_code = code.upper()
+    if code == upper_code:
+        return code
+    if not _inventory_import_product_error_reason(code, brand, lookup, sizes, require_full_code=False):
+        return code
+    if not _inventory_import_product_error_reason(upper_code, brand, lookup, sizes, require_full_code=False):
+        return upper_code
+    return code
+
+
 def _validate_inventory_import_product_batches(repository, batches, *, require_full_code=False, archive_contexts=None):
     rows_by_brand = defaultdict(list)
     for brand, rows, summary in batches:
@@ -3952,10 +3974,10 @@ def _validate_inventory_import_product_batches(repository, batches, *, require_f
             _, lookup, sizes = archive_contexts[brand]
         else:
             with repository.engine.connect() as connection:
-                lookup = _load_purchase_product_lookup(connection, brand, {
+                lookup = _load_purchase_product_lookup(connection, brand, _inventory_import_lookup_codes({
                     _cell_text(row.get("product_code")) for rows, _ in groups for row in rows
                     if "quantity" not in row or _to_decimal(row.get("quantity")) != 0
-                })
+                }))
                 sizes = _load_purchase_size_group_items(connection, {
                     _cell_text(info.get("size_range")) for info in _purchase_product_lookup_infos(lookup)
                     if _cell_text(info.get("size_range"))
@@ -3963,6 +3985,7 @@ def _validate_inventory_import_product_batches(repository, batches, *, require_f
         for rows, summary in groups:
             errors.extend(_inventory_import_product_errors(
                 rows, brand, lookup, sizes, require_full_code=require_full_code, summary=summary,
+                normalize_import_codes=True,
             ))
     raise_product_import_errors(errors)
 
@@ -4018,22 +4041,30 @@ def _build_purchase_details_from_rows(
         })
         product_codes.add(raw_code)
 
+    lookup_codes = _inventory_import_lookup_codes(product_codes) if require_archive_product else product_codes
     if archive_context is not None:
         product_lookup = {
             candidate: product_lookup[candidate]
-            for code in product_codes
+            for code in lookup_codes
             for candidate in _purchase_product_lookup_candidates(code, brand)
             if candidate in product_lookup
         }
     if archive_context is None:
         with repository.engine.connect() as connection:
-            product_lookup = _load_purchase_product_lookup(connection, brand, product_codes)
+            product_lookup = _load_purchase_product_lookup(connection, brand, lookup_codes)
             size_ranges = {
                 _cell_text(product_info.get("size_range"))
                 for product_info in _purchase_product_lookup_infos(product_lookup)
                 if _cell_text(product_info.get("size_range"))
             }
             size_group_items_by_range = _load_purchase_size_group_items(connection, size_ranges)
+
+    if require_archive_product and brand:
+        for row in parsed_rows:
+            row["raw_code"] = _normalize_inventory_import_product_code(
+                row["raw_code"], brand, product_lookup, size_group_items_by_range,
+            )
+        product_codes = {row["raw_code"] for row in parsed_rows}
 
     if require_archive_product or require_archive_product_code:
         raise_product_import_errors(_inventory_import_product_errors(
@@ -5466,6 +5497,7 @@ def _import_purchase_inventory(request: Request, filename: str | None, form: Map
     if not isinstance(decisions, dict):
         raise HTTPException(status_code=400, detail="确认信息格式不正确")
     document_type = normalize_document_type(form.get("document_type")) or "进货订单"
+    _require_inventory_history_write(request, {"document_type": document_type})
     if document_type not in PURCHASE_IMPORT_TYPES:
         raise HTTPException(status_code=400, detail="只支持进货订单、进货单、进货退货单、报溢单、报损单、批发销售单、批发销售退货单、同价调拨单导入")
     supplier = str(form.get("supplier") or "").strip()
@@ -5650,7 +5682,7 @@ def _import_purchase_inventory(request: Request, filename: str | None, form: Map
         with repository.engine.connect() as connection:
             colors = _load_color_barcodes(connection)
             for plan_brand, codes in codes_by_brand.items():
-                lookup = _load_purchase_product_lookup(connection, plan_brand, codes)
+                lookup = _load_purchase_product_lookup(connection, plan_brand, _inventory_import_lookup_codes(codes))
                 ranges = {_cell_text(info.get("size_range")) for info in _purchase_product_lookup_infos(lookup) if info.get("size_range")}
                 archive_contexts[plan_brand] = (colors, lookup, _load_purchase_size_group_items(connection, ranges))
     if not is_purchase_order_import:
@@ -6691,8 +6723,17 @@ def get_inventory_record(request: Request, record_id: int):
     return record
 
 
+def _require_inventory_history_write(request: Request, *records: Mapping[str, object] | None) -> None:
+    user = getattr(request.state, "current_user", None) or {}
+    permissions = user.get("permissions") or ()
+    if "inventory.history_readonly" in permissions and "*" not in permissions:
+        if any(normalize_document_type((record or {}).get("document_type")) != "进货订单" for record in records):
+            raise HTTPException(status_code=403, detail="经营历程仅允许查看和导出")
+
+
 @router.post("/inventory")
 def create_inventory_record(request: Request, payload: dict):
+    _require_inventory_history_write(request, payload)
     repository = request.app.state.inventory_repository
     if payload.get("date"):
         payload["date"] = _normalize_date(str(payload["date"]))
@@ -6733,6 +6774,7 @@ def update_inventory_record(request: Request, record_id: int, payload: dict):
     before = repository.get_record(record_id)
     if before is None:
         raise HTTPException(status_code=404, detail="Record not found")
+    _require_inventory_history_write(request, before, {**before, **payload})
     if payload.get("date"):
         payload["date"] = _normalize_date(str(payload["date"]))
     if "document_type" in payload:
@@ -6757,6 +6799,7 @@ def delete_inventory_record(request: Request, record_id: int):
     before = repository.get_record(record_id)
     if before is None:
         raise HTTPException(status_code=404, detail="Record not found")
+    _require_inventory_history_write(request, before)
     if not repository.delete_record(record_id):
         raise HTTPException(status_code=404, detail="Record not found")
     _log_record_operation(request, action="delete", prefix="移入回收站", before=before)
@@ -6767,6 +6810,7 @@ def delete_inventory_record(request: Request, record_id: int):
 def restore_inventory_record(request: Request, record_id: int):
     repository = request.app.state.inventory_repository
     before = repository.get_record_any_status(record_id)
+    _require_inventory_history_write(request, before)
     record = repository.restore_record(record_id)
     if record is None:
         raise HTTPException(status_code=404, detail="Record not found")
@@ -6787,6 +6831,7 @@ def batch_restore_inventory(request: Request, payload: dict):
             raise HTTPException(status_code=400, detail="ids 中包含非法编号") from None
     repository = request.app.state.inventory_repository
     before_records = [record for record_id in record_ids if (record := repository.get_record_any_status(record_id)) is not None]
+    _require_inventory_history_write(request, *before_records)
     restored = repository.restore_records(record_ids)
     grouped: dict[str, list[dict[str, object]]] = defaultdict(list)
     for record in before_records:
@@ -6822,6 +6867,7 @@ def batch_permanently_delete_inventory(request: Request, payload: dict):
             raise HTTPException(status_code=400, detail="ids 中包含非法编号") from None
     repository = request.app.state.inventory_repository
     before_records = [record for record_id in record_ids if (record := repository.get_record_any_status(record_id)) is not None]
+    _require_inventory_history_write(request, *before_records)
     deleted = repository.permanently_delete_records(record_ids)
     grouped: dict[str, list[dict[str, object]]] = defaultdict(list)
     for record in before_records:
@@ -6861,6 +6907,7 @@ def batch_delete_inventory(request: Request, payload: dict):
             raise HTTPException(status_code=400, detail="ids 中包含非法编号") from None
     record_ids = list(dict.fromkeys(record_ids))
     before_records = repository.get_records_by_ids(record_ids)
+    _require_inventory_history_write(request, *before_records)
     deleted = repository.delete_records(record_ids)
     grouped: dict[str, list[dict[str, object]]] = defaultdict(list)
     for record in before_records:
@@ -7194,6 +7241,7 @@ def _reimport_inventory_details_from_excel(request: Request, record_id: int, fil
     before_details = repository.list_details(record_id)
 
     document_type = normalize_document_type(record.get("document_type"))
+    _require_inventory_history_write(request, record)
     brand = _purchase_import_brand_for_supplier(
         repository,
         _cell_text(record.get("supplier")),
@@ -7262,6 +7310,7 @@ def create_inventory_detail(request: Request, record_id: int, payload: dict):
     record = repository.get_record(record_id)
     if record is None:
         raise HTTPException(status_code=404, detail="Record not found")
+    _require_inventory_history_write(request, record)
     _normalize_inventory_product_identity(payload)
     _apply_purchase_product_remark(repository, record, payload)
     payload["document_id"] = record_id
@@ -7286,8 +7335,9 @@ def update_inventory_detail(request: Request, record_id: int, detail_id: int, pa
     if record is None:
         raise HTTPException(status_code=404, detail="Record not found")
     before = repository.get_detail(detail_id)
-    if before is None:
+    if before is None or before.get("document_id", record_id) != record_id:
         raise HTTPException(status_code=404, detail="Detail not found")
+    _require_inventory_history_write(request, record)
     _normalize_inventory_product_identity(payload)
     _apply_purchase_product_remark(repository, record, payload)
     payload["document_id"] = record_id
@@ -7326,6 +7376,7 @@ def batch_delete_inventory_details(request: Request, record_id: int, payload: di
     record = repository.get_record(record_id)
     if record is None:
         raise HTTPException(status_code=404, detail="Record not found")
+    _require_inventory_history_write(request, record)
     before_details = [detail for detail_id in detail_ids if (detail := repository.get_detail(detail_id)) is not None]
     deleted = repository.delete_details(record_id, detail_ids)
     write_operation_log(
@@ -7348,8 +7399,9 @@ def delete_inventory_detail(request: Request, record_id: int, detail_id: int):
     if record is None:
         raise HTTPException(status_code=404, detail="Record not found")
     before = repository.get_detail(detail_id)
-    if before is None:
+    if before is None or before.get("document_id", record_id) != record_id:
         raise HTTPException(status_code=404, detail="Detail not found")
+    _require_inventory_history_write(request, record)
     if not repository.delete_detail(detail_id):
         raise HTTPException(status_code=404, detail="Detail not found")
     _log_detail_operation(request, action="detail_delete", prefix="删除", record=record, before=before)
@@ -7541,12 +7593,19 @@ def _import_inventory(request: Request, filename: str | None, content: bytes):
                     "quantity": detail_payload.get("quantity"),
                 }], _cell_text(doc_payload.get("summary"))))
             with repository.engine.connect() as connection:
-                lookup = _build_purchase_detail_lookup(
-                    connection,
-                    product_code,
-                    _to_decimal(detail_payload.get("quantity")),
-                    imported_brand,
-                )
+                lookup = None
+                if product_code != product_code.upper():
+                    normalized_lookup = _build_purchase_detail_lookup_for_brand(
+                        connection, product_code, _to_decimal(detail_payload.get("quantity")), imported_brand,
+                        normalize_import_code=True,
+                    )
+                    if normalized_lookup.get("product_identity_id"):
+                        lookup = normalized_lookup
+                        detail_payload["product_code"] = lookup["product_code"]
+                if lookup is None:
+                    lookup = _build_purchase_detail_lookup(
+                        connection, product_code, _to_decimal(detail_payload.get("quantity")), imported_brand,
+                    )
                 gendered_lookup_price = price_for_sizes(
                     lookup.get("gender_costs"),
                     detail_payload.get("size_quantities"),

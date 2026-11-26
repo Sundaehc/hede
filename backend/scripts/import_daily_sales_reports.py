@@ -192,6 +192,12 @@ def main() -> int:
                 "[FAILED] factory-channel summary refresh: "
                 f"{type(exc).__name__}: {exc}\n{traceback.format_exc()}"
             )
+        else:
+            from storage.stock_alert_tasks import business_today
+            from storage.stock_auto_assignment import after_stock_source_refresh
+
+            if business_today() - timedelta(days=1) in imported_dates:
+                after_stock_source_refresh(settings.database_url)
         if not args.skip_product_goods_refresh:
             try:
                 stats = backfill_product_goods_sales(dry_run=False, sales_years={date.today().year})
