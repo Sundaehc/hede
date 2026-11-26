@@ -22,11 +22,12 @@ class InventorySelectionFilters(BaseModel):
     summary: str | None = None
     original_sku: str | None = None
     product_code: str | None = None
+    purchase_colors: list[str] = Field(default_factory=list)
     handler: str | None = None
     completion_status: Literal["completed", "incomplete"] | None = None
 
     def repository_filters(self):
-        filters = self.model_dump()
+        filters = self.model_dump(exclude={"purchase_colors"})
         for key in ("document_type", "exclude_document_type"):
             if filters[key]:
                 filters[key] = normalize_document_type(filters[key])

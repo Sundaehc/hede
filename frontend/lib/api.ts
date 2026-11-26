@@ -51,6 +51,7 @@ import { isProductImportValidation, type ProductImportValidation } from "@/lib/p
 import { isPostedProductChangeWarning, type PostedProductChangeWarning } from "@/lib/posted-product-change"
 import type { StockAlertFilters, StockAlertKind, StockAlertResponse, StockAlertRuleWrite } from "@/lib/stock-alerts"
 import type { AutoAssignmentRule, ClearanceDecision, PortfolioDetail, PortfolioFilters, PortfolioResponse } from "@/lib/stock-portfolio"
+import type { QualityReportList } from "@/lib/product-quality-reports"
 import type { ArrivalBoard, ArrivalScope, ArrivalWrite, OrderLinkWrite, Campaign, CampaignWrite, ClearanceRecovery, ClearanceWeek, PlanFilters, Quantities, StockPlan } from "@/lib/stock-planning"
 import type { ReplenishmentFilters, ReplenishmentResponse, ReplenishmentRule, ReplenishmentRuleResponse } from "@/lib/stock-replenishment"
 import type { StockAlertTask, TaskAssignee, TaskCreate, TaskEventsResponse, TaskFilters, TaskListResponse, TaskUpdate } from "@/lib/stock-alert-tasks"
@@ -1042,6 +1043,15 @@ export function regenerateProductCopywriting(brand: string, id: number, inputPro
   )
 }
 
+export function getProductQualityReports(brand: string, productId: number, signal?: AbortSignal) {
+  return request<QualityReportList>(`/products/${encodeURIComponent(brand)}/${productId}/quality-reports`, { signal, cache: "no-store" })
+}
+
+export function productQualityReportUrl(brand: string, productId: number, reportId: string, download = false) {
+  const path = `${API_PREFIX}/products/${encodeURIComponent(brand)}/${productId}/quality-reports/${encodeURIComponent(reportId)}`
+  return download ? `${path}?download=true` : path
+}
+
 export function getProduct(brand: ProductArchiveRecordBrandKey, id: number) {
   return request<ProductListItem>(`/products/${brand}/${id}`)
 }
@@ -1637,11 +1647,14 @@ export type InventoryDetailCandidate = {
   brand: string
 }
 
+export type PurchaseColorOption = { value: string; count: number }
+
 export type InventoryListResponse = {
   items: InventoryRecord[]
   total: number
   page: number
   page_size: number
+  purchase_color_options?: PurchaseColorOption[]
   totals?: {
     current_page: {
       total_count: string
@@ -1837,6 +1850,7 @@ export type InventorySelectionFilters = {
   summary?: string
   original_sku?: string
   product_code?: string
+  purchase_colors?: string[]
   handler?: string
   completion_status?: string
 }
@@ -1877,6 +1891,7 @@ export function listInventory(params: InventorySelectionFilters & {
   if (params.summary) search.set("summary", params.summary)
   if (params.original_sku) search.set("original_sku", params.original_sku)
   if (params.product_code) search.set("product_code", params.product_code)
+  for (const color of params.purchase_colors ?? []) search.append("purchase_colors", color)
   if (params.handler) search.set("handler", params.handler)
   if (params.completion_status)
     search.set("completion_status", params.completion_status)
@@ -2152,6 +2167,7 @@ export function buildInventoryExportUrl(
     summary?: string
     original_sku?: string
     product_code?: string
+    purchase_colors?: string[]
     handler?: string
     completion_status?: string
     purchase_export_mode?: "summary" | "size_rows" | "production_order"
@@ -2175,6 +2191,7 @@ export function buildInventoryExportUrl(
   if (params.summary) search.set("summary", params.summary)
   if (params.original_sku) search.set("original_sku", params.original_sku)
   if (params.product_code) search.set("product_code", params.product_code)
+  for (const color of params.purchase_colors ?? []) search.append("purchase_colors", color)
   if (params.handler) search.set("handler", params.handler)
   if (params.completion_status)
     search.set("completion_status", params.completion_status)

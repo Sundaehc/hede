@@ -1452,14 +1452,13 @@ class InventoryRepository:
         document_types = (*increase_types, *decrease_types, *neutral_types)
 
         detail_amount = (
-            select(
-                detail.c.document_id.label("document_id"),
-                func.coalesce(func.sum(detail.c.amount), 0).label("detail_amount"),
-            )
+            select(func.coalesce(func.sum(detail.c.amount), 0))
+            .where(detail.c.document_id == table.c.id)
             .group_by(detail.c.document_id)
-            .subquery()
+            .correlate(table)
+            .scalar_subquery()
         )
-        effective_amount = func.coalesce(detail_amount.c.detail_amount, table.c.amount, 0)
+        effective_amount = func.coalesce(detail_amount, table.c.amount, 0)
         ledger_amount = func.abs(effective_amount)
         base_conditions = [
             table.c.deleted_at.is_(None),
@@ -1496,28 +1495,20 @@ class InventoryRepository:
                 increase_expr.label("increase_amount"),
                 decrease_expr.label("decrease_amount"),
             )
-            .outerjoin(detail_amount, detail_amount.c.document_id == table.c.id)
             .where(and_(*range_conditions))
             .order_by(table.c.date_value.nulls_last(), table.c.date, table.c.id)
         )
-        totals_statement = (
-            select(
-                func.coalesce(func.sum(increase_expr), 0).label("increase_total"),
-                func.coalesce(func.sum(decrease_expr), 0).label("decrease_total"),
-            )
-            .select_from(table)
-            .outerjoin(detail_amount, detail_amount.c.document_id == table.c.id)
-            .where(and_(*range_conditions))
-        )
-
         beginning_balance = Decimal("0")
         if date_start:
             beginning_conditions = list(base_conditions)
             beginning_conditions.append(table.c.date_value < start_date if start_date else table.c.date < date_start)
             beginning_statement = (
-                select(func.coalesce(func.sum(increase_expr - decrease_expr), 0))
+                select(func.coalesce(func.sum(case(
+                    (table.c.document_type.in_(increase_types), ledger_amount),
+                    (table.c.document_type.in_(decrease_types), -ledger_amount),
+                    else_=0,
+                )), 0))
                 .select_from(table)
-                .outerjoin(detail_amount, detail_amount.c.document_id == table.c.id)
                 .where(and_(*beginning_conditions))
             )
         else:
@@ -1526,14 +1517,16 @@ class InventoryRepository:
         with self.engine.connect() as connection:
             if beginning_statement is not None:
                 beginning_balance = Decimal(str(connection.execute(beginning_statement).scalar_one() or "0"))
-            totals = connection.execute(totals_statement).mappings().one()
             rows = [dict(row) for row in connection.execute(items_statement).mappings()]
 
         running_balance = beginning_balance
+        increase_total = decrease_total = Decimal("0")
         items: list[dict[str, object]] = []
         for index, row in enumerate(rows, start=1):
             increase = Decimal(str(row.pop("increase_amount") or "0"))
             decrease = Decimal(str(row.pop("decrease_amount") or "0"))
+            increase_total += increase
+            decrease_total += decrease
             running_balance = running_balance + increase - decrease
             items.append({
                 **row,
@@ -1543,8 +1536,6 @@ class InventoryRepository:
                 "balance": self._format_decimal(running_balance),
             })
 
-        increase_total = Decimal(str(totals.get("increase_total") or "0"))
-        decrease_total = Decimal(str(totals.get("decrease_total") or "0"))
         ending_balance = beginning_balance + increase_total - decrease_total
         return {
             "items": items,

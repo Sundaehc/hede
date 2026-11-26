@@ -235,7 +235,7 @@ function ProductCard({ item, selectable, showCost = true, selectedKeys, selectio
           </div>
           {(onView || onCopywriting || onEdit || onDelete) ? (
             <div className="flex flex-wrap justify-end gap-2">
-              {onView && !onEdit ? (
+              {onView ? (
                 <Button type="button" variant="outline" size="sm" onClick={(event) => {
                   event.stopPropagation()
                   onView(item)

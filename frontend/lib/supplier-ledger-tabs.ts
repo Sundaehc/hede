@@ -4,6 +4,8 @@ import { useCallback } from "react"
 import { useSessionQueryState } from "@/lib/session-query-state"
 import type { CounterpartyLedgerSortKey } from "@/lib/api"
 
+export const SUPPLIER_LEDGER_CACHE_TTL = 10 * 60 * 1000
+
 export type LedgerQueryState = {
   dateStartInput: string
   dateEndInput: string

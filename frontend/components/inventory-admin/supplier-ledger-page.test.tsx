@@ -14,6 +14,8 @@ import { CounterpartyLedgerDialog } from "./counterparty-ledger-dialog"
 import { SessionQueryProvider } from "@/lib/session-query-state"
 import { PageTabs } from "@/components/auth/page-tabs"
 import { defaultLedgerQuery } from "@/lib/supplier-ledger-tabs"
+import { publishBusinessDataChange } from "@/lib/business-data-sync"
+import { clearStockModuleQueries } from "@/lib/stock-module-cache"
 import type { CounterpartyLedgerResponse } from "@/lib/api"
 
 const { api, navigation, auth } = vi.hoisted(() => ({
@@ -142,6 +144,7 @@ function fixture(detail = false) {
   )
 }
 beforeEach(() => {
+  clearStockModuleQueries()
   vi.clearAllMocks()
   auth.hasPermission.mockReturnValue(true)
   navigation.pathname = "/suppliers"
@@ -222,6 +225,8 @@ test("opens a full-page tab with submitted outer dates and retains its query whe
   expect(navigation.push).toHaveBeenLastCalledWith("/suppliers", {
     scroll: false,
   })
+  const ledgerCalls = api.listCounterpartyLedger.mock.calls.length
+  const supplierCalls = api.getSupplier.mock.calls.length
   navigation.pathname = "/suppliers"
   view.rerender(fixture())
   expect(screen.getByLabelText("起始日期")).toHaveValue("2025-02-01")
@@ -232,6 +237,17 @@ test("opens a full-page tab with submitted outer dates and retains its query whe
   expect(
     screen.getByRole("columnheader", { name: /增加金额/ })
   ).toHaveAttribute("aria-sort", "descending")
+  expect(screen.getByText("大额进货")).toBeInTheDocument()
+  expect(api.listCounterpartyLedger).toHaveBeenCalledTimes(ledgerCalls)
+  expect(api.getSupplier).toHaveBeenCalledTimes(supplierCalls)
+
+  navigation.pathname = "/suppliers"
+  view.rerender(fixture())
+  publishBusinessDataChange(["inventory"])
+  navigation.pathname = "/suppliers/42/ledger"
+  view.rerender(fixture(true))
+  await waitFor(() => expect(api.listCounterpartyLedger).toHaveBeenCalledTimes(ledgerCalls + 1))
+  expect(api.getSupplier).toHaveBeenCalledTimes(supplierCalls)
 })
 
 test.each([

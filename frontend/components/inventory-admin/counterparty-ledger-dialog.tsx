@@ -6,7 +6,10 @@ import { Button } from "@/components/ui/button"
 import { DateRangeControl } from "@/components/ui/date-range-control"
 import { useAuth } from "@/components/auth/auth-provider"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
-import { defaultLedgerQuery, type LedgerQueryState } from "@/lib/supplier-ledger-tabs"
+import { defaultLedgerQuery, SUPPLIER_LEDGER_CACHE_TTL, type LedgerQueryState } from "@/lib/supplier-ledger-tabs"
+import { getBusinessDataChangeToken } from "@/lib/business-data-sync"
+import { invalidateStockModuleFamily, loadStockModuleQuery, readStockModuleQuery } from "@/lib/stock-module-cache"
+import { useCrossTabRefresh } from "@/lib/use-cross-tab-refresh"
 import {
   ApiError,
   downloadGeneralCustomerLedger,
@@ -64,6 +67,7 @@ const EU_TO_MILLIMETER_SIZE = Object.fromEntries(
 ) as Record<string, string>
 const ACCOUNTING_DOCUMENT_TYPES = new Set(["应付款减少", "应付款增加", "应收款减少", "应收款增加"])
 const LEDGER_COLUMN_COUNT = 7
+const LEDGER_RESOURCES = ["inventory", "reference-data"] as const
 
 function getDetailSizeColumns(details: InventoryDetail[]) {
   const hasMillimeterSize = details.some((detail) =>
@@ -96,7 +100,17 @@ export function CounterpartyLedgerDialog({ open, counterpartyType, name, onOpenC
   const requestRef = useRef<AbortController | null>(null)
   const exportRef = useRef<AbortController | null>(null)
   const detailScopeRef = useRef(0)
-  const [ledger, setLedger] = useState<CounterpartyLedgerResponse | null>(null)
+  const cacheFamily = JSON.stringify(["supplier-ledger", user?.id, name])
+  const cacheEnabled = Boolean(user?.id && counterpartyType === "supplier" && presentation === "page")
+  const queryKey = JSON.stringify([
+    cacheFamily, counterpartyType, dateStart, dateEnd, sortBy, sortDirection,
+    cacheEnabled ? getBusinessDataChangeToken(LEDGER_RESOURCES) : null,
+  ])
+  const cacheKey = cacheEnabled ? queryKey : null
+  const [result, setResult] = useState<{ key: string; data: CounterpartyLedgerResponse } | null>(null)
+  const currentResult = result?.key === queryKey ? result.data : null
+  const cachedLedger = cacheKey ? readStockModuleQuery<CounterpartyLedgerResponse>(cacheKey)?.data : null
+  const ledger = currentResult ?? cachedLedger
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState("")
   const [expandedId, setExpandedId] = useState<number | null>(null)
@@ -118,31 +132,39 @@ export function CounterpartyLedgerDialog({ open, counterpartyType, name, onOpenC
     const controller = new AbortController()
     requestRef.current = controller
     detailScopeRef.current += 1
-    setIsLoading(true)
-    setLedger(null)
+    setIsLoading(!cacheKey || !readStockModuleQuery(cacheKey))
+    setResult(null)
     setError("")
     try {
-      const response = await listCounterpartyLedger({
+      const fetchLedger = (signal: AbortSignal) => listCounterpartyLedger({
         counterpartyType,
         name,
         dateStart,
         dateEnd,
         sortBy,
         sortDirection,
-      }, controller.signal)
+      }, signal)
+      const response = await (cacheKey
+        ? loadStockModuleQuery(cacheKey, cacheFamily, fetchLedger, controller.signal, SUPPLIER_LEDGER_CACHE_TTL, SUPPLIER_LEDGER_CACHE_TTL)
+        : fetchLedger(controller.signal))
       if (controller.signal.aborted) return
-      setLedger(response)
+      setResult({ key: queryKey, data: response })
       setExpandedId(null)
       setDetailsByDocumentId({})
       setDetailErrorByDocumentId({})
     } catch (err) {
       if (controller.signal.aborted) return
-      setLedger(null)
+      setResult(null)
       setError(getErrorMessage(err))
     } finally {
       if (!controller.signal.aborted) setIsLoading(false)
     }
-  }, [counterpartyType, dateEnd, dateStart, name, open, sortBy, sortDirection])
+  }, [cacheFamily, cacheKey, counterpartyType, dateEnd, dateStart, name, open, queryKey, sortBy, sortDirection])
+
+  useCrossTabRefresh(LEDGER_RESOURCES, () => {
+    exportRef.current?.abort()
+    setRefreshVersion((value) => value + 1)
+  }, !open || !cacheKey)
 
   useEffect(() => {
     if (open) void load()
@@ -152,7 +174,7 @@ export function CounterpartyLedgerDialog({ open, counterpartyType, name, onOpenC
   useEffect(() => {
     setIsExporting(false)
     return () => { exportRef.current?.abort() }
-  }, [open, counterpartyType, name, dateStart, dateEnd, sortBy, sortDirection])
+  }, [open, queryKey])
 
   useEffect(() => {
     if (!open) {
@@ -212,10 +234,10 @@ export function CounterpartyLedgerDialog({ open, counterpartyType, name, onOpenC
 
   const rows = ledger?.items ?? []
   const totals = useMemo(() => ({
-    beginning: ledger?.beginning_balance ?? "0",
-    increase: ledger?.increase_total ?? "0",
-    decrease: ledger?.decrease_total ?? "0",
-    ending: ledger?.ending_balance ?? "0",
+    beginning: ledger?.beginning_balance,
+    increase: ledger?.increase_total,
+    decrease: ledger?.decrease_total,
+    ending: ledger?.ending_balance,
   }), [ledger])
 
   const Heading = presentation === "page" ? "h1" : DialogTitle
@@ -264,6 +286,7 @@ export function CounterpartyLedgerDialog({ open, counterpartyType, name, onOpenC
                   return
                 }
                 updateQuery({ dateStart: dateStartInput, dateEnd: dateEndInput })
+                if (cacheKey) invalidateStockModuleFamily(cacheFamily)
                 setRefreshVersion((value) => value + 1)
               }} disabled={isLoading || !name} className="cursor-pointer">
                 <RefreshCw className={`h-4 w-4 ${isLoading ? "animate-spin" : ""}`} />

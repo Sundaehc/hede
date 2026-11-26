@@ -5,7 +5,7 @@ import json
 import logging
 import re
 import urllib.parse
-from collections import defaultdict
+from collections import Counter, defaultdict
 from collections.abc import Iterator, Mapping
 from decimal import Decimal, InvalidOperation
 from datetime import date, datetime, timedelta
@@ -705,6 +705,12 @@ def _build_purchase_order_search_rows(
 
     # Details arrive in document ID order; the record query owns the requested sort.
     return [row for record in records for row in rows_by_document.get(record.get("id"), ())]
+
+
+def _purchase_detail_color_label(detail: Mapping[str, object]) -> str:
+    code = _cell_text(detail.get("color_barcode"))
+    name = _first_text(detail.get("color_name"), detail.get("color_spec"))
+    return " / ".join(value for value in (code, name) if value) or "-"
 
 
 def _purchase_prorated_decimal(total: Decimal, part: Decimal, base: Decimal) -> Decimal:
@@ -4612,6 +4618,7 @@ def list_inventory(
     handler: str | None = None,
     completion_status: str | None = None,
     purchase_detail_mode: str | None = None,
+    purchase_colors: list[str] | None = Query(None),
     sort_by: str | None = None,
     sort_direction: str = "desc",
     sort: list[str] | None = Query(None),
@@ -4681,6 +4688,10 @@ def list_inventory(
         product_code or "",
     )
     rows = _build_purchase_order_search_rows(records, details, normalized_purchase_detail_mode)
+    colors = Counter(_purchase_detail_color_label(row) for row in rows)
+    selected_colors = set(_query_values(purchase_colors))
+    if selected_colors:
+        rows = [row for row in rows if _purchase_detail_color_label(row) in selected_colors]
     offset = (page - 1) * page_size
     return {
         "items": rows[offset:offset + page_size],
@@ -4688,13 +4699,22 @@ def list_inventory(
         "page": page,
         "page_size": page_size,
         "view": normalized_purchase_detail_mode,
+        "purchase_color_options": [{"value": color, "count": count} for color, count in colors.items()],
     }
 
 
 @router.post("/inventory/selection-ids")
 def list_inventory_selection_ids(request: Request, payload: InventorySelectionFilters):
     repository = request.app.state.inventory_repository
-    ids = repository.list_record_ids(**payload.repository_filters())
+    filters = payload.repository_filters()
+    ids = repository.list_record_ids(**filters)
+    if payload.purchase_colors and filters["document_type"] == "进货订单" and payload.product_code:
+        selected_colors = set(payload.purchase_colors)
+        details = repository.list_matching_details_for_documents(ids, payload.product_code)
+        matching_ids = {
+            detail["document_id"] for detail in details if _purchase_detail_color_label(detail) in selected_colors
+        }
+        ids = [record_id for record_id in ids if record_id in matching_ids]
     return JSONResponse({"ids": ids, "total": len(ids)}, headers={"Cache-Control": "no-store"})
 
 
@@ -4933,6 +4953,7 @@ def export_inventory(
     handler: str | None = None,
     completion_status: str | None = None,
     purchase_export_mode: str | None = None,
+    purchase_colors: list[str] | None = Query(None),
 ):
     repository = request.app.state.inventory_repository
     document_type = normalize_document_type(document_type) if document_type else None
@@ -4987,8 +5008,13 @@ def export_inventory(
         document_type=document_type,
         product_code=product_code,
     )
-    records_by_id = {item["id"]: item for item in items}
     is_purchase_detail_export = document_type == "进货订单"
+    selected_colors = set(_query_values(purchase_colors))
+    if is_purchase_detail_export and product_code and selected_colors:
+        details = [detail for detail in details if _purchase_detail_color_label(detail) in selected_colors]
+        matching_ids = {detail["document_id"] for detail in details}
+        items = [item for item in items if item["id"] in matching_ids]
+    records_by_id = {item["id"]: item for item in items}
 
     if is_purchase_detail_export:
         normalized_purchase_export_mode = str(purchase_export_mode or "summary").strip() or "summary"

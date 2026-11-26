@@ -1,8 +1,12 @@
 from __future__ import annotations
 
+from io import BytesIO
+from unittest.mock import Mock
+
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from openpyxl import load_workbook
 from sqlalchemy import create_engine
 
 from api.routes.inventory import (
@@ -12,6 +16,39 @@ from api.routes.inventory import (
 )
 from domain.inventory_schema import INVENTORY_DETAIL_TABLE, INVENTORY_TABLE
 from storage.inventory_repository import InventoryRepository
+
+
+@pytest.mark.parametrize("mode", ["summary", "size_rows"])
+def test_purchase_color_filter_applies_to_all_pages_selection_and_export(monkeypatch, mode):
+    repository = Mock()
+    repository.list_records.return_value = {"items": [_record(), {**_record(), "id": 11}]}
+    repository.list_record_ids.return_value = [10, 11]
+    repository.list_matching_details_for_documents.return_value = [
+        _detail(1, "01", {"220": "1"}),
+        _detail(2, "02", {"220": "2", "225": "1"}),
+        {**_detail(3, "", {"220": "3"}), "document_id": 11, "color_name": "", "color_spec": "白色"},
+    ]
+    monkeypatch.setattr("api.routes.inventory.enrich_purchase_product_remarks", Mock())
+    monkeypatch.setattr("api.routes.inventory._load_supplier_export_lookup", Mock(return_value={}))
+    app = FastAPI()
+    app.state.inventory_repository = repository
+    app.include_router(router)
+    filters = {"document_type": "进货订单", "product_code": "SKU001", "purchase_colors": ["02 / 颜色02"]}
+    with TestClient(app) as client:
+        result = client.get("/inventory", params={**filters, "purchase_detail_mode": mode, "page_size": 1})
+        assert result.status_code == 200
+        payload = result.json()
+        assert payload["total"] == (2 if mode == "size_rows" else 1)
+        assert [row["color_barcode"] for row in payload["items"]] == ["02"]
+        assert {option["value"] for option in payload["purchase_color_options"]} == {"01 / 颜色01", "02 / 颜色02", "白色"}
+        assert client.post("/inventory/selection-ids", json=filters).json()["ids"] == [10]
+        response = client.get("/inventory/export", params=filters)
+        assert response.status_code == 200
+        workbook = load_workbook(BytesIO(response.content), read_only=True)
+        headers, *exported_rows = workbook.active.values
+        workbook.close()
+        assert len(exported_rows) == 1
+        assert str(exported_rows[0][headers.index("订货数量")]) == "3"
 
 
 def _record() -> dict[str, object]:

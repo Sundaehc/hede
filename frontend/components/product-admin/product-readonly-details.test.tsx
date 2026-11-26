@@ -16,6 +16,7 @@ const {
   mockPreflight,
   mockDownload,
   mockCopywriting,
+  mockQualityReports,
 } = vi.hoisted(() => ({
   mockAuth: {
     user: { role_code: "design_viewer", department_code: "美工部" },
@@ -28,6 +29,7 @@ const {
   mockPreflight: vi.fn(),
   mockDownload: vi.fn(),
   mockCopywriting: vi.fn(),
+  mockQualityReports: vi.fn(),
 }))
 
 vi.mock("@/components/auth/auth-provider", () => ({
@@ -52,6 +54,7 @@ vi.mock("@/lib/api", async () => ({
   assertProductExportAllowed: mockPreflight,
   downloadProductExport: mockDownload,
   getSavedProductCopywriting: mockCopywriting,
+  getProductQualityReports: mockQualityReports,
 }))
 
 const sampleItem = {
@@ -239,6 +242,46 @@ it("finance can edit existing products with dedicated editing permission", async
     "cbanner_mens", 7, expect.objectContaining({ product_name: "财务修改商品" })
   ))
   expect(mockCreateProduct).not.toHaveBeenCalled()
+})
+
+it.each([false, true])("opens quality reports from the archive with edit access set to %s", async (canEdit) => {
+  const user = userEvent.setup()
+  mockAuth.hasPermission.mockImplementation((permission) =>
+    permission === "product.view" || (canEdit && permission === "product.edit")
+  )
+  mockQualityReports.mockResolvedValue({
+    original_sku: sampleItem.original_sku,
+    items: [
+      { id: "one", name: "合格报告", file_name: "合格报告.pdf", modified_at: "2026-11-25T02:45:43+00:00", status: "matched",
+        sources: [{ workbook: "质检表.xlsx", sheet: "汇总", row: 8 }] },
+      { id: "two", name: "质检汇总", file_name: "质检汇总.xlsx", modified_at: null, status: "matched", sources: [] },
+      { id: "missing", name: "待核对报告", file_name: null, modified_at: null, status: "missing", sources: [] },
+    ],
+  })
+  render(<ProductAdminPage />)
+  const card = await screen.findByRole("group", { name: "商品信息 READONLY-007" })
+  expect(Boolean(within(card).queryByRole("button", { name: "编辑" }))).toBe(canEdit)
+  await user.click(within(card).getByRole("button", { name: "查看详情" }))
+  const dialog = within(screen.getByRole("dialog", { name: "商品详情" }))
+  expect(dialog.getByRole("heading", { name: "基础信息" })).toBeVisible()
+  expect(mockQualityReports).not.toHaveBeenCalled()
+
+  await user.click(dialog.getByRole("tab", { name: "质检报告" }))
+  const reports = within(await dialog.findByRole("region", { name: "质检报告列表" }))
+  expect(mockQualityReports).toHaveBeenCalledWith("cbanner_mens", 7, expect.any(AbortSignal))
+  const first = await reports.findByRole("link", { name: "合格报告.pdf" })
+  expect(first).toHaveAttribute("href", "/api/products/cbanner_mens/7/quality-reports/one")
+  expect(first).toHaveAttribute("target", "_blank")
+  expect(reports.getByText("2026-11-25 10:45:43")).toHaveAttribute("datetime", "2026-11-25T02:45:43+00:00")
+  expect(reports.getByRole("link", { name: "下载 合格报告.pdf" })).toHaveAttribute(
+    "href", "/api/products/cbanner_mens/7/quality-reports/one?download=true"
+  )
+  expect(reports.getByRole("link", { name: "下载 质检汇总.xlsx" })).toHaveAttribute("download", "质检汇总.xlsx")
+  expect(reports.queryByRole("link", { name: "质检汇总.xlsx" })).not.toBeInTheDocument()
+  expect(reports.getByText("未找到原件")).toBeVisible()
+  expect(reports.getAllByRole("link")).toHaveLength(3)
+  await user.click(dialog.getByRole("tab", { name: "商品资料" }))
+  expect(dialog.getByRole("heading", { name: "基础信息" })).toBeVisible()
 })
 
 describe("ProductDetailDialog", () => {

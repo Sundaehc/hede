@@ -37,6 +37,7 @@ DEFAULT_DAILY_SALES_REPORT_ROOT = Path(
 DEFAULT_JST_MONTHLY_ORDER_FILE = DEFAULT_DAILY_SALES_REPORT_ROOT / "聚水潭近3月订单.xlsx"
 DEFAULT_JST_FULL_STOCK_FILE = DEFAULT_DAILY_SALES_REPORT_ROOT / "聚水潭库存.xlsx"
 DEFAULT_DEWU_ORDER_ROOT = DEFAULT_DAILY_SALES_REPORT_ROOT
+DEFAULT_STOCK_QUALITY_REPORT_ROOT = Path(r"\\192.168.10.229\运营组资料\9商品组（卢嘉诚）\质检报告")
 DEFAULT_SMILEY_IMAGE_ROOT = Path(
     r"\\192.168.10.229\图片\产品45主图随时更新\45主图\笑脸45度图"
 )
@@ -93,6 +94,7 @@ class Settings:
     doubao_base_url: str = ""
     doubao_text_model: str = "doubao-seed-2-1-pro-260915"
     doubao_timeout_seconds: int = 90
+    stock_quality_report_root: Path = DEFAULT_STOCK_QUALITY_REPORT_ROOT
 
     @property
     def frontend_origins(self) -> tuple[str, ...]:
@@ -289,6 +291,7 @@ def load_settings(require_database: bool = True) -> Settings:
         jst_monthly_order_file=jst_monthly_order_file,
         jst_full_stock_file=jst_full_stock_file,
         dewu_order_root=dewu_order_root,
+        stock_quality_report_root=Path(os.getenv("STOCK_QUALITY_REPORT_ROOT") or DEFAULT_STOCK_QUALITY_REPORT_ROOT),
         cbanner_mens_group_source=cbanner_mens_group_source,
         cbanner_womens_product_detail_source=cbanner_womens_product_detail_source,
         eblan_product_detail_source=eblan_product_detail_source,

@@ -38,6 +38,7 @@ import { AccountSubjectSelect } from "@/components/inventory-admin/account-subje
 import { InventoryImportUpload } from "@/components/inventory-admin/inventory-import-upload"
 import { InventoryImportError } from "@/components/inventory-admin/inventory-import-error"
 import { PurchaseImportConflicts } from "@/components/inventory-admin/purchase-import-conflicts"
+import { PurchaseColorFilter } from "@/components/inventory-admin/purchase-color-filter"
 import { InventoryImportTaskStatus, type InventoryImportTaskNotice } from "@/components/inventory-admin/inventory-import-task-status"
 import { InventoryProductCodeFilter } from "@/components/inventory-admin/product-code-filter"
 import { SortableColumnLabel } from "@/components/inventory-admin/sortable-column-label"
@@ -86,6 +87,7 @@ import {
   ApiError,
   type InventoryRecord,
   type PurchaseDetailView,
+  type PurchaseColorOption,
   type InventoryCostDocumentOption,
   type InventoryAccountSubject,
   type PurchaseOrderRequirementBrand,
@@ -740,6 +742,7 @@ type InventorySubmittedFilters = {
   summary?: string
   original_sku?: string
   product_code?: string
+  purchase_colors?: string[]
   handler?: string
 }
 
@@ -761,6 +764,7 @@ export function InventoryPage({ mode = "inventory", refreshRevision = 0, detailO
   const [searchProductCode, setSearchProductCode] = useSessionQueryState("inventory:" + mode + ":searchProductCode", "")
   const [searchHandler, setSearchHandler] = useSessionQueryState("inventory:" + mode + ":searchHandler", "")
   const [submittedFilters, setSubmittedFilters] = useSessionQueryState<InventorySubmittedFilters>("inventory:" + mode + ":submittedFilters", {})
+  const [purchaseColorOptions, setPurchaseColorOptions] = useState<PurchaseColorOption[]>([])
   const [purchaseDetailView, setPurchaseDetailView] = useSessionQueryState<PurchaseDetailView>("inventory:" + mode + ":purchaseDetailView", "summary")
 
   const [supplierOptions, setSupplierOptions] = useState<SupplierItem[]>([])
@@ -845,6 +849,7 @@ export function InventoryPage({ mode = "inventory", refreshRevision = 0, detailO
     summary: submittedFilters.summary || undefined,
     original_sku: isPurchaseOrderTab ? undefined : submittedFilters.original_sku || undefined,
     product_code: submittedFilters.product_code || undefined,
+    purchase_colors: isPurchaseOrderTab && submittedFilters.product_code ? submittedFilters.purchase_colors : undefined,
     handler: submittedFilters.handler || undefined,
     completion_status: isPurchaseOrderTab ? undefined : recordCompletionStatus,
   }), [isPurchaseOrderTab, recordCompletionStatus, submittedFilters])
@@ -1089,6 +1094,7 @@ export function InventoryPage({ mode = "inventory", refreshRevision = 0, detailO
         })
         if (cancelled) return
         setItems(response.items)
+        setPurchaseColorOptions(response.purchase_color_options ?? [])
         setTotal(response.total)
         setInventoryTotals(response.totals ?? {
           current_page: { total_count: "0", amount: "0" },
@@ -1097,6 +1103,7 @@ export function InventoryPage({ mode = "inventory", refreshRevision = 0, detailO
       } catch (e) {
         if (cancelled) return
         setItems([])
+        setPurchaseColorOptions([])
         setTotal(0)
         setInventoryTotals({
           current_page: { total_count: "0", amount: "0" },
@@ -1925,20 +1932,7 @@ export function InventoryPage({ mode = "inventory", refreshRevision = 0, detailO
       const a = document.createElement("a")
       a.href = buildInventoryExportUrl({
         ids: selectedExportIds.length > 0 ? selectedExportIds : undefined,
-        date_start: submittedFilters.date_start || undefined,
-        date_end: submittedFilters.date_end || undefined,
-        suppliers: submittedFilters.suppliers as string[] | undefined,
-        brands: submittedFilters.brands,
-        warehouses: isPurchaseOrderTab ? undefined : (submittedFilters.warehouses as string[] | undefined),
-        document_types: isPurchaseOrderTab ? undefined : (submittedFilters.document_types as string[] | undefined),
-        document_type: isPurchaseOrderTab ? PURCHASE_ORDER_DOCUMENT_TYPE : undefined,
-        exclude_document_type: isPurchaseOrderTab ? undefined : PURCHASE_ORDER_DOCUMENT_TYPE,
-        document_number: submittedFilters.document_number || undefined,
-        summary: submittedFilters.summary || undefined,
-        original_sku: isPurchaseOrderTab ? undefined : submittedFilters.original_sku || undefined,
-        product_code: submittedFilters.product_code || undefined,
-        handler: submittedFilters.handler || undefined,
-        completion_status: isPurchaseOrderTab ? undefined : recordCompletionStatus,
+        ...selectionFilters,
         purchase_export_mode: isPurchaseOrderTab ? purchaseExportMode ?? "summary" : undefined,
       })
       a.rel = "noopener"
@@ -1958,7 +1952,7 @@ export function InventoryPage({ mode = "inventory", refreshRevision = 0, detailO
   const search = () => {
     setPage(1)
     if (isPurchasePage) setReloadToken((current) => current + 1)
-    setSubmittedFilters({
+    setSubmittedFilters((current) => ({
       date_start: searchDateStart,
       date_end: searchDateEnd,
       brands: searchBrands,
@@ -1970,8 +1964,9 @@ export function InventoryPage({ mode = "inventory", refreshRevision = 0, detailO
       summary: searchSummary,
       original_sku: isPurchaseOrderTab ? "" : searchOriginalSku,
       product_code: isPurchaseOrderTab ? searchOriginalSku : searchProductCode,
+      purchase_colors: isPurchaseOrderTab && searchOriginalSku === current.product_code ? current.purchase_colors : undefined,
       handler: searchHandler,
-    })
+    }))
   }
 
   const openCostDialog = () => {
@@ -2579,7 +2574,21 @@ export function InventoryPage({ mode = "inventory", refreshRevision = 0, detailO
                         <th aria-sort={getColumnAriaSort("supplier")} className="px-4 py-3 font-medium"><SortableColumnLabel label="供应商" sortRule={getSortRule("supplier")} onClick={(event) => handleTableSort("supplier", event.shiftKey)} /></th>
                         <th className="px-4 py-3 font-medium">货号</th>
                         <th className="px-4 py-3 font-medium">商品名称</th>
-                        <th className="px-4 py-3 font-medium">颜色</th>
+                        <th className="px-4 py-3 font-medium">
+                          <div className="flex items-center gap-1">
+                            颜色
+                            <PurchaseColorFilter
+                              key={submittedFilters.product_code}
+                              options={purchaseColorOptions}
+                              values={submittedFilters.purchase_colors ?? []}
+                              disabled={isLoading || (!purchaseColorOptions.length && !submittedFilters.purchase_colors?.length)}
+                              onApply={(values) => {
+                                setPage(1)
+                                setSubmittedFilters((current) => ({ ...current, purchase_colors: values.length ? values : undefined }))
+                              }}
+                            />
+                          </div>
+                        </th>
                         {purchaseDetailView === "size_rows" && <th className="px-4 py-3 text-center font-medium">尺码</th>}
                         <th className="px-4 py-3 text-right font-medium">数量</th>
                         <th className="px-4 py-3 text-right font-medium">单价</th>

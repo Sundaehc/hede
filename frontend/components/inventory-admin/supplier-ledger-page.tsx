@@ -6,45 +6,55 @@ import { useRouter } from "next/navigation"
 import { useAuth } from "@/components/auth/auth-provider"
 import { CounterpartyLedgerDialog } from "@/components/inventory-admin/counterparty-ledger-dialog"
 import { getSupplier, type SupplierItem } from "@/lib/api"
-import { useSupplierLedgerTabs } from "@/lib/supplier-ledger-tabs"
+import { SUPPLIER_LEDGER_CACHE_TTL, useSupplierLedgerTabs } from "@/lib/supplier-ledger-tabs"
+import { getBusinessDataChangeToken } from "@/lib/business-data-sync"
+import { loadStockModuleQuery, readStockModuleQuery } from "@/lib/stock-module-cache"
 
 export function SupplierLedgerPage({ id }: { id: number }) {
   const router = useRouter()
-  const { hasPermission } = useAuth()
+  const { user, hasPermission } = useAuth()
   const canView = hasPermission("inventory.view")
   const { tabs, openLedger, updateLedger } = useSupplierLedgerTabs()
   const tab = tabs.find((entry) => entry.id === id)
   const registeredId = useRef<number | null>(null)
   const [retry, setRetry] = useState(0)
+  const family = `supplier-ledger-directory:${user?.id}:${id}`
+  const key = user?.id ? JSON.stringify([family, getBusinessDataChangeToken(["reference-data"])]) : null
   const [result, setResult] = useState<{
     id: number
+    key: string | null
     retry: number
     supplier: SupplierItem | null
     error: string
   } | null>(null)
-  const current = result?.id === id && result.retry === retry ? result : null
-  const supplier = current?.supplier
+  const current = result?.id === id && result.key === key && result.retry === retry ? result : null
+  const supplier = current?.supplier ?? (key && readStockModuleQuery<SupplierItem>(key)?.data)
   const error = current?.error
 
   useEffect(() => {
     if (!canView) return
     const controller = new AbortController()
-    getSupplier(id, controller.signal)
-      .then(({ item }) => {
+    const load = (signal: AbortSignal) => getSupplier(id, signal).then(({ item }) => item)
+    const request = key
+      ? loadStockModuleQuery(key, family, load, controller.signal, SUPPLIER_LEDGER_CACHE_TTL, SUPPLIER_LEDGER_CACHE_TTL)
+      : load(controller.signal)
+    request
+      .then((item) => {
         if (!controller.signal.aborted)
-          setResult({ id, retry, supplier: item, error: "" })
+          setResult({ id, key, retry, supplier: item, error: "" })
       })
       .catch((err: unknown) => {
         if (!controller.signal.aborted)
           setResult({
             id,
+            key,
             retry,
             supplier: null,
             error: err instanceof Error ? err.message : "供应商加载失败",
           })
       })
     return () => controller.abort()
-  }, [id, canView, retry])
+  }, [id, canView, family, key, retry])
 
   useEffect(() => {
     if (!supplier || registeredId.current === id) return

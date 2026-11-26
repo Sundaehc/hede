@@ -183,6 +183,9 @@ test("opens an original-code family on demand and saves clearance for only the c
   fireEvent.click(await screen.findByRole("button", { name: "ORIGINAL-12" }))
   const dialog = await screen.findByRole("dialog", { name: "ORIGINAL-12" })
   expect(within(dialog).getByText("CHILD-13")).toBeVisible()
+  expect(
+    within(dialog).queryByRole("tab", { name: "????" })
+  ).not.toBeInTheDocument()
   fireEvent.click(
     within(dialog).getAllByRole("button", { name: "确认清仓" })[0]
   )

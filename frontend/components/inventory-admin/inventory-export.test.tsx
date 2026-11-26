@@ -592,6 +592,35 @@ test("restores inventory filters after another page and keeps purchase queries i
   await screen.findByText("EXPORT-0001")
 })
 
+test("filters purchase SKU results by color across pages and exports", async () => {
+  mockListInventory.mockImplementation(async ({ purchase_colors }: { purchase_colors?: string[] }) => ({
+    items: [{ id: 1, document_id: 1, document_number: "COLOR-0001", product_code: "SKU001" }],
+    total: purchase_colors?.length ? 11 : 30,
+    purchase_color_options: [{ value: "01 / 黑色", count: 19 }, { value: "02 / 白色", count: 11 }],
+  }))
+  const user = userEvent.setup()
+  render(<InventoryPage mode="purchase-orders" />)
+  expect(screen.queryByRole("button", { name: "筛选颜色" })).not.toBeInTheDocument()
+  await user.type(screen.getByRole("textbox", { name: "货号" }), "SKU001{Enter}")
+  await user.click(await screen.findByRole("button", { name: "筛选颜色" }))
+  await user.click(screen.getByRole("checkbox", { name: /01 \/ 黑色/ }))
+  await user.click(screen.getByRole("button", { name: "确定" }))
+  await waitFor(() => expect(mockListInventory).toHaveBeenLastCalledWith(expect.objectContaining({
+    product_code: "SKU001", purchase_colors: ["02 / 白色"], page: 1,
+  })))
+  await user.click(screen.getByText("下一页"))
+  await waitFor(() => expect(mockListInventory).toHaveBeenLastCalledWith(expect.objectContaining({
+    purchase_colors: ["02 / 白色"], page: 2,
+  })))
+  await user.click(screen.getByRole("button", { name: "汇总导出" }))
+  expect(new URL(downloadUrls[0]).searchParams.getAll("purchase_colors")).toEqual(["02 / 白色"])
+  await user.click(screen.getByRole("button", { name: "颜色已筛选" }))
+  await user.click(screen.getByRole("button", { name: "清除筛选" }))
+  await waitFor(() => expect(mockListInventory).toHaveBeenLastCalledWith(expect.objectContaining({
+    purchase_colors: undefined, page: 1,
+  })))
+})
+
 test.each(["button", "enter"])("filters purchase document numbers through %s, paginates and exports all modes", async (submitMode) => {
   const user = userEvent.setup()
   render(<InventoryPage mode="purchase-orders" />)

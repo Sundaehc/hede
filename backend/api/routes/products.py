@@ -6,12 +6,13 @@ import logging
 from urllib.parse import quote
 
 from fastapi import APIRouter, HTTPException, Query, Request
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from starlette.background import BackgroundTask
 
 from api.product_barcode_export import build_product_barcode_export
 from api.routes.import_export import _product_export_brand_labels
 
+from api.routes.auth import user_has_permission
 from api.routes.images import image_storage_path_for, image_url_for
 from api.operation_log_utils import (
     PRODUCT_FIELD_LABELS,
@@ -41,6 +42,7 @@ from domain.product_auxiliary_attribute_schema import PRODUCT_AUXILIARY_ATTRIBUT
 from domain.schema import PRODUCT_ARCHIVE_TABLES
 from domain.size_group_schema import SIZE_GROUPS_TABLE
 from storage.product_repository import _product_list_conditions
+from storage.stock_quality_reports import QualitySourceUnavailable
 
 PRODUCT_COLOR_BARCODE_BRANDS = {
     "cbanner_mens": "cbanner_mens",
@@ -420,6 +422,56 @@ def get_product(request: Request, brand: ProductArchiveBrandKey, product_id: int
         settings,
         getattr(request.app.state, "us3_image_storage", None),
         include_cost=request_can_view_product_cost(request),
+    )
+
+
+def _quality_reports(request: Request, brand: str, product_id: int):
+    user = getattr(request.state, "current_user", None)
+    if not user or not user.get("id"):
+        raise HTTPException(401, "请先登录")
+    if not user_has_permission(user, "product.view"):
+        raise HTTPException(403, "权限不足")
+    state = request.app.state
+    if not state.repository.is_product_archive_brand(brand):
+        raise HTTPException(400, "请选择有效的商品档案品牌")
+    product = state.repository.get_product(brand, product_id)
+    if product is None:
+        raise HTTPException(404, "该商品不在当前品牌的有效档案中")
+    original_sku = str(product.get("original_sku") or "").strip()
+    try:
+        reports = state.stock_quality_reports.for_product(original_sku, brand)
+    except (QualitySourceUnavailable, OSError) as error:
+        logging.getLogger(__name__).warning("Failed to read quality report share", exc_info=True)
+        raise HTTPException(503, "质检报告共享目录暂时无法读取，请稍后重试") from error
+    return original_sku, reports
+
+
+@router.get("/products/{brand}/{product_id}/quality-reports")
+def product_quality_reports(request: Request, brand: ProductArchiveBrandKey, product_id: int):
+    original_sku, reports = _quality_reports(request, brand, product_id)
+    return JSONResponse(
+        {"original_sku": original_sku, "items": [report.public() for report in reports]},
+        headers={"Cache-Control": "private, no-store"},
+    )
+
+
+@router.get("/products/{brand}/{product_id}/quality-reports/{report_id}")
+def product_quality_report_file(
+    request: Request, brand: ProductArchiveBrandKey, product_id: int, report_id: str, download: bool = False,
+):
+    _, reports = _quality_reports(request, brand, product_id)
+    report = next((item for item in reports if item.id == report_id), None)
+    if report is None or report.path is None:
+        raise HTTPException(404, "该商品没有可打开的对应报告")
+    preview_type = {
+        ".pdf": "application/pdf", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png",
+    }.get(report.path.suffix.lower())
+    return FileResponse(
+        report.path,
+        filename=report.path.name,
+        media_type=preview_type or "application/octet-stream",
+        content_disposition_type="inline" if preview_type and not download else "attachment",
+        headers={"Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff"},
     )
 
 

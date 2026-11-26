@@ -32,6 +32,7 @@ from api.routes.stock_overview import router as stock_overview_router
 from api.routes.stock_phase_two import router as stock_phase_two_router
 from storage.stock_overview import StockOverviewPolicyRepository
 from storage.stock_alert_tasks import StockAlertTaskRepository
+from storage.stock_quality_reports import StockQualityReports
 from storage.stock_operating_rules import StockOperatingRepository
 from api.routes.stock_replenishment import router as stock_replenishment_router
 from storage.stock_replenishment_rules import StockReplenishmentRuleRepository
@@ -204,6 +205,7 @@ def create_app(*, settings, repository=None, image_matchers=None, inventory_repo
         allow_headers=["*"],
     )
     app.state.settings = settings
+    app.state.stock_quality_reports = StockQualityReports(settings.stock_quality_report_root)
     if hasattr(resolved_inventory_repository, "create_tables"):
         resolved_inventory_repository.create_tables()
     if hasattr(resolved_repository, "create_tables"):
