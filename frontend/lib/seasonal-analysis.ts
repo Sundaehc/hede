@@ -79,6 +79,14 @@ export type SeasonalResponse = {
   years: number[]
   source_issues: string[]
   missing_launch_count: number
+  missing_launch_items: Array<{
+    id: number
+    sku: string | null
+    original_sku: string | null
+    product_name: string | null
+    color: string | null
+    invalid_launch: boolean
+  }>
   unmatched_stock_rows: number
   unmatched_purchase_rows: number
   purchase_ready: boolean

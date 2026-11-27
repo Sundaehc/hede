@@ -666,7 +666,7 @@ export function StockPortfolioDetail({
                   key={id}
                   value={id}
                   disabled={!data}
-                  className="min-h-11 min-w-0 gap-1.5 rounded-none border-b-2 border-transparent px-1 text-xs transition-colors hover:text-foreground data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:text-primary data-[state=active]:shadow-none sm:gap-2 sm:px-3 sm:text-sm"
+                  className="min-h-11 min-w-0 gap-1.5 rounded-none border-b-2 border-transparent px-1 text-xs transition-colors hover:text-foreground enabled:cursor-pointer data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:text-primary data-[state=active]:shadow-none sm:gap-2 sm:px-3 sm:text-sm"
                 >
                   <Icon
                     className="size-3.5 shrink-0 sm:size-4"

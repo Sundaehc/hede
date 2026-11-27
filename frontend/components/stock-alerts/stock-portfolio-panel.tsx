@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Select } from "@/components/ui/select"
 import { getStockPortfolio } from "@/lib/api"
+import { useSessionQueryState } from "@/lib/session-query-state"
 import {
   STOCK_ALERT_RESOURCES,
   STOCK_SOURCE_RESOURCES,
@@ -34,6 +35,70 @@ const number = new Intl.NumberFormat("zh-CN")
 const label = (value: string) => (value === "__unknown__" ? "档案待补" : value)
 
 export function StockPortfolioPanel({
+  overviewBrand,
+  overviewBrandLabel,
+  brands,
+  revision,
+  refreshCount,
+  onOpen,
+}: {
+  overviewBrand: string
+  overviewBrandLabel: string
+  brands: readonly { value: string; label: string }[]
+  revision: number
+  refreshCount: number
+  onOpen: (brand: string, id: number) => void
+}) {
+  const [storedBrand, setStoredBrand] = useSessionQueryState(
+    "stock-portfolio:brand",
+    ""
+  )
+  const selectedBrand =
+    !brands.length || brands.some(({ value }) => value === storedBrand)
+      ? storedBrand
+      : ""
+  const brand = selectedBrand || overviewBrand
+
+  return (
+    <section
+      aria-labelledby="stock-portfolio"
+      className="@container/portfolio rounded-xl border border-border/80 bg-card p-4 sm:p-5"
+    >
+      <div className="mb-3 flex flex-wrap items-end gap-3">
+        <h2 id="stock-portfolio" className="sr-only">
+          库存货盘
+        </h2>
+        <label className="w-full text-xs text-muted-foreground sm:w-52">
+          货盘品牌
+          <Select
+            className="mt-1"
+            value={selectedBrand}
+            onChange={(event) => setStoredBrand(event.target.value)}
+          >
+            <option value="">跟随总览 · {overviewBrandLabel}</option>
+            {selectedBrand && !brands.length && (
+              <option value={selectedBrand}>{selectedBrand}</option>
+            )}
+            {brands.map(({ value, label }) => (
+              <option key={value} value={value}>
+                {label}
+              </option>
+            ))}
+          </Select>
+        </label>
+      </div>
+      <StockPortfolioResults
+        key={brand}
+        brand={brand}
+        revision={revision}
+        refreshCount={refreshCount}
+        onOpen={onOpen}
+      />
+    </section>
+  )
+}
+
+function StockPortfolioResults({
   brand,
   revision,
   refreshCount,
@@ -42,7 +107,7 @@ export function StockPortfolioPanel({
   brand: string
   revision: number
   refreshCount: number
-  onOpen: (id: number) => void
+  onOpen: (brand: string, id: number) => void
 }) {
   const [filters, setFilters] = useState(defaults)
   const [query, setQuery] = useState("")
@@ -69,22 +134,14 @@ export function StockPortfolioPanel({
     ? Math.max(1, Math.ceil(shown.total / shown.page_size))
     : 1
   return (
-    <section
-      aria-labelledby="stock-portfolio"
-      className="@container/portfolio scroll-mt-6 rounded-2xl border border-border/80 bg-card p-4 shadow-xs sm:p-5"
-    >
-      <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
-        <h2 id="stock-portfolio" className="text-base font-semibold">
-          库存货盘
-        </h2>
-        <div className="flex flex-wrap items-baseline gap-x-3 text-xs text-muted-foreground">
-          <span>
-            按原始货号汇总 · {shown?.sources.stock_date ?? "库存日期待确认"}
-          </span>
-          <span className="min-w-24" role="status">
-            {refreshing ? (shown ? "正在更新…" : "正在读取货盘…") : null}
-          </span>
-        </div>
+    <>
+      <div className="mb-3 flex flex-wrap items-baseline gap-x-3 text-xs text-muted-foreground">
+        <span>
+          按原始货号汇总 · {shown?.sources.stock_date ?? "库存日期待确认"}
+        </span>
+        <span role="status">
+          {refreshing ? (shown ? "正在更新…" : "正在读取货盘…") : null}
+        </span>
       </div>
       <form
         className="grid grid-cols-3 items-end gap-2 @min-[36rem]/portfolio:grid-cols-[repeat(3,minmax(0,8rem))_minmax(0,1fr)_auto]"
@@ -211,7 +268,7 @@ export function StockPortfolioPanel({
                           className="rounded font-mono font-semibold text-primary underline-offset-4 focus-visible:outline-2 enabled:hover:underline"
                           disabled={!data}
                           onFocus={() => void detail()}
-                          onClick={() => onOpen(item.product_id)}
+                          onClick={() => onOpen(brand, item.product_id)}
                         >
                           {item.sku}
                         </button>
@@ -267,6 +324,6 @@ export function StockPortfolioPanel({
           )}
         </div>
       )}
-    </section>
+    </>
   )
 }

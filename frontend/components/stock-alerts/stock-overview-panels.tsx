@@ -1,11 +1,9 @@
 import {
-  Box,
   CalendarDays,
   ChartNoAxesColumn,
   CheckCircle2,
   ChevronDown,
   ChevronRight,
-  ClipboardList,
   Database,
   Info,
   TriangleAlert,
@@ -19,7 +17,7 @@ import type {
 import { cn } from "@/lib/utils"
 
 export const overviewPanel =
-  "min-w-0 overflow-hidden rounded-2xl border border-border/80 bg-card text-card-foreground shadow-xs"
+  "min-w-0 overflow-hidden rounded-xl border border-border/80 bg-card text-card-foreground"
 export const overviewWarning = "text-amber-800 dark:text-amber-300"
 
 const number = new Intl.NumberFormat("zh-CN", { maximumFractionDigits: 1 })
@@ -296,17 +294,20 @@ export function InventoryPanel({
       aria-labelledby="overview-inventory-title"
       className={cn(overviewPanel, "@container/inventory scroll-mt-6")}
     >
-      <header className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 border-b border-border/80 px-4 py-3.5 sm:px-5">
-        <h2
-          id="overview-inventory-title"
-          className="flex items-center gap-2 text-base font-semibold"
-        >
-          <Box
-            className="size-4 shrink-0 text-muted-foreground"
-            aria-hidden="true"
-          />{" "}
+      <header className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 border-b border-border/80 px-4 py-2.5 sm:px-5">
+        <h2 id="overview-inventory-title" className="sr-only">
           整盘库存
         </h2>
+        <div
+          className="flex flex-wrap items-center gap-x-4 gap-y-0.5 text-xs text-muted-foreground tabular-nums"
+          title="数据日期（北京时间）"
+        >
+          <span className="inline-flex items-center gap-1.5">
+            <Database className="size-3.5 shrink-0" aria-hidden="true" />
+            库存快照：{sources.stock_date ?? "待同步"}
+          </span>
+          <span>日销截至：{sources.sales_end ?? "待同步"}</span>
+        </div>
         <span
           className={cn(
             "inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium",
@@ -389,24 +390,11 @@ export function InventoryPanel({
         />
         <RecentSales inventory={inventory} />
       </div>
-      <footer className="flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-border/80 bg-muted/30 px-4 py-2.5 text-xs leading-5 text-muted-foreground sm:px-5">
-        <span className="inline-flex items-center gap-1.5">
-          <Database className="size-3.5 shrink-0" aria-hidden="true" />{" "}
-          数据日期（北京时间）
-        </span>
-        <span className="tabular-nums">
-          库存快照：{sources.stock_date ?? "待同步"}
-        </span>
-        <span className="tabular-nums">
-          日销截至：{sources.sales_end ?? "待同步"}
-        </span>
-        {sources.unmatched_stock_rows > 0 && (
-          <span>
-            全品牌 {formatOverview(sources.unmatched_stock_rows)}{" "}
-            组库存编码未匹配
-          </span>
-        )}
-      </footer>
+      {sources.unmatched_stock_rows > 0 && (
+        <p className="border-t px-4 py-2.5 text-xs text-muted-foreground sm:px-5">
+          全品牌 {formatOverview(sources.unmatched_stock_rows)} 组库存编码未匹配
+        </p>
+      )}
     </section>
   )
 }
@@ -513,8 +501,8 @@ export function WeeklyPanel({
           </Button>
         </div>
       ) : week ? (
-        <div className="space-y-3 p-4 sm:px-5">
-          <dl className="grid grid-cols-3 gap-1.5 @min-[22rem]/week:gap-2">
+        <div className="space-y-4 p-4 sm:px-5">
+          <dl className="grid grid-cols-3 divide-x border-b pb-3">
             {(
               [
                 ["新增待办", week.created, ""],
@@ -526,10 +514,7 @@ export function WeeklyPanel({
                 ],
               ] as const
             ).map(([label, value, tone]) => (
-              <div
-                key={label}
-                className="min-w-0 rounded-lg bg-muted/50 px-2 py-2.5"
-              >
+              <div key={label} className="min-w-0 px-2 py-1 first:pl-0 sm:px-4">
                 <dt
                   className={cn(
                     "text-xs leading-4",
@@ -553,14 +538,8 @@ export function WeeklyPanel({
               </div>
             ))}
           </dl>
-          <div className="rounded-lg border border-border/75 px-3">
-            <h3 className="flex items-center gap-1.5 border-b border-border/75 py-2.5 text-xs font-semibold">
-              <ClipboardList
-                className="size-3.5 shrink-0 text-muted-foreground"
-                aria-hidden="true"
-              />{" "}
-              处理成效
-            </h3>
+          <div>
+            <h3 className="border-b py-2.5 text-sm font-semibold">处理成效</h3>
             <dl className="divide-y divide-border/65 text-xs">
               {(
                 [

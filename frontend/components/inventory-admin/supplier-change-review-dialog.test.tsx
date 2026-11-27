@@ -64,7 +64,6 @@ test("shows the proposed brand and requires a separate confirmation before apply
   })
   render(
     <SupplierChangeReviewDialog
-      userId={20}
       brands={brands}
       onClose={vi.fn()}
       onApproved={onApproved}
@@ -81,10 +80,10 @@ test("shows the proposed brand and requires a separate confirmation before apply
   expect(onApproved).toHaveBeenCalledOnce()
 })
 
-test("shows an applicant their own pending request without offering a decision", async () => {
+test("shows an applicant without approval permission their pending request without decision buttons", async () => {
+  list.mockResolvedValue({ items: [item], total: 1, page_size: 20, can_review: false })
   render(
     <SupplierChangeReviewDialog
-      userId={10}
       brands={brands}
       onClose={vi.fn()}
       onApproved={vi.fn()}

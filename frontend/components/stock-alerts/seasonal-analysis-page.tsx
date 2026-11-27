@@ -259,6 +259,7 @@ export function SeasonalAnalysisPage() {
         : "正在查询季度分析…"
       : "日销截至 " + (shown?.sales_end ?? "未就绪")
   const summary = shown?.summary
+  const missingLaunchItems = shown?.missing_launch_items ?? []
   const review = data?.items.find((item) => item.id === reviewId)
   const followupNotes = {
     arrivals:
@@ -480,23 +481,56 @@ export function SeasonalAnalysisPage() {
         (shown.summary.missing_days > 0 ||
           shown.summary.sell_through_rate == null ||
           shown.missing_launch_count > 0) && (
-          <div
-            role="status"
-            className="rounded-xl border border-amber-500/25 bg-amber-500/5 px-4 py-3 text-xs leading-6 text-amber-800 dark:text-amber-300"
-          >
-            {shown.summary.missing_days > 0
-              ? "本季日销缺少 " +
-                shown.summary.missing_days +
-                " 天，暂不显示完整季度销量。"
-              : ""}
-            {shown.summary.sell_through_rate == null
-              ? " 部分商品缺少采购入库或完整日销，整体参考售罄率暂不可算；可查看「数据待核对」。"
-              : ""}
-            {shown.missing_launch_count > 0
-              ? " 另有 " +
-                shown.missing_launch_count +
-                " 项商品缺少有效上市日期，未归入季度。"
-              : ""}
+          <div className="rounded-xl border border-amber-500/25 bg-amber-500/5 px-4 py-3 text-xs leading-6 text-amber-800 dark:text-amber-300">
+            <p role="status">
+              {shown.summary.missing_days > 0
+                ? "本季日销缺少 " +
+                  shown.summary.missing_days +
+                  " 天，暂不显示完整季度销量。"
+                : ""}
+              {shown.summary.sell_through_rate == null
+                ? " 部分商品缺少采购入库或完整日销，整体参考售罄率暂不可算；可查看「数据待核对」。"
+                : ""}
+              {shown.missing_launch_count > 0
+                ? " 另有 " +
+                  shown.missing_launch_count +
+                  " 项商品缺少有效上市日期，未归入季度。"
+                : ""}
+            </p>
+            {missingLaunchItems.length > 0 && (
+              <ul
+                aria-label="缺少有效上市日期的商品"
+                className="mt-2 max-h-48 divide-y divide-amber-500/15 overflow-y-auto rounded-lg border border-amber-500/20 bg-background/60 px-3 text-foreground"
+              >
+                {missingLaunchItems.map((item) => (
+                  <li
+                    key={item.id}
+                    className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 py-2 leading-5"
+                  >
+                    <div className="flex min-w-0 flex-wrap items-baseline gap-x-3 gap-y-1">
+                      <span className="font-semibold break-all">
+                        {item.sku || "未填货号"}
+                      </span>
+                      {(item.product_name || item.color) && (
+                        <span className="text-muted-foreground">
+                          {[item.product_name, item.color]
+                            .filter(Boolean)
+                            .join(" · ")}
+                        </span>
+                      )}
+                      {item.original_sku && item.original_sku !== item.sku && (
+                        <span className="break-all text-muted-foreground">
+                          原始货号 {item.original_sku}
+                        </span>
+                      )}
+                    </div>
+                    <span className="text-amber-800 dark:text-amber-300">
+                      {item.invalid_launch ? "上市日期无效" : "未填写上市日期"}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
           </div>
         )}
       <section

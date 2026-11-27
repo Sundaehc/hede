@@ -54,12 +54,10 @@ const dateTime = new Intl.DateTimeFormat("zh-CN", {
 })
 
 export function SupplierChangeReviewDialog({
-  userId,
   brands,
   onClose,
   onApproved,
 }: {
-  userId: number
   brands: ReadonlyArray<Pick<SupplierBrandItem, "code" | "name">>
   onClose: () => void
   onApproved: () => void
@@ -175,7 +173,7 @@ export function SupplierChangeReviewDialog({
           <div className="min-w-0 flex-1 space-y-1">
             <DialogTitle>供应商变更审核</DialogTitle>
             <DialogDescription className="text-xs leading-5 sm:text-sm">
-              供应商已有费用单据时，资料变更须经商品组审核后才生效。
+              供应商已有费用单据时，资料变更须由商品组或超级管理员审核通过后生效。
             </DialogDescription>
           </div>
           <DialogClose
@@ -192,7 +190,7 @@ export function SupplierChangeReviewDialog({
             {canReview === null
               ? "变更申请"
               : canReview
-                ? "商品组审核队列"
+                ? "审核队列"
                 : "我的变更申请"}
             {result ? (
               <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground tabular-nums">
@@ -311,10 +309,7 @@ export function SupplierChangeReviewDialog({
           ) : (
             <ul className="space-y-3">
               {result.items.map((item) => {
-                const canDecide =
-                  result.can_review &&
-                  item.status === "pending" &&
-                  item.requester_id !== userId
+                const canDecide = result.can_review && item.status === "pending"
                 const editing = action?.id === item.id
                 return (
                   <li

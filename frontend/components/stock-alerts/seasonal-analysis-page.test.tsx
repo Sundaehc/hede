@@ -105,6 +105,7 @@ function response(page = 1): SeasonalResponse {
     years: [2026, 2025],
     source_issues: ["售罄率为采购入库参考"],
     missing_launch_count: 5,
+    missing_launch_items: [],
     unmatched_stock_rows: 2,
     unmatched_purchase_rows: 1,
     purchase_ready: true,
@@ -285,6 +286,25 @@ test("loads one product review on demand and opens the purchase receipt detail",
 test("keeps missing launch dates separate from confirmed zero sales", async () => {
   load.mockImplementation(async (filters) => {
     const result = response()
+    result.missing_launch_count = 2
+    result.missing_launch_items = [
+      {
+        id: 12,
+        sku: "UNDATED",
+        original_sku: "ORIGINAL-12",
+        product_name: "男鞋",
+        color: "黑色",
+        invalid_launch: false,
+      },
+      {
+        id: 13,
+        sku: "INVALID-DATE",
+        original_sku: "INVALID-DATE",
+        product_name: "男鞋",
+        color: "棕色",
+        invalid_launch: true,
+      },
+    ]
     if (filters.status === "arrivals") {
       result.items[0] = {
         ...result.items[0],
@@ -308,7 +328,15 @@ test("keeps missing launch dates separate from confirmed zero sales", async () =
     return result
   })
   render(<SeasonalAnalysisPage />)
-  await screen.findByText("SYNTHETIC-1")
+  const undated = await screen.findByRole("list", {
+    name: "缺少有效上市日期的商品",
+  })
+  expect(undated).toHaveTextContent("UNDATED")
+  expect(undated).toHaveTextContent("原始货号 ORIGINAL-12")
+  expect(undated).toHaveTextContent("未填写上市日期")
+  expect(undated).toHaveTextContent("INVALID-DATE")
+  expect(undated).toHaveTextContent("上市日期无效")
+  expect(load).toHaveBeenCalledTimes(1)
   fireEvent.click(screen.getByRole("button", { name: /到货待补上市日期/ }))
   await screen.findByText("ARRIVED")
   expect(screen.getByText("档案未填上市日期")).toBeVisible()

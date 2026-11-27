@@ -324,7 +324,10 @@ def _supplier_change_user(request: Request):
 
 
 def _can_review_supplier_changes(actor):
-    return normalize_department_code(actor.get("department_code")) == "商品部"
+    return (
+        actor.get("role_code") == "super_admin"
+        or normalize_department_code(actor.get("department_code")) == "商品部"
+    )
 
 
 def _public_supplier_change(row):
@@ -376,7 +379,7 @@ class SupplierReviewDecision(BaseModel):
 def review_supplier_change(request: Request, request_id: int, body: SupplierReviewDecision):
     actor = _supplier_change_user(request)
     if not _can_review_supplier_changes(actor):
-        raise HTTPException(403, "仅商品组可审核供应商变更")
+        raise HTTPException(403, "仅商品组和超级管理员可审核供应商变更")
     approved = body.decision == "approve"
     note = body.note.strip()
     if not approved and not note:
@@ -385,8 +388,6 @@ def review_supplier_change(request: Request, request_id: int, body: SupplierRevi
         outcome = request.app.state.inventory_repository.review_supplier_change(
             request_id, approved=approved, note=note, actor=actor,
         )
-    except PermissionError as error:
-        raise HTTPException(403, str(error)) from error
     except SupplierChangeConflict as error:
         raise HTTPException(409, str(error)) from error
     except IntegrityError as error:
@@ -441,7 +442,7 @@ def update_supplier(request: Request, supplier_id: int, payload: dict):
             entity_id=review["id"], entity_label=review["supplier_name"],
             summary=f"提交供应商变更申请 #{review['id']}", after_data=review,
         )
-        return {"review": review, "message": f"申请 #{review['id']} 已提交，等待商品组审核后生效"}
+        return {"review": review, "message": f"申请 #{review['id']} 已提交，审核通过后生效"}
     record, message = _record_supplier_update(request, outcome)
     return {"item": record, "message": message, "history_sync_skipped": outcome.get("history_sync_skipped", False)}
 

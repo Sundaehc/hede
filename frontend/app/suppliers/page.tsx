@@ -217,7 +217,7 @@ export default function SuppliersPage() {
         const result = await updateSupplier(editingId, payload)
         if (result.review) {
           setFormOpen(false)
-          showMessage("已提交商品组审核", result.message)
+          showMessage("已提交审核", result.message)
           return
         }
         if (result.history_sync_skipped) showMessage("供应商已更新", result.message)
@@ -588,7 +588,7 @@ export default function SuppliersPage() {
       <ConfirmDialog
         open={renameConfirmOpen}
         title="确认修改供应商名称"
-        description="请确认新名称和品牌。若已有费用单据，本次修改将提交商品组审核，通过后生效。"
+        description="请确认新名称和品牌。若已有费用单据，本次修改将在商品组或超级管理员审核通过后生效。"
         confirmLabel={isSaving ? "修改中..." : "确认修改"}
         onConfirm={handleConfirmRename}
         onCancel={() => setRenameConfirmOpen(false)}
@@ -609,7 +609,6 @@ export default function SuppliersPage() {
 
       {canManageSuppliers && reviewOpen && user && (
         <SupplierChangeReviewDialog
-          userId={user.id}
           brands={brands}
           onClose={() => setReviewOpen(false)}
           onApproved={() => void load()}

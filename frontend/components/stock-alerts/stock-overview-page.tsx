@@ -3,8 +3,8 @@
 import { useEffect, useRef, useState } from "react"
 import dynamic from "next/dynamic"
 import Link from "next/link"
+import { DropdownMenu } from "radix-ui"
 import {
-  Archive,
   ArrowRight,
   CalendarDays,
   ChevronLeft,
@@ -12,6 +12,7 @@ import {
   ClipboardList,
   Info,
   ListPlus,
+  Ellipsis,
   RefreshCw,
   Search,
   SlidersHorizontal,
@@ -21,6 +22,7 @@ import { useAuth } from "@/components/auth/auth-provider"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Select } from "@/components/ui/select"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import {
   Dialog,
   DialogContent,
@@ -41,7 +43,11 @@ import {
   useStockModuleOptions,
   useStockModuleQuery,
 } from "@/lib/stock-module-query"
-import type { OverviewFilters, OverviewItem } from "@/lib/stock-overview"
+import type {
+  OverviewFilters,
+  OverviewItem,
+  OverviewResponse,
+} from "@/lib/stock-overview"
 import { cn } from "@/lib/utils"
 import {
   BatchSelectionBar,
@@ -105,6 +111,15 @@ const defaults: OverviewFilters = {
   query: "",
   page: 1,
 }
+const overviewTabs = [
+  ["inventory", "库存概况"],
+  ["queue", "处理建议"],
+  ["portfolio", "库存货盘"],
+  ["week", "上周复盘"],
+] as const
+const menuItemClass =
+  "flex min-h-9 cursor-default items-center gap-2 rounded-md px-2.5 outline-none data-highlighted:bg-accent data-highlighted:text-accent-foreground data-disabled:opacity-45 [&_svg]:size-4"
+
 const labels = { ...alertKindLabels, review: "数据待核对" }
 const kinds = ["clearance", "zero", "replenish", "slow", "review"] as const
 
@@ -431,9 +446,119 @@ function DecisionDetail({
   )
 }
 
+function PendingOverview({
+  data,
+  onOpen,
+}: {
+  data: OverviewResponse
+  onOpen: (kind: OverviewFilters["kind"]) => void
+}) {
+  return (
+    <section
+      aria-labelledby="pending-overview"
+      className={cn(panel, "@container/pending")}
+    >
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b px-4 py-2.5 sm:px-5">
+        <h2
+          id="pending-overview"
+          className="flex items-center gap-2 text-sm font-semibold"
+        >
+          <ClipboardList
+            className="size-4 text-muted-foreground"
+            aria-hidden="true"
+          />
+          待处理概览
+        </h2>
+        <Button
+          variant="ghost"
+          size="sm"
+          className="shadow-none"
+          onClick={() => onOpen("all")}
+        >
+          查看处理建议 <ArrowRight aria-hidden="true" />
+        </Button>
+      </div>
+      <div className="grid @min-[56rem]/pending:grid-cols-[minmax(14rem,1fr)_3fr]">
+        <dl className="grid grid-cols-2 divide-x border-b bg-muted/30 @min-[56rem]/pending:border-r @min-[56rem]/pending:border-b-0">
+          <div className="min-w-0 px-4 py-3 sm:px-5">
+            <dt className="text-xs text-muted-foreground">待分配</dt>
+            <dd className="mt-1 font-mono text-2xl font-semibold tabular-nums">
+              {fmt(data.assignable)}
+            </dd>
+          </div>
+          <div className="min-w-0 px-4 py-3 sm:px-5">
+            <dt className="text-xs text-muted-foreground">已有待办</dt>
+            <dd className="mt-1 font-mono text-2xl font-semibold tabular-nums">
+              {fmt(data.in_progress)}
+            </dd>
+          </div>
+        </dl>
+        <ul className="grid grid-cols-2 gap-1 p-2 @min-[34rem]/pending:grid-cols-5">
+          {kinds.map((kind) => (
+            <li key={kind} className="min-w-0">
+              <Button
+                variant="ghost"
+                className="flex h-full min-h-14 w-full items-center justify-between gap-2 px-2.5 py-2 text-left whitespace-normal shadow-none @min-[34rem]/pending:flex-col @min-[34rem]/pending:items-start @min-[34rem]/pending:justify-center @min-[34rem]/pending:gap-0.5"
+                aria-label={`${labels[kind]} ${fmt(data.counts[kind])} 项`}
+                onClick={() => onOpen(kind)}
+              >
+                <span className="text-xs text-muted-foreground">
+                  {labels[kind]}
+                </span>
+                <span
+                  className={cn(
+                    "font-mono text-lg font-semibold tabular-nums",
+                    !data.counts[kind] && "text-muted-foreground",
+                    data.counts[kind] > 0 &&
+                      kind === "clearance" &&
+                      "text-destructive",
+                    data.counts[kind] > 0 && kind === "review" && warning
+                  )}
+                >
+                  {fmt(data.counts[kind])}
+                </span>
+              </Button>
+            </li>
+          ))}
+        </ul>
+      </div>
+    </section>
+  )
+}
+
+function OverviewWeekTab({
+  brand,
+  revision,
+  onRetry,
+  onClearance,
+}: {
+  brand: string
+  revision: number
+  onRetry: () => void
+  onClearance: (first: string) => void
+}) {
+  const { data, error } = useStockModuleQuery({
+    group: "stock-overview-week",
+    queryKey: brand,
+    revision,
+    resources: weeklyResources,
+    load: (signal) => getStockOverviewWeek(brand, signal),
+  })
+  return (
+    <WeeklyPanel
+      week={data}
+      error={error}
+      retry={onRetry}
+      onClearance={onClearance}
+    />
+  )
+}
+
 export function StockOverviewPage() {
   const { hasPermission } = useAuth()
   const manager = hasPermission("product.manage")
+  const canViewArrivals = hasPermission("purchase.view")
+  const [view, setView] = useState<string>("inventory")
   const [filters, setStoredFilters] = useSessionQueryState<OverviewFilters>(
     "stock-overview:filters",
     defaults
@@ -459,6 +584,7 @@ export function StockOverviewPage() {
   const [arrivalsOpen, setArrivalsOpen] = useState(false)
   const [clearanceWeek, setClearanceWeek] = useState<string | null>(null)
   const [portfolioItem, setPortfolioItem] = useState<{
+    brand: string
     id: number
     tab?: "planning"
   } | null>(null)
@@ -467,7 +593,13 @@ export function StockOverviewPage() {
   const [taskId, setTaskId] = useState<number | null>(null)
   const [notice, setNotice] = useState("")
   const force = useRef(false)
-  const queueHeading = useRef<HTMLHeadingElement>(null)
+  const focusQueue = useRef(false)
+  useEffect(() => {
+    if (view === "queue" && focusQueue.current) {
+      focusQueue.current = false
+      document.getElementById("stock-overview-queue")?.focus()
+    }
+  }, [view])
   const options = useStockModuleOptions(getStockAlertOptions)
   const brands = options.data?.brands ?? []
   const brandLabel =
@@ -487,13 +619,6 @@ export function StockOverviewPage() {
         return getStockOverview(filters, { signal, refresh })
       },
     })
-  const weekly = useStockModuleQuery({
-    group: "stock-overview-week",
-    queryKey: filters.brand,
-    revision: weekRevision,
-    resources: weeklyResources,
-    load: (signal) => getStockOverviewWeek(filters.brand, signal),
-  })
   useEffect(
     () =>
       subscribeBusinessDataChanges((resources) => {
@@ -541,32 +666,25 @@ export function StockOverviewPage() {
   const selectKind = (kind: OverviewFilters["kind"]) => {
     setFilters({ ...filters, kind, page: 1 })
   }
+  const openQueue = (kind: OverviewFilters["kind"]) => {
+    focusQueue.current = true
+    setQuery("")
+    setFilters({ ...filters, kind, query: "", page: 1 })
+    setView("queue")
+  }
   const clearQuery = () => {
     setQuery("")
     if (filters.query) setFilters({ ...filters, query: "", page: 1 })
   }
   return (
     <div className="@container/overview mx-auto w-full space-y-4 px-3 py-4 sm:space-y-5 sm:px-5 sm:py-5 lg:px-6">
-      <header className="flex flex-wrap items-end justify-between gap-x-5 gap-y-3.5 border-b border-border/80 pb-4">
-        <div className="min-w-0">
-          <p className="mb-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
-            <Archive className="size-3.5 shrink-0" aria-hidden="true" /> 存 /
-            经营分析
-            {summary && (
-              <span className="border-l pl-2 tabular-nums">
-                业务日 <time dateTime={summary.today}>{summary.today}</time>
-              </span>
-            )}
-          </p>
-          <h1 className="text-2xl font-semibold tracking-tight sm:text-[1.75rem]">
-            库存经营总览
-          </h1>
-        </div>
+      <header className="flex flex-wrap items-center justify-between gap-x-5 gap-y-3">
+        <h1 className="text-2xl font-semibold tracking-tight sm:text-[1.75rem]">
+          库存经营总览
+        </h1>
         <div className="flex max-w-full min-w-0 flex-wrap items-end gap-2">
-          <label className="min-w-0 basis-full @min-[32rem]/overview:basis-auto">
-            <span className="mb-1 block text-xs font-medium text-muted-foreground">
-              品牌
-            </span>
+          <label className="min-w-0">
+            <span className="sr-only">品牌</span>
             <Select
               className="h-9 min-w-0 @min-[32rem]/overview:w-40"
               value={filters.brand}
@@ -597,41 +715,53 @@ export function StockOverviewPage() {
             />
             刷新
           </Button>
-          {manager && (
-            <Button
-              size="lg"
-              variant="outline"
-              disabled={!data || refreshing}
-              onClick={() => setPolicyOpen(true)}
-            >
-              <SlidersHorizontal aria-hidden="true" /> 退出规则
-            </Button>
-          )}
-          <Button
-            size="lg"
-            variant="outline"
-            onClick={() => setCampaignOpen(true)}
-          >
-            <CalendarDays aria-hidden="true" /> 营销日历
-          </Button>
-          {hasPermission("purchase.view") && (
-            <Button
-              size="lg"
-              variant="outline"
-              onClick={() => setArrivalsOpen(true)}
-            >
-              到货清单
-            </Button>
-          )}
-          {manager && (
-            <Button
-              size="lg"
-              variant="outline"
-              onClick={() => setAutoOpen(true)}
-            >
-              自动派办
-            </Button>
-          )}
+          <DropdownMenu.Root>
+            <DropdownMenu.Trigger asChild>
+              <Button size="icon-lg" variant="outline" aria-label="更多操作">
+                <Ellipsis aria-hidden="true" />
+              </Button>
+            </DropdownMenu.Trigger>
+            <DropdownMenu.Portal>
+              <DropdownMenu.Content
+                align="end"
+                sideOffset={6}
+                className="z-50 min-w-36 rounded-lg border bg-popover p-1 text-sm text-popover-foreground shadow-md"
+              >
+                <DropdownMenu.Item
+                  className={menuItemClass}
+                  onSelect={() => setCampaignOpen(true)}
+                >
+                  <CalendarDays aria-hidden="true" /> 营销日历
+                </DropdownMenu.Item>
+                {canViewArrivals && (
+                  <DropdownMenu.Item
+                    className={menuItemClass}
+                    onSelect={() => setArrivalsOpen(true)}
+                  >
+                    <ClipboardList aria-hidden="true" /> 到货清单
+                  </DropdownMenu.Item>
+                )}
+                {manager && (
+                  <>
+                    <DropdownMenu.Separator className="my-1 border-t" />
+                    <DropdownMenu.Item
+                      className={menuItemClass}
+                      disabled={!data || refreshing}
+                      onSelect={() => setPolicyOpen(true)}
+                    >
+                      <SlidersHorizontal aria-hidden="true" /> 退出规则
+                    </DropdownMenu.Item>
+                    <DropdownMenu.Item
+                      className={menuItemClass}
+                      onSelect={() => setAutoOpen(true)}
+                    >
+                      <ListPlus aria-hidden="true" /> 自动派办
+                    </DropdownMenu.Item>
+                  </>
+                )}
+              </DropdownMenu.Content>
+            </DropdownMenu.Portal>
+          </DropdownMenu.Root>
         </div>
       </header>
       {options.error && (
@@ -655,437 +785,455 @@ export function StockOverviewPage() {
           </Button>
         </div>
       )}
-      <nav
-        aria-label="总览分区"
-        className="flex flex-wrap items-center gap-x-1 gap-y-1 text-sm"
+      <Tabs
+        defaultValue="inventory"
+        value={view}
+        onValueChange={setView}
+        activationMode="manual"
       >
-        {(
-          [
-            ["overview-inventory", "整盘库存"],
-            ["stock-overview-queue", "今日优先处理"],
-            ["stock-portfolio", "库存货盘"],
-            ["overview-week", "上周复盘"],
-          ] as const
-        ).map(([id, label]) => (
-          <a
-            key={id}
-            href={`#${id}`}
-            className="rounded-lg px-3 py-1.5 font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-2"
-          >
-            {label}
-          </a>
-        ))}
-      </nav>
-      {summary ? (
-        <InventoryPanel
-          data={summary}
-          onReview={() => {
-            selectKind("review")
-            queueHeading.current?.focus({ preventScroll: true })
-            queueHeading.current?.scrollIntoView?.({ block: "start" })
-          }}
-        />
-      ) : (
-        loading && <InventoryPanelLoading />
-      )}
-      <div className="grid items-start gap-4 @min-[53rem]/overview:grid-cols-[minmax(0,1fr)_minmax(17rem,24%)]">
-        <section
-          aria-labelledby="stock-overview-queue"
-          className={cn(panel, "@container/queue")}
-          aria-busy={loading || refreshing}
+        <TabsList
+          aria-label="总览分区"
+          className="grid h-auto max-w-full grid-cols-4 gap-0.5 self-start rounded-lg bg-muted/65 p-0.5"
         >
-          <div className="flex flex-wrap items-start justify-between gap-x-3 gap-y-2 px-4 py-4 sm:px-5">
-            <div className="min-w-0">
-              <h2
-                id="stock-overview-queue"
-                ref={queueHeading}
-                tabIndex={-1}
-                className="flex scroll-mt-16 items-center gap-2 rounded-sm text-base font-semibold tracking-tight focus-visible:outline-2 focus-visible:outline-offset-2"
-              >
-                <ClipboardList
-                  className="size-4 shrink-0 text-muted-foreground"
-                  aria-hidden="true"
-                />
-                今日优先处理
-              </h2>
-              {summary ? (
-                <dl className="mt-2 flex flex-wrap gap-2 text-xs tabular-nums">
-                  <div className="flex items-baseline gap-1.5 rounded-md bg-primary/[0.08] px-2 py-1">
-                    <dt className="text-muted-foreground">待分配</dt>
-                    <dd className="font-mono font-semibold">
-                      {fmt(summary.assignable)}
-                    </dd>
-                  </div>
-                  <div className="flex items-baseline gap-1.5 rounded-md border border-border/75 px-2 py-1">
-                    <dt className="text-muted-foreground">已有待办</dt>
-                    <dd className="font-mono font-semibold">
-                      {fmt(summary.in_progress)}
-                    </dd>
-                  </div>
-                </dl>
-              ) : (
-                <p className="mt-1 text-xs text-muted-foreground">
-                  按处理类型、期限和影响数量排序
-                </p>
-              )}
-            </div>
-            <Button asChild variant="outline" size="sm" className="shadow-none">
-              <Link href="/stock-alerts/tasks">
-                预警待办 <ArrowRight aria-hidden="true" />
-              </Link>
-            </Button>
-          </div>
-          <div className="space-y-2.5 border-y bg-muted/25 px-4 py-3 sm:px-5">
-            <div
-              role="group"
-              aria-label="处理类型"
-              className="flex flex-wrap gap-1.5"
+          {overviewTabs.map(([key, title]) => (
+            <TabsTrigger
+              key={key}
+              value={key}
+              className="min-h-9 cursor-pointer rounded-md px-2 text-xs data-[state=active]:font-semibold data-[state=active]:ring-1 data-[state=active]:ring-border sm:px-4 sm:text-sm"
             >
-              {(["all", ...kinds] as const).map((kind) => {
-                const active = filters.kind === kind
-                const count =
-                  kind === "all" ? totalSuggestions : summary?.counts[kind]
-                return (
-                  <Button
-                    key={kind}
-                    type="button"
-                    variant={active ? "default" : "outline"}
-                    size="sm"
-                    className="h-8 gap-1.5 px-2 text-xs shadow-none"
-                    aria-pressed={active}
-                    onClick={() => selectKind(kind)}
-                  >
-                    {kind === "all" ? "全部" : labels[kind]}
-                    {count != null && (
-                      <span
-                        className={cn(
-                          "rounded px-1 tabular-nums",
-                          active
-                            ? "bg-primary-foreground/15"
-                            : "bg-muted text-muted-foreground"
-                        )}
-                      >
-                        {fmt(count)}
-                      </span>
-                    )}
-                  </Button>
-                )
-              })}
-            </div>
-            <form
-              className="flex max-w-lg items-center gap-2"
-              onSubmit={(event) => {
-                event.preventDefault()
-                setFilters({ ...filters, query: query.trim(), page: 1 })
-              }}
-            >
-              <div className="relative min-w-0 flex-1">
-                <Search
-                  className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground"
-                  aria-hidden="true"
-                />
-                <Input
-                  aria-label="搜索货号、品名或颜色"
-                  className="h-9 bg-background pr-9 pl-9"
-                  placeholder="货号 / 品名 / 颜色"
-                  maxLength={200}
-                  value={query}
-                  onChange={(event) => setQuery(event.target.value)}
-                />
-                {(query || filters.query) && (
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon-sm"
-                    aria-label="清空搜索"
-                    onClick={clearQuery}
-                    className="absolute top-1/2 right-1 -translate-y-1/2 shadow-none"
-                  >
-                    <X aria-hidden="true" />
-                  </Button>
+              {title}
+            </TabsTrigger>
+          ))}
+        </TabsList>
+        <TabsContent value="inventory" className="space-y-3 sm:space-y-4">
+          {summary ? (
+            <>
+              <InventoryPanel
+                data={summary}
+                onReview={() => openQueue("review")}
+              />
+              <PendingOverview data={summary} onOpen={openQueue} />
+            </>
+          ) : (
+            loading && <InventoryPanelLoading />
+          )}
+        </TabsContent>
+        <TabsContent value="queue">
+          <section
+            aria-labelledby="stock-overview-queue"
+            className={cn(panel, "@container/queue")}
+            aria-busy={loading || refreshing}
+          >
+            <div className="flex flex-wrap items-start justify-between gap-x-3 gap-y-2 px-4 py-4 sm:px-5">
+              <div className="min-w-0">
+                <h2
+                  id="stock-overview-queue"
+                  tabIndex={-1}
+                  className="flex scroll-mt-16 items-center gap-2 rounded-sm text-base font-semibold tracking-tight focus-visible:outline-2 focus-visible:outline-offset-2"
+                >
+                  <ClipboardList
+                    className="size-4 shrink-0 text-muted-foreground"
+                    aria-hidden="true"
+                  />
+                  处理建议
+                </h2>
+                {summary ? (
+                  <dl className="mt-2 flex flex-wrap gap-2 text-xs tabular-nums">
+                    <div className="flex items-baseline gap-1.5 rounded-md bg-primary/[0.08] px-2 py-1">
+                      <dt className="text-muted-foreground">待分配</dt>
+                      <dd className="font-mono font-semibold">
+                        {fmt(summary.assignable)}
+                      </dd>
+                    </div>
+                    <div className="flex items-baseline gap-1.5 rounded-md border border-border/75 px-2 py-1">
+                      <dt className="text-muted-foreground">已有待办</dt>
+                      <dd className="font-mono font-semibold">
+                        {fmt(summary.in_progress)}
+                      </dd>
+                    </div>
+                  </dl>
+                ) : (
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    按处理类型、期限和影响数量排序
+                  </p>
                 )}
               </div>
               <Button
-                type="submit"
-                size="lg"
+                asChild
                 variant="outline"
+                size="sm"
                 className="shadow-none"
               >
-                查询
+                <Link href="/stock-alerts/tasks">
+                  预警待办 <ArrowRight aria-hidden="true" />
+                </Link>
               </Button>
-            </form>
-            {filters.query && (
-              <p className="text-xs leading-5 wrap-anywhere text-muted-foreground">
-                当前搜索：
-                <strong className="font-medium text-foreground">
-                  {filters.query}
-                </strong>
-              </p>
-            )}
-          </div>
-          {manager &&
-            (selectable.length > 0 || selection.selected.size > 0) && (
-              <BatchSelectionBar
-                count={selection.selected.size}
-                error={selection.error}
-                onClear={selection.clear}
+            </div>
+            <div className="flex flex-wrap items-center justify-between gap-2.5 border-y bg-muted/25 px-4 py-3 sm:px-5">
+              <div
+                role="group"
+                aria-label="处理类型"
+                className="flex flex-wrap gap-1.5"
               >
-                <Button
-                  size="sm"
-                  disabled={loading || refreshing || !selection.selected.size}
-                  onClick={() =>
-                    setBatchItems([...selection.selected.values()])
-                  }
-                >
-                  批量分配待办
-                </Button>
-              </BatchSelectionBar>
-            )}
-          {manager && selectable.length > 0 && (
-            <label className="flex min-h-9 w-fit cursor-pointer items-center gap-2.5 px-4 text-xs text-muted-foreground sm:px-5">
-              <SelectionCheckbox
-                label="选择本页可分配建议"
-                checked={checkedOnPage === selectable.length}
-                mixed={checkedOnPage > 0 && checkedOnPage < selectable.length}
-                disabled={loading || refreshing}
-                onChange={(checked) =>
-                  selection.select(
-                    checked
-                      ? selectable.filter(
-                          ({ id }) => !selection.selected.has(id)
-                        )
-                      : selectable,
-                    checked
+                {(["all", ...kinds] as const).map((kind) => {
+                  const active = filters.kind === kind
+                  const count =
+                    kind === "all" ? totalSuggestions : summary?.counts[kind]
+                  return (
+                    <Button
+                      key={kind}
+                      type="button"
+                      variant={active ? "default" : "outline"}
+                      size="sm"
+                      className="h-8 gap-1.5 px-2 text-xs shadow-none"
+                      aria-pressed={active}
+                      onClick={() => selectKind(kind)}
+                    >
+                      {kind === "all" ? "全部" : labels[kind]}
+                      {count != null && (
+                        <span
+                          className={cn(
+                            "rounded px-1 tabular-nums",
+                            active
+                              ? "bg-primary-foreground/15"
+                              : "bg-muted text-muted-foreground"
+                          )}
+                        >
+                          {fmt(count)}
+                        </span>
+                      )}
+                    </Button>
                   )
-                }
-              />
-              选择本页可分配建议
-            </label>
-          )}
-          {data?.items.length ? (
-            <ul className="divide-y divide-border/80">
-              {data.items.map((item) => {
-                const key = recommendationKey(item)
-                const choice = availableByKey.get(key)
-                const selected = selection.selected.get(key)
-                return (
-                  <li
-                    key={key}
-                    className={cn(
-                      "grid gap-x-4 gap-y-2.5 px-4 py-3.5 transition-colors hover:bg-muted/25 sm:px-5 @min-[34rem]/queue:grid-cols-[minmax(0,1fr)_auto] @min-[34rem]/queue:items-center",
-                      selected && "bg-primary/5"
-                    )}
+                })}
+              </div>
+              <form
+                className="flex w-full min-w-0 items-center gap-2 @min-[48rem]/queue:w-72"
+                onSubmit={(event) => {
+                  event.preventDefault()
+                  setFilters({ ...filters, query: query.trim(), page: 1 })
+                }}
+              >
+                <div className="relative min-w-0 flex-1">
+                  <Search
+                    className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground"
+                    aria-hidden="true"
+                  />
+                  <Input
+                    aria-label="搜索货号、品名或颜色"
+                    className="h-9 bg-background pr-9 pl-9"
+                    placeholder="货号 / 品名 / 颜色"
+                    maxLength={200}
+                    value={query}
+                    onChange={(event) => setQuery(event.target.value)}
+                  />
+                  {(query || filters.query) && (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon-sm"
+                      aria-label="清空搜索"
+                      onClick={clearQuery}
+                      className="absolute top-1/2 right-1 -translate-y-1/2 shadow-none"
+                    >
+                      <X aria-hidden="true" />
+                    </Button>
+                  )}
+                </div>
+                <Button
+                  type="submit"
+                  size="lg"
+                  variant="outline"
+                  className="shadow-none"
+                >
+                  查询
+                </Button>
+              </form>
+              {filters.query && (
+                <p className="w-full text-xs leading-5 wrap-anywhere text-muted-foreground">
+                  当前搜索：
+                  <strong className="font-medium text-foreground">
+                    {filters.query}
+                  </strong>
+                </p>
+              )}
+            </div>
+            {manager &&
+              (selectable.length > 0 || selection.selected.size > 0) && (
+                <BatchSelectionBar
+                  count={selection.selected.size}
+                  error={selection.error}
+                  onClear={selection.clear}
+                >
+                  <Button
+                    size="sm"
+                    disabled={loading || refreshing || !selection.selected.size}
+                    onClick={() =>
+                      setBatchItems([...selection.selected.values()])
+                    }
                   >
-                    <div className="flex min-w-0 items-start gap-3">
-                      {manager &&
-                        (selectable.length > 0 ||
-                          selection.selected.size > 0) && (
-                          <div className="grid h-12 w-4 shrink-0 place-items-center">
-                            {(choice || selected) && (
-                              <SelectionCheckbox
-                                label={`选择 ${item.sku} · ${labels[item.kind]}`}
-                                checked={!!selected}
-                                disabled={refreshing}
-                                onChange={(checked) => {
-                                  if (choice)
-                                    selection.select([choice], checked)
-                                  else if (!checked) selection.remove([key])
-                                }}
-                              />
-                            )}
-                          </div>
-                        )}
-                      <StockProductPhoto item={item} />
-                      <div className="min-w-0 flex-1">
-                        <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                          <span
-                            className={cn(
-                              "rounded border px-1.5 py-0.5 text-xs font-medium",
-                              decisionTone[item.kind]
-                            )}
-                          >
-                            {labels[item.kind]}
-                          </span>
-                          <button
-                            type="button"
-                            className="min-w-0 cursor-pointer rounded-sm font-mono text-sm font-semibold wrap-anywhere text-foreground underline-offset-4 hover:underline focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
-                            onClick={() => setDetail(item)}
-                          >
-                            {item.sku}
-                          </button>
-                          <Button
-                            type="button"
-                            variant="link"
-                            size="sm"
-                            className="h-auto px-1 text-xs"
-                            onClick={() => setPortfolioItem({ id: item.id })}
-                          >
-                            单款进销存
-                          </Button>
-                          {(item.product_name || item.color) && (
-                            <span className="min-w-0 text-xs wrap-anywhere text-muted-foreground">
-                              {[item.product_name, item.color]
-                                .filter(Boolean)
-                                .join(" · ")}
-                            </span>
-                          )}
-                        </div>
-                        <p className="mt-1.5 text-sm leading-5 wrap-anywhere">
-                          {item.reason}
-                        </p>
-                        <p className="mt-1.5 flex flex-wrap items-baseline gap-x-3 gap-y-1 text-xs leading-5 text-muted-foreground tabular-nums">
-                          <span>
-                            可售{" "}
-                            <strong className="font-semibold text-foreground">
-                              {fmt(item.available_quantity, " 双")}
-                            </strong>
-                          </span>
-                          {item.quantity != null && (
-                            <span>
-                              建议处理{" "}
-                              <strong className="font-semibold text-foreground">
-                                {fmt(item.quantity, " 双")}
-                              </strong>
-                              {item.sizes.length > 0 &&
-                                `（${item.sizes.map(({ name }) => name).join("、")}码）`}
-                            </span>
-                          )}
-                          {item.due_date && (
-                            <span className="inline-flex items-center gap-1">
-                              <CalendarDays
-                                className="size-3 shrink-0"
-                                aria-hidden="true"
-                              />
-                              <time dateTime={item.due_date}>
-                                {item.due_date}
-                              </time>{" "}
-                              前处理
-                            </span>
-                          )}
-                          {item.channel && (
-                            <span className="wrap-anywhere">
-                              {item.channel}
-                            </span>
-                          )}
-                        </p>
-                      </div>
-                    </div>
-                    <div
+                    批量分配待办
+                  </Button>
+                </BatchSelectionBar>
+              )}
+            {manager && selectable.length > 0 && (
+              <label className="flex min-h-9 w-fit cursor-pointer items-center gap-2.5 px-4 text-xs text-muted-foreground sm:px-5">
+                <SelectionCheckbox
+                  label="选择本页可分配建议"
+                  checked={checkedOnPage === selectable.length}
+                  mixed={checkedOnPage > 0 && checkedOnPage < selectable.length}
+                  disabled={loading || refreshing}
+                  onChange={(checked) =>
+                    selection.select(
+                      checked
+                        ? selectable.filter(
+                            ({ id }) => !selection.selected.has(id)
+                          )
+                        : selectable,
+                      checked
+                    )
+                  }
+                />
+                选择本页可分配建议
+              </label>
+            )}
+            {data?.items.length ? (
+              <ul className="divide-y divide-border/80">
+                {data.items.map((item) => {
+                  const key = recommendationKey(item)
+                  const choice = availableByKey.get(key)
+                  const selected = selection.selected.get(key)
+                  return (
+                    <li
+                      key={key}
                       className={cn(
-                        "flex min-w-0 flex-wrap items-center gap-2 @min-[34rem]/queue:max-w-44 @min-[34rem]/queue:justify-end @min-[34rem]/queue:pl-0",
-                        manager &&
-                          (selectable.length > 0 || selection.selected.size > 0)
-                          ? "pl-[5.5rem]"
-                          : "pl-[3.75rem]"
+                        "grid gap-x-4 gap-y-2.5 px-4 py-3.5 transition-colors hover:bg-muted/25 sm:px-5 @min-[34rem]/queue:grid-cols-[minmax(0,1fr)_auto] @min-[34rem]/queue:items-center",
+                        selected && "bg-primary/5"
                       )}
                     >
-                      {item.task ? (
+                      <div className="flex min-w-0 items-start gap-3">
+                        {manager &&
+                          (selectable.length > 0 ||
+                            selection.selected.size > 0) && (
+                            <div className="grid h-12 w-4 shrink-0 place-items-center">
+                              {(choice || selected) && (
+                                <SelectionCheckbox
+                                  label={`选择 ${item.sku} · ${labels[item.kind]}`}
+                                  checked={!!selected}
+                                  disabled={refreshing}
+                                  onChange={(checked) => {
+                                    if (choice)
+                                      selection.select([choice], checked)
+                                    else if (!checked) selection.remove([key])
+                                  }}
+                                />
+                              )}
+                            </div>
+                          )}
+                        <StockProductPhoto item={item} />
+                        <div className="min-w-0 flex-1">
+                          <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                            <button
+                              type="button"
+                              className="min-w-0 cursor-pointer rounded-sm font-mono text-sm font-semibold wrap-anywhere text-foreground underline-offset-4 hover:underline focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+                              onClick={() => setDetail(item)}
+                            >
+                              {item.sku}
+                            </button>
+                            <span
+                              className={cn(
+                                "rounded border px-1.5 py-0.5 text-xs font-medium",
+                                decisionTone[item.kind]
+                              )}
+                            >
+                              {labels[item.kind]}
+                            </span>
+                            {(item.product_name || item.color) && (
+                              <span className="min-w-0 text-xs wrap-anywhere text-muted-foreground">
+                                {[item.product_name, item.color]
+                                  .filter(Boolean)
+                                  .join(" · ")}
+                              </span>
+                            )}
+                          </div>
+                          <p className="mt-1.5 text-sm leading-5 wrap-anywhere">
+                            {item.reason}
+                          </p>
+                          <p className="mt-1.5 flex flex-wrap items-baseline gap-x-3 gap-y-1 text-xs leading-5 text-muted-foreground tabular-nums">
+                            <span>
+                              可售{" "}
+                              <strong className="font-semibold text-foreground">
+                                {fmt(item.available_quantity, " 双")}
+                              </strong>
+                            </span>
+                            {item.quantity != null && (
+                              <span>
+                                建议处理{" "}
+                                <strong className="font-semibold text-foreground">
+                                  {fmt(item.quantity, " 双")}
+                                </strong>
+                                {item.sizes.length > 0 &&
+                                  `（${item.sizes.map(({ name }) => name).join("、")}码）`}
+                              </span>
+                            )}
+                            {item.due_date && (
+                              <span className="inline-flex items-center gap-1">
+                                <CalendarDays
+                                  className="size-3 shrink-0"
+                                  aria-hidden="true"
+                                />
+                                <time dateTime={item.due_date}>
+                                  {item.due_date}
+                                </time>{" "}
+                                前处理
+                              </span>
+                            )}
+                            {item.channel && (
+                              <span className="wrap-anywhere">
+                                {item.channel}
+                              </span>
+                            )}
+                          </p>
+                        </div>
+                      </div>
+                      <div
+                        className={cn(
+                          "flex min-w-0 flex-wrap items-center gap-2 @min-[34rem]/queue:max-w-60 @min-[34rem]/queue:justify-end @min-[34rem]/queue:pl-0",
+                          manager &&
+                            (selectable.length > 0 ||
+                              selection.selected.size > 0)
+                            ? "pl-[5.5rem]"
+                            : "pl-[3.75rem]"
+                        )}
+                      >
                         <Button
-                          size="sm"
+                          type="button"
                           variant="ghost"
-                          className="h-auto max-w-full flex-wrap justify-start py-1.5 whitespace-normal shadow-none"
-                          onClick={() => setTaskId(item.task!.id)}
-                        >
-                          <TaskStatusBadge task={item.task} />
-                          <span className="min-w-0 wrap-anywhere">
-                            {item.task.assignee_name}
-                          </span>
-                        </Button>
-                      ) : manager && item.signature ? (
-                        <Button size="sm" onClick={() => setAssignment(item)}>
-                          分配待办
-                        </Button>
-                      ) : (
-                        <Button
                           size="sm"
-                          variant="outline"
-                          className="shadow-none"
-                          onClick={() => setDetail(item)}
+                          className="px-1.5 text-xs text-muted-foreground shadow-none"
+                          onClick={() =>
+                            setPortfolioItem({ brand: item.brand, id: item.id })
+                          }
                         >
-                          查看依据 <ChevronRight aria-hidden="true" />
+                          单款进销存 <ChevronRight aria-hidden="true" />
                         </Button>
-                      )}
-                    </div>
-                  </li>
-                )
-              })}
-            </ul>
-          ) : loading && summary ? (
-            <p
-              className="px-4 py-6 text-sm text-muted-foreground sm:px-5"
-              role="status"
-            >
-              正在读取处理列表…
-            </p>
-          ) : data ? (
-            <div className="px-4 py-7 text-center sm:px-5">
-              <h3 className="text-sm font-medium">当前筛选没有处理建议</h3>
-              <p className="mt-1 text-xs text-muted-foreground">
-                {filters.kind !== "all" || filters.query
-                  ? "可更换类型或搜索词后再查。"
-                  : "当前品牌没有待处理的库存建议。"}
+                        {item.task ? (
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="h-auto max-w-full flex-wrap justify-start py-1.5 whitespace-normal shadow-none"
+                            onClick={() => setTaskId(item.task!.id)}
+                          >
+                            <TaskStatusBadge task={item.task} />
+                            <span className="min-w-0 wrap-anywhere">
+                              {item.task.assignee_name}
+                            </span>
+                          </Button>
+                        ) : manager && item.signature ? (
+                          <Button size="sm" onClick={() => setAssignment(item)}>
+                            分配待办
+                          </Button>
+                        ) : (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="shadow-none"
+                            onClick={() => setDetail(item)}
+                          >
+                            查看依据 <ChevronRight aria-hidden="true" />
+                          </Button>
+                        )}
+                      </div>
+                    </li>
+                  )
+                })}
+              </ul>
+            ) : loading && summary ? (
+              <p
+                className="px-4 py-6 text-sm text-muted-foreground sm:px-5"
+                role="status"
+              >
+                正在读取处理列表…
               </p>
-              {(filters.kind !== "all" || filters.query) && (
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="outline"
-                  className="mt-3 shadow-none"
-                  onClick={() => {
-                    setQuery("")
-                    setFilters({ ...filters, kind: "all", query: "", page: 1 })
-                  }}
-                >
-                  清除筛选
-                </Button>
-              )}
-            </div>
-          ) : null}
-          {data && data.total > 0 && (
-            <div className="flex flex-wrap items-center justify-between gap-2 border-t bg-muted/15 px-4 py-2.5 text-xs text-muted-foreground tabular-nums sm:px-5">
-              <span>共 {fmt(data.total)} 条</span>
-              {pages > 1 && (
-                <div className="flex items-center gap-2">
-                  <span>
-                    第 {page} / {pages} 页
-                  </span>
+            ) : data ? (
+              <div className="px-4 py-7 text-center sm:px-5">
+                <h3 className="text-sm font-medium">当前筛选没有处理建议</h3>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {filters.kind !== "all" || filters.query
+                    ? "可更换类型或搜索词后再查。"
+                    : "当前品牌没有待处理的库存建议。"}
+                </p>
+                {(filters.kind !== "all" || filters.query) && (
                   <Button
-                    size="icon-sm"
+                    type="button"
+                    size="sm"
                     variant="outline"
-                    aria-label="上一页"
-                    disabled={page <= 1}
-                    onClick={() => setFilters({ ...filters, page: page - 1 })}
+                    className="mt-3 shadow-none"
+                    onClick={() => {
+                      setQuery("")
+                      setFilters({
+                        ...filters,
+                        kind: "all",
+                        query: "",
+                        page: 1,
+                      })
+                    }}
                   >
-                    <ChevronLeft aria-hidden="true" />
+                    清除筛选
                   </Button>
-                  <Button
-                    size="icon-sm"
-                    variant="outline"
-                    aria-label="下一页"
-                    disabled={page >= pages}
-                    onClick={() => setFilters({ ...filters, page: page + 1 })}
-                  >
-                    <ChevronRight aria-hidden="true" />
-                  </Button>
-                </div>
-              )}
-            </div>
-          )}
-        </section>
-        <WeeklyPanel
-          week={weekly.data}
-          error={weekly.error}
-          retry={() => setWeekRevision((value) => value + 1)}
-          onClearance={setClearanceWeek}
-        />
-      </div>
-      <StockPortfolioPanel
-        key={filters.brand}
-        brand={filters.brand}
-        revision={revision}
-        refreshCount={portfolioRefresh}
-        onOpen={(id) => setPortfolioItem({ id })}
-      />
+                )}
+              </div>
+            ) : null}
+            {data && data.total > 0 && (
+              <div className="flex flex-wrap items-center justify-between gap-2 border-t bg-muted/15 px-4 py-2.5 text-xs text-muted-foreground tabular-nums sm:px-5">
+                <span>共 {fmt(data.total)} 条</span>
+                {pages > 1 && (
+                  <div className="flex items-center gap-2">
+                    <span>
+                      第 {page} / {pages} 页
+                    </span>
+                    <Button
+                      size="icon-sm"
+                      variant="outline"
+                      aria-label="上一页"
+                      disabled={page <= 1}
+                      onClick={() => setFilters({ ...filters, page: page - 1 })}
+                    >
+                      <ChevronLeft aria-hidden="true" />
+                    </Button>
+                    <Button
+                      size="icon-sm"
+                      variant="outline"
+                      aria-label="下一页"
+                      disabled={page >= pages}
+                      onClick={() => setFilters({ ...filters, page: page + 1 })}
+                    >
+                      <ChevronRight aria-hidden="true" />
+                    </Button>
+                  </div>
+                )}
+              </div>
+            )}
+          </section>
+        </TabsContent>
+        <TabsContent value="portfolio" keepMounted>
+          <StockPortfolioPanel
+            overviewBrand={filters.brand}
+            overviewBrandLabel={brandLabel}
+            brands={brands}
+            revision={revision}
+            refreshCount={portfolioRefresh}
+            onOpen={(brand, id) => setPortfolioItem({ brand, id })}
+          />
+        </TabsContent>
+        <TabsContent value="week" keepMounted>
+          <OverviewWeekTab
+            brand={filters.brand}
+            revision={weekRevision}
+            onRetry={() => setWeekRevision((value) => value + 1)}
+            onClearance={setClearanceWeek}
+          />
+        </TabsContent>
+      </Tabs>
       {campaignOpen && (
         <CampaignDialog
           brand={filters.brand}
@@ -1098,7 +1246,7 @@ export function StockOverviewPage() {
           brand={filters.brand}
           onClose={() => setArrivalsOpen(false)}
           openProduct={(id) => {
-            setPortfolioItem({ id, tab: "planning" })
+            setPortfolioItem({ brand: filters.brand, id, tab: "planning" })
             setArrivalsOpen(false)
           }}
         />
@@ -1119,8 +1267,8 @@ export function StockOverviewPage() {
       )}
       {portfolioItem !== null && (
         <StockPortfolioDetail
-          key={`${filters.brand}/${portfolioItem.id}`}
-          brand={filters.brand}
+          key={`${portfolioItem.brand}/${portfolioItem.id}`}
+          brand={portfolioItem.brand}
           productId={portfolioItem.id}
           initialTab={portfolioItem.tab}
           manager={manager}

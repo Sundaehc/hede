@@ -233,7 +233,13 @@ function TabsTrigger({
   )
 }
 
-function TabsContent({ className, value, id, ...props }: React.ComponentProps<"div"> & { value: string }) {
+function TabsContent({
+  className,
+  value,
+  id,
+  keepMounted = false,
+  ...props
+}: React.ComponentProps<"div"> & { value: string; keepMounted?: boolean }) {
   const { getContentId, getTriggerId, registerContent, value: selectedValue } = useTabsContext()
   const contentId = id ?? getContentId(value)
 
@@ -241,11 +247,10 @@ function TabsContent({ className, value, id, ...props }: React.ComponentProps<"d
     registerContent(value, contentId)
   }, [contentId, registerContent, value])
 
-  if (selectedValue !== value) {
-    return null
-  }
+  const active = selectedValue === value
+  if (!active && !keepMounted) return null
 
-  return (
+  const panel = (
     <div
       data-slot="tabs-content"
       id={contentId}
@@ -256,6 +261,7 @@ function TabsContent({ className, value, id, ...props }: React.ComponentProps<"d
       {...props}
     />
   )
+  return keepMounted ? <React.Activity mode={active ? "visible" : "hidden"}>{panel}</React.Activity> : panel
 }
 
 export { Tabs, TabsContent, TabsList, TabsTrigger }

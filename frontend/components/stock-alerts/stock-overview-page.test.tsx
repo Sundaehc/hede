@@ -6,6 +6,7 @@ import {
   waitFor,
   within,
 } from "@testing-library/react"
+import userEvent from "@testing-library/user-event"
 import { afterEach, beforeEach, expect, test, vi } from "vitest"
 import { clearSessionQueryStates } from "@/lib/session-query-state"
 import { clearStockModuleQueries } from "@/lib/stock-module-query"
@@ -102,6 +103,7 @@ test("keeps portfolio options and the table in place while loading a new filter"
     .mockResolvedValueOnce(portfolioResponse)
     .mockReturnValueOnce(filtered)
   render(<StockOverviewPage />)
+  fireEvent.click(screen.getByRole("tab", { name: "库存货盘" }))
   const results = await screen.findByRole("region", { name: "库存货盘结果" })
   const table = within(results).getByRole("table")
   const season = screen.getByLabelText("销售季节")
@@ -129,6 +131,102 @@ test("keeps portfolio options and the table in place while loading a new filter"
     within(table).queryByRole("button", { name: "ORIGINAL-12" })
   ).not.toBeInTheDocument()
   expect(results).toHaveAttribute("aria-busy", "false")
+})
+
+test("switches portfolio brand independently and opens the matching brand's detail", async () => {
+  options.mockResolvedValue({
+    brands: [
+      { value: "cbanner_womens", label: "千百度女鞋" },
+      { value: "yandou", label: "烟斗" },
+    ],
+  })
+  const yandouResponse = {
+    ...portfolioResponse,
+    items: [{ ...portfolioResponse.items[0], sku: "YANDOU-12" }],
+  }
+  portfolio.mockImplementation(
+    async (brand: string, { page }: { page: number }) =>
+      brand === "yandou"
+        ? yandouResponse
+        : { ...portfolioResponse, page, total: 40 }
+  )
+  portfolioItem.mockResolvedValue({
+    original_sku: "YANDOU-12",
+    stock_date: "2099-01-01",
+    unmatched_stock: 0,
+    items: [],
+    receipts: null,
+    orders: null,
+    sales: { cutoff: null, windows: {}, channels: [] },
+  })
+
+  render(<StockOverviewPage />)
+  expect(portfolio).not.toHaveBeenCalled()
+  expect(week).not.toHaveBeenCalled()
+  fireEvent.click(screen.getByRole("tab", { name: "库存货盘" }))
+  const panel = screen.getByRole("region", { name: "库存货盘" })
+  const portfolioBrand = within(panel).getByLabelText("货盘品牌")
+  expect(portfolioBrand).toHaveValue("")
+  await within(panel).findByRole("option", { name: "烟斗" })
+  fireEvent.click(await within(panel).findByRole("button", { name: "下一页" }))
+  const secondPage = await within(panel).findByRole("button", {
+    name: "上一页",
+  })
+  await waitFor(() => expect(secondPage).toBeEnabled())
+
+  const overviewCalls = overview.mock.calls.length
+  const weekCalls = week.mock.calls.length
+  fireEvent.change(portfolioBrand, { target: { value: "yandou" } })
+  expect(
+    within(panel).queryByRole("button", { name: "ORIGINAL-12" })
+  ).not.toBeInTheDocument()
+  fireEvent.click(
+    await within(panel).findByRole("button", { name: "YANDOU-12" })
+  )
+
+  expect(portfolio).toHaveBeenLastCalledWith(
+    "yandou",
+    expect.objectContaining({ page: 1, year: "", season: "", category: "" }),
+    expect.any(AbortSignal),
+    false
+  )
+  const overviewBrand = screen.getByRole("combobox", { name: "品牌" })
+  expect(overviewBrand).toHaveValue("cbanner_womens")
+  expect(overview).toHaveBeenCalledTimes(overviewCalls)
+  expect(week).toHaveBeenCalledTimes(weekCalls)
+  const dialog = await screen.findByRole("dialog", { name: "YANDOU-12" })
+  expect(portfolioItem).toHaveBeenCalledWith(
+    "yandou",
+    12,
+    expect.any(AbortSignal)
+  )
+  fireEvent.click(
+    within(dialog).getByRole("button", { name: "关闭单款进销存" })
+  )
+
+  fireEvent.click(screen.getByRole("tab", { name: "库存概况" }))
+  expect(
+    screen.queryByRole("region", { name: "库存货盘" })
+  ).not.toBeInTheDocument()
+  fireEvent.click(screen.getByRole("tab", { name: "库存货盘" }))
+  expect(portfolioBrand).toHaveValue("yandou")
+  const portfolioCalls = portfolio.mock.calls.length
+  fireEvent.change(overviewBrand, { target: { value: "yandou" } })
+  await waitFor(() =>
+    expect(overview).toHaveBeenLastCalledWith(
+      expect.objectContaining({ brand: "yandou" }),
+      expect.anything()
+    )
+  )
+  expect(portfolioBrand).toHaveValue("yandou")
+  expect(portfolio).toHaveBeenCalledTimes(portfolioCalls)
+
+  fireEvent.change(portfolioBrand, { target: { value: "" } })
+  fireEvent.change(overviewBrand, { target: { value: "cbanner_womens" } })
+  expect(
+    await within(panel).findByRole("button", { name: "ORIGINAL-12" })
+  ).toBeVisible()
+  expect(portfolioBrand).toHaveValue("")
 })
 
 test("opens an original-code family on demand and saves clearance for only the chosen child", async () => {
@@ -168,6 +266,7 @@ test("opens an original-code family on demand and saves clearance for only the c
   })
   render(<StockOverviewPage />)
   expect(portfolioItem).not.toHaveBeenCalled()
+  fireEvent.click(screen.getByRole("tab", { name: "库存货盘" }))
   await screen.findByRole("option", { name: "秋" })
   fireEvent.change(screen.getByLabelText("销售季节"), {
     target: { value: "秋" },
@@ -344,7 +443,9 @@ test("loads arrival and clearance tabs on demand and preserves decimal input whe
   render(<StockOverviewPage />)
   expect(getClearanceWeek).not.toHaveBeenCalled()
   expect(getArrivals).not.toHaveBeenCalled()
-  fireEvent.click(screen.getByRole("button", { name: "到货清单" }))
+  const user = userEvent.setup()
+  await user.click(screen.getByRole("button", { name: "更多操作" }))
+  await user.click(screen.getByRole("menuitem", { name: "到货清单" }))
   let dialog = await screen.findByRole("dialog", { name: "到货清单" })
   expect(
     await within(dialog).findByText(/2098-12-29 至 2098-12-31/)
@@ -365,6 +466,8 @@ test("loads arrival and clearance tabs on demand and preserves decimal input whe
     ).not.toBeInTheDocument()
   )
 
+  expect(week).not.toHaveBeenCalled()
+  fireEvent.click(screen.getByRole("tab", { name: "上周复盘" }))
   fireEvent.click(await screen.findByRole("button", { name: "清货明细" }))
   dialog = await screen.findByRole("dialog", { name: "清货周复盘" })
   fireEvent.click(
@@ -388,8 +491,50 @@ test("loads arrival and clearance tabs on demand and preserves decimal input whe
   await waitFor(() => expect(week).toHaveBeenCalledTimes(2))
 })
 
+test("opens the matching suggestions from the inventory overview", async () => {
+  overview.mockImplementation(async (filters) => ({
+    ...response,
+    items:
+      !filters.query && (filters.kind === "all" || filters.kind === "clearance")
+        ? response.items
+        : [],
+  }))
+  render(<StockOverviewPage />)
+  const pending = await screen.findByRole("region", { name: "待处理概览" })
+  expect(within(pending).getByText("待分配")).toBeVisible()
+  expect(overview).toHaveBeenCalledTimes(1)
+
+  fireEvent.click(screen.getByRole("tab", { name: "处理建议" }))
+  const queue = screen.getByRole("tabpanel", { name: "处理建议" })
+  const search = within(queue).getByRole("textbox", {
+    name: "搜索货号、品名或颜色",
+  })
+  fireEvent.change(search, { target: { value: "旧货号" } })
+  fireEvent.submit(search.closest("form")!)
+  await within(queue).findByText("当前筛选没有处理建议")
+
+  fireEvent.click(screen.getByRole("tab", { name: "库存概况" }))
+  fireEvent.click(
+    within(screen.getByRole("region", { name: "待处理概览" })).getByRole(
+      "button",
+      { name: "清货跟进 1 项" }
+    )
+  )
+  expect(screen.getByRole("tab", { name: "处理建议" })).toHaveAttribute(
+    "aria-selected",
+    "true"
+  )
+  expect(screen.getByRole("heading", { name: "处理建议" })).toHaveFocus()
+  expect(await screen.findByRole("button", { name: "STOCK-42" })).toBeVisible()
+  expect(overview).toHaveBeenLastCalledWith(
+    expect.objectContaining({ kind: "clearance", query: "", page: 1 }),
+    expect.anything()
+  )
+})
+
 test("an operator can inspect sizes and confirm the exact decision snapshot in the existing workflow", async () => {
   render(<StockOverviewPage />)
+  fireEvent.click(screen.getByRole("tab", { name: "处理建议" }))
   fireEvent.click(await screen.findByRole("button", { name: "STOCK-42" }))
   const detail = screen.getByRole("dialog")
   expect(within(detail).getByText("牛皮")).toBeInTheDocument()
@@ -424,6 +569,13 @@ test("an operator can inspect sizes and confirm the exact decision snapshot in t
 test("view-only users can inspect the same evidence but cannot assign or edit rules", async () => {
   auth.manager = false
   render(<StockOverviewPage />)
+  const user = userEvent.setup()
+  await user.click(screen.getByRole("button", { name: "更多操作" }))
+  expect(
+    screen.queryByRole("menuitem", { name: "退出规则" })
+  ).not.toBeInTheDocument()
+  await user.keyboard("{Escape}")
+  fireEvent.click(screen.getByRole("tab", { name: "处理建议" }))
   fireEvent.click(await screen.findByRole("button", { name: "查看依据" }))
   expect(screen.getByRole("dialog")).toBeInTheDocument()
   expect(
@@ -433,7 +585,7 @@ test("view-only users can inspect the same evidence but cannot assign or edit ru
     screen.queryByRole("button", { name: "分配待办" })
   ).not.toBeInTheDocument()
   expect(
-    screen.queryByRole("button", { name: "退出规则" })
+    screen.queryByRole("menuitem", { name: "退出规则" })
   ).not.toBeInTheDocument()
 })
 
@@ -469,6 +621,7 @@ test("assigns multiple recommendation types across pages and keeps only failures
   })
 
   render(<StockOverviewPage />)
+  fireEvent.click(screen.getByRole("tab", { name: "处理建议" }))
   const selectPage = await screen.findByRole("checkbox", {
     name: "选择本页可分配建议",
   })

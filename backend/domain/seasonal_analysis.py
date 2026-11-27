@@ -170,5 +170,5 @@ def analyze_quarter(facts, *, year, quarter, season="", query="", status="all", 
                            "zero": bool(facts.get("zero_checked") and period_end and period_end.isoformat() in facts["sales_dates"])},
         "trend": trend, "order_groups": groups, "items": items, "total": total, "page": page, "page_size": page_size, "counts": counts,
         **{key: facts[key] for key in ("sales_end", "stock_date", "seasons", "years", "source_issues", "missing_launch_count",
-                                     "unmatched_stock_rows", "unmatched_purchase_rows", "purchase_ready")},
+                                     "missing_launch_items", "unmatched_stock_rows", "unmatched_purchase_rows", "purchase_ready")},
     }

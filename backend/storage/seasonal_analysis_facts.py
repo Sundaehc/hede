@@ -61,12 +61,14 @@ def _receipt_codes(connection, matcher, keys):
 def _load(connection, repository, brand, year, today, *, zero_quarter=None):
     inspector = inspect(connection)
     matcher, all_products = _catalog(connection, repository, brand, inspector)
-    years, missing_launch = {today.year}, 0
+    years, missing_launch_items = {today.year}, []
     for item in all_products:
         if item["brand"] == brand:
             launch = launch_day(item.get("launch_date"))
             if not launch:
-                missing_launch += 1
+                missing_launch_items.append({
+                    name: item[name] for name in ("id", "sku", "original_sku", "product_name", "color")
+                } | {"invalid_launch": bool(str(item.get("launch_date") or "").strip())})
             elif launch.year <= today.year:
                 years.add(launch.year)
     del all_products
@@ -87,7 +89,8 @@ def _load(connection, repository, brand, year, today, *, zero_quarter=None):
               "stock_date": None, "purchase_ready": all(inspector.has_table(name) for name in ("v_jst_purchase_inbound_age_candidates", "mv_jst_purchase_inbound_age_reference")),
               "arrivals": [], "zero_checked": False, "zero_sales_evidence": {},
               "seasons": sorted({p["season"] for p in (*products.values(), *undated.values()) if p["season"]}),
-              "years": sorted(years | {year}, reverse=True), "missing_launch_count": missing_launch,
+              "years": sorted(years | {year}, reverse=True), "missing_launch_count": len(missing_launch_items),
+              "missing_launch_items": sorted(missing_launch_items, key=lambda item: (item["sku"] or "", item["id"])),
               "unmatched_stock_rows": 0, "unmatched_purchase_rows": 0,
               "source_issues": [
                   "到货待补上市日期按已导入采购记录中的首次入库日期归季，要求当前仍有可售库存；不计入季度新品指标。",

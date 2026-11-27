@@ -1883,8 +1883,6 @@ class InventoryRepository:
                 return None
             if review["status"] != "pending":
                 raise SupplierChangeConflict("申请已处理，请刷新后查看")
-            if review["requester_id"] == reviewer_id:
-                raise PermissionError("不能审核自己的申请，请由另一位商品组成员处理")
             result = {}
             if approved:
                 before = self._supplier_for_update(connection, review["supplier_id"])

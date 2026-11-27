@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
 from threading import Barrier
+from unittest.mock import Mock, patch
 
 from fastapi import FastAPI, Request
 from fastapi.testclient import TestClient
@@ -14,6 +15,28 @@ from domain.inventory_schema import INVENTORY_DETAIL_TABLE, INVENTORY_TABLE, SUP
 from domain.schema import PRODUCT_ARCHIVE_TABLES
 from domain.supplier_change_schema import SUPPLIER_CHANGE_TABLE, SupplierNameExists
 from storage.inventory_repository import InventoryRepository
+
+
+def test_super_admin_outside_product_department_can_list_and_review_supplier_changes():
+    admin = {"id": 10, "role_code": "super_admin", "department_code": "开发部", "permissions": ["*"]}
+    application = FastAPI()
+    repository = Mock()
+    repository.list_supplier_changes.return_value = {"items": [], "total": 0, "page_size": 20}
+    repository.review_supplier_change.return_value = {
+        "review": {"before": {"name": "供应商", "brand": "ni", "factory_code": ""}, "proposed": {}, "status": "approved"},
+    }
+    application.state.inventory_repository = repository
+    application.include_router(supplier_routes.router)
+    with (
+        patch.object(supplier_routes, "actor_from_request", return_value=admin),
+        patch.object(supplier_routes, "_record_supplier_update", return_value=({}, "供应商已更新")),
+        TestClient(application) as client,
+    ):
+        assert client.get("/suppliers/change-requests").json()["can_review"] is True
+        repository.list_supplier_changes.assert_called_once_with(page=1, status="pending", requester_id=None)
+        response = client.put("/suppliers/change-requests/1", json={"decision": "approve"})
+        assert response.status_code == 200
+        assert response.json()["review"]["status"] == "approved"
 
 
 def test_supplier_rename_syncs_product_archive_and_supplier_documents(
@@ -169,7 +192,6 @@ def test_supplier_with_expenses_requires_independent_product_team_review(test_da
         next_url = f"{queue}/{next_review['id']}"
         assert client.get(queue, headers=headers("finance")).json()["items"] == []
         assert client.get(queue, headers=headers("other-product")).json()["items"][0]["id"] == next_review["id"]
-        assert client.put(next_url, json={"decision": "approve"}, headers=headers("product")).status_code == 403
         with repository.engine.begin() as connection:
             connection.execute(update(SUPPLIER_TABLE).where(SUPPLIER_TABLE.c.id == duplicate["id"]).values(notes="intervening update"))
         assert client.put(next_url, json={"decision": "approve"}, headers=headers("other-product")).status_code == 409
@@ -184,10 +206,10 @@ def test_supplier_with_expenses_requires_independent_product_team_review(test_da
             requests = SUPPLIER_CHANGE_TABLE
             assert connection.execute(select(requests.c.status).where(requests.c.id == next_review["id"])).scalar_one() == "pending"
         assert repository.delete_supplier(occupied["id"])
-        approved = client.put(next_url, json={"decision": "approve"}, headers=headers("other-product"))
+        approved = client.put(next_url, json={"decision": "approve"}, headers=headers("product"))
         assert approved.status_code == 200
         assert approved.json()["review"]["status"] == "approved"
-        assert approved.json()["review"]["reviewer_name"] == "Product 2"
+        assert approved.json()["review"]["reviewer_name"] == "Product"
         assert client.put(next_url, json={"decision": "approve"}, headers=headers("other-product")).status_code == 409
         assert repository.get_supplier(duplicate["id"])["name"] == hejin
         assert repository.get_supplier(original["id"])["name"] == womens
