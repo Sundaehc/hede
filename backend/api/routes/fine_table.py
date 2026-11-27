@@ -726,6 +726,19 @@ def _fine_table_codes_condition(connection, column, codes):
     return column.in_(codes)
 
 
+def _latest_fine_table_metrics(connection, table, codes, group_by, order_by):
+    # Rank narrow keys and fetch wide report payloads for the winners only.
+    statement = select(table.c.id).where(_fine_table_codes_condition(connection, table.c.goods_code, codes))
+    if connection.dialect.name == "postgresql":
+        latest_ids = statement.distinct(*group_by).order_by(*group_by, *order_by)
+    else:
+        ranked = statement.add_columns(
+            func.row_number().over(partition_by=group_by, order_by=order_by).label("row_number")
+        ).subquery()
+        latest_ids = select(ranked.c.id).where(ranked.c.row_number == 1)
+    return select(table).where(table.c.id.in_(latest_ids))
+
+
 def _load_fine_table_original_groups(connection, product_table, sku_pairs):
     groups: dict[str, set[str]] = {}
     for sku, original in sku_pairs:
@@ -774,19 +787,24 @@ def _load_fine_table_sales_rank(connection, *, brand, product_table, source, sta
                 continue
             original = original or sku
         candidates.append((row_id, sku, original))
-    groups, original_by_sku = _load_fine_table_original_groups(
-        connection, product_table, ((sku, original) for _, sku, original in candidates),
-    )
     codes = {sku for _, sku, _ in candidates if sku}
     if sort_by == "vip_3d_sales":
         vip_date, vip_by_sku = load_vip_sales_windows(connection, codes, brand=brand, windows=(3,))
+        # A source SKU can belong to a group even if it has no matching archive row.
+        candidate_skus_by_original = defaultdict(set)
+        for _, sku, original in candidates:
+            if original:
+                candidate_skus_by_original[original].add(sku)
         rank = {
             "scores": {row_id: (vip_by_sku.get(sku, {}).get(3, 0), 0) for row_id, sku, _ in candidates},
-            "groups": groups, "original_by_sku": original_by_sku,
+            "candidate_skus_by_original": dict(candidate_skus_by_original),
             "vip_date": vip_date, "order_day": None,
         }
         set_fine_table_result_cache(cache_key, rank)
         return rank
+    groups, original_by_sku = _load_fine_table_original_groups(
+        connection, product_table, ((sku, original) for _, sku, original in candidates),
+    )
     codes.update(original_by_sku)
     vip_date, vip_by_sku = load_vip_sales_windows(connection, codes, brand=brand, windows=(7,))
     order_day = _latest_fine_table_order_day(connection) if codes else None
@@ -2199,18 +2217,25 @@ def list_fine_table(
             for row in product_rows
             if str(row.get("original_sku") or "").strip()
         }
-        if rank is not None:
+        if rank is not None and "groups" in rank:
             original_skus_by_code = {
                 original: rank["groups"][original] for original in original_skus if original in rank["groups"]
             }
             original_sku_by_sku = rank["original_by_sku"]
         else:
-            original_skus_by_code, original_sku_by_sku = _load_fine_table_original_groups(
-                conn, product_table, (
+            if rank is not None:
+                sku_pairs = (
+                    (sku, original)
+                    for original, members in rank["candidate_skus_by_original"].items()
+                    if original in original_skus
+                    for sku in members
+                )
+            else:
+                sku_pairs = (
                     (str(row.get("sku") or "").strip(), str(row.get("original_sku") or "").strip())
                     for row in product_rows
-                ),
-            )
+                )
+            original_skus_by_code, original_sku_by_sku = _load_fine_table_original_groups(conn, product_table, sku_pairs)
         all_original_group_skus = {sku for members in original_skus_by_code.values() for sku in members}
 
         supplier_names = sorted({
@@ -2230,24 +2255,25 @@ def list_fine_table(
                 if row["name"]
             }
 
-        ops_by_sku: dict[str, dict[str, Any]] = {}
-        for row in conn.execute(
-            select(VIP_OPS_TABLE)
-            .where(VIP_OPS_TABLE.c.goods_code.in_(skus))
-            .order_by(desc(VIP_OPS_TABLE.c.updated_at), desc(VIP_OPS_TABLE.c.id))
-        ).mappings():
-            ops_by_sku.setdefault(str(row["goods_code"]), dict(row))
+        ops = VIP_OPS_TABLE.c
+        ops_by_sku = {
+            str(row["goods_code"]): dict(row)
+            for row in conn.execute(_latest_fine_table_metrics(
+                conn, VIP_OPS_TABLE, skus, (ops.goods_code,), (ops.updated_at.desc(), ops.id.desc()),
+            )).mappings()
+        }
 
-        daily_by_sku: dict[str, dict[tuple[str, str], dict[str, Any]]] = {sku: {} for sku in skus}
-        daily_lookup_codes = sorted({*skus, *original_skus})
-        for row in conn.execute(
-            select(VIP_DAILY_TABLE)
-            .where(VIP_DAILY_TABLE.c.goods_code.in_(daily_lookup_codes))
-            .order_by(desc(VIP_DAILY_TABLE.c.report_end_date), desc(VIP_DAILY_TABLE.c.updated_at), desc(VIP_DAILY_TABLE.c.id))
-        ).mappings():
+        daily = VIP_DAILY_TABLE.c
+        daily_by_sku: dict[str, dict[tuple[str, str], dict[str, Any]]] = {}
+        daily_lookup_codes = {*skus, *original_skus}
+        for row in conn.execute(_latest_fine_table_metrics(
+            conn, VIP_DAILY_TABLE, daily_lookup_codes,
+            (daily.goods_code, func.coalesce(daily.report_type, ""), func.coalesce(daily.period, "")),
+            (daily.report_end_date.desc(), daily.updated_at.desc(), daily.id.desc()),
+        )).mappings():
             sku = str(row["goods_code"])
             key = _period_key(row.get("report_type"), row.get("period"))
-            daily_by_sku.setdefault(sku, {}).setdefault(key, dict(row))
+            daily_by_sku.setdefault(sku, {})[key] = dict(row)
 
         stock_codes = sorted({*skus, *all_original_group_skus})
         vip_sales_date, vip_sales_by_sku = (

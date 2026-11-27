@@ -140,6 +140,9 @@ def user_has_permission(user: dict[str, object] | None, permission: str | None) 
 
 
 def get_current_user_from_request(request: Request) -> dict[str, object] | None:
+    user = getattr(request.state, "current_user", None)
+    if user is not None:
+        return user
     repository = request.app.state.auth_repository
     return repository.get_user_by_session(request.cookies.get(SESSION_COOKIE_NAME))
 

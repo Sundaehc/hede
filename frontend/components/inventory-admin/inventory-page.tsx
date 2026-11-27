@@ -297,6 +297,7 @@ const PURCHASE_TABLE_COLUMN_ORDER: InventorySortKey[] = [
   "date",
   "delivery_date",
   "supplier",
+  "total_count",
   "handler",
   "summary",
   "additional_note",
@@ -2057,6 +2058,7 @@ export function InventoryPage({ mode = "inventory", refreshRevision = 0, detailO
   const allRecycleSelected = recycleItems.length > 0 && recycleItems.every((item) => selectedRecycleIds.has(item.id))
   const recycleActionBusy = isBatchRestoring || isRecycleBatchDeleting
   const tableColumnKeys: InventorySortKey[] = isPurchaseOrderTab ? PURCHASE_TABLE_COLUMN_ORDER : inventoryColumnOrder
+  const tableColumnCount = isPurchaseDetailSearch ? (purchaseDetailView === "size_rows" ? 14 : 13) : tableColumnKeys.length + 2
   const inventoryTotalLabelColumn = inventoryColumnOrder.find((columnKey) => columnKey !== "total_count" && columnKey !== "amount")
   const tableMinWidth = isPurchaseDetailSearch
     ? purchaseDetailView === "size_rows" ? 1630 : 1540
@@ -2601,6 +2603,7 @@ export function InventoryPage({ mode = "inventory", refreshRevision = 0, detailO
                         <th aria-sort={getColumnAriaSort("date")} className="relative px-4 py-3 pr-7 font-medium"><SortableColumnLabel label="订货日期" sortRule={getSortRule("date")} onClick={(event) => handleTableSort("date", event.shiftKey)} /><ColumnResizeHandle columnKey="date" label="订货日期" onResizeStart={handleInventoryColumnResizeStart} /></th>
                         <th aria-sort={getColumnAriaSort("delivery_date")} className="relative px-4 py-3 pr-7 font-medium"><SortableColumnLabel label="交货日期" sortRule={getSortRule("delivery_date")} onClick={(event) => handleTableSort("delivery_date", event.shiftKey)} /><ColumnResizeHandle columnKey="delivery_date" label="交货日期" onResizeStart={handleInventoryColumnResizeStart} /></th>
                         <th aria-sort={getColumnAriaSort("supplier")} className="relative px-4 py-3 pr-7 font-medium"><SortableColumnLabel label="供应商" sortRule={getSortRule("supplier")} onClick={(event) => handleTableSort("supplier", event.shiftKey)} /><ColumnResizeHandle columnKey="supplier" label="供应商" onResizeStart={handleInventoryColumnResizeStart} /></th>
+                        <th aria-sort={getColumnAriaSort("total_count")} className="relative px-4 py-3 pr-7 text-right font-medium"><SortableColumnLabel label="采购数量" sortRule={getSortRule("total_count")} onClick={(event) => handleTableSort("total_count", event.shiftKey)} /><ColumnResizeHandle columnKey="total_count" label="采购数量" onResizeStart={handleInventoryColumnResizeStart} /></th>
                         <th aria-sort={getColumnAriaSort("handler")} className="relative px-4 py-3 pr-7 font-medium"><SortableColumnLabel label="经手人" sortRule={getSortRule("handler")} onClick={(event) => handleTableSort("handler", event.shiftKey)} /><ColumnResizeHandle columnKey="handler" label="经手人" onResizeStart={handleInventoryColumnResizeStart} /></th>
                         <th aria-sort={getColumnAriaSort("summary")} className="relative px-4 py-3 pr-7 font-medium"><SortableColumnLabel label="摘要" sortRule={getSortRule("summary")} onClick={(event) => handleTableSort("summary", event.shiftKey)} /><ColumnResizeHandle columnKey="summary" label="摘要" onResizeStart={handleInventoryColumnResizeStart} /></th>
                         <th aria-sort={getColumnAriaSort("additional_note")} className="relative px-4 py-3 pr-7 font-medium"><SortableColumnLabel label="附加说明" sortRule={getSortRule("additional_note")} onClick={(event) => handleTableSort("additional_note", event.shiftKey)} /><ColumnResizeHandle columnKey="additional_note" label="附加说明" onResizeStart={handleInventoryColumnResizeStart} /></th>
@@ -2646,12 +2649,12 @@ export function InventoryPage({ mode = "inventory", refreshRevision = 0, detailO
                 <tbody className="divide-y divide-border">
                   {isLoading && items.length === 0 && (
                     <tr>
-                      <td colSpan={isPurchaseDetailSearch ? (purchaseDetailView === "size_rows" ? 14 : 13) : isPurchaseOrderTab ? 10 : inventoryColumnOrder.length + 2} className="px-4 py-12 text-center text-muted-foreground">加载中...</td>
+                      <td colSpan={tableColumnCount} className="px-4 py-12 text-center text-muted-foreground">加载中...</td>
                     </tr>
                   )}
                   {!isLoading && !error && items.length === 0 && (
                     <tr>
-                      <td colSpan={isPurchaseDetailSearch ? (purchaseDetailView === "size_rows" ? 14 : 13) : isPurchaseOrderTab ? 10 : inventoryColumnOrder.length + 2} className="px-4 py-12 text-center text-muted-foreground">
+                      <td colSpan={tableColumnCount} className="px-4 py-12 text-center text-muted-foreground">
                         {hasFilters ? `没有符合条件的${completionLabel}` : `暂无${completionLabel}`}
                       </td>
                     </tr>
@@ -2718,6 +2721,7 @@ export function InventoryPage({ mode = "inventory", refreshRevision = 0, detailO
                             <td className="px-4 py-3 align-middle">
                               <span className="block truncate" title={item.supplier || ""}>{item.supplier || "-"}</span>
                             </td>
+                            <td className="px-4 py-3 align-middle text-right font-mono tabular-nums">{item.total_count ?? "-"}</td>
                             <td className="px-4 py-3 align-middle">
                               <span className="block truncate" title={item.handler || ""}>{item.handler || "-"}</span>
                             </td>

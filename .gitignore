@@ -35,6 +35,9 @@ backend/scripts/*
 !backend/scripts/backfill_vip_daily_detail.py
 !backend/scripts/prepare_warehouse_inventory_queries.py
 !backend/scripts/rename_product_archives.py
+!backend/scripts/check_stock_quality_reports_daily.py
+!backend/scripts/check_stock_quality_reports_daily.cmd
+!backend/scripts/configure_stock_quality_reports_daily_task.ps1
 tests/
 !backend/tests/
 backend/tests/*
@@ -46,4 +49,5 @@ backend/tests/*
 !backend/tests/test_stock_portfolio_postgres.py
 !backend/tests/test_stock_phase_two.py
 !backend/tests/test_stock_quality_reports.py
+!backend/tests/test_stock_quality_report_audit.py
 tmp/

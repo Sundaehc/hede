@@ -35,6 +35,14 @@ def _sales_dates(connection, name, end, start=None):
         {"start": first, "end": end}).scalars())
 
 
+def _stock_sales_dates(connection):
+    return connection.execute(text("""SELECT
+        (SELECT max(sync_date) FROM jst_full_stock) AS stock_date,
+        (SELECT max(sales_date) FROM jst_daily_sales) AS jst_date,
+        (SELECT max(sales_date) FROM vip_daily_sales) AS vip_date
+    """)).one()
+
+
 def confirm_recent_zero_candidates(connection, brand, candidates, matcher, inspector):
     """Return keys verified against both raw sales feeds, including same-day returns."""
     from storage.seasonal_analysis_facts import _zero_sales_evidence
@@ -69,9 +77,8 @@ def _load(connection, repository, brand, today, *, shared=None, verify_zero=Fals
                 sizes[group].add(str(barcode).strip().upper())
         matcher = ArchiveMatcher(products, sizes)
         del products
-        stock_date = connection.execute(text("SELECT max(sync_date) FROM jst_full_stock")).scalar()
-        ends = [connection.execute(text(f"SELECT max(sales_date) FROM {name}")).scalar() for name in ("jst_daily_sales", "vip_daily_sales")]
-        end = min([today - timedelta(days=1), *ends]) if all(ends) else None
+        stock_date, jst_date, vip_date = _stock_sales_dates(connection)
+        end = min(today - timedelta(days=1), jst_date, vip_date) if jst_date and vip_date else None
         stock, unmatched = defaultdict(Decimal), 0
         rows = connection.execute(text("""SELECT product_code, style_code,
             sum(available_qty) AS quantity FROM jst_full_stock WHERE sync_date = :day AND available_qty <> 0

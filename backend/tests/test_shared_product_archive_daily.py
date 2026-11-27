@@ -65,7 +65,9 @@ def test_daily_workflow_retries_shared_archive_then_runs_other_steps(monkeypatch
     images = Mock(side_effect=lambda *_: successes.add(workflow.IMAGE_TASK_NAME) or 0)
     generation = Mock(return_value={})
     tags = Mock(return_value={"products": 0, "tag_definitions": 0})
+    quality = Mock(side_effect=lambda *_: successes.add(workflow.QUALITY_TASK_NAME) or 0)
     monkeypatch.setattr(workflow, "business_today", lambda: business_date)
+    monkeypatch.setattr(workflow, "check_quality_reports", quality)
     monkeypatch.setattr(workflow, "refresh_product_size_fields", refresh_fields)
     monkeypatch.setattr(workflow, "run_import", images)
     monkeypatch.setattr(workflow, "run_daily_generation", generation)
@@ -73,6 +75,7 @@ def test_daily_workflow_retries_shared_archive_then_runs_other_steps(monkeypatch
 
     assert workflow.run_workflow(settings, statuses, business_date) == 1
     images.assert_not_called()
+    quality.assert_not_called()
     assert workflow.run_workflow(settings, statuses, business_date) == 0
     assert workflow.ARCHIVE_FIELDS_TASK_NAME in successes
     assert workflow.run_workflow(settings, statuses, business_date) == 0
@@ -81,3 +84,44 @@ def test_daily_workflow_retries_shared_archive_then_runs_other_steps(monkeypatch
     images.assert_called_once()
     generation.assert_called_once()
     tags.assert_called_once()
+    quality.assert_called_once_with(settings, statuses, business_date)
+
+
+def test_failed_quality_audit_retries_without_repeating_product_maintenance(monkeypatch):
+    business_date = date(2026, 11, 27)
+    successes = {workflow.ARCHIVE_FIELDS_TASK_NAME, workflow.IMAGE_TASK_NAME}
+    statuses = Mock(
+        is_success=Mock(side_effect=lambda name, _: name in successes),
+        mark_finished=Mock(side_effect=lambda name, _, status, **kwargs: successes.add(name) if status == "success" else successes.discard(name)),
+    )
+    settings = Mock()
+    generation = Mock(return_value={})
+    tags = Mock(return_value={"products": 0, "tag_definitions": 0})
+    quality = Mock(side_effect=[1, 0])
+    monkeypatch.setattr(workflow, "business_today", lambda: business_date)
+    monkeypatch.setattr(workflow, "run_daily_generation", generation)
+    monkeypatch.setattr(workflow, "run_daily_tag_sync", tags)
+    monkeypatch.setattr(workflow, "check_quality_reports", quality)
+
+    assert workflow.run_workflow(settings, statuses, business_date) == 1
+    assert workflow.TASK_NAME not in successes
+    statuses.mark_finished.assert_called_with(workflow.TASK_NAME, business_date, status="failed", message=(
+        "商品档案、图片、提示词及标签已完成，质检报告巡检未成功，等待下次计划重试"
+    ))
+    assert workflow.run_workflow(settings, statuses, business_date) == 0
+    generation.assert_called_once()
+    tags.assert_called_once()
+    assert quality.call_count == 2
+
+
+def test_existing_same_day_workflow_success_runs_only_new_quality_step(monkeypatch):
+    business_date = date(2026, 11, 27)
+    statuses = Mock(is_success=Mock(side_effect=lambda task, _: task == workflow.TASK_NAME))
+    settings = Mock()
+    quality = Mock(return_value=0)
+    monkeypatch.setattr(workflow, "business_today", lambda: business_date)
+    monkeypatch.setattr(workflow, "check_quality_reports", quality)
+
+    assert workflow.run_workflow(settings, statuses, business_date) == 0
+    quality.assert_called_once_with(settings, statuses, business_date)
+    assert {call.args[0] for call in statuses.is_success.call_args_list} == {workflow.TASK_NAME, workflow.QUALITY_TASK_NAME}

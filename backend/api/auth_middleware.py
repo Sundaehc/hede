@@ -107,11 +107,13 @@ async def auth_middleware(request: Request, call_next):
         return await call_next(request)
 
     repository = getattr(request.app.state, "auth_repository", None)
-    if repository is None or not await run_in_threadpool(repository.has_users):
+    if repository is None:
         return await call_next(request)
 
     user = await run_in_threadpool(get_current_user_from_request, request)
     if user is None:
+        if not await run_in_threadpool(repository.has_users):
+            return await call_next(request)
         return JSONResponse({"detail": "未登录"}, status_code=401)
 
     if path.startswith("/product-goods") or path.startswith("/factory-channel-dashboard"):

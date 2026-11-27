@@ -13,7 +13,7 @@ from domain.size_group_schema import SIZE_GROUPS_TABLE, SIZE_GROUP_ITEMS_TABLE
 from domain.excluded_skus import not_excluded_sku_condition
 from domain.product_defaults import apply_product_defaults
 from domain.stock_alerts import ArchiveMatcher, code, launch_day
-from storage.stock_alert_facts import _sales_dates
+from storage.stock_alert_facts import _sales_dates, _stock_sales_dates
 
 _cache, _lock, _build_lock = OrderedDict(), Lock(), Lock()
 TTL, MAX_BYTES = 120, 8 * 1024 * 1024
@@ -82,10 +82,11 @@ def _load(connection, repository, brand, today, window_days, *, overview=False, 
             "sales_end": None, "ready": False, "unmatched_stock_rows": 0, "source_issues": []}
     if missing:
         return {**base, "items": [], "source_issues": ["缺少数据源：" + "、".join(missing)]}
-    stock_date = launch_day(connection.execute(text("SELECT max(sync_date) FROM jst_full_stock")).scalar())
-    ends = [launch_day(connection.execute(text(f"SELECT max(sales_date) FROM {name}")).scalar())
-            for name in ("jst_daily_sales", "vip_daily_sales")]
-    end = min(today - timedelta(days=1), stock_date - timedelta(days=1), *ends) if stock_date and all(ends) else None
+    stock_date, jst_date, vip_date = map(launch_day, _stock_sales_dates(connection))
+    end = (
+        min(today - timedelta(days=1), stock_date - timedelta(days=1), jst_date, vip_date)
+        if stock_date and jst_date and vip_date else None
+    )
     start = end - timedelta(days=window_days - 1) if end else None
     stocks, stock_sizes, transits, transit_sizes = (defaultdict(Decimal) for _ in range(4))
     seen, size_issues, unmatched = set(), defaultdict(set), 0
@@ -133,7 +134,7 @@ def _load(connection, repository, brand, today, window_days, *, overview=False, 
     launches = {key: launch_dates[item.get("launch_date")] for key, item in selected.items()}
     # The overview also checks lifetime coverage. Use the same date lookups for
     # both windows, and keep the separate cutoffs when the stock snapshot lags.
-    historic_end = min(today - timedelta(days=1), *ends) if all(ends) else None
+    historic_end = min(today - timedelta(days=1), jst_date, vip_date) if jst_date and vip_date else None
     first, last = start, end
     if shared is not None and historic_end:
         active_launches = [launches[key] for key, qty in stocks.items()

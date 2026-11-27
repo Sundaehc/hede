@@ -118,7 +118,6 @@ def list_scheduled_task_runs(
         .select_from(source)
         .where(summary_criterion)
     )
-    count_statement = select(func.count()).select_from(source).where(criterion)
     items_statement = (
         select(*item_columns)
         .select_from(source)
@@ -129,7 +128,7 @@ def list_scheduled_task_runs(
     )
     with _engine(request).connect() as connection:
         summary = connection.execute(summary_statement).mappings().one()
-        total = int(connection.execute(count_statement).scalar_one())
+        total = int(summary[normalized_status or "total"])
         items = [
             _serialize_mapping(row)
             for row in connection.execute(items_statement).mappings().all()
@@ -217,7 +216,6 @@ def list_scheduled_task_business_statuses(
         .select_from(table)
         .where(and_(*base_conditions))
     )
-    count_statement = select(func.count()).select_from(table).where(criterion)
     items_statement = (
         select(table)
         .where(criterion)
@@ -227,7 +225,7 @@ def list_scheduled_task_business_statuses(
     )
     with _engine(request).connect() as connection:
         summary = connection.execute(summary_statement).mappings().one()
-        total = int(connection.execute(count_statement).scalar_one())
+        total = int(summary[normalized_status or "total"])
         items = [
             _serialize_mapping(row)
             for row in connection.execute(items_statement).mappings().all()

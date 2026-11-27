@@ -18,6 +18,7 @@ from domain.auth_schema import (
 
 SESSION_COOKIE_NAME = "hede_session"
 SESSION_MAX_AGE_SECONDS = 7 * 24 * 60 * 60
+SESSION_ACTIVITY_INTERVAL = timedelta(minutes=1)
 
 DEPARTMENTS = [
     {"code": "财务部", "name": "财务部"},
@@ -129,6 +130,39 @@ def validate_department_code(value: object) -> str:
     if code not in DEFAULT_ROLE_BY_DEPARTMENT:
         raise ValueError(f"unknown department_code: {code}")
     return code
+
+
+def _user_profile_statement(source=AUTH_USER_TABLE):
+    user = AUTH_USER_TABLE.c
+    role = AUTH_ROLE_TABLE.c
+    department = AUTH_DEPARTMENT_TABLE.c
+    return select(
+        user.id, user.username, user.display_name, user.department_code, user.role_code,
+        user.status, user.created_at, user.updated_at, user.last_login_at,
+        role.name.label("role_name"), role.permissions, department.name.label("department_name"),
+    ).select_from(
+        source.outerjoin(AUTH_ROLE_TABLE, user.role_code == role.code)
+        .outerjoin(AUTH_DEPARTMENT_TABLE, user.department_code == department.code)
+    )
+
+
+def _serialize_user(user: Mapping[str, object]) -> dict[str, object]:
+    role_code = str(user.get("role_code") or "")
+    department_name = user.get("department_name")
+    return {
+        "id": user["id"],
+        "username": user["username"],
+        "display_name": user["display_name"],
+        "department_code": user["department_code"],
+        "department_name": user["department_code"] if department_name is None else department_name,
+        "role_code": role_code,
+        "role_name": user.get("role_name") or role_code,
+        "status": user["status"],
+        "permissions": _split_permissions(user.get("permissions")),
+        "created_at": user.get("created_at"),
+        "updated_at": user.get("updated_at"),
+        "last_login_at": user.get("last_login_at"),
+    }
 
 
 class AuthRepository:
@@ -298,7 +332,7 @@ class AuthRepository:
 
     def has_users(self) -> bool:
         with self.engine.connect() as connection:
-            return (connection.execute(select(func.count()).select_from(AUTH_USER_TABLE)).scalar_one() or 0) > 0
+            return connection.execute(select(select(AUTH_USER_TABLE.c.id).exists())).scalar_one()
 
     def list_departments(self) -> list[dict[str, object]]:
         with self.engine.connect() as connection:
@@ -378,31 +412,35 @@ class AuthRepository:
         if not token:
             return None
         now = datetime.now(timezone.utc)
-        token_hash = hash_session_token(token)
+        refresh_before = now - SESSION_ACTIVITY_INTERVAL
+        sessions = AUTH_SESSION_TABLE
+        session = sessions.c
+        user = AUTH_USER_TABLE.c
+        valid_session = and_(session.revoked_at.is_(None), session.expires_at > now)
+        profile = (
+            _user_profile_statement(sessions.join(AUTH_USER_TABLE, session.user_id == user.id))
+            .add_columns(session.id.label("session_id"), session.last_seen_at)
+            .where(session.token_hash == hash_session_token(token), valid_session, user.status == "active")
+        )
         with self.engine.begin() as connection:
-            session = connection.execute(
-                select(AUTH_SESSION_TABLE)
-                .where(
-                    and_(
-                        AUTH_SESSION_TABLE.c.token_hash == token_hash,
-                        AUTH_SESSION_TABLE.c.revoked_at.is_(None),
-                        AUTH_SESSION_TABLE.c.expires_at > now,
-                    )
-                )
-            ).mappings().first()
-            if session is None:
+            row = connection.execute(profile).mappings().first()
+            if row is None:
                 return None
-            connection.execute(
-                update(AUTH_SESSION_TABLE)
-                .where(AUTH_SESSION_TABLE.c.id == session["id"])
-                .values(last_seen_at=now)
-            )
-            user = connection.execute(
-                select(AUTH_USER_TABLE).where(AUTH_USER_TABLE.c.id == session["user_id"])
-            ).mappings().first()
-        if user is None or user["status"] != "active":
-            return None
-        return self._user_with_permissions(dict(user))
+            last_seen = row["last_seen_at"]
+            if last_seen is not None and last_seen.tzinfo is None:
+                last_seen = last_seen.replace(tzinfo=timezone.utc)
+            if last_seen is None or last_seen <= refresh_before:
+                stale_session = select(session.id).where(
+                    session.id == row["session_id"], valid_session,
+                    (session.last_seen_at.is_(None) | (session.last_seen_at <= refresh_before)),
+                )
+                # Parallel requests can use the same session; only one needs to record activity.
+                if connection.dialect.name == "postgresql":
+                    stale_session = stale_session.with_for_update(skip_locked=True)
+                connection.execute(
+                    update(sessions).where(session.id == stale_session.scalar_subquery()).values(last_seen_at=now)
+                )
+        return _serialize_user(row)
 
     def revoke_session(self, token: str | None) -> None:
         if not token:
@@ -416,8 +454,8 @@ class AuthRepository:
 
     def list_users(self) -> list[dict[str, object]]:
         with self.engine.connect() as connection:
-            rows = [dict(row) for row in connection.execute(select(AUTH_USER_TABLE).order_by(AUTH_USER_TABLE.c.id)).mappings()]
-        return [self._user_with_permissions(row) for row in rows]
+            rows = connection.execute(_user_profile_statement().order_by(AUTH_USER_TABLE.c.id)).mappings()
+            return [_serialize_user(row) for row in rows]
 
     def list_stock_alert_assignees(self) -> list[dict[str, object]]:
         """Only expose assignment labels; do not load credentials or query each role separately."""
@@ -439,34 +477,24 @@ class AuthRepository:
         normalized_name = str(name_query or "").strip()
         conditions = [table.c.display_name.icontains(normalized_name, autoescape=True)] if normalized_name else []
         with self.engine.connect() as connection:
-            total = int(connection.execute(select(func.count()).select_from(table).where(*conditions)).scalar_one() or 0)
-            active = int(
-                connection.execute(
-                    select(func.count()).select_from(table).where(*conditions, table.c.status == "active")
-                ).scalar_one() or 0
-            )
-            disabled = int(
-                connection.execute(
-                    select(func.count()).select_from(table).where(*conditions, table.c.status == "disabled")
-                ).scalar_one() or 0
-            )
-            department_count = int(
-                connection.execute(
-                    select(func.count(func.distinct(table.c.department_code))).select_from(table).where(*conditions)
-                ).scalar_one() or 0
-            )
-            rows = [
-                dict(row)
-                for row in connection.execute(
-                    select(table)
-                    .where(*conditions)
-                    .order_by(table.c.id)
-                    .offset((page - 1) * page_size)
-                    .limit(page_size)
-                ).mappings()
-            ]
+            total, active, disabled, department_count = connection.execute(
+                select(
+                    func.count(),
+                    func.count().filter(table.c.status == "active"),
+                    func.count().filter(table.c.status == "disabled"),
+                    func.count(func.distinct(table.c.department_code)),
+                ).select_from(table).where(*conditions)
+            ).one()
+            rows = connection.execute(
+                _user_profile_statement()
+                .where(*conditions)
+                .order_by(table.c.id)
+                .offset((page - 1) * page_size)
+                .limit(page_size)
+            ).mappings()
+            items = [_serialize_user(row) for row in rows]
         return {
-            "items": [self._user_with_permissions(row) for row in rows],
+            "items": items,
             "total": total,
             "page": page,
             "page_size": page_size,
@@ -498,8 +526,8 @@ class AuthRepository:
 
     def get_user(self, user_id: int) -> dict[str, object] | None:
         with self.engine.connect() as connection:
-            row = connection.execute(select(AUTH_USER_TABLE).where(AUTH_USER_TABLE.c.id == user_id)).mappings().first()
-        return None if row is None else self._user_with_permissions(dict(row))
+            row = connection.execute(_user_profile_statement().where(AUTH_USER_TABLE.c.id == user_id)).mappings().first()
+        return None if row is None else _serialize_user(row)
 
     def list_pinned_page_tabs(self, user_id: int) -> list[str]:
         table = AUTH_PINNED_PAGE_TAB_TABLE
@@ -536,19 +564,9 @@ class AuthRepository:
             department = connection.execute(
                 select(AUTH_DEPARTMENT_TABLE).where(AUTH_DEPARTMENT_TABLE.c.code == user.get("department_code"))
             ).mappings().first()
-        role_dict = dict(role) if role else {}
-        permissions = _split_permissions(role_dict.get("permissions"))
-        return {
-            "id": user["id"],
-            "username": user["username"],
-            "display_name": user["display_name"],
-            "department_code": user["department_code"],
-            "department_name": department["name"] if department else user["department_code"],
-            "role_code": role_code,
-            "role_name": role_dict.get("name") or role_code,
-            "status": user["status"],
-            "permissions": permissions,
-            "created_at": user.get("created_at"),
-            "updated_at": user.get("updated_at"),
-            "last_login_at": user.get("last_login_at"),
-        }
+        return _serialize_user({
+            **user,
+            "role_name": role["name"] if role else None,
+            "permissions": role["permissions"] if role else None,
+            "department_name": department["name"] if department else None,
+        })

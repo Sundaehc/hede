@@ -2,7 +2,17 @@ from collections import deque
 
 import pytest
 
-from scripts.run_scheduled_task import ERROR_SUMMARY_MAX_CHARS, _error_summary, _normalized_command
+from scripts.run_scheduled_task import ERROR_SUMMARY_MAX_CHARS, _error_summary, _normalized_command, _parser
+
+
+def test_wrapper_can_require_multiple_successful_business_steps() -> None:
+    args = _parser().parse_args([
+        "--task-name", "HedeImportProductsDaily", "--log-file", "products.log",
+        "--skip-if-business-success", "archive", "--skip-if-business-success", "quality",
+        "--", "python", "-m", "scripts.sync_products_and_copywriting_daily",
+    ])
+    assert args.skip_if_business_success == ["archive", "quality"]
+    assert _normalized_command(args.command) == ["python", "-m", "scripts.sync_products_and_copywriting_daily"]
 
 
 def test_normalized_command_removes_separator() -> None:

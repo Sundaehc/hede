@@ -4,7 +4,8 @@ from __future__ import annotations
 from collections.abc import Iterable
 from datetime import date, timedelta
 
-from sqlalchemy import Date, Integer, Text, case, column, func, inspect, or_, select, table
+from sqlalchemy import Date, Integer, Text, any_, bindparam, case, column, func, inspect, or_, select, table
+from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.engine import Connection
 
 
@@ -32,7 +33,7 @@ def load_vip_sales_windows(
     """Sum all size/goods IDs by exact archive SKU, using one shared end day.
 
     The parent relation includes all year partitions, including cross-year
-    windows. Query it once per batch, never union it with its children. The
+    windows. Query it as one relation so dates are never counted twice. The
     latest fact date is independent of page/search results. This read path
     never creates tables or substitutes Compass quantities for missing facts.
     """
@@ -53,8 +54,14 @@ def load_vip_sales_windows(
         facts.c.brand_name.is_(None), func.trim(facts.c.brand_name) == "",
         *(facts.c.brand_name.ilike(f"%{marker}%") for marker in markers),
     )
-    batch_size = 4000 if len(windows) == 1 else SKU_BATCH_SIZE
-    for start in range(0, len(codes), batch_size):
+    if connection.dialect.name == "postgresql":
+        code_filters = (facts.c.goods_code == any_(bindparam("vip_codes", codes, type_=ARRAY(Text()))),)
+    else:
+        code_filters = (
+            facts.c.goods_code.in_(codes[start:start + SKU_BATCH_SIZE])
+            for start in range(0, len(codes), SKU_BATCH_SIZE)
+        )
+    for code_filter in code_filters:
         rows = connection.execute(select(
             facts.c.goods_code,
             *(func.coalesce(func.sum(case(
@@ -62,7 +69,7 @@ def load_vip_sales_windows(
                  func.coalesce(facts.c.sales_quantity, 0)), else_=0,
             )), 0).label(f"days_{days}") for days in windows),
         ).where(
-            facts.c.goods_code.in_(codes[start:start + batch_size]),
+            code_filter,
             facts.c.sales_date.between(start_date, end_date), brand_condition,
         ).group_by(facts.c.goods_code)).mappings()
         for row in rows:

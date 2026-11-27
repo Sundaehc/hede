@@ -118,7 +118,7 @@ def test_slow_authentication_database_calls_do_not_block_other_requests(method):
         loop_thread = threading.get_ident()
         async with httpx.AsyncClient(
             transport=httpx.ASGITransport(app=app), base_url="http://test",
-            cookies={"hede_session": "test-session"},
+            cookies={"hede_session": "invalid-session" if method == "has_users" else "test-session"},
         ) as client:
             authentication = asyncio.create_task(client.get("/auth/me"))
             try:
@@ -130,7 +130,9 @@ def test_slow_authentication_database_calls_do_not_block_other_requests(method):
             finally:
                 release.set()
                 authenticated = await asyncio.wait_for(authentication, timeout=3)
-            assert authenticated.status_code == 200
+            assert authenticated.status_code == (401 if method == "has_users" else 200)
+            # A protected route uses the session profile already loaded by middleware.
+            assert len(worker_threads) == 1
 
     asyncio.run(exercise())
 

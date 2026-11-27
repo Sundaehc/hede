@@ -1148,8 +1148,7 @@ def _factory_dashboard_product_for_sale(
     )
 
 
-def _factory_dashboard_available_sales_years(engine) -> list[int]:
-    inspector = inspect(engine)
+def _factory_dashboard_available_sales_years(inspector) -> list[int]:
     available_years: list[int] = []
     for sales_year in range(SALES_PERIOD_START_YEAR, date.today().year + 1):
         historical_table = product_goods_historical_sales_table_for_year(sales_year)
@@ -1162,7 +1161,7 @@ def _factory_dashboard_available_sales_years(engine) -> list[int]:
 
 def _factory_dashboard_historical_detail_returns(
     connection,
-    engine,
+    bind,
     *,
     brand: str,
     sales_year: int,
@@ -1176,7 +1175,7 @@ def _factory_dashboard_historical_detail_returns(
     cumulative snapshot values are not added once per day.
     """
     table = product_goods_detail_snapshots_table_for_year(sales_year)
-    if not inspect(engine).has_table(table.name):
+    if not inspect(bind).has_table(table.name):
         return []
 
     conditions = [
@@ -1228,14 +1227,13 @@ def _factory_dashboard_historical_detail_returns(
 
 def _factory_dashboard_sales_rows(
     connection,
-    engine,
+    inspector,
     *,
     brand: str,
     sales_year: int,
     date_start: date | None,
     date_end: date | None,
 ) -> tuple[list[dict[str, object]], date | None]:
-    inspector = inspect(engine)
     historical_table = product_goods_historical_sales_table_for_year(sales_year)
     jst_table = jst_daily_sales_table_for_year(sales_year)
     vip_table = vip_daily_sales_table_for_year(sales_year)
@@ -1278,7 +1276,7 @@ def _factory_dashboard_sales_rows(
         rows.extend(
             _factory_dashboard_historical_detail_returns(
                 connection,
-                engine,
+                inspector,
                 brand=brand,
                 sales_year=sales_year,
                 date_start=date_start,
@@ -1297,15 +1295,10 @@ def _factory_dashboard_sales_rows(
             summary_conditions.append(FACTORY_CHANNEL_SALES_DAILY_SUMMARY_TABLE.c.sales_date >= date_start)
         if date_end is not None:
             summary_conditions.append(FACTORY_CHANNEL_SALES_DAILY_SUMMARY_TABLE.c.sales_date <= date_end)
-        summary_bounds = connection.execute(
-            select(
-                func.min(FACTORY_CHANNEL_SALES_DAILY_SUMMARY_TABLE.c.sales_date),
-                func.max(FACTORY_CHANNEL_SALES_DAILY_SUMMARY_TABLE.c.sales_date),
-            )
-            .where(*summary_conditions)
-            .where(FACTORY_CHANNEL_SALES_DAILY_SUMMARY_TABLE.c.match_status == "date_marker")
-        ).one()
-        raw_bounds: list[tuple[date, date]] = []
+        summary_date = FACTORY_CHANNEL_SALES_DAILY_SUMMARY_TABLE.c.sales_date
+        date_sources = [(summary_date, [
+            *summary_conditions, FACTORY_CHANNEL_SALES_DAILY_SUMMARY_TABLE.c.match_status == "date_marker",
+        ])]
         for raw_table in (jst_table, vip_table):
             if not inspector.has_table(raw_table.name):
                 continue
@@ -1317,11 +1310,14 @@ def _factory_dashboard_sales_rows(
                 raw_conditions.append(raw_table.c.sales_date >= date_start)
             if date_end is not None:
                 raw_conditions.append(raw_table.c.sales_date <= date_end)
-            raw_min, raw_max = connection.execute(
-                select(func.min(raw_table.c.sales_date), func.max(raw_table.c.sales_date)).where(*raw_conditions)
-            ).one()
-            if isinstance(raw_min, date) and isinstance(raw_max, date):
-                raw_bounds.append((raw_min, raw_max))
+            date_sources.append((raw_table.c.sales_date, raw_conditions))
+        bounds = connection.execute(select(*(
+            select(aggregate(day)).where(*conditions).scalar_subquery()
+            for day, conditions in date_sources for aggregate in (func.min, func.max)
+        ))).one()
+        summary_bounds = bounds[:2]
+        raw_bounds = [(first, last) for first, last in zip(bounds[2::2], bounds[3::2])
+                      if isinstance(first, date) and isinstance(last, date)]
         expected_bounds = (
             min(bounds[0] for bounds in raw_bounds),
             max(bounds[1] for bounds in raw_bounds),
@@ -1486,7 +1482,7 @@ def _available_sales_dates(
 
 def _factory_dashboard_sales_date_coverage(
     connection,
-    engine,
+    inspector,
     *,
     sales_year: int,
     date_start: date | None,
@@ -1509,7 +1505,6 @@ def _factory_dashboard_sales_date_coverage(
         }
 
     expected_start, expected_end = expected_range
-    inspector = inspect(engine)
     historical_table = product_goods_historical_sales_table_for_year(sales_year)
     source_tables: list[tuple[str, str, object]] = []
     if inspector.has_table(historical_table.name):
@@ -1615,12 +1610,12 @@ def get_factory_channel_dashboard(
     if cached is not None:
         return cached
 
-    available_sales_years = _factory_dashboard_available_sales_years(repository.engine)
-    latest_sales_year = available_sales_years[-1] if available_sales_years else today.year
-    selected_sales_year = sales_year if sales_year is not None else latest_sales_year
-
     product_table = PRODUCT_TABLES[brand]
     with repository.engine.connect() as connection:
+        inspector = inspect(connection)
+        available_sales_years = _factory_dashboard_available_sales_years(inspector)
+        latest_sales_year = available_sales_years[-1] if available_sales_years else today.year
+        selected_sales_year = sales_year if sales_year is not None else latest_sales_year
         product_statement = select(
             product_table.c.sku,
             product_table.c.original_sku,
@@ -1648,7 +1643,7 @@ def get_factory_channel_dashboard(
         } if supplier_names else {}
         sales_rows, latest_sales_date = _factory_dashboard_sales_rows(
             connection,
-            repository.engine,
+            inspector,
             brand=brand,
             sales_year=selected_sales_year,
             date_start=date_start,
@@ -1656,7 +1651,7 @@ def get_factory_channel_dashboard(
         )
         sales_date_coverage = _factory_dashboard_sales_date_coverage(
             connection,
-            repository.engine,
+            inspector,
             sales_year=selected_sales_year,
             date_start=date_start,
             date_end=date_end,
@@ -1919,24 +1914,38 @@ def _sales_source_brand_columns(inspector, table):
     return [(table.c[name] if name in existing else literal("")).label(f"sales_brand_{index}") for index, name in enumerate(names)]
 
 
+def _sales_table_max_date(table, cutoff=None):
+    statement = select(func.max(table.c.sales_date))
+    if cutoff is not None:
+        statement = statement.where(table.c.sales_date <= cutoff)
+    return statement.scalar_subquery()
+
+
+def _latest_sales_table_date(connection, tables):
+    if not tables:
+        return None
+    dates = connection.execute(select(*(_sales_table_max_date(table) for table in tables))).one()
+    return max((day for day in dates if isinstance(day, date)), default=None)
+
+
 def _goods_sales_source_status(connection, *, as_of_date: date | None = None) -> dict[str, object]:
     today = datetime.now(timezone(timedelta(hours=8))).date()
     expected = as_of_date or today - timedelta(days=1)
     inspector = inspect(connection)
-    latest_by_source = {}
+    latest_by_source = {"jst": None, "vip": None}
+    latest_dates = []
     for source, factory in (("jst", jst_daily_sales_table_for_year), ("vip", vip_daily_sales_table_for_year)):
-        dates = []
         for year in (expected.year - 1, expected.year):
             table = factory(year)
             if not inspector.has_table(table.name):
                 continue
-            statement = select(func.max(table.c.sales_date))
-            if as_of_date is not None:
-                statement = statement.where(table.c.sales_date <= as_of_date)
-            day = connection.execute(statement).scalar()
-            if isinstance(day, date):
-                dates.append(day)
-        latest_by_source[source] = max(dates, default=None)
+            latest_dates.append((source, _sales_table_max_date(table, as_of_date).label(f"{source}_{year}")))
+    if latest_dates:
+        dates = connection.execute(select(*(column for _, column in latest_dates))).one()
+        for (source, _), day in zip(latest_dates, dates):
+            previous = latest_by_source[source]
+            if isinstance(day, date) and (previous is None or day > previous):
+                latest_by_source[source] = day
     latest = as_of_date or max((day for day in latest_by_source.values() if day is not None), default=None)
     return {
         "window_start": (latest - timedelta(days=29)).isoformat() if latest else None,
@@ -2055,15 +2064,7 @@ def _sales_matrix_payload(
     tables = [*jst_tables, *vip_tables]
     if not tables and as_of_date is None:
         return [], {}, {}, {}, {}
-    latest_candidates = [
-        connection.execute(
-            select(func.max(table.c.sales_date)).where(table.c.sales_date <= as_of_date)
-            if as_of_date is not None
-            else select(func.max(table.c.sales_date))
-        ).scalar()
-        for table in tables
-    ]
-    latest = as_of_date or max((item for item in latest_candidates if isinstance(item, date)), default=None)
+    latest = as_of_date or _latest_sales_table_date(connection, tables)
     if not isinstance(latest, date):
         return [], {}, {}, {}, {}
     dates = [latest - timedelta(days=offset) for offset in range(13, -1, -1)]
@@ -2272,18 +2273,7 @@ def _recent_sales_payload(
     tables = [*jst_tables, *vip_tables]
     if not tables:
         return {}, {}, {}, {}
-    latest_candidates = [
-        connection.execute(
-            select(func.max(table.c.sales_date)).where(table.c.sales_date <= as_of_date)
-            if as_of_date is not None
-            else select(func.max(table.c.sales_date))
-        ).scalar()
-        for table in tables
-    ]
-    latest = as_of_date or max(
-        (item for item in latest_candidates if isinstance(item, date)),
-        default=None,
-    )
+    latest = as_of_date or _latest_sales_table_date(connection, tables)
     if not isinstance(latest, date):
         return {}, {}, {}, {}
     start_30_date = latest - timedelta(days=29)
@@ -3282,22 +3272,24 @@ def list_product_goods(
                 gj_table.c.source_date_value == latest_gj_product_info_date,
                 gj_table.c.fine_table_brand == brand,
             ])
-            join = gj_table.join(product_table, (product_table.c.sku == gj_table.c.goods_code) & product_table.c.deleted_at.is_(None)).outerjoin(
-                override,
-                (override.c.brand == brand) & (override.c.product_id == product_table.c.id),
-            )
+            source = gj_table.join(product_table, (product_table.c.sku == gj_table.c.goods_code) & product_table.c.deleted_at.is_(None))
             selected_columns = [product_table, override, *_gj_product_goods_select_columns()]
         else:
-            join = product_table.outerjoin(
-                override,
-                (override.c.brand == brand) & (override.c.product_id == product_table.c.id),
-            )
+            source = product_table
             selected_columns = [product_table, override]
 
+        # (brand, product_id) is unique in overrides. Only filters on manual
+        # fields need this join before pagination; returned rows still load it.
+        override_fields = {"platform", "category_l4", "product_role", "product_type", "douyin_hot", "clearance", "remark"}
+        filtered_source = source
+        if normalized_platform or any(item.field in override_fields for item in parsed_filters):
+            filtered_source = source.outerjoin(
+                override, (override.c.brand == brand) & (override.c.product_id == product_table.c.id),
+            )
         if view == "style_summary":
             style_expression = _style_summary_expression(product_table, source_columns=source_columns)
-            style_statement = select(style_expression.label("style_code")).select_from(join)
-            count_statement = select(func.count(func.distinct(style_expression))).select_from(join)
+            style_statement = select(style_expression.label("style_code")).select_from(filtered_source)
+            count_statement = select(func.count(func.distinct(style_expression))).select_from(filtered_source)
             for condition in conditions:
                 style_statement = style_statement.where(condition)
                 count_statement = count_statement.where(condition)
@@ -3308,16 +3300,25 @@ def list_product_goods(
                 .offset((page - 1) * page_size)
                 .limit(page_size)
             )
-            statement = select(*selected_columns).select_from(join)
-            for condition in conditions:
-                statement = statement.where(condition)
-            statement = statement.where(style_expression.in_(select(style_statement.subquery().c.style_code)))
-            statement = statement.order_by(
-                cast(source_columns["year"], Text).desc().nulls_last(),
-                cast(source_columns["sku"], Text),
+            selected_styles = style_statement.subquery()
+            page_styles = select(
+                selected_styles.c.style_code,
+                func.row_number().over(order_by=selected_styles.c.style_code).label("position"),
+            ).subquery("goods_page_styles")
+            page_join = filtered_source.join(page_styles, style_expression == page_styles.c.style_code)
+            if filtered_source is source:
+                page_join = page_join.outerjoin(
+                    override, (override.c.brand == brand) & (override.c.product_id == product_table.c.id),
+                )
+            statement = (
+                select(*selected_columns, page_styles.c.style_code.label("_page_style_code"),
+                       page_styles.c.position.label("_page_style_position"))
+                .select_from(page_join)
+                .where(*conditions)
+                .order_by(cast(source_columns["year"], Text).desc().nulls_last(), cast(source_columns["sku"], Text))
             )
         else:
-            count_statement = select(func.count()).select_from(join)
+            count_statement = select(func.count()).select_from(filtered_source)
             page_columns = [
                 product_table.c.id.label("product_id"),
                 cast(source_columns["year"], Text).label("sort_year"),
@@ -3325,7 +3326,7 @@ def list_product_goods(
             ]
             if gj_table is not None:
                 page_columns.append(gj_table.c.id.label("gj_id"))
-            page_statement = select(*page_columns).select_from(join)
+            page_statement = select(*page_columns).select_from(filtered_source)
             for condition in conditions:
                 page_statement = page_statement.where(condition)
                 count_statement = count_statement.where(condition)
@@ -3348,12 +3349,10 @@ def list_product_goods(
             set_product_goods_cache(total_cache_key, {"total": total})
         else:
             total = int(cached_total["total"])
-        if view == "style_summary":
-            style_codes = [
-                str(item or "").strip()
-                for item in connection.execute(style_statement).scalars()
-            ]
         rows = [dict(row) for row in connection.execute(statement).mappings()]
+        if view == "style_summary":
+            page_styles_by_position = {row.pop("_page_style_position"): row.pop("_page_style_code") for row in rows}
+            style_codes = [page_styles_by_position[position].strip() for position in sorted(page_styles_by_position)]
         if gj_table is not None:
             rows = [_merge_gj_product_goods_row(row) for row in rows]
         product_codes = sorted({str(row.get("sku") or "").strip() for row in rows if str(row.get("sku") or "").strip()})

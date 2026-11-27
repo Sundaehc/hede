@@ -92,7 +92,7 @@ class MatchedReport:
         }
 
 
-def _index_workbook(path, references):
+def _index_workbook(path, references, incomplete_rows=None):
     workbook = load_workbook(path, read_only=True, data_only=True, keep_links=False)
     has_summary = False
     try:
@@ -109,26 +109,34 @@ def _index_workbook(path, references):
                         has_summary = True
                     continue
                 sku_column, result_columns = columns
-                codes = _sku(row[sku_column])
-                if not codes or codes.startswith(("#", "=")):
+                codes = _sku(row[sku_column]) if sku_column < len(row) else ""
+                names = [
+                    name for index in result_columns if index < len(row)
+                    for result in RESULT_SEPARATOR.split(_normalize(row[index]))
+                    if (name := result.strip()) and not name.startswith(("#", "="))
+                ]
+                has_original = bool(codes) and not codes.startswith(("#", "="))
+                if incomplete_rows is not None and (codes or names) and not (has_original and names):
+                    incomplete_rows.append({
+                        "status": "missing_original_sku" if not has_original else "missing_result",
+                        "original_sku": codes, "reports": names, "workbook": path.name,
+                        "sheet": sheet.title, "row": row_number,
+                    })
+                if not has_original:
                     continue
                 # Keep a literal original code and support cells listing several original codes.
                 keys = {codes, *(code for code in SKU_SEPARATOR.split(codes)
                                  if re.fullmatch(r"[A-Z0-9_-]+", code) and any(char.isdigit() for char in code))}
-                for index in result_columns:
-                    for name in RESULT_SEPARATOR.split(_normalize(row[index])):
-                        name = name.strip()
-                        if not name or name.startswith(("#", "=")):
-                            continue
-                        reference = SummaryReference(name, path.name, sheet.title, row_number)
-                        for key in keys:
-                            references[key].append(reference)
+                for name in names:
+                    reference = SummaryReference(name, path.name, sheet.title, row_number)
+                    for key in keys:
+                        references[key].append(reference)
     finally:
         workbook.close()
     return has_summary
 
 
-def build_catalog(root):
+def build_catalog(root, *, incomplete_rows=None, unavailable_workbooks=None):
     root = root.resolve(strict=True)
     summary_dir = root / SUMMARY_DIR
     if not summary_dir.resolve(strict=True).is_relative_to(root):
@@ -136,11 +144,27 @@ def build_catalog(root):
     workbooks = sorted(path for path in summary_dir.iterdir()
                        if path.suffix.lower() == ".xlsx" and not path.name.startswith("~$"))
     references, by_name, by_number = defaultdict(list), defaultdict(list), defaultdict(list)
+    indexed = 0
     for path in workbooks:
-        if not path.resolve(strict=True).is_relative_to(root) or not _index_workbook(path, references):
-            raise QualitySourceUnavailable(f"无法读取质检汇总表头：{path.name}")
-    if not workbooks:
-        raise QualitySourceUnavailable("质检汇总目录为空")
+        workbook_rows = [] if incomplete_rows is not None else None
+        workbook_references = defaultdict(list)
+        try:
+            if not path.resolve(strict=True).is_relative_to(root):
+                raise QualitySourceUnavailable("质检汇总文件不在共享目录内")
+            if not _index_workbook(path, workbook_references, workbook_rows):
+                raise QualitySourceUnavailable("未找到原始货号和检测结果表头")
+        except (OSError, BadZipFile, ValueError, KeyError, QualitySourceUnavailable) as error:
+            if unavailable_workbooks is None:
+                raise QualitySourceUnavailable(f"无法读取质检汇总表：{path.name}") from error
+            unavailable_workbooks.append({"status": "unavailable_workbook", "workbook": path.name, "reason": str(error)})
+            continue
+        indexed += 1
+        for key, rows in workbook_references.items():
+            references[key].extend(rows)
+        if incomplete_rows is not None:
+            incomplete_rows.extend(workbook_rows)
+    if not indexed:
+        raise QualitySourceUnavailable("没有可读取的质检汇总表")
 
     def raise_walk_error(error):
         raise error
@@ -178,31 +202,29 @@ class StockQualityReports:
 
     def for_product(self, original_sku, brand):
         original = _sku(original_sku)
-        if not original:
-            return []
-        catalog = self.catalog()
-        grouped = defaultdict(list)
-        for reference in catalog.references.get(original, []):
-            workbook_brands = NATIVE_BRANDS.get(reference.workbook)
-            if workbook_brands is None or brand in workbook_brands:
-                grouped[_report_name(reference.name)].append(reference)
-        items = []
-        for (key, extension), sources in grouped.items():
-            name = sources[0].name
-            status, path = _resolve_report(catalog, key, extension, original)
-            report_id = sha256(f"{key}\n{extension}".encode()).hexdigest()[:32]
-            items.append(MatchedReport(report_id, name, list(dict.fromkeys(sources)), status, path))
-        merged = {}
-        for item in items:
-            key = item.path if item.path else item.id
-            current = merged.get(key)
-            if current is None:
-                merged[key] = item
-            else:
-                sources = list(dict.fromkeys(current.sources + item.sources))
-                preferred = item if item.status == "matched" and current.status != "matched" else current
-                merged[key] = MatchedReport(preferred.id, preferred.name, sources, preferred.status, key)
-        return list(merged.values())
+        return match_product_reports(self.catalog(), original, brand) if original else []
+
+
+def match_product_reports(catalog: QualityCatalog, original: str, brand: str) -> list[MatchedReport]:
+    """Resolve reports for a normalized original SKU using the product detail rules."""
+    grouped = defaultdict(list)
+    for reference in catalog.references.get(original, []):
+        workbook_brands = NATIVE_BRANDS.get(reference.workbook)
+        if workbook_brands is None or brand in workbook_brands:
+            grouped[_report_name(reference.name)].append(reference)
+    merged = {}
+    for (key, extension), sources in grouped.items():
+        status, path = _resolve_report(catalog, key, extension, original)
+        report_id = sha256(f"{key}\n{extension}".encode()).hexdigest()[:32]
+        item = MatchedReport(report_id, sources[0].name, list(dict.fromkeys(sources)), status, path)
+        merge_key = path or report_id
+        current = merged.get(merge_key)
+        if current is not None:
+            sources = list(dict.fromkeys(current.sources + item.sources))
+            preferred = item if item.status == "matched" and current.status != "matched" else current
+            item = MatchedReport(preferred.id, preferred.name, sources, preferred.status, path)
+        merged[merge_key] = item
+    return list(merged.values())
 
 
 def _existing_files(catalog, candidates, extension):

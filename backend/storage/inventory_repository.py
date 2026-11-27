@@ -1700,25 +1700,32 @@ class InventoryRepository:
         detail = INVENTORY_DETAIL_TABLE
         start_date = parse_date(date_start) if date_start else None
         end_date = parse_date(date_end) if date_end else None
-        detail_record = record.alias("supplier_balance_record")
+        ledger_records = (
+            select(record.c.id, record.c.supplier, record.c.date_value, record.c.document_type, record.c.amount)
+            .where(
+                record.c.deleted_at.is_(None),
+                record.c.supplier.in_(names),
+                record.c.document_type.in_((*SUPPLIER_LEDGER_INCREASE_TYPES, *SUPPLIER_LEDGER_DECREASE_TYPES)),
+                record.c.date_value <= end_date if end_date else True,
+            )
+            .cte("supplier_balance_records")
+        )
         detail_amount = (
             select(
                 detail.c.document_id.label("document_id"),
                 func.coalesce(func.sum(detail.c.amount), 0).label("detail_amount"),
             )
-            .select_from(detail.join(detail_record, detail_record.c.id == detail.c.document_id))
-            .where(detail_record.c.supplier.in_(names))
-            .where(detail_record.c.date_value <= end_date if end_date else True)
+            .select_from(detail.join(ledger_records, ledger_records.c.id == detail.c.document_id))
             .group_by(detail.c.document_id)
             .subquery()
         )
-        amount = func.abs(func.coalesce(detail_amount.c.detail_amount, record.c.amount, 0))
+        amount = func.abs(func.coalesce(detail_amount.c.detail_amount, ledger_records.c.amount, 0))
         signed_amount = case(
-            (record.c.document_type.in_(SUPPLIER_LEDGER_INCREASE_TYPES), amount),
-            (record.c.document_type.in_(SUPPLIER_LEDGER_DECREASE_TYPES), -amount),
+            (ledger_records.c.document_type.in_(SUPPLIER_LEDGER_INCREASE_TYPES), amount),
+            (ledger_records.c.document_type.in_(SUPPLIER_LEDGER_DECREASE_TYPES), -amount),
             else_=0,
         )
-        record_date = record.c.date_value
+        record_date = ledger_records.c.date_value
         beginning = func.coalesce(func.sum(case((record_date < start_date, signed_amount), else_=0)), 0) if start_date else func.cast(0, record.c.amount.type)
         period_conditions = []
         if start_date:
@@ -1730,15 +1737,9 @@ class InventoryRepository:
             if period_conditions else func.coalesce(func.sum(signed_amount), 0)
         )
         statement = (
-            select(record.c.supplier, beginning.label("beginning_balance"), period.label("period_amount"))
-            .outerjoin(detail_amount, detail_amount.c.document_id == record.c.id)
-            .where(
-                record.c.deleted_at.is_(None),
-                record.c.supplier.in_(names),
-                record.c.document_type.in_((*SUPPLIER_LEDGER_INCREASE_TYPES, *SUPPLIER_LEDGER_DECREASE_TYPES)),
-                record.c.date_value <= end_date if end_date else True,
-            )
-            .group_by(record.c.supplier)
+            select(ledger_records.c.supplier, beginning.label("beginning_balance"), period.label("period_amount"))
+            .outerjoin(detail_amount, detail_amount.c.document_id == ledger_records.c.id)
+            .group_by(ledger_records.c.supplier)
         )
         summaries = {}
         for row in connection.execute(statement).mappings():
@@ -2130,28 +2131,32 @@ class InventoryRepository:
         return True
 
     def list_inventory_brand_options(self) -> list[dict[str, str]]:
+        # Keep configured brands first in each group and include names still used by older records.
+        sources = (
+            (WAREHOUSE_BRAND_TABLE, WAREHOUSE_BRAND_TABLE.c.name, literal(""), WAREHOUSE_TABLE.c.brand),
+            (SUPPLIER_BRAND_TABLE, SUPPLIER_BRAND_TABLE.c.code, SUPPLIER_BRAND_TABLE.c.name, SUPPLIER_TABLE.c.brand),
+            (GENERAL_CUSTOMER_BRAND_TABLE, GENERAL_CUSTOMER_BRAND_TABLE.c.name, literal(""),
+             GENERAL_CUSTOMER_SHOP_TABLE.c.customer_name),
+        )
+        statements = []
+        for group, (table, value, name, historical_value) in enumerate(sources):
+            statements.extend((
+                select(literal(group).label("brand_group"), literal(0).label("source_priority"),
+                       value.label("value"), name.label("name"), table.c.sort_order, table.c.id),
+                select(literal(group), literal(1), historical_value, literal(""), literal(0), literal(0)).distinct(),
+            ))
+        combined = union_all(*statements).subquery("inventory_brand_values")
         with self.engine.connect() as connection:
-            warehouse_brands = connection.execute(
-                select(WAREHOUSE_BRAND_TABLE.c.name)
-                .order_by(WAREHOUSE_BRAND_TABLE.c.sort_order, WAREHOUSE_BRAND_TABLE.c.id)
-            ).scalars().all()
-            warehouse_brands.extend(connection.execute(select(WAREHOUSE_TABLE.c.brand).distinct()).scalars())
-            supplier_brands = [dict(row) for row in connection.execute(
-                select(SUPPLIER_BRAND_TABLE.c.code, SUPPLIER_BRAND_TABLE.c.name)
-                .order_by(SUPPLIER_BRAND_TABLE.c.sort_order, SUPPLIER_BRAND_TABLE.c.id)
-            ).mappings()]
-            configured_codes = {brand["code"] for brand in supplier_brands}
-            supplier_brands.extend(
-                {"code": code, "name": ""}
-                for code in connection.execute(select(SUPPLIER_TABLE.c.brand).distinct()).scalars()
-                if code not in configured_codes
-            )
-            customer_brands = connection.execute(
-                select(GENERAL_CUSTOMER_BRAND_TABLE.c.name)
-                .order_by(GENERAL_CUSTOMER_BRAND_TABLE.c.sort_order, GENERAL_CUSTOMER_BRAND_TABLE.c.id)
-            ).scalars().all()
-            customer_brands.extend(connection.execute(select(GENERAL_CUSTOMER_SHOP_TABLE.c.customer_name).distinct()).scalars())
-        return inventory_brand_options(warehouse_brands, supplier_brands, customer_brands)
+            rows = connection.execute(select(combined).order_by(
+                combined.c.brand_group, combined.c.source_priority, combined.c.sort_order,
+                combined.c.id, combined.c.value,
+            )).mappings()
+            brands = [{}, {}, {}]
+            for row in rows:
+                brands[row["brand_group"]].setdefault(row["value"], row["name"])
+        return inventory_brand_options(
+            brands[0], ({"code": value, "name": name} for value, name in brands[1].items()), brands[2],
+        )
 
     def list_general_customer_brands(self, user_id: int | None = None) -> list[dict[str, object]]:
         shop_count = (

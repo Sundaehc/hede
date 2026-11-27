@@ -1,4 +1,4 @@
-"""Refresh shared archive attributes and maintain product images, copywriting and tags."""
+"""Maintain shared archive attributes, quality reports, images, copywriting and tags."""
 from __future__ import annotations
 
 import logging
@@ -10,6 +10,7 @@ from datetime import date
 from sqlalchemy import text
 
 from config import BACKEND_ROOT, load_settings
+from scripts.check_stock_quality_reports_daily import TASK_NAME as QUALITY_TASK_NAME, check_quality_reports
 from scripts.sync_product_tags_daily import TASK_NAME as TAG_TASK_NAME, run_daily_sync as run_daily_tag_sync
 from scripts.generate_product_copywriting_daily import TASK_NAME as COPYWRITING_TASK_NAME, business_today, run_daily_generation
 from scripts.refresh_product_images import TASK_NAME as IMAGE_TASK_NAME
@@ -40,7 +41,9 @@ def run_import(module: str, task_name: str, log_file: str) -> int:
 
 
 def run_workflow(settings, statuses, business_date: date) -> int:
-    if statuses.is_success(TASK_NAME, business_date):
+    maintenance_complete = statuses.is_success(TASK_NAME, business_date)
+    quality_complete = statuses.is_success(QUALITY_TASK_NAME, business_date)
+    if maintenance_complete and quality_complete:
         print(f"[SKIP] {business_date.isoformat()} web product maintenance already succeeded")
         return 0
     statuses.mark_running(TASK_NAME, business_date)
@@ -48,7 +51,7 @@ def run_workflow(settings, statuses, business_date: date) -> int:
         if business_today() != business_date:
             statuses.mark_finished(TASK_NAME, business_date, status="failed", message="任务跨日，已停止生成，请按新业务日期重试")
             return 1
-        if not statuses.is_success(ARCHIVE_FIELDS_TASK_NAME, business_date):
+        if not maintenance_complete and not statuses.is_success(ARCHIVE_FIELDS_TASK_NAME, business_date):
             statuses.mark_running(ARCHIVE_FIELDS_TASK_NAME, business_date)
             try:
                 _, updated = refresh_product_size_fields(dry_run=False, settings=settings, include_womens_style=True)
@@ -68,7 +71,15 @@ def run_workflow(settings, statuses, business_date: date) -> int:
             if business_today() != business_date:
                 statuses.mark_finished(TASK_NAME, business_date, status="failed", message="共享档案同步跨日，请按新业务日期重试")
                 return 1
-        if not statuses.is_success(IMAGE_TASK_NAME, business_date):
+        if not quality_complete:
+            try:
+                quality_complete = check_quality_reports(settings, statuses, business_date) == 0
+            except Exception:
+                logger.exception("Quality report audit could not finish")
+        if business_today() != business_date:
+            statuses.mark_finished(TASK_NAME, business_date, status="failed", message="质检巡检跨日，请按新业务日期重试")
+            return 1
+        if not maintenance_complete and not statuses.is_success(IMAGE_TASK_NAME, business_date):
             exit_code = run_import(IMAGE_MODULE, "HedeRefreshProductImages", "refresh_product_images.log")
             if exit_code != 0 or not statuses.is_success(IMAGE_TASK_NAME, business_date):
                 statuses.mark_finished(
@@ -82,7 +93,7 @@ def run_workflow(settings, statuses, business_date: date) -> int:
         if business_today() != business_date:
             statuses.mark_finished(TASK_NAME, business_date, status="failed", message="图片同步跨日，已停止生成，请按新业务日期重试")
             return 1
-        if not statuses.is_success(COPYWRITING_TASK_NAME, business_date):
+        if not maintenance_complete and not statuses.is_success(COPYWRITING_TASK_NAME, business_date):
             statuses.mark_running(COPYWRITING_TASK_NAME, business_date)
             try:
                 result = run_daily_generation(settings, business_date)
@@ -100,7 +111,7 @@ def run_workflow(settings, statuses, business_date: date) -> int:
         if business_today() != business_date:
             statuses.mark_finished(TASK_NAME, business_date, status="failed", message="提示词生成跨日，已停止标签同步，请按新业务日期重试")
             return 1
-        if not statuses.is_success(TAG_TASK_NAME, business_date):
+        if not maintenance_complete and not statuses.is_success(TAG_TASK_NAME, business_date):
             statuses.mark_running(TAG_TASK_NAME, business_date)
             try:
                 tag_result = run_daily_tag_sync(settings, business_date)
@@ -113,7 +124,14 @@ def run_workflow(settings, statuses, business_date: date) -> int:
                 message=f"商品标签同步完成：处理{tag_result['products']}个商品，新增{tag_result['tag_definitions']}个标签",
                 result=tag_result,
             )
-        statuses.mark_finished(TASK_NAME, business_date, status="success", message="共享档案字段、图片、提示词及标签维护完成")
+        if not quality_complete:
+            message = "商品档案、图片、提示词及标签已完成，质检报告巡检未成功，等待下次计划重试"
+            statuses.mark_finished(TASK_NAME, business_date, status="failed", message=message)
+            print(f"[FAILED] {message}")
+            return 1
+        statuses.mark_finished(
+            TASK_NAME, business_date, status="success", message="共享档案字段、质检报告巡检、图片、提示词及标签维护完成",
+        )
         print(f"[OK] {business_date.isoformat()} product archive maintenance completed")
         return 0
     except Exception:

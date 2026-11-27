@@ -28,8 +28,9 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--working-directory", type=Path, default=None)
     parser.add_argument(
         "--skip-if-business-success",
+        action="append",
         metavar="TASK_NAME",
-        help="Skip this invocation when the named business task already succeeded today",
+        help="Skip when all named business tasks already succeeded today (may be repeated)",
     )
     parser.add_argument("command", nargs=argparse.REMAINDER)
     return parser
@@ -95,14 +96,11 @@ def main() -> int:
             settings = load_settings(require_database=True)
             assert settings.database_url is not None
             status_repository = ScheduledTaskStatusRepository(settings.database_url)
-            if status_repository.is_success(
-                args.skip_if_business_success,
-                started_at.date(),
-            ):
+            if all(status_repository.is_success(task, started_at.date()) for task in args.skip_if_business_success):
+                tasks = ", ".join(args.skip_if_business_success)
                 message = (
                     f"[{started_at.isoformat(timespec='seconds')}] skip {args.task_name} "
-                    f"because business task {args.skip_if_business_success} "
-                    "already succeeded today"
+                    f"because business task status is successful today: {tasks}"
                 )
                 with log_path.open("a", encoding="utf-8", errors="replace") as log_handle:
                     _write_line(log_handle, message)

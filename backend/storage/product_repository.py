@@ -301,22 +301,36 @@ class ProductRepository:
             return apply_jst_product_costs(engine, items)
         return items
 
-    def product_archive_brands(self) -> list[str]:
+    def _configured_archive_table_names(self) -> dict[str, str | None]:
         statement = (
-            select(SUPPLIER_BRAND_TABLE.c.code)
+            select(SUPPLIER_BRAND_TABLE.c.code, SUPPLIER_BRAND_TABLE.c.product_table_name)
             .where(SUPPLIER_BRAND_TABLE.c.product_archive_enabled.is_(True))
             .order_by(SUPPLIER_BRAND_TABLE.c.sort_order, SUPPLIER_BRAND_TABLE.c.id)
         )
         with self.engine.connect() as connection:
-            configured = [str(code) for code in connection.execute(statement).scalars()]
-        return list(dict.fromkeys([*configured, *PRODUCT_ARCHIVE_TABLES]))
+            return {str(code): name for code, name in connection.execute(statement)}
+
+    def product_archive_brands(self) -> list[str]:
+        return list(dict.fromkeys([*self._configured_archive_table_names(), *PRODUCT_ARCHIVE_TABLES]))
+
+    def _product_tables_for_all_brands(self) -> dict[str, Table]:
+        tables = {}
+        for brand, table_name in self._configured_archive_table_names().items():
+            static_table = PRODUCT_ARCHIVE_TABLES.get(brand)
+            tables[brand] = static_table if static_table is not None else self._manual_archive_table(brand, table_name)
+        for brand, table in PRODUCT_ARCHIVE_TABLES.items():
+            tables.setdefault(brand, table)
+        return tables
 
     def _table_for_brand(self, brand: str) -> Table:
         static_table = PRODUCT_ARCHIVE_TABLES.get(brand)
         if static_table is not None:
             return static_table
         configured = self._manual_brand(brand)
-        table_name = self._manual_table_name(configured.get("product_table_name") if configured else None)
+        return self._manual_archive_table(brand, configured.get("product_table_name") if configured else None)
+
+    def _manual_archive_table(self, brand: str, name: object) -> Table:
+        table_name = self._manual_table_name(name)
         if table_name is None:
             raise KeyError(f"Unknown product archive brand: {brand}")
         table = self._manual_product_tables.get(brand)
@@ -846,24 +860,32 @@ class ProductRepository:
         product_name: str | None = None,
         supplier_name: str | None = None,
     ) -> dict[str, object]:
-        brand_keys = self.product_archive_brands()
-
         subqueries = []
-        for brand_key in brand_keys:
-            table = self._table_for_brand(brand_key)
+        counts = []
+        for brand_key, table in self._product_tables_for_all_brands().items():
             sq = select(
                 table.c.id,
                 literal(brand_key).label("brand"),
                 *([c for c in table.columns if c.key not in ("id", "market_price")]),
                 (table.c.market_price if "market_price" in table.c else cast(literal(None), Numeric(10, 2))).label("market_price"),
             )
-            sq = sq.where(*_product_list_conditions(table, query, sku_prefix, year, season, product_name, supplier_name))
+            conditions = _product_list_conditions(table, query, sku_prefix, year, season, product_name, supplier_name)
+            counts.append(select(func.count()).select_from(table).where(*conditions).scalar_subquery())
+            sq = sq.where(*conditions)
+            if self.engine.dialect.name == "postgresql" and page == 1 and page_size > 0:
+                # Each brand can contribute at most one page to the initial combined result.
+                sq = sq.order_by(table.c.id.desc()).limit(page_size)
             subqueries.append(sq)
 
         combined = union_all(*subqueries).subquery()
 
-        count_statement = select(func.count()).select_from(combined)
-        items_statement = select(combined).order_by(desc(combined.c.id)).offset((page - 1) * page_size).limit(page_size)
+        count_statement = select(sum(counts))
+        items_statement = (
+            select(combined)
+            .order_by(combined.c.id.desc(), combined.c.brand)
+            .offset((page - 1) * page_size)
+            .limit(page_size)
+        )
 
         with self.engine.connect() as connection:
             total = connection.execute(count_statement).scalar_one()
@@ -936,27 +958,52 @@ class ProductRepository:
                     yield dict(row)
 
     def list_product_search_options(self, brand: str) -> dict[str, list[str]]:
-        brands = self.product_archive_brands() if brand == "all" else [brand]
         fields = {"years": "year", "seasons": "season_category", "product_names": "product_name", "supplier_names": "supplier_name"}
-        statements = []
-        for brand_key in brands:
-            table = self._table_for_brand(brand_key)
-            for key, field in fields.items():
-                value = func.trim(table.c[field])
-                statements.append(
-                    select(literal(key).label("field"), value.label("value"))
-                    .where(*_product_list_conditions(table), value.is_not(None), value != "")
-                    .distinct()
-                )
         options = {key: [] for key in fields}
-        if not statements:
-            return options
+        tables = list(self._product_tables_for_all_brands().values()) if brand == "all" else [self._table_for_brand(brand)]
+        if self.engine.dialect.name == "postgresql":
+            # Aggregate all four options in one scan per brand before merging brands.
+            aggregates = []
+            for table in tables:
+                values = {key: func.trim(table.c[field]) for key, field in fields.items()}
+                aggregates.append(select(*(
+                    func.array_agg(value.distinct()).filter(value != "").label(key)
+                    for key, value in values.items()
+                )).where(*_product_list_conditions(table)))
+            per_brand = union_all(*aggregates).cte("archive_options_by_brand")
+            statements = [
+                select(literal(key).label("field"), func.unnest(per_brand.c[key]).label("value"))
+                for key in fields
+            ]
+        else:
+            statements = []
+            for table in tables:
+                for key, field in fields.items():
+                    value = func.trim(table.c[field])
+                    statements.append(
+                        select(literal(key).label("field"), value.label("value"))
+                        .where(*_product_list_conditions(table), value.is_not(None), value != "")
+                        .distinct()
+                    )
         combined = union_all(*statements).subquery()
         statement = select(combined.c.field, combined.c.value).distinct().order_by(combined.c.field, combined.c.value)
         with self.engine.connect() as connection:
             for row in connection.execute(statement).mappings():
                 options[row["field"]].append(row["value"])
         return options
+
+    def iter_quality_archive_groups(self):
+        """Count active archive rows by brand and original SKU for report coverage."""
+        tables = [(brand, self._table_for_brand(brand)) for brand in self.product_archive_brands()]
+        with self.engine.connect() as connection:
+            for brand, table in tables:
+                statement = (
+                    select(table.c.original_sku, func.count())
+                    .where(*_product_list_conditions(table))
+                    .group_by(table.c.original_sku)
+                )
+                for original, count in connection.execute(statement):
+                    yield brand, original, count
 
     def list_product_targets(
         self,
